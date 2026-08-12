@@ -21,8 +21,7 @@
 ```dotenv
 KEYCLOAK_ENABLED=true
 AUTH_APP_ORIGIN=https://<dns-имя>
-AUTH_COOKIE_SECURE=true
-AUTH_SECRET=<случайная строка не короче 32 символов>
+AUTH_SECRET=<случайная строка не короче 32 символов>  # openssl rand -hex 32
 
 AUTH_KEYCLOAK_PUBLIC_ISSUER=https://portal.ruschem.ru/auth/realms/h2-group
 AUTH_KEYCLOAK_INTERNAL_ISSUER=https://portal.ruschem.ru/auth/realms/h2-group
@@ -30,10 +29,9 @@ AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER=https://portal.ruschem.ru/auth/realms/h2-gr
 AUTH_KEYCLOAK_TOKEN_ISSUER=<точное значение claim iss в ID token>
 AUTH_KEYCLOAK_CLIENT_ID=ReportCollector
 AUTH_KEYCLOAK_CLIENT_SECRET=<секрет confidential client>
-AUTH_KEYCLOAK_SCOPES=openid profile email
-AUTH_KEYCLOAK_SIGNING_ALGORITHMS=RS256
-AUTH_KEYCLOAK_TOKEN_ENDPOINT_AUTH_METHOD=client_secret_basic
 ```
+
+Cookie сессии получает флаг Secure автоматически, если `AUTH_APP_ORIGIN` начинается с `https://`; отдельная переменная не нужна. Scopes, алгоритмы подписи и способ аутентификации на токен-эндпоинте (`openid profile email`, `RS256`, `client_secret_basic`) — дефолты кода; для локального Keycloak они же заданы в environment сервиса keycloak в compose.
 
 `AUTH_KEYCLOAK_PUBLIC_ISSUER` используется для перехода браузера. `AUTH_KEYCLOAK_INTERNAL_ISSUER` задаёт адрес, доступный при запуске фронтенда на хосте, а `AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER` - из контейнера. Для внешнего Keycloak эти три значения обычно совпадают.
 
@@ -48,8 +46,6 @@ AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER=https://portal.ruschem.ru/auth/realms/h2-gr
 # Критично: в токене iss = "portal.ruschem.ru/auth/realms/h2-group" (без https://)
 AUTH_KEYCLOAK_TOKEN_ISSUER=portal.ruschem.ru/auth/realms/h2-group
 AUTH_KEYCLOAK_CLIENT_ID=ReportCollector
-AUTH_KEYCLOAK_SIGNING_ALGORITHMS=RS256
-AUTH_KEYCLOAK_TOKEN_ENDPOINT_AUTH_METHOD=client_secret_basic
 ```
 
 Значения `email` и `preferred_username` могут приходить с разных доменов (например, `evtushenko.sn@ruschem.ru` и `evtushenko.sn@h2-group.ru`). ReportCollector использует `email` как основной ключ пользователя при первом входе.
@@ -82,7 +78,7 @@ NGINX_TLS_KEY_PATH=/host-private/<private-key>.pem
 7. Создать администратора либо обычного пользователя и назначить ему формы, поля, режим доступа и фильтры.
 8. Установить `AUTH_DEBUG_BOOTSTRAP_ENABLED=false`, удалить одноразовый код из рабочего окружения и перезапустить приложение.
 
-Вместо отладочной страницы первого администратора можно заранее задать `AUTH_SEED_ADMIN_EMAIL`, `AUTH_SEED_ADMIN_NAME` и при наличии `AUTH_SEED_ADMIN_SUB`. После первого входа запись привяжется к issuer и subject.
+Вместо отладочной страницы первого администратора можно заранее задать `AUTH_SEED_ADMIN_EMAIL` и пароль `AUTH_SEED_ADMIN_PASSWORD` (пароль задаёт хэш для локального входа сидируемому админу). После первого входа запись привяжется к issuer и subject.
 
 ## Проверка
 

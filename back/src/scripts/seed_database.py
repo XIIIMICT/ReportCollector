@@ -23,6 +23,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY, RAW_MATERIALS_PROJECT_NAME
 from src.auth.models import Project, ProjectRole, User, UserRole
+from src.auth.passwords import hash_password
 from src.config import get_settings
 from src.database import async_engine, async_session_factory
 from src.raw_materials.models import (
@@ -244,7 +245,9 @@ async def seed(session: AsyncSession) -> None:
     await session.flush()
 
     # Пользователь — Евтушенко: администратор всех проектов, активен везде.
+    # Пароль для локального входа берётся из AUTH_SEED_ADMIN_PASSWORD (если задан).
     user = (await session.exec(select(User).where(User.email == SEED_ADMIN_EMAIL))).one_or_none()
+    seed_password = get_settings().auth_seed_admin_password
     if user is None:
         user = User(
             key=SEED_ADMIN_EMAIL,
@@ -256,6 +259,8 @@ async def seed(session: AsyncSession) -> None:
         )
         session.add(user)
         await session.flush()
+    if seed_password:
+        user.password_hash = hash_password(seed_password)
 
     for project in projects.values():
         link = (

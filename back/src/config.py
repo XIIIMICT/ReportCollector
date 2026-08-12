@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     postgres_schema: str | None = None
     auth_secret: str = ""
     auth_seed_admin_email: str | None = None
-    auth_seed_admin_name: str | None = None
+    auth_seed_admin_password: str | None = None
     backend_cors_origins: Annotated[list[str], NoDecode] | None = None
 
     @model_validator(mode="after")
@@ -52,8 +52,8 @@ class Settings(BaseSettings):
         if len(self.auth_secret) < 32:
             msg = "AUTH_SECRET должен содержать не менее 32 символов."
             raise ValueError(msg)
-        if bool(self.auth_seed_admin_email) != bool(self.auth_seed_admin_name):
-            msg = "AUTH_SEED_ADMIN_EMAIL и AUTH_SEED_ADMIN_NAME должны задаваться вместе."
+        if bool(self.auth_seed_admin_email) != bool(self.auth_seed_admin_password):
+            msg = "AUTH_SEED_ADMIN_EMAIL и AUTH_SEED_ADMIN_PASSWORD должны задаваться вместе."
             raise ValueError(msg)
         return self
 

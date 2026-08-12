@@ -283,7 +283,9 @@ async def test_admin_crud_raw_material(client) -> None:
         headers=signed_identity_headers(**admin_headers()),
     )
     assert deleted.status_code == 204
-    rows = (await client.get("/api/raw-materials/raw-materials", headers=signed_identity_headers(**admin_headers()))).json()
+    rows = (
+        await client.get("/api/raw-materials/raw-materials", headers=signed_identity_headers(**admin_headers()))
+    ).json()
     assert all(item["id"] != row["id"] for item in rows)
 
 

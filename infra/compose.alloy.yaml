@@ -1,0 +1,18 @@
+# Alloy собирает логи приложения из ../logs и отправляет их в LOKI_URL.
+# Сервис без профиля: логирование работает и в prod, и в dev.
+
+services:
+  alloy:
+    container_name: rc-alloy
+    image: grafana/alloy:v1.17.1
+    restart: unless-stopped
+    command: [run, /etc/alloy/config.alloy, --server.http.listen-addr=0.0.0.0:12345]
+    environment:
+      LOKI_URL: ${LOKI_URL:?Нужно указать LOKI_URL в окружении или .env}
+    volumes:
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ../logs:/var/log/reportcollector:ro
+    networks: [net, net-dev]
+    ports:
+      - "12345:12345"

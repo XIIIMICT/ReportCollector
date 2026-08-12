@@ -1,4 +1,5 @@
 import { ReportCollectorApiError } from "@/shared/api/report-collector";
+import type { ExportColumn, SectionId } from "@/shared/grid/grid-config";
 
 export type RawMaterialsMeta = {
     assets: string[];
@@ -270,4 +271,35 @@ export async function deleteDictionaryRecord(
                 ? "delivery-bases"
                 : "users";
     return requestWrite(`/api/raw-materials/${endpoint}/${rowId}`, "DELETE");
+}
+
+export type ExportViewRequest = {
+    section: SectionId;
+    reportMonth: string | null;
+    headerPinned: boolean;
+    columns: ExportColumn[];
+    rowIds: string[] | null;
+    fileName: string;
+};
+
+export async function exportTableToExcel(request: ExportViewRequest): Promise<Blob> {
+    const response = await fetch("/api/raw-materials/export", {
+        cache: "no-store",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+        let detail = `Запрос завершился ошибкой ${response.status}.`;
+        try {
+            const payload = (await response.json()) as { detail?: string };
+            if (typeof payload.detail === "string") {
+                detail = payload.detail;
+            }
+        } catch {
+            // Для ответа не в JSON оставляем общее сообщение, подготовленное выше.
+        }
+        throw new ReportCollectorApiError(detail, response.status);
+    }
+    return response.blob();
 }

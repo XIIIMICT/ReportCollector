@@ -66,6 +66,13 @@ export type GridColumnContext = {
     onBooleanChange: (row: GridRow, field: string, value: boolean) => void;
 };
 
+export type ExportColumn = {
+    key: string;
+    headerPath: string[];
+    width: number;
+    numberFormat: string | null;
+};
+
 export const SECTION_LABELS: Record<SectionId, string> = {
     materialMovement: "Движение",
     rawMaterialPrices: "Цены",
@@ -194,6 +201,71 @@ export function getEditableKeys(
             )
             .map((column) => column.key),
     );
+}
+
+export function exportColumnsFromGrid(
+    section: SectionId,
+    showAssetColumn: boolean,
+    showServiceColumns: boolean,
+    current: (ColumnRegular | ColumnGrouping)[],
+): ExportColumn[] {
+    const descriptors = getVisibleDescriptors(section, showAssetColumn, showServiceColumns).filter(
+        (descriptor) => descriptor.exportable !== false,
+    );
+    const byKey = new Map(
+        current
+            .flatMap((column) =>
+                "children" in column && column.children ? column.children : [column],
+            )
+            .map((column) => [String(column.prop), column]),
+    );
+    return descriptors.map((descriptor) => ({
+        key: descriptor.key,
+        headerPath: [...(descriptor.path ?? []), descriptor.label],
+        width: pixelsToExcelWidth(byKey.get(descriptor.key)?.size ?? descriptor.width),
+        numberFormat: null,
+    }));
+}
+
+export function pixelsToExcelWidth(pixels: number): number {
+    return Math.max(8, Math.min(60, (pixels - 5) / 7));
+}
+
+export function formatMonthName(value: string): string {
+    const date = new Date(`${value.slice(0, 7)}-01T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat("ru-RU", { month: "long" })
+        .format(date)
+        .toLocaleLowerCase("ru-RU");
+}
+
+function pad2(value: number): string {
+    return String(value).padStart(2, "0");
+}
+
+export function exportFileName(
+    section: SectionId,
+    reportMonth: string | null,
+    now = new Date(),
+): string {
+    const stamp = [
+        pad2(now.getDate()),
+        ".",
+        pad2(now.getMonth() + 1),
+        ".",
+        now.getFullYear(),
+        ", ",
+        pad2(now.getHours()),
+        ".",
+        pad2(now.getMinutes()),
+        ".",
+        pad2(now.getSeconds()),
+    ].join("");
+    const base =
+        section === "materialMovement"
+            ? `Движение сырья — ${reportMonth ? formatMonthName(reportMonth) : "отчёт"}`
+            : SECTION_LABELS[section];
+    return `${base} (${stamp}).xlsx`;
 }
 
 export function buildGridColumns(

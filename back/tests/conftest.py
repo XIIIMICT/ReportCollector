@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 # потому что src.database кэширует настройки на уровне модуля.
 os.environ.setdefault("AUTH_SECRET", "test-secret-that-is-at-least-32-characters-long")
 os.environ.setdefault("AUTH_SEED_ADMIN_EMAIL", "admin@example.local")
-os.environ.setdefault("AUTH_SEED_ADMIN_NAME", "Admin User")
+os.environ.setdefault("AUTH_SEED_ADMIN_PASSWORD", "AdminPassword123")
 os.environ.setdefault("POSTGRES_USER", "postgres")
 os.environ.setdefault("POSTGRES_PASSWORD", "strong_password")
 os.environ.setdefault("POSTGRES_DB", "dwh")

@@ -90,7 +90,7 @@ export function getSessionConfig(): SessionConfig {
     const appOrigin = trimTrailingSlash(getRequiredEnv("AUTH_APP_ORIGIN"));
     return {
         appOrigin,
-        cookieSecure: process.env.AUTH_COOKIE_SECURE === "true" || appOrigin.startsWith("https://"),
+        cookieSecure: appOrigin.startsWith("https://"),
         secret: getRequiredEnv("AUTH_SECRET"),
     };
 }

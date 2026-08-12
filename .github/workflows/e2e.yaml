@@ -44,17 +44,35 @@ jobs:
           echo "POSTGRES_PASSWORD=ci_password" >> .env
           echo "POSTGRES_DB=postgres" >> .env
           echo "POSTGRES_SCHEMA=rc" >> .env
+          echo "POSTGRES_HOST=postgres" >> .env
           echo "AUTH_SECRET=ci-secret-for-testing-at-least-32-bytes" >> .env
           echo "AUTH_APP_ORIGIN=http://127.0.0.1:5000" >> .env
           echo "KEYCLOAK_ENABLED=false" >> .env
+          echo "LOKI_URL=http://localhost:3100" >> .env
+          echo "GF_SECURITY_ADMIN_USER=admin" >> .env
+          echo "GF_SECURITY_ADMIN_PASSWORD=admin" >> .env
+
+      - name: Start Postgres
+        run: docker compose --profile standalone up -d postgres
+
+      - name: Wait for Postgres
+        run: |
+          for attempt in $(seq 1 30); do
+            if docker compose --profile standalone exec -T postgres pg_isready -U postgres; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Postgres не стартовал"
+          exit 1
 
       - name: Start production stack
-        run: docker compose --profile prod up -d --build postgres back front
+        run: docker compose --profile prod up -d --build back front
 
       - name: Wait for backend healthcheck
         run: |
           for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:6000/health; then
+            if curl --fail --silent http://127.0.0.1:3000/health; then
               echo ""
               exit 0
             fi
@@ -85,7 +103,7 @@ jobs:
         run: |
           docker compose --profile prod exec -T back uv run --no-dev python -c "import asyncio; from sqlmodel import SQLModel; from src.database import async_engine; exec('async def _main():\n    async with async_engine.begin() as conn:\n        await conn.run_sync(SQLModel.metadata.create_all)\nasyncio.run(_main())')"
           PASSWORD_HASH=$(docker compose --profile prod exec -T back uv run --no-dev python -c "from argon2 import PasswordHasher; print(PasswordHasher().hash('TestPassword123'))")
-          docker compose --profile prod exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -c "INSERT INTO rc.app_user (id, key, email, name, email_verified, password_hash, is_active, is_admin, is_deleted, created_at, updated_at) SELECT gen_random_uuid(), 'evtushenko.sn', 'evtushenko.sn@ruschem.ru', 'Evtushenko S.', TRUE, '$PASSWORD_HASH', TRUE, FALSE, FALSE, now(), now() WHERE NOT EXISTS (SELECT 1 FROM rc.app_user WHERE email = 'evtushenko.sn@ruschem.ru');"
+          docker compose --profile standalone exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -c "INSERT INTO rc.app_user (id, key, email, name, email_verified, password_hash, is_active, is_admin, is_deleted, created_at, updated_at) SELECT gen_random_uuid(), 'evtushenko.sn', 'evtushenko.sn@ruschem.ru', 'Evtushenko S.', TRUE, '$PASSWORD_HASH', TRUE, FALSE, FALSE, now(), now() WHERE NOT EXISTS (SELECT 1 FROM rc.app_user WHERE email = 'evtushenko.sn@ruschem.ru');"
 
       - name: Install Playwright browsers
         run: |
@@ -109,4 +127,4 @@ jobs:
 
       - name: Stop stack
         if: always()
-        run: docker compose --profile prod down -v
+        run: docker compose --profile prod --profile standalone down -v

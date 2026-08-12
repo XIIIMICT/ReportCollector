@@ -57,7 +57,7 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
     Новый пользователь появляется у администраторов всех проектов: связь со
     всеми существующими проектами создаётся сразу, но с is_active=False.
     Доступ к конкретному проекту даёт администратор, включив is_active
-    в своей проекте. Пользователь из AUTH_SEED_ADMIN_* создаётся активным
+    в своей проекте. Пользователь из AUTH_SEED_ADMIN_EMAIL создаётся активным
     и получает роль admin во всех проектах.
     """
     canonical_key = identity.email or identity.preferred_username or identity.key
@@ -141,9 +141,7 @@ async def sync_project_memberships(session: AsyncSession, user_id: UUID, *, acti
     Существующие связи не изменяются.
     """
     projects = (await session.exec(select(Project).order_by(Project.key))).all()
-    existing = (
-        await session.exec(select(UserRole).where(col(UserRole.user_id) == user_id))
-    ).all()
+    existing = (await session.exec(select(UserRole).where(col(UserRole.user_id) == user_id))).all()
     existing_by_project = {role.project_id: role for role in existing}
     now = datetime.now(UTC)
     for project in projects:

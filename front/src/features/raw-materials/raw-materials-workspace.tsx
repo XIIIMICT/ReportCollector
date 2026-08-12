@@ -12,13 +12,14 @@ import {
     Tooltip,
     Typography,
 } from "@heroui/react";
-import { Collapse, Expand, Trash } from "iconoir-react";
+import { Collapse, Download, Expand, Trash } from "iconoir-react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
     createDictionaryRecord,
     deleteDictionaryRecord,
+    exportTableToExcel,
     getAssetList,
     getDeliveryBasisList,
     getRawMaterialsList,
@@ -43,13 +44,14 @@ import {
 import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector";
 import {
     ADMIN_SECTIONS,
+    exportFileName,
     MAIN_SECTIONS,
     SECTION_LABELS,
     type GridRow,
     type ReferenceOption,
     type SectionId,
 } from "@/shared/grid/grid-config";
-import { RawMaterialsGrid } from "@/shared/grid/raw-materials-grid";
+import { RawMaterialsGrid, type RawMaterialsGridHandle } from "@/shared/grid/raw-materials-grid";
 import { formatMonthName, SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 
@@ -168,6 +170,24 @@ function errorMessage(reason: unknown): string {
     return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
 }
 
+export type ExportMode = "all" | "visible";
+
+export type ExportState = {
+    pending: boolean;
+    onExport: (mode: ExportMode) => Promise<void>;
+};
+
+function downloadBlob(blob: Blob, fileName: string): void {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
 function SectionContent({
     section,
     reportMonth,
@@ -175,6 +195,7 @@ function SectionContent({
     assets,
     deliveryBases,
     onDeleteState,
+    onExportState,
 }: {
     section: SectionId;
     reportMonth: string | null;
@@ -182,6 +203,7 @@ function SectionContent({
     assets: ReferenceOption[];
     deliveryBases: ReferenceOption[];
     onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
+    onExportState: (state: ExportState) => void;
 }) {
     const loader = useMemo(() => {
         switch (section) {
@@ -215,6 +237,8 @@ function SectionContent({
     );
     const placeholderDraftRef = useRef(placeholderDraft);
     const placeholderCreatePendingRef = useRef(false);
+    const gridRef = useRef<RawMaterialsGridHandle>(null);
+    const [exportPending, setExportPending] = useState(false);
 
     useEffect(() => {
         placeholderDraftRef.current = placeholderDraft;
@@ -326,6 +350,37 @@ function SectionContent({
         }
     }
 
+    const exportTable = useCallback(
+        async (mode: ExportMode) => {
+            if (exportPending) return;
+            const state = await gridRef.current?.getExportState();
+            if (!state) return;
+            setExportPending(true);
+            const fileName = exportFileName(section, reportMonth);
+            try {
+                const blob = await exportTableToExcel({
+                    section,
+                    reportMonth,
+                    headerPinned,
+                    columns: state.columns,
+                    rowIds: mode === "visible" ? state.rowIds : null,
+                    fileName,
+                });
+                downloadBlob(blob, fileName);
+                toast.success("Файл выгружен", { description: fileName });
+            } catch (reason) {
+                toast.danger("Не удалось выгрузить файл", { description: errorMessage(reason) });
+            } finally {
+                setExportPending(false);
+            }
+        },
+        [exportPending, section, reportMonth, headerPinned],
+    );
+
+    useEffect(() => {
+        onExportState({ pending: exportPending, onExport: exportTable });
+    }, [exportPending, exportTable, onExportState]);
+
     if (error) {
         return (
             <div className="grid-empty">
@@ -354,6 +409,7 @@ function SectionContent({
         <>
             <div className="grid-viewport" aria-busy={isMutationPending}>
                 <RawMaterialsGrid
+                    ref={gridRef}
                     section={section}
                     rows={gridRows}
                     isAdmin={isAdmin}
@@ -390,6 +446,7 @@ function SectionContent({
 function SectionFooter({
     section,
     canDelete,
+    exportState,
     isFullscreen,
     isFullscreenPending,
     onToggleFullscreen,
@@ -397,6 +454,7 @@ function SectionFooter({
 }: {
     section: SectionId;
     canDelete: boolean;
+    exportState: ExportState;
     isFullscreen: boolean;
     isFullscreenPending: boolean;
     onToggleFullscreen: () => void;
@@ -408,6 +466,7 @@ function SectionFooter({
             <ActionBar
                 section={section}
                 canDelete={canDelete}
+                exportState={exportState}
                 isFullscreen={isFullscreen}
                 isFullscreenPending={isFullscreenPending}
                 onToggleFullscreen={onToggleFullscreen}
@@ -430,6 +489,10 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
         canDelete: false,
         onDelete: () => {},
     });
+    const [exportState, setExportState] = useState<ExportState>({
+        pending: false,
+        onExport: async () => {},
+    });
     const [activeProjectKey, setActiveProjectKey] = useState<string>(
         currentUser.access?.some((project) => project.key === RAW_MATERIALS_PROJECT_KEY)
             ? RAW_MATERIALS_PROJECT_KEY
@@ -441,6 +504,8 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
         (state: { canDelete: boolean; onDelete: () => void }) => setDeleteState(state),
         [],
     );
+
+    const handleExportState = useCallback((state: ExportState) => setExportState(state), []);
 
     const projects = user.access ?? [];
     const activeProject = projects.find((project) => project.key === activeProjectKey);
@@ -603,6 +668,7 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
         <SectionFooter
             section={selectedTab.section}
             canDelete={deleteState.canDelete}
+            exportState={exportState}
             isFullscreen={isFullscreen}
             isFullscreenPending={isFullscreenPending}
             onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
@@ -625,6 +691,7 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
                                 assets={assets}
                                 deliveryBases={deliveryBases}
                                 onDeleteState={handleDeleteState}
+                                onExportState={handleExportState}
                             />
                             {footer}
                         </Card.Content>
@@ -777,6 +844,7 @@ type ActionItem = {
 function ActionBar({
     section,
     canDelete,
+    exportState,
     isFullscreen,
     isFullscreenPending,
     onToggleFullscreen,
@@ -784,6 +852,7 @@ function ActionBar({
 }: {
     section: SectionId;
     canDelete: boolean;
+    exportState: ExportState;
     isFullscreen: boolean;
     isFullscreenPending: boolean;
     onToggleFullscreen: () => void;
@@ -815,6 +884,38 @@ function ActionBar({
 
     return (
         <div className="action-bar" aria-label="Действия с таблицей">
+            <Dropdown>
+                <Button
+                    className="action-button"
+                    variant="secondary"
+                    isDisabled={exportState.pending || isFullscreenPending}
+                    aria-label="Скачать таблицу в Excel"
+                >
+                    <span className="action-button__icon">
+                        {exportState.pending ? <Spinner size="sm" /> : <Download />}
+                    </span>
+                    <span className="action-button__label">
+                        {exportState.pending ? "Выгрузка..." : "Скачать в Excel"}
+                    </span>
+                </Button>
+                <Dropdown.Popover>
+                    <Dropdown.Menu
+                        aria-label="Формат выгрузки"
+                        onAction={(key) => {
+                            if (key === "all" || key === "visible") {
+                                void exportState.onExport(key);
+                            }
+                        }}
+                    >
+                        <Dropdown.Item id="all" textValue="Скачать всю таблицу">
+                            Скачать всю таблицу
+                        </Dropdown.Item>
+                        <Dropdown.Item id="visible" textValue="Скачать видимую таблицу">
+                            Скачать видимую таблицу
+                        </Dropdown.Item>
+                    </Dropdown.Menu>
+                </Dropdown.Popover>
+            </Dropdown>
             {actions.map((action) => {
                 const button = (
                     <Button

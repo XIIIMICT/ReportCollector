@@ -1,5 +1,6 @@
 FROM oven/bun:1.3-slim AS base
 ENV NEXT_TELEMETRY_DISABLED=1 \
+    NODE_OPTIONS=--use-openssl-ca \
     HOSTNAME=0.0.0.0 \
     PORT=5000
 WORKDIR /app

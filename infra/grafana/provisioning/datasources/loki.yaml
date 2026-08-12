@@ -1,0 +1,12 @@
+apiVersion: 1
+
+datasources:
+  - name: ReportCollector Loki
+    type: loki
+    access: proxy
+    url: ${LOKI_URL}
+    uid: reportcollector-loki
+    isDefault: true
+    editable: true
+    jsonData:
+      maxLines: 1000

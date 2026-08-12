@@ -2,7 +2,7 @@
 
 import { Tabs } from "@heroui/react";
 
-import { MAIN_SECTIONS } from "@/shared/grid/grid-config";
+import { formatMonthName, MAIN_SECTIONS } from "@/shared/grid/grid-config";
 import type { SectionId } from "@/shared/grid/grid-config";
 
 export type WorkspaceTab = {
@@ -53,10 +53,4 @@ export function SectionTabs({
     );
 }
 
-export function formatMonthName(value: string): string {
-    const date = new Date(`${value.slice(0, 7)}-01T00:00:00`);
-    if (Number.isNaN(date.getTime())) return value;
-    return new Intl.DateTimeFormat("ru-RU", { month: "long" })
-        .format(date)
-        .toLocaleLowerCase("ru-RU");
-}
+export { formatMonthName };

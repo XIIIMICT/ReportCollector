@@ -33,8 +33,13 @@ export async function proxyBackend(request: Request, path: string, method = requ
         return Response.json(await response.json(), { status: response.status });
     }
 
-    return new Response(await response.text(), {
-        headers: { "Content-Type": responseContentType },
+    const responseHeaders = new Headers({ "Content-Type": responseContentType });
+    const contentDisposition = response.headers.get("Content-Disposition");
+    if (contentDisposition) {
+        responseHeaders.set("Content-Disposition", contentDisposition);
+    }
+    return new Response(await response.arrayBuffer(), {
+        headers: responseHeaders,
         status: response.status,
     });
 }

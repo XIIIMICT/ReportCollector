@@ -1,18 +1,27 @@
 """API проекта «Сырьё»: чтение и правка форм «Движение» и «Цены», справочники."""
 
+from collections.abc import Sequence
 from datetime import date
 from typing import Annotated
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
 from src.auth.models import Project, ProjectRole, User
 from src.auth.router import read_signed_identity
 from src.auth.service import CurrentUserIdentity, get_user_by_identity
 from src.database import get_session
+from src.raw_materials.export import (
+    ExportValidationError,
+    render_workbook,
+    validate_export_request,
+)
 from src.raw_materials.models import MovementPeriod, RawMaterialAsset
 from src.raw_materials.schemas import (
     AssetCreateRequest,
@@ -21,6 +30,7 @@ from src.raw_materials.schemas import (
     DeliveryBasisCreateRequest,
     DeliveryBasisRowRead,
     DeliveryBasisUpdateRequest,
+    ExportViewRequest,
     MovementRowRead,
     MovementUpdateRequest,
     PriceRowRead,
@@ -198,6 +208,73 @@ async def _latest_period(session: AsyncSession) -> date:
     if period is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Нет периодов движения.")
     return period
+
+
+DICTIONARY_SECTIONS = frozenset({"rawMaterials", "assets", "deliveryBases", "users"})
+EXPORT_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.post("/export")
+async def export_table(
+    request: ExportViewRequest,
+    session: SessionDependency,
+    identity: IdentityDependency,
+) -> Response:
+    """Выгрузка таблицы в Excel: «вся» — дефолтный вид, «видимая» — переданные строки."""
+    try:
+        _, roles, user_assets = await resolve_raw_materials_access(session, identity)
+    except NoRawMaterialsAccessError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Нет доступа к проекту «Сырьё».",
+        ) from error
+    is_admin = ProjectRole.ADMIN in roles
+    if request.section in DICTIONARY_SECTIONS and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Требуются права администратора проекта «Сырьё».",
+        )
+    try:
+        validate_export_request(request, show_asset_column=is_admin or len(user_assets) > 1)
+    except ExportValidationError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+    rows = await _export_rows(session, request, user_assets)
+    if request.rowIds is not None:
+        rows = _reorder_rows(rows, request.rowIds)
+    asset_names = [asset.name for asset in user_assets]
+    delivery_bases = [basis.name for basis in await read_delivery_basis_rows(session)]
+    payload = await run_in_threadpool(render_workbook, request, rows, asset_names, delivery_bases)
+    return Response(
+        content=payload,
+        media_type=EXPORT_MEDIA_TYPE,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(request.fileName.strip())}"},
+    )
+
+
+async def _export_rows(
+    session: AsyncSession,
+    request: ExportViewRequest,
+    assets: list[RawMaterialAsset],
+) -> Sequence[BaseModel]:
+    """Строки для выгрузки: движение за период, цены или справочник."""
+    if request.section == "materialMovement":
+        report_month = request.reportMonth or await _latest_period(session)
+        return await read_movement_rows(session, report_month, assets)
+    if request.section == "rawMaterialPrices":
+        return await read_price_rows(session, assets)
+    if request.section == "rawMaterials":
+        return await read_raw_material_rows(session)
+    if request.section == "assets":
+        return await read_asset_rows(assets)
+    if request.section == "deliveryBases":
+        return await read_delivery_basis_rows(session)
+    return await read_user_rows(session)
+
+
+def _reorder_rows(rows: Sequence[BaseModel], row_ids: Sequence[UUID]) -> list[BaseModel]:
+    """Видимая выборка: только переданные id, в порядке грида, пропуская отсутствующие."""
+    by_id = {getattr(row, "id"): row for row in rows}  # noqa: B009
+    return [by_id[row_id] for row_id in row_ids if row_id in by_id]
 
 
 @router.patch("/movement")
