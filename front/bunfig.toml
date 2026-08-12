@@ -1,0 +1,5 @@
+[test]
+# DOM-среда для компонентных тестов
+preload = ["./src/test-setup.ts"]
+# Юнит-тесты живут в src; e2e-спеки Playwright запускаются отдельно (bun run test:e2e)
+root = "./src"

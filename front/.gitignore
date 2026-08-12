@@ -1,0 +1,31 @@
+# Денай-всё по умолчанию (см. корневой .gitignore): белый список ниже.
+# .next/, node_modules/, тестовые артефакты Playwright, локальные .env
+# и probe-скрипты автоматически вне индекса.
+*
+
+# Конфигурация и инструменты
+!/.dockerignore
+!/.env.example
+!/.gitignore
+!Dockerfile
+!bun.lock
+!bunfig.toml
+!next.config.ts
+!oxfmt.config.ts
+!package.json
+!playwright.config.ts
+!postcss.config.ts
+!prek.toml
+!tsconfig.json
+
+# Исходники, e2e и статика
+!/e2e/
+!/e2e/**
+!/public/
+!/public/**
+!/src/
+!/src/**
+
+# Мусор внутри белого списка (стоит после правил выше — последнее совпадение побеждает)
+.heroui-docs/
+*.tsbuildinfo

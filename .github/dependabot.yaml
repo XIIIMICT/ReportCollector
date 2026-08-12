@@ -1,0 +1,38 @@
+name: Dependabot
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: /back
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /front
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: uv
+    directory: /back
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+
+  - package-ecosystem: npm
+    directory: /front
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]

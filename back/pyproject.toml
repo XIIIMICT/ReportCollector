@@ -1,0 +1,91 @@
+[project]
+name = "report-collector-back"
+version = "0.0.1"
+requires-python = ">=3.14"
+dependencies = [
+    "argon2-cffi>=25.1.0",
+    "asyncpg>=0.31.0",
+    "fastapi>=0.141.1",
+    "pydantic-settings>=2.15.0",
+    "sqlmodel>=0.0.39",
+    "uvicorn[standard]>=0.52.1",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.0.0",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.2",
+    "ty>=0.0.70",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_test_loop_scope = "session"
+asyncio_default_fixture_loop_scope = "session"
+testpaths = ["tests"]
+filterwarnings = ["error", "ignore::DeprecationWarning"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/scripts/*"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+
+[tool.ruff]
+extend-exclude = []
+target-version = "py314"
+line-length = 120
+indent-width = 4
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812",  # Форматтер Ruff может конфликтовать с этим правилом
+    "CPY001",
+    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",  # Докстринги необязательны
+    "D203",  # Конфликтует с предпочтительным D211
+    "D212",  # Конфликтует с предпочтительным D213
+    "E402",  # В отдельных модулях определения допустимы не в начале файла
+    "FBT001", "FBT002",  # Позиционные логические аргументы допустимы
+    "FIX002",  # TODO допустимы, пока проект активно развивается
+    "INP001",  # Пространства имён без __init__.py допустимы
+    "C416",  # Стиль включений не должен блокировать проверки
+    "C901",  # Метрики сложности остаются рекомендательными
+    "E501",  # Длина строки остаётся рекомендательной, основное форматирует Ruff
+    "PERF401", "PERF402", "PERF403",  # Микрооптимизации включений остаются рекомендательными
+    "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0917",  # Метрики функций рекомендательны
+    "PLR2004",  # Магические значения остаются рекомендательными
+    "RET504",  # Присваивание перед return может улучшать читаемость
+    "RUF001",  # Кириллица допустима
+    "RUF002", "RUF003",  # Схожие буквы в русском тексте допустимы
+    "TC002", "TC003",  # Импорты типов не выносятся в TYPE_CHECKING
+    "N815",  # Поля Pydantic-схем повторяют camelCase-контракт фронтенда
+    "TD002", "TD003",  # Для TODO не нужны авторы и ссылки на задачи
+    "TRY003",  # Стандартное исключение предпочтительнее лишнего собственного класса
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/scripts/*" = ["T201"]
+"tests/*" = [
+    "ANN001",  # Параметры тестов не аннотируются
+    "ANN201",  # Возвращаемые типы фикстур не аннотируются
+    "ARG001",  # Фикстуры-зависимости могут не использоваться
+    "B007",  # Переменные распаковки кортежей не используются
+    "D213",  # Докстринги тестов сохраняют стиль
+    "F821",  # signed_identity_headers и фикстуры доступны из conftest
+    "PERF102",  # Включения по values() в тестах не оптимизируются
+    "PLC0415",  # Импорты в тестах допустимы
+    "S101",  # В тестах используется assert
+    "UP035",  # Импорты AsyncGenerator оставлены как есть
+]
+
+[tool.ruff.format]
+line-ending = "lf"
+docstring-code-format = true
+quote-style = "double"
+indent-style = "space"

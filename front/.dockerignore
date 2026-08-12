@@ -1,0 +1,12 @@
+*
+!Dockerfile
+!package.json
+!bun.lock
+!next.config.ts
+!postcss.config.ts
+!tsconfig.json
+!src/**
+!public/**
+src/**/.DS_Store
+public/**/.DS_Store
+public/**/Thumbs.db

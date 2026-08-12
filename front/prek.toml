@@ -1,0 +1,45 @@
+#:schema https://www.schemastore.org/prek.json
+
+orphan = true
+default_stages = ["pre-commit"]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "bun-lock"
+name = "bun lock"
+entry = "bun install --lockfile-only"
+language = "system"
+pass_filenames = false
+files = '^package\.json$'
+
+[[repos.hooks]]
+id = "oxfmt"
+name = "oxfmt"
+entry = "bun format"
+language = "system"
+files = '\.(cjs|css|cts|js|json|jsonc|jsx|mjs|mts|scss|ts|tsx)$'
+
+[[repos.hooks]]
+id = "oxlint"
+name = "oxlint"
+entry = "bun lint"
+language = "system"
+files = '\.(cjs|css|cts|js|json|jsonc|jsx|mjs|mts|scss|ts|tsx)$'
+
+[[repos.hooks]]
+id = "bun-test"
+name = "bun test"
+entry = "bun test"
+language = "system"
+pass_filenames = false
+files = '^(package\.json|bunfig\.toml|tsconfig.*\.json|.*\.(cts|mts|ts|tsx))$'
+
+[[repos.hooks]]
+id = "tsc-typecheck"
+name = "tsc typecheck"
+entry = "bun typecheck"
+language = "system"
+pass_filenames = false
+files = '^(package\.json|bunfig\.toml|tsconfig.*\.json|.*\.(cts|mts|ts|tsx))$'

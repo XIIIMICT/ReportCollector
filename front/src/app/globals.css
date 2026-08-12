@@ -1,0 +1,992 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+.scrollbar-hidden {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+}
+
+:root,
+.light,
+.default,
+[data-theme="light"],
+[data-theme="default"] {
+    /* Theme Colors (Light Mode) */
+    --accent: oklch(51.12% 0.0965 174.82);
+    --accent-foreground: oklch(99.11% 0 0);
+    --background: oklch(97.02% 0 174.82);
+    --border: oklch(90% 0 174.82);
+    --danger: oklch(65.32% 0.2328 16.26);
+    --danger-foreground: oklch(99.11% 0 0);
+    --default: oklch(94% 0 174.82);
+    --default-foreground: oklch(21.03% 0.0059 174.82);
+    --field-background: oklch(100% 0 174.82);
+    --field-border: transparent;
+    --field-foreground: oklch(21.03% 0 174.82);
+    --field-placeholder: oklch(55.17% 0 174.82);
+    --focus: oklch(51.12% 0.0965 174.82);
+    --foreground: oklch(21.03% 0 174.82);
+    --muted: oklch(55.17% 0 174.82);
+    --overlay: oklch(100% 0 174.82);
+    --overlay-foreground: oklch(21.03% 0 174.82);
+    --scrollbar: oklch(87.1% 0 174.82);
+    --segment: oklch(100% 0 174.82);
+    --segment-foreground: oklch(21.03% 0 174.82);
+    --separator: oklch(92% 0 174.82);
+    --success: oklch(73.29% 0.1935 141.33);
+    --success-foreground: oklch(21.03% 0.0059 141.33);
+    --surface: oklch(100% 0 174.82);
+    --surface-foreground: oklch(21.03% 0 174.82);
+    --surface-secondary: oklch(95.24% 0 174.82);
+    --surface-secondary-foreground: oklch(21.03% 0 174.82);
+    --surface-tertiary: oklch(93.73% 0 174.82);
+    --surface-tertiary-foreground: oklch(21.03% 0 174.82);
+    --warning: oklch(78.19% 0.1585 62.85);
+    --warning-foreground: oklch(21.03% 0.0059 62.85);
+
+    /* Border Radius */
+    --radius: 0.5rem;
+    --field-radius: 1rem;
+
+    /* Grid (RevoGrid) cell palette */
+    --accent-glow: rgb(0 120 99 / 9%);
+    --cell-base: oklch(95.24% 0 174.82);
+    --cell-empty: oklch(83.5% 0 174.82);
+    --cell-calculated: oklch(93.5% 0.03 160);
+    --cell-placeholder: oklch(93% 0.02 220);
+    --cell-new: oklch(95% 0.05 90);
+    --cell-deleted: oklch(93% 0.03 20);
+    --cell-changed: oklch(95% 0.05 90);
+    --cell-border: oklch(80% 0 174.82);
+
+    /* Font Family */
+    /* Make sure to load Inter font in your app */
+    --font-sans: var(--font-inter);
+}
+
+.dark,
+[data-theme="dark"] {
+    color-scheme: dark;
+    /* Theme Colors (Dark Mode) */
+    --accent: oklch(51.12% 0.0965 174.82);
+    --accent-foreground: oklch(99.11% 0 0);
+    --background: oklch(12% 0 174.82);
+    --border: oklch(28% 0 174.82);
+    --danger: oklch(59.4% 0.1967 15.15);
+    --danger-foreground: oklch(99.11% 0 0);
+    --default: oklch(27.4% 0 174.82);
+    --default-foreground: oklch(99.11% 0 0);
+    --field-background: oklch(21.03% 0 174.82);
+    --field-border: transparent;
+    --field-foreground: oklch(99.11% 0 174.82);
+    --field-placeholder: oklch(70.5% 0 174.82);
+    --focus: oklch(51.12% 0.0965 174.82);
+    --foreground: oklch(99.11% 0 174.82);
+    --muted: oklch(70.5% 0 174.82);
+    --overlay: oklch(21.03% 0 174.82);
+    --overlay-foreground: oklch(99.11% 0 174.82);
+    --scrollbar: oklch(70.5% 0 174.82);
+    --segment: oklch(39.64% 0 174.82);
+    --segment-foreground: oklch(99.11% 0 174.82);
+    --separator: oklch(25% 0 174.82);
+    --success: oklch(73.29% 0.1935 141.33);
+    --success-foreground: oklch(21.03% 0.0059 141.33);
+    --surface: oklch(21.03% 0 174.82);
+    --surface-foreground: oklch(99.11% 0 174.82);
+    --surface-secondary: oklch(25.7% 0 174.82);
+    --surface-secondary-foreground: oklch(99.11% 0 174.82);
+    --surface-tertiary: oklch(27.21% 0 174.82);
+    --surface-tertiary-foreground: oklch(99.11% 0 174.82);
+    --warning: oklch(82.03% 0.1388 66.86);
+    --warning-foreground: oklch(21.03% 0.0059 66.86);
+
+    /* Grid (RevoGrid) cell palette */
+    --accent-glow: rgb(0 120 99 / 18%);
+    --cell-base: oklch(25.7% 0 174.82);
+    --cell-empty: oklch(33% 0 174.82);
+    --cell-calculated: oklch(30% 0.03 160);
+    --cell-placeholder: oklch(29% 0.02 220);
+    --cell-new: oklch(31% 0.05 90);
+    --cell-deleted: oklch(30% 0.03 20);
+    --cell-changed: oklch(31% 0.05 90);
+    --cell-border: oklch(39.64% 0 174.82);
+}
+
+/* ─── Анимации ReportCollector ─────────────────────────────── */
+
+/* Fade in при появлении элемента */
+@keyframes rc-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.rc-animate-fade-in {
+    animation: rc-fade-in 200ms ease-out both;
+}
+
+/* NextThemesProvider: плавная смена темы */
+html {
+    transition:
+        background-color 200ms ease,
+        color 200ms ease;
+}
+
+/* ─── Рабочее пространство «Сырьё» ───────────────────────── */
+
+.app-shell {
+    display: flex;
+    width: 100%;
+    height: 100dvh;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.app-header {
+    z-index: 20;
+    display: grid;
+    min-height: 4.8rem;
+    max-height: 4.8rem;
+    grid-template-columns: minmax(0, 1fr) minmax(22rem, 36rem) minmax(0, 1fr);
+    align-items: center;
+    gap: 1rem;
+    padding: 0 1.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    contain: paint;
+    overflow: hidden;
+    transition:
+        max-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        min-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        padding 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        border-color 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-header .brand {
+    min-width: 0;
+    align-self: center;
+    justify-self: start;
+}
+
+.app-header__actions {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-self: end;
+    gap: 0.85rem;
+}
+
+.brand {
+    position: static;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    letter-spacing: -0.04em;
+    user-select: none;
+}
+
+.brand__name {
+    font-size: 1.65rem;
+    font-weight: 760;
+    line-height: 1;
+}
+
+.brand__edition {
+    color: var(--muted);
+    font-size: 1.65rem;
+    font-weight: 760;
+    line-height: 1;
+    letter-spacing: -0.04em;
+}
+
+.brand__edition--button {
+    height: auto;
+    min-width: 0;
+    padding: 0;
+    color: var(--muted);
+    font-size: 1.65rem;
+    font-weight: 760;
+    line-height: 1;
+    letter-spacing: -0.04em;
+}
+
+.brand__edition--button,
+.brand__edition--button:hover,
+.brand__edition--button[data-hover],
+.brand__edition--button[data-focus-visible],
+.brand__edition--button[data-pressed] {
+    background: transparent;
+    box-shadow: none;
+}
+
+.project-placeholder {
+    display: grid;
+    min-height: 24rem;
+    place-items: center;
+    border-radius: 1rem;
+    background: var(--surface);
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+}
+
+.profile-pill {
+    height: auto;
+    min-width: 13rem;
+    max-width: 19rem;
+    align-self: center;
+    justify-content: flex-start;
+    padding-block: 0.625rem;
+}
+
+.profile-pill__copy {
+    display: grid;
+    min-width: 0;
+    flex: 1;
+    gap: 0.05rem;
+    text-align: left;
+}
+
+.profile-pill__copy strong,
+.profile-pill__copy small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.profile-pill__copy strong {
+    font-size: 0.84rem;
+}
+
+.profile-pill__copy small {
+    color: var(--muted);
+    font-size: 0.75rem;
+}
+
+.app-body {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    padding: 1rem;
+    transition: padding 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.workspace {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+}
+
+.workspace-card {
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: 0 0.6rem 1.8rem rgb(22 25 24 / 5%);
+    overflow: hidden;
+}
+
+.workspace-card__content {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    padding: 0;
+}
+
+.table-toolbar {
+    z-index: 4;
+    display: flex;
+    min-height: 3.8rem;
+    max-height: 3.8rem;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.52rem 0.75rem;
+    background: var(--surface);
+    contain: paint;
+    overflow: hidden;
+    transition:
+        max-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        min-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        padding 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.table-toolbar__controls {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    gap: 0.8rem;
+    overflow: hidden;
+}
+
+.section-tabs {
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+}
+
+.section-tabs [role="tab"],
+.section-tabs [data-slot="tab"] {
+    white-space: nowrap;
+    user-select: none;
+}
+
+.section-tabs .tabs__list-container {
+    width: 100%;
+    min-width: 0;
+}
+
+.grid-viewport {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+    background: var(--surface);
+}
+
+.table-footer {
+    z-index: 4;
+    display: flex;
+    min-height: 3.7rem;
+    max-height: 4.1rem;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.35rem 0.9rem;
+    background: var(--surface);
+    contain: paint;
+    overflow: hidden;
+    transition:
+        max-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        min-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        padding 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.table-footer__summary {
+    display: flex;
+    min-width: 0;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 0.8rem;
+}
+
+.action-bar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.45rem;
+}
+
+.action-bar > *,
+.action-button-wrapper {
+    display: inline-flex;
+}
+
+.shortcut-tooltip {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.action-button {
+    display: inline-flex;
+    min-width: 2.65rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    overflow: hidden;
+    padding-inline: 0.7rem;
+    transition:
+        gap 180ms ease,
+        padding 180ms ease,
+        transform 140ms ease;
+}
+
+.action-button:hover {
+    gap: 0.45rem;
+    transform: translateY(-1px);
+}
+
+.action-button__icon {
+    display: inline-grid;
+    flex: 0 0 auto;
+    place-items: center;
+}
+
+.action-button__icon svg {
+    width: 1.1rem;
+    height: 1.1rem;
+}
+
+.action-button__label {
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    white-space: nowrap;
+    transition:
+        max-width 220ms ease,
+        opacity 130ms ease;
+}
+
+.action-button:hover .action-button__label,
+.action-button:focus-visible .action-button__label {
+    max-width: 13rem;
+    opacity: 1;
+}
+
+.app-shell--fullscreen .app-header {
+    min-height: 0;
+    max-height: 0;
+    padding-block: 0;
+    border-color: transparent;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-100%);
+}
+
+.app-shell--fullscreen .app-body {
+    padding: 0;
+}
+
+.app-shell--fullscreen .workspace-card {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.app-shell--fullscreen .workspace-card .table-toolbar,
+.app-shell--fullscreen .workspace-card .table-footer {
+    min-height: 0;
+    max-height: 0;
+    padding-block: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.app-shell--fullscreen .workspace-card .table-toolbar {
+    transform: translateY(-100%);
+}
+
+.app-shell--fullscreen .workspace-card .table-footer {
+    transform: translateY(100%);
+}
+
+.fullscreen-reveal {
+    position: fixed;
+    z-index: 10000;
+}
+
+.fullscreen-reveal--top {
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 4.3rem;
+}
+
+.fullscreen-reveal--bottom {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 1.85rem;
+}
+
+.fullscreen-panel {
+    position: absolute;
+    z-index: 1;
+    border: 1px solid var(--border);
+    border-radius: min(32px, var(--radius-3xl, 2rem));
+    opacity: 0;
+    pointer-events: none;
+    background: var(--surface-glass-strong, var(--surface));
+    box-shadow: 0 0.8rem 2rem rgb(22 25 24 / 11%);
+    backdrop-filter: blur(0.8rem);
+    visibility: hidden;
+    overflow: hidden;
+    transition:
+        opacity 180ms ease,
+        transform 240ms ease,
+        visibility 0s linear 240ms;
+}
+
+.fullscreen-panel--top {
+    top: 0.75rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    transform: translateY(calc(-100% - 1rem));
+}
+
+.fullscreen-panel--bottom {
+    right: 0.75rem;
+    bottom: 0.75rem;
+    left: 0.75rem;
+    transform: translateY(calc(100% + 1rem));
+}
+
+.fullscreen-panel .app-header,
+.fullscreen-panel .table-toolbar,
+.fullscreen-panel .table-footer {
+    border: 0;
+    border-radius: inherit;
+}
+
+.fullscreen-reveal:hover .fullscreen-panel {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(0);
+    visibility: visible;
+    transition-delay: 0s;
+}
+
+.grid-empty {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: grid;
+    place-items: center;
+    color: var(--muted);
+    background: var(--surface);
+}
+
+.startup-error-card {
+    margin: auto;
+    min-width: min(28rem, calc(100vw - 2rem));
+}
+
+.profile-modal__header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.65rem;
+    text-align: left;
+}
+
+.profile-modal__header > svg {
+    width: 1.35rem;
+    height: 1.35rem;
+    flex: 0 0 auto;
+}
+.profile-modal__title {
+    font-size: 1.25rem;
+}
+
+.theme-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.theme-selector [data-slot="label"] {
+    font-size: 0.85rem;
+}
+
+.profile-modal__body {
+    display: grid;
+    gap: 1rem;
+}
+
+.profile-modal {
+    width: min(36rem, calc(100vw - 2rem));
+}
+
+/* ─── RevoGrid (таблицы «Сырьё») ─────────────────────────── */
+
+.revo-grid-shell,
+.raw-materials-grid {
+    width: 100%;
+}
+
+.revo-grid-shell {
+    position: relative;
+    height: 100%;
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.revo-grid-vertical-scroller {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+}
+
+.revo-grid-shell--pinned .raw-materials-grid {
+    height: 100%;
+}
+
+.revo-grid-shell:not(.revo-grid-shell--pinned) .revo-grid-vertical-scroller {
+    overflow-y: auto;
+    padding-bottom: 17px;
+}
+
+.revo-grid-shell:not(.revo-grid-shell--pinned) .raw-materials-grid {
+    height: var(--grid-content-height);
+    min-height: 100%;
+}
+
+.revo-grid-shell:not(.revo-grid-shell--pinned)
+    .raw-materials-grid
+    revogr-scroll-virtual.horizontal {
+    visibility: hidden;
+}
+
+.revo-grid-external-scrollbar {
+    position: absolute;
+    z-index: 8;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 17px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: var(--surface);
+}
+
+.revo-grid-external-scrollbar > div {
+    height: 1px;
+}
+
+.raw-materials-grid {
+    --revo-grid-font-family: var(--font-sans);
+    --revo-grid-font-size: 12px;
+    --revo-grid-header-height: 44px;
+    --revo-grid-header-font-size: 11.5px;
+    --revo-grid-header-font-weight: 650;
+    --revo-grid-header-text-transform: none;
+    --revo-grid-header-text-align: center;
+    --revo-grid-header-padding: 0 9px;
+    --revo-grid-cell-padding: 0 9px;
+    --revo-grid-background: var(--surface);
+    --revo-grid-text: var(--foreground);
+    --revo-grid-border: var(--cell-border);
+    --revo-grid-header-bg: var(--surface);
+    --revo-grid-header-color: var(--foreground);
+    --revo-grid-header-border: var(--cell-border);
+    --revo-grid-header-focused-bg: var(--surface);
+    --revo-grid-header-hover-bg: var(--surface);
+    --revo-grid-cell-border: var(--cell-border);
+    --revo-grid-cell-vertical-border: var(--cell-border);
+    --revo-grid-focused-bg: rgb(0 120 99 / 7%);
+    --revo-grid-row-hover: rgb(255 255 255 / 6%);
+    --revo-grid-row-headers-bg: var(--surface);
+    --revo-grid-row-headers-color: var(--muted);
+    --revo-grid-cell-disabled-bg: transparent;
+    --revo-grid-selection-border: var(--accent);
+    --revo-grid-selection-bg: transparent;
+    --revo-grid-header-resize-hover: var(--accent);
+
+    /* Панель фильтров RevoGrid — адаптивна к теме оформления */
+    --revo-grid-filter-panel-bg: var(--surface);
+    --revo-grid-filter-panel-border: var(--cell-border);
+    --revo-grid-filter-panel-input-bg: var(--surface-secondary);
+    --revo-grid-filter-panel-divider: var(--cell-border);
+    --revo-grid-filter-panel-text: var(--foreground);
+    --revo-grid-filter-panel-muted-text: var(--muted);
+    --revo-grid-filter-panel-icon: var(--muted);
+    --revo-grid-filter-panel-icon-active: var(--accent);
+    --revo-grid-filter-panel-shadow: rgb(0 0 0 / 25%);
+    --revo-grid-filter-panel-select-border: var(--cell-border);
+    --revo-grid-filter-panel-select-border-hover: var(--accent);
+    --revo-grid-filter-panel-reorder-accent: var(--accent);
+    --revo-grid-filter-panel-reorder-color: var(--muted);
+    --revo-grid-filter-panel-focus-ring: 0 0 0 2px
+        color-mix(in oklch, var(--accent) 30%, transparent);
+    --revo-grid-button-bg: var(--accent);
+    --revo-grid-button-text: var(--accent-foreground);
+    --revo-grid-button-outline-border: var(--cell-border);
+    --revo-grid-button-outline-text: var(--foreground);
+    border: 0 !important;
+    background: var(--surface) !important;
+}
+
+/* Панель фильтров и выпадающие списки RevoGrid: тёмный фон + светлый текст */
+.raw-materials-grid revogr-filter-panel .filter-panel-dialog,
+.raw-materials-grid revo-dropdown .rv-dr-root {
+    color: var(--foreground) !important;
+    background-color: var(--surface) !important;
+}
+
+.raw-materials-grid revogr-filter-panel .filter-panel-dialog input[type="text"],
+.raw-materials-grid revogr-filter-panel .filter-panel-dialog input[type="date"],
+.raw-materials-grid revogr-filter-panel .select-css,
+.raw-materials-grid revo-dropdown .rv-dr-root .rv-dr-item {
+    color: var(--foreground) !important;
+    background-color: var(--surface-secondary) !important;
+}
+
+.raw-materials-grid revogr-filter-panel .filter-actions {
+    background: var(--surface) !important;
+}
+
+.raw-materials-grid .revo-button.green {
+    background-color: var(--success) !important;
+}
+
+.raw-materials-grid .revo-button.red {
+    background-color: var(--danger) !important;
+}
+
+.raw-materials-grid revogr-header,
+.raw-materials-grid revogr-header .header-rgRow,
+.raw-materials-grid revogr-header .group-rgRow,
+.raw-materials-grid revogr-header .rgHeaderCell,
+.raw-materials-grid .rowHeaders,
+.raw-materials-grid .header-wrapper {
+    background-color: var(--surface) !important;
+}
+
+.raw-materials-grid revogr-header .header-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    line-height: 1.18;
+    text-overflow: ellipsis;
+    white-space: normal;
+}
+
+.raw-materials-grid:not(.raw-materials-grid--user-sorted) revogr-header .sort-indicator {
+    display: none !important;
+}
+
+.raw-materials-grid revogr-header .header-rgRow,
+.raw-materials-grid revogr-header .group-rgRow,
+.raw-materials-grid revogr-data .rgRow {
+    box-shadow: none !important;
+}
+
+.raw-materials-grid revogr-header .rgHeaderCell {
+    border: 0 !important;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.raw-materials-grid revogr-header .rgHeaderCell.report-header-cell--outer-top,
+.raw-materials-grid .rowHeaders revogr-header .rgHeaderCell {
+    box-shadow:
+        0 1px 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.raw-materials-grid revogr-header .rgHeaderCell.report-header-cell--rowspan {
+    top: calc(-1 * var(--revo-grid-header-height));
+    height: 200%;
+    z-index: 2;
+}
+
+.raw-materials-grid revogr-data .rgCell {
+    border: 0 !important;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.raw-materials-grid revogr-viewport-scroll.colPinStart {
+    box-shadow: none !important;
+}
+
+.raw-materials-grid revogr-data .rgRow.focused-rgRow {
+    background-color: transparent !important;
+}
+
+.raw-materials-grid .rowHeaders revogr-header .rgHeaderCell,
+.raw-materials-grid .rowHeaders revogr-data .rgCell.report-row-header {
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.raw-materials-grid .rowHeaders revogr-header .rgHeaderCell {
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.raw-materials-grid revogr-data .rgCell.report-cell {
+    background: var(--cell-base) !important;
+    color: var(--foreground);
+    font-variant-numeric: tabular-nums;
+}
+
+.raw-materials-grid revogr-data .rgCell.report-cell--selected {
+    background-image: linear-gradient(rgb(0 120 99 / 10%), rgb(0 120 99 / 10%)) !important;
+}
+
+.report-row-header__button {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+}
+
+.raw-materials-grid .rowHeaders revogr-data .rgCell.report-row-header--selected {
+    color: var(--foreground);
+    background: var(--accent-glow);
+}
+
+.report-cell__checkbox {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+}
+
+.report-cell__checkbox input {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.report-cell__checkbox input:disabled {
+    cursor: default;
+}
+
+.raw-materials-grid revogr-data .rgCell.report-cell--readonly {
+    color: var(--muted);
+}
+
+.raw-materials-grid revogr-data .rgCell.report-cell--remote-locked {
+    z-index: 2;
+    color: var(--muted) !important;
+    outline: 2px solid var(--warning);
+    outline-offset: -2px;
+}
+
+.raw-materials-grid revogr-data .rgCell.report-cell--placeholder {
+    background: var(--cell-placeholder) !important;
+}
+
+.raw-materials-grid revogr-data .rgCell.report-cell--empty {
+    background: var(--cell-empty) !important;
+}
+
+.raw-materials-grid revogr-data .rgCell.report-cell--calculated {
+    background: var(--cell-calculated) !important;
+}
+
+.raw-materials-grid revogr-data .rgCell.report-cell--new {
+    background: var(--cell-new) !important;
+}
+
+.raw-materials-grid revogr-data .rgCell.report-cell--changed {
+    background: var(--cell-changed) !important;
+}
+
+.raw-materials-grid revogr-data .rgCell.report-cell--deleted {
+    background: var(--cell-deleted) !important;
+    color: #8c1d18;
+    text-decoration: line-through;
+}
+
+.raw-materials-grid revogr-data .rgCell.report-cell--number,
+.report-cell__number {
+    justify-content: flex-end;
+    width: 100%;
+    text-align: right;
+}
+
+.report-cell__multi-value {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.grid-options-menu {
+    position: absolute;
+    z-index: 12;
+    top: 0;
+    left: 0;
+    display: grid;
+    width: 52px;
+    height: 44px;
+    place-items: center;
+    background: var(--surface);
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+}
+
+.grid-options-menu .button {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+}
+
+/* ─── Редакторы ячеек RevoGrid (Autocomplete) ─────────────── */
+.grid-autocomplete-editor {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+}
+.grid-autocomplete-editor [data-slot="trigger"].grid-autocomplete-editor__hidden-trigger {
+    position: absolute;
+    inset: 0;
+    min-height: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: none;
+}
+.grid-autocomplete-editor .autocomplete__trigger {
+    position: absolute !important;
+    inset: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+.raw-materials-grid revogr-edit:has(.grid-autocomplete-editor) {
+    background: transparent !important;
+    border-color: transparent !important;
+}
+.grid-autocomplete-editor__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    padding: 0.55rem;
+    border-top: 1px solid var(--separator);
+}
