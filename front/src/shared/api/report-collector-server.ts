@@ -4,10 +4,8 @@ import { getBackendInternalUrl } from "@/shared/config";
 
 import { ReportCollectorApiError } from "./report-collector";
 
-const BACKEND_URL = getBackendInternalUrl();
-
 export async function getCurrentUserServer(session: AuthSession | null) {
-    const response = await fetch(new URL("/api/me", BACKEND_URL), {
+    const response = await fetch(new URL("/api/me", getBackendInternalUrl()), {
         cache: "no-store",
         headers: buildIdentityHeaders(session),
     });

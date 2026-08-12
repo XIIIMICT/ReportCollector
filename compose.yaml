@@ -74,6 +74,7 @@ services:
       POSTGRES_HOST: postgres
     volumes:
       - ./logs:/app/logs
+      - /etc/ssl/certs:/etc/ssl/certs:ro
     ports:
       - "6000:3000"
     depends_on:
@@ -119,6 +120,8 @@ services:
     environment:
       BACKEND_INTERNAL_URL: http://back:3000
       AUTH_KEYCLOAK_INTERNAL_ISSUER: ${AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER:-${AUTH_KEYCLOAK_PUBLIC_ISSUER}}
+    volumes:
+      - /etc/ssl/certs:/etc/ssl/certs:ro
     ports:
       - "5000:5000"
     depends_on:

@@ -18,7 +18,6 @@ import { getBackendInternalUrl } from "@/shared/config";
 
 export const dynamic = "force-dynamic";
 const LOCAL_SESSION_SECONDS = 12 * 60 * 60;
-const BACKEND_URL = getBackendInternalUrl();
 
 export function GET() {
     if (!isKeycloakEnabled()) {
@@ -63,7 +62,7 @@ export async function POST(request: Request) {
         return loginFailure("Укажите логин и пароль.");
     }
 
-    const response = await fetch(new URL("/api/auth/login", BACKEND_URL), {
+    const response = await fetch(new URL("/api/auth/login", getBackendInternalUrl()), {
         body: JSON.stringify({ email, password }),
         cache: "no-store",
         headers: { "Content-Type": "application/json" },

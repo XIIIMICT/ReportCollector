@@ -1,0 +1,25 @@
+#:schema https://www.schemastore.org/prek.json
+
+default_install_hook_types = ["pre-commit"]
+default_stages = ["pre-commit"]
+
+[[repos]]
+repo = "builtin"
+
+[[repos.hooks]]
+id = "check-added-large-files"
+
+[[repos.hooks]]
+id = "check-merge-conflict"
+
+[[repos.hooks]]
+id = "check-yaml"
+files = '.ya?ml$'
+
+[[repos.hooks]]
+id = "end-of-file-fixer"
+files = '^(\.github/.*|README\.md|LICENSE|justfile|compose\.ya?ml|\.env\.example|\.gitignore)$'
+
+[[repos.hooks]]
+id = "trailing-whitespace"
+files = '^(\.github/.*|README\.md|LICENSE|justfile|compose\.ya?ml|\.env\.example|\.gitignore)$'

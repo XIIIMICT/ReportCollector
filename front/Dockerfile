@@ -5,6 +5,10 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
 WORKDIR /app
 
 FROM base AS deps
+# Системные сертификаты для TLS при установке пакетов
+# (базовый образ bun slim их не содержит).
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 COPY package.json bun.lock ./
 RUN --mount=type=cache,target=/root/.bun/install/cache \
     bun install --frozen-lockfile

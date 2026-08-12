@@ -34,7 +34,7 @@ seed:
     uv run --directory back -m src.scripts.seed_database --reset
 
 deps:
-    uv --directory back sync
+    uv --system-certs --directory back sync
     bun install --cwd front
 
 # ── Качество (дублируют шаги CI) ────────────────────────────────────────────
