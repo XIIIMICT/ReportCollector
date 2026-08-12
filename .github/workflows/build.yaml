@@ -79,4 +79,4 @@ jobs:
           KEYCLOAK_ENABLED: "false"
           AUTH_SECRET: ci-secret-for-build-placeholder-at-least-32-bytes
           AUTH_APP_ORIGIN: http://localhost:5000
-          BACKEND_INTERNAL_URL: http://localhost:3000
+          BACKEND_INTERNAL_URL: http://localhost:6000

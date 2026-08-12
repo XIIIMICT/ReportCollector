@@ -111,7 +111,7 @@ jobs:
       - name: Wait for backend healthcheck
         run: |
           for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:3000/health; then
+            if curl --fail --silent http://127.0.0.1:6000/health; then
               echo ""
               exit 0
             fi
@@ -136,7 +136,7 @@ jobs:
 
       - name: Verify API endpoints
         run: |
-          curl --fail --silent http://127.0.0.1:3000/health | grep -q '"ok"'
+          curl --fail --silent http://127.0.0.1:6000/health | grep -q '"ok"'
           curl --fail --silent http://127.0.0.1:5000/api/health | grep -q '"ok"'
           echo "All endpoints OK"
 
