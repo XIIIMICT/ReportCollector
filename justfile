@@ -1,9 +1,15 @@
 set windows-shell := ["powershell.exe", "-Command"]
 
 export UV_SYSTEM_CERTS := "1"
+export NODE_OPTIONS := "--use-system-ca"
 
-# ── Docker (prod/dev-профили поднимают и postgres, и keycloak) ────────────
+# ── Docker (профили prod/dev поднимают только приложение; внешние
+#    сервисы Postgres, Keycloak, Loki, Grafana запускаются отдельно
+#    через профиль standalone) ───────────────────────────────────────────────
 prod:
+    docker compose --profile prod up --build -d
+
+prod-build:
     docker compose --profile prod up --build -d
 
 dev:
@@ -15,6 +21,9 @@ db-standalone:
 keycloak-standalone:
     docker compose --profile standalone up -d keycloak
 
+logging-standalone:
+    docker compose --profile standalone up -d loki grafana alloy
+
 down:
     docker compose --profile standalone down
 
@@ -23,7 +32,7 @@ clean:
 
 # ── Локальный запуск на хосте ──────────────────────────────────────────────
 back:
-    uv run --directory back -m uvicorn src.main:app --reload --port 3000
+    uv run --directory back -m uvicorn src.main:app --reload --port 6000
 
 front:
     bun run --cwd front dev --hostname 127.0.0.1 --port 5000
@@ -34,15 +43,15 @@ seed:
     uv run --directory back -m src.scripts.seed_database --reset
 
 deps:
-    uv --directory back sync
+    uv sync --directory back
     bun install --cwd front
 
-# ── Качество (дублируют шаги CI) ────────────────────────────────────────────
+# ── Качество (дублируют шаги CI, но с исправлением) ─────────────────────────
 lint:
-    uv run --directory back ruff check
-    uv run --directory back ruff format --check
-    bun run --cwd front lint:check
-    bun run --cwd front format:check
+    uv run --directory back ruff check --fix
+    uv run --directory back ruff format
+    bun run --cwd front lint
+    bun run --cwd front format
 
 typecheck:
     uv run --directory back ty check

@@ -5,7 +5,7 @@ test("evtushenko: raw-materials workspace shows movement, prices and dictionarie
 }) => {
     await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
     await page.waitForURL(
-        /127\.0\.0\.1:8180\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
+        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
         { timeout: 20000 },
     );
 
@@ -55,7 +55,7 @@ test("evtushenko: raw-materials workspace shows movement, prices and dictionarie
 test("evtushenko: project switcher and dictionary CRUD", async ({ page }) => {
     await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
     await page.waitForURL(
-        /127\.0\.0\.1:8180\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
+        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
         { timeout: 20000 },
     );
 
@@ -149,7 +149,7 @@ test("evtushenko: header shows fullname, profile modal works with theme + passwo
 }) => {
     await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
     await page.waitForURL(
-        /127\.0\.0\.1:8180\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
+        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
         { timeout: 20000 },
     );
 

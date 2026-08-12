@@ -6,9 +6,40 @@
 """
 
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+SectionId = Literal[
+    "materialMovement",
+    "rawMaterialPrices",
+    "rawMaterials",
+    "assets",
+    "deliveryBases",
+    "users",
+]
+"""Идентификаторы секций рабочего пространства (совпадают с фронтендом)."""
+
+
+class ExportColumnRequest(BaseModel):
+    """Столбец выгружаемой таблицы: ключ, путь заголовка, ширина, формат числа."""
+
+    key: str = Field(min_length=1, max_length=64)
+    headerPath: list[str] = Field(min_length=1, max_length=3)
+    width: float = Field(default=12.0, ge=1.0, le=100.0)
+    numberFormat: str | None = None
+
+
+class ExportViewRequest(BaseModel):
+    """Запрос выгрузки таблицы в Excel («вся» — без rowIds, «видимая» — с rowIds)."""
+
+    section: SectionId
+    reportMonth: date | None = None
+    headerPinned: bool = True
+    columns: list[ExportColumnRequest] = Field(min_length=1, max_length=64)
+    rowIds: list[UUID] | None = None
+    fileName: str = Field(min_length=1, max_length=255)
 
 
 class MovementRowRead(BaseModel):

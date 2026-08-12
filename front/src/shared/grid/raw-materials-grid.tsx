@@ -3,30 +3,51 @@ import {
     Editor,
     RevoGrid,
     type BeforeSaveDataDetails,
+    type ColumnGrouping,
+    type ColumnRegular,
     type Editors,
     type HyperFunc,
     type RowHeaders,
     type VNode,
 } from "@revolist/react-datagrid";
 import { MoreVert } from "iconoir-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    forwardRef,
+    useImperativeHandle,
+    type CSSProperties,
+    type Ref,
+} from "react";
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
 
 import {
     buildGridColumns,
+    exportColumnsFromGrid,
     getEditableKeys,
     getVisibleDescriptors,
     placeholderLastCellCompare,
     RUSSIAN_FILTER_CONFIG,
     type ColumnDescriptor,
+    type ExportColumn,
     type GridRow,
     type ReferenceOption,
     type SectionId,
 } from "./grid-config";
 import { MultiAssetEditor, ReferenceEditor } from "./grid-editors";
 
-export type RawMaterialsGridHandle = {};
+export type RawMaterialsGridState = {
+    columns: ExportColumn[];
+    rowIds: string[];
+};
+
+export type RawMaterialsGridHandle = {
+    getExportState: () => Promise<RawMaterialsGridState>;
+};
 
 type Props = {
     section: SectionId;
@@ -90,22 +111,25 @@ export function sortingConfigFromEvent(detail: GridSortingEvent): GridSortingCon
     };
 }
 
-export function RawMaterialsGrid({
-    section,
-    rows,
-    isAdmin,
-    showAssetColumn,
-    readOnly,
-    hasBaseline,
-    headerPinned,
-    onHeaderPinnedChange,
-    assets,
-    deliveryBases,
-    onCommit,
-    onPlaceholderCommit,
-    onSelectedRowsChange,
-    onValidationError,
-}: Props) {
+function RawMaterialsGridInner(
+    {
+        section,
+        rows,
+        isAdmin,
+        showAssetColumn,
+        readOnly,
+        hasBaseline,
+        headerPinned,
+        onHeaderPinnedChange,
+        assets,
+        deliveryBases,
+        onCommit,
+        onPlaceholderCommit,
+        onSelectedRowsChange,
+        onValidationError,
+    }: Props,
+    forwardedRef: Ref<RawMaterialsGridHandle>,
+) {
     const gridRef = useRef<HTMLRevoGridElement>(null);
     const verticalScrollRef = useRef<HTMLDivElement>(null);
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
@@ -349,6 +373,41 @@ export function RawMaterialsGrid({
         setHorizontalContentWidth(size.x + scrollbarGutter + 52);
     }, []);
 
+    const getExportState = useCallback(async (): Promise<RawMaterialsGridState> => {
+        const grid = gridRef.current;
+        if (!grid) {
+            return {
+                columns: exportColumnsFromGrid(section, showAssetColumn, showServiceColumns, []),
+                rowIds: rows
+                    .filter((row) => !row.isPlaceholder && !row.isDeleted)
+                    .map((row) => row.id),
+            };
+        }
+        const [currentColumns, currentRows] = await Promise.all([
+            grid.getColumns(),
+            grid.getVisibleSource("rgRow"),
+        ]);
+        return {
+            columns: exportColumnsFromGrid(
+                section,
+                showAssetColumn,
+                showServiceColumns,
+                currentColumns as (ColumnRegular | ColumnGrouping)[],
+            ),
+            rowIds: (currentRows as GridRow[])
+                .filter((row) => !row.isPlaceholder && !row.isDeleted)
+                .map((row) => row.id),
+        };
+    }, [rows, section, showAssetColumn, showServiceColumns]);
+
+    useImperativeHandle(
+        forwardedRef,
+        () => ({
+            getExportState,
+        }),
+        [getExportState],
+    );
+
     useEffect(() => {
         if (headerPinned) return;
         const frame = requestAnimationFrame(() => void refreshHorizontalScrollbar());
@@ -454,6 +513,8 @@ export function RawMaterialsGrid({
         </div>
     );
 }
+
+export const RawMaterialsGrid = forwardRef(RawMaterialsGridInner);
 
 type GridOptionsMenuProps = {
     headerHeight: number;

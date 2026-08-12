@@ -1,0 +1,75 @@
+local.file_match "reportcollector_logs" {
+  path_targets = [
+    {
+      "__path__" = "/var/log/reportcollector/*.log",
+      "app"      = "reportcollector",
+      "env"      = "local",
+      "job"      = "reportcollector",
+    },
+  ]
+
+  sync_period = "5s"
+}
+
+loki.source.file "reportcollector_logs" {
+  targets       = local.file_match.reportcollector_logs.targets
+  forward_to    = [loki.process.reportcollector.receiver]
+  tail_from_end = false
+}
+
+loki.process "reportcollector" {
+  stage.json {
+    expressions = {
+      "level"           = "level",
+      "logger"          = "logger",
+      "module"          = "module",
+      "time"            = "timestamp",
+      "event"           = "event",
+      "duration_ms"     = "duration_ms",
+      "form_id"         = "form_id",
+      "form_db_name"    = "form_db_name",
+      "status_code"     = "status_code",
+      "user_key"        = "user_key",
+      "user_email"      = "user_email",
+      "rows_affected"   = "rows_affected",
+      "method"          = "method",
+      "path"            = "path",
+    }
+  }
+
+  stage.labels {
+    values = {
+      "level"        = "",
+      "logger"       = "",
+      "module"       = "",
+      "event"        = "",
+      "form_db_name" = "",
+    }
+  }
+
+  stage.structured_metadata {
+    values = {
+      "form_id"       = "form_id",
+      "user_key"      = "user_key",
+      "user_email"    = "user_email",
+      "duration_ms"   = "duration_ms",
+      "status_code"   = "status_code",
+      "rows_affected" = "rows_affected",
+      "method"        = "method",
+      "path"          = "path",
+    }
+  }
+
+  stage.timestamp {
+    source = "time"
+    format = "RFC3339Nano"
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = sys.env("LOKI_URL") + "/loki/api/v1/push"
+  }
+}

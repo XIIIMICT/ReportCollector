@@ -2,8 +2,6 @@ import { buildIdentityHeaders } from "@/shared/auth/identity-headers";
 import { getSession } from "@/shared/auth/session";
 import { getBackendInternalUrl } from "@/shared/config";
 
-const BACKEND_URL = getBackendInternalUrl();
-
 export async function proxyBackend(request: Request, path: string, method = request.method) {
     const session = await getSession();
 
@@ -12,7 +10,7 @@ export async function proxyBackend(request: Request, path: string, method = requ
     }
 
     const requestUrl = new URL(request.url);
-    const targetUrl = new URL(`${path}${requestUrl.search}`, BACKEND_URL);
+    const targetUrl = new URL(`${path}${requestUrl.search}`, getBackendInternalUrl());
     const contentType = request.headers.get("Content-Type");
     const headers = buildIdentityHeaders(session);
 
@@ -35,8 +33,13 @@ export async function proxyBackend(request: Request, path: string, method = requ
         return Response.json(await response.json(), { status: response.status });
     }
 
-    return new Response(await response.text(), {
-        headers: { "Content-Type": responseContentType },
+    const responseHeaders = new Headers({ "Content-Type": responseContentType });
+    const contentDisposition = response.headers.get("Content-Disposition");
+    if (contentDisposition) {
+        responseHeaders.set("Content-Disposition", contentDisposition);
+    }
+    return new Response(await response.arrayBuffer(), {
+        headers: responseHeaders,
         status: response.status,
     });
 }

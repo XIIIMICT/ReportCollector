@@ -5,6 +5,7 @@
 *
 
 # Корневые файлы
+!/prek.toml
 !/.env.example
 !/.gitignore
 !/compose.yaml

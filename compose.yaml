@@ -1,63 +1,10 @@
 name: reportcollector
 
+include:
+  - path: ./infra/compose.external-services.yaml
+  - path: ./infra/compose.alloy.yaml
+
 services:
-  postgres:
-    container_name: rc-postgres
-    image: postgres:18-alpine
-    profiles: [standalone, prod, dev]
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:?Укажите POSTGRES_USER в .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Укажите POSTGRES_PASSWORD в .env}
-      POSTGRES_DB: ${POSTGRES_DB:?Укажите POSTGRES_DB в .env}
-      PGDATA: /var/lib/postgresql/18/docker
-    volumes:
-      - rc-postgres-data:/var/lib/postgresql/18/docker
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks: [net, net-dev]
-
-  keycloak:
-    container_name: rc-keycloak
-    image: keycloak/keycloak:26.6
-    profiles: [standalone, prod, dev]
-    restart: unless-stopped
-    command: ["start-dev", "--import-realm"]
-    environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USERNAME:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
-      KC_DB_USERNAME: ${POSTGRES_USER}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
-      KC_HEALTH_ENABLED: "true"
-      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-http://127.0.0.1:8180}
-      KC_HOSTNAME_STRICT: "false"
-      KC_HTTP_ENABLED: "true"
-    volumes:
-      - ./infra/keycloak/import:/opt/keycloak/data/import:ro
-    ports:
-      - "${KEYCLOAK_HOST_PORT:-8180}:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    networks: [net, net-dev]
-
   back:
     profiles: [prod]
     container_name: rc-back
@@ -65,22 +12,24 @@ services:
       context: ./back
       dockerfile: Dockerfile
       target: prod
+      args:
+        SSL_ISSUES_WHEN_INSTALLING_DEPS: ${SSL_ISSUES_WHEN_INSTALLING_DEPS:-}
     restart: unless-stopped
     env_file:
       - path: ./.env
         required: true
     environment:
       LOG_FILE: /app/logs/reportcollector.log
-      POSTGRES_HOST: postgres
+      AUTH_KEYCLOAK_INTERNAL_ISSUER: ${AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER:-${AUTH_KEYCLOAK_PUBLIC_ISSUER}}
     volumes:
+      - /etc/ssl/certs:/etc/ssl/certs:ro
       - ./logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
-      - "6000:3000"
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - "6000:6000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=5).read()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:6000/health', timeout=5).read()"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -94,6 +43,8 @@ services:
       context: ./back
       dockerfile: Dockerfile
       target: dev
+      args:
+        SSL_ISSUES_WHEN_INSTALLING_DEPS: ${SSL_ISSUES_WHEN_INSTALLING_DEPS:-}
     networks: !override [net-dev]
     develop:
       watch:
@@ -112,13 +63,21 @@ services:
       context: ./front
       dockerfile: Dockerfile
       target: prod
+      args:
+        SSL_ISSUES_WHEN_INSTALLING_DEPS: ${SSL_ISSUES_WHEN_INSTALLING_DEPS:-}
     restart: unless-stopped
     env_file:
       - path: ./.env
         required: true
     environment:
-      BACKEND_INTERNAL_URL: http://back:3000
+      BACKEND_INTERNAL_URL: http://back:6000
       AUTH_KEYCLOAK_INTERNAL_ISSUER: ${AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER:-${AUTH_KEYCLOAK_PUBLIC_ISSUER}}
+      FRONT_LOG_FILE: /app/logs/reportcollector-front.log
+    volumes:
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - ./logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "5000:5000"
     depends_on:
@@ -145,11 +104,13 @@ services:
       context: ./front
       dockerfile: Dockerfile
       target: dev
-    environment:
-      BACKEND_INTERNAL_URL: http://back-dev:3000
+      args:
+        SSL_ISSUES_WHEN_INSTALLING_DEPS: ${SSL_ISSUES_WHEN_INSTALLING_DEPS:-}
     depends_on: !override
       back-dev:
         condition: service_started
+    environment:
+      BACKEND_INTERNAL_URL: http://back-dev:6000
     networks: !override [net-dev]
     develop:
       watch:
@@ -175,7 +136,3 @@ networks:
     name: rc-net
   net-dev:
     name: rc-net-dev
-
-volumes:
-  rc-postgres-data:
-    name: rc-postgres-data

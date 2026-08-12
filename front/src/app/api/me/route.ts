@@ -2,8 +2,6 @@ import { buildIdentityHeaders } from "@/shared/auth/identity-headers";
 import { getSession } from "@/shared/auth/session";
 import { getBackendInternalUrl } from "@/shared/config";
 
-const BACKEND_URL = getBackendInternalUrl();
-
 export const dynamic = "force-dynamic";
 
 export async function GET() {
@@ -13,7 +11,7 @@ export async function GET() {
         return Response.json({ detail: "Пользователь не авторизован." }, { status: 401 });
     }
 
-    const response = await fetch(new URL("/api/me", BACKEND_URL), {
+    const response = await fetch(new URL("/api/me", getBackendInternalUrl()), {
         cache: "no-store",
         headers: buildIdentityHeaders(session),
     });
@@ -37,7 +35,7 @@ export async function PATCH(request: Request) {
 
     const headers = buildIdentityHeaders(session);
     headers.set("Content-Type", "application/json");
-    const response = await fetch(new URL("/api/me", BACKEND_URL), {
+    const response = await fetch(new URL("/api/me", getBackendInternalUrl()), {
         body: JSON.stringify(body),
         cache: "no-store",
         headers,
