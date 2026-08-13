@@ -10,7 +10,7 @@
 from datetime import UTC, date, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Index, Text, UniqueConstraint, Uuid
 from sqlmodel import Field, SQLModel
 
 
@@ -30,7 +30,10 @@ class RawMaterialUserAsset(SQLModel, table=True):
     """Привязка работника по активам к активам проекта «Сырьё»."""
 
     __tablename__ = "rm_user_asset"
-    __table_args__ = (UniqueConstraint("user_id", "asset_id"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "asset_id"),
+        Index("ix_rm_user_asset_asset_id", "asset_id"),
+    )
 
     user_id: UUID = Field(primary_key=True, foreign_key="app_user.id", ondelete="CASCADE")
     asset_id: UUID = Field(primary_key=True, foreign_key="rm_asset.id", ondelete="CASCADE")
@@ -56,7 +59,10 @@ class AssetRawMaterial(SQLModel, table=True):
     """Связка «актив — сырьевая позиция» (строка форм «Движение» и «Цены»)."""
 
     __tablename__ = "rm_asset_raw_material"
-    __table_args__ = (UniqueConstraint("asset_id", "raw_material_id"),)
+    __table_args__ = (
+        UniqueConstraint("asset_id", "raw_material_id"),
+        Index("ix_rm_asset_raw_material_raw_material_id", "raw_material_id"),
+    )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     asset_id: UUID = Field(foreign_key="rm_asset.id", ondelete="RESTRICT")
@@ -82,7 +88,10 @@ class MaterialMovement(SQLModel, table=True):
     """Значения ячеек формы «Движение» для связки актив-сырьё в отчётном месяце."""
 
     __tablename__ = "rm_material_movement"
-    __table_args__ = (UniqueConstraint("asset_raw_material_id", "report_month"),)
+    __table_args__ = (
+        UniqueConstraint("asset_raw_material_id", "report_month"),
+        Index("ix_rm_material_movement_report_month", "report_month"),
+    )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     asset_raw_material_id: UUID = Field(foreign_key="rm_asset_raw_material.id", ondelete="RESTRICT")
@@ -124,6 +133,7 @@ class RawMaterialPrice(SQLModel, table=True):
     """Цены формы «Цены»: факт 2025 и бизнес-план 2026 для связки актив-сырьё."""
 
     __tablename__ = "rm_raw_material_price"
+    __table_args__ = (Index("ix_rm_raw_material_price_delivery_basis_id", "delivery_basis_id"),)
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     asset_raw_material_id: UUID = Field(
@@ -143,3 +153,63 @@ class RawMaterialPrice(SQLModel, table=True):
     updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
     business_plan_updated_at: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
     business_plan_updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+
+
+class ReportSnapshot(SQLModel, table=True):
+    """
+    Зафиксированная версия формы «Движение» за отчётный месяц.
+
+    В один месяц может существовать только один снимок: предварительная
+    фиксация перезаписывается, финальная — неизменна. previous_snapshot_id
+    хранит ссылку на перезаписанную версию (без FK — та может быть удалена).
+    """
+
+    __tablename__ = "rm_report_snapshot"
+    __table_args__ = (
+        Index("ix_rm_report_snapshot_report_month", "report_month"),
+        Index("ix_rm_report_snapshot_fixed_at", "fixed_at"),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    report_month: date = Field(sa_column=Column(Date, unique=True, nullable=False))
+    fixed_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
+    fixed_by_user_id: UUID = Field(foreign_key="app_user.id", ondelete="RESTRICT")
+    fixed_by_email: str = Field(sa_column=Column(Text, nullable=False))
+    fixed_by_fullname: str = Field(sa_column=Column(Text, nullable=False))
+    is_final: bool = Field(default=False)
+    previous_snapshot_id: UUID | None = Field(
+        default=None,
+        sa_column=Column(Uuid, nullable=True, index=True),
+    )
+
+
+class SnapshotMaterialMovement(SQLModel, table=True):
+    """
+    Строки зафиксированной версии «Движения» (иммутабельный архив).
+
+    Хранит копии значений и названий: внешние ключи на рабочие таблицы
+    отсутствуют, чтобы снимок не зависел от их жизненного цикла.
+    """
+
+    __tablename__ = "rm_snapshot_material_movement"
+
+    snapshot_id: UUID = Field(primary_key=True, foreign_key="rm_report_snapshot.id", ondelete="CASCADE")
+    source_asset_raw_material_id: UUID = Field(primary_key=True)
+    source_row_id: UUID = Field(default_factory=uuid4)
+    source_asset_id: UUID = Field(default_factory=uuid4)
+    source_raw_material_id: UUID = Field(default_factory=uuid4)
+    asset_name: str = Field(sa_column=Column(Text, nullable=False))
+    raw_material_name: str = Field(sa_column=Column(Text, nullable=False))
+    business_plan_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    demand_plan_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    consumption_fact_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    demand_deviation_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    delivery_plan_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    delivery_fact_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    delivery_deviation_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    balance_start_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    balance_on_site_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    balance_in_transit_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    balance_end_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    storage_standard_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    deviation_reason: str | None = Field(default=None, sa_column=Column(Text, nullable=True))

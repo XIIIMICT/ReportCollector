@@ -17,6 +17,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from src.collab.store import MemoryStore
+
 # Переменные окружения должны быть установлены до первого импорта src.*,
 # потому что src.database кэширует настройки на уровне модуля.
 os.environ.setdefault("AUTH_SECRET", "test-secret-that-is-at-least-32-characters-long")
@@ -31,6 +33,7 @@ os.environ.setdefault("POSTGRES_SCHEMA", "rc")
 os.environ.setdefault("BACKEND_CORS_ORIGINS", '["http://localhost:5000","http://127.0.0.1:5000"]')
 os.environ.setdefault("TEST_DATABASE_URL", "postgresql+asyncpg://postgres:strong_password@localhost:5432/dwh")
 os.environ.setdefault("TEST_SCHEMA", "rc_test")
+os.environ.setdefault("VALKEY_URL", "")
 
 TEST_DATABASE_URL = os.environ["TEST_DATABASE_URL"]
 TEST_SCHEMA = os.environ["TEST_SCHEMA"]
@@ -44,8 +47,9 @@ def anyio_backend() -> str:
 
 @pytest.fixture(scope="session")
 async def test_engine():
-    """Движок и схема тестовой сессии: таблицы создаются с нуля (create_all)."""
+    """Движок тестовой сессии: метаданные моделей зарегистрированы, схема создаётся per-test."""
     from src.auth import models as _auth_models  # noqa: F401
+    from src.collab import models as _collab_models  # noqa: F401
     from src.raw_materials import models as _raw_materials_models  # noqa: F401
 
     engine = create_async_engine(
@@ -53,23 +57,12 @@ async def test_engine():
         connect_args={"server_settings": {"search_path": TEST_SCHEMA}},
         pool_pre_ping=True,
     )
-    async with engine.begin() as conn:
-        await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TEST_SCHEMA}"'))
-        await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
-        await conn.execute(text(f'CREATE SCHEMA "{TEST_SCHEMA}"'))
-        await conn.execute(text(f'SET search_path TO "{TEST_SCHEMA}"'))
-        await conn.run_sync(SQLModel.metadata.create_all)
-
     yield engine
-
-    async with engine.begin() as conn:
-        await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
     await engine.dispose()
 
 
-@pytest.fixture(scope="session")
-async def seed_data(test_engine) -> None:
-    """Минимальный набор данных проекта «Сырьё» для всех тестов сессии."""
+async def _seed_session(session: AsyncSession) -> None:
+    """Минимальный набор данных проекта «Сырьё»: пользователи, arm, периоды, цены, строки."""
     from src.auth.constants import RAW_MATERIALS_PROJECT_KEY, RAW_MATERIALS_PROJECT_NAME
     from src.auth.models import Project, ProjectRole, User, UserRole
     from src.raw_materials.models import (
@@ -83,117 +76,131 @@ async def seed_data(test_engine) -> None:
     )
 
     now = datetime.now(UTC)
-    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    async with session_factory() as session:
-        project = Project(key=RAW_MATERIALS_PROJECT_KEY, name=RAW_MATERIALS_PROJECT_NAME)
-        session.add(project)
-        await session.flush()
+    project = Project(key=RAW_MATERIALS_PROJECT_KEY, name=RAW_MATERIALS_PROJECT_NAME)
+    session.add(project)
+    await session.flush()
 
-        admin = User(
-            key="admin@example.local",
-            email="admin@example.local",
-            name="Admin User",
+    admin = User(
+        key="admin@example.local",
+        email="admin@example.local",
+        name="Admin User",
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(admin)
+    await session.flush()
+    session.add(
+        UserRole(
+            user_id=admin.id,
+            project_id=project.id,
+            role=ProjectRole.ADMIN,
+            is_active=True,
             created_at=now,
             updated_at=now,
         )
-        session.add(admin)
-        await session.flush()
+    )
+
+    assets = {name: RawMaterialAsset(name=name, created_at=now, updated_at=now) for name in ["СНХЗ", "БСЗ", "ВОС"]}
+    for asset in assets.values():
+        session.add(asset)
+    await session.flush()
+
+    materials = {name: RawMaterial(name=name, created_at=now, updated_at=now) for name in ["Аммиак", "Метанол"]}
+    for material in materials.values():
+        session.add(material)
+    await session.flush()
+
+    arm_by_key: dict[tuple[str, str], AssetRawMaterial] = {}
+    for asset_name, material_name in [
+        ("СНХЗ", "Аммиак"),
+        ("СНХЗ", "Метанол"),
+        ("БСЗ", "Аммиак"),
+        ("ВОС", "Метанол"),
+    ]:
+        arm = AssetRawMaterial(
+            asset_id=assets[asset_name].id,
+            raw_material_id=materials[material_name].id,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(arm)
+        arm_by_key[(asset_name, material_name)] = arm
+    await session.flush()
+
+    for month in [date(2026, 8, 1), date(2026, 9, 1)]:
+        session.add(MovementPeriod(report_month=month))
+
+    for basis in ["FOB", "FCA"]:
+        session.add(DeliveryBasis(name=basis, created_at=now, updated_at=now))
+    await session.flush()
+
+    for (_, _), arm in arm_by_key.items():
         session.add(
-            UserRole(
-                user_id=admin.id,
-                project_id=project.id,
-                role=ProjectRole.ADMIN,
-                is_active=True,
+            RawMaterialPrice(
+                asset_raw_material_id=arm.id,
+                delivery_basis_id=None,
+                fact_2025=1.0,
+                business_plan_quantity_tons=100.0,
+                business_plan_usd_per_ton=200.0,
+                business_plan_rub_per_ton=20000.0,
+                delivery_cost_rub=500.0,
                 created_at=now,
                 updated_at=now,
             )
         )
 
-        assets = {name: RawMaterialAsset(name=name, created_at=now, updated_at=now) for name in ["СНХЗ", "БСЗ", "ВОС"]}
-        for asset in assets.values():
-            session.add(asset)
-        await session.flush()
-
-        materials = {name: RawMaterial(name=name, created_at=now, updated_at=now) for name in ["Аммиак", "Метанол"]}
-        for material in materials.values():
-            session.add(material)
-        await session.flush()
-
-        arm_by_key: dict[tuple[str, str], AssetRawMaterial] = {}
-        for asset_name, material_name in [
-            ("СНХЗ", "Аммиак"),
-            ("СНХЗ", "Метанол"),
-            ("БСЗ", "Аммиак"),
-            ("ВОС", "Метанол"),
-        ]:
-            arm = AssetRawMaterial(
-                asset_id=assets[asset_name].id,
-                raw_material_id=materials[material_name].id,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(arm)
-            arm_by_key[(asset_name, material_name)] = arm
-        await session.flush()
-
-        for month in [date(2026, 8, 1), date(2026, 9, 1)]:
-            session.add(MovementPeriod(report_month=month))
-
-        for basis in ["FOB", "FCA"]:
-            session.add(DeliveryBasis(name=basis, created_at=now, updated_at=now))
-        await session.flush()
-
-        for (asset_name, material_name), arm in arm_by_key.items():
-            session.add(
-                RawMaterialPrice(
-                    asset_raw_material_id=arm.id,
-                    delivery_basis_id=None,
-                    fact_2025=1.0,
-                    business_plan_quantity_tons=100.0,
-                    business_plan_usd_per_ton=200.0,
-                    business_plan_rub_per_ton=20000.0,
-                    delivery_cost_rub=500.0,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
-
-        filled_arm = arm_by_key[("СНХЗ", "Аммиак")]
+    filled_arm = arm_by_key[("СНХЗ", "Аммиак")]
+    session.add(
+        MaterialMovement(
+            asset_raw_material_id=filled_arm.id,
+            report_month=date(2026, 8, 1),
+            demand_plan_tons=100.0,
+            consumption_fact_tons=80.0,
+            delivery_plan_tons=90.0,
+            delivery_fact_tons=70.0,
+            balance_start_tons=10.0,
+            balance_on_site_tons=5.0,
+            balance_in_transit_tons=2.0,
+            balance_end_tons=1.0,
+            storage_standard_tons=50.0,
+            deviation_reason="Недопоставка",
+            created_at=now,
+            updated_at=now - timedelta(hours=1),
+        )
+    )
+    for (_, _), arm in arm_by_key.items():
+        if arm.id == filled_arm.id:
+            continue
         session.add(
             MaterialMovement(
-                asset_raw_material_id=filled_arm.id,
+                asset_raw_material_id=arm.id,
                 report_month=date(2026, 8, 1),
-                demand_plan_tons=100.0,
-                consumption_fact_tons=80.0,
-                delivery_plan_tons=90.0,
-                delivery_fact_tons=70.0,
-                balance_start_tons=10.0,
-                balance_on_site_tons=5.0,
-                balance_in_transit_tons=2.0,
-                balance_end_tons=1.0,
-                storage_standard_tons=50.0,
-                deviation_reason="Недопоставка",
                 created_at=now,
-                updated_at=now - timedelta(hours=1),
+                updated_at=now,
             )
         )
-        for (_, _), arm in arm_by_key.items():
-            session.add(
-                MaterialMovement(
-                    asset_raw_material_id=arm.id,
-                    report_month=date(2026, 9, 1),
-                    created_at=now,
-                    updated_at=now,
-                )
+    for (_, _), arm in arm_by_key.items():
+        session.add(
+            MaterialMovement(
+                asset_raw_material_id=arm.id,
+                report_month=date(2026, 9, 1),
+                created_at=now,
+                updated_at=now,
             )
-        await session.commit()
+        )
+    await session.commit()
 
 
 @pytest.fixture
-async def db_session(test_engine, seed_data) -> AsyncGenerator[AsyncSession]:
-    """Сессия БД с откатом после каждого теста."""
+async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
+    """Сессия БД с чистым сидом для каждого теста (изоляция от коммитов внутри тестов)."""
+    async with test_engine.begin() as conn:
+        await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
+        await conn.execute(text(f'CREATE SCHEMA "{TEST_SCHEMA}"'))
+        await conn.run_sync(SQLModel.metadata.create_all)
     session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
+        await _seed_session(session)
         yield session
         await session.rollback()
 
@@ -211,6 +218,16 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def store() -> MemoryStore:
+    """Хранилище совместного редактирования (in-memory в тестах)."""
+    from src.collab.store import MemoryStore, get_collab_store
+
+    instance = get_collab_store()
+    assert isinstance(instance, MemoryStore)
+    return instance
 
 
 def signed_identity_headers(

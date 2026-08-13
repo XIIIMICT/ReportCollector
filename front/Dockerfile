@@ -17,7 +17,7 @@ RUN if [ -n "$SSL_ISSUES_WHEN_INSTALLING_DEPS" ]; then \
     fi
 COPY package.json bun.lock ./
 RUN --mount=type=cache,target=/root/.bun/install/cache \
-    && bun install --frozen-lockfile
+    bun install --frozen-lockfile
 
 FROM deps AS dev
 EXPOSE ${PORT}

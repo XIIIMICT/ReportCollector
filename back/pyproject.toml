@@ -3,11 +3,13 @@ name = "report-collector-back"
 version = "0.0.1"
 requires-python = ">=3.14"
 dependencies = [
+    "alembic>=1.16.0",
     "argon2-cffi>=25.1.0",
     "asyncpg>=0.31.0",
     "fastapi>=0.141.1",
     "openpyxl>=3.1.5",
     "pydantic-settings>=2.15.0",
+    "redis>=6.0.0",
     "sqlmodel>=0.0.39",
     "uvicorn[standard]>=0.52.1",
 ]
@@ -47,7 +49,7 @@ indent-width = 4
 select = ["ALL"]
 ignore = [
     "COM812",  # Форматтер Ruff может конфликтовать с этим правилом
-    "CPY001",
+    "CPY001",  # Указание копирайта в каждом файле не требуется
     "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",  # Докстринги необязательны
     "D203",  # Конфликтует с предпочтительным D211
     "D212",  # Конфликтует с предпочтительным D213

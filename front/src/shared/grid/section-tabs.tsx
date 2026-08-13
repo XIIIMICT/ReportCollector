@@ -2,7 +2,7 @@
 
 import { Tabs } from "@heroui/react";
 
-import { formatMonthName, MAIN_SECTIONS } from "@/shared/grid/grid-config";
+import { MAIN_SECTIONS } from "@/shared/grid/grid-config";
 import type { SectionId } from "@/shared/grid/grid-config";
 
 export type WorkspaceTab = {
@@ -52,5 +52,3 @@ export function SectionTabs({
         </Tabs>
     );
 }
-
-export { formatMonthName };

@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .api import api_router
 from .app_logging import configure_application_logging, log_error, log_event, log_warning, monotonic_ms
+from .collab.store import get_collab_store
 from .config import get_settings
 
 settings = get_settings()
@@ -32,6 +33,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
+    await get_collab_store().close()
     log_event(LOGGER, "application_stopped", "Приложение ReportCollector остановлено.")
 
 

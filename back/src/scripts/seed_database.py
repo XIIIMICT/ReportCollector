@@ -15,6 +15,7 @@
 import argparse
 import asyncio
 from datetime import UTC, date, datetime
+from typing import Any, TypedDict
 from uuid import uuid4
 
 from sqlalchemy import text
@@ -34,6 +35,7 @@ from src.raw_materials.models import (
     RawMaterial,
     RawMaterialAsset,
     RawMaterialPrice,
+    RawMaterialUserAsset,
 )
 
 # ─── Данные сидирования (первая версия) ────────────────────────────
@@ -157,8 +159,71 @@ SEED_ADMIN_EMAIL = "evtushenko.sn@ruschem.ru"
 SEED_ADMIN_NAME = "Евтушенко Сергей Николаевич"
 
 
+class SeedExtraUser(TypedDict):
+    """Дополнительный пользователь совместной работы (см. SEED_EXTRA_USERS)."""
+
+    email: str
+    name: str
+    role: ProjectRole
+    assets: list[str]
+
+
+# Дополнительные пользователи для совместной работы:
+#   kuznetsov.an — второй администратор (все проекты);
+#   smirnov.iv — работник по активам, доступ только к СНХЗ;
+#   petrov.da — работник по активам, доступ к СХ и СНХЗ;
+#   lebedeva.ol — работник по активам, доступ только к ВОС (скоуп «В сети»).
+SEED_EXTRA_USERS: list[SeedExtraUser] = [
+    {
+        "email": "kuznetsov.an@ruschem.ru",
+        "name": "Кузнецов Алексей Николаевич",
+        "role": ProjectRole.ADMIN,
+        "assets": [],
+    },
+    {
+        "email": "smirnov.iv@ruschem.ru",
+        "name": "Смирнов Иван Викторович",
+        "role": ProjectRole.ASSET_WORKER,
+        "assets": ["СНХЗ"],
+    },
+    {
+        "email": "petrov.da@ruschem.ru",
+        "name": "Петров Дмитрий Анатольевич",
+        "role": ProjectRole.ASSET_WORKER,
+        "assets": ["СХ", "СНХЗ"],
+    },
+    {
+        "email": "lebedeva.ol@ruschem.ru",
+        "name": "Лебедева Ольга Ивановна",
+        "role": ProjectRole.ASSET_WORKER,
+        "assets": ["ВОС"],
+    },
+]
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _movement_values(index: int) -> dict[str, Any]:
+    """Реалистичные значения строки «Движения» (детерминированно по индексу)."""
+    return {
+        "demand_plan_tons": 850.0 + (index % 9) * 125.5,
+        "consumption_fact_tons": 830.0 + (index % 7) * 120.0,
+        "delivery_plan_tons": 790.0 + (index % 8) * 110.0,
+        "delivery_fact_tons": 810.0 + (index % 6) * 130.0,
+        "balance_start_tons": 300.0 + (index % 5) * 55.5,
+        "balance_on_site_tons": 290.0 + (index % 4) * 60.0,
+        "balance_in_transit_tons": 120.0 + (index % 3) * 25.0,
+        "balance_end_tons": 310.0 + (index % 6) * 50.0,
+        "storage_standard_tons": 950.0 + (index % 10) * 40.0,
+        "deviation_reason": "Плановая потребность производства",
+    }
+
+
+def _price_business_plan_tons(index: int) -> float:
+    """Бизнес-план строки «Цен» (детерминированно по индексу)."""
+    return 800.0 + (index % 9) * 125.5
 
 
 async def seed(session: AsyncSession) -> None:
@@ -219,7 +284,7 @@ async def seed(session: AsyncSession) -> None:
         session.add(MovementPeriod(report_month=report_month, created_at=now))
     await session.flush()
     for report_month in MOVEMENT_PERIODS:
-        for arm in arms:
+        for arm_index, arm in enumerate(arms):
             session.add(
                 MaterialMovement(
                     id=uuid4(),
@@ -227,17 +292,19 @@ async def seed(session: AsyncSession) -> None:
                     report_month=report_month,
                     created_at=now,
                     updated_at=now,
+                    **_movement_values(arm_index),
                 )
             )
     await session.flush()
 
     # Строки «Цен»: по одной на каждую связку актив-сырьё.
-    for arm in arms:
+    for arm_index, arm in enumerate(arms):
         session.add(
             RawMaterialPrice(
                 id=uuid4(),
                 asset_raw_material_id=arm.id,
                 delivery_basis_id=bases[DEFAULT_DELIVERY_BASIS].id,
+                business_plan_quantity_tons=_price_business_plan_tons(arm_index),
                 created_at=now,
                 updated_at=now,
             )
@@ -279,6 +346,62 @@ async def seed(session: AsyncSession) -> None:
             )
     await session.flush()
 
+    # Дополнительные пользователи: второй администратор и работники по активам.
+    for extra in SEED_EXTRA_USERS:
+        email = str(extra["email"])
+        extra_user = (await session.exec(select(User).where(User.email == email))).one_or_none()
+        if extra_user is None:
+            extra_user = User(
+                key=email,
+                email=email,
+                name=str(extra["name"]),
+                is_deleted=False,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(extra_user)
+            await session.flush()
+        if seed_password:
+            extra_user.password_hash = hash_password(seed_password)
+
+        role = extra["role"]
+        if role == ProjectRole.ADMIN:
+            target_projects = list(projects.values())
+        else:
+            target_projects = [projects[RAW_MATERIALS_PROJECT_KEY]]
+        for project in target_projects:
+            link = (
+                await session.exec(
+                    select(UserRole).where(UserRole.user_id == extra_user.id, UserRole.project_id == project.id)
+                )
+            ).one_or_none()
+            if link is None:
+                session.add(
+                    UserRole(
+                        user_id=extra_user.id,
+                        project_id=project.id,
+                        role=role,
+                        is_active=True,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+        await session.flush()
+
+        for asset_name in extra["assets"]:
+            asset = assets[asset_name]
+            grant = (
+                await session.exec(
+                    select(RawMaterialUserAsset).where(
+                        RawMaterialUserAsset.user_id == extra_user.id,
+                        RawMaterialUserAsset.asset_id == asset.id,
+                    )
+                )
+            ).one_or_none()
+            if grant is None:
+                session.add(RawMaterialUserAsset(user_id=extra_user.id, asset_id=asset.id))
+    await session.flush()
+
     await session.commit()
 
 
@@ -298,7 +421,8 @@ async def run(reset: bool = False) -> None:
             f"базисов={len(DELIVERY_BASIS_NAMES)}, сырьё={len(RAW_MATERIAL_NAMES)}, "
             f"связок актив-сырьё={arms_count}, периодов={len(MOVEMENT_PERIODS)}, "
             f"строк цен={arms_count}, строк движения={arms_count * len(MOVEMENT_PERIODS)}, "
-            f"пользователь={SEED_ADMIN_EMAIL} (admin всех проектов)."
+            f"пользователь={SEED_ADMIN_EMAIL} (admin всех проектов), "
+            f"доп. пользователи={len(SEED_EXTRA_USERS)} ({', '.join(str(u['email']) for u in SEED_EXTRA_USERS)})."
         )
 
 

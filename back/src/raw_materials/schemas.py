@@ -39,6 +39,7 @@ class ExportViewRequest(BaseModel):
     headerPinned: bool = True
     columns: list[ExportColumnRequest] = Field(min_length=1, max_length=64)
     rowIds: list[UUID] | None = None
+    snapshotId: UUID | None = None
     fileName: str = Field(min_length=1, max_length=255)
 
 
@@ -162,6 +163,60 @@ class PriceUpdateRequest(BaseModel):
     """Пакет правок ячеек формы «Цены»."""
 
     updates: list[CellUpdate]
+
+
+class MovementSnapshotRead(BaseModel):
+    """Зафиксированная версия формы «Движение» за отчётный месяц."""
+
+    id: UUID
+    reportMonth: date
+    fixedAt: datetime
+    fixedByFullname: str
+    isFinal: bool
+
+
+class MovementMetaRead(BaseModel):
+    """Статус формы «Движение»: полнота, финальность, архив версий."""
+
+    reportMonth: date
+    isComplete: bool
+    isFinal: bool
+    snapshots: list[MovementSnapshotRead]
+
+
+class FixMovementRequest(BaseModel):
+    """Запрос фиксации формы «Движение» за отчётный месяц."""
+
+    reportMonth: date
+
+
+class SnapshotMovementRowRead(BaseModel):
+    """Строка зафиксированной версии «Движения» (копия значений на момент фиксации)."""
+
+    sourceAssetRawMaterialId: UUID
+    assetName: str
+    rawMaterialName: str
+    businessPlanTons: float | None
+    demandPlanTons: float | None
+    consumptionFactTons: float | None
+    demandDeviationTons: float | None
+    deliveryPlanTons: float | None
+    deliveryFactTons: float | None
+    deliveryDeviationTons: float | None
+    balanceStartTons: float | None
+    balanceOnSiteTons: float | None
+    balanceInTransitTons: float | None
+    balanceEndTons: float | None
+    storageStandardTons: float | None
+    deviationReason: str | None
+
+
+class SnapshotViewRead(BaseModel):
+    """Версия для просмотра: снимок, предыдущий снимок для сравнения и строки."""
+
+    snapshot: MovementSnapshotRead
+    comparisonSnapshotId: UUID | None
+    rows: list[SnapshotMovementRowRead]
 
 
 class RawMaterialCreateRequest(BaseModel):

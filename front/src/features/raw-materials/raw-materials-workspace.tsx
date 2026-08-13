@@ -12,7 +12,17 @@ import {
     Tooltip,
     Typography,
 } from "@heroui/react";
-import { Collapse, Download, Expand, Trash } from "iconoir-react";
+import {
+    Collapse,
+    CheckCircle,
+    Copy,
+    Download,
+    Expand,
+    PasteClipboard,
+    Redo,
+    Trash,
+    Undo,
+} from "iconoir-react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -20,13 +30,18 @@ import {
     createDictionaryRecord,
     deleteDictionaryRecord,
     exportTableToExcel,
+    fixMovement,
     getAssetList,
     getDeliveryBasisList,
+    getMovementMeta,
+    getMovementSnapshot,
     getRawMaterialsList,
     getRawMaterialsMeta,
     getRawMaterialsMovement,
     getRawMaterialsPrices,
     getUserList,
+    redoCells,
+    undoCells,
     updateDictionaryCells,
     updateMovementCells,
     updatePriceCells,
@@ -35,25 +50,47 @@ import {
     type CellUpdate,
     type CreateDictionaryPayload,
     type DeliveryBasisRow,
+    type MovementMeta,
     type MovementRow,
+    type MovementSnapshot,
     type PriceRow,
     type RawMaterialRow,
     type RawMaterialsMeta,
+    type SnapshotView,
+    type UndoResult,
     type UserRow,
 } from "@/shared/api/raw-materials";
 import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector";
 import {
+    ASSET_TABLE,
+    DELIVERY_BASIS_TABLE,
+    MOVEMENT_TABLE,
+    PRICE_TABLE,
+    RAW_MATERIAL_TABLE,
+    USER_TABLE,
+    useCollabRoom,
+    type CollabRoom,
+} from "@/shared/collab/use-collab-room";
+import type { CollabCellChanged, CollabMember, CollabStatus } from "@/shared/collab/ws-client";
+import {
     ADMIN_SECTIONS,
     exportFileName,
+    getEditableKeys,
     MAIN_SECTIONS,
     SECTION_LABELS,
+    formatMonthName,
     type GridRow,
     type ReferenceOption,
     type SectionId,
 } from "@/shared/grid/grid-config";
-import { RawMaterialsGrid, type RawMaterialsGridHandle } from "@/shared/grid/raw-materials-grid";
-import { formatMonthName, SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
+import {
+    RawMaterialsGrid,
+    type GridViewStats,
+    type RawMaterialsGridHandle,
+} from "@/shared/grid/raw-materials-grid";
+import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
+import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 
 import { ProfileModal } from "./profile-modal";
 
@@ -62,6 +99,15 @@ type RawMaterialsWorkspaceProps = {
 };
 
 type DictionarySection = "rawMaterials" | "assets" | "deliveryBases" | "users";
+
+const SECTION_COLLAB_TABLE: Partial<Record<SectionId, string>> = {
+    materialMovement: MOVEMENT_TABLE,
+    rawMaterialPrices: PRICE_TABLE,
+    rawMaterials: RAW_MATERIAL_TABLE,
+    assets: ASSET_TABLE,
+    deliveryBases: DELIVERY_BASIS_TABLE,
+    users: USER_TABLE,
+};
 
 function isDictionarySection(section: SectionId): section is DictionarySection {
     return (
@@ -177,6 +223,33 @@ export type ExportState = {
     onExport: (mode: ExportMode) => Promise<void>;
 };
 
+export type UndoState = {
+    enabled: boolean;
+    offline: boolean;
+    canUndo: boolean;
+    canRedo: boolean;
+    onUndo: () => void;
+    onRedo: () => void;
+};
+
+export type ApproveState = {
+    pending: boolean;
+    canApprove: boolean;
+    onApprove: () => void;
+};
+
+export type ArchiveItem = {
+    id: string;
+    name: string;
+    description?: string;
+};
+
+export type ArchiveState = {
+    items: ArchiveItem[];
+    selectedKey: string | null;
+    onSelect: (snapshotId: string | null) => void;
+};
+
 function downloadBlob(blob: Blob, fileName: string): void {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -188,22 +261,46 @@ function downloadBlob(blob: Blob, fileName: string): void {
     URL.revokeObjectURL(url);
 }
 
+export type ClipboardActions = {
+    canPaste: boolean;
+    onCopy: () => void;
+    onPaste: () => void;
+};
+
 function SectionContent({
     section,
     reportMonth,
     isAdmin,
     assets,
     deliveryBases,
+    collabEnabled,
+    room,
+    remoteCellValues,
     onDeleteState,
     onExportState,
+    onUndoState,
+    onApproveState,
+    onArchiveState,
+    onFixed,
+    onGridStatsChange,
+    onClipboardStateChange,
 }: {
     section: SectionId;
     reportMonth: string | null;
     isAdmin: boolean;
     assets: ReferenceOption[];
     deliveryBases: ReferenceOption[];
+    collabEnabled: boolean;
+    room: CollabRoom;
+    remoteCellValues: Map<string, unknown>;
     onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
     onExportState: (state: ExportState) => void;
+    onUndoState: (state: UndoState) => void;
+    onApproveState: (state: ApproveState) => void;
+    onArchiveState: (state: ArchiveState) => void;
+    onFixed: () => void;
+    onGridStatsChange: (stats: GridViewStats) => void;
+    onClipboardStateChange: (state: ClipboardActions) => void;
 }) {
     const loader = useMemo(() => {
         switch (section) {
@@ -228,9 +325,25 @@ function SectionContent({
         MovementRow[] | PriceRow[] | RawMaterialRow[] | AssetRow[] | DeliveryBasisRow[] | UserRow[]
     >(loader, [loader, reloadKey]);
 
+    const { data: authConfig } = useAsyncData<{ keycloakEnabled: boolean } | null>(
+        () =>
+            fetch("/api/auth/config")
+                .then((response) => (response.ok ? response.json() : null))
+                .catch(() => null),
+        [],
+    );
+    const keycloakEnabled = authConfig?.keycloakEnabled === true;
+
+    const isMovement = section === "materialMovement" && reportMonth !== null;
+    const { data: movementMeta } = useAsyncData<MovementMeta | null>(
+        () => (isMovement ? getMovementMeta(reportMonth as string) : Promise.resolve(null)),
+        [isMovement, reportMonth, reloadKey],
+    );
+
     const [headerPinned, setHeaderPinned] = useState(false);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [approveOpen, setApproveOpen] = useState(false);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const [placeholderDraft, setPlaceholderDraft] = useState<CreateDictionaryPayload>(() =>
         initialPlaceholderDraft(section),
@@ -239,37 +352,100 @@ function SectionContent({
     const placeholderCreatePendingRef = useRef(false);
     const gridRef = useRef<RawMaterialsGridHandle>(null);
     const [exportPending, setExportPending] = useState(false);
+    const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
+    const [snapshotView, setSnapshotView] = useState<SnapshotView | null>(null);
+    const [snapshotPending, setSnapshotPending] = useState(false);
+    const [undoCount, setUndoCount] = useState(0);
+    const [redoCount, setRedoCount] = useState(0);
 
     useEffect(() => {
         placeholderDraftRef.current = placeholderDraft;
     }, [placeholderDraft]);
 
-    // Смена секции: сбрасываем состояние строки-заглушки, выделение и диалог
-    // удаления, а данные перезагружаются через loader (меняется по section).
+    // Смена секции или месяца: сбрасываем состояние строки-заглушки, выделение,
+    // диалоги и просмотр архивной версии, а данные перезагружаются через loader
+    // (меняется по section/reportMonth).
     useEffect(() => {
         const next = initialPlaceholderDraft(section);
         placeholderDraftRef.current = next;
         setPlaceholderDraft(next);
         setSelectedRowIds([]);
         setDeleteOpen(false);
-    }, [section]);
+        setApproveOpen(false);
+        setSelectedSnapshotId(null);
+        setSnapshotView(null);
+        setUndoCount(0);
+        setRedoCount(0);
+    }, [reportMonth, section]);
 
     const canManageReferences = isAdmin && !MAIN_SECTIONS.has(section);
+    const showAssetColumn = isAdmin || assets.length > 1;
     const selectedRows = useMemo(
         () => (rows ?? []).filter((row) => selectedRowIds.includes(row.id)),
         [rows, selectedRowIds],
     );
     const canDelete = canManageReferences && selectedRows.length > 0;
-    const readOnly = isMutationPending;
+    const isArchive = selectedSnapshotId !== null;
+
+    const collabTable = SECTION_COLLAB_TABLE[section] ?? MOVEMENT_TABLE;
+    const editableFieldKeys = useMemo(
+        () => getEditableKeys(section, isAdmin, showAssetColumn),
+        [isAdmin, section, showAssetColumn],
+    );
+    const remoteLocks = useMemo(() => {
+        const result = new Map<string, { fullname: string; email: string }>();
+        for (const [key, user] of room.lockedCells) {
+            result.set(key, { fullname: user.name || "", email: user.email || "" });
+        }
+        return result;
+    }, [room.lockedCells]);
+
+    const readOnly = isMutationPending || isArchive || (collabEnabled && room.status === "offline");
 
     useEffect(() => {
         onDeleteState({ canDelete, onDelete: () => setDeleteOpen(true) });
     }, [canDelete, onDeleteState]);
 
     const gridRows = useMemo(() => {
-        const base = (rows ?? []).map(toGridRow);
-        return canManageReferences ? [...base, placeholderRow(section, placeholderDraft)] : base;
-    }, [canManageReferences, placeholderDraft, rows, section]);
+        const base = (rows ?? []).map((row) => {
+            const gridRow = toGridRow(row);
+            if (!collabEnabled || typeof row.id !== "string") return gridRow;
+            gridRow.canonicalCells = {};
+            for (const field of editableFieldKeys) {
+                const key = `${collabTable}/${row.id}/${field}`;
+                gridRow.canonicalCells[field] = key;
+                const remote = remoteCellValues.get(key);
+                if (remote !== undefined) gridRow[field] = remote;
+            }
+            return gridRow;
+        });
+        return canManageReferences && section !== "users"
+            ? [...base, placeholderRow(section, placeholderDraft)]
+            : base;
+    }, [
+        canManageReferences,
+        collabEnabled,
+        collabTable,
+        editableFieldKeys,
+        placeholderDraft,
+        remoteCellValues,
+        rows,
+        section,
+    ]);
+
+    const archiveRows = useMemo<GridRow[]>(() => {
+        if (snapshotView === null) return [];
+        return snapshotView.rows.map((row) => ({
+            ...row,
+            id: row.sourceAssetRawMaterialId,
+            rowState: "unchanged" as const,
+            changedFields: [],
+            isDeleted: false,
+            isPlaceholder: false,
+        }));
+    }, [snapshotView]);
+
+    const displayRows = isArchive ? archiveRows : gridRows;
 
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
 
@@ -290,6 +466,8 @@ function SectionContent({
             ) {
                 await updateDictionaryCells(section, updates);
             }
+            setUndoCount((count) => count + 1);
+            setRedoCount(0);
             refresh();
         } catch (reason) {
             toast.danger("Изменения не сохранены", { description: errorMessage(reason) });
@@ -301,6 +479,7 @@ function SectionContent({
     async function createRecord(payload: CreateDictionaryPayload) {
         if (
             !canManageReferences ||
+            section === "users" ||
             placeholderCreatePendingRef.current ||
             !isDictionarySection(section)
         )
@@ -323,7 +502,7 @@ function SectionContent({
     }
 
     async function commitPlaceholderPatch(patch: Record<string, unknown>) {
-        if (!canManageReferences || isMutationPending) return;
+        if (!canManageReferences || section === "users" || isMutationPending) return;
         const next = {
             ...placeholderDraftRef.current,
             ...patch,
@@ -364,6 +543,7 @@ function SectionContent({
                     headerPinned,
                     columns: state.columns,
                     rowIds: mode === "visible" ? state.rowIds : null,
+                    snapshotId: isArchive ? selectedSnapshotId : null,
                     fileName,
                 });
                 downloadBlob(blob, fileName);
@@ -374,12 +554,230 @@ function SectionContent({
                 setExportPending(false);
             }
         },
-        [exportPending, section, reportMonth, headerPinned],
+        [exportPending, isArchive, section, selectedSnapshotId, reportMonth, headerPinned],
     );
 
     useEffect(() => {
         onExportState({ pending: exportPending, onExport: exportTable });
     }, [exportPending, exportTable, onExportState]);
+
+    const handleClipboardState = useCallback(
+        (state: { canPaste: boolean }) => {
+            onClipboardStateChange({
+                canPaste: state.canPaste,
+                onCopy: () => void gridRef.current?.copySelection(),
+                onPaste: () => void gridRef.current?.pasteIntoSelection(),
+            });
+        },
+        [onClipboardStateChange],
+    );
+
+    const [pendingSkip, setPendingSkip] = useState<{
+        actionId: number;
+        direction: "undo" | "redo";
+    } | null>(null);
+
+    const applyUndoResult = useCallback(
+        (result: UndoResult, direction: "undo" | "redo") => {
+            if (result.applied) {
+                setPendingSkip(null);
+                if (direction === "undo") {
+                    setUndoCount((count) => Math.max(0, count - 1));
+                    setRedoCount((count) => count + 1);
+                } else {
+                    setRedoCount((count) => Math.max(0, count - 1));
+                    setUndoCount((count) => count + 1);
+                }
+                refresh();
+                toast.success(direction === "undo" ? "Действие отменено" : "Действие возвращено");
+                return;
+            }
+            if (result.reason === "empty") {
+                setPendingSkip(null);
+                return;
+            }
+            const conflict = result.conflicts[0];
+            if (conflict) {
+                setPendingSkip({ actionId: conflict.actionId, direction });
+                const owner = conflict.user || "другой пользователь";
+                const description =
+                    conflict.reason === "locked"
+                        ? `Ячейку сейчас редактирует ${owner}. Нажмите ещё раз, чтобы пропустить действие.`
+                        : `Данные изменил ${owner}. Нажмите ещё раз, чтобы пропустить это действие.`;
+                toast.warning("Действие не выполнено", { description });
+                return;
+            }
+            setPendingSkip(null);
+        },
+        [refresh],
+    );
+
+    const runUndo = useCallback(async () => {
+        try {
+            const result = await undoCells(
+                pendingSkip?.direction === "undo" ? pendingSkip.actionId : null,
+            );
+            applyUndoResult(result, "undo");
+        } catch (reason) {
+            toast.danger("Не удалось отменить действие", { description: errorMessage(reason) });
+        }
+    }, [applyUndoResult, pendingSkip]);
+
+    const runRedo = useCallback(async () => {
+        try {
+            const result = await redoCells(
+                pendingSkip?.direction === "redo" ? pendingSkip.actionId : null,
+            );
+            applyUndoResult(result, "redo");
+        } catch (reason) {
+            toast.danger("Не удалось вернуть действие", { description: errorMessage(reason) });
+        }
+    }, [applyUndoResult, pendingSkip]);
+
+    useEffect(() => {
+        if (!collabEnabled) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (!(event.ctrlKey || event.metaKey)) return;
+            const key = event.key.toLocaleLowerCase();
+            if (key !== "z" && key !== "y") return;
+            const target = event.target as HTMLElement | null;
+            if (
+                target &&
+                (target.tagName === "INPUT" ||
+                    target.tagName === "TEXTAREA" ||
+                    target.isContentEditable)
+            )
+                return;
+            event.preventDefault();
+            if (key === "z") {
+                if (event.shiftKey) void runRedo();
+                else void runUndo();
+            } else {
+                void runRedo();
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [collabEnabled, runRedo, runUndo]);
+
+    useEffect(() => {
+        onUndoState({
+            enabled: collabEnabled && !isArchive && MAIN_SECTIONS.has(section),
+            offline: collabEnabled && room.status !== "online",
+            canUndo: undoCount > 0,
+            canRedo: redoCount > 0,
+            onUndo: runUndo,
+            onRedo: runRedo,
+        });
+    }, [
+        collabEnabled,
+        isArchive,
+        MAIN_SECTIONS,
+        onUndoState,
+        redoCount,
+        room.status,
+        runRedo,
+        runUndo,
+        section,
+        undoCount,
+    ]);
+
+    const [approvePending, setApprovePending] = useState(false);
+
+    const runApprove = useCallback(async () => {
+        if (approvePending || !reportMonth || !movementMeta?.isComplete) return;
+        setApprovePending(true);
+        try {
+            await fixMovement(reportMonth);
+            setApproveOpen(false);
+            toast.success("Месяц зафиксирован");
+            refresh();
+            onFixed();
+        } catch (reason) {
+            toast.danger("Не удалось зафиксировать месяц", { description: errorMessage(reason) });
+        } finally {
+            setApprovePending(false);
+        }
+    }, [approvePending, movementMeta?.isComplete, onFixed, refresh, reportMonth]);
+
+    useEffect(() => {
+        onApproveState({
+            pending: approvePending,
+            canApprove:
+                isAdmin &&
+                isMovement &&
+                !isArchive &&
+                movementMeta !== null &&
+                movementMeta.isComplete &&
+                !movementMeta.isFinal &&
+                !readOnly,
+            onApprove: () => setApproveOpen(true),
+        });
+    }, [approvePending, isAdmin, isArchive, isMovement, movementMeta, onApproveState, readOnly]);
+
+    const formatSnapshotItem = useCallback((snapshot: MovementSnapshot): ArchiveItem => {
+        const fixedAt = new Date(snapshot.fixedAt);
+        const stamp = Number.isNaN(fixedAt.getTime())
+            ? snapshot.fixedAt
+            : new Intl.DateTimeFormat("ru-RU", {
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+              }).format(fixedAt);
+        return {
+            id: snapshot.id,
+            name: `Движение за ${formatMonthName(snapshot.reportMonth)} (${
+                snapshot.isFinal ? "финальная" : "предварительная"
+            } версия)`,
+            description: `${snapshot.fixedByFullname} (${stamp})`,
+        };
+    }, []);
+
+    const loadSnapshotView = useCallback(async (snapshotId: string) => {
+        setSnapshotPending(true);
+        try {
+            const view = await getMovementSnapshot(snapshotId);
+            setSnapshotView(view);
+            setSelectedSnapshotId(snapshotId);
+        } catch (reason) {
+            toast.danger("Не удалось открыть архивную версию", {
+                description: errorMessage(reason),
+            });
+        } finally {
+            setSnapshotPending(false);
+        }
+    }, []);
+
+    const selectWorkingVersion = useCallback(() => {
+        setSelectedSnapshotId(null);
+        setSnapshotView(null);
+        refresh();
+    }, [refresh]);
+
+    useEffect(() => {
+        onArchiveState({
+            items: isMovement ? (movementMeta?.snapshots ?? []).map(formatSnapshotItem) : [],
+            selectedKey: isMovement ? selectedSnapshotId : null,
+            onSelect: (snapshotId) => {
+                if (snapshotId === null) {
+                    selectWorkingVersion();
+                } else {
+                    void loadSnapshotView(snapshotId);
+                }
+            },
+        });
+    }, [
+        formatSnapshotItem,
+        isMovement,
+        loadSnapshotView,
+        movementMeta,
+        onArchiveState,
+        selectWorkingVersion,
+        selectedSnapshotId,
+    ]);
 
     if (error) {
         return (
@@ -407,12 +805,13 @@ function SectionContent({
 
     return (
         <>
-            <div className="grid-viewport" aria-busy={isMutationPending}>
+            <div className="grid-viewport" aria-busy={isMutationPending || snapshotPending}>
                 <RawMaterialsGrid
                     ref={gridRef}
                     section={section}
-                    rows={gridRows}
+                    rows={displayRows}
                     isAdmin={isAdmin}
+                    keycloakEnabled={keycloakEnabled}
                     showAssetColumn={isAdmin || assets.length > 1}
                     readOnly={readOnly}
                     hasBaseline={false}
@@ -420,14 +819,30 @@ function SectionContent({
                     onHeaderPinnedChange={setHeaderPinned}
                     assets={assets}
                     deliveryBases={deliveryBases}
+                    remoteLocks={remoteLocks}
+                    onLockedCellEdit={(_, ownerName) =>
+                        toast.warning("Ячейка занята", {
+                            description: `Её сейчас редактирует ${ownerName}.`,
+                        })
+                    }
+                    onAcquireLease={room.acquireLeases}
+                    onReleaseLease={room.releaseLeases}
                     onCommit={commit}
                     onPlaceholderCommit={commitPlaceholderPatch}
                     onSelectedRowsChange={(selection) => setSelectedRowIds(selection.ids)}
                     onValidationError={(message) =>
                         toast.warning("Некорректное значение", { description: message })
                     }
+                    onPasteSkipped={(description) =>
+                        toast.warning("Вставка выполнена не полностью", { description })
+                    }
+                    onViewStatsChange={onGridStatsChange}
+                    onClipboardStateChange={handleClipboardState}
+                    onSelectionChange={(label) =>
+                        room.setSelection(label ? { label } : { label: "" })
+                    }
                 />
-                {rows.length === 0 && !canManageReferences ? (
+                {displayRows.length === 0 && !canManageReferences ? (
                     <div className="grid-empty">В этой таблице пока нет строк.</div>
                 ) : null}
             </div>
@@ -439,38 +854,109 @@ function SectionContent({
                 onOpenChange={setDeleteOpen}
                 onConfirm={() => void deleteRecords()}
             />
+            <ApproveDialog
+                isOpen={approveOpen}
+                isPending={approvePending}
+                isFinal={movementMeta?.isFinal === true}
+                onOpenChange={setApproveOpen}
+                onConfirm={() => void runApprove()}
+            />
         </>
     );
 }
+
+const WORKING_VERSION_ID = "__working";
 
 function SectionFooter({
     section,
     canDelete,
     exportState,
+    showExport,
+    undoState,
+    approveState,
+    archiveState,
+    gridStats,
+    clipboardState,
     isFullscreen,
     isFullscreenPending,
     onToggleFullscreen,
     onDelete,
+    onCopy,
+    onPaste,
+    onAutocompleteOpenChange,
 }: {
     section: SectionId;
     canDelete: boolean;
     exportState: ExportState;
+    showExport: boolean;
+    undoState: UndoState;
+    approveState: ApproveState;
+    archiveState: ArchiveState;
+    gridStats: GridViewStats | null;
+    clipboardState: { canPaste: boolean };
     isFullscreen: boolean;
     isFullscreenPending: boolean;
     onToggleFullscreen: () => void;
     onDelete: () => void;
+    onCopy: () => void;
+    onPaste: () => void;
+    onAutocompleteOpenChange: (open: boolean) => void;
 }) {
+    const showArchive = section === "materialMovement" && archiveState.items.length > 0;
+    const archiveItems: ArchiveItem[] = showArchive
+        ? [
+              {
+                  id: WORKING_VERSION_ID,
+                  name: "Рабочая версия",
+                  description: "Доступна для редактирования",
+              },
+              ...archiveState.items,
+          ]
+        : [];
     return (
         <div className="table-footer">
-            <div className="table-footer__summary" />
+            <div className="table-footer__summary">
+                {showArchive ? (
+                    <div className="archive-autocomplete">
+                        <SearchAutocomplete
+                            placeholder="Выберите версию"
+                            items={archiveItems}
+                            selectedKey={archiveState.selectedKey ?? WORKING_VERSION_ID}
+                            onSelectionChange={(key) => {
+                                if (key === null) return;
+                                archiveState.onSelect(key === WORKING_VERSION_ID ? null : key);
+                            }}
+                            onOpenChange={onAutocompleteOpenChange}
+                        />
+                    </div>
+                ) : null}
+                {gridStats !== null ? (
+                    <div className="grid-stats" aria-label="Статистика таблицы">
+                        <span>
+                            Всего: {gridStats.totalRows} строк, {gridStats.totalCols} столбцов
+                        </span>
+                        <span>
+                            Сейчас на экране: {gridStats.visibleRows} строк, {gridStats.visibleCols}{" "}
+                            столбцов
+                        </span>
+                    </div>
+                ) : null}
+            </div>
             <ActionBar
                 section={section}
                 canDelete={canDelete}
                 exportState={exportState}
+                showExport={showExport}
+                undoState={undoState}
+                approveState={approveState}
+                isArchive={archiveState.selectedKey !== null}
+                clipboardState={clipboardState}
                 isFullscreen={isFullscreen}
                 isFullscreenPending={isFullscreenPending}
                 onToggleFullscreen={onToggleFullscreen}
                 onDelete={onDelete}
+                onCopy={onCopy}
+                onPaste={onPaste}
             />
         </div>
     );
@@ -479,10 +965,21 @@ function SectionFooter({
 const RAW_MATERIALS_PROJECT_KEY = "raw_materials";
 
 export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProps) {
-    const { data: meta, error } = useAsyncData<RawMaterialsMeta>(() => getRawMaterialsMeta(), []);
+    const [metaReloadKey, setMetaReloadKey] = useState(0);
+    const { data: meta, error } = useAsyncData<RawMaterialsMeta>(
+        () => getRawMaterialsMeta(),
+        [metaReloadKey],
+    );
     const [selectedTabId, setSelectedTabId] = useState<string | null>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isFullscreenPending, setIsFullscreenPending] = useState(false);
+    const [footerAutocompleteOpen, setFooterAutocompleteOpen] = useState(false);
+    const [gridStats, setGridStats] = useState<GridViewStats | null>(null);
+    const [clipboardState, setClipboardState] = useState<ClipboardActions>({
+        canPaste: false,
+        onCopy: () => {},
+        onPaste: () => {},
+    });
     const [profileOpen, setProfileOpen] = useState(false);
     const [user, setUser] = useState(currentUser);
     const [deleteState, setDeleteState] = useState<{ canDelete: boolean; onDelete: () => void }>({
@@ -492,6 +989,24 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
     const [exportState, setExportState] = useState<ExportState>({
         pending: false,
         onExport: async () => {},
+    });
+    const [undoState, setUndoState] = useState<UndoState>({
+        enabled: false,
+        offline: false,
+        canUndo: false,
+        canRedo: false,
+        onUndo: () => {},
+        onRedo: () => {},
+    });
+    const [approveState, setApproveState] = useState<ApproveState>({
+        pending: false,
+        canApprove: false,
+        onApprove: () => {},
+    });
+    const [archiveState, setArchiveState] = useState<ArchiveState>({
+        items: [],
+        selectedKey: null,
+        onSelect: () => {},
     });
     const [activeProjectKey, setActiveProjectKey] = useState<string>(
         currentUser.access?.some((project) => project.key === RAW_MATERIALS_PROJECT_KEY)
@@ -506,6 +1021,16 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
     );
 
     const handleExportState = useCallback((state: ExportState) => setExportState(state), []);
+
+    const handleUndoState = useCallback((state: UndoState) => setUndoState(state), []);
+
+    const handleApproveState = useCallback((state: ApproveState) => setApproveState(state), []);
+
+    const handleArchiveState = useCallback((state: ArchiveState) => setArchiveState(state), []);
+
+    const handleFixed = useCallback(() => {
+        setMetaReloadKey((key) => key + 1);
+    }, []);
 
     const projects = user.access ?? [];
     const activeProject = projects.find((project) => project.key === activeProjectKey);
@@ -562,6 +1087,35 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
     }, [selectedTabId, tabs]);
 
     const selectedTab = tabs.find((tab) => tab.id === selectedTabId) ?? tabs[0] ?? null;
+
+    const collabEnabled = selectedTab !== null;
+    const visibleAssetNames = useMemo(() => meta?.assets ?? [], [meta]);
+    const [remoteCellValues, setRemoteCellValues] = useState<Map<string, unknown>>(new Map());
+    const handleCellChanged = useCallback((event: CollabCellChanged) => {
+        const table = SECTION_COLLAB_TABLE[event.section as SectionId];
+        if (!table) return;
+        const key = `${table}/${event.rowId}/${event.field}`;
+        setRemoteCellValues((current) => {
+            const next = new Map(current);
+            next.set(key, event.value);
+            return next;
+        });
+    }, []);
+    const room = useCollabRoom({
+        projectKey: activeProjectKey,
+        section: selectedTab?.section ?? "rawMaterialPrices",
+        reportMonth: selectedTab?.reportMonth ?? null,
+        enabled: collabEnabled,
+        visibleAssets:
+            selectedTab !== null && MAIN_SECTIONS.has(selectedTab.section)
+                ? visibleAssetNames
+                : null,
+        onCellChanged: handleCellChanged,
+    });
+
+    useEffect(() => {
+        setRemoteCellValues(new Map());
+    }, [selectedTab?.reportMonth, selectedTab?.section]);
 
     const setFullscreenMode = useCallback(
         async (next: boolean) => {
@@ -654,6 +1208,7 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
 
     const toolbar = (
         <div className="table-toolbar">
+            {collabEnabled ? <CollabStatusBar room={room} /> : null}
             <div className="table-toolbar__controls">
                 <SectionTabs
                     tabs={tabs}
@@ -669,10 +1224,19 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
             section={selectedTab.section}
             canDelete={deleteState.canDelete}
             exportState={exportState}
+            showExport
+            undoState={undoState}
+            approveState={approveState}
+            archiveState={archiveState}
+            gridStats={gridStats}
+            clipboardState={clipboardState}
             isFullscreen={isFullscreen}
             isFullscreenPending={isFullscreenPending}
             onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
             onDelete={deleteState.onDelete}
+            onCopy={clipboardState.onCopy}
+            onPaste={clipboardState.onPaste}
+            onAutocompleteOpenChange={setFooterAutocompleteOpen}
         />
     );
 
@@ -690,8 +1254,17 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
                                 isAdmin={isAdmin}
                                 assets={assets}
                                 deliveryBases={deliveryBases}
+                                collabEnabled={collabEnabled}
+                                room={room}
+                                remoteCellValues={remoteCellValues}
                                 onDeleteState={handleDeleteState}
                                 onExportState={handleExportState}
+                                onUndoState={handleUndoState}
+                                onApproveState={handleApproveState}
+                                onArchiveState={handleArchiveState}
+                                onFixed={handleFixed}
+                                onGridStatsChange={setGridStats}
+                                onClipboardStateChange={setClipboardState}
                             />
                             {footer}
                         </Card.Content>
@@ -707,7 +1280,13 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
                             {toolbar}
                         </div>
                     </div>
-                    <div className="fullscreen-reveal fullscreen-reveal--bottom">
+                    <div
+                        className={
+                            footerAutocompleteOpen
+                                ? "fullscreen-reveal fullscreen-reveal--bottom is-open"
+                                : "fullscreen-reveal fullscreen-reveal--bottom"
+                        }
+                    >
                         <div className="fullscreen-panel fullscreen-panel--bottom">{footer}</div>
                     </div>
                 </>
@@ -742,6 +1321,14 @@ function Brand({
                 className={compact ? "brand brand--compact" : "brand"}
                 aria-label={`РепортКоллектор ${projectName}`}
             >
+                <img
+                    className="brand__icon"
+                    src="/ruschem_icon.png"
+                    alt=""
+                    onError={(event) => {
+                        event.currentTarget.hidden = true;
+                    }}
+                />
                 <span className="brand__name">РепортКоллектор</span>
                 <span className="brand__edition">{projectName}</span>
             </div>
@@ -750,6 +1337,14 @@ function Brand({
 
     return (
         <div className={compact ? "brand brand--compact" : "brand"}>
+            <img
+                className="brand__icon"
+                src="/ruschem_icon.png"
+                alt=""
+                onError={(event) => {
+                    event.currentTarget.hidden = true;
+                }}
+            />
             <span className="brand__name">РепортКоллектор</span>
             <Dropdown>
                 <Button
@@ -845,21 +1440,37 @@ function ActionBar({
     section,
     canDelete,
     exportState,
+    showExport,
+    undoState,
+    approveState,
+    isArchive,
+    clipboardState,
     isFullscreen,
     isFullscreenPending,
     onToggleFullscreen,
     onDelete,
+    onCopy,
+    onPaste,
 }: {
     section: SectionId;
     canDelete: boolean;
     exportState: ExportState;
+    showExport: boolean;
+    undoState: UndoState;
+    approveState: ApproveState;
+    isArchive: boolean;
+    clipboardState: { canPaste: boolean };
     isFullscreen: boolean;
     isFullscreenPending: boolean;
     onToggleFullscreen: () => void;
     onDelete: () => void;
+    onCopy: () => void;
+    onPaste: () => void;
 }) {
-    const showDelete = !MAIN_SECTIONS.has(section);
-    const actions: ActionItem[] = [
+    const showDelete = !MAIN_SECTIONS.has(section) && section !== "users";
+    const showApprove = section === "materialMovement" && !isArchive;
+    const showPaste = !isArchive;
+    const leadingActions: ActionItem[] = [
         {
             id: "fullscreen",
             label: isFullscreen ? "Выйти из полного экрана" : "В полный экран",
@@ -867,6 +1478,48 @@ function ActionBar({
             onPress: onToggleFullscreen,
             disabled: isFullscreenPending,
         },
+    ];
+    const trailingActions: ActionItem[] = [
+        ...(undoState.enabled
+            ? [
+                  {
+                      id: "undo",
+                      label: "Отменить действие",
+                      icon: <Undo />,
+                      onPress: undoState.onUndo,
+                      disabled: undoState.offline || !undoState.canUndo,
+                      shortcut: { key: "Z", aria: "Control+Z" },
+                  } satisfies ActionItem,
+                  {
+                      id: "redo",
+                      label: "Вернуть действие",
+                      icon: <Redo />,
+                      onPress: undoState.onRedo,
+                      disabled: undoState.offline || !undoState.canRedo,
+                      shortcut: { key: "Y", aria: "Control+Shift+Z" },
+                  } satisfies ActionItem,
+              ]
+            : []),
+        {
+            id: "copy",
+            label: "Копировать",
+            icon: <Copy />,
+            onPress: onCopy,
+            disabled: isFullscreenPending,
+            shortcut: { key: "C", aria: "Control+C" },
+        } satisfies ActionItem,
+        ...(showPaste
+            ? [
+                  {
+                      id: "paste",
+                      label: "Вставить",
+                      icon: <PasteClipboard />,
+                      onPress: onPaste,
+                      disabled: isFullscreenPending || !clipboardState.canPaste,
+                      shortcut: { key: "V", aria: "Control+V" },
+                  } satisfies ActionItem,
+              ]
+            : []),
         ...(showDelete
             ? [
                   {
@@ -880,43 +1533,76 @@ function ActionBar({
                   } satisfies ActionItem,
               ]
             : []),
+        ...(showApprove
+            ? [
+                  {
+                      id: "approve",
+                      label: "Утвердить",
+                      icon: <CheckCircle />,
+                      onPress: approveState.onApprove,
+                      variant: "primary",
+                      disabled: approveState.pending || !approveState.canApprove,
+                  } satisfies ActionItem,
+              ]
+            : []),
     ];
 
     return (
         <div className="action-bar" aria-label="Действия с таблицей">
-            <Dropdown>
-                <Button
-                    className="action-button"
-                    variant="secondary"
-                    isDisabled={exportState.pending || isFullscreenPending}
-                    aria-label="Скачать таблицу в Excel"
-                >
-                    <span className="action-button__icon">
-                        {exportState.pending ? <Spinner size="sm" /> : <Download />}
-                    </span>
-                    <span className="action-button__label">
-                        {exportState.pending ? "Выгрузка..." : "Скачать в Excel"}
-                    </span>
-                </Button>
-                <Dropdown.Popover>
-                    <Dropdown.Menu
-                        aria-label="Формат выгрузки"
-                        onAction={(key) => {
-                            if (key === "all" || key === "visible") {
-                                void exportState.onExport(key);
-                            }
-                        }}
+            {leadingActions.map((action) => {
+                const button = (
+                    <Button
+                        className="action-button"
+                        variant={action.variant ?? "secondary"}
+                        isDisabled={action.disabled}
+                        aria-label={action.label}
+                        onPress={action.onPress}
                     >
-                        <Dropdown.Item id="all" textValue="Скачать всю таблицу">
-                            Скачать всю таблицу
-                        </Dropdown.Item>
-                        <Dropdown.Item id="visible" textValue="Скачать видимую таблицу">
-                            Скачать видимую таблицу
-                        </Dropdown.Item>
-                    </Dropdown.Menu>
-                </Dropdown.Popover>
-            </Dropdown>
-            {actions.map((action) => {
+                        <span className="action-button__icon">{action.icon}</span>
+                        <span className="action-button__label">{action.label}</span>
+                    </Button>
+                );
+                return (
+                    <span key={action.id} className="action-button-wrapper">
+                        {button}
+                    </span>
+                );
+            })}
+            {showExport ? (
+                <Dropdown>
+                    <Button
+                        className="action-button"
+                        variant="secondary"
+                        isDisabled={exportState.pending || isFullscreenPending}
+                        aria-label="Скачать таблицу в Excel"
+                    >
+                        <span className="action-button__icon">
+                            {exportState.pending ? <Spinner size="sm" /> : <Download />}
+                        </span>
+                        <span className="action-button__label">
+                            {exportState.pending ? "Выгрузка..." : "Скачать в Excel"}
+                        </span>
+                    </Button>
+                    <Dropdown.Popover>
+                        <Dropdown.Menu
+                            aria-label="Формат выгрузки"
+                            onAction={(key) => {
+                                if (key === "all" || key === "visible") {
+                                    void exportState.onExport(key);
+                                }
+                            }}
+                        >
+                            <Dropdown.Item id="all" textValue="Скачать всю таблицу">
+                                Скачать всю таблицу
+                            </Dropdown.Item>
+                            <Dropdown.Item id="visible" textValue="Скачать видимую таблицу">
+                                Скачать видимую таблицу
+                            </Dropdown.Item>
+                        </Dropdown.Menu>
+                    </Dropdown.Popover>
+                </Dropdown>
+            ) : null}
+            {trailingActions.map((action) => {
                 const button = (
                     <Button
                         className="action-button"
@@ -950,6 +1636,119 @@ function ActionBar({
                     </Tooltip>
                 );
             })}
+        </div>
+    );
+}
+
+const COLLAB_STATUS_LABELS: Record<Exclude<CollabStatus, "online">, string> = {
+    connecting: "Подключение к совместному редактированию...",
+    offline: "Совместное редактирование недоступно",
+};
+
+/** Только фамилия (первое слово полного имени, fullname.partition(" ")[0]). */
+function shortName(fullname: string): string {
+    const first = fullname.trim().split(/\s+/)[0];
+    return first || fullname;
+}
+
+/**
+ * Что показывать в скобках: администратору — роль, работнику по активам —
+ * список активов через запятую (например «СНХЗ, БСК»).
+ */
+function memberDetail(member: CollabMember): string | null {
+    if (member.role === "admin") return "Администратор";
+    const assets = (member.assets ?? []).filter((asset) => asset.trim().length > 0);
+    if (assets.length > 0) return assets.join(", ");
+    return member.role === "asset_worker" ? "Работник по активам" : member.role || null;
+}
+
+/** Ячейка / диапазон ячеек, где сейчас находится участник (из присутствия). */
+function memberSelectionLabel(member: CollabMember | null): string | null {
+    if (!member) return null;
+    const label = member.selection?.label;
+    return typeof label === "string" && label.length > 0 ? label : null;
+}
+
+function CollabStatusBar({ room }: { room: CollabRoom }) {
+    const lockCount = room.lockedCells.size;
+    const me = room.me;
+    const self = room.members.find((member) => member.userId === me?.userId) ?? null;
+    const others = room.members
+        .filter((member) => member.userId !== me?.userId)
+        .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email, "ru"));
+    const solo = room.members.length <= 1;
+    const myCells = memberSelectionLabel(self);
+    const membersText = solo
+        ? `только вы${myCells ? ` — ${myCells}` : ""}`
+        : `Вы${others.length ? `, ${others.map((member) => shortName(member.name || member.email)).join(", ")}` : ""}`;
+    const tooltipMembers = self ? [self, ...others] : room.members;
+
+    return (
+        <div className="collab-bar" role="status">
+            <span
+                className={`collab-bar__dot collab-bar__dot--${room.status}`}
+                aria-hidden="true"
+            />
+            {room.status === "online" ? (
+                <>
+                    {solo ? (
+                        <span className="collab-bar__members">
+                            <b>В сети:</b> {membersText}
+                        </span>
+                    ) : (
+                        <Tooltip delay={250}>
+                            <Tooltip.Trigger>
+                                <span className="collab-bar__members">
+                                    <b>В сети:</b> {membersText}
+                                </span>
+                            </Tooltip.Trigger>
+                            <Tooltip.Content placement="top" className="collab-bar-tooltip">
+                                <ul className="collab-bar-tooltip__list">
+                                    {tooltipMembers.map((member) => {
+                                        const cells = memberSelectionLabel(member);
+                                        const detail = memberDetail(member);
+                                        return (
+                                            <li
+                                                key={member.userId}
+                                                className="collab-bar-tooltip__item"
+                                            >
+                                                <span className="collab-bar-tooltip__name">
+                                                    {member.name || member.email}
+                                                </span>
+                                                {detail ? (
+                                                    <span className="collab-bar-tooltip__role">
+                                                        ({detail})
+                                                    </span>
+                                                ) : null}
+                                                {cells ? (
+                                                    <span className="collab-bar-tooltip__cells">
+                                                        — {cells}
+                                                    </span>
+                                                ) : null}
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            </Tooltip.Content>
+                        </Tooltip>
+                    )}
+                    {lockCount > 0 ? (
+                        <>
+                            <span className="collab-bar__sep" aria-hidden="true" />
+                            <span
+                                className="collab-bar__locks"
+                                title={`Занято ячеек: ${lockCount}`}
+                            >
+                                Занято ячеек: {lockCount}
+                            </span>
+                        </>
+                    ) : null}
+                </>
+            ) : (
+                <span className="collab-bar__label" title={COLLAB_STATUS_LABELS[room.status]}>
+                    {COLLAB_STATUS_LABELS[room.status]}
+                </span>
+            )}
         </div>
     );
 }
@@ -999,6 +1798,59 @@ function DeleteRecordDialog({
                             <Button variant="danger" onPress={onConfirm} isDisabled={isPending}>
                                 {isPending ? <Spinner color="current" size="sm" /> : <Trash />}
                                 Удалить
+                            </Button>
+                        </AlertDialog.Footer>
+                    </AlertDialog.Dialog>
+                </AlertDialog.Container>
+            </AlertDialog.Backdrop>
+        </AlertDialog>
+    );
+}
+
+function ApproveDialog({
+    isOpen,
+    isPending,
+    isFinal,
+    onOpenChange,
+    onConfirm,
+}: {
+    isOpen: boolean;
+    isPending: boolean;
+    isFinal: boolean;
+    onOpenChange: (open: boolean) => void;
+    onConfirm: () => void;
+}) {
+    return (
+        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
+            <AlertDialog.Backdrop isDismissable={!isPending}>
+                <AlertDialog.Container>
+                    <AlertDialog.Dialog>
+                        <AlertDialog.Header>
+                            <AlertDialog.Icon status="warning">
+                                <CheckCircle />
+                            </AlertDialog.Icon>
+                            <AlertDialog.Heading>Зафиксировать движение сырья?</AlertDialog.Heading>
+                        </AlertDialog.Header>
+                        <AlertDialog.Body>
+                            {isFinal
+                                ? "Это финальная фиксация прошедшего месяца. После неё период будет закрыт без возможности перезаписи, а в работе появится следующий месяц."
+                                : "Это предварительная фиксация текущего месяца. Повторная фиксация этого же месяца заменит предыдущую архивную версию."}
+                        </AlertDialog.Body>
+                        <AlertDialog.Footer>
+                            <Button
+                                variant="tertiary"
+                                onPress={() => onOpenChange(false)}
+                                isDisabled={isPending}
+                            >
+                                Отмена
+                            </Button>
+                            <Button variant="primary" onPress={onConfirm} isDisabled={isPending}>
+                                {isPending ? (
+                                    <Spinner color="current" size="sm" />
+                                ) : (
+                                    <CheckCircle />
+                                )}
+                                Зафиксировать
                             </Button>
                         </AlertDialog.Footer>
                     </AlertDialog.Dialog>

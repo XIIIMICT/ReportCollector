@@ -105,6 +105,9 @@ jobs:
       - name: Run migrations
         run: docker compose --profile prod run --rm --no-deps back uv run --no-dev python -m alembic upgrade head
 
+      - name: Seed database
+        run: docker compose --profile prod run --rm --no-deps back uv run --no-dev python -m src.scripts.seed_database
+
       - name: Start production stack
         run: docker compose --profile prod up -d --build back front
 

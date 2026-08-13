@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     postgres_host: str | None = None
     postgres_port: int | None = None
     postgres_schema: str | None = None
+    valkey_url: str = Field(default="redis://127.0.0.1:6379/0", validation_alias="VALKEY_URL")
+    keycloak_enabled: bool = Field(default=False, validation_alias="KEYCLOAK_ENABLED")
     auth_secret: str = ""
     auth_seed_admin_email: str | None = None
     auth_seed_admin_password: str | None = None

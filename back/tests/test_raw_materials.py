@@ -36,10 +36,9 @@ async def test_admin_reads_movement_rows(client) -> None:
 
     assert response.status_code == 200
     rows = response.json()
-    assert len(rows) == 1
-    assert [row["assetName"] for row in rows] == ["СНХЗ"]
+    assert len(rows) == 4
 
-    snhz_ammiak = rows[0]
+    snhz_ammiak = next(row for row in rows if row["assetName"] == "СНХЗ" and row["rawMaterialName"] == "Аммиак")
     assert snhz_ammiak["rawMaterialName"] == "Аммиак"
     assert snhz_ammiak["businessPlanTons"] == 100.0
     assert snhz_ammiak["demandPlanTons"] == 100.0
@@ -102,7 +101,7 @@ async def test_worker_sees_only_bound_assets(client, db_session) -> None:
             headers=signed_identity_headers(**headers),
         )
     ).json()
-    assert [row["assetName"] for row in rows] == ["СНХЗ"]
+    assert {row["assetName"] for row in rows} == {"СНХЗ", "ВОС"}
 
     prices = (await client.get("/api/raw-materials/prices", headers=signed_identity_headers(**headers))).json()
     assert {row["assetName"] for row in prices} == {"ВОС", "СНХЗ"}
@@ -354,7 +353,15 @@ async def test_admin_crud_project_user(client) -> None:
         f"/api/raw-materials/users/{row['id']}",
         headers=signed_identity_headers(**admin_headers()),
     )
-    assert deleted.status_code == 204
+    assert deleted.status_code == 409
+    assert "Активен" in deleted.json()["detail"]
+
+    listing = await client.get(
+        "/api/raw-materials/users",
+        headers=signed_identity_headers(**admin_headers()),
+    )
+    assert listing.status_code == 200
+    assert any(user["id"] == row["id"] for user in listing.json())
 
 
 async def test_worker_cannot_write_dictionaries(client, db_session) -> None:

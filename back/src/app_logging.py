@@ -56,6 +56,9 @@ class JsonFormatter(logging.Formatter):
             "template_row_id",
             "record_id",
             "catalog_db_name",
+            "project_key",
+            "room",
+            "extra_origin",
         ):
             value = getattr(record, field_name, None)
             if value is not None:

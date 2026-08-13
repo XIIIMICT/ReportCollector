@@ -7,6 +7,46 @@ export type RawMaterialsMeta = {
     movementPeriods: string[];
 };
 
+export type MovementSnapshot = {
+    id: string;
+    reportMonth: string;
+    fixedAt: string;
+    fixedByFullname: string;
+    isFinal: boolean;
+};
+
+export type MovementMeta = {
+    reportMonth: string;
+    isComplete: boolean;
+    isFinal: boolean;
+    snapshots: MovementSnapshot[];
+};
+
+export type SnapshotMovementRow = {
+    sourceAssetRawMaterialId: string;
+    assetName: string;
+    rawMaterialName: string;
+    businessPlanTons: number | null;
+    demandPlanTons: number | null;
+    consumptionFactTons: number | null;
+    demandDeviationTons: number | null;
+    deliveryPlanTons: number | null;
+    deliveryFactTons: number | null;
+    deliveryDeviationTons: number | null;
+    balanceStartTons: number | null;
+    balanceOnSiteTons: number | null;
+    balanceInTransitTons: number | null;
+    balanceEndTons: number | null;
+    storageStandardTons: number | null;
+    deviationReason: string | null;
+};
+
+export type SnapshotView = {
+    snapshot: MovementSnapshot;
+    comparisonSnapshotId: string | null;
+    rows: SnapshotMovementRow[];
+};
+
 export type MovementRow = {
     assetId: string;
     assetName: string;
@@ -117,6 +157,20 @@ export async function getRawMaterialsMovement(reportMonth: string): Promise<Move
     );
 }
 
+export async function getMovementMeta(reportMonth: string): Promise<MovementMeta> {
+    return requestJson(
+        `/api/raw-materials/movement/meta?report_month=${encodeURIComponent(reportMonth)}`,
+    );
+}
+
+export async function fixMovement(reportMonth: string): Promise<MovementSnapshot> {
+    return requestWrite("/api/raw-materials/movement/fix", "POST", { reportMonth });
+}
+
+export async function getMovementSnapshot(snapshotId: string): Promise<SnapshotView> {
+    return requestJson(`/api/raw-materials/movement/snapshot/${encodeURIComponent(snapshotId)}`);
+}
+
 export async function getRawMaterialsPrices(): Promise<PriceRow[]> {
     return requestJson("/api/raw-materials/prices");
 }
@@ -221,6 +275,34 @@ export async function updateUserCells(updates: CellUpdate[]): Promise<unknown> {
     );
 }
 
+export type UndoConflict = {
+    rowId: string;
+    field: string;
+    user: string;
+    actionId: number;
+    reason: "conflict" | "locked";
+};
+
+export type UndoResult = {
+    applied: boolean;
+    reason: "applied" | "empty" | "conflict" | "locked" | null;
+    conflicts: UndoConflict[];
+    section: string | null;
+    reportMonth: string | null;
+    rowId: string | null;
+    field: string | null;
+    value: unknown;
+    revision: number | null;
+};
+
+export async function undoCells(skipActionId: number | null = null): Promise<UndoResult> {
+    return requestWrite("/api/raw-materials/undo", "POST", { skipActionId });
+}
+
+export async function redoCells(skipActionId: number | null = null): Promise<UndoResult> {
+    return requestWrite("/api/raw-materials/redo", "POST", { skipActionId });
+}
+
 export type CreateDictionaryPayload = {
     name?: string;
     assetIds?: string[];
@@ -279,6 +361,7 @@ export type ExportViewRequest = {
     headerPinned: boolean;
     columns: ExportColumn[];
     rowIds: string[] | null;
+    snapshotId?: string | null;
     fileName: string;
 };
 

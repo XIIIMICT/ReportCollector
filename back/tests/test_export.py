@@ -76,22 +76,25 @@ async def test_export_movement_workbook(client) -> None:
         "Поставка, факт",
         "Отклонение",
     ]
-    assert sheet.max_row == 2
-    assert sheet.cell(row=2, column=1).value == "Аммиак"
-    assert sheet.cell(row=2, column=2).value == "СНХЗ"
-    assert sheet.cell(row=2, column=3).value == 100.0
-    assert sheet.cell(row=2, column=3).number_format == "General"
-    assert sheet.cell(row=2, column=3).border.left.style == "thin"
-    assert sheet.cell(row=2, column=3).border.right.style == "thin"
-    assert sheet.cell(row=2, column=3).border.top.style == "thin"
-    assert sheet.cell(row=2, column=3).border.bottom.style == "thin"
-    assert sheet.cell(row=2, column=5).border.left.style == "thin"
+    assert sheet.max_row == 5
+    row_index = next(
+        index
+        for index in range(2, 6)
+        if sheet.cell(row=index, column=1).value == "Аммиак" and sheet.cell(row=index, column=2).value == "СНХЗ"
+    )
+    assert sheet.cell(row=row_index, column=3).value == 100.0
+    assert sheet.cell(row=row_index, column=3).number_format == "General"
+    assert sheet.cell(row=row_index, column=3).border.left.style == "thin"
+    assert sheet.cell(row=row_index, column=3).border.right.style == "thin"
+    assert sheet.cell(row=row_index, column=3).border.top.style == "thin"
+    assert sheet.cell(row=row_index, column=3).border.bottom.style == "thin"
+    assert sheet.cell(row=row_index, column=5).border.left.style == "thin"
     assert sheet.cell(row=1, column=1).border.bottom.style == "thin"
-    assert sheet.cell(row=2, column=4).value == 80.0
-    assert sheet.cell(row=2, column=5).value == "=C2-D2"
-    assert sheet.cell(row=2, column=6).value == 90.0
-    assert sheet.cell(row=2, column=7).value == 70.0
-    assert sheet.cell(row=2, column=8).value == "=F2-G2"
+    assert sheet.cell(row=row_index, column=4).value == 80.0
+    assert sheet.cell(row=row_index, column=5).value == f"=C{row_index}-D{row_index}"
+    assert sheet.cell(row=row_index, column=6).value == 90.0
+    assert sheet.cell(row=row_index, column=7).value == 70.0
+    assert sheet.cell(row=row_index, column=8).value == f"=F{row_index}-G{row_index}"
 
 
 async def test_export_deviation_without_operands_uses_value(client) -> None:
@@ -111,7 +114,12 @@ async def test_export_deviation_without_operands_uses_value(client) -> None:
 
     assert response.status_code == 200
     sheet = load_workbook(BytesIO(response.content)).active
-    assert sheet.cell(row=2, column=2).value == 20.0
+    value = next(
+        sheet.cell(row=index, column=2).value
+        for index in range(2, sheet.max_row + 1)
+        if sheet.cell(row=index, column=2).value is not None
+    )
+    assert value == 20.0
 
 
 async def test_export_grouped_headers_merge(client) -> None:

@@ -1,6 +1,12 @@
+import base64
+import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
+from hmac import compare_digest, new
+from urllib.parse import unquote
 from uuid import UUID
 
 from sqlalchemy import func
@@ -40,6 +46,89 @@ class CurrentUserIdentity:
 
 class UnknownUserError(Exception):
     """Пользователь не зарегистрирован в ReportCollector."""
+
+
+class InvalidIdentityError(Exception):
+    """Подпись идентичности отсутствует, устарела или неверна."""
+
+
+# Заголовки подписи идентичности (совпадают с auth/router.read_signed_identity).
+IDENTITY_HEADER_NAMES = (
+    "X-ReportCollector-User-Key",
+    "X-ReportCollector-User-Email",
+    "X-ReportCollector-User-Name",
+    "X-ReportCollector-User-Sub",
+    "X-ReportCollector-User-Issuer",
+    "X-ReportCollector-Preferred-Username",
+    "X-ReportCollector-Given-Name",
+    "X-ReportCollector-Family-Name",
+    "X-ReportCollector-Email-Verified",
+)
+
+
+def verify_signed_identity(headers: Mapping[str, str]) -> CurrentUserIdentity:
+    """Проверяет подпись идентичности по заголовкам (для WebSocket и проки)."""
+    lookup = {name.casefold(): value for name, value in headers.items()}
+    values = [unquote(lookup.get(name.casefold()) or "") or None for name in IDENTITY_HEADER_NAMES]
+    timestamp = lookup.get("x-reportcollector-identity-timestamp")
+    signature = lookup.get("x-reportcollector-identity-signature")
+    if not timestamp or not signature:
+        msg = "Отсутствует подпись идентичности."
+        raise InvalidIdentityError(msg)
+    try:
+        signed_at = datetime.fromtimestamp(int(timestamp), tz=UTC)
+    except (ValueError, OSError) as error:
+        msg = "Некорректное время подписи."
+        raise InvalidIdentityError(msg) from error
+    if abs((datetime.now(UTC) - signed_at).total_seconds()) > 60:
+        msg = "Подпись идентичности устарела."
+        raise InvalidIdentityError(msg)
+    payload = "\n".join([timestamp, *(value or "" for value in values)])
+    expected = new(get_settings().auth_secret.encode(), payload.encode(), sha256).hexdigest()
+    if not compare_digest(signature, expected):
+        msg = "Подпись идентичности неверна."
+        raise InvalidIdentityError(msg)
+    key, email, name, subject, oidc_issuer, preferred, given, family, verified = values
+    return CurrentUserIdentity(
+        email=email,
+        email_verified=_parse_optional_bool(verified),
+        family_name=family,
+        given_name=given,
+        issuer=oidc_issuer,
+        key=key or subject or LOCAL_USER_KEY,
+        name=name,
+        oidc_sub=subject,
+        preferred_username=preferred,
+    )
+
+
+def _parse_optional_bool(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    return value.casefold() == "true"
+
+
+def verify_identity_ticket(ticket: str) -> CurrentUserIdentity:
+    """
+    Проверяет тикет WebSocket: подписанные заголовки идентичности в query.
+
+    Браузер не умеет ставить кастомные заголовки, поэтому route-handler
+    фронтенда упаковывает подписанные заголовки в base64url-тикет
+    {"h": {header: value, ...}} с окном действия 60 секунд (подпись сверяется
+    той же verify_signed_identity).
+    """
+    try:
+        ticket = ticket + "=" * (-len(ticket) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(ticket.encode("ascii")).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as error:
+        msg = "Некорректный тикет."
+        raise InvalidIdentityError(msg) from error
+    headers = payload.get("h")
+    if not isinstance(headers, dict):
+        msg = "Некорректный тикет."
+        raise InvalidIdentityError(msg)
+    mapping = {str(name): str(value) for name, value in headers.items()}
+    return verify_signed_identity(mapping)
 
 
 class BlockedUserError(Exception):

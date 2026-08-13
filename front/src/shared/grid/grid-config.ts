@@ -62,7 +62,7 @@ export type GridColumnContext = {
     deliveryBases: ReferenceOption[];
     selectedRowIds: Set<string>;
     showServiceColumns: boolean;
-    remoteLocks: Map<string, { fullname: string; email: string }>;
+    remoteLocks: ReadonlyMap<string, { fullname: string; email: string }>;
     onBooleanChange: (row: GridRow, field: string, value: boolean) => void;
 };
 

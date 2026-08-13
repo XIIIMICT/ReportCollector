@@ -16,13 +16,23 @@ from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
 from src.auth.models import Project, ProjectRole, User
 from src.auth.router import read_signed_identity
 from src.auth.service import CurrentUserIdentity, get_user_by_identity
+from src.collab.events import publish_cell_changed
+from src.collab.journal import AppliedCell
+from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse
+from src.collab.store import get_collab_store
+from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.database import get_session
+from src.raw_materials.approve import (
+    ApprovalError,
+    fix_report,
+    read_movement_meta,
+)
 from src.raw_materials.export import (
     ExportValidationError,
     render_workbook,
     validate_export_request,
 )
-from src.raw_materials.models import MovementPeriod, RawMaterialAsset
+from src.raw_materials.models import MovementPeriod, RawMaterialAsset, ReportSnapshot, SnapshotMaterialMovement
 from src.raw_materials.schemas import (
     AssetCreateRequest,
     AssetRowRead,
@@ -31,7 +41,10 @@ from src.raw_materials.schemas import (
     DeliveryBasisRowRead,
     DeliveryBasisUpdateRequest,
     ExportViewRequest,
+    FixMovementRequest,
+    MovementMetaRead,
     MovementRowRead,
+    MovementSnapshotRead,
     MovementUpdateRequest,
     PriceRowRead,
     PriceUpdateRequest,
@@ -39,6 +52,8 @@ from src.raw_materials.schemas import (
     RawMaterialRowRead,
     RawMaterialsMetaRead,
     RawMaterialUpdateRequest,
+    SnapshotMovementRowRead,
+    SnapshotViewRead,
     UserCreateRequest,
     UserRowRead,
     UserUpdateRequest,
@@ -61,6 +76,7 @@ from src.raw_materials.service import (
     read_movement_rows,
     read_price_rows,
     read_raw_material_rows,
+    read_snapshot_export_rows,
     read_user_rows,
     resolve_raw_materials_access,
     update_asset,
@@ -156,6 +172,109 @@ async def get_movement_rows(
     return await read_movement_rows(session, report_month, assets)
 
 
+@router.get("/movement/meta", response_model=MovementMetaRead)
+async def get_movement_meta(
+    session: SessionDependency,
+    _assets: AccessDependency,
+    report_month: Annotated[date | None, Query()] = None,
+) -> MovementMetaRead:
+    """Статус формы «Движение»: полнота, финальность, архив зафиксированных версий."""
+    if report_month is None:
+        report_month = await _latest_period(session)
+    is_complete, is_final, snapshots = await read_movement_meta(session, report_month=report_month)
+    return MovementMetaRead(
+        reportMonth=report_month,
+        isComplete=is_complete,
+        isFinal=is_final,
+        snapshots=[
+            MovementSnapshotRead(
+                id=snapshot.id,
+                reportMonth=snapshot.report_month,
+                fixedAt=snapshot.fixed_at,
+                fixedByFullname=snapshot.fixed_by_fullname,
+                isFinal=snapshot.is_final,
+            )
+            for snapshot in snapshots
+        ],
+    )
+
+
+@router.post("/movement/fix", response_model=MovementSnapshotRead)
+async def post_movement_fix(
+    request: FixMovementRequest,
+    session: SessionDependency,
+    user: UserDependency,
+    _assets: AdminDependency,
+) -> MovementSnapshotRead:
+    """Фиксация «Движения» за отчётный месяц (только администратор проекта)."""
+    try:
+        snapshot = await fix_report(
+            session,
+            user=user,
+            report_month=request.reportMonth,
+            store=get_collab_store(),
+        )
+    except ApprovalError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return MovementSnapshotRead(
+        id=snapshot.id,
+        reportMonth=snapshot.report_month,
+        fixedAt=snapshot.fixed_at,
+        fixedByFullname=snapshot.fixed_by_fullname,
+        isFinal=snapshot.is_final,
+    )
+
+
+@router.get("/movement/snapshot/{snapshot_id}", response_model=SnapshotViewRead)
+async def get_movement_snapshot(
+    snapshot_id: UUID,
+    session: SessionDependency,
+    _assets: AccessDependency,
+) -> SnapshotViewRead:
+    """Зафиксированная версия «Движения» для просмотра (только чтение)."""
+    snapshot = await session.get(ReportSnapshot, snapshot_id)
+    if snapshot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Снимок не найден.")
+    rows = list(
+        (
+            await session.exec(
+                select(SnapshotMaterialMovement).where(col(SnapshotMaterialMovement.snapshot_id) == snapshot_id)
+            )
+        ).all()
+    )
+    return SnapshotViewRead(
+        snapshot=MovementSnapshotRead(
+            id=snapshot.id,
+            reportMonth=snapshot.report_month,
+            fixedAt=snapshot.fixed_at,
+            fixedByFullname=snapshot.fixed_by_fullname,
+            isFinal=snapshot.is_final,
+        ),
+        comparisonSnapshotId=snapshot.previous_snapshot_id,
+        rows=[
+            SnapshotMovementRowRead(
+                sourceAssetRawMaterialId=row.source_asset_raw_material_id,
+                assetName=row.asset_name,
+                rawMaterialName=row.raw_material_name,
+                businessPlanTons=row.business_plan_tons,
+                demandPlanTons=row.demand_plan_tons,
+                consumptionFactTons=row.consumption_fact_tons,
+                demandDeviationTons=row.demand_deviation_tons,
+                deliveryPlanTons=row.delivery_plan_tons,
+                deliveryFactTons=row.delivery_fact_tons,
+                deliveryDeviationTons=row.delivery_deviation_tons,
+                balanceStartTons=row.balance_start_tons,
+                balanceOnSiteTons=row.balance_on_site_tons,
+                balanceInTransitTons=row.balance_in_transit_tons,
+                balanceEndTons=row.balance_end_tons,
+                storageStandardTons=row.storage_standard_tons,
+                deviationReason=row.deviation_reason,
+            )
+            for row in rows
+        ],
+    )
+
+
 @router.get("/prices", response_model=list[PriceRowRead])
 async def get_price_rows(
     session: SessionDependency,
@@ -234,6 +353,11 @@ async def export_table(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Требуются права администратора проекта «Сырьё».",
         )
+    if request.snapshotId is not None and request.section != "materialMovement":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Архивную версию можно выгрузить только для формы «Движение».",
+        )
     try:
         validate_export_request(request, show_asset_column=is_admin or len(user_assets) > 1)
     except ExportValidationError as error:
@@ -258,6 +382,14 @@ async def _export_rows(
 ) -> Sequence[BaseModel]:
     """Строки для выгрузки: движение за период, цены или справочник."""
     if request.section == "materialMovement":
+        if request.snapshotId is not None:
+            snapshot, rows = await read_snapshot_export_rows(session, request.snapshotId)
+            if snapshot is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Снимок не найден.",
+                )
+            return rows
         report_month = request.reportMonth or await _latest_period(session)
         return await read_movement_rows(session, report_month, assets)
     if request.section == "rawMaterialPrices":
@@ -286,7 +418,7 @@ async def patch_movement_rows(
 ) -> int:
     """Пакет правок ячеек формы «Движение» за отчётный месяц."""
     try:
-        return await update_movement_cells(
+        applied = await update_movement_cells(
             session,
             report_month=request.reportMonth,
             updates=request.updates,
@@ -297,6 +429,17 @@ async def patch_movement_rows(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await publish_cell_changed(
+        get_collab_store(),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="materialMovement",
+        report_month=request.reportMonth.isoformat(),
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=applied,
+    )
+    return len(applied)
 
 
 @router.patch("/prices")
@@ -308,11 +451,116 @@ async def patch_price_rows(
 ) -> int:
     """Пакет правок ячеек формы «Цены»."""
     try:
-        return await update_price_cells(session, updates=request.updates, user=user, assets=assets)
+        applied = await update_price_cells(session, updates=request.updates, user=user, assets=assets)
     except CellValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await publish_cell_changed(
+        get_collab_store(),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="rawMaterialPrices",
+        report_month=None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=applied,
+    )
+    return len(applied)
+
+
+@router.post("/undo", response_model=UndoResponse)
+async def undo_cells(
+    session: SessionDependency,
+    user: UserDependency,
+    _assets: AccessDependency,
+    request: UndoRequest | None = None,
+) -> UndoResponse:
+    """
+    Отменяет последнюю правку ячеек текущего пользователя.
+
+    Тело запроса опционально: skipActionId передаётся вторым нажатием
+    после конфликта, чтобы пропустить заблокированное действие.
+    """
+    outcome = await undo_last_edit(
+        session,
+        user=user,
+        store=get_collab_store(),
+        skip_action_id=request.skipActionId if request is not None else None,
+    )
+    return await _undo_response(outcome, user)
+
+
+@router.post("/redo", response_model=UndoResponse)
+async def redo_cells(
+    session: SessionDependency,
+    user: UserDependency,
+    _assets: AccessDependency,
+    request: UndoRequest | None = None,
+) -> UndoResponse:
+    """Возвращает последнее отменённое действие текущего пользователя."""
+    outcome = await redo_last_undo(
+        session,
+        user=user,
+        store=get_collab_store(),
+        skip_action_id=request.skipActionId if request is not None else None,
+    )
+    return await _undo_response(outcome, user)
+
+
+async def _undo_response(outcome: UndoOutcome, user: User) -> UndoResponse:
+    if not outcome.applied:
+        conflict = outcome.conflict
+        return UndoResponse(
+            applied=False,
+            reason=outcome.reason,
+            conflicts=(
+                [
+                    UndoConflictRead(
+                        rowId=conflict.row_id,
+                        field=conflict.field,
+                        user=conflict.user_name,
+                        actionId=conflict.action_id,
+                        reason=conflict.reason,
+                    )
+                ]
+                if conflict is not None
+                else []
+            ),
+        )
+    cell = outcome.applied_cell
+    if cell is None:
+        return UndoResponse(applied=True, reason="applied", section=outcome.section, reportMonth=outcome.report_month)
+    await publish_cell_changed(
+        get_collab_store(),
+        project_key=outcome.project_key,
+        section=outcome.section,
+        report_month=outcome.report_month.isoformat() if outcome.report_month is not None else None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=[
+            AppliedCell(
+                target_table=cell.target_table,
+                row_id=cell.row_id,
+                field=cell.field,
+                old_value=cell.old_value,
+                new_value=outcome.applied_value,
+                revision=cell.revision,
+                action_id=cell.action_id,
+            )
+        ],
+    )
+    return UndoResponse(
+        applied=True,
+        reason="applied",
+        section=outcome.section,
+        reportMonth=outcome.report_month,
+        rowId=cell.row_id,
+        field=cell.field,
+        value=outcome.applied_value,
+        revision=cell.revision,
+    )
 
 
 @router.post("/raw-materials", response_model=RawMaterialRowRead, status_code=status.HTTP_201_CREATED)
@@ -337,7 +585,7 @@ async def patch_raw_material(
 ) -> RawMaterialRowRead:
     """Правка сырьевой позиции (только админ проекта)."""
     try:
-        await update_raw_material(
+        _, applied = await update_raw_material(
             session,
             raw_material_id=raw_material_id,
             name=request.name,
@@ -346,6 +594,16 @@ async def patch_raw_material(
         )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await publish_cell_changed(
+        get_collab_store(),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="rawMaterials",
+        report_month=None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=applied,
+    )
     return (await read_raw_material_rows(session, raw_material_id=raw_material_id))[0]
 
 
@@ -385,9 +643,19 @@ async def patch_asset(
 ) -> AssetRowRead:
     """Правка актива (только админ проекта)."""
     try:
-        updated = await update_asset(session, asset_id=asset_id, name=request.name, user=user)
+        updated, applied = await update_asset(session, asset_id=asset_id, name=request.name, user=user)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await publish_cell_changed(
+        get_collab_store(),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="assets",
+        report_month=None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=applied,
+    )
     return (await read_asset_rows([updated]))[0]
 
 
@@ -427,9 +695,19 @@ async def patch_delivery_basis(
 ) -> DeliveryBasisRowRead:
     """Правка базиса поставки (только админ проекта)."""
     try:
-        updated = await update_delivery_basis(session, basis_id=basis_id, name=request.name, user=user)
+        updated, applied = await update_delivery_basis(session, basis_id=basis_id, name=request.name, user=user)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await publish_cell_changed(
+        get_collab_store(),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="deliveryBases",
+        report_month=None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=applied,
+    )
     return (await read_delivery_basis_rows(session, delivery_basis_id=updated.id))[0]
 
 
@@ -481,7 +759,7 @@ async def patch_user(
     """Правка пользователя проекта «Сырьё» (только админ проекта)."""
     project_id = await _raw_materials_project_id(session)
     try:
-        await update_project_user(
+        _, applied = await update_project_user(
             session,
             project_id=project_id,
             user_id=user_id,
@@ -497,6 +775,16 @@ async def patch_user(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await publish_cell_changed(
+        get_collab_store(),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="users",
+        report_month=None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=applied,
+    )
     return (await read_user_rows(session, user_id=user_id))[0]
 
 
@@ -511,6 +799,8 @@ async def delete_user_endpoint(
     project_id = await _raw_materials_project_id(session)
     try:
         await delete_project_user(session, project_id=project_id, user_id=user_id)
+    except DictionaryReferenceError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
 

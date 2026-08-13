@@ -42,6 +42,17 @@ front:
 seed:
     uv run --directory back -m src.scripts.seed_database --reset
 
+# migrate — применяет миграции к существующей схеме (добавляет collab-таблицы).
+# С хоста POSTGRES_HOST из .env (host.docker.internal) не резолвится,
+# поэтому переопределяем на localhost; в CI миграция идёт внутри контейнера.
+migrate:
+    $env:POSTGRES_HOST = "localhost"
+    uv run --directory back alembic upgrade head
+
+# revision — генерирует черновик новой миграции от моделей.
+revision message:
+    uv run --directory back alembic revision --autogenerate -m "{{message}}"
+
 deps:
     uv sync --directory back
     bun install --cwd front

@@ -7,6 +7,10 @@ import "./globals.css";
 export const metadata: Metadata = {
     title: "ReportCollector",
     description: "ReportCollector frontend",
+    icons: {
+        icon: "/ruschem_icon.png",
+        apple: "/ruschem_icon.png",
+    },
     appleWebApp: {
         capable: true,
         title: "ReportCollector",

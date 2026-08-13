@@ -214,6 +214,42 @@
             "lastName": "Сергей Николаевич",
             "email": "evtushenko.sn@ruschem.ru",
             "credentials": [{ "type": "password", "value": "evtushenko", "temporary": false }]
+        },
+        {
+            "username": "kuznetsov",
+            "enabled": true,
+            "emailVerified": true,
+            "firstName": "Кузнецов",
+            "lastName": "Алексей Николаевич",
+            "email": "kuznetsov.an@ruschem.ru",
+            "credentials": [{ "type": "password", "value": "kuznetsov", "temporary": false }]
+        },
+        {
+            "username": "smirnov",
+            "enabled": true,
+            "emailVerified": true,
+            "firstName": "Смирнов",
+            "lastName": "Иван Викторович",
+            "email": "smirnov.iv@ruschem.ru",
+            "credentials": [{ "type": "password", "value": "smirnov", "temporary": false }]
+        },
+        {
+            "username": "petrov",
+            "enabled": true,
+            "emailVerified": true,
+            "firstName": "Петров",
+            "lastName": "Дмитрий Анатольевич",
+            "email": "petrov.da@ruschem.ru",
+            "credentials": [{ "type": "password", "value": "petrov", "temporary": false }]
+        },
+        {
+            "username": "lebedeva",
+            "enabled": true,
+            "emailVerified": true,
+            "firstName": "Лебедева",
+            "lastName": "Ольга Ивановна",
+            "email": "lebedeva.ol@ruschem.ru",
+            "credentials": [{ "type": "password", "value": "lebedeva", "temporary": false }]
         }
     ]
 }

@@ -21,10 +21,11 @@ type SearchAutocompleteItem = {
 
 type SearchAutocompleteProps = {
     items: SearchAutocompleteItem[];
-    label: string;
+    label?: string;
     placeholder: string;
     selectedKey: string | null;
     onSelectionChange: (key: string | null) => void;
+    onOpenChange?: (open: boolean) => void;
     isDisabled?: boolean;
 };
 
@@ -34,6 +35,7 @@ export function SearchAutocomplete({
     placeholder,
     selectedKey,
     onSelectionChange,
+    onOpenChange,
     isDisabled = false,
 }: SearchAutocompleteProps) {
     const { contains } = useFilter({ sensitivity: "base" });
@@ -49,8 +51,8 @@ export function SearchAutocomplete({
 
     if (!isMounted) {
         return (
-            <TextField isDisabled name={`autocomplete-${label}`}>
-                <Label>{label}</Label>
+            <TextField isDisabled name="autocomplete">
+                {label ? <Label>{label}</Label> : null}
                 <Input placeholder={placeholder} value="" />
             </TextField>
         );
@@ -64,8 +66,10 @@ export function SearchAutocomplete({
             selectionMode="single"
             value={selectedKey}
             onChange={handleSelectionChange}
+            onOpenChange={onOpenChange}
+            variant="secondary"
         >
-            <Label>{label}</Label>
+            {label ? <Label>{label}</Label> : null}
             <Autocomplete.Trigger>
                 <Autocomplete.Value />
                 <Autocomplete.Indicator />
@@ -80,7 +84,11 @@ export function SearchAutocomplete({
                     </SearchField>
                     <ListBox renderEmptyState={() => <EmptyState>Ничего не найдено</EmptyState>}>
                         {items.map((item) => (
-                            <ListBox.Item id={item.id} key={item.id} textValue={item.name}>
+                            <ListBox.Item
+                                id={item.id}
+                                key={item.id}
+                                textValue={[item.name, item.description].filter(Boolean).join(" ")}
+                            >
                                 <div className="flex min-w-0 flex-col">
                                     <span className="truncate">{item.name}</span>
                                     {item.description ? (

@@ -5,6 +5,24 @@ import { loginAsLocalUser, logout } from "./helpers/auth";
 const LOCAL_EMAIL = "evtushenko.sn@ruschem.ru";
 const LOCAL_PASSWORD = "TestPassword123";
 
+test.beforeEach(async ({ page }) => {
+    test.skip(
+        !(await localAuthEnabled(page)),
+        "локальный вход выключен (Keycloak включён) — тесты локальной авторизации пропущены",
+    );
+});
+
+async function localAuthEnabled(page: import("@playwright/test").Page): Promise<boolean> {
+    await page.goto("/api/auth/login", { waitUntil: "domcontentloaded" });
+    const input = page.locator('input[name="email"]');
+    try {
+        await input.waitFor({ state: "visible", timeout: 5000 });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 test.describe("Авторизация", () => {
     test("локальный вход и выход", async ({ page }) => {
         await loginAsLocalUser(page, { email: LOCAL_EMAIL, password: LOCAL_PASSWORD });

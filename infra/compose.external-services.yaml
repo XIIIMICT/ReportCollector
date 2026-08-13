@@ -99,6 +99,21 @@ services:
     ports:
       - "3000:3000"
 
+  valkey:
+    container_name: rc-valkey
+    image: valkey/valkey:9-alpine
+    profiles: [standalone]
+    restart: unless-stopped
+    command: ["valkey-server", "--appendonly", "no"]
+    networks: [net, net-dev]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres-data:
     name: rc-postgres-data

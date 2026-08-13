@@ -48,6 +48,11 @@
     --warning: oklch(78.19% 0.1585 62.85);
     --warning-foreground: oklch(21.03% 0.0059 62.85);
 
+    /* Text aliases (collab bar и пр.) */
+    --text: var(--foreground);
+    --text-secondary: var(--muted);
+    --text-tertiary: var(--muted);
+
     /* Border Radius */
     --radius: 0.5rem;
     --field-radius: 1rem;
@@ -62,10 +67,6 @@
     --cell-deleted: oklch(93% 0.03 20);
     --cell-changed: oklch(95% 0.05 90);
     --cell-border: oklch(80% 0 174.82);
-
-    /* Font Family */
-    /* Make sure to load Inter font in your app */
-    --font-sans: var(--font-inter);
 }
 
 .dark,
@@ -114,22 +115,6 @@
     --cell-deleted: oklch(30% 0.03 20);
     --cell-changed: oklch(31% 0.05 90);
     --cell-border: oklch(39.64% 0 174.82);
-}
-
-/* ─── Анимации ReportCollector ─────────────────────────────── */
-
-/* Fade in при появлении элемента */
-@keyframes rc-fade-in {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-.rc-animate-fade-in {
-    animation: rc-fade-in 200ms ease-out both;
 }
 
 /* NextThemesProvider: плавная смена темы */
@@ -188,10 +173,22 @@ html {
 .brand {
     position: static;
     display: inline-flex;
-    align-items: baseline;
-    gap: 0.35rem;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.65rem;
     letter-spacing: -0.04em;
     user-select: none;
+}
+
+.brand__icon {
+    height: 1.25em;
+    width: auto;
+    flex: none;
+    object-fit: contain;
+}
+
+.brand__icon[hidden] {
+    display: none;
 }
 
 .brand__name {
@@ -365,6 +362,123 @@ html {
     background: var(--surface);
 }
 
+.alert-dialog__header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0;
+}
+
+.alert-dialog__header .alert-dialog__heading {
+    text-align: left;
+}
+
+.collab-bar {
+    display: flex;
+    flex: 0 0 21rem;
+    width: 21rem;
+    max-width: 100%;
+    align-items: center;
+    gap: 0.5rem;
+    padding-left: 0.4rem;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.collab-bar__dot {
+    flex: 0 0 auto;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--text-tertiary);
+}
+
+.collab-bar__dot--online {
+    background: var(--success);
+}
+
+.collab-bar__dot--connecting {
+    background: var(--warning);
+    animation: collab-pulse 1.2s ease-in-out infinite;
+}
+
+.collab-bar__dot--offline {
+    background: var(--danger);
+}
+
+.collab-bar__label,
+.collab-bar__members,
+.collab-bar__locks {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Фамилии участников переносятся и занимают не более трёх строк. */
+.collab-bar__members {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+}
+
+.collab-bar__members,
+.collab-bar__locks {
+    color: var(--text);
+}
+
+.collab-bar__sep {
+    flex: 0 0 auto;
+    width: 1px;
+    height: 0.9rem;
+    background: var(--border);
+}
+
+.collab-bar-tooltip__list {
+    display: grid;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.collab-bar-tooltip__item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.collab-bar-tooltip__name {
+    font-weight: 600;
+}
+
+.collab-bar-tooltip__role,
+.collab-bar-tooltip__cells {
+    opacity: 0.75;
+}
+
+.collab-bar-tooltip__cells {
+    white-space: nowrap;
+}
+
+@keyframes collab-pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.35;
+    }
+}
+
 .table-footer {
     z-index: 4;
     display: flex;
@@ -392,6 +506,21 @@ html {
     flex: 0 1 auto;
     align-items: center;
     gap: 0.8rem;
+}
+
+.archive-autocomplete {
+    width: 21rem;
+    min-width: 21rem;
+}
+
+.grid-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    line-height: 1.2;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    color: var(--muted);
 }
 
 .action-bar {
@@ -505,24 +634,24 @@ html {
     top: 0;
     right: 0;
     left: 0;
-    height: 4.3rem;
+    height: 1em;
 }
 
 .fullscreen-reveal--bottom {
     right: 0;
     bottom: 0;
     left: 0;
-    height: 1.85rem;
+    height: 1em;
 }
 
 .fullscreen-panel {
     position: absolute;
     z-index: 1;
     border: 1px solid var(--border);
-    border-radius: min(32px, var(--radius-3xl, 2rem));
+    border-radius: 2rem;
     opacity: 0;
     pointer-events: none;
-    background: var(--surface-glass-strong, var(--surface));
+    background: var(--surface);
     box-shadow: 0 0.8rem 2rem rgb(22 25 24 / 11%);
     backdrop-filter: blur(0.8rem);
     visibility: hidden;
@@ -555,6 +684,14 @@ html {
 }
 
 .fullscreen-reveal:hover .fullscreen-panel {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(0);
+    visibility: visible;
+    transition-delay: 0s;
+}
+
+.fullscreen-reveal--bottom.is-open .fullscreen-panel {
     opacity: 1;
     pointer-events: auto;
     transform: translate(0);
@@ -929,27 +1066,34 @@ html {
     white-space: nowrap;
 }
 
+.grid-options-menu-host {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
 .grid-options-menu {
     position: absolute;
-    z-index: 12;
-    top: 0;
-    left: 0;
+    inset: 0;
+    z-index: 2;
     display: grid;
-    width: 52px;
-    height: 44px;
+    width: 100%;
+    height: 100%;
     place-items: center;
-    background: var(--surface);
-    box-shadow:
-        1px 0 0 var(--cell-border) inset,
-        0 1px 0 var(--cell-border) inset,
-        -1px 0 0 var(--cell-border) inset,
-        0 -1px 0 var(--cell-border) inset;
 }
 
 .grid-options-menu .button {
     width: 36px;
     min-width: 36px;
     height: 36px;
+}
+
+.raw-materials-grid.raw-materials-grid--merged-header
+    revogr-header
+    .rgHeaderCell.report-row-header--heading {
+    top: calc(-1 * var(--grid-header-height) / 2);
+    height: 200%;
+    z-index: 2;
 }
 
 /* ─── Редакторы ячеек RevoGrid (Autocomplete) ─────────────── */
