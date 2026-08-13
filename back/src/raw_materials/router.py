@@ -17,7 +17,7 @@ from src.auth.models import Project, ProjectRole, User
 from src.auth.router import read_signed_identity
 from src.auth.service import CurrentUserIdentity, get_user_by_identity
 from src.collab.events import publish_cell_changed
-from src.collab.journal import AppliedCell
+from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse
 from src.collab.store import get_collab_store
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
@@ -238,7 +238,12 @@ async def get_movement_snapshot(
     rows = list(
         (
             await session.exec(
-                select(SnapshotMaterialMovement).where(col(SnapshotMaterialMovement.snapshot_id) == snapshot_id)
+                select(SnapshotMaterialMovement)
+                .where(col(SnapshotMaterialMovement.snapshot_id) == snapshot_id)
+                .order_by(
+                    SnapshotMaterialMovement.raw_material_name,
+                    SnapshotMaterialMovement.asset_name,
+                )
             )
         ).all()
     )
@@ -571,7 +576,10 @@ async def post_raw_material(
     _assets: AdminDependency,
 ) -> RawMaterialRowRead:
     """Создание сырьевой позиции (только админ проекта)."""
-    created = await create_raw_material(session, name=request.name, asset_ids=request.assetIds, user=user)
+    try:
+        created = await create_raw_material(session, name=request.name, asset_ids=request.assetIds, user=user)
+    except DictionaryReferenceError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     return (await read_raw_material_rows(session, raw_material_id=created.id))[0]
 
 
@@ -592,6 +600,8 @@ async def patch_raw_material(
             asset_ids=request.assetIds,
             user=user,
         )
+    except DictionaryReferenceError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     await publish_cell_changed(
@@ -603,6 +613,15 @@ async def patch_raw_material(
         user_name=user.name or "",
         user_email=user.email or "",
         cells=applied,
+    )
+    await record_cell_updates(
+        get_collab_store(),
+        user_id=user.id,
+        user_name=user.name or "",
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="rawMaterials",
+        report_month=None,
+        applied=applied,
     )
     return (await read_raw_material_rows(session, raw_material_id=raw_material_id))[0]
 
@@ -656,6 +675,15 @@ async def patch_asset(
         user_email=user.email or "",
         cells=applied,
     )
+    await record_cell_updates(
+        get_collab_store(),
+        user_id=user.id,
+        user_name=user.name or "",
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="assets",
+        report_month=None,
+        applied=applied,
+    )
     return (await read_asset_rows([updated]))[0]
 
 
@@ -707,6 +735,15 @@ async def patch_delivery_basis(
         user_name=user.name or "",
         user_email=user.email or "",
         cells=applied,
+    )
+    await record_cell_updates(
+        get_collab_store(),
+        user_id=user.id,
+        user_name=user.name or "",
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="deliveryBases",
+        report_month=None,
+        applied=applied,
     )
     return (await read_delivery_basis_rows(session, delivery_basis_id=updated.id))[0]
 
@@ -784,6 +821,15 @@ async def patch_user(
         user_name=user.name or "",
         user_email=user.email or "",
         cells=applied,
+    )
+    await record_cell_updates(
+        get_collab_store(),
+        user_id=user.id,
+        user_name=user.name or "",
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="users",
+        report_month=None,
+        applied=applied,
     )
     return (await read_user_rows(session, user_id=user_id))[0]
 

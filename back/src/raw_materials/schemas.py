@@ -91,10 +91,17 @@ class PriceRowRead(BaseModel):
     updatedBy: str
 
 
+class AssetOptionRead(BaseModel):
+    """Актив с id: грид сопоставляет имена активов с их идентификаторами."""
+
+    id: UUID
+    name: str
+
+
 class RawMaterialsMetaRead(BaseModel):
     """Справочники для форм: доступные активы, периоды движения, базисы поставки."""
 
-    assets: list[str]
+    assets: list[AssetOptionRead]
     movementPeriods: list[date]
     deliveryBases: list[str]
 

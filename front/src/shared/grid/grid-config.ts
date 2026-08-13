@@ -63,6 +63,8 @@ export type GridColumnContext = {
     selectedRowIds: Set<string>;
     showServiceColumns: boolean;
     remoteLocks: ReadonlyMap<string, { fullname: string; email: string }>;
+    /** Ключ ячейки → участник, который сейчас на ней находится (присутствие/аренда). */
+    remoteCellInfo: ReadonlyMap<string, { name: string; label: string | null }>;
     onBooleanChange: (row: GridRow, field: string, value: boolean) => void;
 };
 
@@ -89,7 +91,9 @@ const DESCRIPTORS: Record<SectionId, ColumnDescriptor[]> = {
     materialMovement: [
         fixed("rawMaterialName", "Сырьевая позиция", 270),
         { ...fixed("assetName", "Актив", 170), adminOnly: true },
-        number("businessPlanTons", "Бизнес-план, т", 142),
+        // Бизнес-план заполняется только в форме «Цен» (businessPlanQuantityTons)
+        // и проецируется сюда; в «Движении» колонка нередактируемая.
+        { ...fixed("businessPlanTons", "Бизнес-план, т", 142), kind: "number" },
         number("demandPlanTons", "План, т", 118, ["Потребность"]),
         number("consumptionFactTons", "Потребление, т", 142, ["Потребность"]),
         calculated("demandDeviationTons", "Отклонение, т", 138, ["Потребность"]),
@@ -433,7 +437,7 @@ function cellProperties(
     const value = row[descriptor.key];
     const isReadOnly = isCellReadOnly(descriptor, context, row, section);
     const canonicalKey = row.canonicalCells?.[descriptor.key];
-    const remoteLock = canonicalKey ? context.remoteLocks.get(canonicalKey) : undefined;
+    const remoteUser = canonicalKey ? context.remoteCellInfo.get(canonicalKey) : undefined;
     const empty =
         value === null ||
         value === undefined ||
@@ -446,7 +450,7 @@ function cellProperties(
             "report-cell": true,
             "report-cell--number": descriptor.kind === "number" || descriptor.kind === "calculated",
             "report-cell--readonly": isReadOnly,
-            "report-cell--remote-locked": Boolean(remoteLock),
+            "report-cell--remote-locked": Boolean(remoteUser),
             "report-cell--selected": !row.isPlaceholder && context.selectedRowIds.has(row.id),
             "report-cell--last-column": index === columnCount - 1,
             "report-cell--placeholder": Boolean(row.isPlaceholder),
@@ -467,9 +471,10 @@ function cellProperties(
                 !calculated &&
                 empty,
         },
-        title: remoteLock ? `Редактирует ${remoteLock.fullname} (${remoteLock.email})` : undefined,
-        "data-remote-lock": remoteLock
-            ? `Редактирует ${remoteLock.fullname} (${remoteLock.email})`
+        "data-remote-lock": remoteUser
+            ? remoteUser.label
+                ? `${remoteUser.name} — ${remoteUser.label}`
+                : remoteUser.name
             : undefined,
     };
 }

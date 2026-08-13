@@ -110,11 +110,11 @@ test.describe("collab: совместное редактирование", () =>
         await loginAs(pageA, "smirnov", "smirnov");
         await loginAs(pageB, "petrov", "petrov");
 
-        // Оба пользователя видят одну и ту же ячейку бизнес-плана первого
-        // сырья (Алкилат/СНХЗ — доступен обоим).
-        const cellA = await gridCellByProp(pageA, "businessPlanTons", 0);
-        const cellB = await gridCellByProp(pageB, "businessPlanTons", 0);
-        const original = await cellValue(pageA, "businessPlanTons", 0);
+        // Оба пользователя видят одну и ту же ячейку «План, т» (Потребность)
+        // первого сырья (Алкилат/СНХЗ — доступен обоим).
+        const cellA = await gridCellByProp(pageA, "demandPlanTons", 0);
+        const cellB = await gridCellByProp(pageB, "demandPlanTons", 0);
+        const original = await cellValue(pageA, "demandPlanTons", 0);
 
         // Пользователь A открывает редактор и держит ячейку (аренда активна).
         await cellA.dblclick();
@@ -130,7 +130,7 @@ test.describe("collab: совместное редактирование", () =>
         await cellB.dblclick();
         await pageB.waitForTimeout(500);
         await expect(pageB.locator("revogr-edit input, revogr-edit textarea")).toHaveCount(0);
-        expect(await cellValue(pageB, "businessPlanTons", 0)).toBe(original);
+        expect(await cellValue(pageB, "demandPlanTons", 0)).toBe(original);
 
         // A завершает редактирование — значение применяется у обоих.
         await editorA.press("Enter");
@@ -138,26 +138,26 @@ test.describe("collab: совместное редактирование", () =>
             timeout: 10000,
         });
         await expect
-            .poll(() => cellValue(pageA, "businessPlanTons", 0), { timeout: 15000 })
+            .poll(() => cellValue(pageA, "demandPlanTons", 0), { timeout: 15000 })
             .toBe("999");
         await expect
-            .poll(() => cellValue(pageB, "businessPlanTons", 0), { timeout: 15000 })
+            .poll(() => cellValue(pageB, "demandPlanTons", 0), { timeout: 15000 })
             .toBe("999");
 
         // Аренда снята: B теперь может редактировать ту же ячейку.
         await expect(pageB.locator(".collab-bar__locks")).toHaveCount(0, { timeout: 15000 });
         await editCell(pageB, cellB, "123");
         await expect
-            .poll(() => cellValue(pageA, "businessPlanTons", 0), { timeout: 15000 })
+            .poll(() => cellValue(pageA, "demandPlanTons", 0), { timeout: 15000 })
             .toBe("123");
         await expect
-            .poll(() => cellValue(pageB, "businessPlanTons", 0), { timeout: 15000 })
+            .poll(() => cellValue(pageB, "demandPlanTons", 0), { timeout: 15000 })
             .toBe("123");
 
         // Восстанавливаем исходное значение.
         await editCell(pageA, cellA, original);
         await expect
-            .poll(() => cellValue(pageB, "businessPlanTons", 0), { timeout: 15000 })
+            .poll(() => cellValue(pageB, "demandPlanTons", 0), { timeout: 15000 })
             .toBe(original);
 
         await ctxA.close();

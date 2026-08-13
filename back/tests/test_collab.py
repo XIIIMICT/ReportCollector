@@ -425,6 +425,71 @@ async def _wait_until(predicate, *, attempts: int = 100) -> None:
     pytest.fail("Не дождались условия WebSocket-теста")
 
 
+async def test_undo_redo_dictionary_raw_material(client, store) -> None:
+    """Правка имени сырьевой позиции отменяется и возвращается (undo справочников)."""
+    rows = (
+        await client.get("/api/raw-materials/raw-materials", headers=signed_identity_headers(**admin_headers()))
+    ).json()
+    target = next(row for row in rows if row["assetNames"])
+    original = target["name"]
+    temporary = f"{original} (временное)"
+
+    response = await client.patch(
+        f"/api/raw-materials/raw-materials/{target['id']}",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"name": temporary},
+    )
+    assert response.status_code == 200
+    assert response.json()["name"] == temporary
+
+    undone = await _post_undo(client)
+    assert undone["applied"] is True
+    assert undone["field"] == "name"
+    assert undone["value"] == original
+    rows = (
+        await client.get("/api/raw-materials/raw-materials", headers=signed_identity_headers(**admin_headers()))
+    ).json()
+    assert next(row for row in rows if row["id"] == target["id"])["name"] == original
+
+    redone = await _post_redo(client)
+    assert redone["applied"] is True
+    assert redone["value"] == temporary
+
+    # Возвращаем исходное имя, чтобы не портить другие тесты.
+    await client.patch(
+        f"/api/raw-materials/raw-materials/{target['id']}",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"name": original},
+    )
+
+
+async def test_undo_redo_dictionary_asset(client, store) -> None:
+    """Правка имени актива отменяется и возвращается."""
+    rows = (await client.get("/api/raw-materials/assets", headers=signed_identity_headers(**admin_headers()))).json()
+    target = rows[0]
+    original = target["name"]
+    temporary = f"{original} (временный)"
+
+    response = await client.patch(
+        f"/api/raw-materials/assets/{target['id']}",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"name": temporary},
+    )
+    assert response.status_code == 200
+
+    undone = await _post_undo(client)
+    assert undone["applied"] is True
+    assert undone["field"] == "name"
+    assert undone["value"] == original
+
+    # Возвращаем исходное имя.
+    await client.patch(
+        f"/api/raw-materials/assets/{target['id']}",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"name": original},
+    )
+
+
 async def test_ws_project_isolation(client, db_session, store) -> None:
     """Арена и присутствие проекта не пересекаются с другими проектами."""
     await _make_project(db_session, key="kppk", name="КППК")

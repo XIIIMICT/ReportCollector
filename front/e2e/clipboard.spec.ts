@@ -53,6 +53,119 @@ test("clipboard: keyboard copy and paste applies values to cells", async ({ page
     await expect(target).toContainText("42", { timeout: 15000 });
 });
 
+test("clipboard: Ctrl+C works with Russian keyboard layout", async ({ page, context }) => {
+    // В русской раскладке event.key — «с»/«м», поэтому обработчики должны
+    // опираться на event.code (физическую клавишу), а не на event.key.
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: "http://127.0.0.1:5000",
+    });
+    await loginAsEvtushenko(page);
+    await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
+
+    const firstCell = page.locator("revogr-data .rgCell:not(.report-row-header)").first();
+    await firstCell.click();
+    await page.waitForTimeout(300);
+
+    // Синтетическое нажатие Ctrl+C «в русской раскладке» (key = «с», code = KeyC).
+    await page.evaluate(() => {
+        const cell = document.activeElement as HTMLElement | null;
+        cell?.dispatchEvent(
+            new KeyboardEvent("keydown", {
+                key: "с",
+                code: "KeyC",
+                ctrlKey: true,
+                bubbles: true,
+                composed: true,
+            }),
+        );
+    });
+
+    await expect
+        .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5000 })
+        .not.toBe("");
+});
+
+test("clipboard: reference fields paste validates values and rejects unknown", async ({
+    page,
+    context,
+}) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: "http://127.0.0.1:5000",
+    });
+    await loginAsEvtushenko(page);
+    await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
+
+    await page.getByRole("tab", { name: "Сырьевые позиции" }).click();
+    await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 20000 });
+
+    const dataRows = page
+        .locator("revogr-data .rgRow")
+        .filter({ has: page.locator(".rgCell:nth-child(2)") });
+    const firstCell = dataRows.first().locator(".rgCell").nth(1);
+    await expect(firstCell).toBeVisible();
+    await firstCell.click();
+
+    const readAssets = () =>
+        page.evaluate((rowIndex) => {
+            const grid = document.querySelector("revo-grid")!;
+            return Promise.all([grid.getSource(), grid.getColumns()]).then(([source, cols]) => {
+                const flat = cols.flatMap((c) => (c.children?.length ? c.children : [c]));
+                const col = flat.find((c) => c.prop === "assetNames");
+                return JSON.stringify(source[rowIndex]?.[col?.prop]);
+            });
+        }, 0);
+
+    // Невалидная вставка: один из активов отсутствует в справочнике → вся
+    // вставка отклоняется, значение не меняется, показывается предупреждение.
+    const before = await readAssets();
+    await page.evaluate(() => navigator.clipboard.writeText("СНХЗ, НЕСУЩЕСТВУЮЩИЙ АКТИВ"));
+    await page.keyboard.press("Control+V");
+    await expect(
+        page.getByText("значение «НЕСУЩЕСТВУЮЩИЙ АКТИВ» отсутствует в справочнике."),
+    ).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(800);
+    expect(await readAssets()).toBe(before);
+
+    // Валидная вставка применяется: найдём строку, где набор активов — подмножество
+    // «ВОС, СНХЗ» (иначе сервер отклонит снятие активов с движением).
+    const target = await page.evaluate(() => {
+        const grid = document.querySelector("revo-grid")!;
+        return Promise.all([grid.getSource(), grid.getColumns()]).then(([source, cols]) => {
+            const flat = cols.flatMap((c) => (c.children?.length ? c.children : [c]));
+            const col = flat.find((c) => c.prop === "assetNames");
+            return source.findIndex((row) => {
+                const set = new Set<string>(row[col?.prop] ?? []);
+                return set.size <= 2 && [...set].every((a) => a === "ВОС" || a === "СНХЗ");
+            });
+        });
+    });
+    if (target >= 0) {
+        const cell = dataRows.nth(target).locator(".rgCell").nth(1);
+        await expect(cell).toBeVisible();
+        await cell.click();
+        await page.evaluate(() => navigator.clipboard.writeText("ВОС, СНХЗ"));
+        await page.keyboard.press("Control+V");
+        await expect
+            .poll(
+                () =>
+                    page.evaluate((rowIndex) => {
+                        const grid = document.querySelector("revo-grid")!;
+                        return Promise.all([grid.getSource(), grid.getColumns()]).then(
+                            ([source, cols]) => {
+                                const flat = cols.flatMap((c) =>
+                                    c.children?.length ? c.children : [c],
+                                );
+                                const col = flat.find((c) => c.prop === "assetNames");
+                                return JSON.stringify(source[rowIndex]?.[col?.prop]);
+                            },
+                        );
+                    }, target),
+                { timeout: 15000 },
+            )
+            .toBe(JSON.stringify(["ВОС", "СНХЗ"]));
+    }
+});
+
 test("clipboard: toolbar copy/paste buttons apply values", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"], {
         origin: "http://127.0.0.1:5000",

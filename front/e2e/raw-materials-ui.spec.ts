@@ -144,6 +144,53 @@ test("evtushenko: project switcher and dictionary CRUD", async ({ page }) => {
     );
 });
 
+test("evtushenko: undo/redo works on dictionaries (asset rename)", async ({ page }) => {
+    await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
+    await page.waitForURL(
+        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
+        { timeout: 20000 },
+    );
+    await page.locator("#username").fill("evtushenko");
+    await page.locator("#password").fill("TestPassword123");
+    await page.locator('button[type="submit"]').click();
+    await page.waitForURL(/127\.0\.0\.1:5000/, { timeout: 20000 });
+
+    await page.getByRole("tab", { name: "Активы" }).click();
+    await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 20000 });
+
+    const readName = () =>
+        page.evaluate(() => {
+            const grid = document.querySelector("revo-grid")!;
+            return Promise.all([grid.getSource(), grid.getColumns()]).then(([source, cols]) => {
+                const flat = cols.flatMap((c) => (c.children?.length ? c.children : [c]));
+                const col = flat.find((c) => c.prop === "name");
+                return String(source[0]?.[col?.prop] ?? "");
+            });
+        });
+    const original = await readName();
+    const temporary = `${original} (временный)`;
+
+    const firstCell = page.locator("revogr-data .rgCell:not(.report-row-header)").first();
+    await firstCell.dblclick();
+    const editor = page.locator("revogr-edit input, revogr-edit textarea").first();
+    await expect(editor).toBeVisible({ timeout: 10000 });
+    await editor.fill(temporary);
+    await editor.press("Enter");
+    await expect.poll(() => readName(), { timeout: 15000 }).toBe(temporary);
+
+    // Ctrl+Z отменяет правку справочника (через event.code — при любой раскладке).
+    await page.keyboard.press("Control+z");
+    await expect.poll(() => readName(), { timeout: 15000 }).toBe(original);
+
+    // Ctrl+Y возвращает её.
+    await page.keyboard.press("Control+y");
+    await expect.poll(() => readName(), { timeout: 15000 }).toBe(temporary);
+
+    // Возвращаем исходное имя.
+    await page.keyboard.press("Control+z");
+    await expect.poll(() => readName(), { timeout: 15000 }).toBe(original);
+});
+
 test("evtushenko: header shows fullname, profile modal works with theme + password", async ({
     page,
 }) => {

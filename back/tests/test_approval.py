@@ -1,4 +1,4 @@
-"""Тесты утверждения («фиксации») формы «Движение»."""
+"""Тесты фиксации формы «Движение»."""
 
 from __future__ import annotations
 
@@ -144,6 +144,16 @@ async def test_fix_creates_snapshot(
     assert meta_body["isFinal"] is False
     assert len(meta_body["snapshots"]) == 1
     assert meta_body["snapshots"][0]["id"] == body["id"]
+
+    # Архивная версия сохраняет дефолтный порядок: сырьё, затем актив.
+    view = await client.get(
+        f"/api/raw-materials/movement/snapshot/{snapshot_id}",
+        headers=ADMIN_HEADERS,
+    )
+    assert view.status_code == 200
+    view_rows = view.json()["rows"]
+    pairs = [(row["rawMaterialName"], row["assetName"]) for row in view_rows]
+    assert pairs == sorted(pairs)
 
 
 async def test_fix_preview_overwrites_and_keeps_history_link(

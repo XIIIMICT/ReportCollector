@@ -1,4 +1,4 @@
-import { Button, Dropdown, Label, type Selection } from "@heroui/react";
+import { Button, Dropdown, Label, Tooltip, type Selection } from "@heroui/react";
 import {
     Editor,
     RevoGrid,
@@ -74,8 +74,10 @@ type Props = {
     onHeaderPinnedChange: (isPinned: boolean) => void;
     assets: ReferenceOption[];
     deliveryBases: ReferenceOption[];
-    onCommit: (updates: CellUpdate[]) => Promise<void>;
-    onPlaceholderCommit: (patch: Record<string, unknown>) => Promise<void>;
+    onCommit: (updates: CellUpdate[]) => Promise<boolean>;
+    onPlaceholderCommit: (patch: Record<string, unknown>) => Promise<boolean>;
+    /** Сервер отклонил правки: источник нужно вернуть (откат оптимистичных значений). */
+    onCommitFailed?: () => void;
     onSelectedRowsChange: (selection: { ids: string[]; wholeRows: boolean }) => void;
     onValidationError: (message: string) => void;
     onPasteSkipped?: (description: string) => void;
@@ -85,9 +87,14 @@ type Props = {
     onReleaseLease?: (keys: string[]) => void;
     onViewStatsChange?: (stats: GridViewStats) => void;
     onClipboardStateChange?: (state: { canPaste: boolean }) => void;
-    /** Текущий диапазон выделения в человекочитаемом виде (для присутствия). */
-    onSelectionChange?: (label: string | null) => void;
+    /** Завершённое выделение (для присутствия): подпись и ключи ячеек диапазона. */
+    onSelectionChange?: (selection: { label: string | null; cellKeys: string[] }) => void;
+    /** Ключи ячеек, на которых находятся другие участники (подсветка + подсказка). */
+    remoteCellInfo?: ReadonlyMap<string, { name: string; label: string | null }>;
 };
+
+/** Задержка отправки завершённого выделения в присутствие (после отпускания). */
+const PRESENCE_DEBOUNCE_MS = 400;
 
 type GridSortingOrder = "asc" | "desc";
 
@@ -113,26 +120,90 @@ function isGridTarget(event: Event, grid: HTMLElement): boolean {
 }
 
 /**
+ * Канонические ключи ячеек выделенного диапазона — они едины для всех
+ * участников независимо от состава видимых колонок (координаты разъезжаются,
+ * когда у пользователей разные наборы колонок).
+ */
+function selectionCellKeys(
+    range: RangeArea | null,
+    rows: GridRow[],
+    columns: ColumnRegular[],
+): string[] {
+    if (!range || range.x1 < range.x || range.y1 < range.y) return [];
+    const keys: string[] = [];
+    for (let y = range.y; y <= Math.min(range.y1, rows.length - 1); y++) {
+        const row = rows[y];
+        if (!row?.canonicalCells) continue;
+        for (let x = range.x; x <= Math.min(range.x1, columns.length - 1); x++) {
+            const prop = columns[x]?.prop;
+            if (prop == null) continue;
+            const key = row.canonicalCells[String(prop)];
+            if (key) keys.push(key);
+        }
+    }
+    return keys;
+}
+
+/**
+ * Подпись колонки с учётом вложенного заголовка: «Потребность / План, т».
+ */
+function columnLabel(
+    column: ColumnRegular | undefined,
+    descriptorByKey: Map<string, ColumnDescriptor>,
+): string | null {
+    if (!column) return null;
+    const descriptor = descriptorByKey.get(String(column.prop));
+    if (descriptor) {
+        return `«${[...(descriptor.path ?? []), descriptor.label].join(" / ")}»`;
+    }
+    const fallback = String(column.name ?? column.prop ?? "");
+    return fallback ? `«${fallback}»` : null;
+}
+
+/**
  * Человекочитаемое описание выделенного диапазона, например
- * «Бизнес-план, т – Факт, т, строки 3–5» или «Объём, т, строка 2».
- * Диапазоны записываются через тире; null — выделения нет.
+ * «Бизнес-план, т» – «Факт, т», строки 3–5 или «Потребность / План, т», строка 2.
+ * Названия колонок берутся в кавычки; диапазоны записываются через тире.
+ * null — выделения нет.
  */
 export function selectionLabelForRange(
     range: RangeArea | null,
     columns: ColumnRegular[],
+    descriptorByKey: Map<string, ColumnDescriptor>,
     rowCount: number,
 ): string | null {
     if (!range || range.x1 < range.x || range.y1 < range.y) return null;
-    const firstColumn = columns[range.x];
-    const lastColumn = columns[range.x1];
-    if (!firstColumn || !lastColumn) return null;
-    const firstLabel = String(firstColumn.name ?? firstColumn.prop ?? "");
-    const lastLabel = String(lastColumn.name ?? lastColumn.prop ?? "");
+    const firstLabel = columnLabel(columns[range.x], descriptorByKey);
+    const lastLabel = columnLabel(columns[range.x1], descriptorByKey);
+    if (!firstLabel || !lastLabel) return null;
     const columnText = firstLabel === lastLabel ? firstLabel : `${firstLabel} – ${lastLabel}`;
     const startRow = range.y + 1;
     const endRow = Math.min(range.y1 + 1, rowCount);
     const rowText = startRow === endRow ? `строка ${startRow}` : `строки ${startRow}–${endRow}`;
     return `${columnText}, ${rowText}`;
+}
+
+/**
+ * Канонические ключи всех ячеек выделенных строк (по всем колонкам).
+ */
+function selectionRowCellKeys(
+    rows: GridRow[],
+    startRow: number,
+    endRow: number,
+    columns: ColumnRegular[],
+): string[] {
+    const keys: string[] = [];
+    for (let y = startRow; y <= endRow; y++) {
+        const row = rows[y];
+        if (!row?.canonicalCells) continue;
+        for (const column of columns) {
+            const prop = column.prop;
+            if (prop == null) continue;
+            const key = row.canonicalCells[String(prop)];
+            if (key) keys.push(key);
+        }
+    }
+    return keys;
 }
 
 export function sortingConfigFromEvent(detail: GridSortingEvent): GridSortingConfig {
@@ -163,6 +234,7 @@ function RawMaterialsGridInner(
         deliveryBases,
         onCommit,
         onPlaceholderCommit,
+        onCommitFailed,
         onSelectedRowsChange,
         onValidationError,
         onPasteSkipped,
@@ -173,6 +245,7 @@ function RawMaterialsGridInner(
         onViewStatsChange,
         onClipboardStateChange,
         onSelectionChange,
+        remoteCellInfo = new Map(),
     }: Props,
     forwardedRef: Ref<RawMaterialsGridHandle>,
 ) {
@@ -194,6 +267,13 @@ function RawMaterialsGridInner(
     const activeLeaseRef = useRef<string | null>(null);
     const [selectionRange, setSelectionRange] = useState<RangeArea | null>(null);
     const [canPaste, setCanPaste] = useState(false);
+    // Плавающий HeroUI Tooltip над ячейками, занятыми другим участником.
+    const [remoteTooltip, setRemoteTooltip] = useState<{
+        text: string;
+        left: number;
+        top: number;
+    } | null>(null);
+    const remoteTooltipTargetRef = useRef<Element | null>(null);
 
     useEffect(() => {
         rowValuesRef.current = new Map(rows.map((row) => [row.id, { ...row }]));
@@ -209,6 +289,7 @@ function RawMaterialsGridInner(
         () => new Map(descriptors.map((descriptor) => [descriptor.key, descriptor])),
         [descriptors],
     );
+
     const editableKeys = useMemo(
         () => getEditableKeys(section, isAdmin, showAssetColumn),
         [isAdmin, section, showAssetColumn],
@@ -233,6 +314,7 @@ function RawMaterialsGridInner(
             selectedRowIds: selectedRowIdSet,
             showServiceColumns,
             remoteLocks,
+            remoteCellInfo,
             onBooleanChange: (row, field, value) => {
                 if (row.isPlaceholder) void onPlaceholderCommit({ [field]: value });
                 else void onCommit([{ rowId: row.id, field, value }]);
@@ -249,8 +331,9 @@ function RawMaterialsGridInner(
         onCommit,
         onPlaceholderCommit,
         readOnly,
-        selectedRowIdSet,
+        remoteCellInfo,
         remoteLocks,
+        selectedRowIdSet,
         section,
         showServiceColumns,
     ]);
@@ -269,17 +352,61 @@ function RawMaterialsGridInner(
     const contentHeight = headerHeight + rows.length * 36 + 18;
 
     const selectionRangeRef = useRef<RangeArea | null>(null);
-
     const updateSelectionRange = useCallback((range: RangeArea | null) => {
         selectionRangeRef.current = range;
         setSelectionRange(range);
     }, []);
 
-    // Присутствие: сообщаем наружу диапазон выделения, чтобы другие участники
-    // видели в списке «В сети», какие ячейки сейчас смотрит пользователь.
+    // Выделенные строки (кнопки номеров строк) — их тоже отражаем в присутствии.
+    const selectedRowsRange = useMemo(() => {
+        if (selectedRowIds.length === 0) return null;
+        const indexes = rows
+            .map((row, index) => (selectedRowIdSet.has(row.id) ? index : -1))
+            .filter((index) => index >= 0);
+        if (indexes.length === 0) return null;
+        return { min: indexes[0], max: indexes[indexes.length - 1] };
+    }, [rows, selectedRowIdSet, selectedRowIds.length]);
+
+    // Присутствие: сообщаем наружу только завершённое выделение (не каждое
+    // событие перетаскивания), чтобы живая передача не ломала перетаскивание
+    // и не спамила комнату. Дебаунс гарантирует отправку после отпускания.
+    // Колбэк и расчётные данные держим в ref, чтобы эхо presence:update
+    // (пересборка members на нашем же клиенте) не порождало повторные отправки.
+    const presenceInputRef = useRef({
+        descriptorByKey,
+        flatColumns,
+        rows,
+        selectedRowsRange,
+        onSelectionChange,
+    });
+    presenceInputRef.current = {
+        descriptorByKey,
+        flatColumns,
+        rows,
+        selectedRowsRange,
+        onSelectionChange,
+    };
     useEffect(() => {
-        onSelectionChange?.(selectionLabelForRange(selectionRange, flatColumns, rows.length));
-    }, [flatColumns, onSelectionChange, rows.length, selectionRange]);
+        const timer = setTimeout(() => {
+            const { descriptorByKey, flatColumns, rows, selectedRowsRange, onSelectionChange } =
+                presenceInputRef.current;
+            const label = selectedRowsRange
+                ? selectedRowsRange.min === selectedRowsRange.max
+                    ? `строка ${selectedRowsRange.min + 1}`
+                    : `строки ${selectedRowsRange.min + 1}–${selectedRowsRange.max + 1}`
+                : selectionLabelForRange(selectionRange, flatColumns, descriptorByKey, rows.length);
+            const keys = selectedRowsRange
+                ? selectionRowCellKeys(
+                      rows,
+                      selectedRowsRange.min,
+                      selectedRowsRange.max,
+                      flatColumns,
+                  )
+                : selectionCellKeys(selectionRange, rows, flatColumns);
+            onSelectionChange?.({ label, cellKeys: keys });
+        }, PRESENCE_DEBOUNCE_MS);
+        return () => clearTimeout(timer);
+    }, [selectedRowsRange, selectionRange]);
 
     const getSelectionStore = useCallback((): SelectionStoreHandle | undefined => {
         const grid = gridRef.current;
@@ -463,7 +590,8 @@ function RawMaterialsGridInner(
             return { ok: false, message: "выберите «Да» или «Нет»." };
         }
         if (kind === "assetsMulti") {
-            const requested = Array.isArray(value) ? value : String(value ?? "").split(/[,;\n]+/u);
+            // В справочных значениях запятых нет, поэтому запятая — разделитель.
+            const requested = Array.isArray(value) ? value : String(value ?? "").split(",");
             const canonical = canonicalOptions(requested, assets);
             if (!canonical.ok) return canonical;
             return { ok: true, value: canonical.value };
@@ -651,14 +779,16 @@ function RawMaterialsGridInner(
         }
         void (async () => {
             try {
+                let ok = true;
                 if (edits.updates.length) {
-                    await onCommit(translateUpdates(section, edits.updates, assets));
+                    ok = await onCommit(translateUpdates(section, edits.updates, assets));
                 }
-                if (Object.keys(edits.placeholderPatch).length) {
-                    await onPlaceholderCommit(
+                if (ok && Object.keys(edits.placeholderPatch).length) {
+                    ok = await onPlaceholderCommit(
                         translatePlaceholderPatch(section, edits.placeholderPatch, assets),
                     );
                 }
+                if (!ok) onCommitFailed?.();
             } finally {
                 activeLeaseRef.current = null;
                 onReleaseLease?.(releaseKeys);
@@ -1035,13 +1165,14 @@ function RawMaterialsGridInner(
                 return;
             }
             if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
-            const key = event.key.toLocaleLowerCase();
-            if (key !== "c" && key !== "v") return;
+            // event.code — физическая клавиша: работает при любой раскладке
+            // (в русской event.key даёт «с»/«м»).
+            if (event.code !== "KeyC" && event.code !== "KeyV") return;
             if (isEditableTarget(document.activeElement)) return;
             const grid = gridRef.current;
             if (!grid || !isGridTarget(event, grid)) return;
             event.preventDefault();
-            if (key === "c") void copySelection();
+            if (event.code === "KeyC") void copySelection();
             else void pasteIntoSelection();
         };
         document.addEventListener("keydown", handleKeyDown);
@@ -1073,7 +1204,40 @@ function RawMaterialsGridInner(
                     "--grid-header-height": `${headerHeight}px`,
                 } as CSSProperties
             }
+            onPointerMove={(event) => {
+                const target = (event.target as Element).closest?.("[data-remote-lock]") ?? null;
+                if (target === remoteTooltipTargetRef.current) return;
+                remoteTooltipTargetRef.current = target;
+                if (!target) {
+                    setRemoteTooltip(null);
+                    return;
+                }
+                const rect = target.getBoundingClientRect();
+                setRemoteTooltip({
+                    text:
+                        target.getAttribute("data-remote-lock") ??
+                        "Ячейка занята другим пользователем",
+                    left: rect.left + rect.width / 2,
+                    top: rect.top,
+                });
+            }}
+            onPointerLeave={() => {
+                remoteTooltipTargetRef.current = null;
+                setRemoteTooltip(null);
+            }}
         >
+            <Tooltip isOpen={remoteTooltip !== null}>
+                <Tooltip.Trigger
+                    className="remote-cell-tooltip-trigger"
+                    style={{
+                        left: remoteTooltip?.left ?? -1000,
+                        top: remoteTooltip?.top ?? -1000,
+                    }}
+                >
+                    <span aria-hidden="true" />
+                </Tooltip.Trigger>
+                <Tooltip.Content placement="top">{remoteTooltip?.text}</Tooltip.Content>
+            </Tooltip>
             <div ref={verticalScrollRef} className="revo-grid-vertical-scroller">
                 <RevoGrid
                     ref={gridRef}

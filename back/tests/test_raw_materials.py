@@ -22,7 +22,8 @@ async def test_admin_reads_meta(client) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["assets"] == ["БСЗ", "ВОС", "СНХЗ"]
+    assert [asset["name"] for asset in body["assets"]] == ["БСЗ", "ВОС", "СНХЗ"]
+    assert all(asset["id"] for asset in body["assets"])
     assert body["movementPeriods"] == ["2026-08-01", "2026-09-01"]
     assert body["deliveryBases"] == ["FCA", "FOB"]
 
@@ -92,7 +93,8 @@ async def test_worker_sees_only_bound_assets(client, db_session) -> None:
     await db_session.commit()
 
     meta = (await client.get("/api/raw-materials/meta", headers=signed_identity_headers(**headers))).json()
-    assert meta["assets"] == ["ВОС", "СНХЗ"]
+    assert [asset["name"] for asset in meta["assets"]] == ["ВОС", "СНХЗ"]
+    assert all(asset["id"] for asset in meta["assets"])
 
     rows = (
         await client.get(

@@ -129,7 +129,15 @@ function toGridRow<T extends { id: string }>(row: T): GridRow {
 }
 
 function toReferenceOptions(names: string[]): ReferenceOption[] {
+    // Базисы поставки и прочие справочники передаются именами: id не нужен,
+    // клиент работает с именами (свойства id/name совпадают).
     return names.map((name) => ({ id: name, name }));
+}
+
+function toAssetOptions(assets: RawMaterialsMeta["assets"]): ReferenceOption[] {
+    // Активы приходят с настоящими id: по ним грид переводит имена в
+    // идентификаторы (namesToIds) для API сырьевых позиций.
+    return assets.map((asset) => ({ id: asset.id, name: asset.name }));
 }
 
 const PLACEHOLDER_ID_PREFIX = "new";
@@ -274,6 +282,7 @@ function SectionContent({
     assets,
     deliveryBases,
     collabEnabled,
+    firstOpenMonth,
     room,
     remoteCellValues,
     onDeleteState,
@@ -291,6 +300,8 @@ function SectionContent({
     assets: ReferenceOption[];
     deliveryBases: ReferenceOption[];
     collabEnabled: boolean;
+    /** Первый открытый месяц «Движения»: только его можно фиксировать. */
+    firstOpenMonth: string | null;
     room: CollabRoom;
     remoteCellValues: Map<string, unknown>;
     onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
@@ -400,6 +411,37 @@ function SectionContent({
         return result;
     }, [room.lockedCells]);
 
+    // Ячейки, на которых находятся другие участники: их диапазоны присутствия
+    // (канонические ключи — едины для всех независимо от набора колонок) плюс
+    // ячейки, занятые арендой. Нужно для жёлтой подсветки и подсказки с ФИО.
+    const remoteCellInfo = useMemo(() => {
+        const meId = room.me?.userId ?? null;
+        const result = new Map<string, { name: string; label: string | null }>();
+        for (const member of room.members) {
+            if (member.userId === meId) continue;
+            const selection = member.selection as
+                | { label?: unknown; cellKeys?: unknown }
+                | null
+                | undefined;
+            const cellKeys = Array.isArray(selection?.cellKeys)
+                ? selection.cellKeys.filter((key): key is string => typeof key === "string")
+                : [];
+            if (cellKeys.length === 0) continue;
+            const name = member.name || member.email || "";
+            const label =
+                typeof selection?.label === "string" && selection.label ? selection.label : null;
+            for (const key of cellKeys) {
+                if (!result.has(key)) result.set(key, { name, label });
+            }
+        }
+        for (const [key, user] of room.lockedCells) {
+            if (!result.has(key)) {
+                result.set(key, { name: user.name || "", label: null });
+            }
+        }
+        return result;
+    }, [room.lockedCells, room.me?.userId, room.members]);
+
     const readOnly = isMutationPending || isArchive || (collabEnabled && room.status === "offline");
 
     useEffect(() => {
@@ -449,8 +491,8 @@ function SectionContent({
 
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
 
-    async function commit(updates: CellUpdate[]) {
-        if (readOnly || !updates.length) return;
+    async function commit(updates: CellUpdate[]): Promise<boolean> {
+        if (readOnly || !updates.length) return true;
         setIsMutationPending(true);
         try {
             if (section === "materialMovement" && reportMonth) {
@@ -469,8 +511,12 @@ function SectionContent({
             setUndoCount((count) => count + 1);
             setRedoCount(0);
             refresh();
+            return true;
         } catch (reason) {
             toast.danger("Изменения не сохранены", { description: errorMessage(reason) });
+            // Сервер отклонил правки: пусть грид вернёт данные из источника
+            // (onCommitFailed), а не оставит оптимистичное значение.
+            return false;
         } finally {
             setIsMutationPending(false);
         }
@@ -501,8 +547,8 @@ function SectionContent({
         }
     }
 
-    async function commitPlaceholderPatch(patch: Record<string, unknown>) {
-        if (!canManageReferences || section === "users" || isMutationPending) return;
+    async function commitPlaceholderPatch(patch: Record<string, unknown>): Promise<boolean> {
+        if (!canManageReferences || section === "users" || isMutationPending) return true;
         const next = {
             ...placeholderDraftRef.current,
             ...patch,
@@ -510,7 +556,10 @@ function SectionContent({
         placeholderDraftRef.current = next;
         setPlaceholderDraft(next);
         const payload = placeholderPayload(section, next, assets);
+        // createRecord сам показывает ошибку и сохраняет черновик placeholder-строки,
+        // поэтому откат источника не нужен.
         if (payload) await createRecord(payload);
+        return true;
     }
 
     async function deleteRecords() {
@@ -638,8 +687,9 @@ function SectionContent({
         if (!collabEnabled) return;
         const onKeyDown = (event: KeyboardEvent) => {
             if (!(event.ctrlKey || event.metaKey)) return;
-            const key = event.key.toLocaleLowerCase();
-            if (key !== "z" && key !== "y") return;
+            // event.code — физическая клавиша: работает при любой раскладке
+            // (в русской event.key даёт «я»/«н»).
+            if (event.code !== "KeyZ" && event.code !== "KeyY") return;
             const target = event.target as HTMLElement | null;
             if (
                 target &&
@@ -649,7 +699,7 @@ function SectionContent({
             )
                 return;
             event.preventDefault();
-            if (key === "z") {
+            if (event.code === "KeyZ") {
                 if (event.shiftKey) void runRedo();
                 else void runUndo();
             } else {
@@ -662,7 +712,9 @@ function SectionContent({
 
     useEffect(() => {
         onUndoState({
-            enabled: collabEnabled && !isArchive && MAIN_SECTIONS.has(section),
+            // Undo/redo действует на всех разделах: и на «Движении» с «Ценами»,
+            // и на справочниках (правки имён, наборов активов, пользователей).
+            enabled: collabEnabled && !isArchive,
             offline: collabEnabled && room.status !== "online",
             canUndo: undoCount > 0,
             canRedo: redoCount > 0,
@@ -701,6 +753,8 @@ function SectionContent({
     }, [approvePending, movementMeta?.isComplete, onFixed, refresh, reportMonth]);
 
     useEffect(() => {
+        // Фиксировать можно только первый открытый месяц: пока предыдущий
+        // месяц не закрыт финальной фиксацией, следующие недоступны.
         onApproveState({
             pending: approvePending,
             canApprove:
@@ -710,10 +764,21 @@ function SectionContent({
                 movementMeta !== null &&
                 movementMeta.isComplete &&
                 !movementMeta.isFinal &&
-                !readOnly,
+                !readOnly &&
+                reportMonth === firstOpenMonth,
             onApprove: () => setApproveOpen(true),
         });
-    }, [approvePending, isAdmin, isArchive, isMovement, movementMeta, onApproveState, readOnly]);
+    }, [
+        approvePending,
+        firstOpenMonth,
+        isAdmin,
+        isArchive,
+        isMovement,
+        movementMeta,
+        onApproveState,
+        readOnly,
+        reportMonth,
+    ]);
 
     const formatSnapshotItem = useCallback((snapshot: MovementSnapshot): ArchiveItem => {
         const fixedAt = new Date(snapshot.fixedAt);
@@ -829,6 +894,7 @@ function SectionContent({
                     onReleaseLease={room.releaseLeases}
                     onCommit={commit}
                     onPlaceholderCommit={commitPlaceholderPatch}
+                    onCommitFailed={refresh}
                     onSelectedRowsChange={(selection) => setSelectedRowIds(selection.ids)}
                     onValidationError={(message) =>
                         toast.warning("Некорректное значение", { description: message })
@@ -838,8 +904,9 @@ function SectionContent({
                     }
                     onViewStatsChange={onGridStatsChange}
                     onClipboardStateChange={handleClipboardState}
-                    onSelectionChange={(label) =>
-                        room.setSelection(label ? { label } : { label: "" })
+                    remoteCellInfo={remoteCellInfo}
+                    onSelectionChange={({ label, cellKeys }) =>
+                        room.setSelection({ label: label ?? "", cellKeys })
                     }
                 />
                 {displayRows.length === 0 && !canManageReferences ? (
@@ -1089,7 +1156,10 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
     const selectedTab = tabs.find((tab) => tab.id === selectedTabId) ?? tabs[0] ?? null;
 
     const collabEnabled = selectedTab !== null;
-    const visibleAssetNames = useMemo(() => meta?.assets ?? [], [meta]);
+    const visibleAssetNames = useMemo(
+        () => (meta?.assets ?? []).map((asset) => asset.name),
+        [meta],
+    );
     const [remoteCellValues, setRemoteCellValues] = useState<Map<string, unknown>>(new Map());
     const handleCellChanged = useCallback((event: CollabCellChanged) => {
         const table = SECTION_COLLAB_TABLE[event.section as SectionId];
@@ -1101,11 +1171,14 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
             return next;
         });
     }, []);
+    // Архивная версия — только чтение: смотрящий её не участвует в совместной
+    // работе и не показывается в списке «В сети».
+    const archiveOpen = archiveState.selectedKey !== null;
     const room = useCollabRoom({
         projectKey: activeProjectKey,
         section: selectedTab?.section ?? "rawMaterialPrices",
         reportMonth: selectedTab?.reportMonth ?? null,
-        enabled: collabEnabled,
+        enabled: collabEnabled && !archiveOpen,
         visibleAssets:
             selectedTab !== null && MAIN_SECTIONS.has(selectedTab.section)
                 ? visibleAssetNames
@@ -1203,7 +1276,7 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
         );
     }
 
-    const assets = toReferenceOptions(meta.assets);
+    const assets = toAssetOptions(meta.assets);
     const deliveryBases = toReferenceOptions(meta.deliveryBases);
 
     const toolbar = (
@@ -1255,6 +1328,7 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
                                 assets={assets}
                                 deliveryBases={deliveryBases}
                                 collabEnabled={collabEnabled}
+                                firstOpenMonth={meta?.movementPeriods[0] ?? null}
                                 room={room}
                                 remoteCellValues={remoteCellValues}
                                 onDeleteState={handleDeleteState}
@@ -1537,7 +1611,7 @@ function ActionBar({
             ? [
                   {
                       id: "approve",
-                      label: "Утвердить",
+                      label: "Зафиксировать",
                       icon: <CheckCircle />,
                       onPress: approveState.onApprove,
                       variant: "primary",
@@ -1677,9 +1751,10 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
         .filter((member) => member.userId !== me?.userId)
         .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email, "ru"));
     const solo = room.members.length <= 1;
-    const myCells = memberSelectionLabel(self);
+    // В строке состояния — только фамилии; ячейки/диапазоны показываем
+    // исключительно в раскрытом Tooltip.
     const membersText = solo
-        ? `только вы${myCells ? ` — ${myCells}` : ""}`
+        ? "только вы"
         : `Вы${others.length ? `, ${others.map((member) => shortName(member.name || member.email)).join(", ")}` : ""}`;
     const tooltipMembers = self ? [self, ...others] : room.members;
 
@@ -1691,27 +1766,23 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
             />
             {room.status === "online" ? (
                 <>
-                    {solo ? (
-                        <span className="collab-bar__members">
-                            <b>В сети:</b> {membersText}
-                        </span>
-                    ) : (
-                        <Tooltip delay={250}>
-                            <Tooltip.Trigger>
-                                <span className="collab-bar__members">
-                                    <b>В сети:</b> {membersText}
-                                </span>
-                            </Tooltip.Trigger>
-                            <Tooltip.Content placement="top" className="collab-bar-tooltip">
-                                <ul className="collab-bar-tooltip__list">
-                                    {tooltipMembers.map((member) => {
-                                        const cells = memberSelectionLabel(member);
-                                        const detail = memberDetail(member);
-                                        return (
-                                            <li
-                                                key={member.userId}
-                                                className="collab-bar-tooltip__item"
-                                            >
+                    <Tooltip delay={250}>
+                        <Tooltip.Trigger>
+                            <span className="collab-bar__members">
+                                <b>В сети:</b> {membersText}
+                            </span>
+                        </Tooltip.Trigger>
+                        <Tooltip.Content placement="top" className="collab-bar-tooltip">
+                            <ul className="collab-bar-tooltip__list">
+                                {tooltipMembers.map((member) => {
+                                    const cells = memberSelectionLabel(member);
+                                    const detail = memberDetail(member);
+                                    return (
+                                        <li
+                                            key={member.userId}
+                                            className="collab-bar-tooltip__item"
+                                        >
+                                            <span className="collab-bar-tooltip__head">
                                                 <span className="collab-bar-tooltip__name">
                                                     {member.name || member.email}
                                                 </span>
@@ -1720,18 +1791,18 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
                                                         ({detail})
                                                     </span>
                                                 ) : null}
-                                                {cells ? (
-                                                    <span className="collab-bar-tooltip__cells">
-                                                        — {cells}
-                                                    </span>
-                                                ) : null}
-                                            </li>
-                                        );
-                                    })}
-                                </ul>
-                            </Tooltip.Content>
-                        </Tooltip>
-                    )}
+                                            </span>
+                                            {cells ? (
+                                                <span className="collab-bar-tooltip__cells">
+                                                    {cells}
+                                                </span>
+                                            ) : null}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </Tooltip.Content>
+                    </Tooltip>
                     {lockCount > 0 ? (
                         <>
                             <span className="collab-bar__sep" aria-hidden="true" />

@@ -11,6 +11,7 @@ from uuid import UUID
 
 from sqlalchemy import func
 from sqlalchemy import select as sqlalchemy_select
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import Select
@@ -36,6 +37,7 @@ from src.raw_materials.models import (
     SnapshotMaterialMovement,
 )
 from src.raw_materials.schemas import (
+    AssetOptionRead,
     AssetRowRead,
     CellUpdate,
     DeliveryBasisRowRead,
@@ -116,7 +118,7 @@ async def read_meta(session: AsyncSession, assets: list[RawMaterialAsset]) -> Ra
     ).all()
     bases = (await session.exec(select(DeliveryBasis.name).order_by(DeliveryBasis.name))).all()
     return RawMaterialsMetaRead(
-        assets=[asset.name for asset in assets],
+        assets=[AssetOptionRead(id=asset.id, name=asset.name) for asset in assets],
         movementPeriods=list(periods),
         deliveryBases=list(bases),
     )
@@ -191,7 +193,12 @@ async def read_snapshot_export_rows(
         return None, []
     rows = (
         await session.exec(
-            select(SnapshotMaterialMovement).where(col(SnapshotMaterialMovement.snapshot_id) == snapshot_id)
+            select(SnapshotMaterialMovement)
+            .where(col(SnapshotMaterialMovement.snapshot_id) == snapshot_id)
+            .order_by(
+                SnapshotMaterialMovement.raw_material_name,
+                SnapshotMaterialMovement.asset_name,
+            )
         )
     ).all()
     return (
@@ -647,6 +654,78 @@ async def apply_cell_value(
         price.updated_by = updated_by
         session.add(price)
         return
+    # Справочники: undo/redo правок имён и наборов активов.
+    if target_table == RawMaterial.__tablename__:
+        raw_material = await session.get(RawMaterial, row_id)
+        if raw_material is None:
+            raise _DICT_REF_RAW_MATERIAL_NOT_FOUND
+        if field == "name":
+            raw_material.name = value if isinstance(value, str) else ""
+        elif field == "assetNames":
+            names = value if isinstance(value, list) else []
+            await replace_asset_links(session, raw_material.id, await _asset_ids_by_names(session, names))
+        else:
+            message = f"Неизвестное поле «{field}» справочника «Сырьевые позиции»."
+            raise CellValidationError(message)
+        raw_material.updated_at = now
+        raw_material.updated_by = updated_by
+        session.add(raw_material)
+        return
+    if target_table == RawMaterialAsset.__tablename__:
+        asset = await session.get(RawMaterialAsset, row_id)
+        if asset is None:
+            raise _DICT_REF_ASSET_NOT_FOUND
+        asset.name = value if isinstance(value, str) else ""
+        asset.updated_at = now
+        asset.updated_by = updated_by
+        session.add(asset)
+        return
+    if target_table == DeliveryBasis.__tablename__:
+        basis = await session.get(DeliveryBasis, row_id)
+        if basis is None:
+            raise _DICT_REF_BASIS_NOT_FOUND
+        basis.name = value if isinstance(value, str) else ""
+        basis.updated_at = now
+        basis.updated_by = updated_by
+        session.add(basis)
+        return
+    if target_table == User.__tablename__:
+        user_row = await session.get(User, row_id)
+        if user_row is None or user_row.is_deleted:
+            raise _DICT_REF_USER_NOT_FOUND
+        project_id = (
+            await session.exec(select(col(Project.id)).where(col(Project.key) == RAW_MATERIALS_PROJECT_KEY))
+        ).first()
+        link = (
+            await session.exec(select(UserRole).where(UserRole.user_id == row_id, UserRole.project_id == project_id))
+        ).one_or_none()
+        if field == "email":
+            new_email = value if isinstance(value, str) and value.strip() else None
+            if new_email is not None:
+                user_row.email = new_email
+                user_row.key = new_email
+        elif field == "fullname":
+            user_row.name = value if isinstance(value, str) else ""
+        elif field == "isAdmin":
+            if link is None:
+                raise _DICT_REF_USER_NOT_FOUND
+            link.role = ProjectRole.ADMIN if value else ProjectRole.ASSET_WORKER
+        elif field == "isActive":
+            if link is None:
+                raise _DICT_REF_USER_NOT_FOUND
+            link.is_active = bool(value)
+        elif field == "assetNames":
+            await replace_user_assets(session, user_row.id, value if isinstance(value, list) else None)
+        else:
+            message = f"Неизвестное поле «{field}» справочника «Пользователи»."
+            raise CellValidationError(message)
+        user_row.updated_at = now
+        session.add(user_row)
+        if link is not None:
+            link.updated_at = now
+            link.updated_by = updated_by
+            session.add(link)
+        return
     message = f"Неизвестная таблица «{target_table}»."
     raise CellValidationError(message)
 
@@ -790,6 +869,19 @@ async def _asset_names_by_ids(session: AsyncSession, asset_ids: list[UUID]) -> l
         return []
     rows = (await session.exec(select(RawMaterialAsset.name).where(col(RawMaterialAsset.id).in_(asset_ids)))).all()
     return list(rows)
+
+
+async def _asset_ids_by_names(session: AsyncSession, names: list[str]) -> list[UUID]:
+    """Идентификаторы активов по именам (для отката assetNames при undo/redo)."""
+    if not names:
+        return []
+    rows = (await session.exec(select(RawMaterialAsset).where(col(RawMaterialAsset.name).in_(names)))).all()
+    by_name = {row.name: row.id for row in rows}
+    missing = [name for name in names if name not in by_name]
+    if missing:
+        message = f"Активы не найдены: {', '.join(missing)}"
+        raise CellValidationError(message)
+    return [by_name[name] for name in names]
 
 
 async def _user_asset_names(session: AsyncSession, user_id: UUID) -> list[str]:
@@ -1165,22 +1257,38 @@ async def delete_project_user(
 
 
 async def replace_asset_links(session: AsyncSession, raw_material_id: UUID, asset_ids: list[UUID]) -> None:
-    """Заменяет связки актив-сырьё для сырьевой позиции."""
-    existing = (
-        await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.raw_material_id) == raw_material_id))
-    ).all()
-    for link in existing:
-        await session.delete(link)
+    """Заменяет связки актив-сырьё для сырьевой позиции (по разнице)."""
+    existing = {
+        link.asset_id: link
+        for link in (
+            await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.raw_material_id) == raw_material_id))
+        ).all()
+    }
+    existing_ids = set(existing)
+    new_ids = set(asset_ids)
+    # Удаляем только снятые активы. Связи с движением/ценами защищены
+    # RESTRICT-ключом — это бизнес-правило, а не ошибка вставки.
+    for asset_id in existing_ids - new_ids:
+        await session.delete(existing[asset_id])
+    try:
+        await session.flush()
+    except IntegrityError as error:
+        await session.rollback()
+        names = await _asset_names_by_ids(session, sorted(existing_ids - new_ids))
+        raise DictionaryReferenceError(
+            "Нельзя убрать активы, по которым есть данные движения: " + ", ".join(names)
+        ) from error
     now = datetime.now(UTC)
     for asset_id in asset_ids:
-        session.add(
-            AssetRawMaterial(
-                asset_id=asset_id,
-                raw_material_id=raw_material_id,
-                created_at=now,
-                updated_at=now,
+        if asset_id not in existing_ids:
+            session.add(
+                AssetRawMaterial(
+                    asset_id=asset_id,
+                    raw_material_id=raw_material_id,
+                    created_at=now,
+                    updated_at=now,
+                )
             )
-        )
     await session.flush()
 
 
@@ -1191,6 +1299,8 @@ async def replace_user_assets(session: AsyncSession, user_id: UUID, asset_names:
     ).all()
     for link in existing:
         await session.delete(link)
+    # Удаления применяем до вставок: у связей уникальный ключ (user_id, asset_id).
+    await session.flush()
     if asset_names:
         assets = (await session.exec(select(RawMaterialAsset).where(col(RawMaterialAsset.name).in_(asset_names)))).all()
         names_found = {asset.name for asset in assets}

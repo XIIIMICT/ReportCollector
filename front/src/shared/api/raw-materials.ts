@@ -1,8 +1,13 @@
 import { ReportCollectorApiError } from "@/shared/api/report-collector";
 import type { ExportColumn, SectionId } from "@/shared/grid/grid-config";
 
+export type AssetOption = {
+    id: string;
+    name: string;
+};
+
 export type RawMaterialsMeta = {
-    assets: string[];
+    assets: AssetOption[];
     deliveryBases: string[];
     movementPeriods: string[];
 };
@@ -253,7 +258,11 @@ export async function updateDictionaryCells(
         updates.map((update) =>
             requestWrite(`/api/raw-materials/${endpoint}/${update.rowId}`, "PATCH", {
                 ...(update.field === "name" ? { name: update.value } : {}),
-                ...(update.field === "assetNames" ? { assetIds: update.value } : {}),
+                // Грид переименовывает assetNames → assetIds перед отправкой
+                // (namesToIds), поэтому поддерживаются оба имени поля.
+                ...(update.field === "assetNames" || update.field === "assetIds"
+                    ? { assetIds: update.value }
+                    : {}),
             }),
         ),
     );

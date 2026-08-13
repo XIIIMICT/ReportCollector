@@ -186,7 +186,7 @@ test("regression: copy, approve dialog, collab bar, column stats", async ({ brow
         .toBe(pasteSource.value);
 
     // 2. Approve dialog: heading without month, icon left of heading.
-    await page.locator(".action-bar button", { hasText: "Утвердить" }).click();
+    await page.locator(".action-bar button", { hasText: "Зафиксировать" }).click();
     const approveDialog = page.getByRole("alertdialog").filter({
         hasText: "Зафиксировать движение сырья?",
     });
