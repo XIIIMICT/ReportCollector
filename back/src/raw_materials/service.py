@@ -19,7 +19,7 @@ from sqlmodel.sql.expression import Select
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
 from src.auth.models import Project, ProjectRole, User, UserRole
 from src.auth.schemas import AssetAccessRead
-from src.auth.service import CurrentUserIdentity, get_user_by_identity
+from src.auth.service import CurrentUserIdentity, get_user_by_identity, sync_project_memberships
 from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.models import MOVEMENT_TABLE, PRICE_TABLE
 from src.collab.store import get_collab_store
@@ -1088,24 +1088,44 @@ async def create_project_user(
     is_admin: bool,
     asset_names: list[str],
 ) -> User:
-    """Создаёт локального пользователя проекта «Сырьё» с ролью и активами."""
+    """
+    Добавляет пользователя в проект «Сырьё» с ролью и активами.
+
+    Пользователь сразу провижионится во все проекты: в текущем — активный
+    с выбранной ролью, в остальных — неактивный с ролью работника активов
+    (доступ к проекту администратор открывает флагом «Активен»). Если
+    пользователь с таким email уже существует (например, заведён другим
+    администратором или входил через Keycloak), но связи с текущим проектом
+    у него нет — создаётся только связь с проектом; существующие данные
+    пользователя не перезаписываются (ФИО/email после входа через Keycloak
+    приходят из идентичности).
+    """
     email = email.strip()
     existing = (await session.exec(select(User).where(col(User.email) == email))).one_or_none()
     if existing is not None:
-        message = f"Пользователь с email {email} уже существует."
-        raise DictionaryReferenceError(message)
-    now = datetime.now(UTC)
-    user = User(
-        key=email,
-        email=email,
-        name=fullname.strip(),
-        is_deleted=False,
-        created_at=now,
-        updated_at=now,
-    )
-    session.add(user)
-    await session.flush()
+        link = (
+            await session.exec(
+                select(UserRole).where(UserRole.user_id == existing.id, UserRole.project_id == project_id)
+            )
+        ).one_or_none()
+        if link is not None:
+            message = f"Пользователь с email {email} уже существует."
+            raise DictionaryReferenceError(message)
+        user = existing
+    else:
+        now = datetime.now(UTC)
+        user = User(
+            key=email,
+            email=email,
+            name=fullname.strip(),
+            is_deleted=False,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(user)
+        await session.flush()
     role = ProjectRole.ADMIN if is_admin else ProjectRole.ASSET_WORKER
+    now = datetime.now(UTC)
     session.add(
         UserRole(
             user_id=user.id,
@@ -1117,6 +1137,9 @@ async def create_project_user(
         )
     )
     await replace_user_assets(session, user.id, asset_names)
+    # Провижининг во все остальные проекты: новые связи — неактивные с ролью
+    # работника активов; существующие связи не трогаем.
+    await sync_project_memberships(session, user.id)
     await session.commit()
     return user
 

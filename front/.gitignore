@@ -5,7 +5,6 @@
 
 # Конфигурация и инструменты
 !/.dockerignore
-!/.env.example
 !/.gitignore
 !Dockerfile
 !bun.lock

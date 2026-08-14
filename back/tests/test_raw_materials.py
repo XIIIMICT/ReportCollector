@@ -4,8 +4,9 @@ from conftest import signed_identity_headers
 from sqlmodel import col, select
 
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
-from src.auth.models import ProjectRole, User
+from src.auth.models import ProjectRole, User, UserRole
 from src.auth.service import activate_project_user, grant_project_assets, grant_project_role
+from src.models import Project
 
 
 def admin_headers() -> dict[str, str]:
@@ -464,6 +465,108 @@ async def test_admin_crud_project_user(client) -> None:
     )
     assert listing.status_code == 200
     assert any(user["id"] == row["id"] for user in listing.json())
+
+
+async def test_create_user_is_provisioned_to_all_projects(client, db_session) -> None:
+    """Новый пользователь появляется во всех проектах."""
+    db_session.add(Project(key="kppk", name="КППК"))
+    await db_session.commit()
+
+    created = await client.post(
+        "/api/raw-materials/users",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"email": "sidorov@example.local", "fullname": "Сидоров Сидор", "isAdmin": True, "assetNames": []},
+    )
+    assert created.status_code == 201
+    user_id = created.json()["id"]
+
+    raw_project = (await db_session.exec(select(Project).where(col(Project.key) == RAW_MATERIALS_PROJECT_KEY))).one()
+    other_project = (await db_session.exec(select(Project).where(col(Project.key) == "kppk"))).one()
+    links = (await db_session.exec(select(UserRole).where(col(UserRole.user_id) == user_id))).all()
+    assert {link.project_id for link in links} == {raw_project.id, other_project.id}
+    by_project = {link.project_id: link for link in links}
+    assert by_project[raw_project.id].is_active is True
+    assert by_project[raw_project.id].role == ProjectRole.ADMIN
+    assert by_project[other_project.id].is_active is False
+    assert by_project[other_project.id].role == ProjectRole.ASSET_WORKER
+
+
+async def test_create_user_for_existing_email_adds_missing_project_link(client, db_session) -> None:
+    """Существующий пользователь без связи с проектом получает только связь."""
+    existing = User(
+        key="petrov@example.local",
+        email="petrov@example.local",
+        name="Петров Пётр",
+    )
+    db_session.add(existing)
+    await db_session.commit()
+
+    created = await client.post(
+        "/api/raw-materials/users",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"email": "petrov@example.local", "fullname": "Другое Имя", "isAdmin": False, "assetNames": ["СНХЗ"]},
+    )
+    assert created.status_code == 201
+    row = created.json()
+    assert row["id"] == str(existing.id)
+    assert row["fullname"] == "Петров Пётр"
+    assert row["isActive"] is True
+
+    duplicates = (await db_session.exec(select(User).where(col(User.email) == "petrov@example.local"))).all()
+    assert len(duplicates) == 1
+
+    # Повторное добавление в тот же проект — понятная ошибка.
+    again = await client.post(
+        "/api/raw-materials/users",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"email": "petrov@example.local", "fullname": "Петров Пётр", "isAdmin": False, "assetNames": ["СНХЗ"]},
+    )
+    assert again.status_code == 409
+    assert "уже существует" in again.json()["detail"]
+
+
+async def test_keycloak_login_overwrites_name_and_keeps_membership(client, db_session) -> None:
+    """После входа через Keycloak ФИО перезаписывается, доступ сохраняется."""
+    created = await client.post(
+        "/api/raw-materials/users",
+        headers=signed_identity_headers(**admin_headers()),
+        json={
+            "email": "kuznetsov@example.local",
+            "fullname": "Кузнецов Кузьма",
+            "isAdmin": False,
+            "assetNames": ["СНХЗ"],
+        },
+    )
+    assert created.status_code == 201
+    user_id = created.json()["id"]
+
+    response = await client.get(
+        "/api/me",
+        headers=signed_identity_headers(
+            email="kuznetsov@example.local",
+            name="Кузнецов Иван Петрович",
+            preferred_username="kuznetsov",
+            subject="kuznetsov-sub",
+            email_verified="true",
+            issuer="http://keycloak:8080/realms/reportcollector",
+        ),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email"] == "kuznetsov@example.local"
+    assert body["access"][0]["key"] == RAW_MATERIALS_PROJECT_KEY
+
+    user = (await db_session.exec(select(User).where(col(User.id) == user_id))).one()
+    assert user.name == "Кузнецов Иван Петрович"
+    assert user.email == "kuznetsov@example.local"
+    raw_project = (await db_session.exec(select(Project).where(col(Project.key) == RAW_MATERIALS_PROJECT_KEY))).one()
+    link = (
+        await db_session.exec(
+            select(UserRole).where(UserRole.user_id == user_id, UserRole.project_id == raw_project.id)
+        )
+    ).one()
+    assert link.is_active is True
+    assert link.role == ProjectRole.ASSET_WORKER
 
 
 async def test_worker_cannot_write_dictionaries(client, db_session) -> None:

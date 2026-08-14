@@ -472,9 +472,7 @@ function SectionContent({
             }
             return gridRow;
         });
-        return canManageReferences && section !== "users"
-            ? [...base, placeholderRow(section, placeholderDraft)]
-            : base;
+        return canManageReferences ? [...base, placeholderRow(section, placeholderDraft)] : base;
     }, [
         canManageReferences,
         collabEnabled,
@@ -536,7 +534,6 @@ function SectionContent({
     async function createRecord(payload: CreateDictionaryPayload) {
         if (
             !canManageReferences ||
-            section === "users" ||
             placeholderCreatePendingRef.current ||
             !isDictionarySection(section)
         )
@@ -559,7 +556,7 @@ function SectionContent({
     }
 
     async function commitPlaceholderPatch(patch: Record<string, unknown>): Promise<boolean> {
-        if (!canManageReferences || section === "users" || isMutationPending) return true;
+        if (!canManageReferences || isMutationPending) return true;
         const next = {
             ...placeholderDraftRef.current,
             ...patch,
