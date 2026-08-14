@@ -1,4 +1,4 @@
-"""Схемы ответов undo/redo и WebSocket-событий совместного редактирования."""
+"""Schemas for undo/redo responses and collaboration WebSocket events."""
 
 from datetime import date
 from typing import Literal
@@ -16,7 +16,7 @@ class UndoConflictRead(BaseModel):
 
 
 class UndoRequest(BaseModel):
-    """Тело undo/redo: форма (секция + месяц) и действие, которое пользователь решил пропустить."""
+    """Undo/redo body: the form (section + month) and the action the user chose to skip."""
 
     skipActionId: int | None = None
     section: str | None = None
@@ -24,7 +24,7 @@ class UndoRequest(BaseModel):
 
 
 class UndoStateRead(BaseModel):
-    """Доступность undo/redo по стеку действий пользователя."""
+    """Undo/redo availability from the user's action stack."""
 
     canUndo: bool
     canRedo: bool

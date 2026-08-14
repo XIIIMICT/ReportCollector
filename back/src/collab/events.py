@@ -31,7 +31,7 @@ async def publish_cell_changed(
     user_email: str,
     cells: list[AppliedCell],
 ) -> None:
-    """Расслылает правки ячеек после успешного commit."""
+    """Fans out cell edits after a successful commit."""
     room = room_key(project_key, section, report_month)
     for cell in cells:
         await store.publish(

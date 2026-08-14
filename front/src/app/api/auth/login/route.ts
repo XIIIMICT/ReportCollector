@@ -116,7 +116,7 @@ async function readErrorDetail(response: Response): Promise<string> {
             return parsed.detail;
         }
     } catch {
-        // При ошибке разбора JSON возвращаем общее сообщение.
+        // On a JSON parse error return the generic message.
     }
 
     return "Не удалось выполнить вход.";

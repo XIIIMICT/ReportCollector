@@ -1,14 +1,14 @@
 """
-Создаёт схему с нуля и заполняет базовые данные ReportCollector.
+Creates the schema from scratch and fills ReportCollector's base data.
 
-Первая версия: все таблицы создаются заново (create_all), заполняются
-проекты, роли проектов, справочники проекта «Сырьё» (активы, базисы
-поставки, сырьевые позиции и их связки), периоды движения и единственный
-пользователь — Евтушенко (администратор всех проектов). Строки форм
-«Движение» и «Цены» генерируются из связок сырьё-актив: по строке цен на
-каждую связку и по строке движения на каждую связку в каждом периоде.
+First version: all tables are recreated (create_all), projects, project
+roles, «Сырьё» dictionaries (assets, delivery bases, raw-material items and
+their links), movement periods and a single user — Евтушенко (admin of all
+projects) are filled. «Движение» and «Цены» form rows are generated from
+the raw-material×asset links: one price row per link and one movement row
+per link per period.
 
-Использование:
+Usage:
   uv run --directory back -m src.scripts.seed_database [--reset]
 """
 
@@ -38,7 +38,7 @@ from src.raw_materials.models import (
     RawMaterialUserAsset,
 )
 
-# ─── Данные сидирования (первая версия) ────────────────────────────
+# ─── Seed data (first version) ───────────────────────────────────────────
 
 PROJECTS: list[tuple[str, str]] = [
     (RAW_MATERIALS_PROJECT_KEY, RAW_MATERIALS_PROJECT_NAME),
@@ -105,7 +105,7 @@ RAW_MATERIAL_NAMES: list[str] = [
     "Этилен",
 ]
 
-# Связки «сырьё → активы» (название сырья, названия активов).
+# Raw-material → assets links (raw-material name, asset names).
 RAW_MATERIAL_ASSETS: list[tuple[str, list[str]]] = [
     ("Алкилат", ["СНХЗ"]),
     ("Аммиак безводный сжиженный", ["БСК (Каустик)", "ВОС", "Метафракс", "СНХЗ", "ТИ"]),
@@ -147,20 +147,20 @@ RAW_MATERIAL_ASSETS: list[tuple[str, list[str]]] = [
     ("Этилен", ["БСК (Каустик)"]),
 ]
 
-# Периоды движения (отчётные месяцы формы «Движение»).
+# Movement periods (report months of the «Движение» form).
 MOVEMENT_PERIODS: list[date] = [date(2026, 8, 1), date(2026, 9, 1)]
 
-# Базис поставки по умолчанию для строк цен (первый из справочника).
+# Default delivery basis for price rows (first from the dictionary).
 DEFAULT_DELIVERY_BASIS = DELIVERY_BASIS_NAMES[0]
 
-# Единственный пользователь первой версии — Евтушенко, администратор
-# всех проектов, активен во всех проектах сразу.
+# The only user of the first version — Евтушенко, admin of all projects,
+# active in all projects right away.
 SEED_ADMIN_EMAIL = "evtushenko.sn@ruschem.ru"
 SEED_ADMIN_NAME = "Евтушенко Сергей Николаевич"
 
 
 class SeedExtraUser(TypedDict):
-    """Дополнительный пользователь совместной работы (см. SEED_EXTRA_USERS)."""
+    """Extra collaboration user (see SEED_EXTRA_USERS)."""
 
     email: str
     name: str
@@ -168,11 +168,11 @@ class SeedExtraUser(TypedDict):
     assets: list[str]
 
 
-# Дополнительные пользователи для совместной работы:
-#   kuznetsov.an — второй администратор (все проекты);
-#   smirnov.iv — работник по активам, доступ только к СНХЗ;
-#   petrov.da — работник по активам, доступ к СХ и СНХЗ;
-#   lebedeva.ol — работник по активам, доступ только к ВОС (скоуп «В сети»).
+# Extra collaboration users:
+#   kuznetsov.an — second admin (all projects);
+#   smirnov.iv — asset worker, access to СНХЗ only;
+#   petrov.da — asset worker, access to СХ and СНХЗ;
+#   lebedeva.ol — asset worker, access to ВОС only («В сети» scope).
 SEED_EXTRA_USERS: list[SeedExtraUser] = [
     {
         "email": "kuznetsov.an@ruschem.ru",
@@ -206,7 +206,7 @@ def utc_now() -> datetime:
 
 
 def _movement_values(index: int) -> dict[str, Any]:
-    """Реалистичные значения строки «Движения» (детерминированно по индексу)."""
+    """Realistic «Движение» row values (deterministic by index)."""
     return {
         "demand_plan_tons": 850.0 + (index % 9) * 125.5,
         "consumption_fact_tons": 830.0 + (index % 7) * 120.0,
@@ -222,15 +222,15 @@ def _movement_values(index: int) -> dict[str, Any]:
 
 
 def _price_business_plan_tons(index: int) -> float:
-    """Бизнес-план строки «Цен» (детерминированно по индексу)."""
+    """Compute the business plan of a «Цены» row (deterministic by index)."""
     return 800.0 + (index % 9) * 125.5
 
 
 async def seed(session: AsyncSession) -> None:
-    """Заполняет базовые данные (идемпотентно: существующие не пересоздаёт)."""
+    """Fill the base data (idempotent: existing rows are not recreated)."""
     now = utc_now()
 
-    # Проекты
+    # Projects
     projects: dict[str, Project] = {}
     for key, name in PROJECTS:
         project = (await session.exec(select(Project).where(Project.key == key))).one_or_none()
@@ -241,7 +241,7 @@ async def seed(session: AsyncSession) -> None:
         projects[key] = project
     await session.flush()
 
-    # Справочник «Активы»
+    # «Активы» dictionary
     assets: dict[str, RawMaterialAsset] = {}
     for name in ASSET_NAMES:
         asset = RawMaterialAsset(name=name, created_at=now, updated_at=now)
@@ -249,7 +249,7 @@ async def seed(session: AsyncSession) -> None:
         assets[name] = asset
     await session.flush()
 
-    # Справочник «Базисы поставки»
+    # «Базисы поставки» dictionary
     bases: dict[str, DeliveryBasis] = {}
     for name in DELIVERY_BASIS_NAMES:
         basis = DeliveryBasis(name=name, created_at=now, updated_at=now)
@@ -257,7 +257,7 @@ async def seed(session: AsyncSession) -> None:
         bases[name] = basis
     await session.flush()
 
-    # Справочник «Сырьевые позиции» + связки актив-сырьё
+    # «Сырьевые позиции» dictionary + asset-raw-material links
     materials: dict[str, RawMaterial] = {}
     for name in RAW_MATERIAL_NAMES:
         material = RawMaterial(name=name, created_at=now, updated_at=now)
@@ -279,7 +279,7 @@ async def seed(session: AsyncSession) -> None:
             arms.append(arm)
     await session.flush()
 
-    # Периоды движения + строки «Движения» для каждой связки в каждом периоде.
+    # Movement periods + «Движение» rows for each link in each period.
     for report_month in MOVEMENT_PERIODS:
         session.add(MovementPeriod(report_month=report_month, created_at=now))
     await session.flush()
@@ -297,7 +297,7 @@ async def seed(session: AsyncSession) -> None:
             )
     await session.flush()
 
-    # Строки «Цен»: по одной на каждую связку актив-сырьё.
+    # «Цены» rows: one per asset-raw-material link.
     for arm_index, arm in enumerate(arms):
         session.add(
             RawMaterialPrice(
@@ -311,8 +311,8 @@ async def seed(session: AsyncSession) -> None:
         )
     await session.flush()
 
-    # Пользователь — Евтушенко: администратор всех проектов, активен везде.
-    # Пароль для локального входа берётся из AUTH_SEED_ADMIN_PASSWORD (если задан).
+    # User — Евтушенко: admin of all projects, active everywhere.
+    # The local-login password comes from AUTH_SEED_ADMIN_PASSWORD (if set).
     user = (await session.exec(select(User).where(User.email == SEED_ADMIN_EMAIL))).one_or_none()
     seed_password = get_settings().auth_seed_admin_password
     if user is None:
@@ -346,7 +346,7 @@ async def seed(session: AsyncSession) -> None:
             )
     await session.flush()
 
-    # Дополнительные пользователи: второй администратор и работники по активам.
+    # Extra users: a second admin and asset workers.
     for extra in SEED_EXTRA_USERS:
         email = str(extra["email"])
         extra_user = (await session.exec(select(User).where(User.email == email))).one_or_none()

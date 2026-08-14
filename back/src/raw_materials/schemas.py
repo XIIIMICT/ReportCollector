@@ -1,8 +1,8 @@
 """
-Схемы API проекта «Сырьё» (read-only).
+API schemas of the «Сырьё» project (read-only).
 
-Имена полей повторяют формат фронтенда Tauri-приложения (camelCase),
-чтобы формы «Движение» и «Цены» отображались без изменений.
+Field names mirror the Tauri frontend format (camelCase) so the «Движение»
+and «Цены» forms render unchanged.
 """
 
 from datetime import date, datetime
@@ -21,11 +21,11 @@ SectionId = Literal[
     "deliveryBases",
     "users",
 ]
-"""Идентификаторы секций рабочего пространства (совпадают с фронтендом)."""
+"""Workspace section ids (match the frontend)."""
 
 
 class ExportColumnRequest(BaseModel):
-    """Столбец выгружаемой таблицы: ключ, путь заголовка, ширина, формат числа."""
+    """Exported table column: key, header path, width, number format."""
 
     key: str = Field(min_length=1, max_length=64)
     headerPath: list[str] = Field(min_length=1, max_length=3)
@@ -34,7 +34,7 @@ class ExportColumnRequest(BaseModel):
 
 
 class ExportViewRequest(BaseModel):
-    """Запрос выгрузки таблицы в Excel («вся» — без rowIds, «видимая» — с rowIds)."""
+    """Excel export request («вся» — without rowIds, «видимая» — with rowIds)."""
 
     section: SectionId
     reportMonth: date | None = None
@@ -46,7 +46,7 @@ class ExportViewRequest(BaseModel):
 
 
 class MovementRowRead(BaseModel):
-    """Строка формы «Движение» для связки актив-сырьё в отчётном месяце."""
+    """«Движение» form row for an asset-raw-material link in the report month."""
 
     id: UUID
     key: UUID
@@ -74,7 +74,7 @@ class MovementRowRead(BaseModel):
 
 
 class PriceRowRead(BaseModel):
-    """Строка формы «Цены» для связки актив-сырьё."""
+    """«Цены» form row for an asset-raw-material link."""
 
     id: UUID
     key: UUID
@@ -94,14 +94,14 @@ class PriceRowRead(BaseModel):
 
 
 class AssetOptionRead(BaseModel):
-    """Актив с id: грид сопоставляет имена активов с их идентификаторами."""
+    """Asset with id: the grid maps asset names to their ids."""
 
     id: UUID
     name: str
 
 
 class RawMaterialsMetaRead(BaseModel):
-    """Справочники для форм: доступные активы, периоды движения, базисы поставки."""
+    """Form dictionaries: available assets, movement periods, delivery bases."""
 
     assets: list[AssetOptionRead]
     movementPeriods: list[date]
@@ -109,7 +109,7 @@ class RawMaterialsMetaRead(BaseModel):
 
 
 class RawMaterialRowRead(BaseModel):
-    """Строка справочника «Сырьевые позиции»."""
+    """«Сырьевые позиции» dictionary row."""
 
     id: UUID
     name: str
@@ -120,7 +120,7 @@ class RawMaterialRowRead(BaseModel):
 
 
 class AssetRowRead(BaseModel):
-    """Строка справочника «Активы»."""
+    """«Активы» dictionary row."""
 
     id: UUID
     name: str
@@ -130,7 +130,7 @@ class AssetRowRead(BaseModel):
 
 
 class DeliveryBasisRowRead(BaseModel):
-    """Строка справочника «Базисы поставки»."""
+    """«Базисы поставки» dictionary row."""
 
     id: UUID
     name: str
@@ -140,7 +140,7 @@ class DeliveryBasisRowRead(BaseModel):
 
 
 class UserRowRead(BaseModel):
-    """Строка справочника «Пользователи» (администраторский раздел)."""
+    """«Пользователи» dictionary row (admin section)."""
 
     id: UUID
     email: str | None
@@ -154,7 +154,7 @@ class UserRowRead(BaseModel):
 
 
 class CellUpdate(BaseModel):
-    """Изменение одной ячейки формы или справочника (rowId — id строки)."""
+    """Single form/dictionary cell edit (rowId — the row id)."""
 
     rowId: UUID
     field: str
@@ -162,20 +162,20 @@ class CellUpdate(BaseModel):
 
 
 class MovementUpdateRequest(BaseModel):
-    """Пакет правок ячеек формы «Движение» за отчётный месяц."""
+    """Batch of «Движение» cell edits for the report month."""
 
     reportMonth: date
     updates: list[CellUpdate]
 
 
 class PriceUpdateRequest(BaseModel):
-    """Пакет правок ячеек формы «Цены»."""
+    """Batch of «Цены» cell edits."""
 
     updates: list[CellUpdate]
 
 
 class MovementSnapshotRead(BaseModel):
-    """Зафиксированная версия формы «Движение» за отчётный месяц."""
+    """Fixed «Движение» version for the report month."""
 
     id: UUID
     reportMonth: date
@@ -185,7 +185,7 @@ class MovementSnapshotRead(BaseModel):
 
 
 class MovementMetaRead(BaseModel):
-    """Статус формы «Движение»: полнота, финальность, архив версий."""
+    """«Движение» form status: completeness, finality, version archive."""
 
     reportMonth: date
     isComplete: bool
@@ -194,13 +194,13 @@ class MovementMetaRead(BaseModel):
 
 
 class FixMovementRequest(BaseModel):
-    """Запрос фиксации формы «Движение» за отчётный месяц."""
+    """«Движение» fixing request for the report month."""
 
     reportMonth: date
 
 
 class SnapshotMovementRowRead(BaseModel):
-    """Строка зафиксированной версии «Движения» (копия значений на момент фиксации)."""
+    """Row of a fixed «Движение» version (value copy at fixing time)."""
 
     sourceAssetRawMaterialId: UUID
     assetName: str
@@ -221,7 +221,7 @@ class SnapshotMovementRowRead(BaseModel):
 
 
 class SnapshotViewRead(BaseModel):
-    """Версия для просмотра: снимок, предыдущий снимок для сравнения и строки."""
+    """View version: the snapshot, the previous snapshot for comparison, and rows."""
 
     snapshot: MovementSnapshotRead
     comparisonSnapshotId: UUID | None
@@ -229,45 +229,45 @@ class SnapshotViewRead(BaseModel):
 
 
 class RawMaterialCreateRequest(BaseModel):
-    """Создание сырьевой позиции с привязкой к активам."""
+    """Raw-material item creation with asset links."""
 
     name: str = Field(min_length=1, max_length=255)
     assetIds: list[UUID] = []
 
 
 class RawMaterialUpdateRequest(BaseModel):
-    """Правка сырьевой позиции: наименование и/или активы."""
+    """Raw-material item edit: name and/or assets."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
     assetIds: list[UUID] | None = None
 
 
 class AssetCreateRequest(BaseModel):
-    """Создание актива."""
+    """Asset creation."""
 
     name: str = Field(min_length=1, max_length=255)
 
 
 class AssetUpdateRequest(BaseModel):
-    """Правка актива."""
+    """Asset edit."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
 
 
 class DeliveryBasisCreateRequest(BaseModel):
-    """Создание базиса поставки."""
+    """Delivery basis creation."""
 
     name: str = Field(min_length=1, max_length=255)
 
 
 class DeliveryBasisUpdateRequest(BaseModel):
-    """Правка базиса поставки."""
+    """Delivery basis edit."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
 
 
 class UserCreateRequest(BaseModel):
-    """Создание пользователя проекта «Сырьё» (локальная учётка)."""
+    """«Сырьё» project user creation (local account)."""
 
     email: EmailStr = Field(min_length=3, max_length=255)
     fullname: str = Field(min_length=1, max_length=255)
@@ -277,12 +277,12 @@ class UserCreateRequest(BaseModel):
     @field_validator("email")
     @classmethod
     def _normalize_email(cls, value: EmailStr) -> str:
-        # EmailStr проверяет формат; здесь приводим к нижнему регистру.
+        # EmailStr validates the format; here we lowercase it.
         return normalize_email(str(value))
 
 
 class UserUpdateRequest(BaseModel):
-    """Правка пользователя проекта «Сырьё»."""
+    """«Сырьё» project user edit."""
 
     email: EmailStr | None = Field(default=None, min_length=3, max_length=255)
     fullname: str | None = Field(default=None, min_length=1, max_length=255)

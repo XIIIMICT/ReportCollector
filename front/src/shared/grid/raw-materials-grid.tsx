@@ -76,29 +76,29 @@ type Props = {
     deliveryBases: ReferenceOption[];
     onCommit: (updates: CellUpdate[]) => Promise<boolean>;
     onPlaceholderCommit: (patch: Record<string, unknown>) => Promise<boolean>;
-    /** Сервер отклонил правки: источник нужно вернуть (откат оптимистичных значений). */
+    /** The server rejected the edits: the source must be restored (optimistic rollback). */
     onCommitFailed?: () => void;
     onSelectedRowsChange: (selection: { ids: string[]; wholeRows: boolean }) => void;
     onValidationError: (message: string) => void;
     onPasteSkipped?: (description: string) => void;
-    /** Вставляемый диапазон больше выделенного — значения обрезаны выделением. */
+    /** The pasted range is bigger than the selection — values were trimmed by it. */
     onPasteTruncated?: () => void;
-    /** Чужие арендованные ячейки (активное редактирование). */
+    /** Cells leased by others (active editing). */
     remoteLocks?: ReadonlyMap<string, { fullname: string; email: string }>;
-    /** Ячейки, выделенные другими участниками (присутствие) — тоже защищены. */
+    /** Cells selected by other members (presence) — also protected. */
     remotePresence?: ReadonlyMap<string, { fullname: string; email: string }>;
     onLockedCellEdit?: (key: string, ownerName: string) => void;
     onAcquireLease?: (keys: string[]) => void;
     onReleaseLease?: (keys: string[]) => void;
     onViewStatsChange?: (stats: GridViewStats) => void;
     onClipboardStateChange?: (state: { canPaste: boolean }) => void;
-    /** Завершённое выделение (для присутствия): подпись и ключи ячеек диапазона. */
+    /** Completed selection (for presence): label and cell keys of the range. */
     onSelectionChange?: (selection: { label: string | null; cellKeys: string[] }) => void;
-    /** Ключи ячеек, на которых находятся другие участники (подсветка + подсказка). */
+    /** Keys of cells where other members are (highlight + tooltip). */
     remoteCellInfo?: ReadonlyMap<string, { name: string; label: string | null }>;
 };
 
-/** Задержка отправки завершённого выделения в присутствие (после отпускания). */
+/** Debounce for sending a completed selection to presence (after release). */
 const PRESENCE_DEBOUNCE_MS = 400;
 
 type GridSortingOrder = "asc" | "desc";
@@ -121,9 +121,9 @@ function isGridTarget(event: Event, grid: HTMLElement): boolean {
 }
 
 /**
- * Канонические ключи ячеек выделенного диапазона — они едины для всех
- * участников независимо от состава видимых колонок (координаты разъезжаются,
- * когда у пользователей разные наборы колонок).
+ * Canonical keys of the cells in the selected range — the same for all
+ * members regardless of the visible column set (coordinates diverge when
+ * users have different column sets).
  */
 function selectionCellKeys(
     range: RangeArea | null,
@@ -146,7 +146,7 @@ function selectionCellKeys(
 }
 
 /**
- * Подпись колонки с учётом вложенного заголовка: «Потребность / План, т».
+ * Column label with the nested header: «Потребность / План, т».
  */
 function columnLabel(
     column: ColumnRegular | undefined,
@@ -162,10 +162,10 @@ function columnLabel(
 }
 
 /**
- * Человекочитаемое описание выделенного диапазона, например
- * «Бизнес-план, т» – «Факт, т», строки 3–5 или «Потребность / План, т», строка 2.
- * Названия колонок берутся в кавычки; диапазоны записываются через тире.
- * null — выделения нет.
+ * Human-readable description of the selected range, e.g.
+ * «Бизнес-план, т» – «Факт, т», строки 3–5 or «Потребность / План, т», строка 2.
+ * Column names are quoted; ranges are written with a dash.
+ * null — no selection.
  */
 export function selectionLabelForRange(
     range: RangeArea | null,
@@ -185,7 +185,7 @@ export function selectionLabelForRange(
 }
 
 /**
- * Канонические ключи всех ячеек выделенных строк (по всем колонкам).
+ * Canonical keys of all cells in the selected rows (across all columns).
  */
 function selectionRowCellKeys(
     rows: GridRow[],
@@ -270,7 +270,7 @@ function RawMaterialsGridInner(
     const activeLeaseRef = useRef<string | null>(null);
     const [selectionRange, setSelectionRange] = useState<RangeArea | null>(null);
     const [canPaste, setCanPaste] = useState(false);
-    // Плавающий HeroUI Tooltip над ячейками, занятыми другим участником.
+    // Floating HeroUI Tooltip over cells occupied by another participant.
     const [remoteTooltip, setRemoteTooltip] = useState<{
         text: string;
         left: number;
@@ -361,9 +361,9 @@ function RawMaterialsGridInner(
     }, []);
 
     /**
-     * Текущие отображаемые строки (сортировка и фильтры уже применены).
-     * Индексы выделения/вставки/присутствия — координаты отображаемых строк,
-     * поэтому любые обращения по индексу должны идти сюда, а не в исходный rows.
+     * Current visible rows (sorting and filters already applied).
+     * Selection/paste/presence indexes are coordinates of visible rows,
+     * so any index-based lookup must go here, not into the original rows.
      */
     const getVisibleRows = useCallback(async (): Promise<GridRow[]> => {
         const grid = gridRef.current;
@@ -375,7 +375,7 @@ function RawMaterialsGridInner(
         }
     }, [rows]);
 
-    // Выделенные строки (кнопки номеров строк) — их тоже отражаем в присутствии.
+    // Selected rows (row-number buttons) — we reflect them in presence too.
     const selectedRowsRange = useMemo(() => {
         if (selectedRowIds.length === 0) return null;
         const indexes = rows
@@ -385,11 +385,11 @@ function RawMaterialsGridInner(
         return { min: indexes[0], max: indexes[indexes.length - 1] };
     }, [rows, selectedRowIdSet, selectedRowIds.length]);
 
-    // Присутствие: сообщаем наружу только завершённое выделение (не каждое
-    // событие перетаскивания), чтобы живая передача не ломала перетаскивание
-    // и не спамила комнату. Дебаунс гарантирует отправку после отпускания.
-    // Колбэк и расчётные данные держим в ref, чтобы эхо presence:update
-    // (пересборка members на нашем же клиенте) не порождало повторные отправки.
+    // Presence: report only the completed selection (not every drag event),
+    // so live streaming doesn't break dragging and doesn't spam the room.
+    // Debounce guarantees the send after release. The callback and computed
+    // data stay in a ref, so the presence:update echo (members rebuilt on our
+    // own client) doesn't cause repeated sends.
     const presenceInputRef = useRef({
         descriptorByKey,
         flatColumns,
@@ -413,8 +413,8 @@ function RawMaterialsGridInner(
                 selectedRowIds,
                 onSelectionChange,
             } = presenceInputRef.current;
-            // Координаты выделения — отображаемые строки (сортировка/фильтр уже
-            // применены), поэтому ключи ячеек считаем по видимому источнику.
+            // Selection coordinates are displayed rows (sorting/filtering already
+            // applied), so cell keys are computed from the visible source.
             void (async () => {
                 const visible = await getVisibleRows();
                 const rowIndexes: number[] = [];
@@ -443,12 +443,12 @@ function RawMaterialsGridInner(
     }, [selectedRowsRange, selectionRange]);
 
     /**
-     * Программное выделение диапазона через публичный API грида.
-     * setCellsFocus обновляет selection-стор (focus + range), а refresh
-     * форсирует перерисовку оверлея: без него состояние обновляется, но рамка
-     * не появляется (Stencil не перерисовывает оверлей при внешнем изменении
-     * стора). Прямая запись в overlay-selectionStore не работает — там лежит
-     * сырой observable без setRange/setFocus.
+     * Programmatic range selection through the grid's public API.
+     * setCellsFocus updates the selection store (focus + range), and refresh
+     * forces the overlay redraw: without it the state updates but the frame
+     * doesn't appear (Stencil doesn't redraw the overlay on external store
+     * changes). Writing directly to overlay-selectionStore doesn't work —
+     * there's a raw observable without setRange/setFocus.
      */
     const applyGridRange = useCallback(
         async (start: { x: number; y: number }, end: { x: number; y: number }) => {
@@ -465,10 +465,10 @@ function RawMaterialsGridInner(
         updateSelectionRange(null);
     }, [updateSelectionRange]);
 
-    // Ctrl+A: один сплошной диапазон по всем ячейкам данных. Заголовки не
-    // выделяем (у объединённых шапок граница не совпадает), строка «добавить
-    // запись» тоже вне выделения, выделение строк сбрасывается — остаётся
-    // только диапазон ячеек.
+    // Ctrl+A: one contiguous range over all data cells. Headers aren't
+    // selected (merged headers' border doesn't match), the «добавить запись»
+    // row is outside the range too, row selection is reset — only the cell
+    // range remains.
     const selectAllCells = useCallback(async () => {
         if (rows.length === 0 || flatColumns.length === 0) return;
         let lastDataIndex = rows.length - 1;
@@ -499,7 +499,7 @@ function RawMaterialsGridInner(
                         .map((row) => row.id)
                         .filter(Boolean),
                 );
-                // Выделение строк полностью сбрасывает диапазон ячеек (и визуально).
+                // Row selection fully resets the cell range (visually too).
                 clearGridSelection();
                 return;
             }
@@ -518,7 +518,7 @@ function RawMaterialsGridInner(
             }
             rowSelectionAnchorRef.current = rowIndex;
             setSelectedRowIds([id]);
-            // Выделение строк полностью сбрасывает диапазон ячеек (и визуально).
+            // Row selection fully resets the cell range (visually too).
             clearGridSelection();
         },
         [clearGridSelection, rows, selectedRowIdSet],
@@ -625,8 +625,8 @@ function RawMaterialsGridInner(
     );
 
     useEffect(() => {
-        // Выделение в координатах отображаемых строк — проверяем по видимому
-        // источнику (сортировка/фильтр уже применены).
+        // Selection is in displayed-row coordinates — check against the visible
+        // source (sorting/filtering already applied).
         let cancelled = false;
         void (async () => {
             const source = await getVisibleRows();
@@ -665,7 +665,7 @@ function RawMaterialsGridInner(
             return { ok: false, message: "выберите «Да» или «Нет»." };
         }
         if (kind === "assetsMulti") {
-            // В справочных значениях запятых нет, поэтому запятая — разделитель.
+            // Dictionary values contain no commas, so a comma is the separator.
             const requested = Array.isArray(value) ? value : String(value ?? "").split(",");
             const canonical = canonicalOptions(requested, assets);
             if (!canonical.ok) return canonical;
@@ -709,7 +709,7 @@ function RawMaterialsGridInner(
         }
         const canonicalKey = row.canonicalCells?.[descriptor.key];
         if (canonicalKey) {
-            // Аренда или чужое выделение — ячейка защищена: начать редактирование нельзя.
+            // Lease or foreign selection — the cell is protected: editing can't start.
             const owner = remoteLocks.get(canonicalKey) ?? remotePresence.get(canonicalKey);
             if (owner) {
                 event.preventDefault();
@@ -742,8 +742,8 @@ function RawMaterialsGridInner(
         const canonicalKey = row.canonicalCells?.[descriptor.key];
         if (canonicalKey) {
             const byLease = remoteLocks.get(canonicalKey);
-            // Чужая аренда блокирует всегда; чужое выделение — кроме случая, когда
-            // ячейку редактирую я сам (моя аренда сильнее чужого выделения).
+            // A foreign lease always blocks; a foreign selection — except when
+            // I'm editing the cell myself (my lease beats a foreign selection).
             const byPresence =
                 remotePresence.get(canonicalKey) && activeLeaseRef.current !== canonicalKey
                     ? remotePresence.get(canonicalKey)
@@ -1109,12 +1109,12 @@ function RawMaterialsGridInner(
                 document.execCommand("copy");
                 textarea.remove();
             } catch {
-                // буфер недоступен — источник не очищаем
+                // buffer unavailable — don't clear the source
                 return;
             }
         }
-        // Модели — из текущего видимого источника: при сортировке/фильтре
-        // индекс отображаемой строки не совпадает с индексом исходного rows.
+        // Models come from the current visible source: under sorting/filtering
+        // the displayed row index doesn't match the original rows index.
         const visible = await getVisibleRows();
         const data: Record<string, Record<string, unknown>> = {};
         const models: GridRow[] = [];
@@ -1126,15 +1126,15 @@ function RawMaterialsGridInner(
                 if (!column) continue;
                 const descriptor = descriptorByKey.get(String(column.prop));
                 if (!descriptor || !editableKeys.has(descriptor.key)) continue;
-                // Булевым полям «пусто» недоступно — вырезание их пропускаем.
+                // Boolean fields have no "empty" state — cutting skips them.
                 if (descriptor.kind === "boolean") continue;
                 patch[String(column.prop)] = descriptor.kind === "assetsMulti" ? [] : "";
             }
             if (Object.keys(patch).length > 0) data[String(y)] = patch;
         }
         if (Object.keys(data).length === 0) return;
-        // Идём через rangeeditapply: beforeRangeEdit сам пропустит занятые
-        // и заблокированные ячейки (значения при этом уже в буфере обмена).
+        // Go through rangeeditapply: beforeRangeEdit itself skips busy and
+        // locked cells (the values are already in the clipboard by then).
         grid.dispatchEvent(
             new CustomEvent("rangeeditapply", {
                 detail: {
@@ -1148,7 +1148,7 @@ function RawMaterialsGridInner(
                 composed: true,
             }),
         );
-        // Выделяем вырезанный диапазон (rangeeditapply сам выделение не двигает).
+        // Select the cut range (rangeeditapply doesn't move the selection itself).
         void applyGridRange({ x: range.x, y: range.y }, { x: range.x1, y: range.y1 });
     }, [applyGridRange, buildCopyText, descriptorByKey, editableKeys, flatColumns, getVisibleRows]);
 
@@ -1164,9 +1164,9 @@ function RawMaterialsGridInner(
                 }
             }
             if (!text) return;
-            // Excel и другие приложения кладут в буфер завершающий перенос строки
-            // (и хвостовые табы) — без обрезки при вставке захватывается лишняя
-            // пустая ячейка снизу и затирает соседнюю, которую не просили.
+            // Excel and other apps put a trailing line break (and trailing tabs)
+            // in the buffer — without trimming, an extra empty cell below gets
+            // captured and overwrites a neighbor nobody asked for.
             const split = text.split(/\r\n|\n|\r/).map((row) => row.split("\t"));
             while (
                 split.length > 0 &&
@@ -1192,11 +1192,11 @@ function RawMaterialsGridInner(
             const selectedWidth = range.x1 - range.x + 1;
             const singleCell = selectedHeight === 1 && selectedWidth === 1;
 
-            // Одна ячейка — вставляем весь буфер, начиная с неё. Две и более —
-            // вставляем только в выделение: больший буфер обрезается им (Toast),
-            // меньший вставляется как есть, остальные ячейки не трогаем.
-            // Модели — из текущего видимого источника: при сортировке/фильтре
-            // индекс отображаемой строки не совпадает с индексом исходного rows.
+            // One cell — paste the whole buffer starting from it. Two or more —
+            // paste only into the selection: a bigger buffer is trimmed by it
+            // (Toast), a smaller one is pasted as-is, other cells untouched.
+            // Models come from the current visible source: under sorting/filtering
+            // the displayed row index doesn't match the original rows index.
             const visible = await getVisibleRows();
             let toY = range.y;
             let toY1 = range.y1;
@@ -1223,8 +1223,8 @@ function RawMaterialsGridInner(
                 }
                 if (Object.keys(patch).length > 0) data[String(y)] = patch;
             }
-            // newRange задаёт и область применения, и итоговое выделение —
-            // после вставки выделяются только что вставленные ячейки.
+            // newRange defines both the apply area and the resulting selection —
+            // after the paste, exactly the pasted cells are selected.
             const newRange: RangeArea = { y: toY, y1: toY1, x: toX, x1: toX1 };
             grid.dispatchEvent(
                 new CustomEvent("rangeeditapply", {
@@ -1239,9 +1239,9 @@ function RawMaterialsGridInner(
                     composed: true,
                 }),
             );
-            // После вставки выделяем только что вставленные ячейки — и
-            // присутствие подхватит новый диапазон через updateSelectionRange
-            // (setrange-событие этот путь не эмитит).
+            // After the paste, select exactly the pasted cells — and presence
+            // picks up the new range via updateSelectionRange
+            // (the setrange event doesn't emit this path).
             void applyGridRange({ x: toX, y: toY }, { x: toX1, y: toY1 });
         },
         [applyGridRange, flatColumns, getVisibleRows, onPasteTruncated],
@@ -1265,9 +1265,9 @@ function RawMaterialsGridInner(
                 event.stopPropagation();
                 return;
             }
-            // Копирование диапазона идёт через тот же асинхронный путь, что и
-            // Ctrl+C (нужен текущий видимый источник: сортировка/фильтр меняют
-            // соответствие индексов).
+            // Range copying goes through the same async path as Ctrl+C (the
+            // current visible source is needed: sorting/filtering change the
+            // index mapping).
             event.preventDefault();
             event.stopPropagation();
             void copySelection();
@@ -1366,8 +1366,8 @@ function RawMaterialsGridInner(
                 return;
             }
             if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
-            // event.code — физическая клавиша: работает при любой раскладке
-            // (в русской event.key даёт «с»/«м»/«ч»/«ф»).
+            // event.code — the physical key: works in any layout
+            // (in Russian event.key gives «с»/«м»/«ч»/«ф»).
             if (
                 event.code !== "KeyC" &&
                 event.code !== "KeyV" &&
@@ -1380,10 +1380,10 @@ function RawMaterialsGridInner(
             if (!grid || !isGridTarget(event, grid)) return;
             event.preventDefault();
             if (event.code === "KeyA") {
-                // Слушаем в capture-фазе, чтобы перехватить Ctrl+A до встроенного
-                // select-all revo-grid (он выделяет заголовки и рвёт рамку).
-                // stopImmediatePropagation — гарантированно глушит и других
-                // document-слушателей (в т.ч. сам revo-grid), в любом порядке.
+                // Listen in the capture phase to intercept Ctrl+A before revo-grid's
+                // built-in select-all (it selects headers and tears the frame).
+                // stopImmediatePropagation — reliably silences other
+                // document listeners (incl. revo-grid itself), in any order.
                 event.stopImmediatePropagation();
                 void selectAllCells();
             } else if (event.code === "KeyC") {
@@ -1394,7 +1394,7 @@ function RawMaterialsGridInner(
                 void pasteIntoSelection();
             }
         };
-        // capture: перехватываем Ctrl+A раньше revo-grid.
+        // capture: intercept Ctrl+A before revo-grid.
         document.addEventListener("keydown", handleKeyDown, true);
         return () => document.removeEventListener("keydown", handleKeyDown, true);
     }, [copySelection, cutSelection, pasteIntoSelection, selectAllCells, updateSelectionRange]);

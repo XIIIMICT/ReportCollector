@@ -8,10 +8,10 @@ type AsyncDataState<T> = {
 };
 
 /**
- * Загружает данные через `loader` и перезапускает загрузку при изменении `deps`.
+ * Loads data via `loader` and restarts the load when `deps` change.
  *
- * Отменяет устаревший запрос при размонтировании или смене зависимостей,
- * ошибки нормализует в текст для показа пользователю.
+ * Cancels a stale request on unmount or dependency change,
+ * normalizes errors into text for the user.
  */
 export function useAsyncData<T>(loader: () => Promise<T>, deps: DependencyList): AsyncDataState<T> {
     const [data, setData] = useState<T | null>(null);

@@ -63,7 +63,7 @@ export type GridColumnContext = {
     selectedRowIds: Set<string>;
     showServiceColumns: boolean;
     remoteLocks: ReadonlyMap<string, { fullname: string; email: string }>;
-    /** Ключ ячейки → участник, который сейчас на ней находится (присутствие/аренда). */
+    /** Cell key → the member currently on it (presence/lease). */
     remoteCellInfo: ReadonlyMap<string, { name: string; label: string | null }>;
     onBooleanChange: (row: GridRow, field: string, value: boolean) => void;
 };
@@ -91,8 +91,8 @@ const DESCRIPTORS: Record<SectionId, ColumnDescriptor[]> = {
     materialMovement: [
         fixed("rawMaterialName", "Сырьевая позиция", 270),
         { ...fixed("assetName", "Актив", 170), adminOnly: true },
-        // Бизнес-план заполняется только в форме «Цен» (businessPlanQuantityTons)
-        // и проецируется сюда; в «Движении» колонка нередактируемая.
+        // The business plan is filled only in the «Цены» form (businessPlanQuantityTons)
+        // and is projected here; the column is non-editable in «Движение».
         { ...fixed("businessPlanTons", "Бизнес-план, т", 142), kind: "number" },
         number("demandPlanTons", "План, т", 118, ["Потребность"]),
         number("consumptionFactTons", "Потребление, т", 142, ["Потребность"]),

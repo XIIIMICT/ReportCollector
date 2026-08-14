@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     auth_secret: str = ""
     auth_seed_admin_email: str | None = None
     auth_seed_admin_password: str | None = None
-    # По умолчанию — локальные dev-ориджины. В compose-стеке значение выводится
-    # из AUTH_APP_ORIGIN (единый источник хоста приложения); здесь оно нужно
-    # только для запуска бэкенда на хосте вне compose.
+    # Defaults to local dev origins. In the compose stack the value is derived
+    # from AUTH_APP_ORIGIN (the single source of the app host); here it matters
+    # only when running the backend on the host outside compose.
     backend_cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:5000", "http://127.0.0.1:5000"]
     )
@@ -39,11 +39,11 @@ class Settings(BaseSettings):
     @classmethod
     def _normalize_cors_origins(cls, value: object) -> object:
         """
-        Убирает завершающий слэш у ориджинов.
+        Strip the trailing slash from origins.
 
-        Браузер в Origin никогда не шлёт слэш, а AUTH_APP_ORIGIN (из которого
-        compose выводит список) пользователь может случайно записать со слэшем
-        — иначе WS/HTTP-хендшейк ошибочно отклоняется.
+        The browser never sends a slash in Origin, while the user may write
+        AUTH_APP_ORIGIN (which compose derives the list from) with a slash —
+        otherwise the WS/HTTP handshake is wrongly rejected.
         """
         if isinstance(value, str):
             try:

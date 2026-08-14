@@ -20,7 +20,7 @@ _PASSWORD_TOO_LONG = ValueError("Пароль слишком длинный.")
 
 
 def validate_new_password(password: str) -> None:
-    """Проверяет пароль на минимальную длину и лимит байт."""
+    """Check the password for minimum length and byte limit."""
     if len(password) < MIN_PASSWORD_CHARS:
         raise _PASSWORD_TOO_SHORT
     if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
@@ -28,13 +28,13 @@ def validate_new_password(password: str) -> None:
 
 
 def hash_password(password: str) -> str:
-    """Хэширует пароль по Argon2id (PHC-строка с параметрами и солью)."""
+    """Hashes the password with Argon2id (PHC string with parameters and salt)."""
     validate_new_password(password)
     return _PASSWORD_HASHER.hash(password)
 
 
 def verify_password(password: str, encoded: str) -> bool:
-    """Проверяет пароль против сохранённого хэша; не-совпадение формата — False."""
+    """Verify the password against the stored hash; format mismatch — False."""
     try:
         return _PASSWORD_HASHER.verify(encoded, password)
     except InvalidHashError, VerificationError:

@@ -15,7 +15,7 @@ class ProjectAccessRead(BaseModel):
 
 
 class CurrentUserRead(BaseModel):
-    """Текущий пользователь: профиль и доступные (активированные) проекты."""
+    """Current user: profile and available (activated) projects."""
 
     email: str | None
     key: str
@@ -30,7 +30,7 @@ class LocalLoginRequest(BaseModel):
 
 
 class LocalLoginResponse(BaseModel):
-    """Идентичность пользователя для сессии браузера (без хэша пароля)."""
+    """User identity for the browser session (no password hash)."""
 
     key: str
     email: str | None
@@ -40,7 +40,7 @@ class LocalLoginResponse(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    """new_password=None или пусто — сбросить пароль (хэш → NULL)."""
+    """new_password=None or empty — reset the password (hash → NULL)."""
 
     new_password: str | None = None
 

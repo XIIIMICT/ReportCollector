@@ -26,7 +26,7 @@ LOGGER = logging.getLogger("reportcollector.application")
 
 
 class InvalidCredentialsError(Exception):
-    """Логин или пароль не подходят."""
+    """Login or password doesn't match."""
 
 
 _INVALID_CREDENTIALS = InvalidCredentialsError("Неверный email или пароль.")
@@ -46,14 +46,14 @@ class CurrentUserIdentity:
 
 
 class UnknownUserError(Exception):
-    """Пользователь не зарегистрирован в ReportCollector."""
+    """User is not registered in ReportCollector."""
 
 
 class InvalidIdentityError(Exception):
-    """Подпись идентичности отсутствует, устарела или неверна."""
+    """Identity signature is missing, stale or invalid."""
 
 
-# Заголовки подписи идентичности (совпадают с auth/router.read_signed_identity).
+# Identity signature headers (match auth/router.read_signed_identity).
 IDENTITY_HEADER_NAMES = (
     "X-ReportCollector-User-Key",
     "X-ReportCollector-User-Email",
@@ -68,7 +68,7 @@ IDENTITY_HEADER_NAMES = (
 
 
 def verify_signed_identity(headers: Mapping[str, str]) -> CurrentUserIdentity:
-    """Проверяет подпись идентичности по заголовкам (для WebSocket и проки)."""
+    """Verify the identity signature from headers (for WebSocket and the proxy)."""
     lookup = {name.casefold(): value for name, value in headers.items()}
     values = [unquote(lookup.get(name.casefold()) or "") or None for name in IDENTITY_HEADER_NAMES]
     timestamp = lookup.get("x-reportcollector-identity-timestamp")
@@ -111,12 +111,12 @@ def _parse_optional_bool(value: str | None) -> bool | None:
 
 def verify_identity_ticket(ticket: str) -> CurrentUserIdentity:
     """
-    Проверяет тикет WebSocket: подписанные заголовки идентичности в query.
+    Verify the WebSocket ticket: signed identity headers in the query.
 
-    Браузер не умеет ставить кастомные заголовки, поэтому route-handler
-    фронтенда упаковывает подписанные заголовки в base64url-тикет
-    {"h": {header: value, ...}} с окном действия 60 секунд (подпись сверяется
-    той же verify_signed_identity).
+    The browser can't set custom headers, so the frontend route handler packs
+    the signed headers into a base64url ticket {"h": {header: value, ...}}
+    with a 60-second validity window (the signature is checked by the same
+    verify_signed_identity).
     """
     try:
         ticket = ticket + "=" * (-len(ticket) % 4)
@@ -133,7 +133,7 @@ def verify_identity_ticket(ticket: str) -> CurrentUserIdentity:
 
 
 class BlockedUserError(Exception):
-    """Пользователь заблокирован в ReportCollector."""
+    """User is blocked in ReportCollector."""
 
 
 _UNKNOWN_USER = ValueError("Пользователь не найден.")
@@ -142,13 +142,13 @@ _USER_BLOCKED = BlockedUserError("Пользователь заблокиров�
 
 async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdentity) -> User:
     """
-    Регистрирует или обновляет пользователя по данным OIDC-идентичности.
+    Register or update the user from OIDC identity data.
 
-    Новый пользователь появляется у администраторов всех проектов: связь со
-    всеми существующими проектами создаётся сразу, но с is_active=False.
-    Доступ к конкретному проекту даёт администратор, включив is_active
-    в своей проекте. Пользователь из AUTH_SEED_ADMIN_EMAIL создаётся активным
-    и получает роль admin во всех проектах.
+    A new user appears for the admins of all projects: links with all
+    existing projects are created right away, but with is_active=False.
+    Access to a specific project is granted by the admin enabling is_active
+    in their project. The AUTH_SEED_ADMIN_EMAIL user is created active and
+    gets the admin role in all projects.
     """
     canonical_key = normalize_email(identity.email) if identity.email else identity.preferred_username or identity.key
     log_event(
@@ -202,8 +202,8 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
     session.add(user)
     await session.flush()
 
-    # Провижининг: у пользователя есть связь со всеми проектами. Новые связи
-    # создаются неактивными; seed-админ активен и администрирует все проекты.
+    # Provisioning: the user has links to all projects. New links are created
+    # inactive; the seed admin is active and administers all projects.
     await sync_project_memberships(session, user.id, activate_admin=is_seed_admin)
 
     await session.commit()
@@ -226,11 +226,11 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
 
 async def sync_project_memberships(session: AsyncSession, user_id: UUID, *, activate_admin: bool = False) -> None:
     """
-    Гарантирует связь пользователя со всеми проектами.
+    Guarantees the user's links to all projects.
 
-    Недостающие связи создаются с is_active=False и ролью asset_worker; для
-    seed-админа (activate_admin=True) новые связи активны с ролью admin.
-    Существующие связи не изменяются.
+    Missing links are created with is_active=False and the asset_worker role;
+    for the seed admin (activate_admin=True) new links are active with the
+    admin role. Existing links are never changed.
     """
     projects = (await session.exec(select(Project).order_by(Project.key))).all()
     existing = (await session.exec(select(UserRole).where(col(UserRole.user_id) == user_id))).all()
@@ -255,11 +255,11 @@ async def sync_project_memberships(session: AsyncSession, user_id: UUID, *, acti
 
 async def authenticate_local_user(session: AsyncSession, email: str, password: str) -> User:
     """
-    Вход по логину (email) и паролю.
+    Login by email and password.
 
-    Пользователь с пустым password_hash (например, заведённый администратором
-    без пароля) устанавливает пароль при первом входе. При несовпадении пароля
-    или отсутствии пользователя возвращается InvalidCredentialsError.
+    A user with an empty password_hash (e.g. created by an admin without a
+    password) sets the password on first login. On a password mismatch or a
+    missing user, InvalidCredentialsError is raised.
     """
     normalized_email = email.strip()
     user = (
@@ -326,10 +326,10 @@ async def authenticate_local_user(session: AsyncSession, email: str, password: s
 
 async def reset_user_password(session: AsyncSession, user_id: UUID, new_password: str) -> None:
     """
-    Задаёт пароль пользователю (вызывается администратором).
+    Set the user's password (called by an admin).
 
-    При пустом new_password хэш сбрасывается (password_hash=NULL), и
-    пользователь при следующем входе установит новый пароль сам.
+    With an empty new_password the hash is reset (password_hash=NULL) and the
+    user sets a new password themselves on the next login.
     """
     user = await get_user_by_id(session, user_id)
     if user is None or user.is_deleted:
@@ -364,11 +364,11 @@ async def update_profile(
     password: str | None,
 ) -> CurrentUserRead:
     """
-    Обновляет тему и/или локальный пароль текущего пользователя.
+    Update the current user's theme and/or local password.
 
-    Изменение пароля имеет смысл только в локальном режиме аутентификации;
-    при включённом Keycloak он не используется, но сохраняется для переключения
-    режима. Логин (email) и ФИО менять нельзя — они приходят из идентичности.
+    Changing the password only matters in the local auth mode; with Keycloak
+    enabled it isn't used but is kept for switching modes. The login (email)
+    and FIO can't be changed — they come from the identity.
     """
     user = await get_user_by_identity(session, identity)
     if user is None or user.is_deleted:
@@ -396,12 +396,11 @@ async def update_profile(
 
 async def read_user_access(session: AsyncSession, user_id: UUID) -> list[ProjectAccessRead]:
     """
-    Возвращает проекты пользователя, где он активирован: роль и активы.
+    Return the user's projects where they're activated: role and assets.
 
-    Связь пользователя с проектом может существовать с is_active=False — такие
-    проекты в доступ не попадают (администратор ещё не включил доступ).
-    Администратор проекта (admin) видит все активы; работник по активам
-    (asset_worker) — только привязанные к нему.
+    A user-project link may exist with is_active=False — such projects aren't
+    included in the access (the admin hasn't enabled access yet). A project
+    admin sees all assets; an asset_worker only the ones assigned to them.
     """
     query = (
         select(Project, col(UserRole.role))
@@ -469,7 +468,7 @@ async def get_user_by_oidc_identity(session: AsyncSession, issuer: str | None, s
 
 
 async def get_user_by_email(session: AsyncSession, email: str | None) -> User | None:
-    """Поиск по email регистронезависимо: адреса регистронезависимы."""
+    """Case-insensitive email lookup: addresses are case-insensitive."""
     if email is None:
         return None
     return (await session.exec(select(User).where(func.lower(col(User.email)) == normalize_email(email)))).one_or_none()
@@ -489,7 +488,7 @@ async def grant_project_role(
     project_key: str,
     role: ProjectRole,
 ) -> None:
-    """Назначает пользователю роль в проекте (игнорирует повторное назначение)."""
+    """Assign the user a role in the project (ignores duplicate assignment)."""
     project = (await session.exec(select(Project).where(col(Project.key) == project_key))).one_or_none()
     if project is None:
         msg = f"Проект {project_key!r} не найден."
@@ -519,7 +518,7 @@ async def grant_project_role(
 
 
 async def activate_project_user(session: AsyncSession, user_id: UUID, project_key: str) -> None:
-    """Включает доступ пользователя к проекту (is_active=true на связи)."""
+    """Enable the user's project access (is_active=true on the link)."""
     project = (await session.exec(select(Project).where(col(Project.key) == project_key))).one_or_none()
     if project is None:
         msg = f"Проект {project_key!r} не найден."
@@ -546,7 +545,7 @@ async def grant_project_assets(
     user_id: UUID,
     asset_names: list[str],
 ) -> None:
-    """Привязывает активы к пользователю проекта (для роли asset_worker)."""
+    """Assign project assets to the user (for the asset_worker role)."""
     assets = (await session.exec(select(RawMaterialAsset).where(col(RawMaterialAsset.name).in_(asset_names)))).all()
     found_names = {asset.name for asset in assets}
     missing = set(asset_names) - found_names

@@ -1,4 +1,4 @@
-"""Общие фикстуры для тестов ReportCollector."""
+"""Shared fixtures for ReportCollector tests."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 
     from src.collab.store import MemoryStore
 
-# Переменные окружения должны быть установлены до первого импорта src.*,
-# потому что src.database кэширует настройки на уровне модуля.
+# Env vars must be set before the first src.* import, because src.database
+# caches settings at module level.
 os.environ.setdefault("AUTH_SECRET", "test-secret-that-is-at-least-32-characters-long")
 os.environ.setdefault("AUTH_SEED_ADMIN_EMAIL", "admin@example.ru")
 os.environ.setdefault("AUTH_SEED_ADMIN_PASSWORD", "AdminPassword123")
@@ -47,7 +47,7 @@ def anyio_backend() -> str:
 
 @pytest.fixture(scope="session")
 async def test_engine():
-    """Движок тестовой сессии: метаданные моделей зарегистрированы, схема создаётся per-test."""
+    """Test session engine: model metadata registered, schema created per-test."""
     from src.auth import models as _auth_models  # noqa: F401
     from src.collab import models as _collab_models  # noqa: F401
     from src.raw_materials import models as _raw_materials_models  # noqa: F401
@@ -62,7 +62,7 @@ async def test_engine():
 
 
 async def _seed_session(session: AsyncSession) -> None:
-    """Минимальный набор данных проекта «Сырьё»: пользователи, arm, периоды, цены, строки."""
+    """Minimal «Сырьё» dataset: users, arms, periods, prices, rows."""
     from src.auth.constants import RAW_MATERIALS_PROJECT_KEY, RAW_MATERIALS_PROJECT_NAME
     from src.auth.models import Project, ProjectRole, User, UserRole
     from src.raw_materials.models import (
@@ -193,7 +193,7 @@ async def _seed_session(session: AsyncSession) -> None:
 
 @pytest.fixture
 async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
-    """Сессия БД с чистым сидом для каждого теста (изоляция от коммитов внутри тестов)."""
+    """DB session with a clean seed per test (isolation from commits inside tests)."""
     async with test_engine.begin() as conn:
         await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
         await conn.execute(text(f'CREATE SCHEMA "{TEST_SCHEMA}"'))
@@ -207,7 +207,7 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
 
 @pytest.fixture
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
-    """Тестовый HTTP-клиент FastAPI с инъекцией тестовой БД."""
+    """FastAPI test HTTP client with the test DB injected."""
     from src.database import get_session
     from src.main import app
 
@@ -222,7 +222,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
 
 @pytest.fixture
 async def store() -> MemoryStore:
-    """Хранилище совместного редактирования (in-memory в тестах)."""
+    """Collaboration store (in-memory in tests)."""
     from src.collab.store import MemoryStore, get_collab_store
 
     instance = get_collab_store()
@@ -241,7 +241,7 @@ def signed_identity_headers(
     family_name: str | None = None,
     email_verified: str | None = None,
 ) -> dict[str, str]:
-    """Формирует подписанные заголовки идентичности как это делает фронтенд."""
+    """Build signed identity headers the way the frontend does."""
     from hashlib import sha256
     from hmac import new
     from time import time
