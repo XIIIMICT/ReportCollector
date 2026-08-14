@@ -7,7 +7,7 @@ from src.auth.models import User
 from src.auth.passwords import hash_password, validate_new_password, verify_password
 from src.auth.schemas import LocalLoginResponse
 
-ADMIN_EMAIL = "admin@example.local"
+ADMIN_EMAIL = "admin@example.ru"
 PASSWORD = "Secret123"  # noqa: S105
 
 LOGIN_URL = "/api/auth/login"
@@ -55,11 +55,11 @@ async def test_local_login_wrong_password(client, db_session) -> None:
     response = await client.post(LOGIN_URL, json={"email": ADMIN_EMAIL, "password": "WrongPass1"})
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Неверный логин или пароль."
+    assert response.json()["detail"] == "Неверный email или пароль."
 
 
 async def test_local_login_unknown_email(client) -> None:
-    response = await client.post(LOGIN_URL, json={"email": "ghost@example.local", "password": PASSWORD})
+    response = await client.post(LOGIN_URL, json={"email": "ghost@example.ru", "password": PASSWORD})
 
     assert response.status_code == 401
 
@@ -145,7 +145,7 @@ async def test_reset_password_requires_admin(client, db_session) -> None:
     from conftest import signed_identity_headers
 
     user = (await db_session.exec(select(User).where(col(User.email) == ADMIN_EMAIL))).one()
-    headers = signed_identity_headers(email="worker@example.local", subject="worker-sub")
+    headers = signed_identity_headers(email="worker@example.ru", subject="worker-sub")
     await client.get("/api/me", headers=headers)
 
     response = await client.post(

@@ -142,7 +142,7 @@ export function ProfileModal({ isOpen, user, onOpenChange, onProfileSaved }: Pro
                                 </InputGroup>
                             </TextField>
                             <TextField fullWidth value={user.email ?? ""} isDisabled>
-                                <Label>Логин (email)</Label>
+                                <Label>Email</Label>
                                 <InputGroup fullWidth variant="secondary">
                                     <InputGroup.Input autoComplete="username" />
                                 </InputGroup>

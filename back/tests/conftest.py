@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 # Переменные окружения должны быть установлены до первого импорта src.*,
 # потому что src.database кэширует настройки на уровне модуля.
 os.environ.setdefault("AUTH_SECRET", "test-secret-that-is-at-least-32-characters-long")
-os.environ.setdefault("AUTH_SEED_ADMIN_EMAIL", "admin@example.local")
+os.environ.setdefault("AUTH_SEED_ADMIN_EMAIL", "admin@example.ru")
 os.environ.setdefault("AUTH_SEED_ADMIN_PASSWORD", "AdminPassword123")
 os.environ.setdefault("POSTGRES_USER", "postgres")
 os.environ.setdefault("POSTGRES_PASSWORD", "strong_password")
@@ -81,8 +81,8 @@ async def _seed_session(session: AsyncSession) -> None:
     await session.flush()
 
     admin = User(
-        key="admin@example.local",
-        email="admin@example.local",
+        key="admin@example.ru",
+        email="admin@example.ru",
         name="Admin User",
         created_at=now,
         updated_at=now,

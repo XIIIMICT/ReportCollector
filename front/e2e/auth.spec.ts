@@ -38,7 +38,7 @@ test.describe("Авторизация", () => {
         await page.locator('input[name="email"]').fill(LOCAL_EMAIL);
         await page.locator('input[name="password"]').fill("WrongPassword1");
         await page.locator('button[type="submit"]').click();
-        await expect(page.locator("p.error")).toContainText("Неверный логин или пароль.");
+        await expect(page.locator("p.error")).toContainText("Неверный email или пароль.");
     });
 
     test("редирект неавторизованного пользователя на login", async ({ page }) => {

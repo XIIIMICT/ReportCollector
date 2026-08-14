@@ -15,6 +15,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.app_logging import log_event
 from src.auth.constants import LOCAL_USER_KEY
+from src.auth.emails import normalize_email
 from src.auth.models import Project, ProjectRole, User, UserRole
 from src.auth.passwords import hash_password, validate_new_password, verify_password
 from src.auth.schemas import AssetAccessRead, CurrentUserRead, ProjectAccessRead
@@ -28,7 +29,7 @@ class InvalidCredentialsError(Exception):
     """Логин или пароль не подходят."""
 
 
-_INVALID_CREDENTIALS = InvalidCredentialsError("Неверный логин или пароль.")
+_INVALID_CREDENTIALS = InvalidCredentialsError("Неверный email или пароль.")
 
 
 @dataclass(frozen=True)
@@ -149,7 +150,7 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
     в своей проекте. Пользователь из AUTH_SEED_ADMIN_EMAIL создаётся активным
     и получает роль admin во всех проектах.
     """
-    canonical_key = identity.email or identity.preferred_username or identity.key
+    canonical_key = normalize_email(identity.email) if identity.email else identity.preferred_username or identity.key
     log_event(
         LOGGER,
         "keycloak_identity_received",
@@ -167,12 +168,14 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
 
     user = await get_user_by_identity(session, identity)
     seed_admin_email = get_settings().auth_seed_admin_email
-    is_seed_admin = bool(seed_admin_email) and identity.email == seed_admin_email
+    is_seed_admin = bool(seed_admin_email) and normalize_email(identity.email or "") == normalize_email(
+        seed_admin_email
+    )
 
     if user is None:
         user = User(
             key=canonical_key,
-            email=identity.email,
+            email=normalize_email(identity.email) if identity.email else None,
             name=identity.name,
             oidc_sub=identity.oidc_sub,
             oidc_issuer=identity.issuer,
@@ -188,7 +191,7 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
             user_created_active=is_seed_admin,
         )
 
-    user.email = identity.email or user.email
+    user.email = normalize_email(identity.email) if identity.email else user.email
     user.key = canonical_key
     user.name = identity.name or user.name
     user.oidc_sub = identity.oidc_sub or user.oidc_sub
@@ -466,9 +469,10 @@ async def get_user_by_oidc_identity(session: AsyncSession, issuer: str | None, s
 
 
 async def get_user_by_email(session: AsyncSession, email: str | None) -> User | None:
+    """Поиск по email регистронезависимо: адреса регистронезависимы."""
     if email is None:
         return None
-    return (await session.exec(select(User).where(col(User.email) == email))).one_or_none()
+    return (await session.exec(select(User).where(func.lower(col(User.email)) == normalize_email(email)))).one_or_none()
 
 
 async def get_user_by_key(session: AsyncSession, key: str) -> User | None:

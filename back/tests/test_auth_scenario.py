@@ -16,7 +16,7 @@ from src.auth.models import ProjectRole, User, UserRole
 from src.auth.service import activate_project_user, grant_project_role
 from src.models import Project
 
-NEW_USER_EMAIL = "new_user@example.local"
+NEW_USER_EMAIL = "new_user@example.ru"
 NEW_USER_SUB = "new-user-sub"
 AUTH_HEADERS = {
     "email": NEW_USER_EMAIL,
@@ -102,7 +102,7 @@ async def test_asset_worker_sees_only_bound_assets(client, db_session) -> None:
 
 async def test_seed_admin_is_active_with_admin_role(client) -> None:
     headers = {
-        "email": "admin@example.local",
+        "email": "admin@example.ru",
         "preferred_username": "admin",
         "subject": "admin-sub",
         "email_verified": "true",

@@ -124,7 +124,7 @@ const DESCRIPTORS: Record<SectionId, ColumnDescriptor[]> = {
     assets: [text("name", "Актив", 480)],
     deliveryBases: [text("name", "Базис поставки", 480)],
     users: [
-        text("email", "Логин (email)", 245),
+        text("email", "Email", 245),
         text("fullname", "ФИО", 280),
         { key: "isAdmin", label: "Администратор", width: 145, kind: "boolean" },
         { key: "assetNames", label: "Активы", width: 300, kind: "assetsMulti" },

@@ -15,7 +15,7 @@ from src.auth.service import activate_project_user, grant_project_assets, grant_
 
 def admin_headers() -> dict[str, str]:
     return {
-        "email": "admin@example.local",
+        "email": "admin@example.ru",
         "preferred_username": "admin",
         "subject": "admin-sub",
         "email_verified": "true",
@@ -24,7 +24,7 @@ def admin_headers() -> dict[str, str]:
 
 def worker_headers() -> dict[str, str]:
     return {
-        "email": "worker@example.local",
+        "email": "worker@example.ru",
         "preferred_username": "worker",
         "subject": "worker-sub",
         "email_verified": "true",
@@ -217,7 +217,7 @@ async def test_export_prices_reference_validation(client) -> None:
 async def test_export_asset_column_restricted_for_single_asset(client, db_session) -> None:
     headers = worker_headers()
     await client.get("/api/me", headers=signed_identity_headers(**headers))
-    user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.local"))).one()
+    user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)
     await grant_project_assets(db_session, user.id, ["СНХЗ"])
@@ -252,7 +252,7 @@ async def test_export_asset_column_restricted_for_single_asset(client, db_sessio
 async def test_export_dictionary_section_requires_admin(client, db_session) -> None:
     headers = worker_headers()
     await client.get("/api/me", headers=signed_identity_headers(**headers))
-    user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.local"))).one()
+    user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)
     await grant_project_assets(db_session, user.id, ["СНХЗ"])

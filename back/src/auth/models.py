@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+from pydantic import EmailStr
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Text
 from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
@@ -26,7 +27,9 @@ class User(SQLModel, table=True):
     oidc_sub: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     oidc_issuer: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     preferred_username: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    email: str | None = Field(default=None, sa_column=Column(Text, unique=True, index=True, nullable=True))
+    # EmailStr: формат проверяется pydantic при создании/обновлении записи.
+    # Регистр нормализуется отдельно (normalize_email) — адреса регистронезависимы.
+    email: EmailStr | None = Field(default=None, sa_column=Column(Text, unique=True, index=True, nullable=True))
     name: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     email_verified: bool | None = Field(default=None, sa_column=Column(Boolean, nullable=True))
     password_hash: str | None = Field(default=None, sa_column=Column(Text, nullable=True))

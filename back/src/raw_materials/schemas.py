@@ -9,7 +9,9 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from src.auth.emails import normalize_email
 
 SectionId = Literal[
     "materialMovement",
@@ -267,18 +269,31 @@ class DeliveryBasisUpdateRequest(BaseModel):
 class UserCreateRequest(BaseModel):
     """Создание пользователя проекта «Сырьё» (локальная учётка)."""
 
-    email: str = Field(min_length=3, max_length=255)
+    email: EmailStr = Field(min_length=3, max_length=255)
     fullname: str = Field(min_length=1, max_length=255)
     isAdmin: bool = False
     assetNames: list[str] = []
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, value: EmailStr) -> str:
+        # EmailStr проверяет формат; здесь приводим к нижнему регистру.
+        return normalize_email(str(value))
 
 
 class UserUpdateRequest(BaseModel):
     """Правка пользователя проекта «Сырьё»."""
 
-    email: str | None = Field(default=None, min_length=3, max_length=255)
+    email: EmailStr | None = Field(default=None, min_length=3, max_length=255)
     fullname: str | None = Field(default=None, min_length=1, max_length=255)
     isAdmin: bool | None = None
     assetNames: list[str] | None = None
     isActive: bool | None = None
     resetPassword: bool = False
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, value: EmailStr | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_email(str(value))

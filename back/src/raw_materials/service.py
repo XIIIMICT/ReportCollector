@@ -17,6 +17,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import Select
 
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
+from src.auth.emails import is_valid_email, normalize_email
 from src.auth.models import Project, ProjectRole, User, UserRole
 from src.auth.schemas import AssetAccessRead
 from src.auth.service import CurrentUserIdentity, get_user_by_identity, sync_project_memberships
@@ -828,11 +829,12 @@ class DictionaryReferenceError(ValueError):
 
 
 _DICT_REF_USER_MANAGED_BY_KEYCLOAK = DictionaryReferenceError(
-    "Нельзя изменить логин и ФИО: учётные записи управляются Keycloak."
+    "Нельзя изменить email и ФИО: учётные записи управляются Keycloak."
 )
 _DICT_REF_USER_DELETE_FORBIDDEN = DictionaryReferenceError(
     "Удаление пользователей недоступно. Чтобы ограничить доступ, отключите флаг «Активен»."
 )
+_DICT_REF_USER_BAD_EMAIL = DictionaryReferenceError("Некорректный email.")
 
 
 async def create_raw_material(
@@ -1100,8 +1102,12 @@ async def create_project_user(
     пользователя не перезаписываются (ФИО/email после входа через Keycloak
     приходят из идентичности).
     """
-    email = email.strip()
-    existing = (await session.exec(select(User).where(col(User.email) == email))).one_or_none()
+    email = normalize_email(email)
+    if not is_valid_email(email):
+        raise _DICT_REF_USER_BAD_EMAIL
+    # Регистронезависимый поиск: адреса регистронезависимы, а в базе могут
+    # лежать записи, созданные до нормализации.
+    existing = (await session.exec(select(User).where(func.lower(col(User.email)) == email))).one_or_none()
     if existing is not None:
         link = (
             await session.exec(
@@ -1166,9 +1172,9 @@ async def update_project_user(
     if link is None:
         raise _DICT_REF_USER_NOT_FOUND
     if get_settings().keycloak_enabled:
-        # При включённом Keycloak логин и ФИО приходят из идентичности при каждом
+        # При включённом Keycloak email и ФИО приходят из идентичности при каждом
         # входе (upsert_current_user), поэтому редактирование здесь запрещено.
-        if email is not None and email.strip() != user.email:
+        if email is not None and normalize_email(email) != normalize_email(user.email or ""):
             raise _DICT_REF_USER_MANAGED_BY_KEYCLOAK
         if fullname is not None and fullname.strip() != (user.name or ""):
             raise _DICT_REF_USER_MANAGED_BY_KEYCLOAK
@@ -1177,14 +1183,16 @@ async def update_project_user(
     old_is_admin = link.role == ProjectRole.ADMIN
     old_is_active = link.is_active
     old_asset_names = await _user_asset_names(session, user.id)
-    new_email = email.strip() if email is not None else old_email
+    new_email = normalize_email(email) if email is not None else old_email
     new_fullname = fullname.strip() if fullname is not None else old_fullname
     new_is_admin = is_admin if is_admin is not None else old_is_admin
     new_is_active = is_active if is_active is not None else old_is_active
     new_asset_names = asset_names if asset_names is not None else ([] if is_admin is not None else old_asset_names)
     if email is not None:
-        candidate = email.strip()
-        other = (await session.exec(select(User).where(col(User.email) == candidate))).one_or_none()
+        candidate = normalize_email(email)
+        if not is_valid_email(candidate):
+            raise _DICT_REF_USER_BAD_EMAIL
+        other = (await session.exec(select(User).where(func.lower(col(User.email)) == candidate))).one_or_none()
         if other is not None and other.id != user.id:
             message = f"Пользователь с email {candidate} уже существует."
             raise DictionaryReferenceError(message)

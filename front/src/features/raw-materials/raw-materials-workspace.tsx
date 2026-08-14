@@ -73,6 +73,7 @@ import {
     type CollabRoom,
 } from "@/shared/collab/use-collab-room";
 import type { CollabCellChanged, CollabMember, CollabStatus } from "@/shared/collab/ws-client";
+import { isValidEmail } from "@/shared/email";
 import {
     ADMIN_SECTIONS,
     exportFileName,
@@ -195,7 +196,8 @@ function placeholderPayload(
         return { name, assetIds };
     }
     if (section === "users") {
-        const email = placeholderText(draft.email);
+        // Email приводим к нижнему регистру: адреса регистронезависимы.
+        const email = placeholderText(draft.email).toLowerCase();
         const fullname = placeholderText(draft.fullname);
         const isAdmin = draft.isAdmin === true;
         const assetNames = Array.isArray(draft.assetNames) ? draft.assetNames : [];
@@ -561,6 +563,12 @@ function SectionContent({
         placeholderCreatePendingRef.current = true;
         setIsMutationPending(true);
         try {
+            if (section === "users" && !isValidEmail(String(payload.email ?? ""))) {
+                toast.danger("Некорректный email", {
+                    description: "Проверьте формат адреса электронной почты.",
+                });
+                return;
+            }
             await createDictionaryRecord(section, payload);
             refresh();
             const next = initialPlaceholderDraft(section);

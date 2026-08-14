@@ -107,7 +107,7 @@ def _identity_ticket(headers: dict[str, str]) -> str:
 
 async def test_ws_ticket_verifies_admin_identity() -> None:
     identity = verify_identity_ticket(_identity_ticket(signed_identity_headers(**admin_headers())))
-    assert identity.email == "admin@example.local"
+    assert identity.email == "admin@example.ru"
     assert identity.key == "admin"
     assert identity.oidc_sub == "admin-sub"
 
@@ -169,7 +169,7 @@ async def test_edit_writes_journal_and_cell_state(client, db_session, store) -> 
     row_id = await _movement_row_id(client)
     await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
 
-    admin = (await db_session.exec(select(User).where(col(User.email) == "admin@example.local"))).one()
+    admin = (await db_session.exec(select(User).where(col(User.email) == "admin@example.ru"))).one()
     actions = await store.list_actions(str(admin.id), "materialMovement/2026-08-01")
     assert len(actions) == 1
     action = actions[0]
@@ -229,8 +229,8 @@ async def test_undo_history_is_per_form(client) -> None:
 
 
 async def test_undo_empty_stack(client, db_session) -> None:
-    await _make_project_user(db_session, email="empty@example.local", name="Empty User", sub="empty-sub")
-    headers = signed_identity_headers(email="empty@example.local", preferred_username="empty", subject="empty-sub")
+    await _make_project_user(db_session, email="empty@example.ru", name="Empty User", sub="empty-sub")
+    headers = signed_identity_headers(email="empty@example.ru", preferred_username="empty", subject="empty-sub")
     response = await client.post("/api/raw-materials/undo", headers=headers)
     assert response.status_code == 200
     body = response.json()
@@ -272,13 +272,11 @@ async def test_undo_conflicts_with_another_user_edit(client, db_session, store) 
     row_id = await _movement_row_id(client)
     await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
 
-    await _make_project_user(db_session, email="viewer@example.local", name="Viewer User", sub="viewer-sub")
+    await _make_project_user(db_session, email="viewer@example.ru", name="Viewer User", sub="viewer-sub")
 
     response = await client.patch(
         "/api/raw-materials/movement",
-        headers=signed_identity_headers(
-            email="viewer@example.local", preferred_username="viewer", subject="viewer-sub"
-        ),
+        headers=signed_identity_headers(email="viewer@example.ru", preferred_username="viewer", subject="viewer-sub"),
         json={
             "reportMonth": "2026-08-01",
             "updates": [{"rowId": row_id, "field": "balanceOnSiteTons", "value": 60.0}],
@@ -298,9 +296,9 @@ async def test_undo_skip_conflicted_action(client, db_session) -> None:
     row_id = await _movement_row_id(client)
     await _patch_movement(client, row_id, "consumptionFactTons", 81.0)
 
-    await _make_project_user(db_session, email="second@example.local", name="Second User", sub="second-sub")
+    await _make_project_user(db_session, email="second@example.ru", name="Second User", sub="second-sub")
     second_headers = signed_identity_headers(
-        email="second@example.local", preferred_username="second", subject="second-sub"
+        email="second@example.ru", preferred_username="second", subject="second-sub"
     )
     await client.patch(
         "/api/raw-materials/movement",
@@ -545,7 +543,7 @@ async def test_undo_redo_dictionary_asset(client, store) -> None:
 async def test_ws_project_isolation(client, db_session, store) -> None:
     """Арена и присутствие проекта не пересекаются с другими проектами."""
     await _make_project(db_session, key="kppk", name="КППК")
-    await _grant_admin(db_session, email="admin@example.local", project_key="kppk")
+    await _grant_admin(db_session, email="admin@example.ru", project_key="kppk")
 
     cell = "rm_material_movement/00000000-0000-0000-0000-000000000002/consumptionFactTons"
     await store.acquire_lease(

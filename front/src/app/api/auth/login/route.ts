@@ -16,6 +16,7 @@ import {
     transientCookieOptions,
 } from "@/shared/auth/session";
 import { getBackendInternalUrl } from "@/shared/config";
+import { isValidEmail } from "@/shared/email";
 
 export const dynamic = "force-dynamic";
 
@@ -59,11 +60,14 @@ export async function POST(request: Request) {
     const email = fieldValue(form, "email");
     const password = fieldValue(form, "password");
     if (!email || !password) {
-        return loginFailure("Укажите логин и пароль.");
+        return loginFailure("Укажите email и пароль.");
+    }
+    if (!isValidEmail(email)) {
+        return loginFailure("Некорректный email.");
     }
 
     const response = await fetch(new URL("/api/auth/login", getBackendInternalUrl()), {
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.toLowerCase(), password }),
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
         method: "POST",
@@ -126,5 +130,5 @@ function loginFailure(message: string, status = 401): NextResponse {
 }
 
 function localLoginPage(error?: string): string {
-    return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Вход в ReportCollector</title><style>body{font-family:Arial,sans-serif;background:#f4f5f7;color:#18202a;margin:0;display:grid;place-items:center;min-height:100vh}form{background:#fff;border:1px solid #d6dae0;padding:28px;width:min(360px,calc(100vw - 48px));box-shadow:0 8px 24px #0001}h1{font-size:22px;margin:0 0 22px}label{display:block;font-size:14px;margin:14px 0 5px}input{box-sizing:border-box;width:100%;padding:10px;border:1px solid #aeb5bf;font:inherit}button{width:100%;margin-top:22px;padding:11px;border:0;background:#1769aa;color:#fff;font:inherit;cursor:pointer}.error{color:#b42318;font-size:14px}</style></head><body><form method="post"><h1>Вход в ReportCollector</h1>${error ? `<p class="error">${error}</p>` : ""}<label for="email">Логин (e-mail)</label><input id="email" name="email" type="email" required autofocus><label for="password">Пароль</label><input id="password" name="password" type="password" required minlength="8"><button type="submit">Войти</button></form></body></html>`;
+    return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Вход в ReportCollector</title><style>body{font-family:Arial,sans-serif;background:#f4f5f7;color:#18202a;margin:0;display:grid;place-items:center;min-height:100vh}form{background:#fff;border:1px solid #d6dae0;padding:28px;width:min(360px,calc(100vw - 48px));box-shadow:0 8px 24px #0001}h1{font-size:22px;margin:0 0 22px}label{display:block;font-size:14px;margin:14px 0 5px}input{box-sizing:border-box;width:100%;padding:10px;border:1px solid #aeb5bf;font:inherit}button{width:100%;margin-top:22px;padding:11px;border:0;background:#1769aa;color:#fff;font:inherit;cursor:pointer}.error{color:#b42318;font-size:14px}</style></head><body><form method="post"><h1>Вход в ReportCollector</h1>${error ? `<p class="error">${error}</p>` : ""}<label for="email">Email</label><input id="email" name="email" type="email" required autofocus><label for="password">Пароль</label><input id="password" name="password" type="password" required minlength="8"><button type="submit">Войти</button></form></body></html>`;
 }

@@ -136,20 +136,46 @@ export type UserRow = {
 async function requestJson<T>(path: string): Promise<T> {
     const response = await fetch(path, { cache: "no-store" });
     if (!response.ok) {
-        let detail = `Запрос завершился ошибкой ${response.status}.`;
-        try {
-            const payload = (await response.json()) as { detail?: string };
-            if (typeof payload.detail === "string") {
-                detail = payload.detail;
-            }
-        } catch {
-            // Для ответа не в JSON оставляем общее сообщение, подготовленное выше.
-        }
-
-        throw new ReportCollectorApiError(detail, response.status);
+        throw new ReportCollectorApiError(
+            readApiDetail(await readPayload(response)) ??
+                `Запрос завершился ошибкой ${response.status}.`,
+            response.status,
+        );
     }
 
     return (await response.json()) as T;
+}
+
+async function readPayload(response: Response): Promise<unknown> {
+    try {
+        return (await response.json()) as unknown;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Человекочитаемое описание ошибки API: строка detail, либо список ошибок
+ * валидации pydantic (422), либо null.
+ */
+function readApiDetail(payload: unknown): string | null {
+    if (!payload || typeof payload !== "object") return null;
+    const detail = (payload as { detail?: unknown }).detail;
+    if (typeof detail === "string") return detail;
+    if (!Array.isArray(detail)) return null;
+    const messages = detail
+        .map((item) => {
+            if (
+                item &&
+                typeof item === "object" &&
+                typeof (item as { msg?: unknown }).msg === "string"
+            ) {
+                return (item as { msg: string }).msg.replace(/^Value error,\s*/, "");
+            }
+            return null;
+        })
+        .filter((message): message is string => Boolean(message));
+    return messages.length > 0 ? messages.join("; ") : null;
 }
 
 export async function getRawMaterialsMeta(): Promise<RawMaterialsMeta> {
@@ -216,16 +242,11 @@ async function requestWrite<T>(
     }
     const response = await fetch(path, init);
     if (!response.ok) {
-        let detail = `Запрос завершился ошибкой ${response.status}.`;
-        try {
-            const payload = (await response.json()) as { detail?: string };
-            if (typeof payload.detail === "string") {
-                detail = payload.detail;
-            }
-        } catch {
-            // Для ответа не в JSON оставляем общее сообщение, подготовленное выше.
-        }
-        throw new ReportCollectorApiError(detail, response.status);
+        throw new ReportCollectorApiError(
+            readApiDetail(await readPayload(response)) ??
+                `Запрос завершился ошибкой ${response.status}.`,
+            response.status,
+        );
     }
     if (response.status === 204) {
         return undefined as T;

@@ -18,8 +18,8 @@ from src.raw_materials.models import (
     SnapshotMaterialMovement,
 )
 
-VIEWER_HEADERS = signed_identity_headers(email="viewer@example.local", name="Viewer User")
-ADMIN_HEADERS = signed_identity_headers(email="admin@example.local", name="Admin User")
+VIEWER_HEADERS = signed_identity_headers(email="viewer@example.ru", name="Viewer User")
+ADMIN_HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
 
 
 def _now() -> datetime:
@@ -118,7 +118,7 @@ async def test_fix_creates_snapshot(
 
     snapshots = (await db_session.exec(select(ReportSnapshot))).all()
     assert len(snapshots) == 1
-    assert snapshots[0].fixed_by_email == "admin@example.local"
+    assert snapshots[0].fixed_by_email == "admin@example.ru"
 
     rows = (
         await db_session.exec(

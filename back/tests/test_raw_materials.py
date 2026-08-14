@@ -11,7 +11,7 @@ from src.models import Project
 
 def admin_headers() -> dict[str, str]:
     return {
-        "email": "admin@example.local",
+        "email": "admin@example.ru",
         "preferred_username": "admin",
         "subject": "admin-sub",
         "email_verified": "true",
@@ -81,13 +81,13 @@ async def test_admin_reads_prices(client) -> None:
 
 async def test_worker_sees_only_bound_assets(client, db_session) -> None:
     headers = {
-        "email": "worker@example.local",
+        "email": "worker@example.ru",
         "preferred_username": "worker",
         "subject": "worker-sub",
         "email_verified": "true",
     }
     await client.get("/api/me", headers=signed_identity_headers(**headers))
-    user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.local"))).one()
+    user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)
     await grant_project_assets(db_session, user.id, ["СНХЗ", "ВОС"])
@@ -112,13 +112,13 @@ async def test_worker_sees_only_bound_assets(client, db_session) -> None:
 
 async def test_inactive_user_has_no_form_access(client, db_session) -> None:
     headers = {
-        "email": "inactive@example.local",
+        "email": "inactive@example.ru",
         "preferred_username": "inactive",
         "subject": "inactive-sub",
         "email_verified": "true",
     }
     await client.get("/api/me", headers=signed_identity_headers(**headers))
-    user = (await db_session.exec(select(User).where(col(User.email) == "inactive@example.local"))).one()
+    user = (await db_session.exec(select(User).where(col(User.email) == "inactive@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await db_session.commit()
 
@@ -160,8 +160,8 @@ async def test_admin_reads_users_dictionary(client) -> None:
 
     assert response.status_code == 200
     rows = response.json()
-    assert any(row["email"] == "admin@example.local" for row in rows)
-    admin = next(row for row in rows if row["email"] == "admin@example.local")
+    assert any(row["email"] == "admin@example.ru" for row in rows)
+    admin = next(row for row in rows if row["email"] == "admin@example.ru")
     assert admin["fullname"] == "Admin User"
     assert admin["isAdmin"] is True
     assert admin["isActive"] is True
@@ -171,13 +171,13 @@ async def test_admin_reads_users_dictionary(client) -> None:
 
 async def test_worker_cannot_read_dictionaries(client, db_session) -> None:
     headers = {
-        "email": "worker@example.local",
+        "email": "worker@example.ru",
         "preferred_username": "worker",
         "subject": "worker-sub",
         "email_verified": "true",
     }
     await client.get("/api/me", headers=signed_identity_headers(**headers))
-    user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.local"))).one()
+    user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)
     await grant_project_assets(db_session, user.id, ["СНХЗ"])
@@ -436,7 +436,7 @@ async def test_admin_crud_project_user(client) -> None:
     created = await client.post(
         "/api/raw-materials/users",
         headers=signed_identity_headers(**admin_headers()),
-        json={"email": "petrov@example.local", "fullname": "Петров Пётр", "isAdmin": False, "assetNames": ["СНХЗ"]},
+        json={"email": "petrov@example.ru", "fullname": "Петров Пётр", "isAdmin": False, "assetNames": ["СНХЗ"]},
     )
     assert created.status_code == 201
     row = created.json()
@@ -475,7 +475,7 @@ async def test_create_user_is_provisioned_to_all_projects(client, db_session) ->
     created = await client.post(
         "/api/raw-materials/users",
         headers=signed_identity_headers(**admin_headers()),
-        json={"email": "sidorov@example.local", "fullname": "Сидоров Сидор", "isAdmin": True, "assetNames": []},
+        json={"email": "sidorov@example.ru", "fullname": "Сидоров Сидор", "isAdmin": True, "assetNames": []},
     )
     assert created.status_code == 201
     user_id = created.json()["id"]
@@ -491,11 +491,69 @@ async def test_create_user_is_provisioned_to_all_projects(client, db_session) ->
     assert by_project[other_project.id].role == ProjectRole.ASSET_WORKER
 
 
+async def test_create_user_normalizes_email_to_lowercase(client, db_session) -> None:
+    """Email сохраняется в нижнем регистре, дубликат по другому регистру отклоняется."""
+    created = await client.post(
+        "/api/raw-materials/users",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"email": "Smirnov@Example.RU", "fullname": "Смирнов С. С.", "isAdmin": False, "assetNames": ["СНХЗ"]},
+    )
+    assert created.status_code == 201
+    row = created.json()
+    assert row["email"] == "smirnov@example.ru"
+
+    stored = (await db_session.exec(select(User).where(col(User.email) == "smirnov@example.ru"))).one()
+    assert stored.key == "smirnov@example.ru"
+
+    again = await client.post(
+        "/api/raw-materials/users",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"email": "SMIRNOV@example.ru", "fullname": "Смирнов С. С.", "isAdmin": False, "assetNames": ["СНХЗ"]},
+    )
+    assert again.status_code == 409
+    assert "уже существует" in again.json()["detail"]
+
+    invalid = await client.post(
+        "/api/raw-materials/users",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"email": "не-адрес", "fullname": "Икс И. И.", "isAdmin": False, "assetNames": ["СНХЗ"]},
+    )
+    assert invalid.status_code == 422
+
+
+async def test_keycloak_login_finds_user_case_insensitively(client, db_session) -> None:
+    """Keycloak с другим регистром email находит существующего пользователя."""
+    created = await client.post(
+        "/api/raw-materials/users",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"email": "kuznetsov@example.ru", "fullname": "Кузнецов К.", "isAdmin": False, "assetNames": ["СНХЗ"]},
+    )
+    assert created.status_code == 201
+    user_id = created.json()["id"]
+
+    response = await client.get(
+        "/api/me",
+        headers=signed_identity_headers(
+            email="Kuznetsov@Example.RU",
+            name="Кузнецов Иван Петрович",
+            preferred_username="kuznetsov",
+            email_verified="true",
+        ),
+    )
+    assert response.status_code == 200
+    assert response.json()["email"] == "kuznetsov@example.ru"
+
+    users = (await db_session.exec(select(User).where(col(User.email) == "kuznetsov@example.ru"))).all()
+    assert len(users) == 1
+    assert str(users[0].id) == user_id
+    assert users[0].name == "Кузнецов Иван Петрович"
+
+
 async def test_create_user_for_existing_email_adds_missing_project_link(client, db_session) -> None:
     """Существующий пользователь без связи с проектом получает только связь."""
     existing = User(
-        key="petrov@example.local",
-        email="petrov@example.local",
+        key="petrov@example.ru",
+        email="petrov@example.ru",
         name="Петров Пётр",
     )
     db_session.add(existing)
@@ -504,7 +562,7 @@ async def test_create_user_for_existing_email_adds_missing_project_link(client, 
     created = await client.post(
         "/api/raw-materials/users",
         headers=signed_identity_headers(**admin_headers()),
-        json={"email": "petrov@example.local", "fullname": "Другое Имя", "isAdmin": False, "assetNames": ["СНХЗ"]},
+        json={"email": "petrov@example.ru", "fullname": "Другое Имя", "isAdmin": False, "assetNames": ["СНХЗ"]},
     )
     assert created.status_code == 201
     row = created.json()
@@ -512,14 +570,14 @@ async def test_create_user_for_existing_email_adds_missing_project_link(client, 
     assert row["fullname"] == "Петров Пётр"
     assert row["isActive"] is True
 
-    duplicates = (await db_session.exec(select(User).where(col(User.email) == "petrov@example.local"))).all()
+    duplicates = (await db_session.exec(select(User).where(col(User.email) == "petrov@example.ru"))).all()
     assert len(duplicates) == 1
 
     # Повторное добавление в тот же проект — понятная ошибка.
     again = await client.post(
         "/api/raw-materials/users",
         headers=signed_identity_headers(**admin_headers()),
-        json={"email": "petrov@example.local", "fullname": "Петров Пётр", "isAdmin": False, "assetNames": ["СНХЗ"]},
+        json={"email": "petrov@example.ru", "fullname": "Петров Пётр", "isAdmin": False, "assetNames": ["СНХЗ"]},
     )
     assert again.status_code == 409
     assert "уже существует" in again.json()["detail"]
@@ -531,7 +589,7 @@ async def test_keycloak_login_overwrites_name_and_keeps_membership(client, db_se
         "/api/raw-materials/users",
         headers=signed_identity_headers(**admin_headers()),
         json={
-            "email": "kuznetsov@example.local",
+            "email": "kuznetsov@example.ru",
             "fullname": "Кузнецов Кузьма",
             "isAdmin": False,
             "assetNames": ["СНХЗ"],
@@ -543,7 +601,7 @@ async def test_keycloak_login_overwrites_name_and_keeps_membership(client, db_se
     response = await client.get(
         "/api/me",
         headers=signed_identity_headers(
-            email="kuznetsov@example.local",
+            email="kuznetsov@example.ru",
             name="Кузнецов Иван Петрович",
             preferred_username="kuznetsov",
             subject="kuznetsov-sub",
@@ -553,12 +611,12 @@ async def test_keycloak_login_overwrites_name_and_keeps_membership(client, db_se
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["email"] == "kuznetsov@example.local"
+    assert body["email"] == "kuznetsov@example.ru"
     assert body["access"][0]["key"] == RAW_MATERIALS_PROJECT_KEY
 
     user = (await db_session.exec(select(User).where(col(User.id) == user_id))).one()
     assert user.name == "Кузнецов Иван Петрович"
-    assert user.email == "kuznetsov@example.local"
+    assert user.email == "kuznetsov@example.ru"
     raw_project = (await db_session.exec(select(Project).where(col(Project.key) == RAW_MATERIALS_PROJECT_KEY))).one()
     link = (
         await db_session.exec(
@@ -571,13 +629,13 @@ async def test_keycloak_login_overwrites_name_and_keeps_membership(client, db_se
 
 async def test_worker_cannot_write_dictionaries(client, db_session) -> None:
     headers = {
-        "email": "worker-write@example.local",
+        "email": "worker-write@example.ru",
         "preferred_username": "worker-write",
         "subject": "worker-write-sub",
         "email_verified": "true",
     }
     await client.get("/api/me", headers=signed_identity_headers(**headers))
-    user = (await db_session.exec(select(User).where(col(User.email) == "worker-write@example.local"))).one()
+    user = (await db_session.exec(select(User).where(col(User.email) == "worker-write@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)
     await grant_project_assets(db_session, user.id, ["СНХЗ"])
@@ -592,6 +650,6 @@ async def test_worker_cannot_write_dictionaries(client, db_session) -> None:
     response = await client.post(
         "/api/raw-materials/users",
         headers=signed_identity_headers(**headers),
-        json={"email": "x@example.local", "fullname": "X", "assetNames": []},
+        json={"email": "x@example.ru", "fullname": "X", "assetNames": []},
     )
     assert response.status_code == 403
