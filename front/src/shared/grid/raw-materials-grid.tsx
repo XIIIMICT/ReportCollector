@@ -360,6 +360,21 @@ function RawMaterialsGridInner(
         setSelectionRange(range);
     }, []);
 
+    /**
+     * Текущие отображаемые строки (сортировка и фильтры уже применены).
+     * Индексы выделения/вставки/присутствия — координаты отображаемых строк,
+     * поэтому любые обращения по индексу должны идти сюда, а не в исходный rows.
+     */
+    const getVisibleRows = useCallback(async (): Promise<GridRow[]> => {
+        const grid = gridRef.current;
+        if (!grid) return rows;
+        try {
+            return (await grid.getVisibleSource("rgRow")) as GridRow[];
+        } catch {
+            return rows;
+        }
+    }, [rows]);
+
     // Выделенные строки (кнопки номеров строк) — их тоже отражаем в присутствии.
     const selectedRowsRange = useMemo(() => {
         if (selectedRowIds.length === 0) return null;
@@ -378,35 +393,51 @@ function RawMaterialsGridInner(
     const presenceInputRef = useRef({
         descriptorByKey,
         flatColumns,
-        rows,
-        selectedRowsRange,
+        getVisibleRows,
+        selectedRowIds: selectedRowIdSet,
         onSelectionChange,
     });
     presenceInputRef.current = {
         descriptorByKey,
         flatColumns,
-        rows,
-        selectedRowsRange,
+        getVisibleRows,
+        selectedRowIds: selectedRowIdSet,
         onSelectionChange,
     };
     useEffect(() => {
         const timer = setTimeout(() => {
-            const { descriptorByKey, flatColumns, rows, selectedRowsRange, onSelectionChange } =
-                presenceInputRef.current;
-            const label = selectedRowsRange
-                ? selectedRowsRange.min === selectedRowsRange.max
-                    ? `строка ${selectedRowsRange.min + 1}`
-                    : `строки ${selectedRowsRange.min + 1}–${selectedRowsRange.max + 1}`
-                : selectionLabelForRange(selectionRange, flatColumns, descriptorByKey, rows.length);
-            const keys = selectedRowsRange
-                ? selectionRowCellKeys(
-                      rows,
-                      selectedRowsRange.min,
-                      selectedRowsRange.max,
-                      flatColumns,
-                  )
-                : selectionCellKeys(selectionRange, rows, flatColumns);
-            onSelectionChange?.({ label, cellKeys: keys });
+            const {
+                descriptorByKey,
+                flatColumns,
+                getVisibleRows,
+                selectedRowIds,
+                onSelectionChange,
+            } = presenceInputRef.current;
+            // Координаты выделения — отображаемые строки (сортировка/фильтр уже
+            // применены), поэтому ключи ячеек считаем по видимому источнику.
+            void (async () => {
+                const visible = await getVisibleRows();
+                const rowIndexes: number[] = [];
+                for (let index = 0; index < visible.length; index++) {
+                    if (selectedRowIds.has(visible[index].id)) rowIndexes.push(index);
+                }
+                const label = rowIndexes.length
+                    ? rowIndexes[0] === rowIndexes[rowIndexes.length - 1]
+                        ? `строка ${rowIndexes[0] + 1}`
+                        : `строки ${rowIndexes[0] + 1}–${rowIndexes[rowIndexes.length - 1] + 1}`
+                    : selectionLabelForRange(
+                          selectionRange,
+                          flatColumns,
+                          descriptorByKey,
+                          visible.length,
+                      );
+                const keys = rowIndexes.length
+                    ? rowIndexes.flatMap((index) =>
+                          selectionRowCellKeys(visible, index, index, flatColumns),
+                      )
+                    : selectionCellKeys(selectionRange, visible, flatColumns);
+                onSelectionChange?.({ label, cellKeys: keys });
+            })();
         }, PRESENCE_DEBOUNCE_MS);
         return () => clearTimeout(timer);
     }, [selectedRowsRange, selectionRange]);
@@ -567,10 +598,10 @@ function RawMaterialsGridInner(
     }
 
     const canPasteRange = useCallback(
-        (range: RangeArea | null): boolean => {
+        (range: RangeArea | null, source: GridRow[]): boolean => {
             if (!range || readOnly) return false;
-            for (let y = range.y; y <= range.y1; y++) {
-                const row = rows[y];
+            for (let y = range.y; y <= Math.min(range.y1, source.length - 1); y++) {
+                const row = source[y];
                 if (!row) continue;
                 for (let x = range.x; x <= range.x1; x++) {
                     const column = flatColumns[x] as ColumnRegular | undefined;
@@ -590,13 +621,22 @@ function RawMaterialsGridInner(
 
             return false;
         },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [descriptorByKey, editableKeys, flatColumns, readOnly, remoteLocks, remotePresence, rows],
+        [descriptorByKey, editableKeys, flatColumns, readOnly, remoteLocks, remotePresence],
     );
 
     useEffect(() => {
-        setCanPaste(canPasteRange(selectionRange));
-    }, [canPasteRange, selectionRange]);
+        // Выделение в координатах отображаемых строк — проверяем по видимому
+        // источнику (сортировка/фильтр уже применены).
+        let cancelled = false;
+        void (async () => {
+            const source = await getVisibleRows();
+            if (cancelled) return;
+            setCanPaste(canPasteRange(selectionRange, source));
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [canPasteRange, getVisibleRows, selectionRange]);
 
     useEffect(() => {
         onClipboardStateChange?.({ canPaste });
@@ -994,7 +1034,7 @@ function RawMaterialsGridInner(
     );
 
     const buildCopyText = useCallback(
-        (range: RangeArea | null): string | null => {
+        async (range: RangeArea | null): Promise<string | null> => {
             if (columns.length === 0) return null;
             const allProps = flatColumns.map((column) => column.prop);
             const lines: string[] = [];
@@ -1005,18 +1045,19 @@ function RawMaterialsGridInner(
                     lines.push(allProps.map((prop) => serializeCellValue(row[prop])).join("\t"));
                 }
             } else {
+                const visible = await getVisibleRows();
                 const target = range ?? {
                     x: 0,
                     y: 0,
                     x1: flatColumns.length - 1,
-                    y1: rows.length - 1,
+                    y1: visible.length - 1,
                 };
                 if (target.x1 < target.x || target.y1 < target.y) return null;
                 const props = flatColumns
                     .slice(target.x, target.x1 + 1)
                     .map((column) => column.prop);
-                for (let y = target.y; y <= target.y1; y++) {
-                    const row = rows[y];
+                for (let y = target.y; y <= Math.min(target.y1, visible.length - 1); y++) {
+                    const row = visible[y];
                     if (!row) continue;
                     lines.push(props.map((prop) => serializeCellValue(row[prop])).join("\t"));
                 }
@@ -1024,11 +1065,11 @@ function RawMaterialsGridInner(
             const text = lines.join("\n");
             return text || null;
         },
-        [columns, flatColumns, rows, selectedRowIds],
+        [columns, flatColumns, getVisibleRows, rows, selectedRowIds],
     );
 
     const copySelection = useCallback(async () => {
-        const text = buildCopyText(selectionRangeRef.current);
+        const text = await buildCopyText(selectionRangeRef.current);
         if (text === null) return;
         try {
             await navigator.clipboard.writeText(text);
@@ -1053,7 +1094,7 @@ function RawMaterialsGridInner(
         if (!grid) return;
         const range = selectionRangeRef.current;
         if (!range) return;
-        const text = buildCopyText(range);
+        const text = await buildCopyText(range);
         if (text === null) return;
         try {
             await navigator.clipboard.writeText(text);
@@ -1072,10 +1113,13 @@ function RawMaterialsGridInner(
                 return;
             }
         }
+        // Модели — из текущего видимого источника: при сортировке/фильтре
+        // индекс отображаемой строки не совпадает с индексом исходного rows.
+        const visible = await getVisibleRows();
         const data: Record<string, Record<string, unknown>> = {};
         const models: GridRow[] = [];
-        for (let y = range.y; y <= range.y1; y++) {
-            models[y] = rows[y];
+        for (let y = range.y; y <= Math.min(range.y1, visible.length - 1); y++) {
+            models[y] = visible[y];
             const patch: Record<string, unknown> = {};
             for (let x = range.x; x <= range.x1; x++) {
                 const column = flatColumns[x] as ColumnRegular | undefined;
@@ -1106,7 +1150,7 @@ function RawMaterialsGridInner(
         );
         // Выделяем вырезанный диапазон (rangeeditapply сам выделение не двигает).
         void applyGridRange({ x: range.x, y: range.y }, { x: range.x1, y: range.y1 });
-    }, [applyGridRange, buildCopyText, descriptorByKey, editableKeys, flatColumns, rows]);
+    }, [applyGridRange, buildCopyText, descriptorByKey, editableKeys, flatColumns, getVisibleRows]);
 
     const pasteIntoSelection = useCallback(
         async (text?: string) => {
@@ -1151,12 +1195,15 @@ function RawMaterialsGridInner(
             // Одна ячейка — вставляем весь буфер, начиная с неё. Две и более —
             // вставляем только в выделение: больший буфер обрезается им (Toast),
             // меньший вставляется как есть, остальные ячейки не трогаем.
+            // Модели — из текущего видимого источника: при сортировке/фильтре
+            // индекс отображаемой строки не совпадает с индексом исходного rows.
+            const visible = await getVisibleRows();
             let toY = range.y;
             let toY1 = range.y1;
             let toX = range.x;
             let toX1 = range.x1;
             if (singleCell) {
-                toY1 = Math.min(rows.length - 1, range.y + pasteHeight - 1);
+                toY1 = Math.min(visible.length - 1, range.y + pasteHeight - 1);
                 toX1 = Math.min(flatColumns.length - 1, range.x + pasteWidth - 1);
             } else if (pasteHeight > selectedHeight || pasteWidth > selectedWidth) {
                 onPasteTruncated?.();
@@ -1165,7 +1212,7 @@ function RawMaterialsGridInner(
             const data: Record<string, Record<string, unknown>> = {};
             const models: GridRow[] = [];
             for (let y = toY; y <= toY1; y++) {
-                models[y] = rows[y];
+                models[y] = visible[y];
                 const patch: Record<string, unknown> = {};
                 for (let x = toX; x <= toX1; x++) {
                     const column = flatColumns[x] as ColumnRegular | undefined;
@@ -1197,7 +1244,7 @@ function RawMaterialsGridInner(
             // (setrange-событие этот путь не эмитит).
             void applyGridRange({ x: toX, y: toY }, { x: toX1, y: toY1 });
         },
-        [applyGridRange, flatColumns, onPasteTruncated, rows],
+        [applyGridRange, flatColumns, getVisibleRows, onPasteTruncated],
     );
 
     useEffect(() => {
@@ -1218,10 +1265,12 @@ function RawMaterialsGridInner(
                 event.stopPropagation();
                 return;
             }
-            const text = buildCopyText(selectionRangeRef.current);
-            event.clipboardData?.setData("text/plain", text ?? "");
+            // Копирование диапазона идёт через тот же асинхронный путь, что и
+            // Ctrl+C (нужен текущий видимый источник: сортировка/фильтр меняют
+            // соответствие индексов).
             event.preventDefault();
             event.stopPropagation();
+            void copySelection();
         };
         const handleSetRange = (event: Event) => {
             updateSelectionRange((event as CustomEvent<RangeArea & { type?: string }>).detail);
@@ -1289,7 +1338,7 @@ function RawMaterialsGridInner(
             grid.removeEventListener("afterfilterapply", handleAfterFilterApply);
             grid.removeEventListener("canceledit", handleCancelEdit);
         };
-    }, [buildCopyText, pasteIntoSelection, updateSelectionRange, measureViewport]);
+    }, [copySelection, pasteIntoSelection, updateSelectionRange, measureViewport]);
     useImperativeHandle(
         forwardedRef,
         () => ({
