@@ -1,12 +1,13 @@
 """
-Фиксация формы «Движение» за отчётный месяц.
+Fixing the «Движение» form for a report month.
 
-Поведение повторяет ReportCollector-RawMaterials (fix_report_for_instance):
-- фиксировать можно только первый открытый месяц, только когда все строки
-  заполнены и ячейки не редактируются другими пользователями;
-- предварительная версия перезаписывается, финальная — неизменна;
-- финальная фиксация закрывает период и открывает следующий месяц;
-- при фиксации очищается вся история undo/redo и состояния ячеек.
+Behavior mirrors ReportCollector-RawMaterials (fix_report_for_instance):
+- only the first open month can be fixed, only when all rows are filled
+  and cells aren't being edited by other users;
+- the preliminary version is overwritten, the final one is immutable;
+- a final fix closes the period and opens the next month;
+- a final fix clears the undo/redo history and cell states of the fixed
+  table only; dictionaries and live tables keep theirs.
 """
 
 from datetime import UTC, date, datetime
@@ -46,11 +47,11 @@ COMPLETENESS_FIELDS = (
     "balance_end_tons",
     "storage_standard_tons",
 )
-"""Поля «Движения», обязательные для фиксации (без deviation_reason)."""
+"""«Движение» fields required for fixing (without deviation_reason)."""
 
 
 class ApprovalError(Exception):
-    """Бизнес-ошибка фиксации с понятным сообщением для пользователя."""
+    """Fixing business error with a user-readable message."""
 
 
 ERR_FIRST_DAY = "Отчётный месяц должен начинаться с первого числа."
@@ -71,7 +72,7 @@ def _movement_row_complete(row: MaterialMovement, price: RawMaterialPrice | None
 
 
 def _month_rows_complete(rows: list[MaterialMovement], prices: dict[UUID, RawMaterialPrice]) -> int:
-    """Число незаполненных строк месяца (0 — месяц готов к фиксации)."""
+    """Count of unfilled month rows (0 — the month is ready to fix)."""
     return sum(1 for row in rows if not _movement_row_complete(row, prices.get(row.asset_raw_material_id)))
 
 
@@ -88,7 +89,7 @@ async def fix_report(
     report_month: date,
     store: CollabStore,
 ) -> ReportSnapshot:
-    """Фиксирует «Движение» за месяц: создаёт снимок, при финале открывает следующий месяц."""
+    """Fix «Движение» for the month: creates a snapshot, opens the next month on final."""
     if report_month.day != 1:
         raise ApprovalError(ERR_FIRST_DAY)
     existing = (
@@ -213,15 +214,20 @@ async def fix_report(
                 )
             )
 
-    # Фиксация обнуляет историю правок: снимок — единственная точка отсчёта.
-    await store.clear_all_undo_state()
+    if is_final:
+        # Final fixing closes the month: reset the edit history of the fixed
+        # table only (all users and sessions). Dictionaries and live tables
+        # (e.g. «Цены») keep their undo stacks — their changes simply don't
+        # reach the archived snapshot.
+        await store.clear_undo_state_for_scope(f"materialMovement/{report_month.isoformat()}")
+        await store.clear_cell_states_for_table(MOVEMENT_TABLE)
     await session.commit()
     await session.refresh(snapshot)
     return snapshot
 
 
 async def read_movement_meta(session: AsyncSession, *, report_month: date) -> tuple[bool, bool, list[ReportSnapshot]]:
-    """Статус месяца: полнота, финальность последнего снимка и архив версий."""
+    """Month status: completeness, finality of the last snapshot, and the version archive."""
     rows = list(
         (await session.exec(select(MaterialMovement).where(col(MaterialMovement.report_month) == report_month))).all()
     )

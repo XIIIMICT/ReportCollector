@@ -1,4 +1,4 @@
-"""API проекта «Сырьё»: чтение и правка форм «Движение» и «Цены», справочники."""
+"""«Сырьё» project API: reading and editing the «Движение» and «Цены» forms, dictionaries."""
 
 from collections.abc import Sequence
 from datetime import date
@@ -97,7 +97,7 @@ async def require_user(
     session: SessionDependency,
     identity: IdentityDependency,
 ) -> User:
-    """Локальная учётная запись пользователя (для updated_by)."""
+    """Local user account (for updated_by)."""
     user = await get_user_by_identity(session, identity)
     if user is None:
         raise HTTPException(
@@ -114,7 +114,7 @@ async def require_raw_materials_access(
     session: SessionDependency,
     identity: IdentityDependency,
 ) -> list[RawMaterialAsset]:
-    """Активы пользователя в проекте «Сырьё»; 403 при отсутствии доступа."""
+    """Return the user's assets in the «Сырьё» project; 403 without access."""
     try:
         _, _, assets = await resolve_raw_materials_access(session, identity)
     except NoRawMaterialsAccessError as error:
@@ -132,7 +132,7 @@ async def require_raw_materials_admin(
     session: SessionDependency,
     identity: IdentityDependency,
 ) -> list[RawMaterialAsset]:
-    """Только администратор проекта «Сырьё» (для справочников)."""
+    """«Сырьё» project admin only (for dictionaries)."""
     try:
         _, roles, assets = await resolve_raw_materials_access(session, identity)
     except NoRawMaterialsAccessError as error:
@@ -156,7 +156,7 @@ async def get_raw_materials_meta(
     session: SessionDependency,
     assets: AccessDependency,
 ) -> RawMaterialsMetaRead:
-    """Справочники форм: доступные активы, периоды движения, базисы поставки."""
+    """Form dictionaries: available assets, movement periods, delivery bases."""
     return await read_meta(session, assets)
 
 
@@ -166,7 +166,7 @@ async def get_movement_rows(
     assets: AccessDependency,
     report_month: Annotated[date | None, Query()] = None,
 ) -> list[MovementRowRead]:
-    """Строки формы «Движение»; без report_month — последний доступный период."""
+    """«Движение» form rows; without report_month — the last available period."""
     if report_month is None:
         report_month = await _latest_period(session)
     return await read_movement_rows(session, report_month, assets)
@@ -178,7 +178,7 @@ async def get_movement_meta(
     _assets: AccessDependency,
     report_month: Annotated[date | None, Query()] = None,
 ) -> MovementMetaRead:
-    """Статус формы «Движение»: полнота, финальность, архив зафиксированных версий."""
+    """«Движение» form status: completeness, finality, archive of fixed versions."""
     if report_month is None:
         report_month = await _latest_period(session)
     is_complete, is_final, snapshots = await read_movement_meta(session, report_month=report_month)
@@ -206,7 +206,7 @@ async def post_movement_fix(
     user: UserDependency,
     _assets: AdminDependency,
 ) -> MovementSnapshotRead:
-    """Фиксация «Движения» за отчётный месяц (только администратор проекта)."""
+    """Fix «Движение» for the report month (project admin only)."""
     try:
         snapshot = await fix_report(
             session,
@@ -231,7 +231,7 @@ async def get_movement_snapshot(
     session: SessionDependency,
     _assets: AccessDependency,
 ) -> SnapshotViewRead:
-    """Зафиксированная версия «Движения» для просмотра (только чтение)."""
+    """Return the fixed «Движение» version for viewing (read-only)."""
     snapshot = await session.get(ReportSnapshot, snapshot_id)
     if snapshot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Снимок не найден.")
@@ -285,7 +285,7 @@ async def get_price_rows(
     session: SessionDependency,
     assets: AccessDependency,
 ) -> list[PriceRowRead]:
-    """Строки формы «Цены»."""
+    """«Цены» form rows."""
     return await read_price_rows(session, assets)
 
 
@@ -294,7 +294,7 @@ async def get_raw_materials(
     session: SessionDependency,
     _assets: AdminDependency,
 ) -> list[RawMaterialRowRead]:
-    """Справочник «Сырьевые позиции»."""
+    """«Сырьевые позиции» dictionary."""
     return await read_raw_material_rows(session)
 
 
@@ -303,7 +303,7 @@ async def get_assets(
     _session: SessionDependency,
     assets: AdminDependency,
 ) -> list[AssetRowRead]:
-    """Справочник «Активы»."""
+    """«Активы» dictionary."""
     return await read_asset_rows(assets)
 
 
@@ -312,7 +312,7 @@ async def get_delivery_bases(
     session: SessionDependency,
     _assets: AdminDependency,
 ) -> list[DeliveryBasisRowRead]:
-    """Справочник «Базисы поставки»."""
+    """«Базисы поставки» dictionary."""
     return await read_delivery_basis_rows(session)
 
 
@@ -321,7 +321,7 @@ async def get_users(
     session: SessionDependency,
     _assets: AdminDependency,
 ) -> list[UserRowRead]:
-    """Справочник «Пользователи»."""
+    """«Пользователи» dictionary."""
     return await read_user_rows(session)
 
 
@@ -344,7 +344,7 @@ async def export_table(
     session: SessionDependency,
     identity: IdentityDependency,
 ) -> Response:
-    """Выгрузка таблицы в Excel: «вся» — дефолтный вид, «видимая» — переданные строки."""
+    """Excel table export: «вся» — the default view, «видимая» — the given rows."""
     try:
         _, roles, user_assets = await resolve_raw_materials_access(session, identity)
     except NoRawMaterialsAccessError as error:
@@ -385,7 +385,7 @@ async def _export_rows(
     request: ExportViewRequest,
     assets: list[RawMaterialAsset],
 ) -> Sequence[BaseModel]:
-    """Строки для выгрузки: движение за период, цены или справочник."""
+    """Rows for export: movement for the period, prices, or a dictionary."""
     if request.section == "materialMovement":
         if request.snapshotId is not None:
             snapshot, rows = await read_snapshot_export_rows(session, request.snapshotId)
@@ -409,7 +409,7 @@ async def _export_rows(
 
 
 def _reorder_rows(rows: Sequence[BaseModel], row_ids: Sequence[UUID]) -> list[BaseModel]:
-    """Видимая выборка: только переданные id, в порядке грида, пропуская отсутствующие."""
+    """Visible selection: only the given ids, in grid order, skipping missing ones."""
     by_id = {getattr(row, "id"): row for row in rows}  # noqa: B009
     return [by_id[row_id] for row_id in row_ids if row_id in by_id]
 
@@ -420,8 +420,9 @@ async def patch_movement_rows(
     session: SessionDependency,
     user: UserDependency,
     assets: AccessDependency,
+    session_id: str,
 ) -> int:
-    """Пакет правок ячеек формы «Движение» за отчётный месяц."""
+    """Batch of «Движение» cell edits for the report month."""
     try:
         applied = await update_movement_cells(
             session,
@@ -429,6 +430,7 @@ async def patch_movement_rows(
             updates=request.updates,
             user=user,
             assets=assets,
+            session_id=session_id,
         )
     except CellValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
@@ -453,10 +455,13 @@ async def patch_price_rows(
     session: SessionDependency,
     user: UserDependency,
     assets: AccessDependency,
+    session_id: str,
 ) -> int:
-    """Пакет правок ячеек формы «Цены»."""
+    """Batch of «Цены» cell edits."""
     try:
-        applied = await update_price_cells(session, updates=request.updates, user=user, assets=assets)
+        applied = await update_price_cells(
+            session, updates=request.updates, user=user, assets=assets, session_id=session_id
+        )
     except CellValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
     except ValueError as error:
@@ -478,12 +483,13 @@ async def patch_price_rows(
 async def undo_state_cells(
     user: UserDependency,
     _assets: AccessDependency,
+    session_id: str,
     section: str = "",
     report_month: str | None = None,
 ) -> UndoStateRead:
-    """Доступность undo/redo по стеку действий пользователя на текущей форме."""
+    """Undo/redo availability from the user's session action stack on the current form."""
     scope = f"{section}/{report_month or ''}"
-    can_undo, can_redo = await get_collab_store().undo_state(str(user.id), scope)
+    can_undo, can_redo = await get_collab_store().undo_state(str(user.id), session_id, scope)
     return UndoStateRead(canUndo=can_undo > 0, canRedo=can_redo > 0)
 
 
@@ -492,14 +498,15 @@ async def undo_cells(
     session: SessionDependency,
     user: UserDependency,
     _assets: AccessDependency,
+    session_id: str,
     request: UndoRequest | None = None,
 ) -> UndoResponse:
     """
-    Отменяет последнюю правку ячеек текущего пользователя на текущей форме.
+    Undoes the current user's last cell edit on the current form.
 
-    Тело запроса опционально: section/reportMonth определяют форму, на которой
-    ведётся история; skipActionId передаётся вторым нажатием после конфликта,
-    чтобы пропустить заблокированное действие.
+    The request body is optional: section/reportMonth name the form whose
+    history is used; skipActionId is passed on the second press after a
+    conflict to skip the blocked action.
     """
     section = request.section if request is not None else None
     report_month = request.reportMonth if request is not None else None
@@ -509,6 +516,7 @@ async def undo_cells(
         user=user,
         store=get_collab_store(),
         scope=scope,
+        session_id=session_id,
         skip_action_id=request.skipActionId if request is not None else None,
     )
     return await _undo_response(outcome, user)
@@ -519,9 +527,10 @@ async def redo_cells(
     session: SessionDependency,
     user: UserDependency,
     _assets: AccessDependency,
+    session_id: str,
     request: UndoRequest | None = None,
 ) -> UndoResponse:
-    """Возвращает последнее отменённое действие текущего пользователя на текущей форме."""
+    """Return the current user's last undone action on the current form."""
     section = request.section if request is not None else None
     report_month = request.reportMonth if request is not None else None
     scope = f"{section or ''}/{report_month or ''}"
@@ -530,6 +539,7 @@ async def redo_cells(
         user=user,
         store=get_collab_store(),
         scope=scope,
+        session_id=session_id,
         skip_action_id=request.skipActionId if request is not None else None,
     )
     return await _undo_response(outcome, user)
@@ -597,7 +607,7 @@ async def post_raw_material(
     user: UserDependency,
     _assets: AdminDependency,
 ) -> RawMaterialRowRead:
-    """Создание сырьевой позиции (только админ проекта)."""
+    """Raw-material item creation (project admin only)."""
     try:
         created = await create_raw_material(session, name=request.name, asset_ids=request.assetIds, user=user)
     except DictionaryReferenceError as error:
@@ -612,8 +622,9 @@ async def patch_raw_material(
     session: SessionDependency,
     user: UserDependency,
     _assets: AdminDependency,
+    session_id: str,
 ) -> RawMaterialRowRead:
-    """Правка сырьевой позиции (только админ проекта)."""
+    """Raw-material item edit (project admin only)."""
     try:
         _, applied = await update_raw_material(
             session,
@@ -643,6 +654,7 @@ async def patch_raw_material(
         project_key=RAW_MATERIALS_PROJECT_KEY,
         section="rawMaterials",
         report_month=None,
+        session_id=session_id,
         applied=applied,
     )
     return (await read_raw_material_rows(session, raw_material_id=raw_material_id))[0]
@@ -655,7 +667,7 @@ async def delete_raw_material_endpoint(
     _user: UserDependency,
     _assets: AdminDependency,
 ) -> None:
-    """Удаление сырьевой позиции (только админ проекта)."""
+    """Raw-material item deletion (project admin only)."""
     try:
         await delete_raw_material(session, raw_material_id=raw_material_id)
     except ValueError as error:
@@ -669,7 +681,7 @@ async def post_asset(
     user: UserDependency,
     _assets: AdminDependency,
 ) -> AssetRowRead:
-    """Создание актива (только админ проекта)."""
+    """Asset creation (project admin only)."""
     created = await create_asset(session, name=request.name, user=user)
     return (await read_asset_rows([created]))[0]
 
@@ -681,8 +693,9 @@ async def patch_asset(
     session: SessionDependency,
     user: UserDependency,
     _assets: AdminDependency,
+    session_id: str,
 ) -> AssetRowRead:
-    """Правка актива (только админ проекта)."""
+    """Asset edit (project admin only)."""
     try:
         updated, applied = await update_asset(session, asset_id=asset_id, name=request.name, user=user)
     except ValueError as error:
@@ -704,6 +717,7 @@ async def patch_asset(
         project_key=RAW_MATERIALS_PROJECT_KEY,
         section="assets",
         report_month=None,
+        session_id=session_id,
         applied=applied,
     )
     return (await read_asset_rows([updated]))[0]
@@ -716,7 +730,7 @@ async def delete_asset_endpoint(
     _user: UserDependency,
     _assets: AdminDependency,
 ) -> None:
-    """Удаление актива (только админ проекта)."""
+    """Asset deletion (project admin only)."""
     try:
         await delete_asset(session, asset_id=asset_id)
     except ValueError as error:
@@ -730,7 +744,7 @@ async def post_delivery_basis(
     user: UserDependency,
     _assets: AdminDependency,
 ) -> DeliveryBasisRowRead:
-    """Создание базиса поставки (только админ проекта)."""
+    """Delivery basis creation (project admin only)."""
     created = await create_delivery_basis(session, name=request.name, user=user)
     return (await read_delivery_basis_rows(session, delivery_basis_id=created.id))[0]
 
@@ -742,8 +756,9 @@ async def patch_delivery_basis(
     session: SessionDependency,
     user: UserDependency,
     _assets: AdminDependency,
+    session_id: str,
 ) -> DeliveryBasisRowRead:
-    """Правка базиса поставки (только админ проекта)."""
+    """Delivery basis edit (project admin only)."""
     try:
         updated, applied = await update_delivery_basis(session, basis_id=basis_id, name=request.name, user=user)
     except ValueError as error:
@@ -765,6 +780,7 @@ async def patch_delivery_basis(
         project_key=RAW_MATERIALS_PROJECT_KEY,
         section="deliveryBases",
         report_month=None,
+        session_id=session_id,
         applied=applied,
     )
     return (await read_delivery_basis_rows(session, delivery_basis_id=updated.id))[0]
@@ -777,7 +793,7 @@ async def delete_delivery_basis_endpoint(
     _user: UserDependency,
     _assets: AdminDependency,
 ) -> None:
-    """Удаление базиса поставки (только админ проекта)."""
+    """Delivery basis deletion (project admin only)."""
     try:
         await delete_delivery_basis(session, basis_id=basis_id)
     except ValueError as error:
@@ -791,7 +807,7 @@ async def post_user(
     _user: UserDependency,
     _assets: AdminDependency,
 ) -> UserRowRead:
-    """Создание пользователя проекта «Сырьё» (только админ проекта)."""
+    """«Сырьё» project user creation (project admin only)."""
     project_id = await _raw_materials_project_id(session)
     try:
         created = await create_project_user(
@@ -814,8 +830,9 @@ async def patch_user(
     session: SessionDependency,
     user: UserDependency,
     _assets: AdminDependency,
+    session_id: str,
 ) -> UserRowRead:
-    """Правка пользователя проекта «Сырьё» (только админ проекта)."""
+    """«Сырьё» project user edit (project admin only)."""
     project_id = await _raw_materials_project_id(session)
     try:
         _, applied = await update_project_user(
@@ -851,6 +868,7 @@ async def patch_user(
         project_key=RAW_MATERIALS_PROJECT_KEY,
         section="users",
         report_month=None,
+        session_id=session_id,
         applied=applied,
     )
     return (await read_user_rows(session, user_id=user_id))[0]
@@ -863,7 +881,7 @@ async def delete_user_endpoint(
     _user: UserDependency,
     _assets: AdminDependency,
 ) -> None:
-    """Удаление пользователя проекта «Сырьё» (только админ проекта)."""
+    """«Сырьё» project user deletion (project admin only)."""
     project_id = await _raw_materials_project_id(session)
     try:
         await delete_project_user(session, project_id=project_id, user_id=user_id)

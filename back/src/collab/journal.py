@@ -1,11 +1,13 @@
 """
-Серверный журнал правок: стек undo/redo в Valkey (rc:undo:{user}).
+Server-side edit journal: the undo/redo stack in Valkey (rc:undo:{user}:{session}:{scope}).
 
-Каждое действие — запись о правке одной ячейки. Правка (PATCH) пушит
-действие в стек пользователя и обновляет состояние ячейки (rc:cellstate:*).
-Undo/redo переключает флаг undone у того же действия, не плодя новые.
-Новое действие пользователя очищает его redo-ветку; новый WebSocket-клиент
-(перезагрузка страницы) очищает весь стек — история не переживает сессию.
+Each action is a record of a single-cell edit. An edit (PATCH) pushes an
+action onto the user's stack (scoped per browser session and form:
+section/reportMonth) and bumps the cell state (rc:cellstate:*). Undo/redo
+toggles the undone flag on the same action, without creating new ones. A
+new edit by the user clears their redo branch; the stack survives form
+switches within the session, is forgotten on page reload (a new session id
+starts empty) and is cleared for the fixed table by a final month fix.
 """
 
 from dataclasses import dataclass
@@ -21,7 +23,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class AppliedCell:
-    """Применённая правка одной ячейки (собирается до записи журнала)."""
+    """Applied single-cell edit (collected before journaling)."""
 
     target_table: str
     row_id: UUID
@@ -44,15 +46,17 @@ async def record_cell_updates(
     project_key: str,
     section: str,
     report_month: date | None,
+    session_id: str,
     applied: list[AppliedCell],
 ) -> None:
-    """Пушит действия в стек undo/redo пользователя (на форме section) и бампает состояния ячеек."""
+    """Pushes actions onto the user's session undo/redo stack (on the section form) and bumps cell states."""
     if not applied:
         return
-    # История undo/redo своя на каждую форму (секция + месяц), чтобы с одной
-    # формы нельзя было отменить правки, сделанные на другой.
+    # Undo/redo history is per browser session and form (section + month):
+    # edits made on one form can't be undone from another, and a page reload
+    # (a new session id) starts with an empty history.
     scope = f"{section}/{report_month or ''}"
-    await store.clear_redo(str(user_id), scope)
+    await store.clear_redo(str(user_id), session_id, scope)
     actions: list[dict] = []
     for cell in applied:
         action: dict = {
@@ -79,4 +83,4 @@ async def record_cell_updates(
             action_id=action["id"],
         )
         action["revision"] = cell.revision
-    await store.push_actions(str(user_id), scope, actions)
+    await store.push_actions(str(user_id), session_id, scope, actions)

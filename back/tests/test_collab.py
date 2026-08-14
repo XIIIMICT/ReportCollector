@@ -1,4 +1,4 @@
-"""Совместное редактирование: журнал правок, undo/redo, конфликты и аренда ячеек."""
+"""Collaboration: edit journal, undo/redo, conflicts and cell leases."""
 
 import asyncio
 import base64
@@ -29,10 +29,15 @@ from src.collab.store import lease_key
 from src.collab.ws import raw_materials_ws
 from src.raw_materials.models import MaterialMovement
 
+# Undo/redo history is scoped by browser session (the page-lifetime id the
+# frontend sends with every edit): tests use one fixed session by default.
+TEST_SESSION_ID = "test-session"
+
 
 async def _patch_movement(client, row_id: str, field: str, value: float) -> dict:
     response = await client.patch(
         "/api/raw-materials/movement",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
         json={"reportMonth": "2026-08-01", "updates": [{"rowId": row_id, "field": field, "value": value}]},
     )
@@ -57,9 +62,11 @@ async def _post_undo(
     skip_action_id: int | None = None,
     section: str = "materialMovement",
     report_month: str | None = "2026-08-01",
+    session_id: str = TEST_SESSION_ID,
 ) -> dict:
     response = await client.post(
         "/api/raw-materials/undo",
+        params={"session_id": session_id},
         headers=signed_identity_headers(**admin_headers()),
         json={"skipActionId": skip_action_id, "section": section, "reportMonth": report_month},
     )
@@ -72,9 +79,11 @@ async def _post_redo(
     *,
     section: str = "materialMovement",
     report_month: str | None = "2026-08-01",
+    session_id: str = TEST_SESSION_ID,
 ) -> dict:
     response = await client.post(
         "/api/raw-materials/redo",
+        params={"session_id": session_id},
         headers=signed_identity_headers(**admin_headers()),
         json={"section": section, "reportMonth": report_month},
     )
@@ -83,7 +92,7 @@ async def _post_redo(
 
 
 def _identity_ticket(headers: dict[str, str]) -> str:
-    """Тикет WebSocket в формате фронтенда (route-handler /api/collab/ticket)."""
+    """WebSocket ticket in the frontend format (route handler /api/collab/ticket)."""
     ticket = {
         "h": {
             name: headers.get(name, "")
@@ -128,7 +137,7 @@ async def test_ws_ticket_rejects_stale_timestamp() -> None:
 
 @pytest.fixture(autouse=True)
 async def restore_movement_seed(db_session) -> AsyncGenerator[None]:
-    """Возвращает строки «Движения» за август в сид-состояние (не портить другие тесты)."""
+    """Restores the August «Движение» rows to the seed state (don't break other tests)."""
     yield
     rows = (
         await db_session.exec(select(MaterialMovement).where(col(MaterialMovement.report_month) == date(2026, 8, 1)))
@@ -154,7 +163,7 @@ async def _movement_row_id(client) -> str:
 
 
 async def _make_project_user(db_session, *, email: str, name: str, sub: str) -> User:
-    """Пользователь проекта «Сырьё» с ролью asset_worker (для тестов от чужого имени)."""
+    """Create a «Сырьё» project user with the asset_worker role (for foreign-user tests)."""
     now = datetime.now(UTC)
     user = User(key=email, email=email, name=name, created_at=now, updated_at=now)
     db_session.add(user)
@@ -170,7 +179,7 @@ async def test_edit_writes_journal_and_cell_state(client, db_session, store) -> 
     await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
 
     admin = (await db_session.exec(select(User).where(col(User.email) == "admin@example.ru"))).one()
-    actions = await store.list_actions(str(admin.id), "materialMovement/2026-08-01")
+    actions = await store.list_actions(str(admin.id), TEST_SESSION_ID, "materialMovement/2026-08-01")
     assert len(actions) == 1
     action = actions[0]
     assert action["targetTable"] == "rm_material_movement"
@@ -209,7 +218,7 @@ async def test_undo_redo_roundtrip(client) -> None:
 
 
 async def test_undo_history_is_per_form(client) -> None:
-    """История undo/redo своя на каждой форме (секция + месяц)."""
+    """Undo/redo history is per form (section + month)."""
     row_id = await _movement_row_id(client)
     await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
 
@@ -222,7 +231,7 @@ async def test_undo_history_is_per_form(client) -> None:
     assert on_movement["field"] == "balanceOnSiteTons"
     assert on_movement["value"] == 5.0
 
-    # Другой месяц «Движения» тоже не делит историю с августом.
+    # Another «Движение» month doesn't share history with August either.
     september = await _post_undo(client, section="materialMovement", report_month="2026-09-01")
     assert september["applied"] is False
     assert september["reason"] == "empty"
@@ -231,30 +240,47 @@ async def test_undo_history_is_per_form(client) -> None:
 async def test_undo_empty_stack(client, db_session) -> None:
     await _make_project_user(db_session, email="empty@example.ru", name="Empty User", sub="empty-sub")
     headers = signed_identity_headers(email="empty@example.ru", preferred_username="empty", subject="empty-sub")
-    response = await client.post("/api/raw-materials/undo", headers=headers)
+    response = await client.post("/api/raw-materials/undo", params={"session_id": TEST_SESSION_ID}, headers=headers)
     assert response.status_code == 200
     body = response.json()
     assert body["applied"] is False
     assert body["reason"] == "empty"
 
-    state = await client.get("/api/raw-materials/undo-state", headers=headers)
+    state = await client.get("/api/raw-materials/undo-state", params={"session_id": TEST_SESSION_ID}, headers=headers)
     assert state.status_code == 200
     assert state.json() == {"canUndo": False, "canRedo": False}
 
 
 async def test_undo_state_endpoint(client) -> None:
-    """undo-state отражает наличие действий в стеке пользователя."""
+    """undo-state reflects the presence of actions in the user's stack."""
     headers = signed_identity_headers(**admin_headers())
     row_id = await _movement_row_id(client)
     await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
 
-    params = {"section": "materialMovement", "report_month": "2026-08-01"}
+    params = {"section": "materialMovement", "report_month": "2026-08-01", "session_id": TEST_SESSION_ID}
     state = (await client.get("/api/raw-materials/undo-state", params=params, headers=headers)).json()
     assert state == {"canUndo": True, "canRedo": False}
 
     await _post_undo(client)
     state = (await client.get("/api/raw-materials/undo-state", params=params, headers=headers)).json()
     assert state == {"canUndo": False, "canRedo": True}
+
+
+async def test_undo_history_is_session_scoped(client) -> None:
+    """A page reload (a new session id) starts with an empty undo history."""
+    row_id = await _movement_row_id(client)
+    await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
+
+    # The previous page session can't see or undo this edit.
+    other = await _post_undo(client, session_id="previous-page-session")
+    assert other["applied"] is False
+    assert other["reason"] == "empty"
+
+    # The current session can.
+    undone = await _post_undo(client)
+    assert undone["applied"] is True
+    assert undone["field"] == "balanceOnSiteTons"
+    assert undone["value"] == 5.0
 
 
 async def test_edit_clears_redo_branch(client) -> None:
@@ -276,6 +302,7 @@ async def test_undo_conflicts_with_another_user_edit(client, db_session, store) 
 
     response = await client.patch(
         "/api/raw-materials/movement",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(email="viewer@example.ru", preferred_username="viewer", subject="viewer-sub"),
         json={
             "reportMonth": "2026-08-01",
@@ -292,7 +319,7 @@ async def test_undo_conflicts_with_another_user_edit(client, db_session, store) 
 
 
 async def test_undo_skip_conflicted_action(client, db_session) -> None:
-    """Второе нажатие undo (skipActionId) пропускает конфликтное действие."""
+    """A second undo press (skipActionId) skips the conflicting action."""
     row_id = await _movement_row_id(client)
     await _patch_movement(client, row_id, "consumptionFactTons", 81.0)
 
@@ -302,6 +329,7 @@ async def test_undo_skip_conflicted_action(client, db_session) -> None:
     )
     await client.patch(
         "/api/raw-materials/movement",
+        params={"session_id": TEST_SESSION_ID},
         headers=second_headers,
         json={
             "reportMonth": "2026-08-01",
@@ -311,6 +339,7 @@ async def test_undo_skip_conflicted_action(client, db_session) -> None:
     await _patch_movement(client, row_id, "balanceOnSiteTons", 14.5)
     await client.patch(
         "/api/raw-materials/movement",
+        params={"session_id": TEST_SESSION_ID},
         headers=second_headers,
         json={
             "reportMonth": "2026-08-01",
@@ -394,7 +423,7 @@ async def test_publish_and_subscribe(client, store) -> None:
 
 
 async def test_lease_keys_scoped_by_project(store) -> None:
-    """Одна и та же ячейка в разных проектах арендуется независимо."""
+    """The same cell is leased independently in different projects."""
     owner_a = {"userId": "u1", "name": "А", "email": "", "sessionId": "s1"}
     owner_b = {"userId": "u2", "name": "Б", "email": "", "sessionId": "s2"}
     cell = "rm_material_movement/00000000-0000-0000-0000-000000000001/consumptionFactTons"
@@ -411,7 +440,7 @@ async def test_lease_keys_scoped_by_project(store) -> None:
 
 
 async def _make_project(db_session, *, key: str, name: str) -> None:
-    """Создаёт проект, если его ещё нет."""
+    """Create the project if it doesn't exist yet."""
     existing = (await db_session.exec(select(Project).where(col(Project.key) == key))).one_or_none()
     if existing is None:
         db_session.add(Project(key=key, name=name))
@@ -425,7 +454,7 @@ async def _grant_admin(db_session, *, email: str, project_key: str) -> None:
 
 
 class FakeWebSocket:
-    """Двойник WebSocket: прогоняет raw_materials_ws без сетевого слоя."""
+    """WebSocket double: runs raw_materials_ws without the network layer."""
 
     def __init__(self, *, project: str, origin: str | None = None) -> None:
         self.query_params = {
@@ -476,7 +505,7 @@ async def _wait_until(predicate, *, attempts: int = 100) -> None:
 
 
 async def test_undo_redo_dictionary_raw_material(client, store) -> None:
-    """Правка имени сырьевой позиции отменяется и возвращается (undo справочников)."""
+    """A raw-material item name edit is undone and redone (dictionary undo)."""
     rows = (
         await client.get("/api/raw-materials/raw-materials", headers=signed_identity_headers(**admin_headers()))
     ).json()
@@ -486,6 +515,7 @@ async def test_undo_redo_dictionary_raw_material(client, store) -> None:
 
     response = await client.patch(
         f"/api/raw-materials/raw-materials/{target['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
         json={"name": temporary},
     )
@@ -505,16 +535,17 @@ async def test_undo_redo_dictionary_raw_material(client, store) -> None:
     assert redone["applied"] is True
     assert redone["value"] == temporary
 
-    # Возвращаем исходное имя, чтобы не портить другие тесты.
+    # Restore the original name so other tests aren't affected.
     await client.patch(
         f"/api/raw-materials/raw-materials/{target['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
         json={"name": original},
     )
 
 
 async def test_undo_redo_dictionary_asset(client, store) -> None:
-    """Правка имени актива отменяется и возвращается."""
+    """An asset name edit is undone and redone."""
     rows = (await client.get("/api/raw-materials/assets", headers=signed_identity_headers(**admin_headers()))).json()
     target = rows[0]
     original = target["name"]
@@ -522,6 +553,7 @@ async def test_undo_redo_dictionary_asset(client, store) -> None:
 
     response = await client.patch(
         f"/api/raw-materials/assets/{target['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
         json={"name": temporary},
     )
@@ -532,16 +564,17 @@ async def test_undo_redo_dictionary_asset(client, store) -> None:
     assert undone["field"] == "name"
     assert undone["value"] == original
 
-    # Возвращаем исходное имя.
+    # Restore the original name.
     await client.patch(
         f"/api/raw-materials/assets/{target['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
         json={"name": original},
     )
 
 
 async def test_ws_project_isolation(client, db_session, store) -> None:
-    """Арена и присутствие проекта не пересекаются с другими проектами."""
+    """A project's leases and presence don't intersect other projects."""
     await _make_project(db_session, key="kppk", name="КППК")
     await _grant_admin(db_session, email="admin@example.ru", project_key="kppk")
 
@@ -572,7 +605,7 @@ async def test_ws_project_isolation(client, db_session, store) -> None:
 
 
 async def test_ws_ping_refreshes_presence(db_session, store) -> None:
-    """Heartbeat продлевает присутствие: участник не исчезает из комнаты."""
+    """Heartbeat renews presence: the member doesn't vanish from the room."""
     room = "rm:raw_materials:materialMovement:2026-08-01"
     fake = FakeWebSocket(project="raw_materials")
     task = await _run_collab_ws(db_session, fake)
@@ -594,7 +627,7 @@ async def test_ws_ping_refreshes_presence(db_session, store) -> None:
 
 
 async def test_ws_ping_readds_expired_presence(db_session, store) -> None:
-    """Вернувшийся участник снова появляется в «В сети» по первому же heartbeat."""
+    """A returning member shows up in «В сети» on the very first heartbeat."""
     room = "rm:raw_materials:materialMovement:2026-08-01"
     fake = FakeWebSocket(project="raw_materials")
     task = await _run_collab_ws(db_session, fake)
@@ -603,7 +636,7 @@ async def test_ws_ping_readds_expired_presence(db_session, store) -> None:
     hello = next(message for message in fake.sent if message["type"] == "hello")
     user_id = hello["user"]["userId"]
 
-    # Участник ушёл: присутствие истекло и было вычищено.
+    # The member left: presence expired and was cleaned up.
     await store.room_leave(room, user_id)
     assert not await store.room_members(room)
 
@@ -618,7 +651,7 @@ async def test_ws_ping_readds_expired_presence(db_session, store) -> None:
 
 
 async def test_refresh_presence_reports_missing_member(store) -> None:
-    """refresh_presence возвращает False, если участника нет в комнате (истекло)."""
+    """refresh_presence returns False when the member isn't in the room (expired)."""
     room = "rm:test:materialMovement:2026-08-01"
     assert await store.refresh_presence(room, "u-1") is False
     await store.room_join(room, "u-1", {"name": "А"})
@@ -626,7 +659,7 @@ async def test_refresh_presence_reports_missing_member(store) -> None:
 
 
 async def test_ws_rejects_unexpected_origin(db_session, store) -> None:
-    """Origin вне BACKEND_CORS_ORIGINS отклоняется на хендшейке."""
+    """An Origin outside BACKEND_CORS_ORIGINS is rejected on the handshake."""
     fake = FakeWebSocket(project="raw_materials", origin="https://evil.example")
     await raw_materials_ws(cast("WebSocket", fake), db_session)
     assert fake.closed_code == 4403
@@ -635,11 +668,11 @@ async def test_ws_rejects_unexpected_origin(db_session, store) -> None:
 
 
 async def test_ws_connect_keeps_undo_stack(client, db_session, store) -> None:
-    """История undo/redo переживает переподключение (переключение форм, reload)."""
+    """Undo/redo history survives reconnects (form switches, reload)."""
     row_id = await _movement_row_id(client)
     await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
 
-    # Новое WS-подключение (другая форма/перезагрузка) не стирает стек.
+    # A new WS connection (other form/reload) doesn't clear the stack.
     fake = FakeWebSocket(project="raw_materials")
     task = await _run_collab_ws(db_session, fake)
     await _wait_until(lambda: any(message.get("type") == "hello" for message in fake.sent))

@@ -1,4 +1,4 @@
-"""Тесты фиксации формы «Движение»."""
+"""Tests for fixing the «Движение» form."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from src.raw_materials.models import (
     AssetRawMaterial,
     MaterialMovement,
     MovementPeriod,
+    RawMaterialPrice,
     ReportSnapshot,
     SnapshotMaterialMovement,
 )
@@ -27,7 +28,7 @@ def _now() -> datetime:
 
 
 async def _fill_month(session: AsyncSession, report_month: date) -> None:
-    """Заполняет все строки «Движения» месяца полностью (без businessPlanTons из цен)."""
+    """Fill all «Движение» rows of the month completely (without businessPlanTons from prices)."""
     rows = (
         await session.exec(select(MaterialMovement).where(col(MaterialMovement.report_month) == report_month))
     ).all()
@@ -48,7 +49,7 @@ async def _fill_month(session: AsyncSession, report_month: date) -> None:
 
 
 async def _ensure_rows(session: AsyncSession, report_month: date) -> None:
-    """Создаёт недостающие строки «Движения» месяца для всех arm (без заполнения)."""
+    """Create the missing «Движение» rows of the month for all arms (unfilled)."""
     arms = (await session.exec(select(AssetRawMaterial))).all()
     now = _now()
     for arm in arms:
@@ -110,10 +111,14 @@ async def test_fix_creates_snapshot(
 ) -> None:
     await _ensure_rows(db_session, date(2026, 8, 1))
     await _fill_month(db_session, date(2026, 8, 1))
+    # A preliminary fix doesn't clear the undo stacks: the month stays open
+    # for editing, so its history remains useful.
+    await store.push_actions("any-user", "any-session", "materialMovement/2026-08-01", [{"id": 1, "undone": False}])
     status, body = await _fix(client, date(2026, 8, 1))
     assert status == 200
     assert body["reportMonth"] == "2026-08-01"
     assert body["isFinal"] is False
+    assert len(await store.list_actions("any-user", "any-session", "materialMovement/2026-08-01")) == 1
     snapshot_id = UUID(body["id"])
 
     snapshots = (await db_session.exec(select(ReportSnapshot))).all()
@@ -132,8 +137,6 @@ async def test_fix_creates_snapshot(
     assert filled.delivery_deviation_tons == 20.0
     assert filled.deviation_reason == "Недопоставка"
 
-    assert await store.list_actions("any-user", "materialMovement/2026-08-01") == []
-
     meta = await client.get(
         "/api/raw-materials/movement/meta",
         headers=ADMIN_HEADERS,
@@ -145,7 +148,7 @@ async def test_fix_creates_snapshot(
     assert len(meta_body["snapshots"]) == 1
     assert meta_body["snapshots"][0]["id"] == body["id"]
 
-    # Архивная версия сохраняет дефолтный порядок: сырьё, затем актив.
+    # The archive version keeps the default order: raw material, then asset.
     view = await client.get(
         f"/api/raw-materials/movement/snapshot/{snapshot_id}",
         headers=ADMIN_HEADERS,
@@ -279,3 +282,53 @@ async def test_movement_meta_reports_incomplete_before_fix(client: AsyncClient) 
     assert body["isComplete"] is False
     assert body["isFinal"] is False
     assert body["snapshots"] == []
+
+
+async def test_final_fix_clears_only_fixed_table_stacks(client: AsyncClient, db_session: AsyncSession, store) -> None:
+    """A final fix clears undo stacks of the fixed month only, not other tables."""
+    # July is a past month (relative to the seeded 2026-08/09 periods), so
+    # fixing it is final.
+    july = date(2026, 7, 1)
+    db_session.add(MovementPeriod(report_month=july))
+    await db_session.flush()
+    await _ensure_rows(db_session, july)
+    await _fill_month(db_session, july)
+
+    # Stacks in the movement scope of the fixed month and in other scopes;
+    # cell states of the movement and price tables.
+    movement_scope = f"materialMovement/{july.isoformat()}"
+    movement_row = (
+        await db_session.exec(select(MaterialMovement).where(col(MaterialMovement.report_month) == july))
+    ).first()
+    assert movement_row is not None
+    price_row = (await db_session.exec(select(RawMaterialPrice))).first()
+    assert price_row is not None
+    movement_cell = f"rm_material_movement/{movement_row.id}/balance_on_site_tons"
+    price_cell = f"rm_raw_material_price/{price_row.id}/fact_2025"
+    await store.push_actions("any-user", "any-session", movement_scope, [{"id": 1, "undone": False}])
+    await store.push_actions("any-user", "any-session", "materialMovement/2026-08-01", [{"id": 2, "undone": False}])
+    await store.push_actions("any-user", "any-session", "rawMaterialPrices/", [{"id": 3, "undone": False}])
+    await store.push_actions("any-user", "any-session", "assets/", [{"id": 4, "undone": False}])
+    await store.bump_cell_state(movement_cell, user_id="u", user_name="", action_id=11)
+    await store.bump_cell_state(price_cell, user_id="u", user_name="", action_id=12)
+
+    status, body = await _fix(client, july)
+    assert status == 200
+    assert body["isFinal"] is True
+
+    # The fixed month's movement history is gone; everything else survives.
+    # (The store is shared across tests, so check by action id, not count.)
+    assert await store.list_actions("any-user", "any-session", movement_scope) == []
+    other_scopes = [
+        "materialMovement/2026-08-01",
+        "rawMaterialPrices/",
+        "assets/",
+    ]
+    for other_scope, action_id in zip(other_scopes, [2, 3, 4], strict=True):
+        assert any(
+            action["id"] == action_id for action in await store.list_actions("any-user", "any-session", other_scope)
+        )
+
+    # Cell states of the fixed movement table are cleared too, others stay.
+    assert await store.get_cell_state(movement_cell) is None
+    assert await store.get_cell_state(price_cell) is not None

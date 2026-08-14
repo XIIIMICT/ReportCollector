@@ -1,9 +1,9 @@
 """
-Серверный стек undo/redo на пользователя (Valkey, не переживает сессию).
+Server-side per-user undo/redo stack (Valkey, scoped per form).
 
-Последнее активное действие отменяется, последнее отменённое возвращается.
-Применение происходит только если после действия/отмены ячейку не менял
-другой пользователь (rc:cellstate lastActionId) и ячейку не арендует другой
+The last active action is undone, the last undone one is redone.
+Application only happens if, after the action/undo, the cell wasn't changed
+by another user (rc:cellstate lastActionId) and isn't leased by another
 (lease).
 """
 
@@ -52,20 +52,23 @@ async def undo_last_edit(
     user: User,
     store: CollabStore,
     scope: str,
+    session_id: str,
     skip_action_id: int | None = None,
 ) -> UndoOutcome:
     """
-    Отменяет последнее действие пользователя (одна ячейка) на форме scope.
+    Undoes the user's last action (one cell) on the session's form scope.
 
-    scope — секция и месяц формы (section/reportMonth), история у каждой
-    формы своя. skip_action_id — действие, которое пользователь явно
-    пропустил после конфликта (второе нажатие undo): оно исключается из
-    поиска, ищется следующее доступное действие ниже.
+    scope is the form's section and month (section/reportMonth); each form
+    has its own history. skip_action_id is the action the user explicitly
+    skipped after a conflict (second undo press): it's excluded from the
+    search and the next available action below is looked up.
     """
-    action = await store.next_action(str(user.id), scope, undone=False, after_action_id=skip_action_id)
+    action = await store.next_action(str(user.id), session_id, scope, undone=False, after_action_id=skip_action_id)
     if action is None:
         return UndoOutcome(applied=False, reason="empty")
-    return await _switch_entry(session, user=user, store=store, scope=scope, action=action, redo=False)
+    return await _switch_entry(
+        session, user=user, store=store, scope=scope, session_id=session_id, action=action, redo=False
+    )
 
 
 async def redo_last_undo(
@@ -74,13 +77,16 @@ async def redo_last_undo(
     user: User,
     store: CollabStore,
     scope: str,
+    session_id: str,
     skip_action_id: int | None = None,
 ) -> UndoOutcome:
-    """Возвращает последнее отменённое действие пользователя на форме scope."""
-    action = await store.next_action(str(user.id), scope, undone=True, after_action_id=skip_action_id)
+    """Return the user's last undone action on the session's form scope."""
+    action = await store.next_action(str(user.id), session_id, scope, undone=True, after_action_id=skip_action_id)
     if action is None:
         return UndoOutcome(applied=False, reason="empty")
-    return await _switch_entry(session, user=user, store=store, scope=scope, action=action, redo=True)
+    return await _switch_entry(
+        session, user=user, store=store, scope=scope, session_id=session_id, action=action, redo=True
+    )
 
 
 async def _switch_entry(
@@ -89,6 +95,7 @@ async def _switch_entry(
     user: User,
     store: CollabStore,
     scope: str,
+    session_id: str,
     action: dict,
     redo: bool,
 ) -> UndoOutcome:
@@ -111,7 +118,7 @@ async def _switch_entry(
         value=value,
         user=user,
     )
-    await store.mark_action_undone(str(user.id), scope, action_id, undone=not redo)
+    await store.mark_action_undone(str(user.id), session_id, scope, action_id, undone=not redo)
     revision = await store.bump_cell_state(
         key,
         user_id=str(user.id),

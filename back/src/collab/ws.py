@@ -1,19 +1,18 @@
 """
-WebSocket совместного редактирования: /api/ws/raw-materials.
+Collaboration WebSocket: /api/ws/raw-materials.
 
-Соединение авторизуется подписью идентичности (те же заголовки
-X-ReportCollector-*, что у REST). Клиент указывает комнату в query
-(project, section, reportMonth) и получает: события правок других
-пользователей, аренду ячеек, присутствие и heartbeat.
+The connection is authorized by the identity signature (the same
+X-ReportCollector-* headers as REST). The client names the room in the
+query (project, section, reportMonth) and receives: edit events of other
+users, cell leases, presence and heartbeat.
 
-Проект изолирует комнаты, аренды и присутствие: правки разных проектов
-не пересекаются. Ключи аренд в хранилище скоплены проектом
-(lease_key(cell_key, project=...)), а публикации cell:locked/unlocked
-идут с исходным каноническим ключом — клиентский remoteLocks не зависит
-от проекта. События в комнату рассылаются через pub/sub хранилища:
-события REST-правок и других воркеров пересылаются всем подключённым
-соединениям комнаты через per-socket очередь (медленный клиент не
-блокирует комнату).
+The project isolates rooms, leases and presence: edits of different
+projects don't intersect. Lease keys in the store are scoped by project
+(lease_key(cell_key, project=...)), while cell:locked/unlocked publications
+carry the original canonical key — the client-side remoteLocks doesn't
+depend on the project. Room events fan out via the store's pub/sub: REST
+edit events and other workers' events are relayed to all room connections
+through a per-socket queue (a slow client doesn't block the room).
 """
 
 import asyncio
@@ -43,8 +42,8 @@ logger = logging.getLogger("reportcollector")
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 
 _MAX_LEASE_CELLS = 500
-_MAX_OWNED_LEASES = 1000  # предельное число аренд одного соединения
-_QUEUE_SIZE = 256  # размер очереди исходящих сообщений соединения
+_MAX_OWNED_LEASES = 1000  # max leases per connection
+_QUEUE_SIZE = 256  # outbound message queue size per connection
 
 
 class LeaseMessage(BaseModel):
@@ -63,11 +62,11 @@ class PingMessage(BaseModel):
 
 class RoomManager:
     """
-    Локальные подписки соединений на комнаты + пересылка pub/sub-событий.
+    Local per-connection room subscriptions + pub/sub event relay.
 
-    Каждому соединению выделяется ограниченная очередь и отдельная задача
-    записи: медленный клиент (полная очередь) пропускает события, не
-    блокируя остальных участников комнаты (head-of-line blocking).
+    Each connection gets a bounded queue and a dedicated writer task: a slow
+    client (full queue) drops events without blocking other room members
+    (head-of-line blocking).
     """
 
     def __init__(self, store: CollabStore) -> None:
@@ -138,7 +137,7 @@ async def raw_materials_ws(
     websocket: WebSocket,
     session: SessionDependency,
 ) -> None:
-    """Комната совместного редактирования форм «Движение» и «Цены»."""
+    """Collaboration room for the «Движение» and «Цены» forms."""
     identity = None
     try:
         identity = verify_signed_identity(websocket.headers)
@@ -196,8 +195,8 @@ async def raw_materials_ws(
         "email": user.email or "",
         "sessionId": session_id,
         "assets": [asset.name for asset in assets],
-        # Сырое значение роли («admin»/«asset_worker»): клиент сам решает,
-        # показывать ли роль или список активов.
+        # Raw role value («admin»/«asset_worker»): the client decides whether
+        # to show the role or the asset list.
         "role": roles[0].value if roles else "",
     }
     store = get_collab_store()
@@ -207,9 +206,9 @@ async def raw_materials_ws(
     await websocket.accept()
     await store.room_join(room, str(user.id), owner)
     await manager.join(room, websocket, owner)
-    # История undo/redo живёт в стеке пользователя и переживает переподключения
-    # (переключение между формами, перезагрузку страницы) — стек очищается
-    # только фиксацией месяца (clear_all_undo_state).
+    # Undo/redo history lives in the user's stack and survives reconnects
+    # (form switches); a page reload starts a new session stack. A final
+    # month fix clears the stacks of the fixed table only.
     members = await store.room_members(room)
     await websocket.send_json({"type": "hello", "room": room, "user": owner, "members": members, "clientId": client_id})
     await store.publish(room, {"type": "presence:update", "members": members})
@@ -273,8 +272,8 @@ async def _handle_message(
     if message_type == "ping":
         refreshed = await store.refresh_presence(room, str(owner["userId"]))
         if not refreshed:
-            # Присутствие истекло, пока участник был неактивен (ушёл от
-            # рабочего места, вкладка скрыта): вернулся — снова в «В сети».
+            # Presence expired while the member was idle (walked away, tab
+            # hidden): they're back — online again.
             await store.room_join(room, str(owner["userId"]), owner)
             members = await store.room_members(room)
             await store.publish(room, {"type": "presence:update", "members": members})

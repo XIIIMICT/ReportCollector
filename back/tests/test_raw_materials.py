@@ -1,4 +1,4 @@
-"""Сценарий форм проекта «Сырьё»: доступ и чтение «Движения» и «Цен»."""
+"""«Сырьё» form scenario: access and reading «Движение» and «Цены»."""
 
 from conftest import signed_identity_headers
 from sqlmodel import col, select
@@ -7,6 +7,10 @@ from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
 from src.auth.models import ProjectRole, User, UserRole
 from src.auth.service import activate_project_user, grant_project_assets, grant_project_role
 from src.models import Project
+
+# Edit endpoints require the collab browser-session id (undo scoping);
+# tests that don't exercise undo use one fixed session.
+TEST_SESSION_ID = "test-session"
 
 
 def admin_headers() -> dict[str, str]:
@@ -203,6 +207,7 @@ async def test_admin_updates_movement_cells(client) -> None:
 
     response = await client.patch(
         "/api/raw-materials/movement",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
         json={
             "reportMonth": "2026-08-01",
@@ -229,6 +234,7 @@ async def test_admin_updates_price_cells(client) -> None:
 
     response = await client.patch(
         "/api/raw-materials/prices",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
         json={"updates": [{"rowId": row_id, "field": "fact2025", "value": 42.0}]},
     )
@@ -250,6 +256,7 @@ async def test_movement_cell_unknown_field_rejected(client) -> None:
 
     response = await client.patch(
         "/api/raw-materials/movement",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
         json={
             "reportMonth": "2026-08-01",
@@ -274,6 +281,7 @@ async def test_admin_crud_raw_material(client) -> None:
 
     updated = await client.patch(
         f"/api/raw-materials/raw-materials/{row['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
         json={"name": "Этилен-гликоль"},
     )
@@ -282,6 +290,7 @@ async def test_admin_crud_raw_material(client) -> None:
 
     deleted = await client.delete(
         f"/api/raw-materials/raw-materials/{row['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
     )
     assert deleted.status_code == 204
@@ -292,16 +301,17 @@ async def test_admin_crud_raw_material(client) -> None:
 
 
 async def test_added_asset_creates_price_and_movement_rows(client) -> None:
-    """Новый актив у сырьевой позиции сразу даёт строки на «Ценах» и «Движении»."""
+    """A new asset on a raw-material item immediately yields «Цены» and «Движение» rows."""
     headers = signed_identity_headers(**admin_headers())
     meta = (await client.get("/api/raw-materials/meta", headers=headers)).json()
     assets = {asset["name"]: asset["id"] for asset in meta["assets"]}
 
     positions = (await client.get("/api/raw-materials/raw-materials", headers=headers)).json()
     ammiak = next(position for position in positions if position["name"] == "Аммиак")
-    # Аммиак изначально привязан к БСЗ и СНХЗ — добавляем ВОС.
+    # Аммиак is initially linked to БСЗ and СНХЗ — adding ВОС.
     response = await client.patch(
         f"/api/raw-materials/raw-materials/{ammiak['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=headers,
         json={"assetIds": [assets["БСЗ"], assets["СНХЗ"], assets["ВОС"]]},
     )
@@ -310,7 +320,7 @@ async def test_added_asset_creates_price_and_movement_rows(client) -> None:
 
     prices = (await client.get("/api/raw-materials/prices", headers=headers)).json()
     new_price = next(row for row in prices if row["rawMaterialName"] == "Аммиак" and row["assetName"] == "ВОС")
-    assert new_price["deliveryBasisName"] == "FCA"  # первый базис по алфавиту — как в сиде
+    assert new_price["deliveryBasisName"] == "FCA"  # first basis alphabetically — like in the seed
     assert new_price["businessPlanQuantityTons"] is None
 
     for report_month in meta["movementPeriods"]:
@@ -327,7 +337,7 @@ async def test_added_asset_creates_price_and_movement_rows(client) -> None:
 
 
 async def test_removing_added_asset_requires_empty_rows(client) -> None:
-    """Снять актив с пустыми строками можно; с заполненными данными — 409."""
+    """An asset with empty rows can be dropped; with filled data — 409."""
     headers = signed_identity_headers(**admin_headers())
     meta = (await client.get("/api/raw-materials/meta", headers=headers)).json()
     assets = {asset["name"]: asset["id"] for asset in meta["assets"]}
@@ -335,9 +345,10 @@ async def test_removing_added_asset_requires_empty_rows(client) -> None:
     positions = (await client.get("/api/raw-materials/raw-materials", headers=headers)).json()
     ammiak = next(position for position in positions if position["name"] == "Аммиак")
 
-    # Добавляем ВОС к Аммиаку и заполняем ячейку «Движения» за август.
+    # Add ВОС to Аммиак and fill a «Движение» cell for August.
     added = await client.patch(
         f"/api/raw-materials/raw-materials/{ammiak['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=headers,
         json={"assetIds": [assets["БСЗ"], assets["СНХЗ"], assets["ВОС"]]},
     )
@@ -351,9 +362,10 @@ async def test_removing_added_asset_requires_empty_rows(client) -> None:
     ).json()
     new_row = next(row for row in rows if row["assetName"] == "ВОС" and row["rawMaterialName"] == "Аммиак")
 
-    # Заполняем ячейку «Движения» за август.
+    # Fill a «Движение» cell for August.
     filled = await client.patch(
         "/api/raw-materials/movement",
+        params={"session_id": TEST_SESSION_ID},
         headers=headers,
         json={
             "reportMonth": "2026-08-01",
@@ -362,18 +374,20 @@ async def test_removing_added_asset_requires_empty_rows(client) -> None:
     )
     assert filled.status_code == 200
 
-    # Снять актив с заполненной строкой нельзя — 409.
+    # An asset with a filled row can't be dropped — 409.
     blocked = await client.patch(
         f"/api/raw-materials/raw-materials/{ammiak['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=headers,
         json={"assetIds": [assets["БСЗ"], assets["СНХЗ"]]},
     )
     assert blocked.status_code == 409
     assert "ВОС" in blocked.json()["detail"]
 
-    # Очищаем данные — теперь снять можно, строки «Движения»/«Цен» удаляются.
+    # Clear the data — now it can be dropped; «Движение»/«Цены» rows are deleted.
     cleared = await client.patch(
         "/api/raw-materials/movement",
+        params={"session_id": TEST_SESSION_ID},
         headers=headers,
         json={
             "reportMonth": "2026-08-01",
@@ -383,6 +397,7 @@ async def test_removing_added_asset_requires_empty_rows(client) -> None:
     assert cleared.status_code == 200
     removed = await client.patch(
         f"/api/raw-materials/raw-materials/{ammiak['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=headers,
         json={"assetIds": [assets["БСЗ"], assets["СНХЗ"]]},
     )
@@ -419,6 +434,7 @@ async def test_admin_crud_asset_and_basis(client) -> None:
 
     renamed = await client.patch(
         f"/api/raw-materials/delivery-bases/{basis_row['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
         json={"name": "EXW-склад"},
     )
@@ -427,6 +443,7 @@ async def test_admin_crud_asset_and_basis(client) -> None:
 
     deleted_basis = await client.delete(
         f"/api/raw-materials/delivery-bases/{basis_row['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
     )
     assert deleted_basis.status_code == 204
@@ -446,6 +463,7 @@ async def test_admin_crud_project_user(client) -> None:
 
     updated = await client.patch(
         f"/api/raw-materials/users/{row['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
         json={"assetNames": ["ВОС", "СНХЗ"]},
     )
@@ -454,6 +472,7 @@ async def test_admin_crud_project_user(client) -> None:
 
     deleted = await client.delete(
         f"/api/raw-materials/users/{row['id']}",
+        params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
     )
     assert deleted.status_code == 409
@@ -468,7 +487,7 @@ async def test_admin_crud_project_user(client) -> None:
 
 
 async def test_create_user_is_provisioned_to_all_projects(client, db_session) -> None:
-    """Новый пользователь появляется во всех проектах."""
+    """A new user appears in all projects."""
     db_session.add(Project(key="kppk", name="КППК"))
     await db_session.commit()
 
@@ -492,7 +511,7 @@ async def test_create_user_is_provisioned_to_all_projects(client, db_session) ->
 
 
 async def test_create_user_normalizes_email_to_lowercase(client, db_session) -> None:
-    """Email сохраняется в нижнем регистре, дубликат по другому регистру отклоняется."""
+    """Email is stored lowercased; a duplicate in another case is rejected."""
     created = await client.post(
         "/api/raw-materials/users",
         headers=signed_identity_headers(**admin_headers()),
@@ -522,7 +541,7 @@ async def test_create_user_normalizes_email_to_lowercase(client, db_session) -> 
 
 
 async def test_keycloak_login_finds_user_case_insensitively(client, db_session) -> None:
-    """Keycloak с другим регистром email находит существующего пользователя."""
+    """Keycloak with a differently-cased email finds the existing user."""
     created = await client.post(
         "/api/raw-materials/users",
         headers=signed_identity_headers(**admin_headers()),
@@ -550,7 +569,7 @@ async def test_keycloak_login_finds_user_case_insensitively(client, db_session) 
 
 
 async def test_create_user_for_existing_email_adds_missing_project_link(client, db_session) -> None:
-    """Существующий пользователь без связи с проектом получает только связь."""
+    """An existing user without a project link gets only the link."""
     existing = User(
         key="petrov@example.ru",
         email="petrov@example.ru",
@@ -573,7 +592,7 @@ async def test_create_user_for_existing_email_adds_missing_project_link(client, 
     duplicates = (await db_session.exec(select(User).where(col(User.email) == "petrov@example.ru"))).all()
     assert len(duplicates) == 1
 
-    # Повторное добавление в тот же проект — понятная ошибка.
+    # Adding the same user to the project again — a clear error.
     again = await client.post(
         "/api/raw-materials/users",
         headers=signed_identity_headers(**admin_headers()),
@@ -584,7 +603,7 @@ async def test_create_user_for_existing_email_adds_missing_project_link(client, 
 
 
 async def test_keycloak_login_overwrites_name_and_keeps_membership(client, db_session) -> None:
-    """После входа через Keycloak ФИО перезаписывается, доступ сохраняется."""
+    """After a Keycloak login the FIO is overwritten, access is kept."""
     created = await client.post(
         "/api/raw-materials/users",
         headers=signed_identity_headers(**admin_headers()),
