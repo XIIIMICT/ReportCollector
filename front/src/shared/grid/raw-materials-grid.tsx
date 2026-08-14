@@ -116,11 +116,6 @@ type GridSortingEvent = {
     sortingOrder?: Array<string | number>;
 };
 
-type SelectionStoreHandle = {
-    set: (key: string, value: unknown) => void;
-    setRange: (start: { x: number; y: number }, end: { x: number; y: number }) => void;
-};
-
 function isGridTarget(event: Event, grid: HTMLElement): boolean {
     return grid.contains(event.target as Node | null) || event.composedPath().includes(grid);
 }
@@ -416,22 +411,47 @@ function RawMaterialsGridInner(
         return () => clearTimeout(timer);
     }, [selectedRowsRange, selectionRange]);
 
-    const getSelectionStore = useCallback((): SelectionStoreHandle | undefined => {
-        const grid = gridRef.current;
-        const overlay = (grid?.shadowRoot?.querySelector("revogr-overlay-selection") ??
-            grid?.querySelector("revogr-overlay-selection")) as
-            | (HTMLElement & { selectionStore?: SelectionStoreHandle })
-            | null;
-        return overlay?.selectionStore;
-    }, []);
+    /**
+     * Программное выделение диапазона через публичный API грида.
+     * setCellsFocus обновляет selection-стор (focus + range), а refresh
+     * форсирует перерисовку оверлея: без него состояние обновляется, но рамка
+     * не появляется (Stencil не перерисовывает оверлей при внешнем изменении
+     * стора). Прямая запись в overlay-selectionStore не работает — там лежит
+     * сырой observable без setRange/setFocus.
+     */
+    const applyGridRange = useCallback(
+        async (start: { x: number; y: number }, end: { x: number; y: number }) => {
+            const grid = gridRef.current;
+            if (!grid) return;
+            await grid.setCellsFocus(start, end);
+            await grid.refresh();
+        },
+        [],
+    );
 
     const clearGridSelection = useCallback(() => {
-        const store = getSelectionStore();
-        store?.set("range", null);
-        store?.set("focus", null);
-        store?.set("edit", null);
+        void gridRef.current?.clearFocus();
         updateSelectionRange(null);
-    }, [getSelectionStore, updateSelectionRange]);
+    }, [updateSelectionRange]);
+
+    // Ctrl+A: один сплошной диапазон по всем ячейкам данных. Заголовки не
+    // выделяем (у объединённых шапок граница не совпадает), строка «добавить
+    // запись» тоже вне выделения, выделение строк сбрасывается — остаётся
+    // только диапазон ячеек.
+    const selectAllCells = useCallback(async () => {
+        if (rows.length === 0 || flatColumns.length === 0) return;
+        let lastDataIndex = rows.length - 1;
+        while (lastDataIndex >= 0 && rows[lastDataIndex]?.isPlaceholder) {
+            lastDataIndex -= 1;
+        }
+        if (lastDataIndex < 0) return;
+        const start = { x: 0, y: 0 };
+        const end = { x: flatColumns.length - 1, y: lastDataIndex };
+        await applyGridRange(start, end);
+        updateSelectionRange({ x: 0, y: 0, x1: end.x, y1: end.y });
+        setSelectedRowIds([]);
+        rowSelectionAnchorRef.current = null;
+    }, [applyGridRange, flatColumns.length, rows, setSelectedRowIds, updateSelectionRange]);
 
     const handleRowNumberClick = useCallback(
         (event: MouseEvent, rowIndex: number, id: string) => {
@@ -1084,8 +1104,9 @@ function RawMaterialsGridInner(
                 composed: true,
             }),
         );
-        getSelectionStore()?.setRange({ x: range.x, y: range.y }, { x: range.x1, y: range.y1 });
-    }, [buildCopyText, descriptorByKey, editableKeys, flatColumns, getSelectionStore, rows]);
+        // Выделяем вырезанный диапазон (rangeeditapply сам выделение не двигает).
+        void applyGridRange({ x: range.x, y: range.y }, { x: range.x1, y: range.y1 });
+    }, [applyGridRange, buildCopyText, descriptorByKey, editableKeys, flatColumns, rows]);
 
     const pasteIntoSelection = useCallback(
         async (text?: string) => {
@@ -1171,11 +1192,12 @@ function RawMaterialsGridInner(
                     composed: true,
                 }),
             );
-            // После вставки выделяем только что вставленные ячейки (setRange
-            // обновляет оверлей и эмитит setrange — присутствие подхватится само).
-            getSelectionStore()?.setRange({ x: toX, y: toY }, { x: toX1, y: toY1 });
+            // После вставки выделяем только что вставленные ячейки — и
+            // присутствие подхватит новый диапазон через updateSelectionRange
+            // (setrange-событие этот путь не эмитит).
+            void applyGridRange({ x: toX, y: toY }, { x: toX1, y: toY1 });
         },
-        [flatColumns, getSelectionStore, onPasteTruncated, rows],
+        [applyGridRange, flatColumns, onPasteTruncated, rows],
     );
 
     useEffect(() => {
@@ -1296,19 +1318,37 @@ function RawMaterialsGridInner(
             }
             if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
             // event.code — физическая клавиша: работает при любой раскладке
-            // (в русской event.key даёт «с»/«м»/«ч»).
-            if (event.code !== "KeyC" && event.code !== "KeyV" && event.code !== "KeyX") return;
+            // (в русской event.key даёт «с»/«м»/«ч»/«ф»).
+            if (
+                event.code !== "KeyC" &&
+                event.code !== "KeyV" &&
+                event.code !== "KeyX" &&
+                event.code !== "KeyA"
+            )
+                return;
             if (isEditableTarget(document.activeElement)) return;
             const grid = gridRef.current;
             if (!grid || !isGridTarget(event, grid)) return;
             event.preventDefault();
-            if (event.code === "KeyC") void copySelection();
-            else if (event.code === "KeyX") void cutSelection();
-            else void pasteIntoSelection();
+            if (event.code === "KeyA") {
+                // Слушаем в capture-фазе, чтобы перехватить Ctrl+A до встроенного
+                // select-all revo-grid (он выделяет заголовки и рвёт рамку).
+                // stopImmediatePropagation — гарантированно глушит и других
+                // document-слушателей (в т.ч. сам revo-grid), в любом порядке.
+                event.stopImmediatePropagation();
+                void selectAllCells();
+            } else if (event.code === "KeyC") {
+                void copySelection();
+            } else if (event.code === "KeyX") {
+                void cutSelection();
+            } else {
+                void pasteIntoSelection();
+            }
         };
-        document.addEventListener("keydown", handleKeyDown);
-        return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [copySelection, cutSelection, pasteIntoSelection, updateSelectionRange]);
+        // capture: перехватываем Ctrl+A раньше revo-grid.
+        document.addEventListener("keydown", handleKeyDown, true);
+        return () => document.removeEventListener("keydown", handleKeyDown, true);
+    }, [copySelection, cutSelection, pasteIntoSelection, selectAllCells, updateSelectionRange]);
 
     useEffect(() => {
         const frame = requestAnimationFrame(() => {
