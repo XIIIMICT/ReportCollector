@@ -132,7 +132,7 @@ async def test_fix_creates_snapshot(
     assert filled.delivery_deviation_tons == 20.0
     assert filled.deviation_reason == "Недопоставка"
 
-    assert await store.list_actions("any-user") == []
+    assert await store.list_actions("any-user", "materialMovement/2026-08-01") == []
 
     meta = await client.get(
         "/api/raw-materials/movement/meta",

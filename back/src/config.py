@@ -35,6 +35,25 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:5000", "http://127.0.0.1:5000"]
     )
 
+    @field_validator("backend_cors_origins", mode="before")
+    @classmethod
+    def _normalize_cors_origins(cls, value: object) -> object:
+        """
+        Убирает завершающий слэш у ориджинов.
+
+        Браузер в Origin никогда не шлёт слэш, а AUTH_APP_ORIGIN (из которого
+        compose выводит список) пользователь может случайно записать со слэшем
+        — иначе WS/HTTP-хендшейк ошибочно отклоняется.
+        """
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return value
+        if isinstance(value, list):
+            return [str(origin).rstrip("/") for origin in value]
+        return value
+
     @model_validator(mode="after")
     def validate_settings(self) -> Settings:
         if self.database_url is None:

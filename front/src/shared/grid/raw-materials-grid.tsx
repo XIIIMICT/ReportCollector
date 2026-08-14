@@ -83,7 +83,10 @@ type Props = {
     onPasteSkipped?: (description: string) => void;
     /** Вставляемый диапазон больше выделенного — значения обрезаны выделением. */
     onPasteTruncated?: () => void;
+    /** Чужие арендованные ячейки (активное редактирование). */
     remoteLocks?: ReadonlyMap<string, { fullname: string; email: string }>;
+    /** Ячейки, выделенные другими участниками (присутствие) — тоже защищены. */
+    remotePresence?: ReadonlyMap<string, { fullname: string; email: string }>;
     onLockedCellEdit?: (key: string, ownerName: string) => void;
     onAcquireLease?: (keys: string[]) => void;
     onReleaseLease?: (keys: string[]) => void;
@@ -243,6 +246,7 @@ function RawMaterialsGridInner(
         onPasteSkipped,
         onPasteTruncated,
         remoteLocks = new Map(),
+        remotePresence = new Map(),
         onLockedCellEdit,
         onAcquireLease,
         onReleaseLease,
@@ -444,7 +448,8 @@ function RawMaterialsGridInner(
                         .map((row) => row.id)
                         .filter(Boolean),
                 );
-                updateSelectionRange(null);
+                // Выделение строк полностью сбрасывает диапазон ячеек (и визуально).
+                clearGridSelection();
                 return;
             }
             if (modifiers) {
@@ -462,9 +467,10 @@ function RawMaterialsGridInner(
             }
             rowSelectionAnchorRef.current = rowIndex;
             setSelectedRowIds([id]);
-            updateSelectionRange(null);
+            // Выделение строк полностью сбрасывает диапазон ячеек (и визуально).
+            clearGridSelection();
         },
-        [clearGridSelection, rows, selectedRowIdSet, updateSelectionRange],
+        [clearGridSelection, rows, selectedRowIdSet],
     );
 
     const rowHeaders = useMemo<RowHeaders>(
@@ -553,14 +559,19 @@ function RawMaterialsGridInner(
                     if (!descriptor || !editableKeys.has(descriptor.key)) continue;
                     if (!canEditDescriptor(descriptor, row)) continue;
                     const canonicalKey = row.canonicalCells?.[descriptor.key];
-                    if (canonicalKey && remoteLocks.has(canonicalKey)) continue;
+                    if (
+                        canonicalKey &&
+                        (remoteLocks.has(canonicalKey) || remotePresence.has(canonicalKey))
+                    )
+                        continue;
                     return true;
                 }
             }
+
             return false;
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [descriptorByKey, editableKeys, flatColumns, readOnly, remoteLocks, rows],
+        [descriptorByKey, editableKeys, flatColumns, readOnly, remoteLocks, remotePresence, rows],
     );
 
     useEffect(() => {
@@ -637,16 +648,17 @@ function RawMaterialsGridInner(
             return;
         }
         const canonicalKey = row.canonicalCells?.[descriptor.key];
-        if (canonicalKey && remoteLocks.has(canonicalKey)) {
-            event.preventDefault();
-            const owner = remoteLocks.get(canonicalKey);
-            onLockedCellEdit?.(
-                canonicalKey,
-                owner
-                    ? owner.fullname || owner.email || "другой пользователь"
-                    : "другой пользователь",
-            );
-            return;
+        if (canonicalKey) {
+            // Аренда или чужое выделение — ячейка защищена: начать редактирование нельзя.
+            const owner = remoteLocks.get(canonicalKey) ?? remotePresence.get(canonicalKey);
+            if (owner) {
+                event.preventDefault();
+                onLockedCellEdit?.(
+                    canonicalKey,
+                    owner.fullname || owner.email || "другой пользователь",
+                );
+                return;
+            }
         }
         if (canonicalKey && !row.isPlaceholder) {
             activeLeaseRef.current = canonicalKey;
@@ -668,16 +680,23 @@ function RawMaterialsGridInner(
             return;
         }
         const canonicalKey = row.canonicalCells?.[descriptor.key];
-        if (canonicalKey && remoteLocks.has(canonicalKey)) {
-            event.preventDefault();
-            const owner = remoteLocks.get(canonicalKey);
-            onLockedCellEdit?.(
-                canonicalKey,
-                owner
-                    ? owner.fullname || owner.email || "другой пользователь"
-                    : "другой пользователь",
-            );
-            return;
+        if (canonicalKey) {
+            const byLease = remoteLocks.get(canonicalKey);
+            // Чужая аренда блокирует всегда; чужое выделение — кроме случая, когда
+            // ячейку редактирую я сам (моя аренда сильнее чужого выделения).
+            const byPresence =
+                remotePresence.get(canonicalKey) && activeLeaseRef.current !== canonicalKey
+                    ? remotePresence.get(canonicalKey)
+                    : undefined;
+            const owner = byLease ?? byPresence;
+            if (owner) {
+                event.preventDefault();
+                onLockedCellEdit?.(
+                    canonicalKey,
+                    owner.fullname || owner.email || "другой пользователь",
+                );
+                return;
+            }
         }
         const normalized = normalizeValue(event.detail.val, descriptor.kind);
         if (!normalized.ok) {
@@ -723,7 +742,10 @@ function RawMaterialsGridInner(
                     continue;
                 }
                 const canonicalKey = currentRow.canonicalCells?.[descriptor.key];
-                if (canonicalKey && remoteLocks.has(canonicalKey)) {
+                if (
+                    canonicalKey &&
+                    (remoteLocks.has(canonicalKey) || remotePresence.has(canonicalKey))
+                ) {
                     delete patch[prop];
                     skippedColumns.set(descriptor.label, "ячейка занята другим пользователем");
                     continue;
@@ -1006,6 +1028,65 @@ function RawMaterialsGridInner(
         }
     }, [buildCopyText]);
 
+    const cutSelection = useCallback(async () => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        const range = selectionRangeRef.current;
+        if (!range) return;
+        const text = buildCopyText(range);
+        if (text === null) return;
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch {
+            try {
+                const textarea = document.createElement("textarea");
+                textarea.value = text;
+                textarea.style.position = "fixed";
+                textarea.style.opacity = "0";
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand("copy");
+                textarea.remove();
+            } catch {
+                // буфер недоступен — источник не очищаем
+                return;
+            }
+        }
+        const data: Record<string, Record<string, unknown>> = {};
+        const models: GridRow[] = [];
+        for (let y = range.y; y <= range.y1; y++) {
+            models[y] = rows[y];
+            const patch: Record<string, unknown> = {};
+            for (let x = range.x; x <= range.x1; x++) {
+                const column = flatColumns[x] as ColumnRegular | undefined;
+                if (!column) continue;
+                const descriptor = descriptorByKey.get(String(column.prop));
+                if (!descriptor || !editableKeys.has(descriptor.key)) continue;
+                // Булевым полям «пусто» недоступно — вырезание их пропускаем.
+                if (descriptor.kind === "boolean") continue;
+                patch[String(column.prop)] = descriptor.kind === "assetsMulti" ? [] : "";
+            }
+            if (Object.keys(patch).length > 0) data[String(y)] = patch;
+        }
+        if (Object.keys(data).length === 0) return;
+        // Идём через rangeeditapply: beforeRangeEdit сам пропустит занятые
+        // и заблокированные ячейки (значения при этом уже в буфере обмена).
+        grid.dispatchEvent(
+            new CustomEvent("rangeeditapply", {
+                detail: {
+                    data,
+                    models,
+                    type: "rgRow",
+                    oldRange: range,
+                    newRange: range,
+                },
+                bubbles: true,
+                composed: true,
+            }),
+        );
+        getSelectionStore()?.setRange({ x: range.x, y: range.y }, { x: range.x1, y: range.y1 });
+    }, [buildCopyText, descriptorByKey, editableKeys, flatColumns, getSelectionStore, rows]);
+
     const pasteIntoSelection = useCallback(
         async (text?: string) => {
             const grid = gridRef.current;
@@ -1018,7 +1099,25 @@ function RawMaterialsGridInner(
                 }
             }
             if (!text) return;
-            const parsed = text.split(/\r\n|\n|\r/).map((row) => row.split("\t"));
+            // Excel и другие приложения кладут в буфер завершающий перенос строки
+            // (и хвостовые табы) — без обрезки при вставке захватывается лишняя
+            // пустая ячейка снизу и затирает соседнюю, которую не просили.
+            const split = text.split(/\r\n|\n|\r/).map((row) => row.split("\t"));
+            while (
+                split.length > 0 &&
+                split[split.length - 1].every((cell) => cell.trim() === "")
+            ) {
+                split.pop();
+            }
+            if (split.length === 0) return;
+            let width = Math.max(...split.map((cells) => cells.length));
+            while (
+                width > 0 &&
+                split.every((cells) => width - 1 >= cells.length || cells[width - 1].trim() === "")
+            ) {
+                width -= 1;
+            }
+            const parsed = split.map((cells) => cells.slice(0, width));
             const range = selectionRangeRef.current;
             if (!range) return;
 
@@ -1197,18 +1296,19 @@ function RawMaterialsGridInner(
             }
             if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
             // event.code — физическая клавиша: работает при любой раскладке
-            // (в русской event.key даёт «с»/«м»).
-            if (event.code !== "KeyC" && event.code !== "KeyV") return;
+            // (в русской event.key даёт «с»/«м»/«ч»).
+            if (event.code !== "KeyC" && event.code !== "KeyV" && event.code !== "KeyX") return;
             if (isEditableTarget(document.activeElement)) return;
             const grid = gridRef.current;
             if (!grid || !isGridTarget(event, grid)) return;
             event.preventDefault();
             if (event.code === "KeyC") void copySelection();
+            else if (event.code === "KeyX") void cutSelection();
             else void pasteIntoSelection();
         };
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [copySelection, pasteIntoSelection, updateSelectionRange]);
+    }, [copySelection, cutSelection, pasteIntoSelection, updateSelectionRange]);
 
     useEffect(() => {
         const frame = requestAnimationFrame(() => {

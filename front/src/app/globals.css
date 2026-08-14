@@ -439,6 +439,12 @@ html {
     background: var(--border);
 }
 
+/* Тултип «В сети»: без ограничения ширины, ФИО и роль — на одной строке
+   (длинные ФИО не должны переноситься). */
+.collab-bar-tooltip {
+    max-width: none !important;
+}
+
 .collab-bar-tooltip__list {
     display: grid;
     gap: 0.4rem;
@@ -452,6 +458,7 @@ html {
     gap: 0.15rem;
     font-size: 0.8rem;
     line-height: 1.4;
+    white-space: nowrap;
 }
 
 .collab-bar-tooltip__head {

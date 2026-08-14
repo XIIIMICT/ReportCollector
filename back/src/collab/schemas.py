@@ -16,9 +16,11 @@ class UndoConflictRead(BaseModel):
 
 
 class UndoRequest(BaseModel):
-    """Тело undo/redo: действие, которое пользователь решил пропустить."""
+    """Тело undo/redo: форма (секция + месяц) и действие, которое пользователь решил пропустить."""
 
     skipActionId: int | None = None
+    section: str | None = None
+    reportMonth: str | None = None
 
 
 class UndoStateRead(BaseModel):

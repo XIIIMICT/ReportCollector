@@ -81,6 +81,9 @@ services:
         required: true
     environment:
       BACKEND_INTERNAL_URL: http://${BACKEND_HOST:?}:${BACKEND_PORT:?}
+      # Публичный адрес приложения — алиас AUTH_APP_ORIGIN (единый источник
+      # хоста): не задавайте NEXT_PUBLIC_URL вручную.
+      NEXT_PUBLIC_URL: ${AUTH_APP_ORIGIN:?}
       # Пусто = браузер идёт на тот же origin через nginx (wss://<хост>/api/ws/...),
       # который проксирует /api/ws/ на бэкенд. Задавать адрес нужно только если
       # WebSocket раздаётся с отдельного хоста/порта.

@@ -478,9 +478,12 @@ async def patch_price_rows(
 async def undo_state_cells(
     user: UserDependency,
     _assets: AccessDependency,
+    section: str = "",
+    report_month: str | None = None,
 ) -> UndoStateRead:
-    """Доступность undo/redo по стеку действий пользователя."""
-    can_undo, can_redo = await get_collab_store().undo_state(str(user.id))
+    """Доступность undo/redo по стеку действий пользователя на текущей форме."""
+    scope = f"{section}/{report_month or ''}"
+    can_undo, can_redo = await get_collab_store().undo_state(str(user.id), scope)
     return UndoStateRead(canUndo=can_undo > 0, canRedo=can_redo > 0)
 
 
@@ -492,15 +495,20 @@ async def undo_cells(
     request: UndoRequest | None = None,
 ) -> UndoResponse:
     """
-    Отменяет последнюю правку ячеек текущего пользователя.
+    Отменяет последнюю правку ячеек текущего пользователя на текущей форме.
 
-    Тело запроса опционально: skipActionId передаётся вторым нажатием
-    после конфликта, чтобы пропустить заблокированное действие.
+    Тело запроса опционально: section/reportMonth определяют форму, на которой
+    ведётся история; skipActionId передаётся вторым нажатием после конфликта,
+    чтобы пропустить заблокированное действие.
     """
+    section = request.section if request is not None else None
+    report_month = request.reportMonth if request is not None else None
+    scope = f"{section or ''}/{report_month or ''}"
     outcome = await undo_last_edit(
         session,
         user=user,
         store=get_collab_store(),
+        scope=scope,
         skip_action_id=request.skipActionId if request is not None else None,
     )
     return await _undo_response(outcome, user)
@@ -513,11 +521,15 @@ async def redo_cells(
     _assets: AccessDependency,
     request: UndoRequest | None = None,
 ) -> UndoResponse:
-    """Возвращает последнее отменённое действие текущего пользователя."""
+    """Возвращает последнее отменённое действие текущего пользователя на текущей форме."""
+    section = request.section if request is not None else None
+    report_month = request.reportMonth if request is not None else None
+    scope = f"{section or ''}/{report_month or ''}"
     outcome = await redo_last_undo(
         session,
         user=user,
         store=get_collab_store(),
+        scope=scope,
         skip_action_id=request.skipActionId if request is not None else None,
     )
     return await _undo_response(outcome, user)

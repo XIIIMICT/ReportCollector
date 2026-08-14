@@ -388,17 +388,17 @@ function SectionContent({
         setSnapshotView(null);
     }, [reportMonth, section]);
 
-    // История undo/redo общая на все формы и хранится на сервере: при
-    // переключении секций счётчики не сбрасываются, а перечитываются из стека.
+    // История undo/redo своя на каждой форме (секция + месяц) и хранится на
+    // сервере: при переключении форм счётчики перечитываются из нужного стека.
     useEffect(() => {
         if (!collabEnabled) return;
-        void getUndoState()
+        void getUndoState(section, reportMonth)
             .then((state) => {
                 setUndoCount(state.canUndo ? 1 : 0);
                 setRedoCount(state.canRedo ? 1 : 0);
             })
             .catch(() => {});
-    }, [collabEnabled]);
+    }, [collabEnabled, reportMonth, section]);
 
     const canManageReferences = isAdmin && !MAIN_SECTIONS.has(section);
     const showAssetColumn = isAdmin || assets.length > 1;
@@ -421,6 +421,26 @@ function SectionContent({
         }
         return result;
     }, [room.lockedCells]);
+
+    // Ячейки, которые другие участники выделили (присутствие): они тоже
+    // защищены от перезаписи, как и арендованные.
+    const remotePresence = useMemo(() => {
+        const meId = room.me?.userId ?? null;
+        const result = new Map<string, { fullname: string; email: string }>();
+        for (const member of room.members) {
+            if (member.userId === meId) continue;
+            const selection = member.selection as { cellKeys?: unknown } | null | undefined;
+            const cellKeys = Array.isArray(selection?.cellKeys)
+                ? selection.cellKeys.filter((key): key is string => typeof key === "string")
+                : [];
+            for (const key of cellKeys) {
+                if (!result.has(key)) {
+                    result.set(key, { fullname: member.name || "", email: member.email || "" });
+                }
+            }
+        }
+        return result;
+    }, [room.me?.userId, room.members]);
 
     // Ячейки, на которых находятся другие участники: их диапазоны присутствия
     // (канонические ключи — едины для всех независимо от набора колонок) плюс
@@ -673,23 +693,27 @@ function SectionContent({
         try {
             const result = await undoCells(
                 pendingSkip?.direction === "undo" ? pendingSkip.actionId : null,
+                section,
+                reportMonth,
             );
             applyUndoResult(result, "undo");
         } catch (reason) {
             toast.danger("Не удалось отменить действие", { description: errorMessage(reason) });
         }
-    }, [applyUndoResult, pendingSkip]);
+    }, [applyUndoResult, pendingSkip, reportMonth, section]);
 
     const runRedo = useCallback(async () => {
         try {
             const result = await redoCells(
                 pendingSkip?.direction === "redo" ? pendingSkip.actionId : null,
+                section,
+                reportMonth,
             );
             applyUndoResult(result, "redo");
         } catch (reason) {
             toast.danger("Не удалось вернуть действие", { description: errorMessage(reason) });
         }
-    }, [applyUndoResult, pendingSkip]);
+    }, [applyUndoResult, pendingSkip, reportMonth, section]);
 
     useEffect(() => {
         if (!collabEnabled) return;
@@ -893,9 +917,10 @@ function SectionContent({
                     assets={assets}
                     deliveryBases={deliveryBases}
                     remoteLocks={remoteLocks}
+                    remotePresence={remotePresence}
                     onLockedCellEdit={(_, ownerName) =>
                         toast.warning("Ячейка занята", {
-                            description: `Её сейчас редактирует ${ownerName}.`,
+                            description: `Сейчас её занимает ${ownerName}.`,
                         })
                     }
                     onAcquireLease={room.acquireLeases}
@@ -1744,7 +1769,7 @@ function shortName(fullname: string): string {
  * список активов через запятую (например «СНХЗ, БСК»).
  */
 function memberDetail(member: CollabMember): string | null {
-    if (member.role === "admin") return "Администратор";
+    if (member.role === "admin") return "админ";
     const assets = (member.assets ?? []).filter((asset) => asset.trim().length > 0);
     if (assets.length > 0) return assets.join(", ");
     return member.role === "asset_worker" ? "Работник по активам" : member.role || null;
@@ -1758,7 +1783,6 @@ function memberSelectionLabel(member: CollabMember | null): string | null {
 }
 
 function CollabStatusBar({ room }: { room: CollabRoom }) {
-    const lockCount = room.lockedCells.size;
     const me = room.me;
     const self = room.members.find((member) => member.userId === me?.userId) ?? null;
     const others = room.members
@@ -1817,17 +1841,6 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
                             </ul>
                         </Tooltip.Content>
                     </Tooltip>
-                    {lockCount > 0 ? (
-                        <>
-                            <span className="collab-bar__sep" aria-hidden="true" />
-                            <span
-                                className="collab-bar__locks"
-                                title={`Занято ячеек: ${lockCount}`}
-                            >
-                                Занято ячеек: {lockCount}
-                            </span>
-                        </>
-                    ) : null}
                 </>
             ) : (
                 <span className="collab-bar__label" title={COLLAB_STATUS_LABELS[room.status]}>

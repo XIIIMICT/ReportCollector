@@ -304,12 +304,20 @@ export type UndoResult = {
     revision: number | null;
 };
 
-export async function undoCells(skipActionId: number | null = null): Promise<UndoResult> {
-    return requestWrite("/api/raw-materials/undo", "POST", { skipActionId });
+export async function undoCells(
+    skipActionId: number | null,
+    section: string,
+    reportMonth: string | null,
+): Promise<UndoResult> {
+    return requestWrite("/api/raw-materials/undo", "POST", { skipActionId, section, reportMonth });
 }
 
-export async function redoCells(skipActionId: number | null = null): Promise<UndoResult> {
-    return requestWrite("/api/raw-materials/redo", "POST", { skipActionId });
+export async function redoCells(
+    skipActionId: number | null,
+    section: string,
+    reportMonth: string | null,
+): Promise<UndoResult> {
+    return requestWrite("/api/raw-materials/redo", "POST", { skipActionId, section, reportMonth });
 }
 
 export type UndoState = {
@@ -317,8 +325,13 @@ export type UndoState = {
     canRedo: boolean;
 };
 
-export async function getUndoState(): Promise<UndoState> {
-    return requestJson("/api/raw-materials/undo-state");
+export async function getUndoState(
+    section: string,
+    reportMonth: string | null,
+): Promise<UndoState> {
+    const params = new URLSearchParams({ section });
+    if (reportMonth) params.set("report_month", reportMonth);
+    return requestJson(`/api/raw-materials/undo-state?${params.toString()}`);
 }
 
 export type CreateDictionaryPayload = {

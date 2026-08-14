@@ -34,8 +34,9 @@ def lease_key(cell_key: str, *, project: str) -> str:
     return f"rc:lease:{project}:{cell_key}"
 
 
-def undo_stack_key(user_id: str) -> str:
-    return f"rc:undo:{user_id}"
+def undo_stack_key(user_id: str, scope: str) -> str:
+    """Ключ стека undo пользователя на одной форме (scope = section/reportMonth)."""
+    return f"rc:undo:{user_id}:{scope}"
 
 
 def cell_state_key(cell_key: str) -> str:
@@ -160,17 +161,24 @@ class ValkeyStore:
         """Глобальный сквозной идентификатор действия (для cellstate и ответов)."""
         return int(await self._redis.execute_command("INCR", action_seq_key()))
 
-    async def push_actions(self, user_id: str, actions: list[dict]) -> None:
-        """Добавляет действия в начало стека (первые элементы — самые свежие)."""
-        key = undo_stack_key(user_id)
+    async def push_actions(self, user_id: str, scope: str, actions: list[dict]) -> None:
+        """Добавляет действия в начало стека формы (первые элементы — самые свежие)."""
+        key = undo_stack_key(user_id, scope)
         pipe = self._redis.pipeline(transaction=True)
         pipe.lpush(key, *[_encode(action) for action in actions])
         pipe.ltrim(key, 0, UNDO_LIMIT - 1)
         await pipe.execute()
 
-    async def next_action(self, user_id: str, *, undone: bool, after_action_id: int | None = None) -> dict | None:
+    async def next_action(
+        self,
+        user_id: str,
+        scope: str,
+        *,
+        undone: bool,
+        after_action_id: int | None = None,
+    ) -> dict | None:
         """Ближайшее действие пользователя с нужным состоянием (свежие первыми)."""
-        items = await self._redis.lrange(undo_stack_key(user_id), 0, UNDO_SCAN_LIMIT - 1)
+        items = await self._redis.lrange(undo_stack_key(user_id, scope), 0, UNDO_SCAN_LIMIT - 1)
         for action in map(_decode, items):
             if after_action_id is not None and int(action["id"]) >= after_action_id:
                 continue
@@ -178,9 +186,9 @@ class ValkeyStore:
                 return action
         return None
 
-    async def undo_state(self, user_id: str) -> tuple[int, int]:
-        """(число действий к отмене, число действий к возврату)."""
-        items = await self._redis.lrange(undo_stack_key(user_id), 0, -1)
+    async def undo_state(self, user_id: str, scope: str) -> tuple[int, int]:
+        """(число действий к отмене, число действий к возврату) на форме scope."""
+        items = await self._redis.lrange(undo_stack_key(user_id, scope), 0, -1)
         can_undo = can_redo = 0
         for action in map(_decode, items):
             if bool(action.get("undone")):
@@ -189,14 +197,14 @@ class ValkeyStore:
                 can_undo += 1
         return can_undo, can_redo
 
-    async def list_actions(self, user_id: str) -> list[dict]:
-        """Все действия пользователя (свежие первыми) — для тестов и отладки."""
-        items = await self._redis.lrange(undo_stack_key(user_id), 0, -1)
+    async def list_actions(self, user_id: str, scope: str) -> list[dict]:
+        """Все действия пользователя на форме scope (свежие первыми) — для тестов."""
+        items = await self._redis.lrange(undo_stack_key(user_id, scope), 0, -1)
         return [_decode(item) for item in items]
 
-    async def mark_action_undone(self, user_id: str, action_id: int, undone: bool) -> None:
+    async def mark_action_undone(self, user_id: str, scope: str, action_id: int, undone: bool) -> None:
         """Переключает состояние действия (undone=True — отменено, False — возвращено)."""
-        key = undo_stack_key(user_id)
+        key = undo_stack_key(user_id, scope)
         items = await self._redis.lrange(key, 0, -1)
         for index, raw in enumerate(items):
             action = _decode(raw)
@@ -206,13 +214,13 @@ class ValkeyStore:
             await self._redis.lset(key, index, _encode(action))
             return
 
-    async def clear_redo(self, user_id: str) -> None:
-        """Удаляет отменённые действия: новая правка инвалидирует redo-ветку."""
-        await self._redis.eval(_CLEAR_REDO_SCRIPT, 1, undo_stack_key(user_id))
+    async def clear_redo(self, user_id: str, scope: str) -> None:
+        """Удаляет отменённые действия формы: новая правка инвалидирует redo-ветку."""
+        await self._redis.eval(_CLEAR_REDO_SCRIPT, 1, undo_stack_key(user_id, scope))
 
-    async def clear_undo_stack(self, user_id: str) -> None:
-        """Полностью очищает стек пользователя (новая сессия/перезагрузка страницы)."""
-        await self._redis.delete(undo_stack_key(user_id))
+    async def clear_undo_stack(self, user_id: str, scope: str) -> None:
+        """Полностью очищает стек формы пользователя."""
+        await self._redis.delete(undo_stack_key(user_id, scope))
 
     async def clear_all_undo_state(self) -> None:
         """Очищает стеки всех пользователей и состояния ячеек (фиксация месяца)."""
@@ -290,7 +298,7 @@ class MemoryStore:
         self._leases: dict[str, tuple[dict, float]] = {}
         self._presence: dict[str, dict[str, tuple[dict, float]]] = {}
         self._subscribers: dict[str, set[asyncio.Queue]] = {}
-        self._undo: dict[str, list[dict]] = {}
+        self._undo: dict[tuple[str, str], list[dict]] = {}
         self._cell_states: dict[str, dict] = {}
         self._action_seq = 0
 
@@ -345,53 +353,60 @@ class MemoryStore:
             self._action_seq += 1
             return self._action_seq
 
-    async def push_actions(self, user_id: str, actions: list[dict]) -> None:
+    async def push_actions(self, user_id: str, scope: str, actions: list[dict]) -> None:
         async with self._lock:
-            stack = self._undo.setdefault(user_id, [])
+            stack = self._undo.setdefault((user_id, scope), [])
             for action in reversed(actions):
                 stack.insert(0, action)
             del stack[UNDO_LIMIT:]
 
-    async def next_action(self, user_id: str, *, undone: bool, after_action_id: int | None = None) -> dict | None:
+    async def next_action(
+        self,
+        user_id: str,
+        scope: str,
+        *,
+        undone: bool,
+        after_action_id: int | None = None,
+    ) -> dict | None:
         async with self._lock:
-            for action in self._undo.get(user_id, [])[:UNDO_SCAN_LIMIT]:
+            for action in self._undo.get((user_id, scope), [])[:UNDO_SCAN_LIMIT]:
                 if after_action_id is not None and int(action["id"]) >= after_action_id:
                     continue
                 if bool(action.get("undone")) == undone:
                     return action
         return None
 
-    async def undo_state(self, user_id: str) -> tuple[int, int]:
+    async def undo_state(self, user_id: str, scope: str) -> tuple[int, int]:
         async with self._lock:
             can_undo = can_redo = 0
-            for action in self._undo.get(user_id, []):
+            for action in self._undo.get((user_id, scope), []):
                 if bool(action.get("undone")):
                     can_redo += 1
                 else:
                     can_undo += 1
             return can_undo, can_redo
 
-    async def list_actions(self, user_id: str) -> list[dict]:
+    async def list_actions(self, user_id: str, scope: str) -> list[dict]:
         async with self._lock:
-            return [dict(action) for action in self._undo.get(user_id, [])]
+            return [dict(action) for action in self._undo.get((user_id, scope), [])]
 
-    async def mark_action_undone(self, user_id: str, action_id: int, undone: bool) -> None:
+    async def mark_action_undone(self, user_id: str, scope: str, action_id: int, undone: bool) -> None:
         async with self._lock:
-            for action in self._undo.get(user_id, []):
+            for action in self._undo.get((user_id, scope), []):
                 if action["id"] == action_id:
                     action["undone"] = undone
                     return
 
-    async def clear_redo(self, user_id: str) -> None:
+    async def clear_redo(self, user_id: str, scope: str) -> None:
         async with self._lock:
-            stack = self._undo.get(user_id)
+            stack = self._undo.get((user_id, scope))
             if stack is None:
                 return
-            self._undo[user_id] = [action for action in stack if not action.get("undone")]
+            self._undo[(user_id, scope)] = [action for action in stack if not action.get("undone")]
 
-    async def clear_undo_stack(self, user_id: str) -> None:
+    async def clear_undo_stack(self, user_id: str, scope: str) -> None:
         async with self._lock:
-            self._undo.pop(user_id, None)
+            self._undo.pop((user_id, scope), None)
 
     async def clear_all_undo_state(self) -> None:
         async with self._lock:

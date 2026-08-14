@@ -51,19 +51,21 @@ async def undo_last_edit(
     *,
     user: User,
     store: CollabStore,
+    scope: str,
     skip_action_id: int | None = None,
 ) -> UndoOutcome:
     """
-    Отменяет последнее действие пользователя (одна ячейка).
+    Отменяет последнее действие пользователя (одна ячейка) на форме scope.
 
-    skip_action_id — действие, которое пользователь явно пропустил после
-    конфликта (второе нажатие undo): оно исключается из поиска, ищется
-    следующее доступное действие ниже.
+    scope — секция и месяц формы (section/reportMonth), история у каждой
+    формы своя. skip_action_id — действие, которое пользователь явно
+    пропустил после конфликта (второе нажатие undo): оно исключается из
+    поиска, ищется следующее доступное действие ниже.
     """
-    action = await store.next_action(str(user.id), undone=False, after_action_id=skip_action_id)
+    action = await store.next_action(str(user.id), scope, undone=False, after_action_id=skip_action_id)
     if action is None:
         return UndoOutcome(applied=False, reason="empty")
-    return await _switch_entry(session, user=user, store=store, action=action, redo=False)
+    return await _switch_entry(session, user=user, store=store, scope=scope, action=action, redo=False)
 
 
 async def redo_last_undo(
@@ -71,13 +73,14 @@ async def redo_last_undo(
     *,
     user: User,
     store: CollabStore,
+    scope: str,
     skip_action_id: int | None = None,
 ) -> UndoOutcome:
-    """Возвращает последнее отменённое действие пользователя."""
-    action = await store.next_action(str(user.id), undone=True, after_action_id=skip_action_id)
+    """Возвращает последнее отменённое действие пользователя на форме scope."""
+    action = await store.next_action(str(user.id), scope, undone=True, after_action_id=skip_action_id)
     if action is None:
         return UndoOutcome(applied=False, reason="empty")
-    return await _switch_entry(session, user=user, store=store, action=action, redo=True)
+    return await _switch_entry(session, user=user, store=store, scope=scope, action=action, redo=True)
 
 
 async def _switch_entry(
@@ -85,6 +88,7 @@ async def _switch_entry(
     *,
     user: User,
     store: CollabStore,
+    scope: str,
     action: dict,
     redo: bool,
 ) -> UndoOutcome:
@@ -107,7 +111,7 @@ async def _switch_entry(
         value=value,
         user=user,
     )
-    await store.mark_action_undone(str(user.id), action_id, undone=not redo)
+    await store.mark_action_undone(str(user.id), scope, action_id, undone=not redo)
     revision = await store.bump_cell_state(
         key,
         user_id=str(user.id),

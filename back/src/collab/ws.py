@@ -150,11 +150,23 @@ async def raw_materials_ws(
             except InvalidIdentityError:
                 identity = None
     if identity is None:
+        log_warning(
+            logger,
+            "collab.ws_identity_rejected",
+            "Отклонено WebSocket-соединение: не удалось проверить идентичность.",
+            client_id=websocket.query_params.get("clientId") or "",
+        )
         await websocket.close(code=4401)
         return
     try:
         user, roles, assets = await resolve_raw_materials_access(session, identity)
     except NoRawMaterialsAccessError:
+        log_warning(
+            logger,
+            "collab.ws_access_rejected",
+            "Отклонено WebSocket-соединение: нет доступа к проекту.",
+            user_email=identity.email or "",
+        )
         await websocket.close(code=4403)
         return
 

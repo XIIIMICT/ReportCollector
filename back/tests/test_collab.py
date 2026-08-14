@@ -51,18 +51,33 @@ async def _movement_value(client, row_id: str, field: str) -> float | None:
     return next(row for row in rows if row["id"] == row_id)[field]
 
 
-async def _post_undo(client, *, skip_action_id: int | None = None) -> dict:
+async def _post_undo(
+    client,
+    *,
+    skip_action_id: int | None = None,
+    section: str = "materialMovement",
+    report_month: str | None = "2026-08-01",
+) -> dict:
     response = await client.post(
         "/api/raw-materials/undo",
         headers=signed_identity_headers(**admin_headers()),
-        json={"skipActionId": skip_action_id},
+        json={"skipActionId": skip_action_id, "section": section, "reportMonth": report_month},
     )
     assert response.status_code == 200
     return response.json()
 
 
-async def _post_redo(client) -> dict:
-    response = await client.post("/api/raw-materials/redo", headers=signed_identity_headers(**admin_headers()))
+async def _post_redo(
+    client,
+    *,
+    section: str = "materialMovement",
+    report_month: str | None = "2026-08-01",
+) -> dict:
+    response = await client.post(
+        "/api/raw-materials/redo",
+        headers=signed_identity_headers(**admin_headers()),
+        json={"section": section, "reportMonth": report_month},
+    )
     assert response.status_code == 200
     return response.json()
 
@@ -155,7 +170,7 @@ async def test_edit_writes_journal_and_cell_state(client, db_session, store) -> 
     await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
 
     admin = (await db_session.exec(select(User).where(col(User.email) == "admin@example.local"))).one()
-    actions = await store.list_actions(str(admin.id))
+    actions = await store.list_actions(str(admin.id), "materialMovement/2026-08-01")
     assert len(actions) == 1
     action = actions[0]
     assert action["targetTable"] == "rm_material_movement"
@@ -193,6 +208,26 @@ async def test_undo_redo_roundtrip(client) -> None:
     assert await _movement_value(client, row_id, "balanceOnSiteTons") == 12.5
 
 
+async def test_undo_history_is_per_form(client) -> None:
+    """История undo/redo своя на каждой форме (секция + месяц)."""
+    row_id = await _movement_row_id(client)
+    await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
+
+    from_assets = await _post_undo(client, section="assets", report_month=None)
+    assert from_assets["applied"] is False
+    assert from_assets["reason"] == "empty"
+
+    on_movement = await _post_undo(client)
+    assert on_movement["applied"] is True
+    assert on_movement["field"] == "balanceOnSiteTons"
+    assert on_movement["value"] == 5.0
+
+    # Другой месяц «Движения» тоже не делит историю с августом.
+    september = await _post_undo(client, section="materialMovement", report_month="2026-09-01")
+    assert september["applied"] is False
+    assert september["reason"] == "empty"
+
+
 async def test_undo_empty_stack(client, db_session) -> None:
     await _make_project_user(db_session, email="empty@example.local", name="Empty User", sub="empty-sub")
     headers = signed_identity_headers(email="empty@example.local", preferred_username="empty", subject="empty-sub")
@@ -213,11 +248,12 @@ async def test_undo_state_endpoint(client) -> None:
     row_id = await _movement_row_id(client)
     await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
 
-    state = (await client.get("/api/raw-materials/undo-state", headers=headers)).json()
+    params = {"section": "materialMovement", "report_month": "2026-08-01"}
+    state = (await client.get("/api/raw-materials/undo-state", params=params, headers=headers)).json()
     assert state == {"canUndo": True, "canRedo": False}
 
     await _post_undo(client)
-    state = (await client.get("/api/raw-materials/undo-state", headers=headers)).json()
+    state = (await client.get("/api/raw-materials/undo-state", params=params, headers=headers)).json()
     assert state == {"canUndo": False, "canRedo": True}
 
 
@@ -458,7 +494,7 @@ async def test_undo_redo_dictionary_raw_material(client, store) -> None:
     assert response.status_code == 200
     assert response.json()["name"] == temporary
 
-    undone = await _post_undo(client)
+    undone = await _post_undo(client, section="rawMaterials", report_month=None)
     assert undone["applied"] is True
     assert undone["field"] == "name"
     assert undone["value"] == original
@@ -467,7 +503,7 @@ async def test_undo_redo_dictionary_raw_material(client, store) -> None:
     ).json()
     assert next(row for row in rows if row["id"] == target["id"])["name"] == original
 
-    redone = await _post_redo(client)
+    redone = await _post_redo(client, section="rawMaterials", report_month=None)
     assert redone["applied"] is True
     assert redone["value"] == temporary
 
@@ -493,7 +529,7 @@ async def test_undo_redo_dictionary_asset(client, store) -> None:
     )
     assert response.status_code == 200
 
-    undone = await _post_undo(client)
+    undone = await _post_undo(client, section="assets", report_month=None)
     assert undone["applied"] is True
     assert undone["field"] == "name"
     assert undone["value"] == original

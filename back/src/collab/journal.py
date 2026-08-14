@@ -46,10 +46,13 @@ async def record_cell_updates(
     report_month: date | None,
     applied: list[AppliedCell],
 ) -> None:
-    """Пушит действия в стек undo/redo пользователя и бампает состояния ячеек."""
+    """Пушит действия в стек undo/redo пользователя (на форме section) и бампает состояния ячеек."""
     if not applied:
         return
-    await store.clear_redo(str(user_id))
+    # История undo/redo своя на каждую форму (секция + месяц), чтобы с одной
+    # формы нельзя было отменить правки, сделанные на другой.
+    scope = f"{section}/{report_month or ''}"
+    await store.clear_redo(str(user_id), scope)
     actions: list[dict] = []
     for cell in applied:
         action: dict = {
@@ -76,4 +79,4 @@ async def record_cell_updates(
             action_id=action["id"],
         )
         action["revision"] = cell.revision
-    await store.push_actions(str(user_id), actions)
+    await store.push_actions(str(user_id), scope, actions)
