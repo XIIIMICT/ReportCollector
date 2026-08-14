@@ -31,7 +31,7 @@ Stack: `@revolist/react-datagrid` 4.25 (revo-grid), React 19, HeroUI (tooltips, 
 ## Selection
 
 - **Ctrl+A — fully custom**: a `document` handler in the capture phase with `stopImmediatePropagation` (kills revo-grid's built-in select-all, which draws three torn frames — header/data/bottom). Selects one contiguous range over the data cells, **without headers and without the «добавить запись» row**.
-- **Programmatic selection — only through the grid's public API**: `grid.setCellsFocus(start, end)` + `grid.refresh()` (without `refresh` Stencil doesn't redraw the overlay). Reset — `grid.clearFocus()`. **`store.setRange` doesn't exist** (in `revogr-overlay-selection` there's a raw observable without methods) — it's dead code, don't use it.
+- **Programmatic selection — only through the grid's public API**: `grid.setCellsFocus(start, end)` + `grid.refresh()` (without `refresh` Stencil doesn't redraw the overlay). Reset — `grid.clearFocus()` + `grid.refresh()`: the store empties, but without `refresh` the old range rectangle stays visible. **`store.setRange` doesn't exist** (in `revogr-overlay-selection` there's a raw observable without methods) — it's dead code, don't use it.
 - Row selection (click/shift/ctrl on the row number) **resets** the cell selection (`clearGridSelection`) — both state and the visual frame.
 - A mouse-dragged selection is sent to presence **only on completion** (`setrange`), not live.
 

@@ -461,7 +461,12 @@ function RawMaterialsGridInner(
     );
 
     const clearGridSelection = useCallback(() => {
-        void gridRef.current?.clearFocus();
+        const grid = gridRef.current;
+        if (!grid) return;
+        // clearFocus() empties the selection store, but without refresh the
+        // selection overlay isn't repainted (the same Stencil quirk as with
+        // setCellsFocus) — the range rectangle would stay visible.
+        void grid.clearFocus().then(() => void grid.refresh());
         updateSelectionRange(null);
     }, [updateSelectionRange]);
 
@@ -1359,7 +1364,8 @@ function RawMaterialsGridInner(
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape" && !document.fullscreenElement) {
                 if (isEditableTarget(document.activeElement)) return;
-                void gridRef.current?.clearFocus();
+                const grid = gridRef.current;
+                if (grid) void grid.clearFocus().then(() => void grid.refresh());
                 setSelectedRowIds([]);
                 rowSelectionAnchorRef.current = null;
                 updateSelectionRange(null);
