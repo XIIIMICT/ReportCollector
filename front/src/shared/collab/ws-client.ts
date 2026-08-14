@@ -41,6 +41,11 @@ const HEARTBEAT_INTERVAL_MS = 15000;
 const LEASE_RENEW_INTERVAL_MS = 10000;
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 16000;
+// Сколько бездействия (мышь/клавиатура/скрытая вкладка) допустимо, прежде чем
+// участник считается ушедшим: аренды снимаются немедленно, присутствие гаснет
+// по TTL сервера (25с). Нельзя «заблокировать» ячейку, просто уйдя от
+// рабочего места: без продления аренда истекает через 20с.
+const IDLE_TIMEOUT_MS = 120000;
 
 /**
  * Бэкенд отдаёт участников комнаты как map {userId: member},
@@ -66,6 +71,12 @@ export class CollabWsClient {
     private renewTimer: ReturnType<typeof setInterval> | null = null;
     private ownedLeases = new Set<string>();
     private closed = false;
+    /** Момент последней активности пользователя (мышь, клавиатура, фокус). */
+    private lastActivityAt = Date.now();
+    /** Ушёл ли участник: бездействие > IDLE_TIMEOUT_MS или скрытая вкладка. */
+    private away = false;
+    private lastSelection: Record<string, unknown> | null = null;
+    private readonly activityDetach: Array<() => void> = [];
 
     constructor(
         private readonly room: { projectKey: string; section: string; reportMonth: string | null },
@@ -74,12 +85,14 @@ export class CollabWsClient {
 
     connect(): void {
         this.closed = false;
+        this.attachActivityListeners();
         void this.open();
     }
 
     disconnect(): void {
         this.closed = true;
         this.clearTimers();
+        this.detachActivityListeners();
         this.ownedLeases.clear();
         this.socket?.close();
         this.socket = null;
@@ -93,9 +106,11 @@ export class CollabWsClient {
         const owned = keys.filter((key) => this.ownedLeases.has(key));
         if (!owned.length) return;
         this.send({ type: "lease:release", cells: owned });
+        for (const key of owned) this.ownedLeases.delete(key);
     }
 
     setSelection(selection: Record<string, unknown> | null): void {
+        this.lastSelection = selection;
         this.send({ type: "presence", selection });
     }
 
@@ -202,17 +217,66 @@ export class CollabWsClient {
         }, delay);
     }
 
+    /**
+     * Пересчёт состояния «ушёл»: бездействие сверх IDLE_TIMEOUT_MS или скрытая
+     * вкладка. При уходе снимаем все аренды (ячейки освобождаются немедленно,
+     * а не через 20с TTL), при возврате — снова показываемся в «В сети».
+     */
+    private refreshAwayState(): void {
+        const away = document.hidden || Date.now() - this.lastActivityAt > IDLE_TIMEOUT_MS;
+        if (this.away === away) return;
+        this.away = away;
+        if (away) {
+            this.releaseLeases([...this.ownedLeases]);
+        } else if (this.lastSelection !== null) {
+            this.send({ type: "presence", selection: this.lastSelection });
+        }
+    }
+
     private startHeartbeat(): void {
         this.heartbeatTimer = setInterval(() => {
+            this.refreshAwayState();
+            if (this.away) return;
             this.send({ type: "ping" });
         }, HEARTBEAT_INTERVAL_MS);
     }
 
     private startLeaseRenewal(): void {
         this.renewTimer = setInterval(() => {
-            if (!this.ownedLeases.size) return;
+            this.refreshAwayState();
+            if (this.away || !this.ownedLeases.size) return;
             this.send({ type: "lease:renew", cells: [...this.ownedLeases] });
         }, LEASE_RENEW_INTERVAL_MS);
+    }
+
+    private attachActivityListeners(): void {
+        this.lastActivityAt = Date.now();
+        this.away = false;
+        const bump = () => {
+            this.lastActivityAt = Date.now();
+        };
+        const bumpThrottled = () => {
+            if (Date.now() - this.lastActivityAt > 5000) this.lastActivityAt = Date.now();
+        };
+        const add = (
+            target: Document | Window,
+            name: string,
+            handler: () => void,
+            options?: AddEventListenerOptions,
+        ) => {
+            target.addEventListener(name, handler, options);
+            this.activityDetach.push(() => target.removeEventListener(name, handler, options));
+        };
+        for (const name of ["pointerdown", "keydown", "wheel", "touchstart"] as const) {
+            add(document, name, bump, { capture: true, passive: true });
+        }
+        add(document, "pointermove", bumpThrottled, { capture: true, passive: true });
+        add(window, "focus", bump);
+        add(document, "visibilitychange", () => this.refreshAwayState());
+    }
+
+    private detachActivityListeners(): void {
+        for (const detach of this.activityDetach.splice(0)) detach();
     }
 
     private clearTimers(): void {

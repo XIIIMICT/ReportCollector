@@ -261,12 +261,18 @@ class ValkeyStore:
     async def room_leave(self, room: str, user_id: str) -> None:
         await self._redis.hdel(room_presence_key(room), user_id)
 
-    async def refresh_presence(self, room: str, user_id: str) -> None:
-        """Продлевает присутствие активного участника (TTL сбрасывается)."""
+    async def refresh_presence(self, room: str, user_id: str) -> bool:
+        """
+        Продлевает присутствие активного участника (TTL сбрасывается).
+
+        False — участника в комнате уже нет (присутствие истекло, пока он был
+        неактивен): вызывающий код может заново добавить его в комнату.
+        """
         key = room_presence_key(room)
         if await self._redis.hget(key, user_id) is None:
-            return
+            return False
         await self._redis.expire(key, PRESENCE_TTL_SECONDS)
+        return True
 
     async def room_members(self, room: str) -> dict[str, dict]:
         raw = await self._redis.hgetall(room_presence_key(room))
@@ -445,12 +451,14 @@ class MemoryStore:
             current = self._presence.get(room, {}).get(user_id)
             return current[1] if current is not None else None
 
-    async def refresh_presence(self, room: str, user_id: str) -> None:
+    async def refresh_presence(self, room: str, user_id: str) -> bool:
         async with self._lock:
             room_members = self._presence.get(room, {})
             current = room_members.get(user_id)
-            if current is not None and current[1] > time.monotonic():
-                room_members[user_id] = (current[0], time.monotonic() + PRESENCE_TTL_SECONDS)
+            if current is None or current[1] <= time.monotonic():
+                return False
+            room_members[user_id] = (current[0], time.monotonic() + PRESENCE_TTL_SECONDS)
+            return True
 
     async def room_members(self, room: str) -> dict[str, dict]:
         async with self._lock:

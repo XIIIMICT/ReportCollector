@@ -271,7 +271,13 @@ async def _handle_message(
 ) -> None:
     message_type = message.get("type")
     if message_type == "ping":
-        await store.refresh_presence(room, str(owner["userId"]))
+        refreshed = await store.refresh_presence(room, str(owner["userId"]))
+        if not refreshed:
+            # Присутствие истекло, пока участник был неактивен (ушёл от
+            # рабочего места, вкладка скрыта): вернулся — снова в «В сети».
+            await store.room_join(room, str(owner["userId"]), owner)
+            members = await store.room_members(room)
+            await store.publish(room, {"type": "presence:update", "members": members})
         await websocket.send_json({"type": "pong"})
         return
     if message_type == "presence":

@@ -593,6 +593,38 @@ async def test_ws_ping_refreshes_presence(db_session, store) -> None:
     await task
 
 
+async def test_ws_ping_readds_expired_presence(db_session, store) -> None:
+    """Вернувшийся участник снова появляется в «В сети» по первому же heartbeat."""
+    room = "rm:raw_materials:materialMovement:2026-08-01"
+    fake = FakeWebSocket(project="raw_materials")
+    task = await _run_collab_ws(db_session, fake)
+    await _wait_until(lambda: any(message.get("type") == "hello" for message in fake.sent))
+
+    hello = next(message for message in fake.sent if message["type"] == "hello")
+    user_id = hello["user"]["userId"]
+
+    # Участник ушёл: присутствие истекло и было вычищено.
+    await store.room_leave(room, user_id)
+    assert not await store.room_members(room)
+
+    fake.sent.clear()
+    fake.incoming.append({"type": "ping"})
+    await _wait_until(lambda: any(message.get("type") == "pong" for message in fake.sent))
+
+    assert user_id in await store.room_members(room)
+
+    fake.disconnect = True
+    await task
+
+
+async def test_refresh_presence_reports_missing_member(store) -> None:
+    """refresh_presence возвращает False, если участника нет в комнате (истекло)."""
+    room = "rm:test:materialMovement:2026-08-01"
+    assert await store.refresh_presence(room, "u-1") is False
+    await store.room_join(room, "u-1", {"name": "А"})
+    assert await store.refresh_presence(room, "u-1") is True
+
+
 async def test_ws_rejects_unexpected_origin(db_session, store) -> None:
     """Origin вне BACKEND_CORS_ORIGINS отклоняется на хендшейке."""
     fake = FakeWebSocket(project="raw_materials", origin="https://evil.example")
