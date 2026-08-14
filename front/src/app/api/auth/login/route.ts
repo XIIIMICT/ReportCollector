@@ -11,13 +11,13 @@ import {
     isKeycloakEnabled,
     randomBase64Url,
     sessionCookieOptions,
+    sessionMaxAgeSeconds,
     sha256Base64Url,
     transientCookieOptions,
 } from "@/shared/auth/session";
 import { getBackendInternalUrl } from "@/shared/config";
 
 export const dynamic = "force-dynamic";
-const LOCAL_SESSION_SECONDS = 12 * 60 * 60;
 
 export function GET() {
     if (!isKeycloakEnabled()) {
@@ -81,7 +81,8 @@ export async function POST(request: Request) {
         sub: string;
     };
     const config = getSessionConfig();
-    const expiresAt = Date.now() + LOCAL_SESSION_SECONDS * 1000;
+    const sessionSeconds = sessionMaxAgeSeconds();
+    const expiresAt = Date.now() + sessionSeconds * 1000;
     const redirect = NextResponse.redirect(new URL("/", config.appOrigin), 303);
     redirect.cookies.set(
         SESSION_COOKIE,
@@ -93,7 +94,7 @@ export async function POST(request: Request) {
             preferredUsername: identity.key,
             sub: identity.sub,
         }),
-        sessionCookieOptions(config, LOCAL_SESSION_SECONDS),
+        sessionCookieOptions(config, sessionSeconds),
     );
     return redirect;
 }

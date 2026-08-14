@@ -178,6 +178,17 @@ class ValkeyStore:
                 return action
         return None
 
+    async def undo_state(self, user_id: str) -> tuple[int, int]:
+        """(число действий к отмене, число действий к возврату)."""
+        items = await self._redis.lrange(undo_stack_key(user_id), 0, -1)
+        can_undo = can_redo = 0
+        for action in map(_decode, items):
+            if bool(action.get("undone")):
+                can_redo += 1
+            else:
+                can_undo += 1
+        return can_undo, can_redo
+
     async def list_actions(self, user_id: str) -> list[dict]:
         """Все действия пользователя (свежие первыми) — для тестов и отладки."""
         items = await self._redis.lrange(undo_stack_key(user_id), 0, -1)
@@ -349,6 +360,16 @@ class MemoryStore:
                 if bool(action.get("undone")) == undone:
                     return action
         return None
+
+    async def undo_state(self, user_id: str) -> tuple[int, int]:
+        async with self._lock:
+            can_undo = can_redo = 0
+            for action in self._undo.get(user_id, []):
+                if bool(action.get("undone")):
+                    can_redo += 1
+                else:
+                    can_undo += 1
+            return can_undo, can_redo
 
     async def list_actions(self, user_id: str) -> list[dict]:
         async with self._lock:

@@ -21,6 +21,13 @@ class UndoRequest(BaseModel):
     skipActionId: int | None = None
 
 
+class UndoStateRead(BaseModel):
+    """Доступность undo/redo по стеку действий пользователя."""
+
+    canUndo: bool
+    canRedo: bool
+
+
 class UndoResponse(BaseModel):
     applied: bool
     reason: Literal["applied", "empty", "conflict", "locked"] | None = None

@@ -18,7 +18,7 @@ from src.auth.router import read_signed_identity
 from src.auth.service import CurrentUserIdentity, get_user_by_identity
 from src.collab.events import publish_cell_changed
 from src.collab.journal import AppliedCell, record_cell_updates
-from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse
+from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
 from src.collab.store import get_collab_store
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.database import get_session
@@ -472,6 +472,16 @@ async def patch_price_rows(
         cells=applied,
     )
     return len(applied)
+
+
+@router.get("/undo-state", response_model=UndoStateRead)
+async def undo_state_cells(
+    user: UserDependency,
+    _assets: AccessDependency,
+) -> UndoStateRead:
+    """Доступность undo/redo по стеку действий пользователя."""
+    can_undo, can_redo = await get_collab_store().undo_state(str(user.id))
+    return UndoStateRead(canUndo=can_undo > 0, canRedo=can_redo > 0)
 
 
 @router.post("/undo", response_model=UndoResponse)

@@ -1,4 +1,7 @@
 set windows-shell := ["powershell.exe", "-Command"]
+# Порта берём из корневого .env (BACKEND_PORT / FRONT_PORT) — те же,
+# что уходят в compose.yaml; без них рецепты падают, а не молча используют дефолт.
+set dotenv-load := true
 
 export UV_SYSTEM_CERTS := "1"
 export NODE_OPTIONS := "--use-system-ca"
@@ -7,7 +10,7 @@ export NODE_OPTIONS := "--use-system-ca"
 #    сервисы Postgres, Keycloak, Loki, Grafana запускаются отдельно
 #    через профиль standalone) ───────────────────────────────────────────────
 prod:
-    docker compose --profile prod up --build -d
+    docker compose --profile prod up -d
 
 prod-build:
     docker compose --profile prod up --build -d
@@ -15,13 +18,13 @@ prod-build:
 dev:
     docker compose --profile dev up --build --watch
 
-db-standalone:
-    docker compose --profile standalone up -d postgres
+db:
+    docker compose --profile standalone up -d postgres valkey
 
-keycloak-standalone:
+keycloak:
     docker compose --profile standalone up -d keycloak
 
-logging-standalone:
+logging:
     docker compose --profile standalone up -d loki grafana alloy
 
 down:
@@ -32,21 +35,19 @@ clean:
 
 # ── Локальный запуск на хосте ──────────────────────────────────────────────
 back:
-    uv run --directory back -m uvicorn src.main:app --reload --port 6000
+    uv run --directory back -m uvicorn src.main:app --reload --port {{ env_var("BACKEND_PORT") }}
 
 front:
-    bun run --cwd front dev --hostname 127.0.0.1 --port 5000
+    bun run --cwd front dev --hostname 127.0.0.1 --port {{ env_var("FRONT_PORT") }}
 
 # ── Данные ──────────────────────────────────────────────────────────────────
 # seed — пересоздаёт схему и сидирует базовые данные (проекты, справочники, Евтушенко).
 seed:
     uv run --directory back -m src.scripts.seed_database --reset
 
-# migrate — применяет миграции к существующей схеме (добавляет collab-таблицы).
-# С хоста POSTGRES_HOST из .env (host.docker.internal) не резолвится,
-# поэтому переопределяем на localhost; в CI миграция идёт внутри контейнера.
+# migrate — применяет миграции к существующей схеме.
+# POSTGRES_HOST берётся из .env (для сервера — реальный адрес БД, не localhost).
 migrate:
-    $env:POSTGRES_HOST = "localhost"
     uv run --directory back alembic upgrade head
 
 # revision — генерирует черновик новой миграции от моделей.

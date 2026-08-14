@@ -312,6 +312,15 @@ export async function redoCells(skipActionId: number | null = null): Promise<Und
     return requestWrite("/api/raw-materials/redo", "POST", { skipActionId });
 }
 
+export type UndoState = {
+    canUndo: boolean;
+    canRedo: boolean;
+};
+
+export async function getUndoState(): Promise<UndoState> {
+    return requestJson("/api/raw-materials/undo-state");
+}
+
 export type CreateDictionaryPayload = {
     name?: string;
     assetIds?: string[];

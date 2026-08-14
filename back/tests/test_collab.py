@@ -195,14 +195,30 @@ async def test_undo_redo_roundtrip(client) -> None:
 
 async def test_undo_empty_stack(client, db_session) -> None:
     await _make_project_user(db_session, email="empty@example.local", name="Empty User", sub="empty-sub")
-    response = await client.post(
-        "/api/raw-materials/undo",
-        headers=signed_identity_headers(email="empty@example.local", preferred_username="empty", subject="empty-sub"),
-    )
+    headers = signed_identity_headers(email="empty@example.local", preferred_username="empty", subject="empty-sub")
+    response = await client.post("/api/raw-materials/undo", headers=headers)
     assert response.status_code == 200
     body = response.json()
     assert body["applied"] is False
     assert body["reason"] == "empty"
+
+    state = await client.get("/api/raw-materials/undo-state", headers=headers)
+    assert state.status_code == 200
+    assert state.json() == {"canUndo": False, "canRedo": False}
+
+
+async def test_undo_state_endpoint(client) -> None:
+    """undo-state отражает наличие действий в стеке пользователя."""
+    headers = signed_identity_headers(**admin_headers())
+    row_id = await _movement_row_id(client)
+    await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
+
+    state = (await client.get("/api/raw-materials/undo-state", headers=headers)).json()
+    assert state == {"canUndo": True, "canRedo": False}
+
+    await _post_undo(client)
+    state = (await client.get("/api/raw-materials/undo-state", headers=headers)).json()
+    assert state == {"canUndo": False, "canRedo": True}
 
 
 async def test_edit_clears_redo_branch(client) -> None:
@@ -552,18 +568,18 @@ async def test_ws_rejects_unexpected_origin(db_session, store) -> None:
     assert not await store.room_members("rm:raw_materials:materialMovement:2026-08-01")
 
 
-async def test_ws_connect_clears_undo_stack(client, db_session, store) -> None:
-    """Перезагрузка страницы (новое WS-подключение) обнуляет undo/redo."""
+async def test_ws_connect_keeps_undo_stack(client, db_session, store) -> None:
+    """История undo/redo переживает переподключение (переключение форм, reload)."""
     row_id = await _movement_row_id(client)
     await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
 
+    # Новое WS-подключение (другая форма/перезагрузка) не стирает стек.
     fake = FakeWebSocket(project="raw_materials")
     task = await _run_collab_ws(db_session, fake)
     await _wait_until(lambda: any(message.get("type") == "hello" for message in fake.sent))
 
     undone = await _post_undo(client)
-    assert undone["applied"] is False
-    assert undone["reason"] == "empty"
+    assert undone["applied"] is True
 
     fake.disconnect = True
     await task

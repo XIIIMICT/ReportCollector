@@ -195,9 +195,9 @@ async def raw_materials_ws(
     await websocket.accept()
     await store.room_join(room, str(user.id), owner)
     await manager.join(room, websocket, owner)
-    # Перезагрузка страницы = новое подключение: история undo/redo не
-    # переживает сессию пользователя (см. store.clear_undo_stack).
-    await store.clear_undo_stack(str(user.id))
+    # История undo/redo живёт в стеке пользователя и переживает переподключения
+    # (переключение между формами, перезагрузку страницы) — стек очищается
+    # только фиксацией месяца (clear_all_undo_state).
     members = await store.room_members(room)
     await websocket.send_json({"type": "hello", "room": room, "user": owner, "members": members, "clientId": client_id})
     await store.publish(room, {"type": "presence:update", "members": members})

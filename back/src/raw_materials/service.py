@@ -12,7 +12,7 @@ from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy import select as sqlalchemy_select
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import col, select
+from sqlmodel import col, delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import Select
 
@@ -951,8 +951,9 @@ async def delete_raw_material(session: AsyncSession, *, raw_material_id: UUID) -
         await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.raw_material_id) == raw_material_id))
     ).all()
     for link in links:
-        if await _arm_is_used(session, link.id):
+        if await _arm_has_data(session, link.id):
             raise _DICT_REF_RAW_MATERIAL_USED
+        await _delete_arm_rows(session, link.id)
         await session.delete(link)
     await session.delete(raw_material)
     await session.commit()
@@ -1008,8 +1009,9 @@ async def delete_asset(session: AsyncSession, *, asset_id: UUID) -> None:
         raise _DICT_REF_ASSET_NOT_FOUND
     links = (await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.asset_id) == asset_id))).all()
     for link in links:
-        if await _arm_is_used(session, link.id):
+        if await _arm_has_data(session, link.id):
             raise _DICT_REF_ASSET_USED
+        await _delete_arm_rows(session, link.id)
         await session.delete(link)
     user_links = (
         await session.exec(select(RawMaterialUserAsset).where(col(RawMaterialUserAsset.asset_id) == asset_id))
@@ -1256,6 +1258,12 @@ async def delete_project_user(
     raise _DICT_REF_USER_DELETE_FORBIDDEN
 
 
+async def _default_basis_id(session: AsyncSession) -> UUID | None:
+    """Базис по умолчанию для новых строк «Цен» (первый по алфавиту, как в сиде)."""
+    basis = (await session.exec(select(DeliveryBasis).order_by(DeliveryBasis.name))).first()
+    return basis.id if basis is not None else None
+
+
 async def replace_asset_links(session: AsyncSession, raw_material_id: UUID, asset_ids: list[UUID]) -> None:
     """Заменяет связки актив-сырьё для сырьевой позиции (по разнице)."""
     existing = {
@@ -1266,30 +1274,68 @@ async def replace_asset_links(session: AsyncSession, raw_material_id: UUID, asse
     }
     existing_ids = set(existing)
     new_ids = set(asset_ids)
-    # Удаляем только снятые активы. Связи с движением/ценами защищены
-    # RESTRICT-ключом — это бизнес-правило, а не ошибка вставки.
-    for asset_id in existing_ids - new_ids:
-        await session.delete(existing[asset_id])
+    # Удаляем только снятые активы. Пустые строки «Движения»/«Цен» удаляются
+    # вместе со связкой; актив с заполненными данными снять нельзя — это
+    # бизнес-правило, а RESTRICT-ключ служит страховкой от гонок.
+    removed_ids = existing_ids - new_ids
+    if removed_ids:
+        blocked_ids: list[UUID] = []
+        for asset_id in removed_ids:
+            link = existing[asset_id]
+            if await _arm_has_data(session, link.id):
+                blocked_ids.append(asset_id)
+            else:
+                await _delete_arm_rows(session, link.id)
+                await session.delete(link)
+        if blocked_ids:
+            names = await _asset_names_by_ids(session, sorted(blocked_ids))
+            raise DictionaryReferenceError("Нельзя убрать активы, по которым есть данные движения: " + ", ".join(names))
     try:
         await session.flush()
     except IntegrityError as error:
         await session.rollback()
-        names = await _asset_names_by_ids(session, sorted(existing_ids - new_ids))
+        names = await _asset_names_by_ids(session, sorted(removed_ids))
         raise DictionaryReferenceError(
             "Нельзя убрать активы, по которым есть данные движения: " + ", ".join(names)
         ) from error
     now = datetime.now(UTC)
+    new_links: list[AssetRawMaterial] = []
     for asset_id in asset_ids:
         if asset_id not in existing_ids:
+            link = AssetRawMaterial(
+                asset_id=asset_id,
+                raw_material_id=raw_material_id,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(link)
+            new_links.append(link)
+    await session.flush()
+    if new_links:
+        # Новая связка сразу даёт строки на формах «Цены» и «Движение»
+        # (как при сидировании): цена — одна на связку, движение — по строке
+        # на каждый открытый отчётный месяц.
+        basis_id = await _default_basis_id(session)
+        periods = [row for row in (await session.exec(select(col(MovementPeriod.report_month)))).all()]
+        for link in new_links:
             session.add(
-                AssetRawMaterial(
-                    asset_id=asset_id,
-                    raw_material_id=raw_material_id,
+                RawMaterialPrice(
+                    asset_raw_material_id=link.id,
+                    delivery_basis_id=basis_id,
                     created_at=now,
                     updated_at=now,
                 )
             )
-    await session.flush()
+            for report_month in periods:
+                session.add(
+                    MaterialMovement(
+                        asset_raw_material_id=link.id,
+                        report_month=report_month,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+        await session.flush()
 
 
 async def replace_user_assets(session: AsyncSession, user_id: UUID, asset_names: list[str] | None) -> None:
@@ -1314,13 +1360,42 @@ async def replace_user_assets(session: AsyncSession, user_id: UUID, asset_names:
     await session.flush()
 
 
-async def _arm_is_used(session: AsyncSession, arm_id: UUID) -> bool:
-    movement = (
+async def _delete_arm_rows(session: AsyncSession, arm_id: UUID) -> None:
+    """Удаляет (пустые) строки «Движения» и «Цен» связки перед удалением самой связки."""
+    await session.exec(delete(MaterialMovement).where(col(MaterialMovement.asset_raw_material_id) == arm_id))
+    await session.exec(delete(RawMaterialPrice).where(col(RawMaterialPrice.asset_raw_material_id) == arm_id))
+
+
+async def _arm_has_data(session: AsyncSession, arm_id: UUID) -> bool:
+    """Есть ли у связки заполненные строки «Движения»/«Цен» (пустые — не данные)."""
+    movement_fields = (
+        "demand_plan_tons",
+        "consumption_fact_tons",
+        "delivery_plan_tons",
+        "delivery_fact_tons",
+        "balance_start_tons",
+        "balance_on_site_tons",
+        "balance_in_transit_tons",
+        "balance_end_tons",
+        "storage_standard_tons",
+        "deviation_reason",
+    )
+    rows = (
         await session.exec(select(MaterialMovement).where(col(MaterialMovement.asset_raw_material_id) == arm_id))
-    ).first()
-    if movement is not None:
-        return True
+    ).all()
+    for row in rows:
+        if any(getattr(row, field) not in (None, "") for field in movement_fields):
+            return True
     price = (
         await session.exec(select(RawMaterialPrice).where(col(RawMaterialPrice.asset_raw_material_id) == arm_id))
     ).first()
-    return price is not None
+    if price is None:
+        return False
+    price_fields = (
+        "fact_2025",
+        "business_plan_quantity_tons",
+        "business_plan_usd_per_ton",
+        "business_plan_rub_per_ton",
+        "delivery_cost_rub",
+    )
+    return any(getattr(price, field) is not None for field in price_fields)

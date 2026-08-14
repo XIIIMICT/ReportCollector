@@ -28,7 +28,12 @@ class Settings(BaseSettings):
     auth_secret: str = ""
     auth_seed_admin_email: str | None = None
     auth_seed_admin_password: str | None = None
-    backend_cors_origins: Annotated[list[str], NoDecode] | None = None
+    # По умолчанию — локальные dev-ориджины. В compose-стеке значение выводится
+    # из AUTH_APP_ORIGIN (единый источник хоста приложения); здесь оно нужно
+    # только для запуска бэкенда на хосте вне compose.
+    backend_cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:5000", "http://127.0.0.1:5000"]
+    )
 
     @model_validator(mode="after")
     def validate_settings(self) -> Settings:
@@ -48,9 +53,6 @@ class Settings(BaseSettings):
             if missing:
                 msg = f"Не заданы обязательные переменные: {', '.join(missing)}."
                 raise ValueError(msg)
-        if self.backend_cors_origins is None:
-            msg = "Не задана обязательная переменная BACKEND_CORS_ORIGINS."
-            raise ValueError(msg)
         if len(self.auth_secret) < 32:
             msg = "AUTH_SECRET должен содержать не менее 32 символов."
             raise ValueError(msg)

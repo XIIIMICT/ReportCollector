@@ -13,6 +13,7 @@ import {
     encodeSession,
     getAuthConfig,
     sessionCookieOptions,
+    sessionMaxAgeSeconds,
     stringClaim,
     type AuthConfig,
     type AuthSession,
@@ -193,17 +194,18 @@ async function readUserInfo(config: AuthConfig, accessToken: string): Promise<Us
 
 function buildSession(idTokenPayload: JWTPayload, userInfo: UserInfo): AuthSession {
     const subject = idTokenPayload.sub;
-    const expiresAt = idTokenPayload.exp;
-    if (!subject || !expiresAt) {
+    if (!subject || !idTokenPayload.exp) {
         throw new Error("В ID token отсутствуют обязательные claims sub или exp.");
     }
+    // Сессия живёт по своей долготе (AUTH_SESSION_MAX_AGE_SECONDS), а не до exp
+    // ID token (у Keycloak это минуты) — иначе пользователя выкидывает "не авторизован".
 
     const givenName = claimFromUserInfo("given_name", userInfo, idTokenPayload);
     const familyName = claimFromUserInfo("family_name", userInfo, idTokenPayload);
     return {
         email: claimFromUserInfo("email", userInfo, idTokenPayload),
         emailVerified: booleanClaim(userInfo, idTokenPayload, "email_verified"),
-        expiresAt: expiresAt * 1000,
+        expiresAt: Date.now() + sessionMaxAgeSeconds() * 1000,
         familyName,
         givenName,
         issuer: idTokenPayload.iss || "",

@@ -290,6 +290,106 @@ async def test_admin_crud_raw_material(client) -> None:
     assert all(item["id"] != row["id"] for item in rows)
 
 
+async def test_added_asset_creates_price_and_movement_rows(client) -> None:
+    """Новый актив у сырьевой позиции сразу даёт строки на «Ценах» и «Движении»."""
+    headers = signed_identity_headers(**admin_headers())
+    meta = (await client.get("/api/raw-materials/meta", headers=headers)).json()
+    assets = {asset["name"]: asset["id"] for asset in meta["assets"]}
+
+    positions = (await client.get("/api/raw-materials/raw-materials", headers=headers)).json()
+    ammiak = next(position for position in positions if position["name"] == "Аммиак")
+    # Аммиак изначально привязан к БСЗ и СНХЗ — добавляем ВОС.
+    response = await client.patch(
+        f"/api/raw-materials/raw-materials/{ammiak['id']}",
+        headers=headers,
+        json={"assetIds": [assets["БСЗ"], assets["СНХЗ"], assets["ВОС"]]},
+    )
+    assert response.status_code == 200
+    assert response.json()["assetNames"] == ["БСЗ", "ВОС", "СНХЗ"]
+
+    prices = (await client.get("/api/raw-materials/prices", headers=headers)).json()
+    new_price = next(row for row in prices if row["rawMaterialName"] == "Аммиак" and row["assetName"] == "ВОС")
+    assert new_price["deliveryBasisName"] == "FCA"  # первый базис по алфавиту — как в сиде
+    assert new_price["businessPlanQuantityTons"] is None
+
+    for report_month in meta["movementPeriods"]:
+        rows = (
+            await client.get(
+                "/api/raw-materials/movement",
+                params={"report_month": report_month},
+                headers=headers,
+            )
+        ).json()
+        new_row = next(row for row in rows if row["rawMaterialName"] == "Аммиак" and row["assetName"] == "ВОС")
+        assert new_row["businessPlanTons"] is None
+        assert new_row["demandPlanTons"] is None
+
+
+async def test_removing_added_asset_requires_empty_rows(client) -> None:
+    """Снять актив с пустыми строками можно; с заполненными данными — 409."""
+    headers = signed_identity_headers(**admin_headers())
+    meta = (await client.get("/api/raw-materials/meta", headers=headers)).json()
+    assets = {asset["name"]: asset["id"] for asset in meta["assets"]}
+
+    positions = (await client.get("/api/raw-materials/raw-materials", headers=headers)).json()
+    ammiak = next(position for position in positions if position["name"] == "Аммиак")
+
+    # Добавляем ВОС к Аммиаку и заполняем ячейку «Движения» за август.
+    added = await client.patch(
+        f"/api/raw-materials/raw-materials/{ammiak['id']}",
+        headers=headers,
+        json={"assetIds": [assets["БСЗ"], assets["СНХЗ"], assets["ВОС"]]},
+    )
+    assert added.status_code == 200
+    rows = (
+        await client.get(
+            "/api/raw-materials/movement",
+            params={"report_month": "2026-08-01"},
+            headers=headers,
+        )
+    ).json()
+    new_row = next(row for row in rows if row["assetName"] == "ВОС" and row["rawMaterialName"] == "Аммиак")
+
+    # Заполняем ячейку «Движения» за август.
+    filled = await client.patch(
+        "/api/raw-materials/movement",
+        headers=headers,
+        json={
+            "reportMonth": "2026-08-01",
+            "updates": [{"rowId": new_row["id"], "field": "balanceOnSiteTons", "value": 12.5}],
+        },
+    )
+    assert filled.status_code == 200
+
+    # Снять актив с заполненной строкой нельзя — 409.
+    blocked = await client.patch(
+        f"/api/raw-materials/raw-materials/{ammiak['id']}",
+        headers=headers,
+        json={"assetIds": [assets["БСЗ"], assets["СНХЗ"]]},
+    )
+    assert blocked.status_code == 409
+    assert "ВОС" in blocked.json()["detail"]
+
+    # Очищаем данные — теперь снять можно, строки «Движения»/«Цен» удаляются.
+    cleared = await client.patch(
+        "/api/raw-materials/movement",
+        headers=headers,
+        json={
+            "reportMonth": "2026-08-01",
+            "updates": [{"rowId": new_row["id"], "field": "balanceOnSiteTons", "value": None}],
+        },
+    )
+    assert cleared.status_code == 200
+    removed = await client.patch(
+        f"/api/raw-materials/raw-materials/{ammiak['id']}",
+        headers=headers,
+        json={"assetIds": [assets["БСЗ"], assets["СНХЗ"]]},
+    )
+    assert removed.status_code == 200
+    prices = (await client.get("/api/raw-materials/prices", headers=headers)).json()
+    assert not any(row["rawMaterialName"] == "Аммиак" and row["assetName"] == "ВОС" for row in prices)
+
+
 async def test_admin_crud_asset_and_basis(client) -> None:
     created = await client.post(
         "/api/raw-materials/assets",

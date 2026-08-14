@@ -4,6 +4,11 @@ Alembic окружение: асинхронные миграции поверх
 URL и search_path берутся из src.config (POSTGRES_* / DATABASE_URL), а не из
 alembic.ini. Схема приложения (rc) задаётся через server_settings, поэтому
 миграции создают и изменяют объекты именно в ней.
+
+Важно: URL не передаётся через config.set_main_option("sqlalchemy.url", ...) —
+ConfigParser делает %-интерполяцию и падает на спецсимволах пароля,
+процент-закодированных в URL (например, «#» -> «%23»). Движок строится
+напрямую из настроек приложения.
 """
 
 import asyncio
@@ -12,7 +17,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
 
 from src.auth import models as auth_models  # noqa: F401
@@ -25,7 +30,6 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.sqlalchemy_database_url)
 
 target_metadata = SQLModel.metadata
 
@@ -56,10 +60,8 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     """Онлайн-режим: подключение с тем же search_path, что у приложения."""
-    configuration = config.get_section(config.config_ini_section, {})
-    connectable = async_engine_from_config(
-        configuration,
-        prefix="sqlalchemy.",
+    connectable = create_async_engine(
+        settings.sqlalchemy_database_url,
         poolclass=pool.NullPool,
         connect_args={"server_settings": {"search_path": settings.postgres_schema}},
     )

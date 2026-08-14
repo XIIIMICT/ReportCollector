@@ -39,6 +39,7 @@ import {
     getRawMaterialsMeta,
     getRawMaterialsMovement,
     getRawMaterialsPrices,
+    getUndoState,
     getUserList,
     redoCells,
     undoCells,
@@ -385,9 +386,19 @@ function SectionContent({
         setApproveOpen(false);
         setSelectedSnapshotId(null);
         setSnapshotView(null);
-        setUndoCount(0);
-        setRedoCount(0);
     }, [reportMonth, section]);
+
+    // История undo/redo общая на все формы и хранится на сервере: при
+    // переключении секций счётчики не сбрасываются, а перечитываются из стека.
+    useEffect(() => {
+        if (!collabEnabled) return;
+        void getUndoState()
+            .then((state) => {
+                setUndoCount(state.canUndo ? 1 : 0);
+                setRedoCount(state.canRedo ? 1 : 0);
+            })
+            .catch(() => {});
+    }, [collabEnabled]);
 
     const canManageReferences = isAdmin && !MAIN_SECTIONS.has(section);
     const showAssetColumn = isAdmin || assets.length > 1;
@@ -901,6 +912,12 @@ function SectionContent({
                     }
                     onPasteSkipped={(description) =>
                         toast.warning("Вставка выполнена не полностью", { description })
+                    }
+                    onPasteTruncated={() =>
+                        toast.warning("Вставка обрезана", {
+                            description:
+                                "Вставляемый диапазон больше выделенного — значения вставлены только в выделенные ячейки.",
+                        })
                     }
                     onViewStatsChange={onGridStatsChange}
                     onClipboardStateChange={handleClipboardState}

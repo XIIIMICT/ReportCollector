@@ -4,6 +4,13 @@ include:
   - path: ./infra/compose.external-services.yaml
   - path: ./infra/compose.alloy.yaml
 
+# ── Единые источники ─────────────────────────────────────────────────────────
+# Порт бэкенда и фронтенда задаются один раз в корневом .env (BACKEND_PORT /
+# FRONT_PORT) и отсюда же расходятся: ARG в Dockerfile (порт в контейнере),
+# проброс портов, healthcheck, внутренние URL. Аналогично хост бэкенда
+# (имя сервиса в compose-сети) и хост приложения (AUTH_APP_ORIGIN), из
+# которого выводится список CORS-ориджинов. Все они обязательные (:? — при
+# отсутствии compose падает с понятной ошибкой, а не молча подставляет дефолт).
 services:
   back:
     profiles: [prod]
@@ -13,7 +20,7 @@ services:
       dockerfile: Dockerfile
       target: prod
       args:
-        SSL_ISSUES_WHEN_INSTALLING_DEPS: ${SSL_ISSUES_WHEN_INSTALLING_DEPS:-}
+        BACKEND_PORT: ${BACKEND_PORT:?}
     restart: unless-stopped
     env_file:
       - path: ./.env
@@ -21,16 +28,18 @@ services:
     environment:
       LOG_FILE: /app/logs/reportcollector.log
       AUTH_KEYCLOAK_INTERNAL_ISSUER: ${AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER:-${AUTH_KEYCLOAK_PUBLIC_ISSUER}}
+      # Ориджины CORS/WS: локальные + хост приложения из AUTH_APP_ORIGIN
+      # (единый источник хоста в .env). Переопределить можно явным значением.
+      BACKEND_CORS_ORIGINS: '${BACKEND_CORS_ORIGINS:-["http://localhost:5000","http://127.0.0.1:5000","${AUTH_APP_ORIGIN:?}"]}'
     volumes:
       - /etc/ssl/certs:/etc/ssl/certs:ro
       - ./logs:/app/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "6000:6000"
-      - "5001:6000"
+      - "${BACKEND_PORT:?}:${BACKEND_PORT:?}"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:6000/health', timeout=5).read()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${BACKEND_PORT:?}/health', timeout=5).read()"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -45,7 +54,7 @@ services:
       dockerfile: Dockerfile
       target: dev
       args:
-        SSL_ISSUES_WHEN_INSTALLING_DEPS: ${SSL_ISSUES_WHEN_INSTALLING_DEPS:-}
+        BACKEND_PORT: ${BACKEND_PORT:?}
     networks: !override [net-dev]
     develop:
       watch:
@@ -65,14 +74,17 @@ services:
       dockerfile: Dockerfile
       target: prod
       args:
-        SSL_ISSUES_WHEN_INSTALLING_DEPS: ${SSL_ISSUES_WHEN_INSTALLING_DEPS:-}
+        PORT: ${FRONT_PORT:?}
     restart: unless-stopped
     env_file:
       - path: ./.env
         required: true
     environment:
-      BACKEND_INTERNAL_URL: http://back:6000
-      COLLAB_WS_PUBLIC_URL: ${COLLAB_WS_PUBLIC_URL:-ws://127.0.0.1:5001}
+      BACKEND_INTERNAL_URL: http://${BACKEND_HOST:?}:${BACKEND_PORT:?}
+      # Пусто = браузер идёт на тот же origin через nginx (wss://<хост>/api/ws/...),
+      # который проксирует /api/ws/ на бэкенд. Задавать адрес нужно только если
+      # WebSocket раздаётся с отдельного хоста/порта.
+      COLLAB_WS_PUBLIC_URL: ${COLLAB_WS_PUBLIC_URL:-}
       AUTH_KEYCLOAK_INTERNAL_ISSUER: ${AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER:-${AUTH_KEYCLOAK_PUBLIC_ISSUER}}
       FRONT_LOG_FILE: /app/logs/reportcollector-front.log
     volumes:
@@ -81,7 +93,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "5000:5000"
+      - "${FRONT_PORT:?}:${FRONT_PORT:?}"
     depends_on:
       back:
         condition: service_healthy
@@ -91,7 +103,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:' + (process.env.PORT || 5000) + '/api/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:' + (process.env.PORT || '${FRONT_PORT:?}') + '/api/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
         ]
       interval: 10s
       timeout: 5s
@@ -107,12 +119,14 @@ services:
       dockerfile: Dockerfile
       target: dev
       args:
-        SSL_ISSUES_WHEN_INSTALLING_DEPS: ${SSL_ISSUES_WHEN_INSTALLING_DEPS:-}
+        PORT: ${FRONT_PORT:?}
     depends_on: !override
       back-dev:
         condition: service_started
     environment:
-      BACKEND_INTERNAL_URL: http://back-dev:6000
+      BACKEND_INTERNAL_URL: http://${BACKEND_HOST_DEV:?}:${BACKEND_PORT:?}
+      # В dev WebSocket идёт напрямую в бэкенд (bun dev не проксирует WS).
+      COLLAB_WS_PUBLIC_URL: ${COLLAB_WS_PUBLIC_URL:-ws://127.0.0.1:${BACKEND_PORT:?}}
     networks: !override [net-dev]
     develop:
       watch:

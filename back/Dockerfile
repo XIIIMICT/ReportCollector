@@ -2,21 +2,23 @@ FROM ghcr.io/astral-sh/uv:python3.14-alpine AS base
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=0 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    # Установка зависимостей не проверяет сертификаты (сервер за корпоративным прокси).
+    UV_INSECURE_HOST="pypi.org,files.pythonhosted.org"
 
 FROM base AS deps
-# Если SSL_ISSUES_WHEN_INSTALLING_DEPS не пуст — ставим системные сертификаты
-# и включаем UV_SYSTEM_CERTS=1 для установки зависимостей.
-ARG SSL_ISSUES_WHEN_INSTALLING_DEPS=""
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    if [ -n "$SSL_ISSUES_WHEN_INSTALLING_DEPS" ]; then export UV_SYSTEM_CERTS=1; fi \
-    && uv sync --frozen --no-dev --no-install-project
+    uv sync --frozen --no-dev --no-install-project
 
 FROM python:3.14-alpine AS pre-prod
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH"
+# Порт, на котором слушает uvicorn. Единственная точка в Dockerfile:
+# значение задаёт compose.yaml из BACKEND_PORT в .env.
+ARG BACKEND_PORT=8000
+ENV BACKEND_PORT=${BACKEND_PORT}
 
 RUN addgroup -S appgroup && adduser -S -G appgroup -D appuser && \
     mkdir -p /app/logs && \
@@ -27,7 +29,7 @@ COPY --chown=appuser:appgroup --from=deps /app/.venv/ ./.venv/
 USER appuser
 
 FROM pre-prod AS dev
-ENTRYPOINT ["uvicorn", "src.main:app", "--reload", "--host", "0.0.0.0", "--port", "6000"]
+ENTRYPOINT ["sh", "-c", "exec uvicorn src.main:app --reload --host 0.0.0.0 --port \"$BACKEND_PORT\""]
 
 FROM pre-prod AS prod
-ENTRYPOINT ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "6000"]
+ENTRYPOINT ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port \"$BACKEND_PORT\""]

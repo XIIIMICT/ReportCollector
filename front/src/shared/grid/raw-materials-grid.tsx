@@ -81,6 +81,8 @@ type Props = {
     onSelectedRowsChange: (selection: { ids: string[]; wholeRows: boolean }) => void;
     onValidationError: (message: string) => void;
     onPasteSkipped?: (description: string) => void;
+    /** Вставляемый диапазон больше выделенного — значения обрезаны выделением. */
+    onPasteTruncated?: () => void;
     remoteLocks?: ReadonlyMap<string, { fullname: string; email: string }>;
     onLockedCellEdit?: (key: string, ownerName: string) => void;
     onAcquireLease?: (keys: string[]) => void;
@@ -113,6 +115,7 @@ type GridSortingEvent = {
 
 type SelectionStoreHandle = {
     set: (key: string, value: unknown) => void;
+    setRange: (start: { x: number; y: number }, end: { x: number; y: number }) => void;
 };
 
 function isGridTarget(event: Event, grid: HTMLElement): boolean {
@@ -238,6 +241,7 @@ function RawMaterialsGridInner(
         onSelectedRowsChange,
         onValidationError,
         onPasteSkipped,
+        onPasteTruncated,
         remoteLocks = new Map(),
         onLockedCellEdit,
         onAcquireLease,
@@ -1017,12 +1021,33 @@ function RawMaterialsGridInner(
             const parsed = text.split(/\r\n|\n|\r/).map((row) => row.split("\t"));
             const range = selectionRangeRef.current;
             if (!range) return;
+
+            const pasteHeight = parsed.length;
+            const pasteWidth = Math.max(0, ...parsed.map((row) => row.length));
+            const selectedHeight = range.y1 - range.y + 1;
+            const selectedWidth = range.x1 - range.x + 1;
+            const singleCell = selectedHeight === 1 && selectedWidth === 1;
+
+            // Одна ячейка — вставляем весь буфер, начиная с неё. Две и более —
+            // вставляем только в выделение: больший буфер обрезается им (Toast),
+            // меньший вставляется как есть, остальные ячейки не трогаем.
+            let toY = range.y;
+            let toY1 = range.y1;
+            let toX = range.x;
+            let toX1 = range.x1;
+            if (singleCell) {
+                toY1 = Math.min(rows.length - 1, range.y + pasteHeight - 1);
+                toX1 = Math.min(flatColumns.length - 1, range.x + pasteWidth - 1);
+            } else if (pasteHeight > selectedHeight || pasteWidth > selectedWidth) {
+                onPasteTruncated?.();
+            }
+
             const data: Record<string, Record<string, unknown>> = {};
             const models: GridRow[] = [];
-            for (let y = range.y; y <= range.y1; y++) {
+            for (let y = toY; y <= toY1; y++) {
                 models[y] = rows[y];
                 const patch: Record<string, unknown> = {};
-                for (let x = range.x; x <= range.x1; x++) {
+                for (let x = toX; x <= toX1; x++) {
                     const column = flatColumns[x] as ColumnRegular | undefined;
                     if (!column) continue;
                     const sourceCol = parsed[y - range.y]?.[x - range.x];
@@ -1031,6 +1056,9 @@ function RawMaterialsGridInner(
                 }
                 if (Object.keys(patch).length > 0) data[String(y)] = patch;
             }
+            // newRange задаёт и область применения, и итоговое выделение —
+            // после вставки выделяются только что вставленные ячейки.
+            const newRange: RangeArea = { y: toY, y1: toY1, x: toX, x1: toX1 };
             grid.dispatchEvent(
                 new CustomEvent("rangeeditapply", {
                     detail: {
@@ -1038,14 +1066,17 @@ function RawMaterialsGridInner(
                         models,
                         type: "rgRow",
                         oldRange: range,
-                        newRange: range,
+                        newRange,
                     },
                     bubbles: true,
                     composed: true,
                 }),
             );
+            // После вставки выделяем только что вставленные ячейки (setRange
+            // обновляет оверлей и эмитит setrange — присутствие подхватится само).
+            getSelectionStore()?.setRange({ x: toX, y: toY }, { x: toX1, y: toY1 });
         },
-        [flatColumns, rows],
+        [flatColumns, getSelectionStore, onPasteTruncated, rows],
     );
 
     useEffect(() => {

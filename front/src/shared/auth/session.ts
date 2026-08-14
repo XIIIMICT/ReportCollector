@@ -45,6 +45,12 @@ export function isKeycloakEnabled(): boolean {
     return process.env.KEYCLOAK_ENABLED !== "false";
 }
 
+/** Долгота сессии (секунды). Не зависит от TTL токена Keycloak (5–10 минут). */
+export function sessionMaxAgeSeconds(): number {
+    const raw = Number(process.env.AUTH_SESSION_MAX_AGE_SECONDS ?? "");
+    return Number.isFinite(raw) && raw > 0 ? raw : 12 * 60 * 60;
+}
+
 export async function getSession(): Promise<AuthSession | null> {
     const cookieStore = await cookies();
     const cookieValue = cookieStore.get(SESSION_COOKIE)?.value;
