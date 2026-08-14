@@ -2,14 +2,14 @@ FROM ghcr.io/astral-sh/uv:python3.14-alpine AS base
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=0 \
-    UV_LINK_MODE=copy \
-    # Установка зависимостей не проверяет сертификаты (сервер за корпоративным прокси).
-    UV_INSECURE_HOST="pypi.org,files.pythonhosted.org"
+    UV_LINK_MODE=copy
 
 FROM base AS deps
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
+    uv sync --frozen --no-dev --no-install-project \
+    --allow-insecure-host pypi.org \
+    --allow-insecure-host files.pythonhosted.org
 
 FROM python:3.14-alpine AS pre-prod
 WORKDIR /app
