@@ -51,9 +51,15 @@ export type RawMaterialsGridState = {
 
 export type GridViewStats = {
     totalRows: number;
+    /** Rows matching the current filters (non-placeholder, non-deleted). */
+    filteredRows: number;
     totalCols: number;
-    visibleRows: number;
-    visibleCols: number;
+    /** Fixed (non-calculated) columns — not editable. */
+    immutableCols: number;
+    /** Calculated columns. */
+    calculatedCols: number;
+    /** Editable columns. */
+    editableCols: number;
 };
 
 export type RawMaterialsGridHandle = {
@@ -952,34 +958,41 @@ function RawMaterialsGridInner(
             grid.getColumns(),
             grid.getVisibleSource("rgRow"),
         ]);
-        const rowHeight = 36;
-        const bodyHeight = Math.max(0, grid.clientHeight - headerHeight);
-        const visibleRowCount = (visibleSource as GridRow[]).filter(
+        const visible = (visibleSource as GridRow[]).filter(
             (row) => !row.isPlaceholder && !row.isDeleted,
-        ).length;
-        const visibleRows = Math.min(
-            visibleRowCount,
-            Math.max(0, Math.round(bodyHeight / rowHeight)),
+        );
+        const counted = descriptors.reduce(
+            (acc, descriptor) => {
+                if (descriptor.kind === "calculated") acc.calculated += 1;
+                else if (descriptor.fixed) acc.immutable += 1;
+                else acc.editable += 1;
+                return acc;
+            },
+            { immutable: 0, calculated: 0, editable: 0 },
         );
         const next: GridViewStats = {
             totalRows: rows.filter((row) => !row.isPlaceholder && !row.isDeleted).length,
+            filteredRows: visible.length,
             totalCols: columns.length,
-            visibleRows,
-            visibleCols: columns.length,
+            immutableCols: counted.immutable,
+            calculatedCols: counted.calculated,
+            editableCols: counted.editable,
         };
         const previous = lastStatsRef.current;
         if (
             previous !== null &&
             previous.totalRows === next.totalRows &&
+            previous.filteredRows === next.filteredRows &&
             previous.totalCols === next.totalCols &&
-            previous.visibleRows === next.visibleRows &&
-            previous.visibleCols === next.visibleCols
+            previous.immutableCols === next.immutableCols &&
+            previous.calculatedCols === next.calculatedCols &&
+            previous.editableCols === next.editableCols
         ) {
             return;
         }
         lastStatsRef.current = next;
         onViewStatsChange(next);
-    }, [headerHeight, onViewStatsChange, rows]);
+    }, [descriptors, onViewStatsChange, rows]);
 
     const resetGridView = useCallback(async () => {
         const grid = gridRef.current;
@@ -1557,6 +1570,12 @@ function RawMaterialsGridInner(
                             section,
                             sortingConfigFromEvent(event.detail),
                         );
+                    }}
+                    onBeforefilterapply={() => {
+                        // Filtering trims the data source synchronously, and there
+                        // is no public event after it — re-measure the filtered
+                        // row count on the next tick.
+                        setTimeout(() => void measureViewport(), 0);
                     }}
                     onContentsizechanged={() => void refreshHorizontalScrollbar()}
                     onViewportscroll={(event) => {

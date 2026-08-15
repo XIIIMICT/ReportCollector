@@ -213,7 +213,7 @@ test("regression: copy, approve dialog, collab bar, column stats", async ({ brow
     expect(collabState?.text).not.toContain("Совместное редактирование активно");
     expect(collabState?.borderRight).toBe("0px");
 
-    // 1. Column stats: "Сейчас на экране" columns equal visible grid columns.
+    // 1. Column stats: the «Столбцы» line totals equal the visible grid columns.
     const stats = await page.evaluate(async () => {
         const grid = document.querySelector("revo-grid") as unknown as {
             getColumns: () => Promise<unknown[]>;
@@ -222,7 +222,7 @@ test("regression: copy, approve dialog, collab bar, column stats", async ({ brow
         const bar = document.querySelector(".grid-stats") as HTMLElement | null;
         return { columnCount, statsText: bar?.innerText ?? "" };
     });
-    expect(stats.statsText).toContain(`${stats.columnCount} столб`);
+    expect(stats.statsText).toContain(`= ${stats.columnCount} всего`);
     expect(errors.length).toBe(0);
     await context.close();
 });

@@ -992,6 +992,7 @@ function SectionFooter({
     approveState,
     archiveState,
     gridStats,
+    selectionLabel,
     clipboardState,
     isFullscreen,
     isFullscreenPending,
@@ -1009,6 +1010,7 @@ function SectionFooter({
     approveState: ApproveState;
     archiveState: ArchiveState;
     gridStats: GridViewStats | null;
+    selectionLabel: string | null;
     clipboardState: { canPaste: boolean };
     isFullscreen: boolean;
     isFullscreenPending: boolean;
@@ -1048,12 +1050,14 @@ function SectionFooter({
                 ) : null}
                 {gridStats !== null ? (
                     <div className="grid-stats" aria-label="Статистика таблицы">
+                        {selectionLabel ? <span>Выделено: {selectionLabel}</span> : null}
                         <span>
-                            Всего: {gridStats.totalRows} строк, {gridStats.totalCols} столбцов
+                            Строки: {gridStats.filteredRows} на экране, {gridStats.totalRows} всего
                         </span>
                         <span>
-                            Сейчас на экране: {gridStats.visibleRows} строк, {gridStats.visibleCols}{" "}
-                            столбцов
+                            Столбцы: {gridStats.immutableCols} неизменяемых +{" "}
+                            {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
+                            заполняемых = {gridStats.totalCols} всего
                         </span>
                     </div>
                 ) : null}
@@ -1221,7 +1225,7 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
         });
     }, []);
     // The archive version is read-only: its viewer doesn't take part in
-    // collaboration and isn't shown in the «В сети» list.
+    // collaboration and isn't shown in the «На форме» list.
     const archiveOpen = archiveState.selectedKey !== null;
     const room = useCollabRoom({
         projectKey: activeProjectKey,
@@ -1238,6 +1242,16 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
     useEffect(() => {
         setRemoteCellValues(new Map());
     }, [selectedTab?.reportMonth, selectedTab?.section]);
+
+    // My completed cell/row selection, in the same format as in the «На форме»
+    // tooltip (e.g. «Потребность / План, т», строки 3–5). The grid reports it
+    // to presence (room.setSelection), which updates our own member entry.
+    const selectionLabel = useMemo(() => {
+        const meId = room.me?.userId ?? null;
+        const self = room.members.find((member) => member.userId === meId);
+        const label = self?.selection?.label;
+        return typeof label === "string" && label.length > 0 ? label : null;
+    }, [room.me?.userId, room.members]);
 
     const setFullscreenMode = useCallback(
         async (next: boolean) => {
@@ -1351,6 +1365,7 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
             approveState={approveState}
             archiveState={archiveState}
             gridStats={gridStats}
+            selectionLabel={selectionLabel}
             clipboardState={clipboardState}
             isFullscreen={isFullscreen}
             isFullscreenPending={isFullscreenPending}
@@ -1817,7 +1832,7 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
                     <Tooltip delay={250}>
                         <Tooltip.Trigger>
                             <span className="collab-bar__members">
-                                <b>В сети:</b> {membersText}
+                                <b>На форме:</b> {membersText}
                             </span>
                         </Tooltip.Trigger>
                         <Tooltip.Content placement="top" className="collab-bar-tooltip">
