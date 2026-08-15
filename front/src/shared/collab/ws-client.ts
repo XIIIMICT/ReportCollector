@@ -231,7 +231,7 @@ export class CollabWsClient {
     /**
      * Recompute the "away" state: inactivity beyond IDLE_TIMEOUT_MS or a
      * hidden tab. On leaving, release all leases (cells free up immediately,
-     * not after the 20s TTL); on return, show up in «В сети» again.
+     * not after the 20s TTL); on return, show up in «На форме» again.
      */
     private refreshAwayState(): void {
         const away = document.hidden || Date.now() - this.lastActivityAt > IDLE_TIMEOUT_MS;

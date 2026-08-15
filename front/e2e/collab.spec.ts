@@ -63,7 +63,7 @@ async function editCell(page: Page, cell: ReturnType<typeof page.locator>, value
 }
 
 test.describe("collab: совместное редактирование", () => {
-    test("скоуп «В сети» по активам: работник ВОС не видит работников СНХЗ", async ({
+    test("скоуп «На форме» по активам: работник ВОС не видит работников СНХЗ", async ({
         browser,
     }) => {
         const ctxA = await browser.newContext();
@@ -76,8 +76,8 @@ test.describe("collab: совместное редактирование", () =>
         await loginAs(pageB, "smirnov", "smirnov");
         await loginAs(pageC, "evtushenko", "TestPassword123");
 
-        // «В сети:» — жирным, фамилии участников в строке состояния.
-        await expect(pageA.locator(".collab-bar b")).toHaveText("В сети:", { timeout: 15000 });
+        // «На форме:» — жирным, фамилии участников в строке состояния.
+        await expect(pageA.locator(".collab-bar b")).toHaveText("На форме:", { timeout: 15000 });
         await expect(pageA.locator(".collab-bar")).toContainText("Вы");
 
         // Лебедева (только ВОС) на «Движении» видит администратора (Евтушенко)
