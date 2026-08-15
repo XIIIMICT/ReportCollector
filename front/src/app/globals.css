@@ -792,25 +792,11 @@ html {
     overflow-y: auto;
 }
 
-/* The strip's height is reserved only when the external horizontal scrollbar
-   is actually shown (no overflow — no strip, no dead gap under the last row).
-   Must equal the scrollbar width (12px) so the layout matches pinned mode. */
+/* The external horizontal scrollbar's height is reserved only when it's
+   actually shown (no overflow — no strip, no dead gap under the last row). */
 .revo-grid-shell:not(.revo-grid-shell--pinned):not(.revo-grid-shell--no-hscroll)
     .revo-grid-vertical-scroller {
-    padding-bottom: 12px;
-}
-
-/* revo-grid sizes its virtual scrollbar strips to the measured system
-   scrollbar (17px on Windows), while the external bars are 12px — the
-   toggle then shifts the content and swaps the bar width ("duplicated
-   scrollbar" feel). Force the strips to the same 12px so pinned and
-   unpinned modes are pixel-identical. */
-.raw-materials-grid revogr-scroll-virtual.vertical {
-    min-width: 12px !important;
-}
-
-.raw-materials-grid revogr-scroll-virtual.horizontal {
-    min-height: 12px !important;
+    padding-bottom: 17px;
 }
 
 .revo-grid-shell:not(.revo-grid-shell--pinned) .raw-materials-grid {
@@ -818,12 +804,11 @@ html {
     min-height: 100%;
 }
 
-/* In unpinned mode both internal scrollbars (vertical + horizontal) are
-   hidden: the external scroller and the external horizontal strip take
-   over. Without this, the internal vertical strip keeps its old (taller)
-   spacer until revo-grid's async re-measure and its native scrollbar
-   lingers next to the external one for a moment when unpinning the header
-   ("duplicated scrollbar" flicker). */
+/* In unpinned mode both internal scrollbars are hidden — the external
+   scroller and the external horizontal strip take over. Without this, the
+   internal vertical strip keeps its old (taller) spacer until revo-grid's
+   async re-measure and its native scrollbar lingers next to the external
+   one right after unpinning ("duplicated scrollbar" flicker). */
 .revo-grid-shell:not(.revo-grid-shell--pinned) .raw-materials-grid revogr-scroll-virtual {
     visibility: hidden;
 }
@@ -834,7 +819,7 @@ html {
     right: 0;
     bottom: 0;
     left: 0;
-    height: 12px;
+    height: 17px;
     overflow-x: auto;
     overflow-y: hidden;
     background: var(--surface);
@@ -848,44 +833,9 @@ html {
     height: 1px;
 }
 
-/* Grid scrollbars are native — theme them explicitly. revo-grid's light
-   theme (theme="compact") sets color-scheme: light on its host, which
-   turns its scrollbars white even in the app's dark theme. The virtual
-   scrollbars (revogr-scroll-virtual), the unpinned vertical scroller and
-   the external horizontal scrollbar are all real DOM elements. Native
-   overflow: auto keeps them visible only while there is overflow. */
-
-.raw-materials-grid revogr-scroll-virtual::-webkit-scrollbar,
-.revo-grid-vertical-scroller::-webkit-scrollbar,
-.revo-grid-external-scrollbar::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
-}
-
-.raw-materials-grid revogr-scroll-virtual::-webkit-scrollbar-track,
-.revo-grid-vertical-scroller::-webkit-scrollbar-track,
-.revo-grid-external-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.raw-materials-grid revogr-scroll-virtual::-webkit-scrollbar-thumb,
-.revo-grid-vertical-scroller::-webkit-scrollbar-thumb,
-.revo-grid-external-scrollbar::-webkit-scrollbar-thumb {
-    border: 3px solid transparent;
-    border-radius: 999px;
-    background: var(--scrollbar);
-    background-clip: padding-box;
-}
-
-.raw-materials-grid revogr-scroll-virtual::-webkit-scrollbar-thumb:hover,
-.revo-grid-vertical-scroller::-webkit-scrollbar-thumb:hover,
-.revo-grid-external-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: var(--muted);
-    background-clip: padding-box;
-}
-
-/* revo-grid's light scheme overrides the app theme (white scrollbars in
-   dark mode) — restore the app's color scheme inside the grid. */
+/* revo-grid's light theme (theme="compact") sets color-scheme: light on
+   its host — without this, native scrollbars (and form controls) inside
+   the grid stay light even in the app's dark theme. */
 .dark .raw-materials-grid {
     color-scheme: dark;
 }
