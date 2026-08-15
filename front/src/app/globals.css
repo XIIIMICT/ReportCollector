@@ -792,11 +792,25 @@ html {
     overflow-y: auto;
 }
 
-/* The 17px strip is reserved only when the external horizontal scrollbar is
-   actually shown (no overflow — no strip, no dead gap under the last row). */
+/* The strip's height is reserved only when the external horizontal scrollbar
+   is actually shown (no overflow — no strip, no dead gap under the last row).
+   Must equal the scrollbar width (12px) so the layout matches pinned mode. */
 .revo-grid-shell:not(.revo-grid-shell--pinned):not(.revo-grid-shell--no-hscroll)
     .revo-grid-vertical-scroller {
-    padding-bottom: 17px;
+    padding-bottom: 12px;
+}
+
+/* revo-grid sizes its virtual scrollbar strips to the measured system
+   scrollbar (17px on Windows), while the external bars are 12px — the
+   toggle then shifts the content and swaps the bar width ("duplicated
+   scrollbar" feel). Force the strips to the same 12px so pinned and
+   unpinned modes are pixel-identical. */
+.raw-materials-grid revogr-scroll-virtual.vertical {
+    min-width: 12px !important;
+}
+
+.raw-materials-grid revogr-scroll-virtual.horizontal {
+    min-height: 12px !important;
 }
 
 .revo-grid-shell:not(.revo-grid-shell--pinned) .raw-materials-grid {
@@ -820,7 +834,7 @@ html {
     right: 0;
     bottom: 0;
     left: 0;
-    height: 17px;
+    height: 12px;
     overflow-x: auto;
     overflow-y: hidden;
     background: var(--surface);
@@ -840,12 +854,6 @@ html {
    scrollbars (revogr-scroll-virtual), the unpinned vertical scroller and
    the external horizontal scrollbar are all real DOM elements. Native
    overflow: auto keeps them visible only while there is overflow. */
-.raw-materials-grid revogr-scroll-virtual,
-.revo-grid-vertical-scroller,
-.revo-grid-external-scrollbar {
-    scrollbar-width: thin;
-    scrollbar-color: var(--scrollbar) transparent;
-}
 
 .raw-materials-grid revogr-scroll-virtual::-webkit-scrollbar,
 .revo-grid-vertical-scroller::-webkit-scrollbar,
