@@ -804,9 +804,13 @@ html {
     min-height: 100%;
 }
 
-.revo-grid-shell:not(.revo-grid-shell--pinned)
-    .raw-materials-grid
-    revogr-scroll-virtual.horizontal {
+/* In unpinned mode both internal scrollbars (vertical + horizontal) are
+   hidden: the external scroller and the external horizontal strip take
+   over. Without this, the internal vertical strip keeps its old (taller)
+   spacer until revo-grid's async re-measure and its native scrollbar
+   lingers next to the external one for a moment when unpinning the header
+   ("duplicated scrollbar" flicker). */
+.revo-grid-shell:not(.revo-grid-shell--pinned) .raw-materials-grid revogr-scroll-virtual {
     visibility: hidden;
 }
 
