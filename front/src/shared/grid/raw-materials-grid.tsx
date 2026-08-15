@@ -253,9 +253,13 @@ function RawMaterialsGridInner(
     forwardedRef: Ref<RawMaterialsGridHandle>,
 ) {
     const gridRef = useRef<HTMLRevoGridElement>(null);
+    const shellRef = useRef<HTMLDivElement>(null);
     const verticalScrollRef = useRef<HTMLDivElement>(null);
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
     const [horizontalContentWidth, setHorizontalContentWidth] = useState(0);
+    // Unpinned mode: the external horizontal scrollbar is shown only when the
+    // grid content actually overflows horizontally (native behavior elsewhere).
+    const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
     const [gridRevision, setGridRevision] = useState(0);
     const menuHostRef = useRef<HTMLElement | null>(null);
     const menuRootRef = useRef<Root | null>(null);
@@ -906,7 +910,10 @@ function RawMaterialsGridInner(
         const scrollbarGutter = verticalScroller
             ? verticalScroller.offsetWidth - verticalScroller.clientWidth
             : 0;
-        setHorizontalContentWidth(size.x + scrollbarGutter + 52);
+        const width = size.x + scrollbarGutter + 52;
+        setHorizontalContentWidth(width);
+        const shell = shellRef.current;
+        setHasHorizontalOverflow(width > (shell?.clientWidth ?? 0));
     }, []);
 
     const getExportState = useCallback(async (): Promise<RawMaterialsGridState> => {
@@ -1432,9 +1439,44 @@ function RawMaterialsGridInner(
         };
     }, [columns, headerPinned, measureViewport, refreshHorizontalScrollbar, rows]);
 
+    // Wheel over the horizontal scrollbar strip scrolls it horizontally
+    // (native Chrome behavior scrolls the vertical axis instead). The strips
+    // are real DOM elements: revo-grid's virtual horizontal scrollbar in
+    // pinned mode and our external one in unpinned mode. Native listener —
+    // React's onWheel is passive and can't preventDefault.
+    useEffect(() => {
+        const shell = shellRef.current;
+        if (!shell) return;
+        const handleWheel = (event: WheelEvent) => {
+            if (event.deltaY === 0 && event.deltaX === 0) return;
+            const target = event.target as Node | null;
+            if (!target) return;
+            const internal = gridRef.current?.querySelector("revogr-scroll-virtual.horizontal");
+            const external = horizontalScrollRef.current;
+            const strip =
+                (internal?.contains(target) ? internal : null) ??
+                (external?.contains(target) ? external : null);
+            if (!strip) return;
+            // No horizontal overflow — let the wheel fall through so the
+            // vertical axis keeps working.
+            if (strip.scrollWidth <= strip.clientWidth) return;
+            event.preventDefault();
+            strip.scrollLeft += event.deltaY + event.deltaX;
+        };
+        shell.addEventListener("wheel", handleWheel, { passive: false });
+        return () => shell.removeEventListener("wheel", handleWheel);
+    }, []);
+
     return (
         <div
-            className={headerPinned ? "revo-grid-shell revo-grid-shell--pinned" : "revo-grid-shell"}
+            ref={shellRef}
+            className={[
+                "revo-grid-shell",
+                headerPinned && "revo-grid-shell--pinned",
+                !headerPinned && !hasHorizontalOverflow && "revo-grid-shell--no-hscroll",
+            ]
+                .filter(Boolean)
+                .join(" ")}
             style={
                 {
                     "--grid-content-height": `${contentHeight}px`,
@@ -1559,6 +1601,7 @@ function RawMaterialsGridInner(
                 <div
                     ref={horizontalScrollRef}
                     className="revo-grid-external-scrollbar"
+                    style={{ display: hasHorizontalOverflow ? undefined : "none" }}
                     aria-label="Горизонтальная прокрутка таблицы"
                     onScroll={(event) => {
                         void gridRef.current?.scrollToCoordinate({

@@ -354,7 +354,9 @@ function SectionContent({
         [isMovement, reportMonth, reloadKey],
     );
 
-    const [headerPinned, setHeaderPinned] = useState(false);
+    // Pinned (sticky) header is the default view; the grid uses its own
+    // scrollbars in this mode (the header stays visible while scrolling).
+    const [headerPinned, setHeaderPinned] = useState(true);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [approveOpen, setApproveOpen] = useState(false);

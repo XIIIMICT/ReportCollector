@@ -790,6 +790,12 @@ html {
 
 .revo-grid-shell:not(.revo-grid-shell--pinned) .revo-grid-vertical-scroller {
     overflow-y: auto;
+}
+
+/* The 17px strip is reserved only when the external horizontal scrollbar is
+   actually shown (no overflow — no strip, no dead gap under the last row). */
+.revo-grid-shell:not(.revo-grid-shell--pinned):not(.revo-grid-shell--no-hscroll)
+    .revo-grid-vertical-scroller {
     padding-bottom: 17px;
 }
 
@@ -816,8 +822,60 @@ html {
     background: var(--surface);
 }
 
+.revo-grid-shell--no-hscroll .revo-grid-external-scrollbar {
+    display: none;
+}
+
 .revo-grid-external-scrollbar > div {
     height: 1px;
+}
+
+/* Grid scrollbars are native — theme them explicitly. revo-grid's light
+   theme (theme="compact") sets color-scheme: light on its host, which
+   turns its scrollbars white even in the app's dark theme. The virtual
+   scrollbars (revogr-scroll-virtual), the unpinned vertical scroller and
+   the external horizontal scrollbar are all real DOM elements. Native
+   overflow: auto keeps them visible only while there is overflow. */
+.raw-materials-grid revogr-scroll-virtual,
+.revo-grid-vertical-scroller,
+.revo-grid-external-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar) transparent;
+}
+
+.raw-materials-grid revogr-scroll-virtual::-webkit-scrollbar,
+.revo-grid-vertical-scroller::-webkit-scrollbar,
+.revo-grid-external-scrollbar::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.raw-materials-grid revogr-scroll-virtual::-webkit-scrollbar-track,
+.revo-grid-vertical-scroller::-webkit-scrollbar-track,
+.revo-grid-external-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.raw-materials-grid revogr-scroll-virtual::-webkit-scrollbar-thumb,
+.revo-grid-vertical-scroller::-webkit-scrollbar-thumb,
+.revo-grid-external-scrollbar::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: var(--scrollbar);
+    background-clip: padding-box;
+}
+
+.raw-materials-grid revogr-scroll-virtual::-webkit-scrollbar-thumb:hover,
+.revo-grid-vertical-scroller::-webkit-scrollbar-thumb:hover,
+.revo-grid-external-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
+    background-clip: padding-box;
+}
+
+/* revo-grid's light scheme overrides the app theme (white scrollbars in
+   dark mode) — restore the app's color scheme inside the grid. */
+.dark .raw-materials-grid {
+    color-scheme: dark;
 }
 
 .raw-materials-grid {
