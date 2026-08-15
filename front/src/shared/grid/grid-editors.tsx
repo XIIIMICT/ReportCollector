@@ -49,7 +49,12 @@ export function MultiAssetEditor({ column, save, close }: EditorType) {
                 </Autocomplete.Trigger>
                 <Autocomplete.Popover>
                     <Autocomplete.Filter filter={contains}>
-                        <SearchField autoFocus name="asset-search" variant="secondary">
+                        <SearchField
+                            autoFocus
+                            name="asset-search"
+                            aria-label="Найти актив"
+                            variant="secondary"
+                        >
                             <SearchField.Group>
                                 <SearchField.SearchIcon />
                                 <SearchField.Input placeholder="Найти актив…" />
@@ -125,7 +130,12 @@ export function ReferenceEditor({ column, save, close }: EditorType) {
                 </Autocomplete.Trigger>
                 <Autocomplete.Popover>
                     <Autocomplete.Filter filter={contains}>
-                        <SearchField autoFocus name="reference-search" variant="secondary">
+                        <SearchField
+                            autoFocus
+                            name="reference-search"
+                            aria-label="Найти значение"
+                            variant="secondary"
+                        >
                             <SearchField.Group>
                                 <SearchField.SearchIcon />
                                 <SearchField.Input placeholder="Найти…" />

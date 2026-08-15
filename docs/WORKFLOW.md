@@ -32,6 +32,7 @@ Aggregators: `just lint`, `just typecheck`, `just test`, `just e2e`.
 
 - `oxlint --fix`, `oxfmt` (oxc formatter), `tsc --noEmit`.
 - **Attention:** `bun format` (oxfmt) may rewrite line breaks in untouched files (regularly touches `src/shared/collab/use-collab-room.ts`, `ws-client.ts`). After format: `git status`/`git diff` — if the diff on foreign files is empty, restore them with `git checkout -- <file>`.
+- **A11y label rule (dev-log noise):** every HeroUI/react-aria form control **without a visible `Label` must have an `aria-label`** — `SearchField`, `Autocomplete`, the `SearchAutocomplete` pre-mount `TextField` fallback, etc. Missing it makes react-aria warn on every mount ("If you do not provide a visible label…"). The warning exists only in dev builds (`NODE_ENV !== 'production'`), but it floods `docker logs` and drowns real errors. The label is user-facing → Russian, short (`aria-label="Найти актив"`). Don't chase other a11y rules — only this label rule; visible `Label`s (e.g. in `profile-modal`) and buttons with text are already fine.
 - Unit tests — bun test (happy-dom), in `__tests__` next to the code.
 
 ### e2e (Playwright)
