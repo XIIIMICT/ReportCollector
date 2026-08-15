@@ -68,6 +68,8 @@ export type RawMaterialsGridHandle = {
     getExportState: () => Promise<RawMaterialsGridState>;
     copySelection: () => Promise<void>;
     pasteIntoSelection: () => Promise<void>;
+    /** Reset the cell range selection (same path as Escape). */
+    clearSelection: () => void;
 };
 
 type Props = {
@@ -1386,8 +1388,9 @@ function RawMaterialsGridInner(
             getExportState,
             copySelection,
             pasteIntoSelection,
+            clearSelection: clearGridSelection,
         }),
-        [copySelection, getExportState, pasteIntoSelection],
+        [clearGridSelection, copySelection, getExportState, pasteIntoSelection],
     );
 
     useEffect(() => {
