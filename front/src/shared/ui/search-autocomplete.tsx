@@ -51,7 +51,7 @@ export function SearchAutocomplete({
 
     if (!isMounted) {
         return (
-            <TextField isDisabled name="autocomplete">
+            <TextField isDisabled name="autocomplete" aria-label={label ?? placeholder}>
                 {label ? <Label>{label}</Label> : null}
                 <Input placeholder={placeholder} value="" />
             </TextField>
@@ -63,6 +63,7 @@ export function SearchAutocomplete({
             fullWidth
             isDisabled={isDisabled}
             placeholder={placeholder}
+            aria-label={label ?? placeholder}
             selectionMode="single"
             value={selectedKey}
             onChange={handleSelectionChange}
@@ -76,7 +77,12 @@ export function SearchAutocomplete({
             </Autocomplete.Trigger>
             <Autocomplete.Popover>
                 <Autocomplete.Filter filter={contains}>
-                    <SearchField autoFocus name="search" variant="secondary">
+                    <SearchField
+                        autoFocus
+                        name="search"
+                        aria-label={placeholder}
+                        variant="secondary"
+                    >
                         <SearchField.Group>
                             <SearchField.SearchIcon />
                             <SearchField.Input placeholder={placeholder} />
