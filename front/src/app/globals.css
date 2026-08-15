@@ -525,18 +525,17 @@ html {
     min-width: 21rem;
 }
 
-/* The footer stats are a compact single line (selection and/or filtered row
-   count); the full breakdown lives in the hover tooltip. */
+/* The footer stats are compact lines (selection and/or filtered row count),
+   one per line — same layout as the full breakdown in the hover tooltip. */
 .grid-stats {
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 0.8rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
     line-height: 1.2;
     font-size: 0.8rem;
     white-space: nowrap;
     color: var(--muted);
-    cursor: help;
 }
 
 .grid-stats-tooltip {

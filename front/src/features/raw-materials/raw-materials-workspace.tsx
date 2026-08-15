@@ -1085,10 +1085,14 @@ function SectionFooter({
                     <Tooltip delay={250}>
                         <Tooltip.Trigger>
                             <div className="grid-stats" aria-label="Статистика таблицы">
-                                {selectionLabel ? <span>Выделено: {selectionLabel}</span> : null}
+                                {selectionLabel ? (
+                                    <span>
+                                        <b>Выделено:</b> {selectionLabel}
+                                    </span>
+                                ) : null}
                                 {gridStats.filtersApplied ? (
                                     <span>
-                                        Строки: {gridStats.filteredRows} на экране,{" "}
+                                        <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
                                         {gridStats.totalRows} всего
                                     </span>
                                 ) : null}
@@ -1096,13 +1100,17 @@ function SectionFooter({
                         </Tooltip.Trigger>
                         <Tooltip.Content placement="top" className="grid-stats-tooltip">
                             <div className="grid-stats-detail">
-                                {selectionLabel ? <span>Выделено: {selectionLabel}</span> : null}
+                                {selectionLabel ? (
+                                    <span>
+                                        <b>Выделено:</b> {selectionLabel}
+                                    </span>
+                                ) : null}
                                 <span>
-                                    Строки: {gridStats.filteredRows} на экране,{" "}
+                                    <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
                                     {gridStats.totalRows} всего
                                 </span>
                                 <span>
-                                    Столбцы: {gridStats.immutableCols} неизменяемых +{" "}
+                                    <b>Столбцы:</b> {gridStats.immutableCols} неизменяемых +{" "}
                                     {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
                                     заполняемых = {gridStats.totalCols} всего
                                 </span>
@@ -1881,7 +1889,7 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
     // in the expanded Tooltip.
     const membersText = solo
         ? "только вы"
-        : `Вы${others.length ? `, ${others.map((member) => shortName(member.name || member.email)).join(", ")}` : ""}`;
+        : `вы${others.length ? `, ${others.map((member) => shortName(member.name || member.email)).join(", ")}` : ""}`;
     const tooltipMembers = self ? [self, ...others] : room.members;
 
     return (

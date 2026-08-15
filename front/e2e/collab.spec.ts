@@ -78,7 +78,7 @@ test.describe("collab: совместное редактирование", () =>
 
         // «На форме:» — жирным, фамилии участников в строке состояния.
         await expect(pageA.locator(".collab-bar b")).toHaveText("На форме:", { timeout: 15000 });
-        await expect(pageA.locator(".collab-bar")).toContainText("Вы");
+        await expect(pageA.locator(".collab-bar")).toContainText("вы");
 
         // Лебедева (только ВОС) на «Движении» видит администратора (Евтушенко)
         // и себя («Вы») — но не Смирнова (СНХЗ).
@@ -86,12 +86,12 @@ test.describe("collab: совместное редактирование", () =>
         await expect(pageA.locator(".collab-bar")).not.toContainText("Смирнов");
 
         // Смирнов (СНХЗ) видит Евтушенко и себя — но не Лебедеву (ВОС).
-        await expect(pageB.locator(".collab-bar")).toContainText("Вы", { timeout: 15000 });
+        await expect(pageB.locator(".collab-bar")).toContainText("вы", { timeout: 15000 });
         await expect(pageB.locator(".collab-bar")).toContainText("Евтушенко");
         await expect(pageB.locator(".collab-bar")).not.toContainText("Лебедева");
 
         // Администратор видит всех.
-        await expect(pageC.locator(".collab-bar")).toContainText("Вы", { timeout: 15000 });
+        await expect(pageC.locator(".collab-bar")).toContainText("вы", { timeout: 15000 });
         await expect(pageC.locator(".collab-bar")).toContainText("Смирнов");
         await expect(pageC.locator(".collab-bar")).toContainText("Лебедева");
 
@@ -122,9 +122,8 @@ test.describe("collab: совместное редактирование", () =>
         await expect(editorA).toBeVisible({ timeout: 10000 });
         await editorA.fill("999");
 
-        // У пользователя B ячейка помечается занятой: счётчик локов и CSS-класс.
-        await expect(pageB.locator(".collab-bar__locks")).toContainText("1", { timeout: 15000 });
-        await expect(cellB).toHaveClass(/report-cell--remote-locked/);
+        // У пользователя B ячейка помечается занятой: CSS-класс подсветки.
+        await expect(cellB).toHaveClass(/report-cell--remote-locked/, { timeout: 15000 });
 
         // Попытка B отредактировать занятую ячейку блокируется: редактор не открывается.
         await cellB.dblclick();
@@ -145,7 +144,7 @@ test.describe("collab: совместное редактирование", () =>
             .toBe("999");
 
         // Аренда снята: B теперь может редактировать ту же ячейку.
-        await expect(pageB.locator(".collab-bar__locks")).toHaveCount(0, { timeout: 15000 });
+        await expect(cellB).not.toHaveClass(/report-cell--remote-locked/, { timeout: 15000 });
         await editCell(pageB, cellB, "123");
         await expect
             .poll(() => cellValue(pageA, "demandPlanTons", 0), { timeout: 15000 })
@@ -154,11 +153,57 @@ test.describe("collab: совместное редактирование", () =>
             .poll(() => cellValue(pageB, "demandPlanTons", 0), { timeout: 15000 })
             .toBe("123");
 
-        // Восстанавливаем исходное значение.
+        // Восстанавливаем исходное значение. B всё ещё держит ячейку выделенной
+        // (после Enter фокус остаётся на ней), поэтому сначала уводит выделение
+        // (Esc) — иначе ячейка останется занятой для A.
+        await pageB.keyboard.press("Escape");
+        await expect(cellA).not.toHaveClass(/report-cell--remote-locked/, { timeout: 15000 });
         await editCell(pageA, cellA, original);
         await expect
             .poll(() => cellValue(pageB, "demandPlanTons", 0), { timeout: 15000 })
             .toBe(original);
+
+        await ctxA.close();
+        await ctxB.close();
+    });
+
+    test("multi-tab: выделение в одной вкладке сбрасывает выделение в другой (один аккаунт)", async ({
+        browser,
+    }) => {
+        // Две вкладки одного аккаунта: на сервере одно присутствие на юзера.
+        // Выделение в одной вкладке должно сбросить локальное выделение в другой.
+        const ctxA = await browser.newContext();
+        const ctxB = await browser.newContext();
+        const pageA = await ctxA.newPage();
+        const pageB = await ctxB.newPage();
+        await loginAs(pageA, "smirnov", "smirnov");
+        await loginAs(pageB, "smirnov", "smirnov");
+
+        const cellA = () => pageA.locator("revogr-data .rgCell:not(.report-row-header)").first();
+        const cellB = (index: number) =>
+            pageB.locator("revogr-data .rgCell:not(.report-row-header)").nth(index);
+
+        // 1. Вкладка A выделяет ячейку — в её футере появляется «Выделено».
+        await cellA().click();
+        await expect(pageA.locator(".grid-stats")).toContainText("Выделено:", {
+            timeout: 15000,
+        });
+
+        // 2. Вкладка B выделяет другую ячейку: выделение переходит к B,
+        //    у A локальное выделение сбрасывается — блок футера скрывается
+        //    (нет ни выделения, ни фильтров).
+        await cellB(1).click();
+        await expect(pageB.locator(".grid-stats")).toContainText("Выделено:", {
+            timeout: 15000,
+        });
+        await expect(pageA.locator(".grid-stats")).toHaveCount(0, { timeout: 15000 });
+
+        // 3. Обратно: A выделяет — сбрасывается у B.
+        await pageA.locator("revogr-data .rgCell:not(.report-row-header)").nth(2).click();
+        await expect(pageA.locator(".grid-stats")).toContainText("Выделено:", {
+            timeout: 15000,
+        });
+        await expect(pageB.locator(".grid-stats")).toHaveCount(0, { timeout: 15000 });
 
         await ctxA.close();
         await ctxB.close();
