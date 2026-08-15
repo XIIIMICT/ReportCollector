@@ -1,4 +1,4 @@
-"""Парольная аутентификация: вход по email+password, первый вход, сброс пароля."""
+"""Password auth: email+password login, first login, password reset."""
 
 from sqlmodel import col, select
 

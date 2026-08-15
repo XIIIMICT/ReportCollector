@@ -1,4 +1,4 @@
-// Регистрация DOM-среды happy-dom для unit-тестов (bun test)
+// Registering the happy-dom DOM environment for unit tests (bun test)
 import { Window } from "happy-dom";
 
 const domWindow = new Window();

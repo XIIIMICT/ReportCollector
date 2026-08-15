@@ -197,8 +197,8 @@ function buildSession(idTokenPayload: JWTPayload, userInfo: UserInfo): AuthSessi
     if (!subject || !idTokenPayload.exp) {
         throw new Error("В ID token отсутствуют обязательные claims sub или exp.");
     }
-    // Сессия живёт по своей долготе (AUTH_SESSION_MAX_AGE_SECONDS), а не до exp
-    // ID token (у Keycloak это минуты) — иначе пользователя выкидывает "не авторизован".
+    // The session lives by its own length (AUTH_SESSION_MAX_AGE_SECONDS), not until the
+    // ID token's exp (minutes at Keycloak) — otherwise the user gets "not authorized".
 
     const givenName = claimFromUserInfo("given_name", userInfo, idTokenPayload);
     const familyName = claimFromUserInfo("family_name", userInfo, idTokenPayload);

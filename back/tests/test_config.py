@@ -1,4 +1,4 @@
-"""Настройки приложения: нормализация CORS-ориджинов."""
+"""App settings: CORS origins normalization."""
 
 import json
 

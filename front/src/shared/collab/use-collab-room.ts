@@ -23,10 +23,10 @@ export function canonicalCellKey(targetTable: string, rowId: string, field: stri
 
 export type CollabRoom = {
     status: CollabStatus;
-    /** Текущий пользователь (для отображения «Вы» в списке присутствия). */
+    /** The current user (for showing «Вы» in the presence list). */
     me: CollabUser | null;
     members: CollabMember[];
-    /** Чужие арендованные ячейки: canonical key → пользователь. */
+    /** Cells leased by others: canonical key → user. */
     lockedCells: ReadonlyMap<string, CollabUser>;
     acquireLeases: (keys: string[]) => void;
     releaseLeases: (keys: string[]) => void;
@@ -45,7 +45,7 @@ export function useCollabRoom({
     section: string;
     reportMonth: string | null;
     enabled: boolean;
-    /** Активы текущего пользователя: участники без пересечения не показываются. */
+    /** The current user's assets: members without an overlap aren't shown. */
     visibleAssets?: string[] | null;
     onCellChanged?: (event: CollabCellChanged) => void;
 }): CollabRoom {

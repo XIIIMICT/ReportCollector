@@ -1,4 +1,4 @@
-"""Выгрузка таблиц проекта «Сырьё» в Excel: формулы, форматы, валидация, права."""
+"""Excel export of the «Сырьё» tables: formulas, formats, validation, permissions."""
 
 from datetime import datetime
 from io import BytesIO

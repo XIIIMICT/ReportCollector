@@ -18,7 +18,7 @@ export async function getCurrentUserServer(session: AuthSession | null) {
                 detail = payload.detail;
             }
         } catch {
-            // Для ответа не в JSON оставляем общее сообщение, подготовленное выше.
+            // For a non-JSON response keep the generic message prepared above.
         }
 
         throw new ReportCollectorApiError(detail, response.status);

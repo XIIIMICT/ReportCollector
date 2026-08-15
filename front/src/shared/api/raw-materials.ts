@@ -1,4 +1,5 @@
 import { ReportCollectorApiError } from "@/shared/api/report-collector";
+import { getCollabSessionId } from "@/shared/collab/ws-client";
 import type { ExportColumn, SectionId } from "@/shared/grid/grid-config";
 
 export type AssetOption = {
@@ -155,8 +156,8 @@ async function readPayload(response: Response): Promise<unknown> {
 }
 
 /**
- * Человекочитаемое описание ошибки API: строка detail, либо список ошибок
- * валидации pydantic (422), либо null.
+ * Human-readable API error description: the detail string, or the pydantic
+ * validation errors list (422), or null.
  */
 function readApiDetail(payload: unknown): string | null {
     if (!payload || typeof payload !== "object") return null;
@@ -258,11 +259,16 @@ export async function updateMovementCells(
     reportMonth: string,
     updates: CellUpdate[],
 ): Promise<number> {
-    return requestWrite("/api/raw-materials/movement", "PATCH", { reportMonth, updates });
+    return requestWrite(`/api/raw-materials/movement?session_id=${getCollabSessionId()}`, "PATCH", {
+        reportMonth,
+        updates,
+    });
 }
 
 export async function updatePriceCells(updates: CellUpdate[]): Promise<number> {
-    return requestWrite("/api/raw-materials/prices", "PATCH", { updates });
+    return requestWrite(`/api/raw-materials/prices?session_id=${getCollabSessionId()}`, "PATCH", {
+        updates,
+    });
 }
 
 export async function updateDictionaryCells(
@@ -275,12 +281,13 @@ export async function updateDictionaryCells(
             : section === "assets"
               ? "assets"
               : "delivery-bases";
+    const sessionQuery = `?session_id=${getCollabSessionId()}`;
     const results = await Promise.all(
         updates.map((update) =>
-            requestWrite(`/api/raw-materials/${endpoint}/${update.rowId}`, "PATCH", {
+            requestWrite(`/api/raw-materials/${endpoint}/${update.rowId}${sessionQuery}`, "PATCH", {
                 ...(update.field === "name" ? { name: update.value } : {}),
-                // Грид переименовывает assetNames → assetIds перед отправкой
-                // (namesToIds), поэтому поддерживаются оба имени поля.
+                // The grid renames assetNames → assetIds before sending
+                // (namesToIds), so both field names are supported.
                 ...(update.field === "assetNames" || update.field === "assetIds"
                     ? { assetIds: update.value }
                     : {}),
@@ -291,9 +298,10 @@ export async function updateDictionaryCells(
 }
 
 export async function updateUserCells(updates: CellUpdate[]): Promise<unknown> {
+    const sessionQuery = `?session_id=${getCollabSessionId()}`;
     return Promise.all(
         updates.map((update) =>
-            requestWrite(`/api/raw-materials/users/${update.rowId}`, "PATCH", {
+            requestWrite(`/api/raw-materials/users/${update.rowId}${sessionQuery}`, "PATCH", {
                 ...(update.field === "email" ? { email: update.value } : {}),
                 ...(update.field === "fullname" ? { fullname: update.value } : {}),
                 ...(update.field === "isAdmin" ? { isAdmin: update.value } : {}),
@@ -330,7 +338,11 @@ export async function undoCells(
     section: string,
     reportMonth: string | null,
 ): Promise<UndoResult> {
-    return requestWrite("/api/raw-materials/undo", "POST", { skipActionId, section, reportMonth });
+    return requestWrite(`/api/raw-materials/undo?session_id=${getCollabSessionId()}`, "POST", {
+        skipActionId,
+        section,
+        reportMonth,
+    });
 }
 
 export async function redoCells(
@@ -338,7 +350,11 @@ export async function redoCells(
     section: string,
     reportMonth: string | null,
 ): Promise<UndoResult> {
-    return requestWrite("/api/raw-materials/redo", "POST", { skipActionId, section, reportMonth });
+    return requestWrite(`/api/raw-materials/redo?session_id=${getCollabSessionId()}`, "POST", {
+        skipActionId,
+        section,
+        reportMonth,
+    });
 }
 
 export type UndoState = {
@@ -350,7 +366,7 @@ export async function getUndoState(
     section: string,
     reportMonth: string | null,
 ): Promise<UndoState> {
-    const params = new URLSearchParams({ section });
+    const params = new URLSearchParams({ section, session_id: getCollabSessionId() });
     if (reportMonth) params.set("report_month", reportMonth);
     return requestJson(`/api/raw-materials/undo-state?${params.toString()}`);
 }
@@ -432,7 +448,7 @@ export async function exportTableToExcel(request: ExportViewRequest): Promise<Bl
                 detail = payload.detail;
             }
         } catch {
-            // Для ответа не в JSON оставляем общее сообщение, подготовленное выше.
+            // For a non-JSON response keep the generic message prepared above.
         }
         throw new ReportCollectorApiError(detail, response.status);
     }

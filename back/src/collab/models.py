@@ -12,5 +12,5 @@ PRICE_TABLE = "rm_raw_material_price"
 
 
 def canonical_key(target_table: str, row_id: UUID, field: str) -> str:
-    """Единственный ключ ячейки: таблица/строка/поле."""
+    """Return the single cell key: table/row/field."""
     return f"{target_table}/{row_id}/{field}"

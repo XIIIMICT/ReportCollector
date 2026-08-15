@@ -7,9 +7,9 @@ export type CollabUser = {
 
 export type CollabMember = CollabUser & {
     selection?: Record<string, unknown> | null;
-    /** Активы, к которым у участника есть доступ (для скоупа присутствия). */
+    /** Assets the member has access to (for presence scoping). */
     assets?: string[];
-    /** Роль участника в проекте («Администратор», «Работник по активам»). */
+    /** The member's role in the project (admin or asset_worker). */
     role?: string;
 };
 
@@ -41,15 +41,26 @@ const HEARTBEAT_INTERVAL_MS = 15000;
 const LEASE_RENEW_INTERVAL_MS = 10000;
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 16000;
-// Сколько бездействия (мышь/клавиатура/скрытая вкладка) допустимо, прежде чем
-// участник считается ушедшим: аренды снимаются немедленно, присутствие гаснет
-// по TTL сервера (25с). Нельзя «заблокировать» ячейку, просто уйдя от
-// рабочего места: без продления аренда истекает через 20с.
+// How much inactivity (mouse/keyboard/hidden tab) is allowed before the
+// member is considered gone: leases are released immediately, presence fades
+// by the server TTL (25s). You can't "block" a cell just by walking away:
+// without renewal the lease expires in 20s.
 const IDLE_TIMEOUT_MS = 120000;
 
+// One browser session = one page load: the session id is created once per
+// page and shared by the WebSocket (room presence) and the REST edit calls
+// (undo/redo scoping). A page reload gets a fresh id, so undo/redo history
+// never survives a reload.
+let pageSessionId: string | null = null;
+
+export function getCollabSessionId(): string {
+    pageSessionId ??= crypto.randomUUID();
+    return pageSessionId;
+}
+
 /**
- * Бэкенд отдаёт участников комнаты как map {userId: member},
- * клиент работает со списком — нормализуем на границе протокола.
+ * The backend returns room members as a map {userId: member},
+ * the client works with a list — normalize at the protocol boundary.
  */
 function toMembers(raw: unknown): CollabMember[] {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
@@ -58,11 +69,11 @@ function toMembers(raw: unknown): CollabMember[] {
     );
 }
 
-/** Единый WS-эндпоинт бэкенда: проект передаётся в query (комнаты изолируются по нему). */
+/** The single backend WS endpoint: the project goes in the query (rooms are isolated by it). */
 export const COLLAB_WS_PATH = "/api/ws/raw-materials";
 
 export class CollabWsClient {
-    private readonly sessionId = crypto.randomUUID();
+    private readonly sessionId = getCollabSessionId();
     private readonly clientId = crypto.randomUUID();
     private socket: WebSocket | null = null;
     private reconnectAttempt = 0;
@@ -71,9 +82,9 @@ export class CollabWsClient {
     private renewTimer: ReturnType<typeof setInterval> | null = null;
     private ownedLeases = new Set<string>();
     private closed = false;
-    /** Момент последней активности пользователя (мышь, клавиатура, фокус). */
+    /** The moment of the user's last activity (mouse, keyboard, focus). */
     private lastActivityAt = Date.now();
-    /** Ушёл ли участник: бездействие > IDLE_TIMEOUT_MS или скрытая вкладка. */
+    /** Whether the member is away: inactivity > IDLE_TIMEOUT_MS or a hidden tab. */
     private away = false;
     private lastSelection: Record<string, unknown> | null = null;
     private readonly activityDetach: Array<() => void> = [];
@@ -218,9 +229,9 @@ export class CollabWsClient {
     }
 
     /**
-     * Пересчёт состояния «ушёл»: бездействие сверх IDLE_TIMEOUT_MS или скрытая
-     * вкладка. При уходе снимаем все аренды (ячейки освобождаются немедленно,
-     * а не через 20с TTL), при возврате — снова показываемся в «В сети».
+     * Recompute the "away" state: inactivity beyond IDLE_TIMEOUT_MS or a
+     * hidden tab. On leaving, release all leases (cells free up immediately,
+     * not after the 20s TTL); on return, show up in «В сети» again.
      */
     private refreshAwayState(): void {
         const away = document.hidden || Date.now() - this.lastActivityAt > IDLE_TIMEOUT_MS;

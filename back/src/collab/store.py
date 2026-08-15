@@ -1,13 +1,13 @@
 """
-Хранилище состояния совместного редактирования.
+Collaboration state storage.
 
-Общий интерфейс для двух реализаций:
-- ValkeyStore — redis-py клиент: аренда ячеек (lease с TTL), присутствие
-  в комнатах (hash + expire) и pub/sub для рассылки событий между воркерами;
-- MemoryStore — внутрипроцессная реализация для тестов и запуска без Valkey
-  (в одном воркере поведение идентично; без межворкерной синхронизации).
+A common interface for two implementations:
+- ValkeyStore — redis-py client: cell leases (lease with TTL), room
+  presence (hash + expire) and pub/sub for cross-worker event fan-out;
+- MemoryStore — in-process implementation for tests and running without
+  Valkey (single worker: behavior is identical; no cross-worker sync).
 
-Выбор делается по VALKEY_URL: пустая строка — MemoryStore.
+The choice depends on VALKEY_URL: empty string — MemoryStore.
 """
 
 import asyncio
@@ -25,18 +25,24 @@ from src.config import get_settings
 
 LEASE_TTL_SECONDS = 20
 PRESENCE_TTL_SECONDS = 25
-UNDO_LIMIT = 500  # максимальный размер стека действий на пользователя
-UNDO_SCAN_LIMIT = 200  # глубина поиска последнего действия пользователя
+UNDO_LIMIT = 500  # max undo stack size per user
+UNDO_SCAN_LIMIT = 200  # how deep to scan for the user's last action
 
 
 def lease_key(cell_key: str, *, project: str) -> str:
-    """Ключ аренды ячейки с учётом проекта: rc:lease:{project}:{table}/{row}/{field}."""
+    """Cell lease key with the project: rc:lease:{project}:{table}/{row}/{field}."""
     return f"rc:lease:{project}:{cell_key}"
 
 
-def undo_stack_key(user_id: str, scope: str) -> str:
-    """Ключ стека undo пользователя на одной форме (scope = section/reportMonth)."""
-    return f"rc:undo:{user_id}:{scope}"
+def undo_stack_key(user_id: str, session_id: str, scope: str) -> str:
+    """
+    Undo stack key of a user on one form in one browser session.
+
+    scope = section/reportMonth; the session_id is the page-lifetime id the
+    frontend sends with every edit and undo call, so a page reload starts
+    with an empty history (stale stacks are simply never referenced again).
+    """
+    return f"rc:undo:{user_id}:{session_id}:{scope}"
 
 
 def cell_state_key(cell_key: str) -> str:
@@ -67,7 +73,7 @@ def _as_str(value: str | bytes) -> str:
     return value.decode() if isinstance(value, bytes) else value
 
 
-# Lua: продлить/снять аренду, только если владелец не изменился.
+# Lua: renew/release a lease only if the owner hasn't changed.
 _RENEW_LEASE_SCRIPT = """
 if redis.call('GET', KEYS[1]) == ARGV[1] then
     return redis.call('EXPIRE', KEYS[1], ARGV[2])
@@ -82,8 +88,8 @@ end
 return 0
 """
 
-# Удалить из стека undo действия, помеченные undone=true (новая правка
-# пользователя делает его redo-ветку недействительной).
+# Remove actions marked undone=true from the undo stack (a new edit by the
+# user invalidates their redo branch).
 _CLEAR_REDO_SCRIPT = """
 local items = redis.call('LRANGE', KEYS[1], 0, -1)
 local keep = {}
@@ -103,10 +109,10 @@ return #keep
 
 class ValkeyStore:
     """
-    Арена, присутствие и pub/sub поверх Valkey/Redis.
+    Leases, presence and pub/sub over Valkey/Redis.
 
-    Ключи аренд принимаются уже «скоупленными» вызывающим кодом
-    (lease_key(cell_key, project=...)): хранилище не знает про проекты.
+    Lease keys are accepted already "scoped" by the caller
+    (lease_key(cell_key, project=...)): the store knows nothing about projects.
     """
 
     def __init__(self, url: str) -> None:
@@ -123,10 +129,10 @@ class ValkeyStore:
     async def close(self) -> None:
         await self._redis.aclose()
 
-    # ─── Аренда ячеек ────────────────────────────────────────────────────────
+    # ─── Cell leases ─────────────────────────────────────────────────────────
 
     async def acquire_lease(self, key: str, owner: dict, *, ttl: int = LEASE_TTL_SECONDS) -> dict | None:
-        """Захватывает ячейку. None — успех; иначе — текущий владелец."""
+        """Acquires a cell. None — success; otherwise — the current owner."""
         ok = await self._redis.set(key, _encode(owner), nx=True, ex=ttl)
         if ok:
             return None
@@ -134,11 +140,11 @@ class ValkeyStore:
         return _decode(raw) if raw else None
 
     async def renew_lease(self, key: str, owner: dict, *, ttl: int = LEASE_TTL_SECONDS) -> bool:
-        """Продлевает аренду, если владелец прежний."""
+        """Renews a lease if the owner is unchanged."""
         return bool(await self._redis.eval(_RENEW_LEASE_SCRIPT, 1, key, _encode(owner), ttl))
 
     async def release_lease(self, key: str, owner: dict) -> bool:
-        """Снимает аренду, если владелец прежний."""
+        """Releases a lease if the owner is unchanged."""
         return bool(await self._redis.eval(_RELEASE_LEASE_SCRIPT, 1, key, _encode(owner)))
 
     async def get_lease(self, key: str) -> dict | None:
@@ -146,7 +152,7 @@ class ValkeyStore:
         return _decode(raw) if raw else None
 
     async def any_active_lease(self, keys: list[str]) -> dict | None:
-        """Владелец первой занятой ячейки среди переданных (None — все свободны)."""
+        """Owner of the first busy cell among the given ones (None — all free)."""
         if not keys:
             return None
         values = await self._redis.mget(keys)
@@ -155,15 +161,15 @@ class ValkeyStore:
                 return _decode(raw)
         return None
 
-    # ─── Стек undo/redo пользователя ─────────────────────────────────────────
+    # ─── Per-user undo/redo stack ────────────────────────────────────────────
 
     async def next_action_id(self) -> int:
-        """Глобальный сквозной идентификатор действия (для cellstate и ответов)."""
+        """Global monotonic action id (for cellstate and responses)."""
         return int(await self._redis.execute_command("INCR", action_seq_key()))
 
-    async def push_actions(self, user_id: str, scope: str, actions: list[dict]) -> None:
-        """Добавляет действия в начало стека формы (первые элементы — самые свежие)."""
-        key = undo_stack_key(user_id, scope)
+    async def push_actions(self, user_id: str, session_id: str, scope: str, actions: list[dict]) -> None:
+        """Prepends actions to the session's form stack (front elements are the freshest)."""
+        key = undo_stack_key(user_id, session_id, scope)
         pipe = self._redis.pipeline(transaction=True)
         pipe.lpush(key, *[_encode(action) for action in actions])
         pipe.ltrim(key, 0, UNDO_LIMIT - 1)
@@ -172,13 +178,14 @@ class ValkeyStore:
     async def next_action(
         self,
         user_id: str,
+        session_id: str,
         scope: str,
         *,
         undone: bool,
         after_action_id: int | None = None,
     ) -> dict | None:
-        """Ближайшее действие пользователя с нужным состоянием (свежие первыми)."""
-        items = await self._redis.lrange(undo_stack_key(user_id, scope), 0, UNDO_SCAN_LIMIT - 1)
+        """Nearest user action with the required state (freshest first)."""
+        items = await self._redis.lrange(undo_stack_key(user_id, session_id, scope), 0, UNDO_SCAN_LIMIT - 1)
         for action in map(_decode, items):
             if after_action_id is not None and int(action["id"]) >= after_action_id:
                 continue
@@ -186,9 +193,9 @@ class ValkeyStore:
                 return action
         return None
 
-    async def undo_state(self, user_id: str, scope: str) -> tuple[int, int]:
-        """(число действий к отмене, число действий к возврату) на форме scope."""
-        items = await self._redis.lrange(undo_stack_key(user_id, scope), 0, -1)
+    async def undo_state(self, user_id: str, session_id: str, scope: str) -> tuple[int, int]:
+        """(count of undoable actions, count of redoable actions) on the session's form scope."""
+        items = await self._redis.lrange(undo_stack_key(user_id, session_id, scope), 0, -1)
         can_undo = can_redo = 0
         for action in map(_decode, items):
             if bool(action.get("undone")):
@@ -197,14 +204,14 @@ class ValkeyStore:
                 can_undo += 1
         return can_undo, can_redo
 
-    async def list_actions(self, user_id: str, scope: str) -> list[dict]:
-        """Все действия пользователя на форме scope (свежие первыми) — для тестов."""
-        items = await self._redis.lrange(undo_stack_key(user_id, scope), 0, -1)
+    async def list_actions(self, user_id: str, session_id: str, scope: str) -> list[dict]:
+        """All user actions on the session's form scope (freshest first) — for tests."""
+        items = await self._redis.lrange(undo_stack_key(user_id, session_id, scope), 0, -1)
         return [_decode(item) for item in items]
 
-    async def mark_action_undone(self, user_id: str, scope: str, action_id: int, undone: bool) -> None:
-        """Переключает состояние действия (undone=True — отменено, False — возвращено)."""
-        key = undo_stack_key(user_id, scope)
+    async def mark_action_undone(self, user_id: str, session_id: str, scope: str, action_id: int, undone: bool) -> None:
+        """Toggles an action's state (undone=True — undone, False — restored)."""
+        key = undo_stack_key(user_id, session_id, scope)
         items = await self._redis.lrange(key, 0, -1)
         for index, raw in enumerate(items):
             action = _decode(raw)
@@ -214,25 +221,28 @@ class ValkeyStore:
             await self._redis.lset(key, index, _encode(action))
             return
 
-    async def clear_redo(self, user_id: str, scope: str) -> None:
-        """Удаляет отменённые действия формы: новая правка инвалидирует redo-ветку."""
-        await self._redis.eval(_CLEAR_REDO_SCRIPT, 1, undo_stack_key(user_id, scope))
+    async def clear_redo(self, user_id: str, session_id: str, scope: str) -> None:
+        """Remove the session's form undone actions: a new edit invalidates the redo branch."""
+        await self._redis.eval(_CLEAR_REDO_SCRIPT, 1, undo_stack_key(user_id, session_id, scope))
 
-    async def clear_undo_stack(self, user_id: str, scope: str) -> None:
-        """Полностью очищает стек формы пользователя."""
-        await self._redis.delete(undo_stack_key(user_id, scope))
+    async def clear_undo_stack(self, user_id: str, session_id: str, scope: str) -> None:
+        """Fully clears the user's session form stack."""
+        await self._redis.delete(undo_stack_key(user_id, session_id, scope))
 
-    async def clear_all_undo_state(self) -> None:
-        """Очищает стеки всех пользователей и состояния ячеек (фиксация месяца)."""
-        async for key in self._redis.scan_iter(match="rc:undo:*"):
-            await self._redis.delete(key)
-        async for key in self._redis.scan_iter(match="rc:cellstate:*"):
+    async def clear_undo_state_for_scope(self, scope: str) -> None:
+        """Clear undo stacks of all users/sessions on one form scope (month fixing)."""
+        async for key in self._redis.scan_iter(match=f"rc:undo:*:{scope}"):
             await self._redis.delete(key)
 
-    # ─── Состояние ячеек (ревизии, конфликт-детекция undo) ───────────────────
+    async def clear_cell_states_for_table(self, table: str) -> None:
+        """Clear cell states of one table: canonical keys start with `{table}/`."""
+        async for key in self._redis.scan_iter(match=f"rc:cellstate:{table}/*"):
+            await self._redis.delete(key)
+
+    # ─── Cell state (revisions, undo conflict detection) ─────────────────────
 
     async def bump_cell_state(self, cell_key: str, *, user_id: str, user_name: str, action_id: int) -> int:
-        """Атомарно увеличивает ревизию ячейки и возвращает новое значение."""
+        """Atomically bumps the cell revision and returns the new value."""
         key = cell_state_key(cell_key)
         pipe = self._redis.pipeline(transaction=True)
         pipe.hincrby(key, "revision", 1)
@@ -252,7 +262,7 @@ class ValkeyStore:
         raw = await self._redis.hgetall(cell_state_key(cell_key))
         return raw or None
 
-    # ─── Присутствие в комнате ───────────────────────────────────────────────
+    # ─── Room presence ───────────────────────────────────────────────────────
 
     async def room_join(self, room: str, user_id: str, payload: dict) -> None:
         await self._redis.hset(room_presence_key(room), user_id, _encode(payload))
@@ -263,10 +273,10 @@ class ValkeyStore:
 
     async def refresh_presence(self, room: str, user_id: str) -> bool:
         """
-        Продлевает присутствие активного участника (TTL сбрасывается).
+        Refresh the presence of an active member (TTL resets).
 
-        False — участника в комнате уже нет (присутствие истекло, пока он был
-        неактивен): вызывающий код может заново добавить его в комнату.
+        False — the member is no longer in the room (presence expired while
+        they were idle): the caller may re-add them to the room.
         """
         key = room_presence_key(room)
         if await self._redis.hget(key, user_id) is None:
@@ -278,7 +288,7 @@ class ValkeyStore:
         raw = await self._redis.hgetall(room_presence_key(room))
         return {_as_str(user_id): _decode(value) for user_id, value in raw.items()}
 
-    # ─── Рассылка событий ────────────────────────────────────────────────────
+    # ─── Event fan-out ───────────────────────────────────────────────────────
 
     async def publish(self, room: str, message: dict) -> None:
         await self._redis.publish(room_channel(room), _encode(message))
@@ -297,14 +307,14 @@ class ValkeyStore:
 
 
 class MemoryStore:
-    """Внутрипроцессная реализация (тесты, запуск без Valkey)."""
+    """In-process implementation (tests, running without Valkey)."""
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._leases: dict[str, tuple[dict, float]] = {}
         self._presence: dict[str, dict[str, tuple[dict, float]]] = {}
         self._subscribers: dict[str, set[asyncio.Queue]] = {}
-        self._undo: dict[tuple[str, str], list[dict]] = {}
+        self._undo: dict[tuple[str, str, str], list[dict]] = {}
         self._cell_states: dict[str, dict] = {}
         self._action_seq = 0
 
@@ -344,7 +354,7 @@ class MemoryStore:
             return current[0]
 
     async def any_active_lease(self, keys: list[str]) -> dict | None:
-        """Владелец первой занятой ячейки среди переданных (None — все свободны)."""
+        """Owner of the first busy cell among the given ones (None — all free)."""
         async with self._lock:
             for key in keys:
                 current = self._leases.get(key)
@@ -352,16 +362,16 @@ class MemoryStore:
                     return current[0]
         return None
 
-    # ─── Стек undo/redo пользователя ─────────────────────────────────────────
+    # ─── Per-user undo/redo stack ────────────────────────────────────────────
 
     async def next_action_id(self) -> int:
         async with self._lock:
             self._action_seq += 1
             return self._action_seq
 
-    async def push_actions(self, user_id: str, scope: str, actions: list[dict]) -> None:
+    async def push_actions(self, user_id: str, session_id: str, scope: str, actions: list[dict]) -> None:
         async with self._lock:
-            stack = self._undo.setdefault((user_id, scope), [])
+            stack = self._undo.setdefault((user_id, session_id, scope), [])
             for action in reversed(actions):
                 stack.insert(0, action)
             del stack[UNDO_LIMIT:]
@@ -369,57 +379,64 @@ class MemoryStore:
     async def next_action(
         self,
         user_id: str,
+        session_id: str,
         scope: str,
         *,
         undone: bool,
         after_action_id: int | None = None,
     ) -> dict | None:
         async with self._lock:
-            for action in self._undo.get((user_id, scope), [])[:UNDO_SCAN_LIMIT]:
+            for action in self._undo.get((user_id, session_id, scope), [])[:UNDO_SCAN_LIMIT]:
                 if after_action_id is not None and int(action["id"]) >= after_action_id:
                     continue
                 if bool(action.get("undone")) == undone:
                     return action
         return None
 
-    async def undo_state(self, user_id: str, scope: str) -> tuple[int, int]:
+    async def undo_state(self, user_id: str, session_id: str, scope: str) -> tuple[int, int]:
         async with self._lock:
             can_undo = can_redo = 0
-            for action in self._undo.get((user_id, scope), []):
+            for action in self._undo.get((user_id, session_id, scope), []):
                 if bool(action.get("undone")):
                     can_redo += 1
                 else:
                     can_undo += 1
             return can_undo, can_redo
 
-    async def list_actions(self, user_id: str, scope: str) -> list[dict]:
+    async def list_actions(self, user_id: str, session_id: str, scope: str) -> list[dict]:
         async with self._lock:
-            return [dict(action) for action in self._undo.get((user_id, scope), [])]
+            return [dict(action) for action in self._undo.get((user_id, session_id, scope), [])]
 
-    async def mark_action_undone(self, user_id: str, scope: str, action_id: int, undone: bool) -> None:
+    async def mark_action_undone(self, user_id: str, session_id: str, scope: str, action_id: int, undone: bool) -> None:
         async with self._lock:
-            for action in self._undo.get((user_id, scope), []):
+            for action in self._undo.get((user_id, session_id, scope), []):
                 if action["id"] == action_id:
                     action["undone"] = undone
                     return
 
-    async def clear_redo(self, user_id: str, scope: str) -> None:
+    async def clear_redo(self, user_id: str, session_id: str, scope: str) -> None:
         async with self._lock:
-            stack = self._undo.get((user_id, scope))
+            stack = self._undo.get((user_id, session_id, scope))
             if stack is None:
                 return
-            self._undo[(user_id, scope)] = [action for action in stack if not action.get("undone")]
+            self._undo[(user_id, session_id, scope)] = [action for action in stack if not action.get("undone")]
 
-    async def clear_undo_stack(self, user_id: str, scope: str) -> None:
+    async def clear_undo_stack(self, user_id: str, session_id: str, scope: str) -> None:
         async with self._lock:
-            self._undo.pop((user_id, scope), None)
+            self._undo.pop((user_id, session_id, scope), None)
 
-    async def clear_all_undo_state(self) -> None:
+    async def clear_undo_state_for_scope(self, scope: str) -> None:
         async with self._lock:
-            self._undo.clear()
-            self._cell_states.clear()
+            for key in [key for key in self._undo if key[2] == scope]:
+                del self._undo[key]
 
-    # ─── Состояние ячеек (ревизии, конфликт-детекция undo) ───────────────────
+    async def clear_cell_states_for_table(self, table: str) -> None:
+        async with self._lock:
+            prefix = f"{table}/"
+            for key in [key for key in self._cell_states if key.startswith(prefix)]:
+                del self._cell_states[key]
+
+    # ─── Cell state (revisions, undo conflict detection) ─────────────────────
 
     async def bump_cell_state(self, cell_key: str, *, user_id: str, user_name: str, action_id: int) -> int:
         async with self._lock:
@@ -446,7 +463,7 @@ class MemoryStore:
             self._presence.get(room, {}).pop(user_id, None)
 
     async def presence_expires_at(self, room: str, user_id: str) -> float | None:
-        """Момент истечения присутствия участника (для тестов heartbeat)."""
+        """Presence expiration moment of a member (for heartbeat tests)."""
         async with self._lock:
             current = self._presence.get(room, {}).get(user_id)
             return current[1] if current is not None else None
@@ -490,7 +507,7 @@ type CollabStore = ValkeyStore | MemoryStore
 
 @lru_cache(maxsize=1)
 def get_collab_store() -> CollabStore:
-    """Ленивый синглтон: Valkey по VALKEY_URL, иначе in-memory."""
+    """Lazy singleton: Valkey by VALKEY_URL, otherwise in-memory."""
     url = get_settings().valkey_url.strip()
     return ValkeyStore(url) if url else MemoryStore()
 

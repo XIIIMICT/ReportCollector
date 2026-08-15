@@ -1,10 +1,10 @@
-"""Сценарий доступа: новый пользователь → активация администратором → доступ.
+"""Access scenario: a new user → admin activation → access.
 
-Проверяет флоу, зафиксированный в ТЗ:
-1. При входе через Keycloak несуществующий пользователь появляется у всех
-   админов всех проектов: связь с каждым проектом создаётся с is_active=false.
-2. После включения is_active администратором проекта пользователь получает
-   доступ именно к этому проекту (другие проекты остаются закрытыми).
+Checks the flow fixed in the spec:
+1. On a Keycloak login, an unknown user appears for all admins of all
+   projects: a link with each project is created with is_active=false.
+2. After the project admin enables is_active, the user gets access to
+   exactly that project (other projects stay closed).
 """
 
 from conftest import signed_identity_headers
@@ -40,8 +40,8 @@ async def test_new_user_is_created_with_inactive_memberships(client, db_session)
     assert user.oidc_sub == NEW_USER_SUB
     assert user.preferred_username == "new_user"
 
-    # Связь с проектом создана при провижининге, но неактивна — юзер виден
-    # в справочнике проекта и ждёт активации администратором.
+    # The project link was created by provisioning but is inactive — the user
+    # is visible in the project dictionary and awaits admin activation.
     links = (await db_session.exec(select(UserRole).where(col(UserRole.user_id) == user.id))).all()
     assert links, "Провижининг должен создать связи со всеми проектами"
     assert all(not link.is_active for link in links)

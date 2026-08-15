@@ -13,7 +13,7 @@ def utc_now() -> datetime:
 
 
 class ProjectRole(StrEnum):
-    """Фиксированный набор ролей проекта. Задан хардкодом, в БД хранится enum."""
+    """Fixed set of project roles. Hardcoded; the DB stores an enum."""
 
     ADMIN = "admin"
     ASSET_WORKER = "asset_worker"
@@ -27,8 +27,8 @@ class User(SQLModel, table=True):
     oidc_sub: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     oidc_issuer: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     preferred_username: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    # EmailStr: формат проверяется pydantic при создании/обновлении записи.
-    # Регистр нормализуется отдельно (normalize_email) — адреса регистронезависимы.
+    # EmailStr: the format is validated by pydantic on create/update.
+    # Case is normalized separately (normalize_email) — addresses are case-insensitive.
     email: EmailStr | None = Field(default=None, sa_column=Column(Text, unique=True, index=True, nullable=True))
     name: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     email_verified: bool | None = Field(default=None, sa_column=Column(Boolean, nullable=True))
@@ -36,8 +36,8 @@ class User(SQLModel, table=True):
     last_authenticated_at: datetime | None = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
     )
-    # Глобальная блокировка учётной записи (бан). Доступ к конкретному проекту
-    # определяется пер-проектным флагом is_active в UserRole.
+    # Global account ban. Access to a specific project is determined by the
+    # per-project is_active flag in UserRole.
     is_deleted: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default="false"))
     theme: str = Field(default="system", sa_column=Column(Text, nullable=False, server_default="system"))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
@@ -55,11 +55,11 @@ class Project(SQLModel, table=True):
 
 class UserRole(SQLModel, table=True):
     """
-    Связь пользователя с проектом: пер-проектная роль и активация.
+    User-project link: per-project role and activation.
 
-    Наличие связи с is_active=True даёт пользователю доступ к проекту.
-    Провижининг создаёт связь со всеми проектами при первом входе (is_active=False),
-    администратор проекта включает флаг — и пользователь может открыть этот проект.
+    A link with is_active=True grants the user access to the project.
+    Provisioning creates links to all projects on first login (is_active=False);
+    the project admin enables the flag — and the user can open the project.
     """
 
     __tablename__ = "user_role"

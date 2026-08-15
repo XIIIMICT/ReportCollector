@@ -1,10 +1,10 @@
 """
-Доменные модели проекта «Сырьё» (префикс rm_).
+Domain models of the «Сырьё» project (prefix rm_).
 
-Схема повторяет таблицы SQLite-приложения ReportCollector-RawMaterials
-(экспорт v14): активы, сырьевые позиции, связки актив-сырьё, периоды,
-движения сырья, базисы поставки и цены. Пользователи живут в app_user,
-привязка к активам — в rm_user_asset.
+The schema mirrors the tables of the SQLite app ReportCollector-RawMaterials
+(export v14): assets, raw-material items, asset-raw-material links, periods,
+raw-material movements, delivery bases and prices. Users live in app_user,
+asset assignment — in rm_user_asset.
 """
 
 from datetime import UTC, date, datetime
@@ -15,7 +15,7 @@ from sqlmodel import Field, SQLModel
 
 
 class RawMaterialAsset(SQLModel, table=True):
-    """Актив (площадка)."""
+    """Asset (site)."""
 
     __tablename__ = "rm_asset"
 
@@ -27,7 +27,7 @@ class RawMaterialAsset(SQLModel, table=True):
 
 
 class RawMaterialUserAsset(SQLModel, table=True):
-    """Привязка работника по активам к активам проекта «Сырьё»."""
+    """Asset-worker link to the assets of the «Сырьё» project."""
 
     __tablename__ = "rm_user_asset"
     __table_args__ = (
@@ -44,7 +44,7 @@ class RawMaterialUserAsset(SQLModel, table=True):
 
 
 class RawMaterial(SQLModel, table=True):
-    """Сырьевая позиция (наименование сырья)."""
+    """Raw-material item (raw-material name)."""
 
     __tablename__ = "rm_raw_material"
 
@@ -56,7 +56,7 @@ class RawMaterial(SQLModel, table=True):
 
 
 class AssetRawMaterial(SQLModel, table=True):
-    """Связка «актив — сырьевая позиция» (строка форм «Движение» и «Цены»)."""
+    """Asset-raw-material link (the row of the «Движение» and «Цены» forms)."""
 
     __tablename__ = "rm_asset_raw_material"
     __table_args__ = (
@@ -73,7 +73,7 @@ class AssetRawMaterial(SQLModel, table=True):
 
 
 class MovementPeriod(SQLModel, table=True):
-    """Отчётный месяц формы «Движение»."""
+    """Report month of the «Движение» form."""
 
     __tablename__ = "rm_movement_period"
 
@@ -85,7 +85,7 @@ class MovementPeriod(SQLModel, table=True):
 
 
 class MaterialMovement(SQLModel, table=True):
-    """Значения ячеек формы «Движение» для связки актив-сырьё в отчётном месяце."""
+    """«Движение» cell values for an asset-raw-material link in the report month."""
 
     __tablename__ = "rm_material_movement"
     __table_args__ = (
@@ -118,7 +118,7 @@ class MaterialMovement(SQLModel, table=True):
 
 
 class DeliveryBasis(SQLModel, table=True):
-    """Базис поставки (FOB, FCA, CPT)."""
+    """Delivery basis (FOB, FCA, CPT)."""
 
     __tablename__ = "rm_delivery_basis"
 
@@ -130,7 +130,7 @@ class DeliveryBasis(SQLModel, table=True):
 
 
 class RawMaterialPrice(SQLModel, table=True):
-    """Цены формы «Цены»: факт 2025 и бизнес-план 2026 для связки актив-сырьё."""
+    """«Цены» form prices: 2025 fact and 2026 business plan for an asset-raw-material link."""
 
     __tablename__ = "rm_raw_material_price"
     __table_args__ = (Index("ix_rm_raw_material_price_delivery_basis_id", "delivery_basis_id"),)
@@ -157,11 +157,11 @@ class RawMaterialPrice(SQLModel, table=True):
 
 class ReportSnapshot(SQLModel, table=True):
     """
-    Зафиксированная версия формы «Движение» за отчётный месяц.
+    Fixed «Движение» version for the report month.
 
-    В один месяц может существовать только один снимок: предварительная
-    фиксация перезаписывается, финальная — неизменна. previous_snapshot_id
-    хранит ссылку на перезаписанную версию (без FK — та может быть удалена).
+    Only one snapshot can exist per month: a preliminary fix is overwritten,
+    the final one is immutable. previous_snapshot_id holds a reference to the
+    overwritten version (no FK — it may be deleted).
     """
 
     __tablename__ = "rm_report_snapshot"
@@ -185,10 +185,10 @@ class ReportSnapshot(SQLModel, table=True):
 
 class SnapshotMaterialMovement(SQLModel, table=True):
     """
-    Строки зафиксированной версии «Движения» (иммутабельный архив).
+    Rows of a fixed «Движение» version (immutable archive).
 
-    Хранит копии значений и названий: внешние ключи на рабочие таблицы
-    отсутствуют, чтобы снимок не зависел от их жизненного цикла.
+    Stores copies of values and names: no FKs to the working tables, so the
+    snapshot doesn't depend on their lifecycle.
     """
 
     __tablename__ = "rm_snapshot_material_movement"

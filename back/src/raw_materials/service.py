@@ -1,8 +1,8 @@
 """
-Сервис чтения данных проекта «Сырьё» (read-only).
+Read service for the «Сырьё» (raw materials) project (read-only).
 
-Запросы повторяют логику Tauri-приложения (domain.rs): строки форм
-«Движение» и «Цены» с сортировкой по наименованию сырья и активу.
+Queries mirror the Tauri app logic (domain.rs): «Движение» and «Цены»
+form rows sorted by raw-material name and asset.
 """
 
 from datetime import UTC, date, datetime
@@ -50,14 +50,14 @@ from src.raw_materials.schemas import (
     UserRowRead,
 )
 
-# SQLModel-овские перегрузки select() поддерживают до 4 сущностей; для
-# 5-сущностных запросов форм используем типизированный cast поверх SQLAlchemy.
+# SQLModel's select() overloads support up to 4 entities; for the 5-entity
+# form queries we use a typed cast over SQLAlchemy.
 MovementRowsSelect = Select[tuple[MaterialMovement, AssetRawMaterial, RawMaterialAsset, RawMaterial, RawMaterialPrice]]
 PriceRowsSelect = Select[tuple[RawMaterialPrice, AssetRawMaterial, RawMaterialAsset, RawMaterial, DeliveryBasis]]
 
 
 class NoRawMaterialsAccessError(Exception):
-    """У пользователя нет доступа к проекту «Сырьё»."""
+    """The user has no access to the «Сырьё» project."""
 
 
 async def resolve_raw_materials_access(
@@ -67,13 +67,12 @@ async def resolve_raw_materials_access(
     project_key: str = RAW_MATERIALS_PROJECT_KEY,
 ) -> tuple[User, list[ProjectRole], list[RawMaterialAsset]]:
     """
-    Возвращает (пользователь, роли, доступные активы) проекта.
+    Return (user, roles, available assets) of the project.
 
-    project_key позволяет проверять доступ к другому проекту той же
-    механики (например, для комнат совместного редактирования).
-    Администратор проекта видит все активы; работник по активам — только
-    привязанные к нему. Бросает NoRawMaterialsAccessError, если у пользователя
-    нет роли в проекте.
+    project_key allows checking access to another project of the same
+    mechanics (e.g. for collaboration rooms). A project admin sees all
+    assets; an asset worker only the ones assigned to them. Raises
+    NoRawMaterialsAccessError if the user has no role in the project.
     """
     user = await get_user_by_identity(session, identity)
     if user is None or user.is_deleted:
@@ -130,7 +129,7 @@ async def read_movement_rows(
     report_month: date,
     assets: list[RawMaterialAsset],
 ) -> list[MovementRowRead]:
-    """Строки формы «Движение» за отчётный месяц (как read_current_movements в Tauri)."""
+    """«Движение» form rows for the report month (like read_current_movements in Tauri)."""
     query: MovementRowsSelect = cast(
         "MovementRowsSelect",
         sqlalchemy_select(
@@ -188,7 +187,7 @@ async def read_snapshot_export_rows(
     session: AsyncSession,
     snapshot_id: UUID,
 ) -> tuple[MovementSnapshotRead | None, list[MovementRowRead]]:
-    """Строки архивной версии «Движения» в виде MovementRowRead для выгрузки."""
+    """Archive «Движение» version rows as MovementRowRead for export."""
     snapshot = await session.get(ReportSnapshot, snapshot_id)
     if snapshot is None:
         return None, []
@@ -245,7 +244,7 @@ async def read_price_rows(
     session: AsyncSession,
     assets: list[RawMaterialAsset],
 ) -> list[PriceRowRead]:
-    """Строки формы «Цены» (как read_current_prices в Tauri)."""
+    """«Цены» form rows (like read_current_prices in Tauri)."""
     query: PriceRowsSelect = cast(
         "PriceRowsSelect",
         sqlalchemy_select(RawMaterialPrice, AssetRawMaterial, RawMaterialAsset, RawMaterial, DeliveryBasis)
@@ -288,7 +287,7 @@ async def read_raw_material_rows(
     *,
     raw_material_id: UUID | None = None,
 ) -> list[RawMaterialRowRead]:
-    """Строки справочника «Сырьевые позиции» с активами."""
+    """«Сырьевые позиции» dictionary rows with assets."""
     query = (
         select(RawMaterial, RawMaterialAsset, AssetRawMaterial)
         .outerjoin(AssetRawMaterial, col(AssetRawMaterial.raw_material_id) == col(RawMaterial.id))
@@ -317,7 +316,7 @@ async def read_raw_material_rows(
 
 
 async def read_asset_rows(assets: list[RawMaterialAsset]) -> list[AssetRowRead]:
-    """Строки справочника «Активы» в пределах доступа пользователя."""
+    """«Активы» dictionary rows within the user's access."""
     return [
         AssetRowRead(
             id=asset.id,
@@ -335,7 +334,7 @@ async def read_delivery_basis_rows(
     *,
     delivery_basis_id: UUID | None = None,
 ) -> list[DeliveryBasisRowRead]:
-    """Строки справочника «Базисы поставки»."""
+    """«Базисы поставки» dictionary rows."""
     query = select(DeliveryBasis).order_by(DeliveryBasis.name)
     if delivery_basis_id is not None:
         query = query.where(col(DeliveryBasis.id) == delivery_basis_id)
@@ -358,11 +357,11 @@ async def read_user_rows(
     user_id: UUID | None = None,
 ) -> list[UserRowRead]:
     """
-    Строки справочника «Пользователи» (проект «Сырьё», без удалённых).
+    «Пользователи» dictionary rows (the «Сырьё» project, without deleted).
 
-    Показываются все пользователи, у которых есть связь с проектом (включая
-    неактивных — их активирует администратор проекта). isActive и isAdmin
-    берутся из пер-проектной связи, а не из глобальных полей пользователя.
+    Shows all users who have a link with the project (including inactive
+    ones — the project admin activates them). isActive and isAdmin come
+    from the per-project link, not from the user's global fields.
     """
     project_id = (
         await session.exec(select(col(Project.id)).where(col(Project.key) == RAW_MATERIALS_PROJECT_KEY))
@@ -412,11 +411,11 @@ def movement_audit(
     price: RawMaterialPrice,
 ) -> tuple[datetime, str]:
     """
-    Аудит строки «Движения»: берётся более свежая правка из движения или цен.
+    «Движение» row audit: takes the fresher edit from movement or prices.
 
-    В SQLite это CASE-сравнение строк; в Postgres business_plan_updated_at —
-    TEXT (может содержать заглушку '<УГАДАЙТЕ>'), поэтому невалидные значения
-    трактуются как «не обновлялось» и выбирается аудит движения.
+    In SQLite this is a CASE string comparison; in Postgres
+    business_plan_updated_at is TEXT (may hold the '<УГАДАЙТЕ>' stub), so
+    invalid values are treated as "not updated" and the movement audit wins.
     """
     plan_updated_at = parse_datetime_or_none(price.business_plan_updated_at)
     if plan_updated_at is not None and plan_updated_at > movement.updated_at:
@@ -439,10 +438,10 @@ def calculate_deviation(plan: float | None, fact: float | None) -> float | None:
     return plan - fact
 
 
-# ─── Запись: правки ячеек форм «Движение» и «Цены» ────────────────
+# ─── Write: cell edits of the «Движение» and «Цены» forms ──────────────
 
-# Поля формы «Движение», которые пишутся в MaterialMovement.
-# Типовые сообщения об ошибках записи (модульные константы — стиль проекта).
+# «Движение» form fields written into MaterialMovement.
+# Typical write-error messages (module constants — project style).
 _CELL_MISSING_ROW_OR_FIELD = ValueError("Ячейка не содержит идентификатор строки или поля.")
 _CELL_MOVEMENT_NOT_FOUND = ValueError("Строка «Движения» не найдена.")
 _CELL_MOVEMENT_NO_ACCESS = ValueError("Нет доступа к строке «Движения».")
@@ -472,12 +471,12 @@ MOVEMENT_CELL_FIELDS: dict[str, str] = {
     "deviationReason": "deviation_reason",
 }
 
-# Поля формы «Движение», которые пишутся в RawMaterialPrice (бизнес-план).
+# «Движение» form fields written into RawMaterialPrice (business plan).
 MOVEMENT_PRICE_FIELDS: dict[str, str] = {
     "businessPlanTons": "business_plan_quantity_tons",
 }
 
-# Поля формы «Цены», которые пишутся в RawMaterialPrice.
+# «Цены» form fields written into RawMaterialPrice.
 PRICE_CELL_FIELDS: dict[str, str] = {
     "fact2025": "fact_2025",
     "businessPlanQuantityTons": "business_plan_quantity_tons",
@@ -488,7 +487,7 @@ PRICE_CELL_FIELDS: dict[str, str] = {
 
 
 class CellValidationError(ValueError):
-    """Невалидная ячейка (имя поля или значение)."""
+    """Invalid cell (field name or value)."""
 
 
 async def update_movement_cells(
@@ -498,8 +497,9 @@ async def update_movement_cells(
     updates: list[CellUpdate],
     user: User,
     assets: list[RawMaterialAsset],
+    session_id: str,
 ) -> list[AppliedCell]:
-    """Применяет правки ячеек формы «Движение» и пишет журнал (в той же транзакции)."""
+    """Apply «Движение» form cell edits and write the journal (same transaction)."""
     asset_ids = [asset.id for asset in assets]
     applied: list[AppliedCell] = []
     for update in updates:
@@ -549,6 +549,7 @@ async def update_movement_cells(
         project_key=RAW_MATERIALS_PROJECT_KEY,
         section="materialMovement",
         report_month=report_month,
+        session_id=session_id,
         applied=applied,
     )
     await session.commit()
@@ -561,8 +562,9 @@ async def update_price_cells(
     updates: list[CellUpdate],
     user: User,
     assets: list[RawMaterialAsset],
+    session_id: str,
 ) -> list[AppliedCell]:
-    """Применяет правки ячеек формы «Цены» и пишет журнал (в той же транзакции)."""
+    """Apply «Цены» form cell edits and write the journal (same transaction)."""
     asset_ids = [asset.id for asset in assets]
     applied: list[AppliedCell] = []
     for update in updates:
@@ -603,6 +605,7 @@ async def update_price_cells(
         project_key=RAW_MATERIALS_PROJECT_KEY,
         section="rawMaterialPrices",
         report_month=None,
+        session_id=session_id,
         applied=applied,
     )
     await session.commit()
@@ -618,7 +621,7 @@ async def apply_cell_value(
     value: object,
     user: User,
 ) -> None:
-    """Применяет нормализованное значение ячейки (undo/redo) с обновлением аудита."""
+    """Apply a normalized cell value (undo/redo) with audit update."""
     now = datetime.now(UTC)
     updated_by = user.name or user.email or ""
     if target_table == MOVEMENT_TABLE:
@@ -655,7 +658,7 @@ async def apply_cell_value(
         price.updated_by = updated_by
         session.add(price)
         return
-    # Справочники: undo/redo правок имён и наборов активов.
+    # Dictionaries: undo/redo of name and asset-set edits.
     if target_table == RawMaterial.__tablename__:
         raw_material = await session.get(RawMaterial, row_id)
         if raw_material is None:
@@ -732,7 +735,7 @@ async def apply_cell_value(
 
 
 async def _basis_name(session: AsyncSession, basis_id: UUID | None) -> str | None:
-    """Имя базиса поставки по id (для журнала ячейки deliveryBasisName)."""
+    """Delivery basis name by id (for the deliveryBasisName cell journal)."""
     if basis_id is None:
         return None
     basis = await session.get(DeliveryBasis, basis_id)
@@ -776,13 +779,13 @@ async def _price_row(session: AsyncSession, row_id: UUID, asset_ids: list[UUID])
 
 
 async def _arm_belongs_to_assets(session: AsyncSession, arm_id: UUID, asset_ids: list[UUID]) -> bool:
-    """Связка актив-сырьё относится к одному из активов пользователя."""
+    """Whether the asset-raw-material link belongs to one of the user's assets."""
     arm = await session.get(AssetRawMaterial, arm_id)
     return arm is not None and arm.asset_id in asset_ids
 
 
 def coerce_number_or_text(value: object, field: str) -> float | str | None:
-    """Число из ячейки ('' / None / '1 234,5' → число или текст)."""
+    """Coerce a number from a cell ('' / None / '1 234,5' → number or text)."""
     if field == "deviationReason":
         return coerce_text(value)
     return coerce_number(value)
@@ -811,7 +814,7 @@ def coerce_text(value: object) -> str | None:
 
 
 async def resolve_basis_id(session: AsyncSession, name: str | None) -> UUID | None:
-    """Базис поставки по имени (''/None → без базиса)."""
+    """Delivery basis by name (''/None → no basis)."""
     if not name:
         return None
     basis = (await session.exec(select(DeliveryBasis).where(col(DeliveryBasis.name) == name))).first()
@@ -821,11 +824,11 @@ async def resolve_basis_id(session: AsyncSession, name: str | None) -> UUID | No
     return basis.id
 
 
-# ─── Запись: справочники ──────────────────────────────────────────
+# ─── Write: dictionaries ─────────────────────────────────────────────
 
 
 class DictionaryReferenceError(ValueError):
-    """Нарушение ссылочной целостности при изменении справочника."""
+    """Referential-integrity violation when changing a dictionary."""
 
 
 _DICT_REF_USER_MANAGED_BY_KEYCLOAK = DictionaryReferenceError(
@@ -874,7 +877,7 @@ async def _asset_names_by_ids(session: AsyncSession, asset_ids: list[UUID]) -> l
 
 
 async def _asset_ids_by_names(session: AsyncSession, names: list[str]) -> list[UUID]:
-    """Идентификаторы активов по именам (для отката assetNames при undo/redo)."""
+    """Asset ids by names (for assetNames undo/redo rollback)."""
     if not names:
         return []
     rows = (await session.exec(select(RawMaterialAsset).where(col(RawMaterialAsset.name).in_(names)))).all()
@@ -1091,22 +1094,21 @@ async def create_project_user(
     asset_names: list[str],
 ) -> User:
     """
-    Добавляет пользователя в проект «Сырьё» с ролью и активами.
+    Add a user to the «Сырьё» project with role and assets.
 
-    Пользователь сразу провижионится во все проекты: в текущем — активный
-    с выбранной ролью, в остальных — неактивный с ролью работника активов
-    (доступ к проекту администратор открывает флагом «Активен»). Если
-    пользователь с таким email уже существует (например, заведён другим
-    администратором или входил через Keycloak), но связи с текущим проектом
-    у него нет — создаётся только связь с проектом; существующие данные
-    пользователя не перезаписываются (ФИО/email после входа через Keycloak
-    приходят из идентичности).
+    The user is immediately provisioned into all projects: active with the
+    chosen role in the current one, inactive with the asset-worker role in
+    the others (the admin opens project access with the «Активен» flag). If
+    a user with this email already exists (e.g. created by another admin or
+    logged in via Keycloak) but has no link with the current project — only
+    the project link is created; the user's existing data is not
+    overwritten (FIO/email come from the identity after a Keycloak login).
     """
     email = normalize_email(email)
     if not is_valid_email(email):
         raise _DICT_REF_USER_BAD_EMAIL
-    # Регистронезависимый поиск: адреса регистронезависимы, а в базе могут
-    # лежать записи, созданные до нормализации.
+    # Case-insensitive lookup: addresses are case-insensitive and the DB may
+    # hold records created before normalization.
     existing = (await session.exec(select(User).where(func.lower(col(User.email)) == email))).one_or_none()
     if existing is not None:
         link = (
@@ -1143,8 +1145,8 @@ async def create_project_user(
         )
     )
     await replace_user_assets(session, user.id, asset_names)
-    # Провижининг во все остальные проекты: новые связи — неактивные с ролью
-    # работника активов; существующие связи не трогаем.
+    # Provisioning into all other projects: new links are inactive with the
+    # asset-worker role; existing links are left untouched.
     await sync_project_memberships(session, user.id)
     await session.commit()
     return user
@@ -1172,8 +1174,8 @@ async def update_project_user(
     if link is None:
         raise _DICT_REF_USER_NOT_FOUND
     if get_settings().keycloak_enabled:
-        # При включённом Keycloak email и ФИО приходят из идентичности при каждом
-        # входе (upsert_current_user), поэтому редактирование здесь запрещено.
+        # With Keycloak enabled, email and FIO come from the identity on every
+        # login (upsert_current_user), so editing them here is forbidden.
         if email is not None and normalize_email(email) != normalize_email(user.email or ""):
             raise _DICT_REF_USER_MANAGED_BY_KEYCLOAK
         if fullname is not None and fullname.strip() != (user.name or ""):
@@ -1274,29 +1276,29 @@ async def update_project_user(
 
 
 async def delete_project_user(
-    session: AsyncSession,  # noqa: ARG001 — контракт вызова
+    session: AsyncSession,  # noqa: ARG001 — call contract
     *,
-    project_id: UUID,  # noqa: ARG001 — контракт вызова
-    user_id: UUID,  # noqa: ARG001 — контракт вызова
+    project_id: UUID,  # noqa: ARG001 — call contract
+    user_id: UUID,  # noqa: ARG001 — call contract
 ) -> None:
     """
-    Удаление пользователей из проекта запрещено.
+    Reject user deletion from the project.
 
-    Вместо удаления администратор отключает доступ флагом «Активен»
-    (is_active=False): учётная запись и связи с проектами сохраняются,
-    а доступ к проекту «Сырьё» закрывается.
+    Instead of deleting, the admin disables access with the «Активен» flag
+    (is_active=False): the account and project links stay, only the access
+    to the «Сырьё» project is closed.
     """
     raise _DICT_REF_USER_DELETE_FORBIDDEN
 
 
 async def _default_basis_id(session: AsyncSession) -> UUID | None:
-    """Базис по умолчанию для новых строк «Цен» (первый по алфавиту, как в сиде)."""
+    """Default basis for new «Цены» rows (first alphabetically, like in the seed)."""
     basis = (await session.exec(select(DeliveryBasis).order_by(DeliveryBasis.name))).first()
     return basis.id if basis is not None else None
 
 
 async def replace_asset_links(session: AsyncSession, raw_material_id: UUID, asset_ids: list[UUID]) -> None:
-    """Заменяет связки актив-сырьё для сырьевой позиции (по разнице)."""
+    """Replace asset-raw-material links for a raw-material item (by diff)."""
     existing = {
         link.asset_id: link
         for link in (
@@ -1305,9 +1307,9 @@ async def replace_asset_links(session: AsyncSession, raw_material_id: UUID, asse
     }
     existing_ids = set(existing)
     new_ids = set(asset_ids)
-    # Удаляем только снятые активы. Пустые строки «Движения»/«Цен» удаляются
-    # вместе со связкой; актив с заполненными данными снять нельзя — это
-    # бизнес-правило, а RESTRICT-ключ служит страховкой от гонок.
+    # Remove only the dropped assets. Empty «Движение»/«Цены» rows are deleted
+    # with the link; an asset with filled data can't be dropped — a business
+    # rule, and the RESTRICT key is a guard against races.
     removed_ids = existing_ids - new_ids
     if removed_ids:
         blocked_ids: list[UUID] = []
@@ -1343,9 +1345,8 @@ async def replace_asset_links(session: AsyncSession, raw_material_id: UUID, asse
             new_links.append(link)
     await session.flush()
     if new_links:
-        # Новая связка сразу даёт строки на формах «Цены» и «Движение»
-        # (как при сидировании): цена — одна на связку, движение — по строке
-        # на каждый открытый отчётный месяц.
+        # A new link immediately yields «Цены» and «Движение» rows (like seeding):
+        # one price per link, one movement row per open report month.
         basis_id = await _default_basis_id(session)
         periods = [row for row in (await session.exec(select(col(MovementPeriod.report_month)))).all()]
         for link in new_links:
@@ -1370,13 +1371,13 @@ async def replace_asset_links(session: AsyncSession, raw_material_id: UUID, asse
 
 
 async def replace_user_assets(session: AsyncSession, user_id: UUID, asset_names: list[str] | None) -> None:
-    """Заменяет привязку пользователя к активам (None — только удалить связи админа)."""
+    """Replace the user's asset assignment (None — only remove admin links)."""
     existing = (
         await session.exec(select(RawMaterialUserAsset).where(col(RawMaterialUserAsset.user_id) == user_id))
     ).all()
     for link in existing:
         await session.delete(link)
-    # Удаления применяем до вставок: у связей уникальный ключ (user_id, asset_id).
+    # Deletions flush before inserts: the links have a unique key (user_id, asset_id).
     await session.flush()
     if asset_names:
         assets = (await session.exec(select(RawMaterialAsset).where(col(RawMaterialAsset.name).in_(asset_names)))).all()
@@ -1392,13 +1393,13 @@ async def replace_user_assets(session: AsyncSession, user_id: UUID, asset_names:
 
 
 async def _delete_arm_rows(session: AsyncSession, arm_id: UUID) -> None:
-    """Удаляет (пустые) строки «Движения» и «Цен» связки перед удалением самой связки."""
+    """Delete the link's (empty) «Движение» and «Цены» rows before deleting the link itself."""
     await session.exec(delete(MaterialMovement).where(col(MaterialMovement.asset_raw_material_id) == arm_id))
     await session.exec(delete(RawMaterialPrice).where(col(RawMaterialPrice.asset_raw_material_id) == arm_id))
 
 
 async def _arm_has_data(session: AsyncSession, arm_id: UUID) -> bool:
-    """Есть ли у связки заполненные строки «Движения»/«Цен» (пустые — не данные)."""
+    """Whether the link has filled «Движение»/«Цены» rows (empty ones don't count)."""
     movement_fields = (
         "demand_plan_tons",
         "consumption_fact_tons",

@@ -7,7 +7,7 @@ from typing import Any
 
 
 class JsonFormatter(logging.Formatter):
-    """Форматирует события приложения в JSON Lines для Loki."""
+    """Formats application events as JSON Lines for Loki."""
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
@@ -17,7 +17,7 @@ class JsonFormatter(logging.Formatter):
             "module": record.module,
             "message": record.getMessage(),
         }
-        # Все дополнительные поля, переданные через extra={}
+        # All extra fields passed via extra={}
         for field_name in (
             "event",
             "duration_ms",
@@ -68,7 +68,7 @@ class JsonFormatter(logging.Formatter):
 
 
 def configure_application_logging(log_file: str) -> None:
-    """Настраивает единый JSON-журнал приложения в указанном файле."""
+    """Configure the single JSON application log in the given file."""
     logger = logging.getLogger("reportcollector")
     if logger.handlers:
         return
@@ -83,20 +83,20 @@ def configure_application_logging(log_file: str) -> None:
 
 
 def log_event(logger: logging.Logger, event: str, message: str, **fields: object) -> None:
-    """Записывает структурированное событие без служебной обвязки в местах вызова."""
+    """Record a structured event without boilerplate at call sites."""
     logger.info(message, extra={"event": event, **fields})
 
 
 def log_warning(logger: logging.Logger, event: str, message: str, **fields: object) -> None:
-    """Записывает предупреждение."""
+    """Record a warning."""
     logger.warning(message, extra={"event": event, **fields})
 
 
 def log_error(logger: logging.Logger, event: str, message: str, **fields: object) -> None:
-    """Записывает ошибку."""
+    """Record an error."""
     logger.error(message, extra={"event": event, **fields})
 
 
 def monotonic_ms() -> float:
-    """Возвращает текущее монотонное время в миллисекундах."""
+    """Return the current monotonic time in milliseconds."""
     return time.monotonic() * 1000

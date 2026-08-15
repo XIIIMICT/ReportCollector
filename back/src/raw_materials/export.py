@@ -1,9 +1,10 @@
 """
-Выгрузка таблиц проекта «Сырьё» в Excel.
+Excel export of the «Сырьё» project tables.
 
-Повторяет поведение экспорта Tauri-приложения (ReportCollector-RawMaterials),
-но без цветовых заливок: расчётные столбцы пишутся формулами, справочные поля
-получают выпадающие списки через скрытый лист, числа и даты — в своих форматах.
+Mirrors the Tauri app's export behavior (ReportCollector-RawMaterials) but
+without color fills: calculated columns are written as formulas, dictionary
+fields get dropdown lists through a hidden sheet, numbers and dates in their
+own formats.
 """
 
 from collections.abc import Sequence
@@ -85,7 +86,7 @@ CALCULATED_OPERANDS: dict[str, tuple[str, str]] = {
     "deliveryDeviationTons": ("deliveryPlanTons", "deliveryFactTons"),
 }
 
-# Справочные столбцы: ключ колонки -> имя списка на скрытом листе.
+# Dictionary columns: column key -> list name on the hidden sheet.
 REFERENCE_LISTS: dict[str, str] = {
     "deliveryBasisName": "deliveryBases",
     "assetNames": "assets",
@@ -106,7 +107,7 @@ _THIN_BORDER = Border(
 
 
 class ExportValidationError(ValueError):
-    """Некорректный запрос на выгрузку таблицы в Excel."""
+    """Invalid Excel export request."""
 
 
 _ERROR_COLUMN_COUNT = "Некорректное количество экспортируемых столбцов."
@@ -118,7 +119,7 @@ _ERROR_BAD_FILENAME = "Имя файла должно заканчиваться
 
 
 def validate_export_request(request: ExportViewRequest, show_asset_column: bool) -> None:
-    """Проверяет запрос: лимиты, уникальность, доступность столбцов, имя файла."""
+    """Validate the request: limits, uniqueness, column availability, file name."""
     if not request.columns or len(request.columns) > MAX_EXPORT_COLUMNS:
         raise ExportValidationError(_ERROR_COLUMN_COUNT)
     if request.rowIds is not None:
@@ -152,7 +153,7 @@ def render_workbook(
     asset_names: Sequence[str],
     delivery_bases: Sequence[str],
 ) -> bytes:
-    """Собирает книгу Excel и возвращает её байты (без записи на диск)."""
+    """Build the Excel workbook and return its bytes (no disk write)."""
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = safe_sheet_name(SECTION_SHEET_NAMES[request.section])

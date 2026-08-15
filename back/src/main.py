@@ -54,12 +54,12 @@ async def rate_limit_auth(
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
     if request.url.path.startswith("/api/auth/"):
-        # Используем только request.client.host — не X-Forwarded-For, чтобы исключить IP-спуфинг.
-        # При развёртывании за reverse proxy (nginx) client.host всегда будет IP прокси — это приемлемо
-        # для простого rate limiting на уровне одного worker-процесса.
+        # Use only request.client.host — not X-Forwarded-For — to avoid IP spoofing.
+        # Behind a reverse proxy (nginx) client.host is always the proxy IP — acceptable
+        # for simple per-worker-process rate limiting.
         client_ip = request.client.host if request.client else "unknown"
         now = time.monotonic()
-        # Нет блокировки: asyncio однопоточен, конкурентного доступа к _rate_limit_store нет.
+        # No locking: asyncio is single-threaded, no concurrent access to _rate_limit_store.
         timestamps = _rate_limit_store[client_ip]
         cutoff = now - _RATE_LIMIT_WINDOW
         _rate_limit_store[client_ip] = [t for t in timestamps if t > cutoff]
@@ -84,7 +84,7 @@ async def log_request(
     status = response.status_code
     path = request.url.path
 
-    # Пропускаем частые healthcheck запросы — они засоряют лог
+    # Skip frequent healthcheck requests — they spam the log
     if path == "/health":
         return response
 

@@ -131,14 +131,14 @@ function toGridRow<T extends { id: string }>(row: T): GridRow {
 }
 
 function toReferenceOptions(names: string[]): ReferenceOption[] {
-    // Базисы поставки и прочие справочники передаются именами: id не нужен,
-    // клиент работает с именами (свойства id/name совпадают).
+    // Delivery bases and other dictionaries are passed by name: id isn't needed,
+    // the client works with names (id/name properties coincide).
     return names.map((name) => ({ id: name, name }));
 }
 
 function toAssetOptions(assets: RawMaterialsMeta["assets"]): ReferenceOption[] {
-    // Активы приходят с настоящими id: по ним грид переводит имена в
-    // идентификаторы (namesToIds) для API сырьевых позиций.
+    // Assets come with real ids: the grid maps names to ids (namesToIds)
+    // for the raw-material-items API.
     return assets.map((asset) => ({ id: asset.id, name: asset.name }));
 }
 
@@ -196,7 +196,7 @@ function placeholderPayload(
         return { name, assetIds };
     }
     if (section === "users") {
-        // Email приводим к нижнему регистру: адреса регистронезависимы.
+        // Email is lowercased: addresses are case-insensitive.
         const email = placeholderText(draft.email).toLowerCase();
         const fullname = placeholderText(draft.fullname);
         const isAdmin = draft.isAdmin === true;
@@ -303,7 +303,7 @@ function SectionContent({
     assets: ReferenceOption[];
     deliveryBases: ReferenceOption[];
     collabEnabled: boolean;
-    /** Первый открытый месяц «Движения»: только его можно фиксировать. */
+    /** The first open «Движение» month: only it can be fixed. */
     firstOpenMonth: string | null;
     room: CollabRoom;
     remoteCellValues: Map<string, unknown>;
@@ -376,9 +376,9 @@ function SectionContent({
         placeholderDraftRef.current = placeholderDraft;
     }, [placeholderDraft]);
 
-    // Смена секции или месяца: сбрасываем состояние строки-заглушки, выделение,
-    // диалоги и просмотр архивной версии, а данные перезагружаются через loader
-    // (меняется по section/reportMonth).
+    // Section or month change: reset the placeholder-row state, selection,
+    // dialogs and archive viewing; data reloads through the loader
+    // (keyed by section/reportMonth).
     useEffect(() => {
         const next = initialPlaceholderDraft(section);
         placeholderDraftRef.current = next;
@@ -390,8 +390,8 @@ function SectionContent({
         setSnapshotView(null);
     }, [reportMonth, section]);
 
-    // История undo/redo своя на каждой форме (секция + месяц) и хранится на
-    // сервере: при переключении форм счётчики перечитываются из нужного стека.
+    // Undo/redo history is per form (section + month) and lives on the server:
+    // on form switch the counters are re-read from the right stack.
     useEffect(() => {
         if (!collabEnabled) return;
         void getUndoState(section, reportMonth)
@@ -424,8 +424,8 @@ function SectionContent({
         return result;
     }, [room.lockedCells]);
 
-    // Ячейки, которые другие участники выделили (присутствие): они тоже
-    // защищены от перезаписи, как и арендованные.
+    // Cells selected by other members (presence): they're also protected from
+    // overwrite, same as leased ones.
     const remotePresence = useMemo(() => {
         const meId = room.me?.userId ?? null;
         const result = new Map<string, { fullname: string; email: string }>();
@@ -444,9 +444,9 @@ function SectionContent({
         return result;
     }, [room.me?.userId, room.members]);
 
-    // Ячейки, на которых находятся другие участники: их диапазоны присутствия
-    // (канонические ключи — едины для всех независимо от набора колонок) плюс
-    // ячейки, занятые арендой. Нужно для жёлтой подсветки и подсказки с ФИО.
+    // Cells where other members are: their presence ranges (canonical keys —
+    // the same for everyone regardless of the column set) plus leased cells.
+    // Needed for the yellow highlight and the FIO tooltip.
     const remoteCellInfo = useMemo(() => {
         const meId = room.me?.userId ?? null;
         const result = new Map<string, { name: string; label: string | null }>();
@@ -545,8 +545,8 @@ function SectionContent({
             return true;
         } catch (reason) {
             toast.danger("Изменения не сохранены", { description: errorMessage(reason) });
-            // Сервер отклонил правки: пусть грид вернёт данные из источника
-            // (onCommitFailed), а не оставит оптимистичное значение.
+            // The server rejected the edits: let the grid restore data from the
+            // source (onCommitFailed) instead of keeping the optimistic value.
             return false;
         } finally {
             setIsMutationPending(false);
@@ -592,8 +592,8 @@ function SectionContent({
         placeholderDraftRef.current = next;
         setPlaceholderDraft(next);
         const payload = placeholderPayload(section, next, assets);
-        // createRecord сам показывает ошибку и сохраняет черновик placeholder-строки,
-        // поэтому откат источника не нужен.
+        // createRecord itself shows the error and keeps the placeholder-row draft,
+        // so no source rollback is needed.
         if (payload) await createRecord(payload);
         return true;
     }
@@ -727,8 +727,8 @@ function SectionContent({
         if (!collabEnabled) return;
         const onKeyDown = (event: KeyboardEvent) => {
             if (!(event.ctrlKey || event.metaKey)) return;
-            // event.code — физическая клавиша: работает при любой раскладке
-            // (в русской event.key даёт «я»/«н»).
+            // event.code — the physical key: works in any layout
+            // (in Russian event.key gives «я»/«н»).
             if (event.code !== "KeyZ" && event.code !== "KeyY") return;
             const target = event.target as HTMLElement | null;
             if (
@@ -752,8 +752,8 @@ function SectionContent({
 
     useEffect(() => {
         onUndoState({
-            // Undo/redo действует на всех разделах: и на «Движении» с «Ценами»,
-            // и на справочниках (правки имён, наборов активов, пользователей).
+            // Undo/redo works on all sections: on «Движение»/«Цены» and on the
+            // dictionaries (name, asset-set and user edits).
             enabled: collabEnabled && !isArchive,
             offline: collabEnabled && room.status !== "online",
             canUndo: undoCount > 0,
@@ -793,8 +793,8 @@ function SectionContent({
     }, [approvePending, movementMeta?.isComplete, onFixed, refresh, reportMonth]);
 
     useEffect(() => {
-        // Фиксировать можно только первый открытый месяц: пока предыдущий
-        // месяц не закрыт финальной фиксацией, следующие недоступны.
+        // Only the first open month can be fixed: until the previous month is
+        // closed by a final fix, the next ones are unavailable.
         onApproveState({
             pending: approvePending,
             canApprove:
@@ -1160,9 +1160,9 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
         />
     );
 
-    // Применяем сохранённую тему пользователя один раз при монтировании.
-    // setTheme из next-themes меняет идентичность при каждой смене темы,
-    // поэтому эффект не должен зависеть от неё — иначе он сбросит выбор пользователя.
+    // Apply the saved user theme once on mount. next-themes' setTheme changes
+    // the identity on every theme switch, so the effect must not depend on it —
+    // otherwise it would reset the user's choice.
     useEffect(() => {
         setTheme(user.theme);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1218,8 +1218,8 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
             return next;
         });
     }, []);
-    // Архивная версия — только чтение: смотрящий её не участвует в совместной
-    // работе и не показывается в списке «В сети».
+    // The archive version is read-only: its viewer doesn't take part in
+    // collaboration and isn't shown in the «В сети» list.
     const archiveOpen = archiveState.selectedKey !== null;
     const room = useCollabRoom({
         projectKey: activeProjectKey,
@@ -1766,15 +1766,15 @@ const COLLAB_STATUS_LABELS: Record<Exclude<CollabStatus, "online">, string> = {
     offline: "Совместное редактирование недоступно",
 };
 
-/** Только фамилия (первое слово полного имени, fullname.partition(" ")[0]). */
+/** Last name only (the first word of the full name, fullname.partition(" ")[0]). */
 function shortName(fullname: string): string {
     const first = fullname.trim().split(/\s+/)[0];
     return first || fullname;
 }
 
 /**
- * Что показывать в скобках: администратору — роль, работнику по активам —
- * список активов через запятую (например «СНХЗ, БСК»).
+ * What to show in parentheses: for an admin — the role, for an asset worker —
+ * the comma-joined asset list (e.g. «СНХЗ, БСК»).
  */
 function memberDetail(member: CollabMember): string | null {
     if (member.role === "admin") return "админ";
@@ -1783,7 +1783,7 @@ function memberDetail(member: CollabMember): string | null {
     return member.role === "asset_worker" ? "Работник по активам" : member.role || null;
 }
 
-/** Ячейка / диапазон ячеек, где сейчас находится участник (из присутствия). */
+/** Cell / cell range where the member currently is (from presence). */
 function memberSelectionLabel(member: CollabMember | null): string | null {
     if (!member) return null;
     const label = member.selection?.label;
@@ -1797,8 +1797,8 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
         .filter((member) => member.userId !== me?.userId)
         .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email, "ru"));
     const solo = room.members.length <= 1;
-    // В строке состояния — только фамилии; ячейки/диапазоны показываем
-    // исключительно в раскрытом Tooltip.
+    // The status line shows only last names; cells/ranges appear exclusively
+    // in the expanded Tooltip.
     const membersText = solo
         ? "только вы"
         : `Вы${others.length ? `, ${others.map((member) => shortName(member.name || member.email)).join(", ")}` : ""}`;
