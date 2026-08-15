@@ -467,6 +467,14 @@ function RawMaterialsGridInner(
         // selection overlay isn't repainted (the same Stencil quirk as with
         // setCellsFocus) — the range rectangle would stay visible.
         void grid.clearFocus().then(() => void grid.refresh());
+        // revo-grid caches the last focused cell (pendingColumnFocusRestore)
+        // whenever columns change while a range is active, then re-applies it
+        // in componentDidRender. After clearFocus() the store is empty, so the
+        // "column didn't move" guard can't match and the stale restore would
+        // resurrect a single-cell range. Drop it so the clearing survives the
+        // next render (this is what kept the border visible after row clicks).
+        (grid as unknown as { pendingColumnFocusRestore?: unknown }).pendingColumnFocusRestore =
+            undefined;
         updateSelectionRange(null);
     }, [updateSelectionRange]);
 
@@ -494,18 +502,22 @@ function RawMaterialsGridInner(
             event.preventDefault();
             event.stopPropagation();
             const modifiers = event.ctrlKey || event.metaKey;
+            // Clear the cell range BEFORE the row selection state updates:
+            // selectedRowIds is a columns dependency, so the row click rebuilds
+            // the columns and revo-grid captures the still-live focus into
+            // pendingColumnFocusRestore — which would then resurrect a
+            // single-cell range on the next render, keeping the border visible.
             if (event.shiftKey && !modifiers) {
                 const anchor = rowSelectionAnchorRef.current ?? rowIndex;
                 const start = Math.min(anchor, rowIndex);
                 const end = Math.max(anchor, rowIndex);
+                clearGridSelection();
                 setSelectedRowIds(
                     rows
                         .slice(start, end + 1)
                         .map((row) => row.id)
                         .filter(Boolean),
                 );
-                // Row selection fully resets the cell range (visually too).
-                clearGridSelection();
                 return;
             }
             if (modifiers) {
@@ -517,14 +529,13 @@ function RawMaterialsGridInner(
                     next.add(id);
                     rowSelectionAnchorRef.current = rowIndex;
                 }
-                setSelectedRowIds([...next]);
                 clearGridSelection();
+                setSelectedRowIds([...next]);
                 return;
             }
             rowSelectionAnchorRef.current = rowIndex;
-            setSelectedRowIds([id]);
-            // Row selection fully resets the cell range (visually too).
             clearGridSelection();
+            setSelectedRowIds([id]);
         },
         [clearGridSelection, rows, selectedRowIdSet],
     );
@@ -1364,11 +1375,11 @@ function RawMaterialsGridInner(
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape" && !document.fullscreenElement) {
                 if (isEditableTarget(document.activeElement)) return;
-                const grid = gridRef.current;
-                if (grid) void grid.clearFocus().then(() => void grid.refresh());
+                // Same path as the row-selection reset: clears the range,
+                // repaints the overlay and drops revo-grid's stale focus restore.
+                clearGridSelection();
                 setSelectedRowIds([]);
                 rowSelectionAnchorRef.current = null;
-                updateSelectionRange(null);
                 return;
             }
             if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
@@ -1403,7 +1414,7 @@ function RawMaterialsGridInner(
         // capture: intercept Ctrl+A before revo-grid.
         document.addEventListener("keydown", handleKeyDown, true);
         return () => document.removeEventListener("keydown", handleKeyDown, true);
-    }, [copySelection, cutSelection, pasteIntoSelection, selectAllCells, updateSelectionRange]);
+    }, [clearGridSelection, copySelection, cutSelection, pasteIntoSelection, selectAllCells]);
 
     useEffect(() => {
         const frame = requestAnimationFrame(() => {
