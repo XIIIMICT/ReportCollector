@@ -296,6 +296,8 @@ function SectionContent({
     onFixed,
     onGridStatsChange,
     onClipboardStateChange,
+    onSelectionLabelChange,
+    onRegisterSelectionPreempt,
 }: {
     section: SectionId;
     reportMonth: string | null;
@@ -315,6 +317,14 @@ function SectionContent({
     onFixed: () => void;
     onGridStatsChange: (stats: GridViewStats) => void;
     onClipboardStateChange: (state: ClipboardActions) => void;
+    /** Completed selection label of the current user (same as in presence). */
+    onSelectionLabelChange: (label: string | null) => void;
+    /**
+     * Registers the handler that clears the local selection when another tab
+     * of the same account takes over the user's selection. One handler at a
+     * time (the workspace owns the current slot).
+     */
+    onRegisterSelectionPreempt: (handler: () => void) => void;
 }) {
     const loader = useMemo(() => {
         switch (section) {
@@ -354,7 +364,9 @@ function SectionContent({
         [isMovement, reportMonth, reloadKey],
     );
 
-    const [headerPinned, setHeaderPinned] = useState(false);
+    // Pinned (sticky) header is the default view; the grid uses its own
+    // scrollbars in this mode (the header stays visible while scrolling).
+    const [headerPinned, setHeaderPinned] = useState(true);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [approveOpen, setApproveOpen] = useState(false);
@@ -366,6 +378,10 @@ function SectionContent({
     const placeholderCreatePendingRef = useRef(false);
     const gridRef = useRef<RawMaterialsGridHandle>(null);
     const [exportPending, setExportPending] = useState(false);
+    // When another tab of the same account takes over the selection, the grid
+    // is cleared programmatically; the resulting empty presence update must be
+    // swallowed (the server entry belongs to the other tab).
+    const suppressSelectionSendRef = useRef(false);
     const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
     const [snapshotView, setSnapshotView] = useState<SnapshotView | null>(null);
     const [snapshotPending, setSnapshotPending] = useState(false);
@@ -389,6 +405,17 @@ function SectionContent({
         setSelectedSnapshotId(null);
         setSnapshotView(null);
     }, [reportMonth, section]);
+
+    // Expose the preemption clear to the workspace: reset the cell range AND
+    // the row selection, silently (suppressSelectionSendRef).
+    useEffect(() => {
+        onRegisterSelectionPreempt(() => {
+            suppressSelectionSendRef.current = true;
+            setSelectedRowIds([]);
+            gridRef.current?.clearSelection();
+        });
+        return () => onRegisterSelectionPreempt(() => {});
+    }, [onRegisterSelectionPreempt]);
 
     // Undo/redo history is per form (section + month) and lives on the server:
     // on form switch the counters are re-read from the right stack.
@@ -952,9 +979,17 @@ function SectionContent({
                     onViewStatsChange={onGridStatsChange}
                     onClipboardStateChange={handleClipboardState}
                     remoteCellInfo={remoteCellInfo}
-                    onSelectionChange={({ label, cellKeys }) =>
-                        room.setSelection({ label: label ?? "", cellKeys })
-                    }
+                    onSelectionChange={({ label, cellKeys }) => {
+                        onSelectionLabelChange(label && label.length > 0 ? label : null);
+                        if (suppressSelectionSendRef.current) {
+                            // The clear following a preemption from another tab
+                            // of the same account is not sent — the server
+                            // entry belongs to the other tab.
+                            suppressSelectionSendRef.current = false;
+                            if (!label || label.length === 0) return;
+                        }
+                        room.setSelection({ label: label ?? "", cellKeys });
+                    }}
                 />
                 {displayRows.length === 0 && !canManageReferences ? (
                     <div className="grid-empty">В этой таблице пока нет строк.</div>
@@ -990,6 +1025,7 @@ function SectionFooter({
     approveState,
     archiveState,
     gridStats,
+    selectionLabel,
     clipboardState,
     isFullscreen,
     isFullscreenPending,
@@ -1007,6 +1043,7 @@ function SectionFooter({
     approveState: ApproveState;
     archiveState: ArchiveState;
     gridStats: GridViewStats | null;
+    selectionLabel: string | null;
     clipboardState: { canPaste: boolean };
     isFullscreen: boolean;
     isFullscreenPending: boolean;
@@ -1044,16 +1081,42 @@ function SectionFooter({
                         />
                     </div>
                 ) : null}
-                {gridStats !== null ? (
-                    <div className="grid-stats" aria-label="Статистика таблицы">
-                        <span>
-                            Всего: {gridStats.totalRows} строк, {gridStats.totalCols} столбцов
-                        </span>
-                        <span>
-                            Сейчас на экране: {gridStats.visibleRows} строк, {gridStats.visibleCols}{" "}
-                            столбцов
-                        </span>
-                    </div>
+                {gridStats !== null && (selectionLabel || gridStats.filtersApplied) ? (
+                    <Tooltip delay={250}>
+                        <Tooltip.Trigger>
+                            <div className="grid-stats" aria-label="Статистика таблицы">
+                                {selectionLabel ? (
+                                    <span>
+                                        <b>Выделено:</b> {selectionLabel}
+                                    </span>
+                                ) : null}
+                                {gridStats.filtersApplied ? (
+                                    <span>
+                                        <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
+                                        {gridStats.totalRows} всего
+                                    </span>
+                                ) : null}
+                            </div>
+                        </Tooltip.Trigger>
+                        <Tooltip.Content placement="top" className="grid-stats-tooltip">
+                            <div className="grid-stats-detail">
+                                {selectionLabel ? (
+                                    <span>
+                                        <b>Выделено:</b> {selectionLabel}
+                                    </span>
+                                ) : null}
+                                <span>
+                                    <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
+                                    {gridStats.totalRows} всего
+                                </span>
+                                <span>
+                                    <b>Столбцы:</b> {gridStats.immutableCols} неизменяемых +{" "}
+                                    {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
+                                    заполняемых = {gridStats.totalCols} всего
+                                </span>
+                            </div>
+                        </Tooltip.Content>
+                    </Tooltip>
                 ) : null}
             </div>
             <ActionBar
@@ -1089,6 +1152,11 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
     const [isFullscreenPending, setIsFullscreenPending] = useState(false);
     const [footerAutocompleteOpen, setFooterAutocompleteOpen] = useState(false);
     const [gridStats, setGridStats] = useState<GridViewStats | null>(null);
+    // Completed cell/row selection of the current user, in the same format as
+    // in the «На форме» tooltip (e.g. «Потребность / План, т», строки 3–5).
+    // Reported by the grid itself (onSelectionChange), not via the presence
+    // echo — so it works even when collaboration is offline.
+    const [selectionLabel, setSelectionLabel] = useState<string | null>(null);
     const [clipboardState, setClipboardState] = useState<ClipboardActions>({
         canPaste: false,
         onCopy: () => {},
@@ -1219,8 +1287,15 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
         });
     }, []);
     // The archive version is read-only: its viewer doesn't take part in
-    // collaboration and isn't shown in the «В сети» list.
+    // collaboration and isn't shown in the «На форме» list.
     const archiveOpen = archiveState.selectedKey !== null;
+    // Another tab of the same account took over the user's selection: clear
+    // the local grid selection without touching the server entry (it belongs
+    // to the other tab). SectionContent registers its clear handler here.
+    const selectionPreemptRef = useRef<() => void>(() => {});
+    const registerSelectionPreempt = useCallback((handler: () => void) => {
+        selectionPreemptRef.current = handler;
+    }, []);
     const room = useCollabRoom({
         projectKey: activeProjectKey,
         section: selectedTab?.section ?? "rawMaterialPrices",
@@ -1231,11 +1306,21 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
                 ? visibleAssetNames
                 : null,
         onCellChanged: handleCellChanged,
+        onSelectionPreempted: () => {
+            setSelectionLabel(null);
+            selectionPreemptRef.current();
+        },
     });
 
     useEffect(() => {
         setRemoteCellValues(new Map());
     }, [selectedTab?.reportMonth, selectedTab?.section]);
+
+    // Selection is per-form: reset the label when the tab changes (the grid
+    // reports a fresh one on the next completed selection).
+    useEffect(() => {
+        setSelectionLabel(null);
+    }, [selectedTabId]);
 
     const setFullscreenMode = useCallback(
         async (next: boolean) => {
@@ -1349,6 +1434,7 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
             approveState={approveState}
             archiveState={archiveState}
             gridStats={gridStats}
+            selectionLabel={selectionLabel}
             clipboardState={clipboardState}
             isFullscreen={isFullscreen}
             isFullscreenPending={isFullscreenPending}
@@ -1386,6 +1472,8 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
                                 onFixed={handleFixed}
                                 onGridStatsChange={setGridStats}
                                 onClipboardStateChange={setClipboardState}
+                                onSelectionLabelChange={setSelectionLabel}
+                                onRegisterSelectionPreempt={registerSelectionPreempt}
                             />
                             {footer}
                         </Card.Content>
@@ -1801,7 +1889,7 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
     // in the expanded Tooltip.
     const membersText = solo
         ? "только вы"
-        : `Вы${others.length ? `, ${others.map((member) => shortName(member.name || member.email)).join(", ")}` : ""}`;
+        : `вы${others.length ? `, ${others.map((member) => shortName(member.name || member.email)).join(", ")}` : ""}`;
     const tooltipMembers = self ? [self, ...others] : room.members;
 
     return (
@@ -1815,7 +1903,7 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
                     <Tooltip delay={250}>
                         <Tooltip.Trigger>
                             <span className="collab-bar__members">
-                                <b>В сети:</b> {membersText}
+                                <b>На форме:</b> {membersText}
                             </span>
                         </Tooltip.Trigger>
                         <Tooltip.Content placement="top" className="collab-bar-tooltip">

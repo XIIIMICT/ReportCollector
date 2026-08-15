@@ -439,7 +439,7 @@ html {
     background: var(--border);
 }
 
-/* Тултип «В сети»: без ограничения ширины, ФИО и роль — на одной строке
+/* Тултип «На форме»: без ограничения ширины, ФИО и роль — на одной строке
    (длинные ФИО не должны переноситься). */
 .collab-bar-tooltip {
     max-width: none !important;
@@ -525,7 +525,24 @@ html {
     min-width: 21rem;
 }
 
+/* The footer stats are compact lines (selection and/or filtered row count),
+   one per line — same layout as the full breakdown in the hover tooltip. */
 .grid-stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    line-height: 1.2;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    color: var(--muted);
+}
+
+.grid-stats-tooltip {
+    max-width: none !important;
+}
+
+.grid-stats-detail {
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
@@ -790,6 +807,12 @@ html {
 
 .revo-grid-shell:not(.revo-grid-shell--pinned) .revo-grid-vertical-scroller {
     overflow-y: auto;
+}
+
+/* The external horizontal scrollbar's height is reserved only when it's
+   actually shown (no overflow — no strip, no dead gap under the last row). */
+.revo-grid-shell:not(.revo-grid-shell--pinned):not(.revo-grid-shell--no-hscroll)
+    .revo-grid-vertical-scroller {
     padding-bottom: 17px;
 }
 
@@ -798,10 +821,30 @@ html {
     min-height: 100%;
 }
 
+/* In unpinned mode both internal scrollbars are hidden — the external
+   scroller and the external horizontal strip take over. Without this, the
+   internal vertical strip keeps its old (taller) spacer until revo-grid's
+   async re-measure and its native scrollbar lingers next to the external
+   one right after unpinning ("duplicated scrollbar" flicker). Hiding is
+   done by zeroing the strip sizes (plus visibility for good measure), not
+   by visibility alone: revo-grid sets an inline min-width/min-height on the
+   strip hosts, and Firefox paints the native scrollbar of a
+   visibility:hidden scroll container — a zero-size strip has no scrollbar
+   to paint in any browser. */
+.revo-grid-shell:not(.revo-grid-shell--pinned) .raw-materials-grid revogr-scroll-virtual {
+    visibility: hidden;
+}
+
+.revo-grid-shell:not(.revo-grid-shell--pinned) .raw-materials-grid revogr-scroll-virtual.vertical {
+    width: 0 !important;
+    min-width: 0 !important;
+}
+
 .revo-grid-shell:not(.revo-grid-shell--pinned)
     .raw-materials-grid
     revogr-scroll-virtual.horizontal {
-    visibility: hidden;
+    height: 0 !important;
+    min-height: 0 !important;
 }
 
 .revo-grid-external-scrollbar {
@@ -816,8 +859,19 @@ html {
     background: var(--surface);
 }
 
+.revo-grid-shell--no-hscroll .revo-grid-external-scrollbar {
+    display: none;
+}
+
 .revo-grid-external-scrollbar > div {
     height: 1px;
+}
+
+/* revo-grid's light theme (theme="compact") sets color-scheme: light on
+   its host — without this, native scrollbars (and form controls) inside
+   the grid stay light even in the app's dark theme. */
+.dark .raw-materials-grid {
+    color-scheme: dark;
 }
 
 .raw-materials-grid {

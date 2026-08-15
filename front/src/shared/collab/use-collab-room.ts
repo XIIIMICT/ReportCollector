@@ -40,6 +40,7 @@ export function useCollabRoom({
     enabled,
     visibleAssets,
     onCellChanged,
+    onSelectionPreempted,
 }: {
     projectKey: string;
     section: string;
@@ -48,10 +49,13 @@ export function useCollabRoom({
     /** The current user's assets: members without an overlap aren't shown. */
     visibleAssets?: string[] | null;
     onCellChanged?: (event: CollabCellChanged) => void;
+    /** Another tab of the same account took over the user's selection. */
+    onSelectionPreempted?: () => void;
 }): CollabRoom {
     const clientRef = useRef<CollabWsClient | null>(null);
-    const handlersRef = useRef({ onCellChanged });
+    const handlersRef = useRef({ onCellChanged, onSelectionPreempted });
     handlersRef.current.onCellChanged = onCellChanged;
+    handlersRef.current.onSelectionPreempted = onSelectionPreempted;
     const assetsRef = useRef(visibleAssets);
     assetsRef.current = visibleAssets;
     const [status, setStatus] = useState<CollabStatus>("offline");
@@ -105,6 +109,7 @@ export function useCollabRoom({
                     });
                 },
                 onCellChanged: (event) => handlersRef.current.onCellChanged?.(event),
+                onSelectionPreempted: () => handlersRef.current.onSelectionPreempted?.(),
                 onConnectionChange: setStatus,
             },
         );

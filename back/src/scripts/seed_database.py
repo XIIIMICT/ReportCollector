@@ -172,7 +172,7 @@ class SeedExtraUser(TypedDict):
 #   kuznetsov.an — second admin (all projects);
 #   smirnov.iv — asset worker, access to СНХЗ only;
 #   petrov.da — asset worker, access to СХ and СНХЗ;
-#   lebedeva.ol — asset worker, access to ВОС only («В сети» scope).
+#   lebedeva.ol — asset worker, access to ВОС only («На форме» scope).
 SEED_EXTRA_USERS: list[SeedExtraUser] = [
     {
         "email": "kuznetsov.an@ruschem.ru",

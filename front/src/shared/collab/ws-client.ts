@@ -35,7 +35,32 @@ export type CollabHandlers = {
     onCellChanged?: (event: CollabCellChanged) => void;
     onConnectionChange?: (status: CollabStatus) => void;
     onLeaseDenied?: (keys: string[], user: CollabUser) => void;
+    /**
+     * Another tab of the same account took over the user's selection
+     * (the backend keeps one presence entry per user). The local selection
+     * must be cleared silently — the server entry already belongs to the
+     * other tab.
+     */
+    onSelectionPreempted?: () => void;
 };
+
+/**
+ * Whether two presence selections are identical. The backend stores the
+ * selection object as sent ({label, cellKeys}), so a plain compare of the
+ * label plus the cell keys is enough to tell our own echo from another
+ * tab's takeover.
+ */
+function sameSelection(
+    a: Record<string, unknown> | null | undefined,
+    b: Record<string, unknown> | null | undefined,
+): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    if (a.label !== b.label) return false;
+    const aKeys = Array.isArray(a.cellKeys) ? (a.cellKeys as unknown[]) : [];
+    const bKeys = Array.isArray(b.cellKeys) ? (b.cellKeys as unknown[]) : [];
+    return aKeys.length === bKeys.length && aKeys.every((key, index) => key === bKeys[index]);
+}
 
 const HEARTBEAT_INTERVAL_MS = 15000;
 const LEASE_RENEW_INTERVAL_MS = 10000;
@@ -87,6 +112,7 @@ export class CollabWsClient {
     /** Whether the member is away: inactivity > IDLE_TIMEOUT_MS or a hidden tab. */
     private away = false;
     private lastSelection: Record<string, unknown> | null = null;
+    private meUserId: string | null = null;
     private readonly activityDetach: Array<() => void> = [];
 
     constructor(
@@ -171,11 +197,30 @@ export class CollabWsClient {
         }
         switch (message.type) {
             case "hello":
+                this.meUserId = (message.user as CollabUser | undefined)?.userId ?? null;
                 this.handlers.onHello?.(message.user as CollabUser, toMembers(message.members));
                 break;
-            case "presence:update":
-                this.handlers.onMembers?.(toMembers(message.members));
+            case "presence:update": {
+                const members = toMembers(message.members);
+                // One presence entry per user: if MY user's entry carries a
+                // selection I didn't send, another tab of the same account
+                // took it over — clear mine locally (silently).
+                const mine = this.meUserId
+                    ? members.find((member) => member.userId === this.meUserId)
+                    : null;
+                if (
+                    mine &&
+                    this.lastSelection !== null &&
+                    !sameSelection(this.lastSelection, mine.selection)
+                ) {
+                    // Don't resurrect the stale selection on reconnect or
+                    // after returning from away.
+                    this.lastSelection = null;
+                    this.handlers.onSelectionPreempted?.();
+                }
+                this.handlers.onMembers?.(members);
                 break;
+            }
             case "cell:locked":
                 this.handlers.onCellLocked?.(String(message.key), message.user as CollabUser);
                 break;
@@ -231,7 +276,7 @@ export class CollabWsClient {
     /**
      * Recompute the "away" state: inactivity beyond IDLE_TIMEOUT_MS or a
      * hidden tab. On leaving, release all leases (cells free up immediately,
-     * not after the 20s TTL); on return, show up in «В сети» again.
+     * not after the 20s TTL); on return, show up in «На форме» again.
      */
     private refreshAwayState(): void {
         const away = document.hidden || Date.now() - this.lastActivityAt > IDLE_TIMEOUT_MS;

@@ -627,7 +627,7 @@ async def test_ws_ping_refreshes_presence(db_session, store) -> None:
 
 
 async def test_ws_ping_readds_expired_presence(db_session, store) -> None:
-    """A returning member shows up in «В сети» on the very first heartbeat."""
+    """A returning member shows up in «На форме» on the very first heartbeat."""
     room = "rm:raw_materials:materialMovement:2026-08-01"
     fake = FakeWebSocket(project="raw_materials")
     task = await _run_collab_ws(db_session, fake)

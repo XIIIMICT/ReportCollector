@@ -51,15 +51,25 @@ export type RawMaterialsGridState = {
 
 export type GridViewStats = {
     totalRows: number;
+    /** Rows matching the current filters (non-placeholder, non-deleted). */
+    filteredRows: number;
     totalCols: number;
-    visibleRows: number;
-    visibleCols: number;
+    /** Whether any column filter is currently applied. */
+    filtersApplied: boolean;
+    /** Fixed (non-calculated) columns — not editable. */
+    immutableCols: number;
+    /** Calculated columns. */
+    calculatedCols: number;
+    /** Editable columns. */
+    editableCols: number;
 };
 
 export type RawMaterialsGridHandle = {
     getExportState: () => Promise<RawMaterialsGridState>;
     copySelection: () => Promise<void>;
     pasteIntoSelection: () => Promise<void>;
+    /** Reset the cell range selection (same path as Escape). */
+    clearSelection: () => void;
 };
 
 type Props = {
@@ -253,9 +263,14 @@ function RawMaterialsGridInner(
     forwardedRef: Ref<RawMaterialsGridHandle>,
 ) {
     const gridRef = useRef<HTMLRevoGridElement>(null);
+    const shellRef = useRef<HTMLDivElement>(null);
     const verticalScrollRef = useRef<HTMLDivElement>(null);
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
     const [horizontalContentWidth, setHorizontalContentWidth] = useState(0);
+    const filtersAppliedRef = useRef(false);
+    // Unpinned mode: the external horizontal scrollbar is shown only when the
+    // grid content actually overflows horizontally (native behavior elsewhere).
+    const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
     const [gridRevision, setGridRevision] = useState(0);
     const menuHostRef = useRef<HTMLElement | null>(null);
     const menuRootRef = useRef<Root | null>(null);
@@ -906,7 +921,10 @@ function RawMaterialsGridInner(
         const scrollbarGutter = verticalScroller
             ? verticalScroller.offsetWidth - verticalScroller.clientWidth
             : 0;
-        setHorizontalContentWidth(size.x + scrollbarGutter + 52);
+        const width = size.x + scrollbarGutter + 52;
+        setHorizontalContentWidth(width);
+        const shell = shellRef.current;
+        setHasHorizontalOverflow(width > (shell?.clientWidth ?? 0));
     }, []);
 
     const getExportState = useCallback(async (): Promise<RawMaterialsGridState> => {
@@ -945,34 +963,43 @@ function RawMaterialsGridInner(
             grid.getColumns(),
             grid.getVisibleSource("rgRow"),
         ]);
-        const rowHeight = 36;
-        const bodyHeight = Math.max(0, grid.clientHeight - headerHeight);
-        const visibleRowCount = (visibleSource as GridRow[]).filter(
+        const visible = (visibleSource as GridRow[]).filter(
             (row) => !row.isPlaceholder && !row.isDeleted,
-        ).length;
-        const visibleRows = Math.min(
-            visibleRowCount,
-            Math.max(0, Math.round(bodyHeight / rowHeight)),
+        );
+        const counted = descriptors.reduce(
+            (acc, descriptor) => {
+                if (descriptor.kind === "calculated") acc.calculated += 1;
+                else if (descriptor.fixed) acc.immutable += 1;
+                else acc.editable += 1;
+                return acc;
+            },
+            { immutable: 0, calculated: 0, editable: 0 },
         );
         const next: GridViewStats = {
             totalRows: rows.filter((row) => !row.isPlaceholder && !row.isDeleted).length,
+            filteredRows: visible.length,
             totalCols: columns.length,
-            visibleRows,
-            visibleCols: columns.length,
+            filtersApplied: filtersAppliedRef.current,
+            immutableCols: counted.immutable,
+            calculatedCols: counted.calculated,
+            editableCols: counted.editable,
         };
         const previous = lastStatsRef.current;
         if (
             previous !== null &&
             previous.totalRows === next.totalRows &&
+            previous.filteredRows === next.filteredRows &&
             previous.totalCols === next.totalCols &&
-            previous.visibleRows === next.visibleRows &&
-            previous.visibleCols === next.visibleCols
+            previous.filtersApplied === next.filtersApplied &&
+            previous.immutableCols === next.immutableCols &&
+            previous.calculatedCols === next.calculatedCols &&
+            previous.editableCols === next.editableCols
         ) {
             return;
         }
         lastStatsRef.current = next;
         onViewStatsChange(next);
-    }, [headerHeight, onViewStatsChange, rows]);
+    }, [descriptors, onViewStatsChange, rows]);
 
     const resetGridView = useCallback(async () => {
         const grid = gridRef.current;
@@ -1361,8 +1388,9 @@ function RawMaterialsGridInner(
             getExportState,
             copySelection,
             pasteIntoSelection,
+            clearSelection: clearGridSelection,
         }),
-        [copySelection, getExportState, pasteIntoSelection],
+        [clearGridSelection, copySelection, getExportState, pasteIntoSelection],
     );
 
     useEffect(() => {
@@ -1432,9 +1460,44 @@ function RawMaterialsGridInner(
         };
     }, [columns, headerPinned, measureViewport, refreshHorizontalScrollbar, rows]);
 
+    // Wheel over the horizontal scrollbar strip scrolls it horizontally
+    // (native Chrome behavior scrolls the vertical axis instead). The strips
+    // are real DOM elements: revo-grid's virtual horizontal scrollbar in
+    // pinned mode and our external one in unpinned mode. Native listener —
+    // React's onWheel is passive and can't preventDefault.
+    useEffect(() => {
+        const shell = shellRef.current;
+        if (!shell) return;
+        const handleWheel = (event: WheelEvent) => {
+            if (event.deltaY === 0 && event.deltaX === 0) return;
+            const target = event.target as Node | null;
+            if (!target) return;
+            const internal = gridRef.current?.querySelector("revogr-scroll-virtual.horizontal");
+            const external = horizontalScrollRef.current;
+            const strip =
+                (internal?.contains(target) ? internal : null) ??
+                (external?.contains(target) ? external : null);
+            if (!strip) return;
+            // No horizontal overflow — let the wheel fall through so the
+            // vertical axis keeps working.
+            if (strip.scrollWidth <= strip.clientWidth) return;
+            event.preventDefault();
+            strip.scrollLeft += event.deltaY + event.deltaX;
+        };
+        shell.addEventListener("wheel", handleWheel, { passive: false });
+        return () => shell.removeEventListener("wheel", handleWheel);
+    }, []);
+
     return (
         <div
-            className={headerPinned ? "revo-grid-shell revo-grid-shell--pinned" : "revo-grid-shell"}
+            ref={shellRef}
+            className={[
+                "revo-grid-shell",
+                headerPinned && "revo-grid-shell--pinned",
+                !headerPinned && !hasHorizontalOverflow && "revo-grid-shell--no-hscroll",
+            ]
+                .filter(Boolean)
+                .join(" ")}
             style={
                 {
                     "--grid-content-height": `${contentHeight}px`,
@@ -1516,6 +1579,18 @@ function RawMaterialsGridInner(
                             sortingConfigFromEvent(event.detail),
                         );
                     }}
+                    onBeforefilterapply={(event) => {
+                        // Filtering trims the data source synchronously, and there
+                        // is no public event after it — re-measure the filtered
+                        // row count on the next tick. The event carries the new
+                        // filter collection (empty when filters were cleared).
+                        const collection = (
+                            event as CustomEvent<{ collection?: Record<string, unknown> }>
+                        ).detail?.collection;
+                        filtersAppliedRef.current =
+                            !!collection && Object.keys(collection).length > 0;
+                        setTimeout(() => void measureViewport(), 0);
+                    }}
                     onContentsizechanged={() => void refreshHorizontalScrollbar()}
                     onViewportscroll={(event) => {
                         if (event.detail.dimension === "rgCol") {
@@ -1559,6 +1634,7 @@ function RawMaterialsGridInner(
                 <div
                     ref={horizontalScrollRef}
                     className="revo-grid-external-scrollbar"
+                    style={{ display: hasHorizontalOverflow ? undefined : "none" }}
                     aria-label="Горизонтальная прокрутка таблицы"
                     onScroll={(event) => {
                         void gridRef.current?.scrollToCoordinate({
