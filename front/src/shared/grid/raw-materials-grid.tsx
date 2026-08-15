@@ -54,6 +54,8 @@ export type GridViewStats = {
     /** Rows matching the current filters (non-placeholder, non-deleted). */
     filteredRows: number;
     totalCols: number;
+    /** Whether any column filter is currently applied. */
+    filtersApplied: boolean;
     /** Fixed (non-calculated) columns — not editable. */
     immutableCols: number;
     /** Calculated columns. */
@@ -263,6 +265,7 @@ function RawMaterialsGridInner(
     const verticalScrollRef = useRef<HTMLDivElement>(null);
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
     const [horizontalContentWidth, setHorizontalContentWidth] = useState(0);
+    const filtersAppliedRef = useRef(false);
     // Unpinned mode: the external horizontal scrollbar is shown only when the
     // grid content actually overflows horizontally (native behavior elsewhere).
     const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
@@ -974,6 +977,7 @@ function RawMaterialsGridInner(
             totalRows: rows.filter((row) => !row.isPlaceholder && !row.isDeleted).length,
             filteredRows: visible.length,
             totalCols: columns.length,
+            filtersApplied: filtersAppliedRef.current,
             immutableCols: counted.immutable,
             calculatedCols: counted.calculated,
             editableCols: counted.editable,
@@ -984,6 +988,7 @@ function RawMaterialsGridInner(
             previous.totalRows === next.totalRows &&
             previous.filteredRows === next.filteredRows &&
             previous.totalCols === next.totalCols &&
+            previous.filtersApplied === next.filtersApplied &&
             previous.immutableCols === next.immutableCols &&
             previous.calculatedCols === next.calculatedCols &&
             previous.editableCols === next.editableCols
@@ -1571,10 +1576,16 @@ function RawMaterialsGridInner(
                             sortingConfigFromEvent(event.detail),
                         );
                     }}
-                    onBeforefilterapply={() => {
+                    onBeforefilterapply={(event) => {
                         // Filtering trims the data source synchronously, and there
                         // is no public event after it — re-measure the filtered
-                        // row count on the next tick.
+                        // row count on the next tick. The event carries the new
+                        // filter collection (empty when filters were cleared).
+                        const collection = (
+                            event as CustomEvent<{ collection?: Record<string, unknown> }>
+                        ).detail?.collection;
+                        filtersAppliedRef.current =
+                            !!collection && Object.keys(collection).length > 0;
                         setTimeout(() => void measureViewport(), 0);
                     }}
                     onContentsizechanged={() => void refreshHorizontalScrollbar()}

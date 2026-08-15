@@ -296,6 +296,7 @@ function SectionContent({
     onFixed,
     onGridStatsChange,
     onClipboardStateChange,
+    onSelectionLabelChange,
 }: {
     section: SectionId;
     reportMonth: string | null;
@@ -315,6 +316,8 @@ function SectionContent({
     onFixed: () => void;
     onGridStatsChange: (stats: GridViewStats) => void;
     onClipboardStateChange: (state: ClipboardActions) => void;
+    /** Completed selection label of the current user (same as in presence). */
+    onSelectionLabelChange: (label: string | null) => void;
 }) {
     const loader = useMemo(() => {
         switch (section) {
@@ -954,9 +957,10 @@ function SectionContent({
                     onViewStatsChange={onGridStatsChange}
                     onClipboardStateChange={handleClipboardState}
                     remoteCellInfo={remoteCellInfo}
-                    onSelectionChange={({ label, cellKeys }) =>
-                        room.setSelection({ label: label ?? "", cellKeys })
-                    }
+                    onSelectionChange={({ label, cellKeys }) => {
+                        onSelectionLabelChange(label && label.length > 0 ? label : null);
+                        room.setSelection({ label: label ?? "", cellKeys });
+                    }}
                 />
                 {displayRows.length === 0 && !canManageReferences ? (
                     <div className="grid-empty">В этой таблице пока нет строк.</div>
@@ -1048,18 +1052,34 @@ function SectionFooter({
                         />
                     </div>
                 ) : null}
-                {gridStats !== null ? (
-                    <div className="grid-stats" aria-label="Статистика таблицы">
-                        {selectionLabel ? <span>Выделено: {selectionLabel}</span> : null}
-                        <span>
-                            Строки: {gridStats.filteredRows} на экране, {gridStats.totalRows} всего
-                        </span>
-                        <span>
-                            Столбцы: {gridStats.immutableCols} неизменяемых +{" "}
-                            {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
-                            заполняемых = {gridStats.totalCols} всего
-                        </span>
-                    </div>
+                {gridStats !== null && (selectionLabel || gridStats.filtersApplied) ? (
+                    <Tooltip delay={250}>
+                        <Tooltip.Trigger>
+                            <div className="grid-stats" aria-label="Статистика таблицы">
+                                {selectionLabel ? <span>Выделено: {selectionLabel}</span> : null}
+                                {gridStats.filtersApplied ? (
+                                    <span>
+                                        Строки: {gridStats.filteredRows} на экране,{" "}
+                                        {gridStats.totalRows} всего
+                                    </span>
+                                ) : null}
+                            </div>
+                        </Tooltip.Trigger>
+                        <Tooltip.Content placement="top" className="grid-stats-tooltip">
+                            <div className="grid-stats-detail">
+                                {selectionLabel ? <span>Выделено: {selectionLabel}</span> : null}
+                                <span>
+                                    Строки: {gridStats.filteredRows} на экране,{" "}
+                                    {gridStats.totalRows} всего
+                                </span>
+                                <span>
+                                    Столбцы: {gridStats.immutableCols} неизменяемых +{" "}
+                                    {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
+                                    заполняемых = {gridStats.totalCols} всего
+                                </span>
+                            </div>
+                        </Tooltip.Content>
+                    </Tooltip>
                 ) : null}
             </div>
             <ActionBar
@@ -1095,6 +1115,11 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
     const [isFullscreenPending, setIsFullscreenPending] = useState(false);
     const [footerAutocompleteOpen, setFooterAutocompleteOpen] = useState(false);
     const [gridStats, setGridStats] = useState<GridViewStats | null>(null);
+    // Completed cell/row selection of the current user, in the same format as
+    // in the «На форме» tooltip (e.g. «Потребность / План, т», строки 3–5).
+    // Reported by the grid itself (onSelectionChange), not via the presence
+    // echo — so it works even when collaboration is offline.
+    const [selectionLabel, setSelectionLabel] = useState<string | null>(null);
     const [clipboardState, setClipboardState] = useState<ClipboardActions>({
         canPaste: false,
         onCopy: () => {},
@@ -1243,15 +1268,11 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
         setRemoteCellValues(new Map());
     }, [selectedTab?.reportMonth, selectedTab?.section]);
 
-    // My completed cell/row selection, in the same format as in the «На форме»
-    // tooltip (e.g. «Потребность / План, т», строки 3–5). The grid reports it
-    // to presence (room.setSelection), which updates our own member entry.
-    const selectionLabel = useMemo(() => {
-        const meId = room.me?.userId ?? null;
-        const self = room.members.find((member) => member.userId === meId);
-        const label = self?.selection?.label;
-        return typeof label === "string" && label.length > 0 ? label : null;
-    }, [room.me?.userId, room.members]);
+    // Selection is per-form: reset the label when the tab changes (the grid
+    // reports a fresh one on the next completed selection).
+    useEffect(() => {
+        setSelectionLabel(null);
+    }, [selectedTabId]);
 
     const setFullscreenMode = useCallback(
         async (next: boolean) => {
@@ -1403,6 +1424,7 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
                                 onFixed={handleFixed}
                                 onGridStatsChange={setGridStats}
                                 onClipboardStateChange={setClipboardState}
+                                onSelectionLabelChange={setSelectionLabel}
                             />
                             {footer}
                         </Card.Content>
