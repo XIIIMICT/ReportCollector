@@ -19,6 +19,14 @@ class ProjectRole(StrEnum):
     ASSET_WORKER = "asset_worker"
 
 
+class Theme(StrEnum):
+    """UI theme. Stored as a DB enum (user_theme), not free text."""
+
+    SYSTEM = "system"
+    LIGHT = "light"
+    DARK = "dark"
+
+
 class User(SQLModel, table=True):
     __tablename__ = "app_user"
 
@@ -39,7 +47,14 @@ class User(SQLModel, table=True):
     # Global account ban. Access to a specific project is determined by the
     # per-project is_active flag in UserRole.
     is_deleted: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default="false"))
-    theme: str = Field(default="system", sa_column=Column(Text, nullable=False, server_default="system"))
+    theme: Theme = Field(
+        default=Theme.SYSTEM,
+        sa_column=Column(
+            SAEnum(Theme, name="user_theme", values_callable=lambda enum: [item.value for item in enum]),
+            nullable=False,
+            server_default="system",
+        ),
+    )
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
 

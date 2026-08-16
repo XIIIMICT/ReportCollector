@@ -16,7 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.app_logging import log_event
 from src.auth.constants import LOCAL_USER_KEY
 from src.auth.emails import normalize_email
-from src.auth.models import Project, ProjectRole, User, UserRole
+from src.auth.models import Project, ProjectRole, Theme, User, UserRole
 from src.auth.passwords import hash_password, validate_new_password, verify_password
 from src.auth.schemas import AssetAccessRead, CurrentUserRead, ProjectAccessRead
 from src.config import get_settings
@@ -360,7 +360,7 @@ async def update_profile(
     session: AsyncSession,
     identity: CurrentUserIdentity,
     *,
-    theme: str | None,
+    theme: Theme | None,
     password: str | None,
 ) -> CurrentUserRead:
     """
