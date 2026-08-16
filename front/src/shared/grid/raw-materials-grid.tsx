@@ -27,6 +27,7 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
+import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 
 import {
     buildGridColumns,
@@ -1692,11 +1693,20 @@ function GridOptionsMenu({
     };
     return (
         <div className="grid-options-menu">
-            <Dropdown>
-                <Button isIconOnly aria-label="Настройки таблицы" variant="ghost">
-                    <MoreVert aria-hidden="true" />
-                </Button>
-                <Dropdown.Popover className="min-w-[260px]">
+            <HoverDropdown
+                className="grid-options-popover min-w-[260px]"
+                trigger={({ ref, onMouseEnter }) => (
+                    <Button
+                        ref={ref}
+                        onMouseEnter={onMouseEnter}
+                        isIconOnly
+                        aria-label="Настройки таблицы"
+                        variant="ghost"
+                    >
+                        <MoreVert aria-hidden="true" />
+                    </Button>
+                )}
+                content={
                     <Dropdown.Menu
                         selectedKeys={selectedKeys}
                         selectionMode="multiple"
@@ -1718,8 +1728,8 @@ function GridOptionsMenu({
                             <Label>Сбросить все фильтры и сортировки</Label>
                         </Dropdown.Item>
                     </Dropdown.Menu>
-                </Dropdown.Popover>
-            </Dropdown>
+                }
+            />
         </div>
     );
 }

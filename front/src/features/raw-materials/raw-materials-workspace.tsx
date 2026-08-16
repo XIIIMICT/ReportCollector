@@ -95,6 +95,7 @@ import {
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
+import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 
 import { ProfileModal } from "./profile-modal";
@@ -1776,9 +1777,7 @@ function ActionBar({
                   disabled: exportState.pending || isFullscreenPending,
               },
           ]
-        : [];
-
-    // Narrow screens: the whole row collapses into a single ellipsis button
+        : []; // Narrow screens: the whole row collapses into a single «Действия» button
     // whose dropdown (full-text items) opens on hover.
     const isCompact = useMediaQuery("(width < 64rem)");
     if (isCompact) {
@@ -1885,28 +1884,12 @@ function ActionBar({
 }
 
 /**
- * The compact action menu (narrow screens): a single ellipsis button whose
- * dropdown opens on hover and closes when the pointer leaves it. Full-text
- * items with icons — the same actions as the inline action bar.
+ * The compact action menu (narrow screens): a single «Действия» button whose
+ * dropdown (full-text items with icons — the same actions as the inline bar)
+ * opens on hover. See `HoverDropdown` for why closing is pointer-position
+ * based rather than mouseleave.
  */
 function CompactActionMenu({ items }: { items: ActionItem[] }) {
-    const [open, setOpen] = useState(false);
-    const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    const cancelClose = useCallback(() => {
-        if (closeTimerRef.current !== null) {
-            clearTimeout(closeTimerRef.current);
-            closeTimerRef.current = null;
-        }
-    }, []);
-
-    const scheduleClose = useCallback(() => {
-        cancelClose();
-        closeTimerRef.current = setTimeout(() => setOpen(false), 180);
-    }, [cancelClose]);
-
-    useEffect(() => cancelClose, [cancelClose]);
-
     const handleAction = useCallback(
         (key: Key) => {
             const item = items.find((candidate) => candidate.id === String(key));
@@ -1916,25 +1899,21 @@ function CompactActionMenu({ items }: { items: ActionItem[] }) {
     );
 
     return (
-        <Dropdown isOpen={open} onOpenChange={setOpen}>
-            <Button
-                className="action-more-button"
-                isIconOnly
-                variant="secondary"
-                aria-label="Действия с таблицей"
-                onMouseEnter={() => {
-                    cancelClose();
-                    setOpen(true);
-                }}
-                onMouseLeave={scheduleClose}
-            >
-                <MoreVert aria-hidden="true" />
-            </Button>
-            <Dropdown.Popover
-                className="action-more-popover"
-                onMouseEnter={cancelClose}
-                onMouseLeave={scheduleClose}
-            >
+        <HoverDropdown
+            className="action-more-popover"
+            trigger={({ ref, onMouseEnter }) => (
+                <Button
+                    ref={ref}
+                    onMouseEnter={onMouseEnter}
+                    className="action-more-button"
+                    variant="secondary"
+                    aria-label="Действия с таблицей"
+                >
+                    <MoreVert aria-hidden="true" />
+                    <span className="action-more-button__label">Действия</span>
+                </Button>
+            )}
+            content={
                 <Dropdown.Menu
                     aria-label="Действия с таблицей"
                     onAction={handleAction}
@@ -1952,8 +1931,8 @@ function CompactActionMenu({ items }: { items: ActionItem[] }) {
                         </Dropdown.Item>
                     ))}
                 </Dropdown.Menu>
-            </Dropdown.Popover>
-        </Dropdown>
+            }
+        />
     );
 }
 

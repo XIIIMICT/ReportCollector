@@ -1197,11 +1197,19 @@ html {
         display: none;
     }
 
-    .brand__name,
-    .brand__edition {
+    .brand__name {
         min-width: 0;
+        line-height: 1.2;
         overflow: hidden;
         text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* The edition («Сырьё») never ellipsizes — a short project name. No
+       overflow hidden: it would clip the descender of «ё» at line-height 1. */
+    .brand__edition {
+        min-width: 0;
+        line-height: 1.2;
         white-space: nowrap;
     }
 
@@ -1219,17 +1227,35 @@ html {
         padding: 0.52rem 0.5rem;
     }
 
-    /* Collab bar: only the status dot remains; the text lives in the tooltip
-       (hover the dot). This frees the whole row for the tabs. */
+    /* Collab bar: keep the «На форме: …» text, sized to its content. The tabs
+       row sits above it (z-index) and, when the tabs are too many, overflows
+       to the left and covers the text; with a few tabs (asset workers) the
+       text stays fully visible. */
     .collab-bar {
         flex: 0 0 auto;
         width: auto;
-        padding-left: 0.15rem;
     }
 
-    .collab-bar__members,
-    .collab-bar__label {
-        display: none;
+    .table-toolbar__controls {
+        overflow: visible;
+    }
+
+    .section-tabs {
+        position: relative;
+        z-index: 1;
+    }
+
+    /* The tab list takes exactly the width it needs and is anchored to the
+       right: when it doesn't fit it overflows left (over the collab bar)
+       instead of showing internal scroll arrows. */
+    .section-tabs .tabs__list-container__scroller {
+        display: flex;
+        justify-content: flex-end;
+        overflow: visible;
+    }
+
+    .section-tabs [role="tablist"] {
+        flex: none;
     }
 
     /* Archive picker: the trigger shows the short «Архив» label and takes only
@@ -1239,10 +1265,15 @@ html {
         min-width: 0;
     }
 
-    /* Action bar: the inline buttons are replaced by the single ellipsis
+    /* Action bar: the inline buttons are replaced by the single «Действия»
        hover-menu (the component itself renders only one of the two). */
     .action-more-button {
-        min-width: 2.65rem;
+        gap: 0.4rem;
+    }
+
+    .action-more-button__label {
+        font-size: 0.84rem;
+        white-space: nowrap;
     }
 
     .action-more-menu [data-slot="item"] {
