@@ -136,6 +136,14 @@ const DESCRIPTORS: Record<SectionId, ColumnDescriptor[]> = {
             placeholderReadOnly: true,
         },
         {
+            key: "lastAuthenticatedAt",
+            label: "Время последнего входа",
+            width: 200,
+            kind: "datetime",
+            fixed: true,
+            exportable: true,
+        },
+        {
             key: "resetPassword",
             label: "Сбросить пароль",
             width: 190,

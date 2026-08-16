@@ -160,6 +160,10 @@ async def test_admin_reads_delivery_bases_dictionary(client) -> None:
 
 
 async def test_admin_reads_users_dictionary(client) -> None:
+    # The login (upsert) stamps last_authenticated_at; the admin row then carries it.
+    login = await client.get("/api/me", headers=signed_identity_headers(**admin_headers()))
+    assert login.status_code == 200
+
     response = await client.get("/api/raw-materials/users", headers=signed_identity_headers(**admin_headers()))
 
     assert response.status_code == 200
@@ -170,6 +174,7 @@ async def test_admin_reads_users_dictionary(client) -> None:
     assert admin["isAdmin"] is True
     assert admin["isActive"] is True
     assert admin["assetNames"] == []
+    assert admin["lastAuthenticatedAt"] is not None
     assert all(row["email"] for row in rows)
 
 
