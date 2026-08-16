@@ -56,6 +56,8 @@ export type ColumnDescriptor = {
 export type GridColumnContext = {
     isAdmin: boolean;
     showAssetColumn: boolean;
+    /** With Keycloak enabled local passwords don't exist — the reset column is hidden. */
+    keycloakEnabled: boolean;
     readOnly: boolean;
     hasBaseline: boolean;
     assets: ReferenceOption[];
@@ -124,16 +126,24 @@ const DESCRIPTORS: Record<SectionId, ColumnDescriptor[]> = {
     assets: [text("name", "Актив", 480)],
     deliveryBases: [text("name", "Базис поставки", 480)],
     users: [
-        text("email", "Email", 245),
-        text("fullname", "ФИО", 280),
-        { key: "isAdmin", label: "Администратор", width: 145, kind: "boolean" },
-        { key: "assetNames", label: "Активы", width: 300, kind: "assetsMulti" },
+        text("email", "Email", 220),
+        text("fullname", "ФИО", 250),
+        { key: "isAdmin", label: "Админ", width: 90, kind: "boolean" },
+        { key: "assetNames", label: "Активы", width: 200, kind: "assetsMulti" },
         {
             key: "isActive",
-            label: "Активен",
+            label: "Доступ к проекту",
             width: 120,
             kind: "boolean",
             placeholderReadOnly: true,
+        },
+        {
+            key: "lastAuthenticatedAt",
+            label: "Время последнего входа",
+            width: 190,
+            kind: "datetime",
+            fixed: true,
+            exportable: true,
         },
         {
             key: "resetPassword",
@@ -181,8 +191,14 @@ export function getVisibleDescriptors(
     section: SectionId,
     showAssetColumn: boolean,
     showServiceColumns = false,
+    options: { keycloakEnabled?: boolean } = {},
 ): ColumnDescriptor[] {
-    const visible = DESCRIPTORS[section].filter((column) => !column.adminOnly || showAssetColumn);
+    const visible = DESCRIPTORS[section].filter(
+        (column) =>
+            (!column.adminOnly || showAssetColumn) &&
+            // With Keycloak enabled local passwords don't exist — the reset column is meaningless.
+            !(options.keycloakEnabled && section === "users" && column.key === "resetPassword"),
+    );
     return showServiceColumns ? [...visible, ...SERVICE_DESCRIPTORS] : visible;
 }
 
@@ -190,9 +206,10 @@ export function getEditableKeys(
     section: SectionId,
     isAdmin: boolean,
     showAssetColumn: boolean,
+    keycloakEnabled = false,
 ): Set<string> {
     return new Set(
-        getVisibleDescriptors(section, showAssetColumn)
+        getVisibleDescriptors(section, showAssetColumn, false, { keycloakEnabled })
             .filter(
                 (column) =>
                     !column.fixed &&
@@ -212,10 +229,11 @@ export function exportColumnsFromGrid(
     showAssetColumn: boolean,
     showServiceColumns: boolean,
     current: (ColumnRegular | ColumnGrouping)[],
+    keycloakEnabled = false,
 ): ExportColumn[] {
-    const descriptors = getVisibleDescriptors(section, showAssetColumn, showServiceColumns).filter(
-        (descriptor) => descriptor.exportable !== false,
-    );
+    const descriptors = getVisibleDescriptors(section, showAssetColumn, showServiceColumns, {
+        keycloakEnabled,
+    }).filter((descriptor) => descriptor.exportable !== false);
     const byKey = new Map(
         current
             .flatMap((column) =>
@@ -280,6 +298,7 @@ export function buildGridColumns(
         section,
         context.showAssetColumn,
         context.showServiceColumns,
+        { keycloakEnabled: context.keycloakEnabled },
     );
     const hasGroupedHeaders = descriptors.some((descriptor) => descriptor.path?.length);
     const leaves = descriptors.map((descriptor, index) =>

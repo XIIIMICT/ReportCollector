@@ -398,6 +398,7 @@ async def read_user_rows(
             isAdmin=link.role == ProjectRole.ADMIN,
             assetNames=names_by_user.get(user.id, []),
             isActive=link.is_active,
+            lastAuthenticatedAt=user.last_authenticated_at,
             createdAt=user.created_at,
             updatedAt=link.updated_at,
             updatedBy=link.updated_by,

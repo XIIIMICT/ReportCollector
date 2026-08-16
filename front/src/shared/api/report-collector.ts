@@ -15,7 +15,7 @@ const currentUserSchema = z
         email: z.string().nullable(),
         key: z.string(),
         name: z.string().nullable(),
-        theme: z.string().optional(),
+        theme: z.enum(["system", "light", "dark"]).optional(),
     })
     .transform((value) => ({
         access: value.access,

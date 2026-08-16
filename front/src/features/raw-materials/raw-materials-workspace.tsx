@@ -440,8 +440,8 @@ function SectionContent({
 
     const collabTable = SECTION_COLLAB_TABLE[section] ?? MOVEMENT_TABLE;
     const editableFieldKeys = useMemo(
-        () => getEditableKeys(section, isAdmin, showAssetColumn),
-        [isAdmin, section, showAssetColumn],
+        () => getEditableKeys(section, isAdmin, showAssetColumn, keycloakEnabled),
+        [isAdmin, section, showAssetColumn, keycloakEnabled],
     );
     const remoteLocks = useMemo(() => {
         const result = new Map<string, { fullname: string; email: string }>();

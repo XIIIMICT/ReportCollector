@@ -148,6 +148,8 @@ class UserRowRead(BaseModel):
     isAdmin: bool
     assetNames: list[str]
     isActive: bool
+    # Last successful authentication (Keycloak or local), null if never logged in.
+    lastAuthenticatedAt: datetime | None
     createdAt: datetime
     updatedAt: datetime
     updatedBy: str

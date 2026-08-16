@@ -1,6 +1,6 @@
-from typing import Literal
-
 from pydantic import BaseModel, Field
+
+from src.auth.models import Theme
 
 
 class AssetAccessRead(BaseModel):
@@ -20,7 +20,7 @@ class CurrentUserRead(BaseModel):
     email: str | None
     key: str
     name: str | None
-    theme: str = "system"
+    theme: Theme = Theme.SYSTEM
     access: list[ProjectAccessRead]
 
 
@@ -47,11 +47,11 @@ class ResetPasswordRequest(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     """
-    Обновление профиля пользователя.
+    Profile update.
 
-    theme — системная/светлая/тёмная тема; password — новый пароль (только
-    для локального режима аутентификации, при Keycloak игнорируется).
+    theme — system/light/dark; password — a new password (only meaningful in
+    the local auth mode, ignored when Keycloak is enabled).
     """
 
-    theme: Literal["system", "light", "dark"] | None = None
+    theme: Theme | None = None
     password: str | None = Field(default=None, max_length=1024)

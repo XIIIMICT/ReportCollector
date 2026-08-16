@@ -129,6 +129,7 @@ export type UserRow = {
     isAdmin: boolean;
     assetNames: string[];
     isActive: boolean;
+    lastAuthenticatedAt: string | null;
     createdAt: string;
     updatedAt: string;
     updatedBy: string;

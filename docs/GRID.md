@@ -6,7 +6,7 @@ Stack: `@revolist/react-datagrid` 4.25 (revo-grid), React 19, HeroUI (tooltips, 
 
 ## Forms and columns (`grid-config.ts`)
 
-- `SectionId`: `materialMovement` («Движение»), `rawMaterialPrices` («Цены»), and the dictionaries `rawMaterials`, `assets`, `deliveryBases`, `users`. `MAIN_SECTIONS` = movement+prices; dictionaries are admin-only.
+- `SectionId`: `materialMovement` («Движение»), `rawMaterialPrices` («Цены»), and the dictionaries `rawMaterials`, `assets`, `deliveryBases`, `users`. `MAIN_SECTIONS` = movement+prices; dictionaries are admin-only. The `users` table shows «Время последнего входа» (`lastAuthenticatedAt` from `app_user`, read-only `datetime` column) — the last successful authentication (Keycloak or local), null until the user has logged in. The «Сбросить пароль» action column is hidden when Keycloak is enabled (passwords are managed in Keycloak) — flag flows through `GridColumnContext` into `getVisibleDescriptors`/`editableFieldKeys`/export.
 - `ColumnDescriptor`: key, label, width, kind (`text|number|boolean|asset|assetsMulti|basis|datetime|calculated`), `fixed` (pinned, non-editable), `path` (nested header, e.g. «Потребность / План, т»), `adminOnly`, `exportable`, placeholder flags.
 - Merged headers (`ColumnGrouping`) are built from `path`; editors: `reference` (single pick from `source`), `multiAssets` (multi-pick), booleans — checkbox template.
 - Each row is a `GridRow`: id, `rowState` (`unchanged|new|deleted`), `changedFields`, `isDeleted`, `canonicalCells` (canonical cell keys), `isPlaceholder` (the trailing «добавить запись» row).
