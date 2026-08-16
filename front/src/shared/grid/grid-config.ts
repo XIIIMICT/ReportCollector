@@ -126,13 +126,13 @@ const DESCRIPTORS: Record<SectionId, ColumnDescriptor[]> = {
     assets: [text("name", "Актив", 480)],
     deliveryBases: [text("name", "Базис поставки", 480)],
     users: [
-        text("email", "Email", 245),
-        text("fullname", "ФИО", 280),
-        { key: "isAdmin", label: "Администратор", width: 145, kind: "boolean" },
-        { key: "assetNames", label: "Активы", width: 300, kind: "assetsMulti" },
+        text("email", "Email", 220),
+        text("fullname", "ФИО", 250),
+        { key: "isAdmin", label: "Админ", width: 90, kind: "boolean" },
+        { key: "assetNames", label: "Активы", width: 200, kind: "assetsMulti" },
         {
             key: "isActive",
-            label: "Активен",
+            label: "Доступ к проекту",
             width: 120,
             kind: "boolean",
             placeholderReadOnly: true,
@@ -140,7 +140,7 @@ const DESCRIPTORS: Record<SectionId, ColumnDescriptor[]> = {
         {
             key: "lastAuthenticatedAt",
             label: "Время последнего входа",
-            width: 200,
+            width: 190,
             kind: "datetime",
             fixed: true,
             exportable: true,
