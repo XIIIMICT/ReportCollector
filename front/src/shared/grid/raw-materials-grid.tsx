@@ -300,8 +300,11 @@ function RawMaterialsGridInner(
     const sorting = sortingBySectionRef.current.get(section);
 
     const descriptors = useMemo(
-        () => getVisibleDescriptors(section, showAssetColumn, showServiceColumns),
-        [section, showAssetColumn, showServiceColumns],
+        () =>
+            getVisibleDescriptors(section, showAssetColumn, showServiceColumns, {
+                keycloakEnabled,
+            }),
+        [section, showAssetColumn, showServiceColumns, keycloakEnabled],
     );
     const descriptorByKey = useMemo(
         () => new Map(descriptors.map((descriptor) => [descriptor.key, descriptor])),
@@ -309,8 +312,8 @@ function RawMaterialsGridInner(
     );
 
     const editableKeys = useMemo(
-        () => getEditableKeys(section, isAdmin, showAssetColumn),
-        [isAdmin, section, showAssetColumn],
+        () => getEditableKeys(section, isAdmin, showAssetColumn, keycloakEnabled),
+        [isAdmin, section, showAssetColumn, keycloakEnabled],
     );
 
     const editors = useMemo<Editors>(
@@ -325,6 +328,7 @@ function RawMaterialsGridInner(
         const next = buildGridColumns(section, {
             isAdmin,
             showAssetColumn,
+            keycloakEnabled,
             readOnly,
             hasBaseline,
             assets,
@@ -345,6 +349,7 @@ function RawMaterialsGridInner(
         deliveryBases,
         hasBaseline,
         isAdmin,
+        keycloakEnabled,
         showAssetColumn,
         onCommit,
         onPlaceholderCommit,
@@ -931,7 +936,13 @@ function RawMaterialsGridInner(
         const grid = gridRef.current;
         if (!grid) {
             return {
-                columns: exportColumnsFromGrid(section, showAssetColumn, showServiceColumns, []),
+                columns: exportColumnsFromGrid(
+                    section,
+                    showAssetColumn,
+                    showServiceColumns,
+                    [],
+                    keycloakEnabled,
+                ),
                 rowIds: rows
                     .filter((row) => !row.isPlaceholder && !row.isDeleted)
                     .map((row) => row.id),
@@ -947,6 +958,7 @@ function RawMaterialsGridInner(
                 showAssetColumn,
                 showServiceColumns,
                 currentColumns as (ColumnRegular | ColumnGrouping)[],
+                keycloakEnabled,
             ),
             rowIds: (currentRows as GridRow[])
                 .filter((row) => !row.isPlaceholder && !row.isDeleted)
