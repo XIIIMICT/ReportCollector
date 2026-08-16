@@ -55,6 +55,16 @@ Under sorting/filtering the screen row index **doesn't match** the `rows` index 
 - Yellow highlight of cells occupied by others (completed selection) with a "FIO — range" tooltip.
 - In the archive «Движение» version presence isn't maintained — «На форме» isn't shown at all.
 
+## Responsive layout (below lg, `@media (width < 64rem)`)
+
+A split-screen tab (≈ half a desktop) triggers the compact shell; one `@media (width < 64rem)` block in `globals.css` plus two components (`raw-materials-workspace.tsx`):
+
+- **Header:** the middle spacer column is dropped (`grid-template-columns: minmax(0,1fr) minmax(0,auto)`, spacer `display: none`); «РепортКоллектор» and «Сырьё» may ellipsize, but the flex `gap` is never collapsed — the project name can't overlap the logo text.
+- **Toolbar:** tabs stretch the full width; the collab bar collapses to the status dot — the «На форме:» / offline text is hidden by CSS and lives in the HeroUI tooltip (hover the dot). `CollabStatusBar` wraps the dot + text in a single `Tooltip.Trigger` (`collab-bar__trigger`) so the dot is hoverable at any width; the offline/connecting label now gets a tooltip too (harmless at wide widths).
+- **Archive picker:** `SearchAutocomplete` got `compactLabel` («Архив») — `useMediaQuery("(width < 64rem)")` swaps the trigger text via `Autocomplete.Value` render-children (`(state) => compact ? compactLabel : state.selectedText`); the opened popover keeps its full width. `.archive-autocomplete` becomes `width: auto`.
+- **Action bar:** `ActionBar` renders either the inline buttons or a single ⋮ `CompactActionMenu` from the **same** `ActionItem` list (full-text items with icons, disabled states and the export split into «Скачать всю таблицу» / «Скачать видимую таблицу») — chosen by `useMediaQuery`. The dropdown is controlled (`isOpen`) and **opens on hover** of the trigger, stays open while the pointer is over the popover (mouseenter cancels a 180 ms close timer), closes on leave. `Dropdown` (HeroUI) accepts `isOpen`/`onOpenChange`; `onMouseEnter`/`onMouseLeave` work on the Button/Popover.
+- `useMediaQuery` (`front/src/shared/hooks/use-media-query.ts`): starts `false` (SSR-safe), subscribes via `matchMedia`. **Landmine:** React implements onMouseEnter/onMouseLeave over `mouseover`/`mouseout` — dispatching synthetic `mouseenter` doesn't fire them (test the compact menu with `mouseover`/`mouseout` or real pointer events).
+
 ## Footer stats block
 
 - The footer shows a **compact summary** (`.grid-stats` — one line, no special cursor): **`<b>Выделено:</b> …`** only when there's a selection (same format as the «На форме» tooltip — e.g. «Потребность / План, т», строки 3–5; row selection → «строки 3–5»), and **`<b>Строки:</b> X найдено, Y всего`** only when filters are applied (X = rows matching the current filters — `getVisibleSource` after filtering, not the viewport count; Y = total non-placeholder rows). Nothing is shown when neither applies.

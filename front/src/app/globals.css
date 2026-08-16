@@ -389,6 +389,13 @@ html {
     overflow: hidden;
 }
 
+.collab-bar__trigger {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 .collab-bar__dot {
     flex: 0 0 auto;
     width: 0.5rem;
@@ -1172,6 +1179,88 @@ html {
     top: calc(-1 * var(--grid-header-height) / 2);
     height: 200%;
     z-index: 2;
+}
+
+/* ─── Narrow screens (below lg, e.g. a split-screen tab) ──────────────────── */
+
+@media (width < 64rem) {
+    /* Header: drop the middle spacer, keep the «РепортКоллектор»→«Сырьё» gap.
+       Both texts may ellipsize, but the flex gap is never collapsed, so the
+       project name can't overlap the logo text. */
+    .app-header {
+        grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+        gap: 0.75rem;
+        padding: 0 1rem;
+    }
+
+    .app-header > span[aria-hidden="true"] {
+        display: none;
+    }
+
+    .brand__name,
+    .brand__edition {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .profile-pill {
+        min-width: 0;
+        max-width: 12rem;
+    }
+
+    .app-body {
+        padding: 0.5rem;
+    }
+
+    .table-toolbar {
+        gap: 0.5rem;
+        padding: 0.52rem 0.5rem;
+    }
+
+    /* Collab bar: only the status dot remains; the text lives in the tooltip
+       (hover the dot). This frees the whole row for the tabs. */
+    .collab-bar {
+        flex: 0 0 auto;
+        width: auto;
+        padding-left: 0.15rem;
+    }
+
+    .collab-bar__members,
+    .collab-bar__label {
+        display: none;
+    }
+
+    /* Archive picker: the trigger shows the short «Архив» label and takes only
+       the needed width; the opened list keeps its full width. */
+    .archive-autocomplete {
+        width: auto;
+        min-width: 0;
+    }
+
+    /* Action bar: the inline buttons are replaced by the single ellipsis
+       hover-menu (the component itself renders only one of the two). */
+    .action-more-button {
+        min-width: 2.65rem;
+    }
+
+    .action-more-menu [data-slot="item"] {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+
+    .action-more-menu [data-slot="item"] svg {
+        width: 1.1rem;
+        height: 1.1rem;
+        flex: 0 0 auto;
+    }
+
+    .table-footer {
+        gap: 0.5rem;
+        padding: 0.35rem 0.6rem;
+    }
 }
 
 /* ─── Редакторы ячеек RevoGrid (Autocomplete) ─────────────── */

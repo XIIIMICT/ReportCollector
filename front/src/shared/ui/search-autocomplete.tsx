@@ -13,6 +13,8 @@ import {
 import type { Key } from "react";
 import { useEffect, useState } from "react";
 
+import { useMediaQuery } from "@/shared/hooks/use-media-query";
+
 type SearchAutocompleteItem = {
     description?: string;
     id: string;
@@ -27,6 +29,11 @@ type SearchAutocompleteProps = {
     onSelectionChange: (key: string | null) => void;
     onOpenChange?: (open: boolean) => void;
     isDisabled?: boolean;
+    /**
+     * Short label shown in the trigger instead of the selected value on narrow
+     * screens (below lg). The popover keeps its full width when open.
+     */
+    compactLabel?: string;
 };
 
 export function SearchAutocomplete({
@@ -37,7 +44,9 @@ export function SearchAutocomplete({
     onSelectionChange,
     onOpenChange,
     isDisabled = false,
+    compactLabel,
 }: SearchAutocompleteProps) {
+    const isCompact = useMediaQuery("(width < 64rem)");
     const { contains } = useFilter({ sensitivity: "base" });
     const [isMounted, setIsMounted] = useState(false);
 
@@ -72,7 +81,9 @@ export function SearchAutocomplete({
         >
             {label ? <Label>{label}</Label> : null}
             <Autocomplete.Trigger>
-                <Autocomplete.Value />
+                <Autocomplete.Value>
+                    {(state) => (isCompact && compactLabel ? compactLabel : state.selectedText)}
+                </Autocomplete.Value>
                 <Autocomplete.Indicator />
             </Autocomplete.Trigger>
             <Autocomplete.Popover>

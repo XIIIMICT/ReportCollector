@@ -6,6 +6,7 @@ import {
     Card,
     Dropdown,
     Kbd,
+    Label,
     Skeleton,
     Spinner,
     toast,
@@ -18,13 +19,14 @@ import {
     Copy,
     Download,
     Expand,
+    MoreVert,
     PasteClipboard,
     Redo,
     Trash,
     Undo,
 } from "iconoir-react";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Key, type ReactNode } from "react";
 
 import {
     createDictionaryRecord,
@@ -92,6 +94,7 @@ import {
 } from "@/shared/grid/raw-materials-grid";
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
+import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 
 import { ProfileModal } from "./profile-modal";
@@ -1071,6 +1074,7 @@ function SectionFooter({
                     <div className="archive-autocomplete">
                         <SearchAutocomplete
                             placeholder="Выберите версию"
+                            compactLabel="Архив"
                             items={archiveItems}
                             selectedKey={archiveState.selectedKey ?? WORKING_VERSION_ID}
                             onSelectionChange={(key) => {
@@ -1755,6 +1759,37 @@ function ActionBar({
               ]
             : []),
     ];
+    const exportItems: ActionItem[] = showExport
+        ? [
+              {
+                  id: "export-all",
+                  label: "Скачать всю таблицу",
+                  icon: <Download />,
+                  onPress: () => void exportState.onExport("all"),
+                  disabled: exportState.pending || isFullscreenPending,
+              },
+              {
+                  id: "export-visible",
+                  label: "Скачать видимую таблицу",
+                  icon: <Download />,
+                  onPress: () => void exportState.onExport("visible"),
+                  disabled: exportState.pending || isFullscreenPending,
+              },
+          ]
+        : [];
+
+    // Narrow screens: the whole row collapses into a single ellipsis button
+    // whose dropdown (full-text items) opens on hover.
+    const isCompact = useMediaQuery("(width < 64rem)");
+    if (isCompact) {
+        return (
+            <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
+                <CompactActionMenu
+                    items={[...leadingActions, ...exportItems, ...trailingActions]}
+                />
+            </div>
+        );
+    }
 
     return (
         <div className="action-bar" aria-label="Действия с таблицей">
@@ -1849,6 +1884,79 @@ function ActionBar({
     );
 }
 
+/**
+ * The compact action menu (narrow screens): a single ellipsis button whose
+ * dropdown opens on hover and closes when the pointer leaves it. Full-text
+ * items with icons — the same actions as the inline action bar.
+ */
+function CompactActionMenu({ items }: { items: ActionItem[] }) {
+    const [open, setOpen] = useState(false);
+    const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const cancelClose = useCallback(() => {
+        if (closeTimerRef.current !== null) {
+            clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+        }
+    }, []);
+
+    const scheduleClose = useCallback(() => {
+        cancelClose();
+        closeTimerRef.current = setTimeout(() => setOpen(false), 180);
+    }, [cancelClose]);
+
+    useEffect(() => cancelClose, [cancelClose]);
+
+    const handleAction = useCallback(
+        (key: Key) => {
+            const item = items.find((candidate) => candidate.id === String(key));
+            item?.onPress();
+        },
+        [items],
+    );
+
+    return (
+        <Dropdown isOpen={open} onOpenChange={setOpen}>
+            <Button
+                className="action-more-button"
+                isIconOnly
+                variant="secondary"
+                aria-label="Действия с таблицей"
+                onMouseEnter={() => {
+                    cancelClose();
+                    setOpen(true);
+                }}
+                onMouseLeave={scheduleClose}
+            >
+                <MoreVert aria-hidden="true" />
+            </Button>
+            <Dropdown.Popover
+                className="action-more-popover"
+                onMouseEnter={cancelClose}
+                onMouseLeave={scheduleClose}
+            >
+                <Dropdown.Menu
+                    aria-label="Действия с таблицей"
+                    onAction={handleAction}
+                    className="action-more-menu"
+                >
+                    {items.map((item) => (
+                        <Dropdown.Item
+                            key={item.id}
+                            id={item.id}
+                            textValue={item.label}
+                            isDisabled={item.disabled}
+                        >
+                            {item.icon}
+                            <Label>{item.label}</Label>
+                        </Dropdown.Item>
+                    ))}
+                </Dropdown.Menu>
+            </Dropdown.Popover>
+        </Dropdown>
+    );
+}
+
 const COLLAB_STATUS_LABELS: Record<Exclude<CollabStatus, "online">, string> = {
     connecting: "Подключение к совместному редактированию...",
     offline: "Совместное редактирование недоступно",
@@ -1894,55 +2002,61 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
 
     return (
         <div className="collab-bar" role="status">
-            <span
-                className={`collab-bar__dot collab-bar__dot--${room.status}`}
-                aria-hidden="true"
-            />
-            {room.status === "online" ? (
-                <>
-                    <Tooltip delay={250}>
-                        <Tooltip.Trigger>
+            <Tooltip delay={250}>
+                <Tooltip.Trigger>
+                    {/* The trigger wraps the dot and the text: on narrow screens
+                        the text is hidden by CSS and the dot alone opens the
+                        tooltip. */}
+                    <span className="collab-bar__trigger">
+                        <span
+                            className={`collab-bar__dot collab-bar__dot--${room.status}`}
+                            aria-hidden="true"
+                        />
+                        {room.status === "online" ? (
                             <span className="collab-bar__members">
                                 <b>На форме:</b> {membersText}
                             </span>
-                        </Tooltip.Trigger>
-                        <Tooltip.Content placement="top" className="collab-bar-tooltip">
-                            <ul className="collab-bar-tooltip__list">
-                                {tooltipMembers.map((member) => {
-                                    const cells = memberSelectionLabel(member);
-                                    const detail = memberDetail(member);
-                                    return (
-                                        <li
-                                            key={member.userId}
-                                            className="collab-bar-tooltip__item"
-                                        >
-                                            <span className="collab-bar-tooltip__head">
-                                                <span className="collab-bar-tooltip__name">
-                                                    {member.name || member.email}
-                                                </span>
-                                                {detail ? (
-                                                    <span className="collab-bar-tooltip__role">
-                                                        ({detail})
-                                                    </span>
-                                                ) : null}
+                        ) : (
+                            <span className="collab-bar__label">
+                                {COLLAB_STATUS_LABELS[room.status]}
+                            </span>
+                        )}
+                    </span>
+                </Tooltip.Trigger>
+                <Tooltip.Content placement="top" className="collab-bar-tooltip">
+                    {room.status === "online" ? (
+                        <ul className="collab-bar-tooltip__list">
+                            {tooltipMembers.map((member) => {
+                                const cells = memberSelectionLabel(member);
+                                const detail = memberDetail(member);
+                                return (
+                                    <li key={member.userId} className="collab-bar-tooltip__item">
+                                        <span className="collab-bar-tooltip__head">
+                                            <span className="collab-bar-tooltip__name">
+                                                {member.name || member.email}
                                             </span>
-                                            {cells ? (
-                                                <span className="collab-bar-tooltip__cells">
-                                                    {cells}
+                                            {detail ? (
+                                                <span className="collab-bar-tooltip__role">
+                                                    ({detail})
                                                 </span>
                                             ) : null}
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        </Tooltip.Content>
-                    </Tooltip>
-                </>
-            ) : (
-                <span className="collab-bar__label" title={COLLAB_STATUS_LABELS[room.status]}>
-                    {COLLAB_STATUS_LABELS[room.status]}
-                </span>
-            )}
+                                        </span>
+                                        {cells ? (
+                                            <span className="collab-bar-tooltip__cells">
+                                                {cells}
+                                            </span>
+                                        ) : null}
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    ) : (
+                        <span className="collab-bar-tooltip__status">
+                            {COLLAB_STATUS_LABELS[room.status]}
+                        </span>
+                    )}
+                </Tooltip.Content>
+            </Tooltip>
         </div>
     );
 }
