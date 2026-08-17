@@ -82,7 +82,24 @@ export function SearchAutocomplete({
             {label ? <Label>{label}</Label> : null}
             <Autocomplete.Trigger>
                 <Autocomplete.Value>
-                    {(state) => (isCompact && compactLabel ? compactLabel : state.selectedText)}
+                    {(state) => {
+                        if (isCompact && compactLabel) return compactLabel;
+                        // Full trigger: the item name on the first line and its
+                        // description («Доступна для редактирования» / fixer +
+                        // date) below in a smaller muted font.
+                        const selected = items.find((item) => item.id === selectedKey);
+                        if (!selected) return state.selectedText;
+                        return (
+                            <span className="flex min-w-0 flex-col">
+                                <span className="truncate">{selected.name}</span>
+                                {selected.description ? (
+                                    <span className="text-muted truncate text-xs">
+                                        {selected.description}
+                                    </span>
+                                ) : null}
+                            </span>
+                        );
+                    }}
                 </Autocomplete.Value>
                 <Autocomplete.Indicator />
             </Autocomplete.Trigger>

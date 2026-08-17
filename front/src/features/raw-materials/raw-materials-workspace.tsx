@@ -380,6 +380,10 @@ function SectionContent({
     );
     const placeholderDraftRef = useRef(placeholderDraft);
     const placeholderCreatePendingRef = useRef(false);
+    // In-flight cell commit (PATCH). Ctrl+Z pressed right after Enter must
+    // wait for it: otherwise the undo request can reach the server before the
+    // edit is journaled and would silently do nothing.
+    const pendingCommitRef = useRef<Promise<boolean> | null>(null);
     const gridRef = useRef<RawMaterialsGridHandle>(null);
     const [exportPending, setExportPending] = useState(false);
     // When another tab of the same account takes over the selection, the grid
@@ -555,6 +559,16 @@ function SectionContent({
 
     async function commit(updates: CellUpdate[]): Promise<boolean> {
         if (readOnly || !updates.length) return true;
+        const task = doCommit(updates);
+        pendingCommitRef.current = task;
+        try {
+            return await task;
+        } finally {
+            if (pendingCommitRef.current === task) pendingCommitRef.current = null;
+        }
+    }
+
+    async function doCommit(updates: CellUpdate[]): Promise<boolean> {
         setIsMutationPending(true);
         try {
             if (section === "materialMovement" && reportMonth) {
@@ -729,6 +743,7 @@ function SectionContent({
     );
 
     const runUndo = useCallback(async () => {
+        await pendingCommitRef.current;
         try {
             const result = await undoCells(
                 pendingSkip?.direction === "undo" ? pendingSkip.actionId : null,
@@ -742,6 +757,7 @@ function SectionContent({
     }, [applyUndoResult, pendingSkip, reportMonth, section]);
 
     const runRedo = useCallback(async () => {
+        await pendingCommitRef.current;
         try {
             const result = await redoCells(
                 pendingSkip?.direction === "redo" ? pendingSkip.actionId : null,

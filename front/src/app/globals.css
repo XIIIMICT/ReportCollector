@@ -139,7 +139,11 @@ html {
     display: grid;
     min-height: 4.8rem;
     max-height: 4.8rem;
-    grid-template-columns: minmax(0, 1fr) minmax(22rem, 36rem) minmax(0, 1fr);
+    /* The middle track is an empty spacer: it must absorb free space, not
+       reserve a fixed 22–36rem. A fixed middle squeezed the logo and the
+       profile pill at ~1025–1256px — the sides are content-sized instead
+       (auto), so «РепортКоллектор» never shrinks. */
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 1rem;
     padding: 0 1.75rem;
