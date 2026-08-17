@@ -10,6 +10,8 @@
 
 About `POSTGRES_HOST`: on the server it's the real DB address (not localhost); `just migrate` uses whatever is in `.env`. In the compose network — `host.docker.internal` or the service name.
 
+**Valkey in the dev stack:** `compose.yaml` overrides `VALKEY_URL=redis://valkey:6379/0` for `back-dev` (the compose service on the same network). Don't point the dev backend at `host.docker.internal` — Docker Desktop's VM loopback times out under load (`redis.exceptions.TimeoutError`) and breaks collab presence/locks. The prod profile keeps `VALKEY_URL` from `.env` (valkey may live on the host there).
+
 ## Quality (what we check before delivery)
 
 | Side | Lint | Format | Typecheck | Tests |
@@ -63,7 +65,7 @@ Language is chosen by audience: docs are written for their main reader. This is 
 
 ```
 main        ← prod. squash-merge from dev + release tag vX.Y.Z; human documentation is updated here
-dev         ← integration. merge --no-ff from feature/* (no squash); agent documentation is updated here
+dev         ← integration. squash-merge from feature/*; agent documentation is updated here
 feature/*   ← from dev: granular conventional commits (Why/What/Verified)
 ```
 
@@ -80,7 +82,7 @@ canPasteRange).
 Verified: typecheck, oxlint, 16 unit tests; e2e not run (no stack).
 ```
 
-3. **feature → dev:** only after green checks and user confirmation; merge with `--no-ff` **without squash** — granular history is needed for bisect/revert/looking up past decisions. The merge message says what feature was merged (same template).
+3. **feature → dev:** only after green checks and user confirmation; merge with `git merge --squash feature/<branch>` — the merge message is a single conventional commit `merge(scope): short summary` + the Why/What/Verified body that distills the branch's commits (they're squashed away, so the message must carry the essentials). The feature branch itself is left in place with its granular history for bisect/revert.
 4. **Agent documentation** (`AGENTS.md` + `docs/*`) is updated at this step — not earlier. Exception: landmines in `AGENTS.md` are written down immediately when discovered (one line; easy to lose them by merge time).
 5. **dev → main:** squash-merge (release boundary, clean changelog), message — branch summary per the template; tag `vX.Y.Z`; here human documentation is updated (none yet — it's separate from the agent docs and updated only for prod versions).
 
