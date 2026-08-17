@@ -1906,7 +1906,7 @@ function CompactActionMenu({ items }: { items: ActionItem[] }) {
                     ref={ref}
                     onMouseEnter={onMouseEnter}
                     className="action-more-button"
-                    variant="secondary"
+                    variant="tertiary"
                     aria-label="Действия с таблицей"
                 >
                     <MoreHoriz aria-hidden="true" />

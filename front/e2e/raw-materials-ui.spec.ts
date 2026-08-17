@@ -90,9 +90,12 @@ test("evtushenko: project switcher and dictionary CRUD", async ({ page }) => {
     // Dictionary CRUD: create an asset via the placeholder row.
     await page.getByRole("tab", { name: "Активы" }).click();
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 20000 });
-    const dataCells = page.locator("revogr-data .rgCell:not(.report-row-header)");
     const uniqueName = `Тест Актив ${Date.now()}`;
-    const lastCell = dataCells.last();
+    // Target the placeholder row explicitly: with a long asset list, grid
+    // virtualization makes dataCells.last() a real row and dblclick would
+    // rename it (PATCH) instead of creating a new one (POST).
+    const lastCell = page.locator("revogr-data .rgCell.report-cell--placeholder").last();
+    await lastCell.scrollIntoViewIfNeeded();
     await lastCell.dblclick();
     const editor = page.locator("revogr-edit input, revogr-edit textarea").first();
     await expect(editor).toBeVisible({ timeout: 10000 });
