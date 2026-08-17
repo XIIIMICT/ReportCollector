@@ -12,7 +12,7 @@ import {
     type RowHeaders,
     type VNode,
 } from "@revolist/react-datagrid";
-import { MoreVert } from "iconoir-react";
+import { MoreVert, Refresh } from "iconoir-react";
 import {
     useCallback,
     useEffect,
@@ -24,9 +24,9 @@ import {
     type CSSProperties,
     type Ref,
 } from "react";
-import { createRoot, type Root } from "react-dom/client";
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
+import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 
 import {
     buildGridColumns,
@@ -271,9 +271,6 @@ function RawMaterialsGridInner(
     // Unpinned mode: the external horizontal scrollbar is shown only when the
     // grid content actually overflows horizontally (native behavior elsewhere).
     const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
-    const [gridRevision, setGridRevision] = useState(0);
-    const menuHostRef = useRef<HTMLElement | null>(null);
-    const menuRootRef = useRef<Root | null>(null);
     const resizedWidthsRef = useRef(new Map<string, number>());
     const [showServiceColumns, setShowServiceColumns] = useState(false);
     const sortingBySectionRef = useRef(new Map<SectionId, GridSortingConfig>());
@@ -564,8 +561,6 @@ function RawMaterialsGridInner(
         () => ({
             prop: "__rowNumber",
             size: 52,
-            columnTemplate: (createElement) =>
-                createElement("div", { class: "grid-options-menu-host" }),
             columnProperties: () => ({
                 className: {
                     "report-row-header": true,
@@ -1025,68 +1020,6 @@ function RawMaterialsGridInner(
         userSortedSectionsRef.current.delete(section);
         gridRef.current?.classList.remove("raw-materials-grid--user-sorted");
     }, [section]);
-
-    useEffect(() => {
-        const grid = gridRef.current;
-        if (!grid || rows.length === 0) return;
-        const root = grid.shadowRoot ?? grid;
-        const host = root.querySelector<HTMLElement>(
-            ".rgHeaderCell.report-row-header--heading .grid-options-menu-host",
-        );
-        if (!host) return;
-        if (host !== menuHostRef.current) {
-            menuRootRef.current?.unmount();
-            menuRootRef.current = null;
-            menuHostRef.current = host;
-        }
-        menuRootRef.current ??= createRoot(host);
-        menuRootRef.current.render(
-            <GridOptionsMenu
-                headerPinned={headerPinned}
-                showServiceColumns={showServiceColumns}
-                onHeaderPinnedChange={onHeaderPinnedChange}
-                onShowServiceColumnsChange={setShowServiceColumns}
-                onResetView={() => void resetGridView()}
-            />,
-        );
-    }, [
-        gridRevision,
-        headerPinned,
-        onHeaderPinnedChange,
-        resetGridView,
-        rows.length,
-        section,
-        showServiceColumns,
-    ]);
-
-    useEffect(() => {
-        const grid = gridRef.current;
-        if (!grid) return;
-        const root = grid.shadowRoot ?? grid;
-        let last = !!root.querySelector(
-            ".rgHeaderCell.report-row-header--heading .grid-options-menu-host",
-        );
-        const observer = new MutationObserver(() => {
-            const now = !!root.querySelector(
-                ".rgHeaderCell.report-row-header--heading .grid-options-menu-host",
-            );
-            if (now !== last) {
-                last = now;
-                setGridRevision((revision) => revision + 1);
-            }
-        });
-        observer.observe(root, { childList: true, subtree: true });
-        return () => observer.disconnect();
-    }, []);
-
-    useEffect(
-        () => () => {
-            menuRootRef.current?.unmount();
-            menuRootRef.current = null;
-            menuHostRef.current = null;
-        },
-        [],
-    );
 
     const buildCopyText = useCallback(
         async (range: RangeArea | null): Promise<string | null> => {
@@ -1577,7 +1510,6 @@ function RawMaterialsGridInner(
                     colSize={150}
                     accessible
                     onAftersourceset={() => {
-                        setGridRevision((revision) => revision + 1);
                         void refreshHorizontalScrollbar();
                         void measureViewport();
                     }}
@@ -1642,6 +1574,21 @@ function RawMaterialsGridInner(
                     onBeforerange={(event) => updateSelectionRange(event.detail.newRange)}
                 />
             </div>
+            {/* The corner menu is rendered in the regular tree and overlaid on
+                the grid's top-left header cell. Mounting it into the grid's
+                shadow DOM (createRoot inside the Stencil root) breaks react-aria
+                dropdowns: the collection builds a virtual document that lacks
+                createTextNode, and React crashes on any text node. The same
+                HoverDropdown as the «Действия» bar works from the main tree. */}
+            <div className="grid-options-menu-corner" style={{ height: headerHeight }}>
+                <GridOptionsMenu
+                    headerPinned={headerPinned}
+                    showServiceColumns={showServiceColumns}
+                    onHeaderPinnedChange={onHeaderPinnedChange}
+                    onShowServiceColumnsChange={setShowServiceColumns}
+                    onResetView={() => void resetGridView()}
+                />
+            </div>
             {!headerPinned ? (
                 <div
                     ref={horizontalScrollRef}
@@ -1681,22 +1628,34 @@ function GridOptionsMenu({
     const selectedKeys = new Set<string>();
     if (headerPinned) selectedKeys.add("pin-header");
     if (showServiceColumns) selectedKeys.add("service-columns");
+    const toggleKeys = ["pin-header", "service-columns"];
     const applySelection = (selection: Selection) => {
-        const keys = selection === "all" ? new Set(["pin-header", "service-columns"]) : selection;
+        const keys = selection === "all" ? new Set(toggleKeys) : new Set(selection);
         if (keys.has("reset-view")) {
+            // Momentary action, not a persisted toggle: fire it and drop the
+            // key so it never sticks in the controlled selection.
             onResetView();
-            return;
+            keys.delete("reset-view");
         }
         onHeaderPinnedChange(keys.has("pin-header"));
         onShowServiceColumnsChange(keys.has("service-columns"));
     };
     return (
         <div className="grid-options-menu">
-            <Dropdown>
-                <Button isIconOnly aria-label="Настройки таблицы" variant="ghost">
-                    <MoreVert aria-hidden="true" />
-                </Button>
-                <Dropdown.Popover className="min-w-[260px]">
+            <HoverDropdown
+                className="grid-options-popover min-w-[260px]"
+                trigger={({ ref, onMouseEnter }) => (
+                    <Button
+                        ref={ref}
+                        onMouseEnter={onMouseEnter}
+                        isIconOnly
+                        aria-label="Настройки таблицы"
+                        variant="ghost"
+                    >
+                        <MoreVert aria-hidden="true" />
+                    </Button>
+                )}
+                content={
                     <Dropdown.Menu
                         selectedKeys={selectedKeys}
                         selectionMode="multiple"
@@ -1713,13 +1672,13 @@ function GridOptionsMenu({
                         <Dropdown.Item
                             id="reset-view"
                             textValue="Сбросить все фильтры и сортировки"
-                            className="grid-options-menu__reset"
                         >
+                            <Refresh aria-hidden="true" />
                             <Label>Сбросить все фильтры и сортировки</Label>
                         </Dropdown.Item>
                     </Dropdown.Menu>
-                </Dropdown.Popover>
-            </Dropdown>
+                }
+            />
         </div>
     );
 }

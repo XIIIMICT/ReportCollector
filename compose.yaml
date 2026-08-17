@@ -56,6 +56,12 @@ services:
       args:
         BACKEND_PORT: ${BACKEND_PORT:?}
     networks: !override [net-dev]
+    # Dev-стек: valkey — compose-сервис на той же сети (прямой путь, без
+    # медленного host.docker.internal, который под нагрузкой даёт таймауты
+    # Redis и ломает совместное редактирование). Прод (профиль back)
+    # оставляет VALKEY_URL из .env — там valkey может жить на хосте.
+    environment:
+      VALKEY_URL: redis://valkey:6379/0
     develop:
       watch:
         - action: sync

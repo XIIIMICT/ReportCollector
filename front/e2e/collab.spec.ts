@@ -3,6 +3,18 @@ import { expect, test, type Page } from "@playwright/test";
 const APP_ORIGIN = "http://127.0.0.1:5000";
 const KEYCLOAK_AUTH = /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/;
 
+/** Open the «На форме» tooltip: park the mouse above the bar, then move to the
+    dot center (a single move, so the pointer enters the tiny trigger). */
+async function hoverCollabBar(page: Page) {
+    const trigger = page.locator(".collab-bar__trigger");
+    await expect(trigger).toBeVisible({ timeout: 15000 });
+    const box = await trigger.boundingBox();
+    if (!box) throw new Error("collab-bar trigger has no bounding box");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 80);
+    await page.waitForTimeout(150);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 async function loginAs(page: Page, username: string, password: string) {
     await page.goto(APP_ORIGIN + "/", { waitUntil: "domcontentloaded" });
     await page.waitForURL(KEYCLOAK_AUTH, { timeout: 20000 });
@@ -76,24 +88,34 @@ test.describe("collab: совместное редактирование", () =>
         await loginAs(pageB, "smirnov", "smirnov");
         await loginAs(pageC, "evtushenko", "TestPassword123");
 
-        // «На форме:» — жирным, фамилии участников в строке состояния.
-        await expect(pageA.locator(".collab-bar b")).toHaveText("На форме:", { timeout: 15000 });
-        await expect(pageA.locator(".collab-bar")).toContainText("вы");
-
+        // The bar shows only the status dot; the «На форме» list lives in the
+        // Tooltip opened on hover (an inline text would shift the tabs when its
+        // width changes between forms). locator.hover() misses the 8×8 dot (its
+        // move lands outside), so aim with an explicit mouse.move instead.
+        await hoverCollabBar(pageA);
         // Лебедева (только ВОС) на «Движении» видит администратора (Евтушенко)
-        // и себя («Вы») — но не Смирнова (СНХЗ).
-        await expect(pageA.locator(".collab-bar")).toContainText("Евтушенко");
-        await expect(pageA.locator(".collab-bar")).not.toContainText("Смирнов");
+        // и себя — но не Смирнова (СНХЗ).
+        await expect(pageA.locator(".collab-bar-tooltip")).toContainText("Евтушенко", {
+            timeout: 15000,
+        });
+        await expect(pageA.locator(".collab-bar-tooltip")).toContainText("Лебедева");
+        await expect(pageA.locator(".collab-bar-tooltip")).not.toContainText("Смирнов");
 
         // Смирнов (СНХЗ) видит Евтушенко и себя — но не Лебедеву (ВОС).
-        await expect(pageB.locator(".collab-bar")).toContainText("вы", { timeout: 15000 });
-        await expect(pageB.locator(".collab-bar")).toContainText("Евтушенко");
-        await expect(pageB.locator(".collab-bar")).not.toContainText("Лебедева");
+        await hoverCollabBar(pageB);
+        await expect(pageB.locator(".collab-bar-tooltip")).toContainText("Евтушенко", {
+            timeout: 15000,
+        });
+        await expect(pageB.locator(".collab-bar-tooltip")).toContainText("Смирнов");
+        await expect(pageB.locator(".collab-bar-tooltip")).not.toContainText("Лебедева");
 
         // Администратор видит всех.
-        await expect(pageC.locator(".collab-bar")).toContainText("вы", { timeout: 15000 });
-        await expect(pageC.locator(".collab-bar")).toContainText("Смирнов");
-        await expect(pageC.locator(".collab-bar")).toContainText("Лебедева");
+        await hoverCollabBar(pageC);
+        await expect(pageC.locator(".collab-bar-tooltip")).toContainText("Евтушенко", {
+            timeout: 15000,
+        });
+        await expect(pageC.locator(".collab-bar-tooltip")).toContainText("Смирнов");
+        await expect(pageC.locator(".collab-bar-tooltip")).toContainText("Лебедева");
 
         await ctxA.close();
         await ctxB.close();

@@ -222,17 +222,69 @@ test("regression: copy, approve dialog, collab bar, column stats", async ({ brow
         return (await grid.getColumns()).length;
     });
     await expect(page.locator(".grid-stats")).toBeVisible({ timeout: 15000 });
-    await page.locator(".grid-stats").hover();
+    // A single .hover() jump can land while the footer re-renders (presence
+    // updates, cell states) and the tooltip never registers the enter — move
+    // the mouse in steps so the enter fires on a stable target.
+    // The paste steps fire async toasts («Вставка обрезана» etc.) that
+    // auto-dismiss; while one is up it overlays the footer stats and the
+    // hover misses the trigger (tooltip never opens). A paste toast can also
+    // appear with a delay (the paste commits through the backend), so require
+    // TWO clean seconds with nothing over the stats center before hovering.
+    let cleanStreak = 0;
     await expect
         .poll(
-            () =>
-                page.evaluate(() => {
-                    const tooltip = document.querySelector(".grid-stats-tooltip");
-                    return tooltip?.textContent ?? "";
-                }),
-            { timeout: 10000 },
+            async () => {
+                await page.waitForTimeout(1000);
+                const statsBox = await page.locator(".grid-stats").boundingBox();
+                if (!statsBox) return false;
+                const hit = await page.evaluate(
+                    ({ x, y }) => {
+                        const el = document.elementFromPoint(x, y);
+                        return el ? el.className : "";
+                    },
+                    {
+                        x: statsBox.x + statsBox.width / 2,
+                        y: statsBox.y + statsBox.height / 2,
+                    },
+                );
+                const clean = !String(hit).includes("toast");
+                cleanStreak = clean ? cleanStreak + 1 : 0;
+                return cleanStreak >= 2;
+            },
+            { timeout: 25000 },
         )
-        .toContain(`= ${columnCount} всего`);
+        .toBe(true);
+    await page.locator(".grid-stats").hover();
+    try {
+        await expect
+            .poll(
+                () =>
+                    page.evaluate(() => {
+                        const tooltip = document.querySelector(".grid-stats-tooltip");
+                        return tooltip?.textContent ?? "";
+                    }),
+                { timeout: 10000 },
+            )
+            .toContain(`= ${columnCount} всего`);
+    } catch (error) {
+        const diag = await page.evaluate(() => {
+            const stats = document.querySelector(".grid-stats");
+            if (!stats) return { stats: null };
+            const r = stats.getBoundingClientRect();
+            const at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+            return {
+                statsRect: { x: r.x, y: r.y, w: r.width, h: r.height },
+                elementAtStatsCenter: at ? at.tagName + "." + at.className : null,
+                tooltips: [...document.querySelectorAll(".grid-stats-tooltip")].map((el) => ({
+                    cls: el.className,
+                    text: el.textContent?.slice(0, 50),
+                    display: getComputedStyle(el).display,
+                })),
+            };
+        });
+        console.log("TIP DIAG:", JSON.stringify(diag));
+        throw error;
+    }
     expect(errors.length).toBe(0);
     await context.close();
 });

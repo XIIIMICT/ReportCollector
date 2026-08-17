@@ -376,9 +376,8 @@ html {
 
 .collab-bar {
     display: flex;
-    flex: 0 0 21rem;
-    width: 21rem;
-    max-width: 100%;
+    flex: 0 0 auto;
+    width: auto;
     align-items: center;
     gap: 0.5rem;
     padding-left: 0.4rem;
@@ -387,6 +386,17 @@ html {
     color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
+}
+
+.collab-bar__trigger {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
+    /* Bigger hover target around the 8×8 dot (padding + compensating negative
+       margin keep the dot at the same visual position). */
+    padding: 0.3rem;
+    margin: -0.3rem;
 }
 
 .collab-bar__dot {
@@ -410,28 +420,9 @@ html {
     background: var(--danger);
 }
 
-.collab-bar__label,
-.collab-bar__members,
-.collab-bar__locks {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Фамилии участников переносятся и занимают не более трёх строк. */
-.collab-bar__members {
-    white-space: normal;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-    overflow: hidden;
-}
-
-.collab-bar__members,
-.collab-bar__locks {
-    color: var(--text);
-}
-
+/* Only the status dot is rendered inline; the «На форме» list lives in the
+   expanded Tooltip (an inline text would shift the tabs when its width
+   changes between forms). */
 .collab-bar__sep {
     flex: 0 0 auto;
     width: 1px;
@@ -1144,10 +1135,17 @@ html {
     white-space: nowrap;
 }
 
-.grid-options-menu-host {
-    position: relative;
-    width: 100%;
-    height: 100%;
+/* The corner menu overlays the grid's top-left header cell (row-header column
+   width × header height). It lives in the regular DOM tree, NOT inside the
+   grid's shadow root: react-aria dropdowns crash when mounted into a
+   shadow-rooted React root (the collection's virtual document has no
+   createTextNode, and React dies on the first text node). */
+.grid-options-menu-corner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 3;
+    width: 52px;
 }
 
 .grid-options-menu {
@@ -1160,10 +1158,11 @@ html {
     place-items: center;
 }
 
-.grid-options-menu .button {
-    width: 36px;
-    min-width: 36px;
-    height: 36px;
+/* The compact «Архив» trigger is narrow; the opened list must not shrink to
+   the trigger width (Autocomplete locks it to `--trigger-width`). */
+.search-autocomplete-popover {
+    width: max(var(--trigger-width, 0px), 22rem);
+    max-width: max(var(--trigger-width, 0px), 22rem);
 }
 
 .raw-materials-grid.raw-materials-grid--merged-header
@@ -1172,6 +1171,83 @@ html {
     top: calc(-1 * var(--grid-header-height) / 2);
     height: 200%;
     z-index: 2;
+}
+
+/* ─── Narrow screens (below lg, e.g. a split-screen tab) ──────────────────── */
+
+@media (width < 64rem) {
+    /* Header: drop the middle spacer, keep the «РепортКоллектор»→«Сырьё» gap.
+       Both texts may ellipsize, but the flex gap is never collapsed, so the
+       project name can't overlap the logo text. */
+    .app-header {
+        grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+        gap: 0.75rem;
+        padding: 0 1rem;
+    }
+
+    .app-header > span[aria-hidden="true"] {
+        display: none;
+    }
+
+    .brand__name {
+        min-width: 0;
+        line-height: 1.2;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* The edition («Сырьё») never ellipsizes — a short project name. No
+       overflow hidden: it would clip the descender of «ё» at line-height 1. */
+    .brand__edition {
+        min-width: 0;
+        line-height: 1.2;
+        white-space: nowrap;
+    }
+
+    .app-body {
+        padding: 0.5rem;
+    }
+
+    .table-toolbar {
+        gap: 0.5rem;
+        padding: 0.52rem 0.5rem;
+    }
+
+    /* Archive picker: the trigger shows the short «Архив» label and takes only
+       the needed width; the opened list keeps its full width. */
+    .archive-autocomplete {
+        width: auto;
+        min-width: 0;
+    }
+
+    /* Action bar: the inline buttons are replaced by the single «Действия»
+       hover-menu (the component itself renders only one of the two). */
+    .action-more-button {
+        gap: 0.4rem;
+    }
+
+    .action-more-button__label {
+        font-size: 0.84rem;
+        white-space: nowrap;
+    }
+
+    .action-more-menu [data-slot="item"] {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+
+    .action-more-menu [data-slot="item"] svg {
+        width: 1.1rem;
+        height: 1.1rem;
+        flex: 0 0 auto;
+    }
+
+    .table-footer {
+        gap: 0.5rem;
+        padding: 0.35rem 0.6rem;
+    }
 }
 
 /* ─── Редакторы ячеек RevoGrid (Autocomplete) ─────────────── */
