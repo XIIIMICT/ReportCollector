@@ -19,7 +19,7 @@ import {
     Copy,
     Download,
     Expand,
-    MoreVert,
+    MoreHoriz,
     PasteClipboard,
     Redo,
     Trash,
@@ -1909,7 +1909,7 @@ function CompactActionMenu({ items }: { items: ActionItem[] }) {
                     variant="secondary"
                     aria-label="Действия с таблицей"
                 >
-                    <MoreVert aria-hidden="true" />
+                    <MoreHoriz aria-hidden="true" />
                     <span className="action-more-button__label">Действия</span>
                 </Button>
             )}
@@ -1925,6 +1925,10 @@ function CompactActionMenu({ items }: { items: ActionItem[] }) {
                             id={item.id}
                             textValue={item.label}
                             isDisabled={item.disabled}
+                            variant={item.variant === "danger" ? "danger" : undefined}
+                            className={
+                                item.variant === "primary" ? "action-menu-item--success" : undefined
+                            }
                         >
                             {item.icon}
                             <Label>{item.label}</Label>

@@ -86,7 +86,7 @@ export function SearchAutocomplete({
                 </Autocomplete.Value>
                 <Autocomplete.Indicator />
             </Autocomplete.Trigger>
-            <Autocomplete.Popover>
+            <Autocomplete.Popover className="search-autocomplete-popover">
                 <Autocomplete.Filter filter={contains}>
                     <SearchField
                         autoFocus

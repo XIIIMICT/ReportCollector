@@ -1151,10 +1151,17 @@ html {
     white-space: nowrap;
 }
 
-.grid-options-menu-host {
-    position: relative;
-    width: 100%;
-    height: 100%;
+/* The corner menu overlays the grid's top-left header cell (row-header column
+   width × header height). It lives in the regular DOM tree, NOT inside the
+   grid's shadow root: react-aria dropdowns crash when mounted into a
+   shadow-rooted React root (the collection's virtual document has no
+   createTextNode, and React dies on the first text node). */
+.grid-options-menu-corner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 3;
+    width: 52px;
 }
 
 .grid-options-menu {
@@ -1171,6 +1178,27 @@ html {
     width: 36px;
     min-width: 36px;
     height: 36px;
+}
+
+/* The compact «Архив» trigger is narrow; the opened list must not shrink to
+   the trigger width (Autocomplete locks it to `--trigger-width`). */
+.search-autocomplete-popover {
+    width: max(var(--trigger-width, 0px), 22rem);
+    max-width: max(var(--trigger-width, 0px), 22rem);
+}
+
+/* Word wrap (per-cell): values overflow the cell width are wrapped to the
+   next line instead of being ellipsized. Default on (see «Перенос строк в
+   ячейках» in the grid corner menu). */
+.raw-materials-grid--wrap .rgCell {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+/* «Зафиксировать» in the compact action menu — green like the wide-screen
+   primary button. HeroUI MenuItem has no success variant, only danger. */
+.action-menu-item--success {
+    color: var(--success);
 }
 
 .raw-materials-grid.raw-materials-grid--merged-header
@@ -1228,34 +1256,11 @@ html {
     }
 
     /* Collab bar: keep the «На форме: …» text, sized to its content. The tabs
-       row sits above it (z-index) and, when the tabs are too many, overflows
-       to the left and covers the text; with a few tabs (asset workers) the
-       text stays fully visible. */
+       fill the remaining row width and scroll internally (HeroUI arrows) when
+       they don't fit — they never leave the card bounds. */
     .collab-bar {
         flex: 0 0 auto;
         width: auto;
-    }
-
-    .table-toolbar__controls {
-        overflow: visible;
-    }
-
-    .section-tabs {
-        position: relative;
-        z-index: 1;
-    }
-
-    /* The tab list takes exactly the width it needs and is anchored to the
-       right: when it doesn't fit it overflows left (over the collab bar)
-       instead of showing internal scroll arrows. */
-    .section-tabs .tabs__list-container__scroller {
-        display: flex;
-        justify-content: flex-end;
-        overflow: visible;
-    }
-
-    .section-tabs [role="tablist"] {
-        flex: none;
     }
 
     /* Archive picker: the trigger shows the short «Архив» label and takes only
