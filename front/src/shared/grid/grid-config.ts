@@ -102,7 +102,7 @@ const DESCRIPTORS: Record<SectionId, ColumnDescriptor[]> = {
         number("deliveryPlanTons", "План, т", 118, ["Поставка"]),
         number("deliveryFactTons", "Факт, т", 118, ["Поставка"]),
         calculated("deliveryDeviationTons", "Отклонение, т", 138, ["Поставка"]),
-        number("balanceStartTons", "На начало периода, т", 160, ["Остатки"]),
+        number("balanceStartTons", "На начало периода, т", 165, ["Остатки"]),
         number("balanceOnSiteTons", "На площадке, т", 145, ["Остатки"]),
         number("balanceInTransitTons", "В пути, т", 120, ["Остатки"]),
         number("balanceEndTons", "На конец периода, т", 160, ["Остатки"]),
