@@ -37,6 +37,15 @@ Aggregators: `just lint`, `just typecheck`, `just test`, `just e2e`.
 - **A11y label rule (dev-log noise):** every HeroUI/react-aria form control **without a visible `Label` must have an `aria-label`** — `SearchField`, `Autocomplete`, the `SearchAutocomplete` pre-mount `TextField` fallback, etc. Missing it makes react-aria warn on every mount ("If you do not provide a visible label…"). The warning exists only in dev builds (`NODE_ENV !== 'production'`), but it floods `docker logs` and drowns real errors. The label is user-facing → Russian, short (`aria-label="Найти актив"`). Don't chase other a11y rules — only this label rule; visible `Label`s (e.g. in `profile-modal`) and buttons with text are already fine.
 - Unit tests — bun test (happy-dom), in `__tests__` next to the code.
 
+### Front styling (Tailwind vs plain CSS)
+
+Tailwind 4 is a hard dependency of HeroUI — `@heroui/styles` is built on it (`@tailwindcss/postcss` in `postcss.config.ts`), and utilities like `text-muted`, `bg-background`, `text-danger` come from HeroUI's theme layer mapped to the CSS variables defined in `front/src/app/globals.css`. The question is not "Tailwind or not" (it can't be removed without dropping HeroUI) but where the boundary sits:
+
+- **Semantic, recurring UI** (grid, table footer, collab bar, toolbar, autocomplete, action bar) — plain CSS classes in `front/src/app/globals.css` (BEM-ish names), themed via the variables (`var(--text)`, `var(--muted)`, …) with media queries and state selectors. This is the project's main vocabulary.
+- **One-off layout** (loading/error states, the blocked page) and **HeroUI slot overrides** (`Card.Content className="p-8"`, `size-4` icons, `Skeleton` shapes) — Tailwind utilities inline. Don't invent a BEM class for a single use.
+- **One pattern = one vocabulary:** don't express the same visual in both ways in one component — e.g. muted text is either the `text-muted` utility on a HeroUI slot or `color: var(--muted)` in a class, not both in the same tree.
+- A utility that spreads to several places graduates into a class in globals.css (rename the usages in the same change).
+
 ### e2e (Playwright)
 
 - Requires a running stack (`just prod` or `just dev`) + seed; `E2E_BASE_URL` (default `http://localhost:5000`), `KEYCLOAK_ENABLED=false` (local login — e2e use it). Specs: `front/e2e/` (`auth.spec.ts`, `raw-materials-ui.spec.ts`, `clipboard.spec.ts`, `collab.spec.ts`, `health.spec.ts`, …).
