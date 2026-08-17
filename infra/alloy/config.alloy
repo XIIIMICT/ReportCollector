@@ -29,7 +29,6 @@ loki.process "reportcollector" {
       "form_id"         = "form_id",
       "form_db_name"    = "form_db_name",
       "status_code"     = "status_code",
-      "user_key"        = "user_key",
       "user_email"      = "user_email",
       "rows_affected"   = "rows_affected",
       "method"          = "method",
@@ -50,7 +49,6 @@ loki.process "reportcollector" {
   stage.structured_metadata {
     values = {
       "form_id"       = "form_id",
-      "user_key"      = "user_key",
       "user_email"    = "user_email",
       "duration_ms"   = "duration_ms",
       "status_code"   = "status_code",

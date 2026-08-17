@@ -380,6 +380,10 @@ function SectionContent({
     );
     const placeholderDraftRef = useRef(placeholderDraft);
     const placeholderCreatePendingRef = useRef(false);
+    // In-flight cell commit (PATCH). Ctrl+Z pressed right after Enter must
+    // wait for it: otherwise the undo request can reach the server before the
+    // edit is journaled and would silently do nothing.
+    const pendingCommitRef = useRef<Promise<boolean> | null>(null);
     const gridRef = useRef<RawMaterialsGridHandle>(null);
     const [exportPending, setExportPending] = useState(false);
     // When another tab of the same account takes over the selection, the grid
@@ -555,6 +559,16 @@ function SectionContent({
 
     async function commit(updates: CellUpdate[]): Promise<boolean> {
         if (readOnly || !updates.length) return true;
+        const task = doCommit(updates);
+        pendingCommitRef.current = task;
+        try {
+            return await task;
+        } finally {
+            if (pendingCommitRef.current === task) pendingCommitRef.current = null;
+        }
+    }
+
+    async function doCommit(updates: CellUpdate[]): Promise<boolean> {
         setIsMutationPending(true);
         try {
             if (section === "materialMovement" && reportMonth) {
@@ -729,6 +743,7 @@ function SectionContent({
     );
 
     const runUndo = useCallback(async () => {
+        await pendingCommitRef.current;
         try {
             const result = await undoCells(
                 pendingSkip?.direction === "undo" ? pendingSkip.actionId : null,
@@ -742,6 +757,7 @@ function SectionContent({
     }, [applyUndoResult, pendingSkip, reportMonth, section]);
 
     const runRedo = useCallback(async () => {
+        await pendingCommitRef.current;
         try {
             const result = await redoCells(
                 pendingSkip?.direction === "redo" ? pendingSkip.actionId : null,
@@ -1950,6 +1966,12 @@ const COLLAB_STATUS_LABELS: Record<Exclude<CollabStatus, "online">, string> = {
     offline: "Совместное редактирование недоступно",
 };
 
+/** Last name only (the first word of the full name, fullname.partition(" ")[0]). */
+function shortName(fullname: string): string {
+    const first = fullname.trim().split(/\s+/)[0];
+    return first || fullname;
+}
+
 /**
  * What to show in parentheses: for an admin — the role, for an asset worker —
  * the comma-joined asset list (e.g. «СНХЗ, БСК»).
@@ -1974,9 +1996,13 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
     const others = room.members
         .filter((member) => member.userId !== me?.userId)
         .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email, "ru"));
-    // No inline text next to the dot: its content changes with the member list
-    // and shifts the tabs when switching forms. The full «На форме» list lives
-    // exclusively in the expanded Tooltip.
+    const solo = room.members.length <= 1;
+    // The status line shows only last names (full FIO and cell ranges live in
+    // the Tooltip). On narrow screens the text is hidden by CSS — the dot
+    // alone opens the tooltip there, and the tabs take the full row width.
+    const membersText = solo
+        ? "только вы"
+        : `вы${others.length ? `, ${others.map((member) => shortName(member.name || member.email)).join(", ")}` : ""}`;
     const tooltipMembers = self ? [self, ...others] : room.members;
 
     return (
@@ -1991,6 +2017,15 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
                             className={`collab-bar__dot collab-bar__dot--${room.status}`}
                             aria-hidden="true"
                         />
+                        {room.status === "online" ? (
+                            <span className="collab-bar__members">
+                                <b>На форме:</b> {membersText}
+                            </span>
+                        ) : (
+                            <span className="collab-bar__label">
+                                {COLLAB_STATUS_LABELS[room.status]}
+                            </span>
+                        )}
                     </span>
                 </Tooltip.Trigger>
                 <Tooltip.Content placement="top" className="collab-bar-tooltip">

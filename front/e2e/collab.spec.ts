@@ -88,10 +88,14 @@ test.describe("collab: совместное редактирование", () =>
         await loginAs(pageB, "smirnov", "smirnov");
         await loginAs(pageC, "evtushenko", "TestPassword123");
 
-        // The bar shows only the status dot; the «На форме» list lives in the
-        // Tooltip opened on hover (an inline text would shift the tabs when its
-        // width changes between forms). locator.hover() misses the 8×8 dot (its
-        // move lands outside), so aim with an explicit mouse.move instead.
+        // At lg the «На форме: …» line is visible inline next to the dot (last
+        // names only); full FIO and ranges live in the Tooltip opened on hover.
+        // locator.hover() can miss the small trigger, so aim with an explicit
+        // mouse.move instead.
+        await expect(pageA.locator(".collab-bar b")).toHaveText("На форме:", {
+            timeout: 15000,
+        });
+        await expect(pageA.locator(".collab-bar")).toContainText("вы");
         await hoverCollabBar(pageA);
         // Лебедева (только ВОС) на «Движении» видит администратора (Евтушенко)
         // и себя — но не Смирнова (СНХЗ).

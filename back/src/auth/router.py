@@ -36,7 +36,6 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 
 
 def read_signed_identity(
-    user_key: Annotated[str | None, Header(alias="X-ReportCollector-User-Key")] = None,
     user_email: Annotated[str | None, Header(alias="X-ReportCollector-User-Email")] = None,
     user_name: Annotated[str | None, Header(alias="X-ReportCollector-User-Name")] = None,
     user_sub: Annotated[str | None, Header(alias="X-ReportCollector-User-Sub")] = None,
@@ -51,7 +50,6 @@ def read_signed_identity(
     values = [
         decode_identity_header(value)
         for value in (
-            user_key,
             user_email,
             user_name,
             user_sub,
@@ -63,14 +61,13 @@ def read_signed_identity(
         )
     ]
     _verify_identity_signature(values, timestamp=timestamp, signature=signature)
-    key, email, name, subject, oidc_issuer, preferred, given, family, verified = values
+    email, name, subject, oidc_issuer, preferred, given, family, verified = values
     return CurrentUserIdentity(
         email=email,
         email_verified=_parse_optional_bool(verified),
         family_name=family,
         given_name=given,
         issuer=oidc_issuer,
-        key=key or subject or auth_constants.LOCAL_USER_KEY,
         name=name,
         oidc_sub=subject,
         preferred_username=preferred,
@@ -94,9 +91,8 @@ async def login_local(
     return LocalLoginResponse(
         email=user.email,
         issuer=auth_constants.LOCAL_USER_KEY,
-        key=user.key,
         name=user.name,
-        sub=f"{auth_constants.LOCAL_USER_KEY}:{user.key}",
+        sub=f"{auth_constants.LOCAL_USER_KEY}:{user.email}",
     )
 
 

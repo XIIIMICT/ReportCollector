@@ -103,7 +103,7 @@ jobs:
         run: |
           docker compose --profile prod exec -T back uv run --no-dev python -c "import asyncio; from sqlmodel import SQLModel; from src.database import async_engine; exec('async def _main():\n    async with async_engine.begin() as conn:\n        await conn.run_sync(SQLModel.metadata.create_all)\nasyncio.run(_main())')"
           PASSWORD_HASH=$(docker compose --profile prod exec -T back uv run --no-dev python -c "from argon2 import PasswordHasher; print(PasswordHasher().hash('TestPassword123'))")
-          docker compose --profile standalone exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -c "INSERT INTO rc.app_user (id, key, email, name, email_verified, password_hash, is_active, is_admin, is_deleted, created_at, updated_at) SELECT gen_random_uuid(), 'evtushenko.sn', 'evtushenko.sn@ruschem.ru', 'Evtushenko S.', TRUE, '$PASSWORD_HASH', TRUE, FALSE, FALSE, now(), now() WHERE NOT EXISTS (SELECT 1 FROM rc.app_user WHERE email = 'evtushenko.sn@ruschem.ru');"
+          docker compose --profile standalone exec -T postgres psql -U postgres -v ON_ERROR_STOP=1 -c "INSERT INTO rc.app_users (id, email, name, email_verified, password_hash, is_deleted, created_at, updated_at) SELECT gen_random_uuid(), 'evtushenko.sn@ruschem.ru', 'Evtushenko S.', TRUE, '$PASSWORD_HASH', FALSE, now(), now() WHERE NOT EXISTS (SELECT 1 FROM rc.app_users WHERE email = 'evtushenko.sn@ruschem.ru');"
 
       - name: Install Playwright browsers
         run: |

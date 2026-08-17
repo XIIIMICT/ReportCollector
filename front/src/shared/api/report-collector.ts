@@ -13,14 +13,12 @@ const currentUserSchema = z
             )
             .optional(),
         email: z.string().nullable(),
-        key: z.string(),
         name: z.string().nullable(),
         theme: z.enum(["system", "light", "dark"]).optional(),
     })
     .transform((value) => ({
         access: value.access,
         email: value.email ?? undefined,
-        key: value.key,
         name: value.name ?? undefined,
         theme: (value.theme ?? "system") as "system" | "light" | "dark",
     }));

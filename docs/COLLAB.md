@@ -60,6 +60,7 @@ The client maintains `ownedLeases` (Set) and **must remove keys on release** —
 
 - Stack is per user **per browser session and form**: `rc:undo:{user_id}:{session_id}:{section}/{reportMonth}` — «Цены» history doesn't undo «Движение», August doesn't undo September. Survives form switches **within one page load**, but a reload gets a fresh `session_id` and starts with an empty history (stale stacks are never referenced again; the client re-reads `/undo-state` on form change).
 - An action is one cell (rowId, field, old/new value, actionId, targetTable, section, reportMonth). Stack limit 500, lookup — last 200.
+- **Edit→undo race:** the PATCH that commits a cell edit journals the action asynchronously. A Ctrl+Z fired immediately after Enter can reach `/undo` before the journal push — the server would answer `reason=empty` and the edit would stay. The frontend guards this: `runUndo`/`runRedo` in `raw-materials-workspace.tsx` first await the in-flight commit promise (`pendingCommitRef`), so undo is only sent after the edit landed on the server.
 - New edits **clear the redo branch** (Lua `_CLEAR_REDO_SCRIPT`).
 - Applying undo/redo goes through the same `apply_cell_value` + `bump_cell_state` (revisions, `lastActionId`) and publishes `cell:changed`.
 - Conflicts: if a cell was changed by someone else after the action (`lastActionId` mismatch) or is leased by another — the action is rejected with `reason=conflict/locked`; a second undo press passes `skipActionId` to skip the blocked one.

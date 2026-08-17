@@ -7,13 +7,11 @@ export function buildIdentityHeaders(session: Awaited<ReturnType<typeof getSessi
     const headers = new Headers();
 
     if (!session) {
-        headers.set("X-ReportCollector-User-Key", "local.user");
         return headers;
     }
 
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const values = [
-        session.preferredUsername ?? session.email ?? session.sub,
         session.email,
         session.name,
         session.sub,
@@ -24,7 +22,6 @@ export function buildIdentityHeaders(session: Awaited<ReturnType<typeof getSessi
         session.emailVerified === undefined ? undefined : String(session.emailVerified),
     ];
     const names = [
-        "X-ReportCollector-User-Key",
         "X-ReportCollector-User-Email",
         "X-ReportCollector-User-Name",
         "X-ReportCollector-User-Sub",

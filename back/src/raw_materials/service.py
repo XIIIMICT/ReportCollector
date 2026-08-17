@@ -708,7 +708,6 @@ async def apply_cell_value(
             new_email = value if isinstance(value, str) and value.strip() else None
             if new_email is not None:
                 user_row.email = new_email
-                user_row.key = new_email
         elif field == "fullname":
             user_row.name = value if isinstance(value, str) else ""
         elif field == "isAdmin":
@@ -1124,7 +1123,6 @@ async def create_project_user(
     else:
         now = datetime.now(UTC)
         user = User(
-            key=email,
             email=email,
             name=fullname.strip(),
             is_deleted=False,
@@ -1200,7 +1198,6 @@ async def update_project_user(
             message = f"Пользователь с email {candidate} уже существует."
             raise DictionaryReferenceError(message)
         user.email = candidate
-        user.key = candidate
     if fullname is not None:
         user.name = fullname.strip()
     if is_active is not None:

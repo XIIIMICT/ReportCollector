@@ -139,7 +139,11 @@ html {
     display: grid;
     min-height: 4.8rem;
     max-height: 4.8rem;
-    grid-template-columns: minmax(0, 1fr) minmax(22rem, 36rem) minmax(0, 1fr);
+    /* The middle track is an empty spacer: it must absorb free space, not
+       reserve a fixed 22–36rem. A fixed middle squeezed the logo and the
+       profile pill at ~1025–1256px — the sides are content-sized instead
+       (auto), so «РепортКоллектор» never shrinks. */
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 1rem;
     padding: 0 1.75rem;
@@ -376,8 +380,9 @@ html {
 
 .collab-bar {
     display: flex;
-    flex: 0 0 auto;
-    width: auto;
+    flex: 0 0 21rem;
+    width: 21rem;
+    max-width: 100%;
     align-items: center;
     gap: 0.5rem;
     padding-left: 0.4rem;
@@ -420,9 +425,28 @@ html {
     background: var(--danger);
 }
 
-/* Only the status dot is rendered inline; the «На форме» list lives in the
-   expanded Tooltip (an inline text would shift the tabs when its width
-   changes between forms). */
+/* The inline line: last names, up to three wrapped lines; the label for the
+   connecting/offline states. Hidden below lg (dot + tooltip only there). */
+.collab-bar__label,
+.collab-bar__members {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.collab-bar__members {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    color: var(--text);
+}
+
+.collab-bar__label {
+    color: var(--text);
+}
+
 .collab-bar__sep {
     flex: 0 0 auto;
     width: 1px;
@@ -512,8 +536,11 @@ html {
 }
 
 .archive-autocomplete {
-    width: 21rem;
-    min-width: 21rem;
+    /* Content-sized trigger at every width: the two-line «Рабочая версия»
+       takes as much space as it needs. The opened list keeps its own width
+       (see .search-autocomplete-popover below — at least 22rem). */
+    width: auto;
+    min-width: 0;
 }
 
 /* The footer stats are compact lines (selection and/or filtered row count),
@@ -1214,11 +1241,18 @@ html {
         padding: 0.52rem 0.5rem;
     }
 
-    /* Archive picker: the trigger shows the short «Архив» label and takes only
-       the needed width; the opened list keeps its full width. */
-    .archive-autocomplete {
+    /* Collab bar on narrow screens: dot only — the «На форме: …» text is
+       hidden (an inline text of changing width would shift the tabs), and the
+       tabs take the full remaining row width. The tooltip still opens from the
+       dot. */
+    .collab-bar {
+        flex: 0 0 auto;
         width: auto;
-        min-width: 0;
+    }
+
+    .collab-bar__members,
+    .collab-bar__label {
+        display: none;
     }
 
     /* Action bar: the inline buttons are replaced by the single «Действия»

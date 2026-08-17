@@ -32,7 +32,6 @@ export async function getCurrentUserServer(session: AuthSession | null) {
             roles: string[];
         }>;
         email?: string | null;
-        key: string;
         name?: string | null;
         theme?: string;
     };

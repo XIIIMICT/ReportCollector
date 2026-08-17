@@ -43,7 +43,6 @@ class JsonFormatter(logging.Formatter):
             "path",
             "status_code",
             "user_email",
-            "user_key",
             "user_name",
             "user_sub",
             "user_is_admin",

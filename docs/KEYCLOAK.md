@@ -46,19 +46,19 @@ The three issuer variables: **PUBLIC** — the browser (redirect), **INTERNAL** 
 
 | Claim | Purpose | Stored in |
 |---|---|---|
-| `sub` | stable OIDC subject | `app_user.oidc_sub` (+ `oidc_issuer`) |
-| `email` | **main identifier**, case-insensitive (lowercased) | `app_user.email` |
-| `preferred_username` | user key (WS room, leases, presence) | `app_user.key`, `preferred_username` |
-| `name` | FIO, **overwrites** the local one on every login | `app_user.name` |
+| `sub` | stable OIDC subject | `app_users.oidc_sub` |
+| `email` | **main identifier**, case-insensitive (lowercased) | `app_users.email` |
+| `preferred_username` | preferred username (identity headers, WS) | `app_users.preferred_username` |
+| `name` | FIO, **overwrites** the local one on every login | `app_users.name` |
 | `given_name` / `family_name` | parts of the FIO | identity headers, logs |
-| `email_verified` | email-verification flag | `app_user.email_verified` |
+| `email_verified` | email-verification flag | `app_users.email_verified` |
 
-`email` and `preferred_username` may come from different domains (`evtushenko.sn@ruschem.ru` vs `evtushenko.sn@h2-group.ru`) — that's normal. The system's user key is `email`; the room's user key is `preferred_username`.
+`email` and `preferred_username` may come from different domains (`evtushenko.sn@ruschem.ru` vs `evtushenko.sn@h2-group.ru`) — that's normal. The system's user identifier is `email` (no separate key column: it would duplicate the normalized email).
 
 ## User provisioning (how it works now)
 
 1. A project admin adds a person by email (lowercase) — they appear in **all** projects: `is_active=true` in the admin's project, `is_active=false` elsewhere (role `asset_worker`).
-2. First successful Keycloak login (`upsert_current_user`): lookup by `oidc_sub` → email (lower) → key; create if missing, fill in if present. FIO is overwritten from Keycloak, `sync_project_memberships` adds links to all projects (`is_active=false`), access appears where `is_active=true`.
+2. First successful Keycloak login (`upsert_current_user`): lookup by `oidc_sub` → email (lower); create if missing, fill in if present. FIO is overwritten from Keycloak, `sync_project_memberships` adds links to all projects (`is_active=false`), access appears where `is_active=true`.
 3. Seed admin (`AUTH_SEED_ADMIN_EMAIL` + `AUTH_SEED_ADMIN_PASSWORD`): on first login becomes active with `admin` in all projects. (The old bootstrap mode `/auth/bootstrap` and `AUTH_DEBUG_BOOTSTRAP_*` are **removed** — don't look for them or document them.)
 4. Blocked users (`is_deleted`) get `BlockedUserError` — access closed.
 

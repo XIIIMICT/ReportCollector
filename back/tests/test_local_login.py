@@ -39,7 +39,6 @@ async def test_local_login_sets_first_password(client, db_session) -> None:
     assert response.status_code == 200
     body: LocalLoginResponse = LocalLoginResponse.model_validate(response.json())
     assert body.email == ADMIN_EMAIL
-    assert body.key == ADMIN_EMAIL
     assert body.sub == f"{LOCAL_USER_KEY}:{ADMIN_EMAIL}"
 
     await db_session.refresh(user)

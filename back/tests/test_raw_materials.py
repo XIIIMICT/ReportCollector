@@ -527,7 +527,7 @@ async def test_create_user_normalizes_email_to_lowercase(client, db_session) -> 
     assert row["email"] == "smirnov@example.ru"
 
     stored = (await db_session.exec(select(User).where(col(User.email) == "smirnov@example.ru"))).one()
-    assert stored.key == "smirnov@example.ru"
+    assert stored.email == "smirnov@example.ru"
 
     again = await client.post(
         "/api/raw-materials/users",
@@ -576,7 +576,6 @@ async def test_keycloak_login_finds_user_case_insensitively(client, db_session) 
 async def test_create_user_for_existing_email_adds_missing_project_link(client, db_session) -> None:
     """An existing user without a project link gets only the link."""
     existing = User(
-        key="petrov@example.ru",
         email="petrov@example.ru",
         name="Петров Пётр",
     )

@@ -19,7 +19,6 @@ export default async function Home() {
         currentUser = {
             access: user.access,
             email: user.email ?? undefined,
-            key: user.key,
             name: user.name ?? undefined,
             theme: (user.theme ?? "system") as "system" | "light" | "dark",
         };

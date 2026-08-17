@@ -80,7 +80,6 @@ export async function POST(request: Request) {
     const identity = (await response.json()) as {
         email: string | null;
         issuer: string;
-        key: string;
         name: string | null;
         sub: string;
     };
@@ -95,7 +94,7 @@ export async function POST(request: Request) {
             expiresAt,
             issuer: identity.issuer,
             name: identity.name ?? undefined,
-            preferredUsername: identity.key,
+            preferredUsername: identity.email ?? identity.sub,
             sub: identity.sub,
         }),
         sessionCookieOptions(config, sessionSeconds),

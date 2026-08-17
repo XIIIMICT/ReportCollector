@@ -18,7 +18,6 @@ class CurrentUserRead(BaseModel):
     """Current user: profile and available (activated) projects."""
 
     email: str | None
-    key: str
     name: str | None
     theme: Theme = Theme.SYSTEM
     access: list[ProjectAccessRead]
@@ -32,7 +31,6 @@ class LocalLoginRequest(BaseModel):
 class LocalLoginResponse(BaseModel):
     """User identity for the browser session (no password hash)."""
 
-    key: str
     email: str | None
     name: str | None
     sub: str

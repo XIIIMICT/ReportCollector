@@ -81,7 +81,6 @@ async def _seed_session(session: AsyncSession) -> None:
     await session.flush()
 
     admin = User(
-        key="admin@example.ru",
         email="admin@example.ru",
         name="Admin User",
         created_at=now,
@@ -248,7 +247,6 @@ def signed_identity_headers(
     from urllib.parse import quote
 
     values = {
-        "X-ReportCollector-User-Key": preferred_username or email or subject,
         "X-ReportCollector-User-Email": email,
         "X-ReportCollector-User-Name": name,
         "X-ReportCollector-User-Sub": subject,

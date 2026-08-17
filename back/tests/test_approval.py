@@ -256,7 +256,7 @@ async def test_fix_blocked_by_lease(client: AsyncClient, db_session: AsyncSessio
     from src.collab.store import lease_key
 
     await store.acquire_lease(
-        lease_key(f"rm_material_movement/{row.id}/balance_on_site_tons", project=RAW_MATERIALS_PROJECT_KEY),
+        lease_key(f"rm_material_movements/{row.id}/balance_on_site_tons", project=RAW_MATERIALS_PROJECT_KEY),
         {"userId": "someone", "name": "Иванов"},
     )
     status, body = await _fix(client, date(2026, 8, 1))
@@ -303,8 +303,8 @@ async def test_final_fix_clears_only_fixed_table_stacks(client: AsyncClient, db_
     assert movement_row is not None
     price_row = (await db_session.exec(select(RawMaterialPrice))).first()
     assert price_row is not None
-    movement_cell = f"rm_material_movement/{movement_row.id}/balance_on_site_tons"
-    price_cell = f"rm_raw_material_price/{price_row.id}/fact_2025"
+    movement_cell = f"rm_material_movements/{movement_row.id}/balance_on_site_tons"
+    price_cell = f"rm_raw_material_prices/{price_row.id}/fact_2025"
     await store.push_actions("any-user", "any-session", movement_scope, [{"id": 1, "undone": False}])
     await store.push_actions("any-user", "any-session", "materialMovement/2026-08-01", [{"id": 2, "undone": False}])
     await store.push_actions("any-user", "any-session", "rawMaterialPrices/", [{"id": 3, "undone": False}])
