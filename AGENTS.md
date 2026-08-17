@@ -23,7 +23,7 @@ Corporate raw-material planning system («Сырьё»): Excel-like **«Движ
 | Everything at once | `just lint` · `just typecheck` · `just test` · `just e2e` |
 | Stack dev/prod | `just dev` (hot-reload, `--watch`) · `just prod` |
 | DB / keycloak | `just db` · `just keycloak` (standalone profile) |
-| Migrations | `just migrate` (never edit already-applied prod migrations — only new ones) |
+| Migrations | `just migrate` (never edit already-applied prod migrations — only new ones). The migration connection sets `lock_timeout=30s` — a blocked migration (e.g. an ALTER waiting behind the running app) fails loudly instead of hanging |
 | Seed | `just seed` — **fully recreates the DB schema**, don't run without asking |
 
 ## Landmines (critical!)

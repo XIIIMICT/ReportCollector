@@ -5,7 +5,7 @@
 1. Copy the config: `cp .env.example .env` (root — single source). To run the front on the host additionally `cp .env.example front/.env.local`.
 2. Dependencies: `just deps` (`uv sync --directory back` + `bun install --cwd front`).
 3. DB and services: `just db` (postgres+valkey), Keycloak if needed — `just keycloak`.
-4. Migrations: `just migrate`. Seed: `just seed` (**recreates the schema!** only with consent, never on prod).
+4. Migrations: `just migrate`. The migration connection runs with `lock_timeout=30s` (`back/migrations/env.py`) — if the app holds a lock (classic idle-in-transaction pool connection), the migration aborts with "canceling statement due to lock timeout" after 30s instead of hanging forever. On prod prefer running migrations with the app stopped/idle. Seed: `just seed` (**recreates the schema!** only with consent, never on prod).
 5. Run: `just dev` (compose + hot-reload) or on the host `just back` / `just front`.
 
 About `POSTGRES_HOST`: on the server it's the real DB address (not localhost); `just migrate` uses whatever is in `.env`. In the compose network — `host.docker.internal` or the service name.
