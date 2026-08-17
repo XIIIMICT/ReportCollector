@@ -53,7 +53,19 @@ Tailwind 4 is a hard dependency of HeroUI — `@heroui/styles` is built on it (`
 
 ## Pre-commit (prek)
 
-Root `prek.toml` — builtin hooks (large files, merge-conflict, yaml, eof, trailing); `back/prek.toml` — ruff format, ruff check --fix, ty check, uv lock; `front/prek.toml` — bun lock, oxfmt, oxlint, bun test, tsc. Run on `git commit` (`prek install`). If pre-commit fixed something itself — recheck the diff and commit again.
+Root `prek.toml` — builtin hooks (large files, merge-conflict, yaml, eof, trailing, mixed-line-ending `--fix=lf`, fix-byte-order-marker); `back/prek.toml` — ruff format, ruff check --fix, ty check, uv lock; `front/prek.toml` — bun lock, oxfmt, oxlint, bun test, tsc. Run on `git commit` (`prek install`). If pre-commit fixed something itself — recheck the diff and commit again.
+
+### Line endings & encoding (LF, UTF-8, no BOM)
+
+The repo is **LF**: `/.gitattributes` (`* text=auto eol=lf`) normalizes every text file to LF in the index and in working copies, overriding `core.autocrlf` — so editors/tools writing LF never cause "phantom" modifications or "LF will be replaced by CRLF" noise, on any OS.
+
+prek enforces it on commit:
+- `mixed-line-ending --fix=lf` — rewrites CRLF to LF in staged text files;
+- `fix-byte-order-marker` — strips UTF-8 BOMs.
+
+**Write files as UTF-8 without BOM.** Line endings are then irrelevant — git and prek normalize them.
+
+If you get a new checkout on a machine with `core.autocrlf=true` and files show as "modified" with an empty diff: `git add --renormalize .` + `git checkout -- .` once, and/or set `core.autocrlf=false` (`.gitattributes` makes it moot).
 
 ## Languages (standard)
 

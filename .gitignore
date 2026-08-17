@@ -7,10 +7,13 @@
 # Корневые файлы
 !/prek.toml
 !/.env.example
+!/.gitattributes
 !/.gitignore
 !/compose.yaml
 !/justfile
 !/AGENTS.md
+!/scripts/
+!/scripts/**
 
 # Каталоги: возвращаем в индекс сам каталог, чтобы git мог в него зайти.
 # Содержимое back/ и front/ белыми списками задают их собственные .gitignore.

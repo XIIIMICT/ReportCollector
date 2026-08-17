@@ -48,6 +48,7 @@ Corporate raw-material planning system («Сырьё»): Excel-like **«Движ
 - **Don't commit debug files:** `back/tests/debug_*.py`, `front/e2e/*-probe*`, `front/e2e/probe/` (the root ignore already silences `*.mjs`/`*.cjs`). Delete them after debugging.
 - **A11y label rule:** a form control without a visible `Label` must have an `aria-label` — react-aria otherwise warns on every mount and floods dev logs (`docker logs`). Details: `docs/WORKFLOW.md`.
 - **Front styling:** semantic, recurring UI — plain CSS classes in `front/src/app/globals.css` on theme vars; one-off layout and HeroUI slot overrides — Tailwind utilities inline; one pattern = one vocabulary. Details: `docs/WORKFLOW.md`.
+- **Files: UTF-8, no BOM, LF.** Enforced by `/.gitattributes` (normalizes to LF on add/checkout, overrides `core.autocrlf`) and prek hooks (`mixed-line-ending --fix=lf`, `fix-byte-order-marker`). Details: `docs/WORKFLOW.md`.
 - **Commits:** conventional commits `type(scope): …` + body Why/What/Verified (template and branching rules — `docs/WORKFLOW.md`). The user commits themselves; don't commit without an explicit request.
 - **Before delivery:** typecheck + lint + tests on both sides (see the table). Back tests require a running Postgres with `back/tests/conftest.py` defaults (`postgres/strong_password@localhost:5432/dwh`, schema `rc_test` recreated per test, collab on an in-memory store).
 - **e2e:** don't run without the full stack (Next + back + Postgres + seed, `KEYCLOAK_ENABLED=false`); workers=1, chromium.
