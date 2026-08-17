@@ -273,7 +273,6 @@ function RawMaterialsGridInner(
     const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
     const resizedWidthsRef = useRef(new Map<string, number>());
     const [showServiceColumns, setShowServiceColumns] = useState(false);
-    const [wrapCells, setWrapCells] = useState(true);
     const sortingBySectionRef = useRef(new Map<SectionId, GridSortingConfig>());
     const userSortedSectionsRef = useRef(new Set<SectionId>());
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
@@ -1492,7 +1491,6 @@ function RawMaterialsGridInner(
                         headerHeight > 44 && "raw-materials-grid--merged-header",
                         userSortedSectionsRef.current.has(section) &&
                             "raw-materials-grid--user-sorted",
-                        wrapCells && "raw-materials-grid--wrap",
                     ]
                         .filter(Boolean)
                         .join(" ")}
@@ -1586,10 +1584,8 @@ function RawMaterialsGridInner(
                 <GridOptionsMenu
                     headerPinned={headerPinned}
                     showServiceColumns={showServiceColumns}
-                    wrapCells={wrapCells}
                     onHeaderPinnedChange={onHeaderPinnedChange}
                     onShowServiceColumnsChange={setShowServiceColumns}
-                    onWrapCellsChange={setWrapCells}
                     onResetView={() => void resetGridView()}
                 />
             </div>
@@ -1617,27 +1613,22 @@ export const RawMaterialsGrid = forwardRef(RawMaterialsGridInner);
 type GridOptionsMenuProps = {
     headerPinned: boolean;
     showServiceColumns: boolean;
-    wrapCells: boolean;
     onHeaderPinnedChange: (value: boolean) => void;
     onShowServiceColumnsChange: (value: boolean) => void;
-    onWrapCellsChange: (value: boolean) => void;
     onResetView: () => void;
 };
 
 function GridOptionsMenu({
     headerPinned,
     showServiceColumns,
-    wrapCells,
     onHeaderPinnedChange,
     onShowServiceColumnsChange,
-    onWrapCellsChange,
     onResetView,
 }: GridOptionsMenuProps) {
     const selectedKeys = new Set<string>();
     if (headerPinned) selectedKeys.add("pin-header");
     if (showServiceColumns) selectedKeys.add("service-columns");
-    if (wrapCells) selectedKeys.add("wrap-cells");
-    const toggleKeys = ["pin-header", "service-columns", "wrap-cells"];
+    const toggleKeys = ["pin-header", "service-columns"];
     const applySelection = (selection: Selection) => {
         const keys = selection === "all" ? new Set(toggleKeys) : new Set(selection);
         if (keys.has("reset-view")) {
@@ -1648,7 +1639,6 @@ function GridOptionsMenu({
         }
         onHeaderPinnedChange(keys.has("pin-header"));
         onShowServiceColumnsChange(keys.has("service-columns"));
-        onWrapCellsChange(keys.has("wrap-cells"));
     };
     return (
         <div className="grid-options-menu">
@@ -1678,10 +1668,6 @@ function GridOptionsMenu({
                         <Dropdown.Item id="service-columns" textValue="Показать служебные столбцы">
                             <Dropdown.ItemIndicator />
                             <Label>Показать служебные столбцы</Label>
-                        </Dropdown.Item>
-                        <Dropdown.Item id="wrap-cells" textValue="Перенос строк в ячейках">
-                            <Dropdown.ItemIndicator />
-                            <Label>Перенос строк в ячейках</Label>
                         </Dropdown.Item>
                         <Dropdown.Item
                             id="reset-view"

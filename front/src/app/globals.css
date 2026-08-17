@@ -376,9 +376,8 @@ html {
 
 .collab-bar {
     display: flex;
-    flex: 0 0 21rem;
-    width: 21rem;
-    max-width: 100%;
+    flex: 0 0 auto;
+    width: auto;
     align-items: center;
     gap: 0.5rem;
     padding-left: 0.4rem;
@@ -394,6 +393,10 @@ html {
     min-width: 0;
     align-items: center;
     gap: 0.5rem;
+    /* Bigger hover target around the 8×8 dot (padding + compensating negative
+       margin keep the dot at the same visual position). */
+    padding: 0.3rem;
+    margin: -0.3rem;
 }
 
 .collab-bar__dot {
@@ -417,28 +420,9 @@ html {
     background: var(--danger);
 }
 
-.collab-bar__label,
-.collab-bar__members,
-.collab-bar__locks {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Фамилии участников переносятся и занимают не более трёх строк. */
-.collab-bar__members {
-    white-space: normal;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-    overflow: hidden;
-}
-
-.collab-bar__members,
-.collab-bar__locks {
-    color: var(--text);
-}
-
+/* Only the status dot is rendered inline; the «На форме» list lives in the
+   expanded Tooltip (an inline text would shift the tabs when its width
+   changes between forms). */
 .collab-bar__sep {
     flex: 0 0 auto;
     width: 1px;
@@ -1174,12 +1158,6 @@ html {
     place-items: center;
 }
 
-.grid-options-menu .button {
-    width: 36px;
-    min-width: 36px;
-    height: 36px;
-}
-
 /* The compact «Архив» trigger is narrow; the opened list must not shrink to
    the trigger width (Autocomplete locks it to `--trigger-width`). */
 .search-autocomplete-popover {
@@ -1187,17 +1165,11 @@ html {
     max-width: max(var(--trigger-width, 0px), 22rem);
 }
 
-/* Word wrap (per-cell): values overflow the cell width are wrapped to the
-   next line instead of being ellipsized. Default on (see «Перенос строк в
-   ячейках» in the grid corner menu). */
-.raw-materials-grid--wrap .rgCell {
-    white-space: normal;
-    overflow-wrap: anywhere;
-}
-
 /* «Зафиксировать» in the compact action menu — green like the wide-screen
-   primary button. HeroUI MenuItem has no success variant, only danger. */
-.action-menu-item--success {
+   primary button. HeroUI MenuItem ships only a danger variant (it colors the
+   label/indicator, not the icon), so mirror that exact pattern for success. */
+.action-menu-item--success .menu-item__indicator,
+.action-menu-item--success [data-slot="label"] {
     color: var(--success);
 }
 
@@ -1241,11 +1213,6 @@ html {
         white-space: nowrap;
     }
 
-    .profile-pill {
-        min-width: 0;
-        max-width: 12rem;
-    }
-
     .app-body {
         padding: 0.5rem;
     }
@@ -1253,14 +1220,6 @@ html {
     .table-toolbar {
         gap: 0.5rem;
         padding: 0.52rem 0.5rem;
-    }
-
-    /* Collab bar: keep the «На форме: …» text, sized to its content. The tabs
-       fill the remaining row width and scroll internally (HeroUI arrows) when
-       they don't fit — they never leave the card bounds. */
-    .collab-bar {
-        flex: 0 0 auto;
-        width: auto;
     }
 
     /* Archive picker: the trigger shows the short «Архив» label and takes only

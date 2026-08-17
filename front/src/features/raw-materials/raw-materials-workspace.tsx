@@ -1945,12 +1945,6 @@ const COLLAB_STATUS_LABELS: Record<Exclude<CollabStatus, "online">, string> = {
     offline: "Совместное редактирование недоступно",
 };
 
-/** Last name only (the first word of the full name, fullname.partition(" ")[0]). */
-function shortName(fullname: string): string {
-    const first = fullname.trim().split(/\s+/)[0];
-    return first || fullname;
-}
-
 /**
  * What to show in parentheses: for an admin — the role, for an asset worker —
  * the comma-joined asset list (e.g. «СНХЗ, БСК»).
@@ -1975,12 +1969,9 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
     const others = room.members
         .filter((member) => member.userId !== me?.userId)
         .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email, "ru"));
-    const solo = room.members.length <= 1;
-    // The status line shows only last names; cells/ranges appear exclusively
-    // in the expanded Tooltip.
-    const membersText = solo
-        ? "только вы"
-        : `вы${others.length ? `, ${others.map((member) => shortName(member.name || member.email)).join(", ")}` : ""}`;
+    // No inline text next to the dot: its content changes with the member list
+    // and shifts the tabs when switching forms. The full «На форме» list lives
+    // exclusively in the expanded Tooltip.
     const tooltipMembers = self ? [self, ...others] : room.members;
 
     return (
@@ -1995,15 +1986,6 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
                             className={`collab-bar__dot collab-bar__dot--${room.status}`}
                             aria-hidden="true"
                         />
-                        {room.status === "online" ? (
-                            <span className="collab-bar__members">
-                                <b>На форме:</b> {membersText}
-                            </span>
-                        ) : (
-                            <span className="collab-bar__label">
-                                {COLLAB_STATUS_LABELS[room.status]}
-                            </span>
-                        )}
                     </span>
                 </Tooltip.Trigger>
                 <Tooltip.Content placement="top" className="collab-bar-tooltip">
