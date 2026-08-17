@@ -1926,8 +1926,13 @@ function CompactActionMenu({ items }: { items: ActionItem[] }) {
                             textValue={item.label}
                             isDisabled={item.disabled}
                             variant={item.variant === "danger" ? "danger" : undefined}
+                            // HeroUI ships only a `danger` MenuItem variant; success is
+                            // reproduced the same way — color the label slot via the
+                            // theme's `--success` token (stock Tailwind utility, no CSS).
                             className={
-                                item.variant === "primary" ? "action-menu-item--success" : undefined
+                                item.variant === "primary"
+                                    ? "[&_[data-slot=label]]:text-success"
+                                    : undefined
                             }
                         >
                             {item.icon}
