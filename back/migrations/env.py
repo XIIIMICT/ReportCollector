@@ -63,7 +63,16 @@ async def run_async_migrations() -> None:
     connectable = create_async_engine(
         settings.sqlalchemy_database_url,
         poolclass=pool.NullPool,
-        connect_args={"server_settings": {"search_path": settings.postgres_schema}},
+        connect_args={
+            "server_settings": {
+                "search_path": settings.postgres_schema,
+                # A blocked migration (e.g. an ALTER waiting behind a lock held
+                # by the running app) must fail loudly instead of hanging
+                # forever — 30s is far beyond the lock wait these tiny tables
+                # ever need.
+                "lock_timeout": "30s",
+            }
+        },
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
