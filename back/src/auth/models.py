@@ -28,12 +28,10 @@ class Theme(StrEnum):
 
 
 class User(SQLModel, table=True):
-    __tablename__ = "app_user"
+    __tablename__ = "app_users"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    key: str = Field(sa_column=Column(Text, unique=True, index=True, nullable=False))
     oidc_sub: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    oidc_issuer: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     preferred_username: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     # EmailStr: the format is validated by pydantic on create/update.
     # Case is normalized separately (normalize_email) — addresses are case-insensitive.
@@ -60,7 +58,7 @@ class User(SQLModel, table=True):
 
 
 class Project(SQLModel, table=True):
-    __tablename__ = "project"
+    __tablename__ = "projects"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     key: str = Field(sa_column=Column(Text, unique=True, index=True, nullable=False))
@@ -77,13 +75,13 @@ class UserRole(SQLModel, table=True):
     the project admin enables the flag — and the user can open the project.
     """
 
-    __tablename__ = "user_role"
+    __tablename__ = "user_roles"
 
     user_id: UUID = Field(
-        sa_column=Column(ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False, primary_key=True)
+        sa_column=Column(ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, primary_key=True)
     )
     project_id: UUID = Field(
-        sa_column=Column(ForeignKey("project.id", ondelete="CASCADE"), nullable=False, primary_key=True)
+        sa_column=Column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, primary_key=True)
     )
     role: ProjectRole = Field(
         sa_column=Column(

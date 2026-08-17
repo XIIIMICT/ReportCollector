@@ -317,7 +317,6 @@ async def seed(session: AsyncSession) -> None:
     seed_password = get_settings().auth_seed_admin_password
     if user is None:
         user = User(
-            key=SEED_ADMIN_EMAIL,
             email=SEED_ADMIN_EMAIL,
             name=SEED_ADMIN_NAME,
             is_deleted=False,
@@ -352,7 +351,6 @@ async def seed(session: AsyncSession) -> None:
         extra_user = (await session.exec(select(User).where(User.email == email))).one_or_none()
         if extra_user is None:
             extra_user = User(
-                key=email,
                 email=email,
                 name=str(extra["name"]),
                 is_deleted=False,

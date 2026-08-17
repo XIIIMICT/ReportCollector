@@ -50,18 +50,18 @@ Optional/derived:
 
 ## Data model (project «Сырьё», key `raw_materials`)
 
-Users live in `app_user`, `project`, `app_user_role` (role `admin`/`asset_worker`, `is_active`), asset assignment — `rm_user_asset` (see `back/src/auth/models.py`).
+Users live in `app_users`, `projects`, `user_roles` (role `admin`/`asset_worker`, `is_active`), asset assignment — `rm_user_assets` (see `back/src/auth/models.py`).
 
 Domain — `back/src/raw_materials/models.py` (prefix `rm_`):
-- `rm_asset` — asset (site); `rm_raw_material` — raw-material item.
-- `rm_asset_raw_material` — **asset×raw-material link**; this IS the row of the «Движение» and «Цены» forms. FK `ondelete=RESTRICT`: the link can't be deleted while movement/price rows exist.
-- `rm_movement_period` — open report months (PK — `report_month`).
-- `rm_material_movement` — «Движение» cells (unique `asset_raw_material_id × report_month`).
-- `rm_delivery_basis` — delivery bases (FOB, FCA, …).
-- `rm_raw_material_price` — «Цены» cells (unique by `asset_raw_material_id`); `business_plan_*` — business plan 2026 + service `business_plan_updated_at/by`.
-- `rm_report_snapshot` + `rm_snapshot_material_movement` — archive of fixed «Движение» versions (immutable value copies, no FKs to working tables; one snapshot per month: preliminary overwritten, final immutable).
+- `rm_assets` — asset (site); `rm_raw_materials` — raw-material item.
+- `rm_asset_raw_materials` — **asset×raw-material link**; this IS the row of the «Движение» and «Цены» forms. FK `ondelete=RESTRICT`: the link can't be deleted while movement/price rows exist.
+- `rm_movement_periods` — open report months (PK — `report_month`).
+- `rm_material_movements` — «Движение» cells (unique `asset_raw_material_id × report_month`).
+- `rm_delivery_bases` — delivery bases (FOB, FCA, …).
+- `rm_raw_material_prices` — «Цены» cells (unique by `asset_raw_material_id`); `business_plan_*` — business plan 2026 + service `business_plan_updated_at/by`.
+- `rm_report_snapshots` + `rm_snapshot_material_movements` — archive of fixed «Движение» versions (immutable value copies, no FKs to working tables; one snapshot per month: preliminary overwritten, final immutable).
 
-**Canonical cell key** (`back/src/collab/models.py::canonical_key`) — `{table}/{row_id}/{field}` (e.g. `rm_material_movement/{uuid}/demand_plan_tons`); it's also the lease/presence key (`rc:lease:{project}:{key}`, `rc:cellstate:{key}`).
+**Canonical cell key** (`back/src/collab/models.py::canonical_key`) — `{table}/{row_id}/{field}` (e.g. `rm_material_movements/{uuid}/demand_plan_tons`); it's also the lease/presence key (`rc:lease:{project}:{key}`, `rc:cellstate:{key}`).
 
 ### Form semantics
 
@@ -78,7 +78,7 @@ Two modes by `KEYCLOAK_ENABLED`:
 
 Session — `rc_session` cookie (JWT-ish, jose; Secure when `https://` is in `AUTH_APP_ORIGIN`). Proxy middleware `front/src/proxy.ts` redirects without the cookie to `/api/auth/login`.
 
-**Identity between front and back** — signed headers `X-ReportCollector-*` (user-key, email, name, sub, issuer, … + timestamp + HMAC signature over `AUTH_SECRET`): `front/src/shared/auth/identity-headers.ts`, verified in `back/src/auth/service.py::verify_signed_identity`. All `/api/*` front routes (App Router) proxy to back via `front/src/shared/api/backend-proxy.ts` (`/api/raw-materials/[...path]`, `/api/auth/*`, `/api/me`, etc.). The browser can't set custom headers on WebSocket — for WS there's a one-shot **ticket** (signed query parameter): `verify_identity_ticket`.
+**Identity between front and back** — signed headers `X-ReportCollector-*` (email, name, sub, issuer, preferred-username, … + timestamp + HMAC signature over `AUTH_SECRET`): `front/src/shared/auth/identity-headers.ts`, verified in `back/src/auth/service.py::verify_signed_identity`. All `/api/*` front routes (App Router) proxy to back via `front/src/shared/api/backend-proxy.ts` (`/api/raw-materials/[...path]`, `/api/auth/*`, `/api/me`, etc.). The browser can't set custom headers on WebSocket — for WS there's a one-shot **ticket** (signed query parameter): `verify_identity_ticket`.
 
 ## API (back, prefix `/api`)
 

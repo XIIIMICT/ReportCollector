@@ -14,7 +14,6 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.app_logging import log_event
-from src.auth.constants import LOCAL_USER_KEY
 from src.auth.emails import normalize_email
 from src.auth.models import Project, ProjectRole, Theme, User, UserRole
 from src.auth.passwords import hash_password, validate_new_password, verify_password
@@ -39,7 +38,6 @@ class CurrentUserIdentity:
     family_name: str | None
     given_name: str | None
     issuer: str | None
-    key: str
     name: str | None
     oidc_sub: str | None
     preferred_username: str | None
@@ -55,7 +53,6 @@ class InvalidIdentityError(Exception):
 
 # Identity signature headers (match auth/router.read_signed_identity).
 IDENTITY_HEADER_NAMES = (
-    "X-ReportCollector-User-Key",
     "X-ReportCollector-User-Email",
     "X-ReportCollector-User-Name",
     "X-ReportCollector-User-Sub",
@@ -89,14 +86,13 @@ def verify_signed_identity(headers: Mapping[str, str]) -> CurrentUserIdentity:
     if not compare_digest(signature, expected):
         msg = "Подпись идентичности неверна."
         raise InvalidIdentityError(msg)
-    key, email, name, subject, oidc_issuer, preferred, given, family, verified = values
+    email, name, subject, oidc_issuer, preferred, given, family, verified = values
     return CurrentUserIdentity(
         email=email,
         email_verified=_parse_optional_bool(verified),
         family_name=family,
         given_name=given,
         issuer=oidc_issuer,
-        key=key or subject or LOCAL_USER_KEY,
         name=name,
         oidc_sub=subject,
         preferred_username=preferred,
@@ -150,13 +146,11 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
     in their project. The AUTH_SEED_ADMIN_EMAIL user is created active and
     gets the admin role in all projects.
     """
-    canonical_key = normalize_email(identity.email) if identity.email else identity.preferred_username or identity.key
     log_event(
         LOGGER,
         "keycloak_identity_received",
         "Получены идентификационные данные пользователя.",
         user_email=identity.email,
-        user_key=identity.key,
         user_name=identity.name,
         user_sub=identity.oidc_sub,
         oidc_issuer=identity.issuer,
@@ -174,11 +168,9 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
 
     if user is None:
         user = User(
-            key=canonical_key,
             email=normalize_email(identity.email) if identity.email else None,
             name=identity.name,
             oidc_sub=identity.oidc_sub,
-            oidc_issuer=identity.issuer,
             preferred_username=identity.preferred_username,
             email_verified=identity.email_verified,
         )
@@ -187,15 +179,12 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
             "user_created",
             "Создан локальный пользователь по данным OIDC.",
             user_email=user.email,
-            user_key=user.key,
             user_created_active=is_seed_admin,
         )
 
     user.email = normalize_email(identity.email) if identity.email else user.email
-    user.key = canonical_key
     user.name = identity.name or user.name
     user.oidc_sub = identity.oidc_sub or user.oidc_sub
-    user.oidc_issuer = identity.issuer or user.oidc_issuer
     user.preferred_username = identity.preferred_username or user.preferred_username
     user.email_verified = identity.email_verified if identity.email_verified is not None else user.email_verified
     user.last_authenticated_at = datetime.now(UTC)
@@ -215,7 +204,6 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
             "blocked_user_attempt",
             "Заблокированный пользователь попытался получить доступ.",
             user_email=user.email,
-            user_key=user.key,
             user_sub=user.oidc_sub,
         )
         blocked_message = "Пользователь заблокирован в ReportCollector."
@@ -289,7 +277,6 @@ async def authenticate_local_user(session: AsyncSession, email: str, password: s
                 "local_login_failed",
                 "Неудачная попытка локального входа: слабый первоначальный пароль.",
                 user_email=user.email,
-                user_key=user.key,
             )
             raise _INVALID_CREDENTIALS from None
         user.password_hash = hash_password(password)
@@ -298,7 +285,6 @@ async def authenticate_local_user(session: AsyncSession, email: str, password: s
             "local_password_set",
             "Установлен первоначальный пароль локального пользователя.",
             user_email=user.email,
-            user_key=user.key,
         )
     elif not verify_password(password, stored_hash):
         log_event(
@@ -306,7 +292,6 @@ async def authenticate_local_user(session: AsyncSession, email: str, password: s
             "local_login_failed",
             "Неудачная попытка локального входа: неверный пароль.",
             user_email=user.email,
-            user_key=user.key,
         )
         raise _INVALID_CREDENTIALS
 
@@ -319,7 +304,6 @@ async def authenticate_local_user(session: AsyncSession, email: str, password: s
         "local_login_succeeded",
         "Локальный вход выполнен.",
         user_email=user.email,
-        user_key=user.key,
     )
     return user
 
@@ -350,7 +334,6 @@ async def get_current_user(session: AsyncSession, identity: CurrentUserIdentity)
     return CurrentUserRead(
         access=access,
         email=user.email,
-        key=user.key,
         name=user.name,
         theme=user.theme,
     )
@@ -388,7 +371,6 @@ async def update_profile(
     return CurrentUserRead(
         access=access,
         email=user.email,
-        key=user.key,
         name=user.name,
         theme=user.theme,
     )
@@ -449,22 +431,16 @@ async def read_project_assets(
 
 async def get_user_by_identity(session: AsyncSession, identity: CurrentUserIdentity) -> User | None:
     if identity.oidc_sub:
-        user = await get_user_by_oidc_identity(session, identity.issuer, identity.oidc_sub)
+        user = await get_user_by_oidc_identity(session, identity.oidc_sub)
         if user is not None:
             return user
     if identity.email:
-        user = await get_user_by_email(session, identity.email)
-        if user is not None:
-            return user
-
-    return await get_user_by_key(session, identity.key or LOCAL_USER_KEY)
+        return await get_user_by_email(session, identity.email)
+    return None
 
 
-async def get_user_by_oidc_identity(session: AsyncSession, issuer: str | None, subject: str) -> User | None:
-    query = select(User).where(col(User.oidc_sub) == subject)
-    if issuer:
-        query = query.where((col(User.oidc_issuer) == issuer) | col(User.oidc_issuer).is_(None))
-    return (await session.exec(query)).one_or_none()
+async def get_user_by_oidc_identity(session: AsyncSession, subject: str) -> User | None:
+    return (await session.exec(select(User).where(col(User.oidc_sub) == subject))).one_or_none()
 
 
 async def get_user_by_email(session: AsyncSession, email: str | None) -> User | None:
@@ -472,10 +448,6 @@ async def get_user_by_email(session: AsyncSession, email: str | None) -> User | 
     if email is None:
         return None
     return (await session.exec(select(User).where(func.lower(col(User.email)) == normalize_email(email)))).one_or_none()
-
-
-async def get_user_by_key(session: AsyncSession, key: str) -> User | None:
-    return (await session.exec(select(User).where(col(User.key) == key))).one_or_none()
 
 
 async def get_user_by_id(session: AsyncSession, user_id: UUID) -> User | None:

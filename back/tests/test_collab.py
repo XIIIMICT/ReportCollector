@@ -97,7 +97,6 @@ def _identity_ticket(headers: dict[str, str]) -> str:
         "h": {
             name: headers.get(name, "")
             for name in (
-                "X-ReportCollector-User-Key",
                 "X-ReportCollector-User-Email",
                 "X-ReportCollector-User-Name",
                 "X-ReportCollector-User-Sub",
@@ -117,7 +116,6 @@ def _identity_ticket(headers: dict[str, str]) -> str:
 async def test_ws_ticket_verifies_admin_identity() -> None:
     identity = verify_identity_ticket(_identity_ticket(signed_identity_headers(**admin_headers())))
     assert identity.email == "admin@example.ru"
-    assert identity.key == "admin"
     assert identity.oidc_sub == "admin-sub"
 
 
@@ -165,7 +163,7 @@ async def _movement_row_id(client) -> str:
 async def _make_project_user(db_session, *, email: str, name: str, sub: str) -> User:
     """Create a «Сырьё» project user with the asset_worker role (for foreign-user tests)."""
     now = datetime.now(UTC)
-    user = User(key=email, email=email, name=name, created_at=now, updated_at=now)
+    user = User(email=email, name=name, created_at=now, updated_at=now)
     db_session.add(user)
     await db_session.flush()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
@@ -182,7 +180,7 @@ async def test_edit_writes_journal_and_cell_state(client, db_session, store) -> 
     actions = await store.list_actions(str(admin.id), TEST_SESSION_ID, "materialMovement/2026-08-01")
     assert len(actions) == 1
     action = actions[0]
-    assert action["targetTable"] == "rm_material_movement"
+    assert action["targetTable"] == "rm_material_movements"
     assert action["rowId"] == row_id
     assert action["field"] == "balanceOnSiteTons"
     assert action["oldValue"] == 5.0
@@ -191,7 +189,7 @@ async def test_edit_writes_journal_and_cell_state(client, db_session, store) -> 
     assert action["section"] == "materialMovement"
     assert action["project"] == RAW_MATERIALS_PROJECT_KEY
 
-    state = await store.get_cell_state(f"rm_material_movement/{row_id}/balanceOnSiteTons")
+    state = await store.get_cell_state(f"rm_material_movements/{row_id}/balanceOnSiteTons")
     assert state is not None
     assert state["revision"] == 1
     assert state["lastActionId"] == str(action["id"])
@@ -364,7 +362,7 @@ async def test_undo_locked_by_lease(client, store) -> None:
     row_id = await _movement_row_id(client)
     await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
 
-    key = lease_key(f"rm_material_movement/{row_id}/balanceOnSiteTons", project=RAW_MATERIALS_PROJECT_KEY)
+    key = lease_key(f"rm_material_movements/{row_id}/balanceOnSiteTons", project=RAW_MATERIALS_PROJECT_KEY)
     await store.acquire_lease(key, {"userId": "other-user", "name": "Другой", "email": "", "sessionId": "s1"})
 
     undone = await _post_undo(client)
@@ -374,7 +372,7 @@ async def test_undo_locked_by_lease(client, store) -> None:
 
 
 async def test_lease_acquire_renew_release(client, store) -> None:
-    key = "rm_material_movement/00000000-0000-0000-0000-000000000001/consumptionFactTons"
+    key = "rm_material_movements/00000000-0000-0000-0000-000000000001/consumptionFactTons"
     owner = {"userId": "u1", "name": "Один", "email": "", "sessionId": "s1"}
     other = {"userId": "u2", "name": "Два", "email": "", "sessionId": "s2"}
 
@@ -426,7 +424,7 @@ async def test_lease_keys_scoped_by_project(store) -> None:
     """The same cell is leased independently in different projects."""
     owner_a = {"userId": "u1", "name": "А", "email": "", "sessionId": "s1"}
     owner_b = {"userId": "u2", "name": "Б", "email": "", "sessionId": "s2"}
-    cell = "rm_material_movement/00000000-0000-0000-0000-000000000001/consumptionFactTons"
+    cell = "rm_material_movements/00000000-0000-0000-0000-000000000001/consumptionFactTons"
 
     key_a = lease_key(cell, project="raw_materials")
     key_b = lease_key(cell, project="kppk")
@@ -578,7 +576,7 @@ async def test_ws_project_isolation(client, db_session, store) -> None:
     await _make_project(db_session, key="kppk", name="КППК")
     await _grant_admin(db_session, email="admin@example.ru", project_key="kppk")
 
-    cell = "rm_material_movement/00000000-0000-0000-0000-000000000002/consumptionFactTons"
+    cell = "rm_material_movements/00000000-0000-0000-0000-000000000002/consumptionFactTons"
     await store.acquire_lease(
         lease_key(cell, project="raw_materials"), {"userId": "u-other", "name": "Др", "email": ""}
     )

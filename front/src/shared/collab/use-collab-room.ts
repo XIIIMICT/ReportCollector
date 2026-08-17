@@ -10,12 +10,12 @@ import {
     type CollabUser,
 } from "./ws-client";
 
-export const MOVEMENT_TABLE = "rm_material_movement";
-export const PRICE_TABLE = "rm_raw_material_price";
-export const RAW_MATERIAL_TABLE = "rm_raw_material";
-export const ASSET_TABLE = "rm_asset";
-export const DELIVERY_BASIS_TABLE = "rm_delivery_basis";
-export const USER_TABLE = "app_user";
+export const MOVEMENT_TABLE = "rm_material_movements";
+export const PRICE_TABLE = "rm_raw_material_prices";
+export const RAW_MATERIAL_TABLE = "rm_raw_materials";
+export const ASSET_TABLE = "rm_assets";
+export const DELIVERY_BASIS_TABLE = "rm_delivery_bases";
+export const USER_TABLE = "app_users";
 
 export function canonicalCellKey(targetTable: string, rowId: string, field: string): string {
     return `${targetTable}/${rowId}/${field}`;

@@ -185,7 +185,7 @@ async def raw_materials_ws(
     section = websocket.query_params.get("section") or "materialMovement"
     report_month = websocket.query_params.get("reportMonth") or None
     project_key = websocket.query_params.get("project") or RAW_MATERIALS_PROJECT_KEY
-    client_id = websocket.query_params.get("clientId") or user.key
+    client_id = websocket.query_params.get("clientId") or user.email or str(user.id)
     room = room_key(project_key, section, report_month)
 
     session_id = websocket.query_params.get("sessionId") or client_id
