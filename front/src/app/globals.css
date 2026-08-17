@@ -536,8 +536,11 @@ html {
 }
 
 .archive-autocomplete {
-    width: 21rem;
-    min-width: 21rem;
+    /* Content-sized trigger at every width: the two-line «Рабочая версия»
+       takes as much space as it needs. The opened list keeps its own width
+       (see .search-autocomplete-popover below — at least 22rem). */
+    width: auto;
+    min-width: 0;
 }
 
 /* The footer stats are compact lines (selection and/or filtered row count),
@@ -1250,13 +1253,6 @@ html {
     .collab-bar__members,
     .collab-bar__label {
         display: none;
-    }
-
-    /* Archive picker: the trigger shows the short «Архив» label and takes only
-       the needed width; the opened list keeps its full width. */
-    .archive-autocomplete {
-        width: auto;
-        min-width: 0;
     }
 
     /* Action bar: the inline buttons are replaced by the single «Действия»
