@@ -380,8 +380,9 @@ html {
 
 .collab-bar {
     display: flex;
-    flex: 0 0 auto;
-    width: auto;
+    flex: 0 0 21rem;
+    width: 21rem;
+    max-width: 100%;
     align-items: center;
     gap: 0.5rem;
     padding-left: 0.4rem;
@@ -424,9 +425,28 @@ html {
     background: var(--danger);
 }
 
-/* Only the status dot is rendered inline; the «На форме» list lives in the
-   expanded Tooltip (an inline text would shift the tabs when its width
-   changes between forms). */
+/* The inline line: last names, up to three wrapped lines; the label for the
+   connecting/offline states. Hidden below lg (dot + tooltip only there). */
+.collab-bar__label,
+.collab-bar__members {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.collab-bar__members {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    color: var(--text);
+}
+
+.collab-bar__label {
+    color: var(--text);
+}
+
 .collab-bar__sep {
     flex: 0 0 auto;
     width: 1px;
@@ -1216,6 +1236,20 @@ html {
     .table-toolbar {
         gap: 0.5rem;
         padding: 0.52rem 0.5rem;
+    }
+
+    /* Collab bar on narrow screens: dot only — the «На форме: …» text is
+       hidden (an inline text of changing width would shift the tabs), and the
+       tabs take the full remaining row width. The tooltip still opens from the
+       dot. */
+    .collab-bar {
+        flex: 0 0 auto;
+        width: auto;
+    }
+
+    .collab-bar__members,
+    .collab-bar__label {
+        display: none;
     }
 
     /* Archive picker: the trigger shows the short «Архив» label and takes only
