@@ -102,6 +102,9 @@ import { ProfileModal } from "./profile-modal";
 
 type RawMaterialsWorkspaceProps = {
     currentUser: CurrentUser;
+    /** Controlled project key (used by the report-workspace project switcher). */
+    activeProjectKey?: string;
+    onProjectChange?: (key: string) => void;
 };
 
 type DictionarySection = "rawMaterials" | "assets" | "deliveryBases" | "users";
@@ -265,7 +268,7 @@ export type ArchiveState = {
     onSelect: (snapshotId: string | null) => void;
 };
 
-function downloadBlob(blob: Blob, fileName: string): void {
+export function downloadBlob(blob: Blob, fileName: string): void {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -1162,7 +1165,11 @@ function SectionFooter({
 
 const RAW_MATERIALS_PROJECT_KEY = "raw_materials";
 
-export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProps) {
+export function RawMaterialsWorkspace({
+    currentUser,
+    activeProjectKey: controlledProjectKey,
+    onProjectChange,
+}: RawMaterialsWorkspaceProps) {
     const [metaReloadKey, setMetaReloadKey] = useState(0);
     const { data: meta, error } = useAsyncData<RawMaterialsMeta>(
         () => getRawMaterialsMeta(),
@@ -1211,11 +1218,15 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
         selectedKey: null,
         onSelect: () => {},
     });
-    const [activeProjectKey, setActiveProjectKey] = useState<string>(
+    const [internalProjectKey, setInternalProjectKey] = useState<string>(
         currentUser.access?.some((project) => project.key === RAW_MATERIALS_PROJECT_KEY)
             ? RAW_MATERIALS_PROJECT_KEY
             : (currentUser.access?.[0]?.key ?? RAW_MATERIALS_PROJECT_KEY),
     );
+    // The report workspace owns the project switcher and drives this component
+    // through props; without them the raw-materials workspace falls back to
+    // its own internal switcher state.
+    const activeProjectKey = controlledProjectKey ?? internalProjectKey;
     const { setTheme } = useTheme();
 
     const handleDeleteState = useCallback(
@@ -1235,6 +1246,14 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
         setMetaReloadKey((key) => key + 1);
     }, []);
 
+    const handleProjectChange = useCallback(
+        (key: string) => {
+            if (onProjectChange) onProjectChange(key);
+            else setInternalProjectKey(key);
+        },
+        [onProjectChange],
+    );
+
     const projects = user.access ?? [];
     const activeProject = projects.find((project) => project.key === activeProjectKey);
     const isAdmin = isProjectAdmin(activeProject);
@@ -1244,7 +1263,7 @@ export function RawMaterialsWorkspace({ currentUser }: RawMaterialsWorkspaceProp
             user={user}
             projects={projects}
             activeProjectKey={activeProjectKey}
-            onProjectChange={setActiveProjectKey}
+            onProjectChange={handleProjectChange}
             onOpenProfile={() => setProfileOpen(true)}
         />
     );
@@ -1611,7 +1630,7 @@ function Brand({
     );
 }
 
-function AppHeader({
+export function AppHeader({
     user,
     projects,
     activeProjectKey,
@@ -1656,7 +1675,7 @@ function AppHeader({
     );
 }
 
-type ActionItem = {
+export type ActionItem = {
     id: string;
     label: string;
     icon: ReactNode;
@@ -1905,7 +1924,7 @@ function ActionBar({
  * opens on hover. See `HoverDropdown` for why closing is pointer-position
  * based rather than mouseleave.
  */
-function CompactActionMenu({ items }: { items: ActionItem[] }) {
+export function CompactActionMenu({ items }: { items: ActionItem[] }) {
     const handleAction = useCallback(
         (key: Key) => {
             const item = items.find((candidate) => candidate.id === String(key));
@@ -1961,13 +1980,13 @@ function CompactActionMenu({ items }: { items: ActionItem[] }) {
     );
 }
 
-const COLLAB_STATUS_LABELS: Record<Exclude<CollabStatus, "online">, string> = {
+export const COLLAB_STATUS_LABELS: Record<Exclude<CollabStatus, "online">, string> = {
     connecting: "Подключение к совместному редактированию...",
     offline: "Совместное редактирование недоступно",
 };
 
 /** Last name only (the first word of the full name, fullname.partition(" ")[0]). */
-function shortName(fullname: string): string {
+export function shortName(fullname: string): string {
     const first = fullname.trim().split(/\s+/)[0];
     return first || fullname;
 }
@@ -1976,7 +1995,7 @@ function shortName(fullname: string): string {
  * What to show in parentheses: for an admin — the role, for an asset worker —
  * the comma-joined asset list (e.g. «СНХЗ, БСК»).
  */
-function memberDetail(member: CollabMember): string | null {
+export function memberDetail(member: CollabMember): string | null {
     if (member.role === "admin") return "админ";
     const assets = (member.assets ?? []).filter((asset) => asset.trim().length > 0);
     if (assets.length > 0) return assets.join(", ");
@@ -1984,13 +2003,13 @@ function memberDetail(member: CollabMember): string | null {
 }
 
 /** Cell / cell range where the member currently is (from presence). */
-function memberSelectionLabel(member: CollabMember | null): string | null {
+export function memberSelectionLabel(member: CollabMember | null): string | null {
     if (!member) return null;
     const label = member.selection?.label;
     return typeof label === "string" && label.length > 0 ? label : null;
 }
 
-function CollabStatusBar({ room }: { room: CollabRoom }) {
+export function CollabStatusBar({ room }: { room: CollabRoom }) {
     const me = room.me;
     const self = room.members.find((member) => member.userId === me?.userId) ?? null;
     const others = room.members
@@ -2066,7 +2085,7 @@ function CollabStatusBar({ room }: { room: CollabRoom }) {
     );
 }
 
-function DeleteRecordDialog({
+export function DeleteRecordDialog({
     isOpen,
     isPending,
     label,

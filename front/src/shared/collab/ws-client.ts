@@ -27,12 +27,21 @@ export type CollabCellChanged = {
     at: string;
 };
 
+export type CollabRowsChanged = {
+    section: string;
+    reportMonth: string | null;
+    user: { userId: string; name: string; email: string };
+    at: string;
+};
+
 export type CollabHandlers = {
     onHello?: (me: CollabUser, members: CollabMember[]) => void;
     onMembers?: (members: CollabMember[]) => void;
     onCellLocked?: (key: string, user: CollabUser) => void;
     onCellUnlocked?: (key: string, user: CollabUser) => void;
     onCellChanged?: (event: CollabCellChanged) => void;
+    /** The plan row set changed (add/delete/submit/approve) — refetch the data. */
+    onRowsChanged?: (event: CollabRowsChanged) => void;
     onConnectionChange?: (status: CollabStatus) => void;
     onLeaseDenied?: (keys: string[], user: CollabUser) => void;
     /**
@@ -229,6 +238,9 @@ export class CollabWsClient {
                 break;
             case "cell:changed":
                 this.handlers.onCellChanged?.(message as unknown as CollabCellChanged);
+                break;
+            case "rows:changed":
+                this.handlers.onRowsChanged?.(message as unknown as CollabRowsChanged);
                 break;
             case "lease:granted":
                 for (const key of (message.cells as string[]) ?? []) {

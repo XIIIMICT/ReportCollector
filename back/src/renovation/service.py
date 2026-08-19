@@ -26,10 +26,12 @@ from src.raw_materials.service import CellValidationError, coerce_number, coerce
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.form_schema import (
     RenovationFieldMeta,
+    RenovationHeaderCell,
     catalog_labels,
     field_meta,
     field_metas,
     formula_engine,
+    header_rows,
 )
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
@@ -46,6 +48,8 @@ from src.renovation.schemas import (
     RenovationDiffRead,
     RenovationDiffRowRead,
     RenovationFieldRead,
+    RenovationHeaderCellRead,
+    RenovationHeaderRowRead,
     RenovationIdRead,
     RenovationMetaRead,
     RenovationPlanRead,
@@ -188,6 +192,8 @@ async def read_meta(session: AsyncSession, assets: list[RAsset]) -> RenovationMe
         assets=[_asset_read(asset) for asset in assets],
         catalogs=catalogs,
         fields=[_field_read(meta) for meta in field_metas()],
+        headerCells=[_header_cell_read(cell) for _, cells in header_rows() for cell in cells],
+        headerRows=[_header_row_read(level, cells) for level, cells in header_rows()],
         workingPlanId=working_id,
         pendingPlanId=pending_id,
     )
@@ -214,6 +220,25 @@ def _field_read(meta: RenovationFieldMeta) -> RenovationFieldRead:
         position=meta.position,
         ordinal=meta.ordinal,
         responsibilityBlock=meta.responsibility_block,
+    )
+
+
+def _header_row_read(level: int, cells: tuple[RenovationHeaderCell, ...]) -> RenovationHeaderRowRead:
+    return RenovationHeaderRowRead(
+        level=level,
+        cells=[_header_cell_read(cell) for cell in cells],
+    )
+
+
+def _header_cell_read(cell: RenovationHeaderCell) -> RenovationHeaderCellRead:
+    return RenovationHeaderCellRead(
+        id=cell.cell_id,
+        text=cell.text,
+        startPosition=cell.start_position,
+        colSpan=cell.col_span,
+        rowSpan=cell.row_span,
+        level=cell.level,
+        excelRange=cell.excel_range,
     )
 
 

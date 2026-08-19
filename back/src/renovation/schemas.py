@@ -56,12 +56,33 @@ class RenovationFieldRead(BaseModel):
     responsibilityBlock: str | None = None
 
 
+class RenovationHeaderCellRead(BaseModel):
+    """A merged header cell of the legacy form (11 levels, Excel ranges)."""
+
+    id: str
+    text: str
+    startPosition: int
+    colSpan: int
+    rowSpan: int
+    level: int
+    excelRange: str
+
+
+class RenovationHeaderRowRead(BaseModel):
+    """One header level of the legacy form (a row of merged cells)."""
+
+    level: int
+    cells: list[RenovationHeaderCellRead]
+
+
 class RenovationMetaRead(BaseModel):
     """Form dictionaries: assets, reference catalogs, field descriptions."""
 
     assets: list[RenovationAssetRead]
     catalogs: list[RenovationCatalogRead]
     fields: list[RenovationFieldRead]
+    headerCells: list[RenovationHeaderCellRead] = []
+    headerRows: list[RenovationHeaderRowRead] = []
     workingPlanId: UUID | None = None
     pendingPlanId: UUID | None = None
 

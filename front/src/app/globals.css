@@ -1200,6 +1200,236 @@ html {
     z-index: 2;
 }
 
+/* ─── RevoGrid (план «Ремонт») ────────────────────────────── */
+
+/* Both native headers are hidden: the 11-level column header is drawn by the
+   page overlay (.renovation-grid__header), and the «№» corner header inside
+   revogr-row-headers collapses with it — then both data areas (main and
+   row-header) start at y=0 and stay aligned. */
+.renovation-grid revogr-header {
+    display: none !important;
+}
+
+.renovation-grid {
+    --revo-grid-font-family: var(--font-sans);
+    --revo-grid-font-size: 12px;
+    --revo-grid-header-height: 44px;
+    --revo-grid-header-font-size: 11.5px;
+    --revo-grid-header-font-weight: 650;
+    --revo-grid-header-text-transform: none;
+    --revo-grid-header-text-align: center;
+    --revo-grid-header-padding: 0 9px;
+    --revo-grid-cell-padding: 0 9px;
+    --revo-grid-background: var(--surface);
+    --revo-grid-text: var(--foreground);
+    --revo-grid-border: var(--cell-border);
+    --revo-grid-header-bg: var(--surface);
+    --revo-grid-header-color: var(--foreground);
+    --revo-grid-header-border: var(--cell-border);
+    --revo-grid-header-focused-bg: var(--surface);
+    --revo-grid-header-hover-bg: var(--surface);
+    --revo-grid-cell-border: var(--cell-border);
+    --revo-grid-cell-vertical-border: var(--cell-border);
+    --revo-grid-focused-bg: rgb(0 120 99 / 7%);
+    --revo-grid-row-hover: rgb(255 255 255 / 6%);
+    --revo-grid-row-headers-bg: var(--surface);
+    --revo-grid-row-headers-color: var(--muted);
+    --revo-grid-cell-disabled-bg: transparent;
+    --revo-grid-selection-border: var(--accent);
+    --revo-grid-selection-bg: transparent;
+    --revo-grid-header-resize-hover: var(--accent);
+    border: 0 !important;
+    background: var(--surface) !important;
+}
+
+.revo-grid-shell--pinned .renovation-grid {
+    height: 100%;
+}
+
+.dark .renovation-grid {
+    color-scheme: dark;
+}
+
+.renovation-grid revogr-data .rgCell {
+    border: 0 !important;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.renovation-grid revogr-data .rgRow.focused-rgRow {
+    background-color: transparent !important;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell {
+    background: var(--cell-base) !important;
+    color: var(--foreground);
+    font-variant-numeric: tabular-nums;
+}
+
+.renovation-grid .rowHeaders revogr-data .rgCell.report-row-header {
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--selected {
+    background-image: linear-gradient(rgb(0 120 99 / 10%), rgb(0 120 99 / 10%)) !important;
+}
+
+.renovation-grid .rowHeaders revogr-data .rgCell.report-row-header--selected {
+    color: var(--foreground);
+    background: var(--accent-glow);
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--readonly {
+    color: var(--muted);
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--remote-locked {
+    z-index: 2;
+    background: color-mix(in srgb, var(--warning) 28%, transparent) !important;
+    color: var(--muted) !important;
+    outline: 2px solid var(--warning);
+    outline-offset: -2px;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--calculated {
+    background: var(--cell-calculated) !important;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--new {
+    background: var(--cell-new) !important;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--changed {
+    background: var(--cell-changed) !important;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--deleted {
+    background: var(--cell-deleted) !important;
+    color: #8c1d18;
+    text-decoration: line-through;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--empty {
+    background: var(--cell-empty) !important;
+}
+
+/* The baseline boundary: the first row of the next baseline generation
+   (position equals plan.baselineBoundary). Rows above it are protected from
+   deletion by the server — the red line marks where it passes. */
+.renovation-grid revogr-data .rgCell.report-cell--baseline-boundary {
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset,
+        0 2px 0 var(--danger) inset !important;
+}
+
+.renovation-grid .rowHeaders revogr-data .rgCell.report-row-header--boundary {
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset,
+        0 2px 0 var(--danger) inset !important;
+}
+
+/* The overlay column header: the page draws the 11 Excel levels above the
+   grid (the grid's own header is hidden). The corner (52px = № column)
+   sits on the left, the scrollable body follows the grid's scrollLeft. */
+.renovation-grid-shell .renovation-grid__header {
+    position: absolute;
+    z-index: 5;
+    top: 0;
+    right: 0;
+    left: 0;
+    display: flex;
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.renovation-grid__corner {
+    flex: 0 0 52px;
+    background: var(--surface);
+    box-shadow:
+        0 1px 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+}
+
+.renovation-grid__header-body {
+    position: relative;
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+}
+
+.renovation-grid__header-cell {
+    position: absolute;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 9px;
+    overflow: hidden;
+    color: var(--foreground);
+    background: var(--surface);
+    border: 0;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+    font-size: 11.5px;
+    font-weight: 650;
+    line-height: 1.18;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: normal;
+    user-select: none;
+}
+
+.renovation-grid__resize-handle {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    margin-left: -3px;
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.renovation-grid__resize-handle:hover,
+.renovation-grid__resize-handle.is-dragging {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* The boolean cell: a toggle button (checked cells show «✓»). */
+.report-cell__boolean {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0 9px;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    text-align: center;
+}
+
+.report-cell__boolean--checked {
+    color: var(--foreground);
+    font-weight: 700;
+}
+
+.report-cell__boolean--disabled {
+    cursor: default;
+}
+
+.toolbar-filter-button {
+    font-size: 0.8rem;
+}
+
 /* ─── Narrow screens (below lg, e.g. a split-screen tab) ──────────────────── */
 
 @media (width < 64rem) {

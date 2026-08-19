@@ -6,6 +6,7 @@ import {
     CollabWsClient,
     type CollabCellChanged,
     type CollabMember,
+    type CollabRowsChanged,
     type CollabStatus,
     type CollabUser,
 } from "./ws-client";
@@ -40,6 +41,7 @@ export function useCollabRoom({
     enabled,
     visibleAssets,
     onCellChanged,
+    onRowsChanged,
     onSelectionPreempted,
 }: {
     projectKey: string;
@@ -49,12 +51,15 @@ export function useCollabRoom({
     /** The current user's assets: members without an overlap aren't shown. */
     visibleAssets?: string[] | null;
     onCellChanged?: (event: CollabCellChanged) => void;
+    /** The plan row set changed elsewhere — the owner should refetch the data. */
+    onRowsChanged?: (event: CollabRowsChanged) => void;
     /** Another tab of the same account took over the user's selection. */
     onSelectionPreempted?: () => void;
 }): CollabRoom {
     const clientRef = useRef<CollabWsClient | null>(null);
-    const handlersRef = useRef({ onCellChanged, onSelectionPreempted });
+    const handlersRef = useRef({ onCellChanged, onRowsChanged, onSelectionPreempted });
     handlersRef.current.onCellChanged = onCellChanged;
+    handlersRef.current.onRowsChanged = onRowsChanged;
     handlersRef.current.onSelectionPreempted = onSelectionPreempted;
     const assetsRef = useRef(visibleAssets);
     assetsRef.current = visibleAssets;
@@ -109,6 +114,7 @@ export function useCollabRoom({
                     });
                 },
                 onCellChanged: (event) => handlersRef.current.onCellChanged?.(event),
+                onRowsChanged: (event) => handlersRef.current.onRowsChanged?.(event),
                 onSelectionPreempted: () => handlersRef.current.onSelectionPreempted?.(),
                 onConnectionChange: setStatus,
             },

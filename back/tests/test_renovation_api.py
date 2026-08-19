@@ -104,6 +104,11 @@ async def test_meta_lists_form_fields_and_catalogs(client: AsyncClient) -> None:
     assert col_011["cellType"] == "text"
     labels = {catalog["id"]: catalog["label"] for catalog in body["catalogs"]}
     assert labels["work_category"] == "Категория работ"
+    assert len(body["headerRows"]) == 11
+    assert {row["level"] for row in body["headerRows"]} == set(range(11))
+    assert len(body["headerCells"]) == 346
+    header_cell = body["headerCells"][0]
+    assert {"id", "text", "startPosition", "colSpan", "rowSpan", "level", "excelRange"} <= set(header_cell)
 
 
 async def test_read_plan_returns_rows_with_labels_and_ids(
