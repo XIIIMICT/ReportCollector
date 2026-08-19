@@ -24,6 +24,7 @@ from src.auth import models as auth_models  # noqa: F401
 from src.collab import models as collab_models  # noqa: F401
 from src.config import get_settings
 from src.raw_materials import models as raw_materials_models  # noqa: F401
+from src.renovation import models as renovation_models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

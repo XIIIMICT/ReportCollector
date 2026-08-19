@@ -37,11 +37,16 @@ from src.raw_materials.models import (
     RawMaterialPrice,
     RawMaterialUserAsset,
 )
+from src.renovation.constants import R_ASSETS, RENOVATION_PROJECT_KEY, RENOVATION_PROJECT_NAME
+from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
+from src.renovation.plan import RenovationReferenceValue
+from src.renovation.reference_data import REFERENCE_OPTIONS
 
 # ─── Seed data (first version) ───────────────────────────────────────────
 
 PROJECTS: list[tuple[str, str]] = [
     (RAW_MATERIALS_PROJECT_KEY, RAW_MATERIALS_PROJECT_NAME),
+    (RENOVATION_PROJECT_KEY, RENOVATION_PROJECT_NAME),
     ("kppk", "КППК"),
 ]
 
@@ -201,6 +206,89 @@ SEED_EXTRA_USERS: list[SeedExtraUser] = [
 ]
 
 
+class SeedRenovationUser(TypedDict):
+    """Renovation-project user (role/block/asset scope from the legacy demo)."""
+
+    email: str
+    name: str
+    role: RProjectRole
+    # Responsibility block; required for block_owner/asset_worker.
+    block: RBlock | None
+    # Asset codes from R_ASSETS; empty means "all assets" (central roles).
+    assets: list[str]
+
+
+# Renovation users: central roles span all assets; asset workers follow the
+# legacy pattern td-<asset>/opof-<asset>/umto-<asset>@ruschem.ru and see only
+# their own asset. The three department prefixes map to the responsibility
+# blocks: td → tashpaev, opof → borodiichuk, umto → babaeva.
+RENOVATION_ASSET_WORKER_ASSETS = ["vos", "snhz", "bsk"]
+RENOVATION_USERS: list[SeedRenovationUser] = [
+    {
+        "email": "vasilenko@ruschem.ru",
+        "name": "Василенко Екатерина Игоревна",
+        "role": RProjectRole.ADMIN,
+        "block": None,
+        "assets": [],
+    },
+    {
+        "email": "rogov@ruschem.ru",
+        "name": "Рогов Максим Николаевич",
+        "role": RProjectRole.APPROVER,
+        "block": None,
+        "assets": [],
+    },
+    {
+        "email": "tashpaev@ruschem.ru",
+        "name": "Ташпаев Алексей Анатольевич",
+        "role": RProjectRole.BLOCK_OWNER,
+        "block": RBlock.TASHPAEV,
+        "assets": [],
+    },
+    {
+        "email": "borodiichuk.av@ruschem.ru",
+        "name": "Бородийчук Алексей Викторович",
+        "role": RProjectRole.BLOCK_OWNER,
+        "block": RBlock.BORODIICHUK,
+        "assets": [],
+    },
+    {
+        "email": "babaeva.ir@ruschem.ru",
+        "name": "Бабаева Ирена Рэмовна",
+        "role": RProjectRole.BLOCK_OWNER,
+        "block": RBlock.BABAEVA,
+        "assets": [],
+    },
+]
+# Asset workers: td → tashpaev, opof → borodiichuk, umto → babaeva blocks.
+for _asset_code in RENOVATION_ASSET_WORKER_ASSETS:
+    RENOVATION_USERS.extend(
+        [
+            {
+                "email": f"td-{_asset_code}@ruschem.ru",
+                "name": f"Технический департамент ({_asset_code.upper()})",
+                "role": RProjectRole.ASSET_WORKER,
+                "block": RBlock.TASHPAEV,
+                "assets": [_asset_code],
+            },
+            {
+                "email": f"opof-{_asset_code}@ruschem.ru",
+                "name": f"Производственно-финансовый отдел ({_asset_code.upper()})",
+                "role": RProjectRole.ASSET_WORKER,
+                "block": RBlock.BORODIICHUK,
+                "assets": [_asset_code],
+            },
+            {
+                "email": f"umto-{_asset_code}@ruschem.ru",
+                "name": f"Управление МТО ({_asset_code.upper()})",
+                "role": RProjectRole.ASSET_WORKER,
+                "block": RBlock.BABAEVA,
+                "assets": [_asset_code],
+            },
+        ]
+    )
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -229,6 +317,7 @@ def _price_business_plan_tons(index: int) -> float:
 async def seed(session: AsyncSession) -> None:
     """Fill the base data (idempotent: existing rows are not recreated)."""
     now = utc_now()
+    seed_password = get_settings().auth_seed_admin_password
 
     # Projects
     projects: dict[str, Project] = {}
@@ -239,6 +328,100 @@ async def seed(session: AsyncSession) -> None:
             session.add(project)
             await session.flush()
         projects[key] = project
+    await session.flush()
+
+    # Renovation assets (legal entities): static master data from the legacy form.
+    r_assets_by_code: dict[str, RAsset] = {}
+    for code, repair_code, name in R_ASSETS:
+        asset = (await session.exec(select(RAsset).where(RAsset.code == code))).one_or_none()
+        if asset is None:
+            asset = RAsset(code=code, repair_code=repair_code, name=name, created_at=now)
+            session.add(asset)
+            await session.flush()
+        r_assets_by_code[code] = asset
+    await session.flush()
+
+    # Renovation users: role/block link in r_user_roles + asset grants in
+    # r_user_assets (central roles get every asset, workers only their own).
+    renovation_project = projects[RENOVATION_PROJECT_KEY]
+    for ren_user in RENOVATION_USERS:
+        email = str(ren_user["email"])
+        ren_user_row = (await session.exec(select(User).where(User.email == email))).one_or_none()
+        if ren_user_row is None:
+            ren_user_row = User(
+                email=email,
+                name=str(ren_user["name"]),
+                is_deleted=False,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(ren_user_row)
+            await session.flush()
+        if seed_password:
+            ren_user_row.password_hash = hash_password(seed_password)
+
+        r_link = (
+            await session.exec(
+                select(RUserRole).where(
+                    RUserRole.user_id == ren_user_row.id, RUserRole.project_id == renovation_project.id
+                )
+            )
+        ).one_or_none()
+        if r_link is None:
+            session.add(
+                RUserRole(
+                    user_id=ren_user_row.id,
+                    project_id=renovation_project.id,
+                    role=ren_user["role"],
+                    block=ren_user["block"],
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        await session.flush()
+
+        ren_asset_codes = list(ren_user["assets"])
+        if not ren_asset_codes:
+            ren_asset_codes = [code for code, _, _ in R_ASSETS]
+        for code in ren_asset_codes:
+            grant = (
+                await session.exec(
+                    select(RUserAsset).where(
+                        RUserAsset.user_id == ren_user_row.id, RUserAsset.asset_id == r_assets_by_code[code].id
+                    )
+                )
+            ).one_or_none()
+            if grant is None:
+                session.add(
+                    RUserAsset(
+                        user_id=ren_user_row.id,
+                        project_id=renovation_project.id,
+                        asset_id=r_assets_by_code[code].id,
+                        created_at=now,
+                    )
+                )
+    await session.flush()
+
+    # Renovation reference catalogs (static options from renovation-form.json).
+    for catalog, value_key, label, sort_order in REFERENCE_OPTIONS:
+        option = (
+            await session.exec(
+                select(RenovationReferenceValue).where(
+                    RenovationReferenceValue.catalog == catalog,
+                    RenovationReferenceValue.value_key == value_key,
+                )
+            )
+        ).one_or_none()
+        if option is None:
+            session.add(
+                RenovationReferenceValue(
+                    catalog=catalog,
+                    value_key=value_key,
+                    label=label,
+                    sort_order=sort_order,
+                )
+            )
     await session.flush()
 
     # «Активы» dictionary
@@ -314,7 +497,6 @@ async def seed(session: AsyncSession) -> None:
     # User — Евтушенко: admin of all projects, active everywhere.
     # The local-login password comes from AUTH_SEED_ADMIN_PASSWORD (if set).
     user = (await session.exec(select(User).where(User.email == SEED_ADMIN_EMAIL))).one_or_none()
-    seed_password = get_settings().auth_seed_admin_password
     if user is None:
         user = User(
             email=SEED_ADMIN_EMAIL,
@@ -420,7 +602,10 @@ async def run(reset: bool = False) -> None:
             f"связок актив-сырьё={arms_count}, периодов={len(MOVEMENT_PERIODS)}, "
             f"строк цен={arms_count}, строк движения={arms_count * len(MOVEMENT_PERIODS)}, "
             f"пользователь={SEED_ADMIN_EMAIL} (admin всех проектов), "
-            f"доп. пользователи={len(SEED_EXTRA_USERS)} ({', '.join(str(u['email']) for u in SEED_EXTRA_USERS)})."
+            f"доп. пользователи={len(SEED_EXTRA_USERS)} ({', '.join(str(u['email']) for u in SEED_EXTRA_USERS)}), "
+            f"пользователи реновации={len(RENOVATION_USERS)} "
+            f"({', '.join(str(u['email']) for u in RENOVATION_USERS)}), "
+            f"активы реновации={len(R_ASSETS)}, справочники реновации={len(REFERENCE_OPTIONS)}."
         )
 
 

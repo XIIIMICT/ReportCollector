@@ -1,5 +1,5 @@
 """
-Collaboration WebSocket: /api/ws/raw-materials.
+Collaboration WebSocket: /api/ws/raw-materials and /api/ws/renovation.
 
 The connection is authorized by the identity signature (the same
 X-ReportCollector-* headers as REST). The client names the room in the
@@ -17,9 +17,10 @@ through a per-socket queue (a slow client doesn't block the room).
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
@@ -28,12 +29,21 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.app_logging import log_event, log_warning
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
-from src.auth.service import InvalidIdentityError, verify_identity_ticket, verify_signed_identity
+from src.auth.models import User
+from src.auth.service import (
+    CurrentUserIdentity,
+    InvalidIdentityError,
+    verify_identity_ticket,
+    verify_signed_identity,
+)
 from src.collab.events import room_key
 from src.collab.store import CollabStore, get_collab_store, lease_key
 from src.config import get_settings
 from src.database import get_session
 from src.raw_materials.service import NoRawMaterialsAccessError, resolve_raw_materials_access
+from src.renovation.constants import RENOVATION_PROJECT_KEY
+from src.renovation.models import RBlock
+from src.renovation.service import NoRenovationAccessError, resolve_renovation_access
 
 router = APIRouter(tags=["collab"])
 
@@ -44,6 +54,12 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 _MAX_LEASE_CELLS = 500
 _MAX_OWNED_LEASES = 1000  # max leases per connection
 _QUEUE_SIZE = 256  # outbound message queue size per connection
+
+# Resolves (user, roles, assets, block) for the connection's project.
+AccessResolver = Callable[
+    [AsyncSession, CurrentUserIdentity],
+    Awaitable[tuple[User, list[Any], list[Any], RBlock | None]],
+]
 
 
 class LeaseMessage(BaseModel):
@@ -138,6 +154,55 @@ async def raw_materials_ws(
     session: SessionDependency,
 ) -> None:
     """Collaboration room for the «Движение» and «Цены» forms."""
+    await _serve_room(
+        websocket,
+        session,
+        resolve_access=_resolve_raw_materials_access,
+        default_section="materialMovement",
+        default_project=RAW_MATERIALS_PROJECT_KEY,
+    )
+
+
+@router.websocket("/ws/renovation")
+async def renovation_ws(
+    websocket: WebSocket,
+    session: SessionDependency,
+) -> None:
+    """Collaboration room for the «Ремонт» plan form."""
+    await _serve_room(
+        websocket,
+        session,
+        resolve_access=_resolve_renovation_access,
+        default_section="renovationPlan",
+        default_project=RENOVATION_PROJECT_KEY,
+    )
+
+
+async def _resolve_raw_materials_access(
+    session: AsyncSession,
+    identity: CurrentUserIdentity,
+) -> tuple[User, list[Any], list[Any], None]:
+    """Raw-materials access in the shared (user, roles, assets, block) shape."""
+    user, roles, assets = await resolve_raw_materials_access(session, identity)
+    return user, roles, assets, None
+
+
+async def _resolve_renovation_access(
+    session: AsyncSession,
+    identity: CurrentUserIdentity,
+) -> tuple[User, list[Any], list[Any], RBlock | None]:
+    return await resolve_renovation_access(session, identity)
+
+
+async def _serve_room(
+    websocket: WebSocket,
+    session: AsyncSession,
+    *,
+    resolve_access: AccessResolver,
+    default_section: str,
+    default_project: str,
+) -> None:
+    """Run a common collaboration room lifecycle for a project's WebSocket."""
     identity = None
     try:
         identity = verify_signed_identity(websocket.headers)
@@ -158,8 +223,8 @@ async def raw_materials_ws(
         await websocket.close(code=4401)
         return
     try:
-        user, roles, assets = await resolve_raw_materials_access(session, identity)
-    except NoRawMaterialsAccessError:
+        user, roles, assets, block = await resolve_access(session, identity)
+    except NoRawMaterialsAccessError, NoRenovationAccessError:
         log_warning(
             logger,
             "collab.ws_access_rejected",
@@ -182,9 +247,9 @@ async def raw_materials_ws(
         await websocket.close(code=4403)
         return
 
-    section = websocket.query_params.get("section") or "materialMovement"
+    section = websocket.query_params.get("section") or default_section
     report_month = websocket.query_params.get("reportMonth") or None
-    project_key = websocket.query_params.get("project") or RAW_MATERIALS_PROJECT_KEY
+    project_key = websocket.query_params.get("project") or default_project
     client_id = websocket.query_params.get("clientId") or user.email or str(user.id)
     room = room_key(project_key, section, report_month)
 
@@ -195,10 +260,12 @@ async def raw_materials_ws(
         "email": user.email or "",
         "sessionId": session_id,
         "assets": [asset.name for asset in assets],
-        # Raw role value («admin»/«asset_worker»): the client decides whether
-        # to show the role or the asset list.
+        # Raw role value («admin»/«asset_worker»/...): the client decides
+        # whether to show the role or the asset list.
         "role": roles[0].value if roles else "",
     }
+    if block is not None:
+        owner["block"] = block.value
     store = get_collab_store()
     manager = get_room_manager()
     owned_leases: set[str] = set()

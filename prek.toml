@@ -32,3 +32,4 @@ types = ["text"]
 [[repos.hooks]]
 id = "fix-byte-order-marker"
 types = ["text"]
+exclude = '^infra/keycloak/provision-renovation-users\.ps1$'  # UTF-8 BOM required for Cyrillic in PowerShell 5.1

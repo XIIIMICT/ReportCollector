@@ -17,11 +17,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from src.auth.models import User
     from src.collab.store import MemoryStore
 
 # Env vars must be set before the first src.* import, because src.database
 # caches settings at module level.
 os.environ.setdefault("AUTH_SECRET", "test-secret-that-is-at-least-32-characters-long")
+os.environ.setdefault("AUTH_IDENTITY_TTL", "3600")
 os.environ.setdefault("AUTH_SEED_ADMIN_EMAIL", "admin@example.ru")
 os.environ.setdefault("AUTH_SEED_ADMIN_PASSWORD", "AdminPassword123")
 os.environ.setdefault("POSTGRES_USER", "postgres")
@@ -187,7 +189,92 @@ async def _seed_session(session: AsyncSession) -> None:
                 updated_at=now,
             )
         )
+    await _seed_renovation(session, now=now, admin=admin)
     await session.commit()
+
+
+async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User) -> None:
+    """Renovation seed: project, assets, reference values, admin role, working plan."""
+    from decimal import Decimal
+
+    from src.auth.models import Project
+    from src.renovation.constants import R_ASSETS, RENOVATION_PROJECT_KEY, RENOVATION_PROJECT_NAME
+    from src.renovation.models import RAsset, RProjectRole, RUserRole
+    from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
+    from src.renovation.reference_data import REFERENCE_OPTIONS
+
+    project = Project(key=RENOVATION_PROJECT_KEY, name=RENOVATION_PROJECT_NAME)
+    session.add(project)
+    await session.flush()
+    session.add(
+        RUserRole(
+            user_id=admin.id,
+            project_id=project.id,
+            role=RProjectRole.ADMIN,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+            updated_by="seed",
+        )
+    )
+
+    assets = {
+        code: RAsset(code=code, repair_code=repair_code, name=name, created_at=now)
+        for code, repair_code, name in R_ASSETS
+    }
+    for asset in assets.values():
+        session.add(asset)
+    await session.flush()
+
+    reference_by_key: dict[str, RenovationReferenceValue] = {}
+    for catalog, value_key, label, sort_order in REFERENCE_OPTIONS:
+        value = RenovationReferenceValue(catalog=catalog, value_key=value_key, label=label, sort_order=sort_order)
+        session.add(value)
+        reference_by_key[value_key] = value
+    await session.flush()
+
+    working = RenovationPlan(
+        project_id=project.id,
+        state=RPlanState.WORKING,
+        baseline_generation=1,
+        created_at=now,
+        created_by="seed",
+        updated_at=now,
+        updated_by="seed",
+    )
+    session.add(working)
+    await session.flush()
+
+    for position, (code, defect, d1, d2) in enumerate(
+        [
+            ("bsk", "1382467", Decimal(10), Decimal(20)),
+            ("vos", "2247000", Decimal(5), Decimal(7)),
+        ]
+    ):
+        session.add(
+            RenovationPlanRow(
+                plan_id=working.id,
+                asset_id=assets[code].id,
+                position=position,
+                baseline_generation=1,
+                revision=0,
+                created_at=now,
+                updated_at=now,
+                updated_by="seed",
+                col_011="Шкаф ПЛК" if code == "bsk" else "Насос НК",
+                col_016="Ремонтный бюджет",
+                col_017=reference_by_key["work_category_002"].id,
+                col_018=reference_by_key["work_type_002"].id,
+                col_019=reference_by_key["cost_allocation_002"].id,
+                col_020=reference_by_key["execution_method_001"].id,
+                col_023=defect,
+                col_024=date(2027, 1, 1),
+                col_025=date(2027, 1, 31),
+                col_028=d1,
+                col_029=d2,
+                col_189="1.1.1.",
+            )
+        )
 
 
 @pytest.fixture

@@ -85,7 +85,7 @@ class UserRole(SQLModel, table=True):
     )
     role: ProjectRole = Field(
         sa_column=Column(
-            SAEnum(ProjectRole, name="project_role", values_callable=lambda enum: [item.value for item in enum]),
+            SAEnum(ProjectRole, name="rm_project_role", values_callable=lambda enum: [item.value for item in enum]),
             nullable=False,
         )
     )

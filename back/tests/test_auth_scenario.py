@@ -71,8 +71,7 @@ async def test_admin_role_sees_all_assets(client, db_session) -> None:
     response = await client.get("/api/me", headers=signed_identity_headers(**AUTH_HEADERS))
     assert response.status_code == 200
     body = response.json()
-    project_access = body["access"][0]
-    assert project_access["key"] == RAW_MATERIALS_PROJECT_KEY
+    project_access = next(a for a in body["access"] if a["key"] == RAW_MATERIALS_PROJECT_KEY)
     assert project_access["roles"] == [ProjectRole.ADMIN.value]
     assert project_access["assets"] == [
         {"name": "БСЗ"},
@@ -92,7 +91,7 @@ async def test_asset_worker_sees_only_bound_assets(client, db_session) -> None:
     await grant_project_assets(db_session, user.id, ["СНХЗ", "БСЗ"])
 
     body = (await client.get("/api/me", headers=signed_identity_headers(**AUTH_HEADERS))).json()
-    project_access = body["access"][0]
+    project_access = next(a for a in body["access"] if a["key"] == RAW_MATERIALS_PROJECT_KEY)
     assert project_access["roles"] == [ProjectRole.ASSET_WORKER.value]
     assert project_access["assets"] == [
         {"name": "БСЗ"},
@@ -111,8 +110,7 @@ async def test_seed_admin_is_active_with_admin_role(client) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    project_access = body["access"][0]
-    assert project_access["key"] == RAW_MATERIALS_PROJECT_KEY
+    project_access = next(a for a in body["access"] if a["key"] == RAW_MATERIALS_PROJECT_KEY)
     assert project_access["roles"] == [ProjectRole.ADMIN.value]
 
 

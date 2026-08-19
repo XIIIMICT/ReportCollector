@@ -9,6 +9,14 @@ from .raw_materials.models import (
     RawMaterialPrice,
     RawMaterialUserAsset,
 )
+from .renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
+from .renovation.plan import (
+    RenovationPlan,
+    RenovationPlanRow,
+    RenovationReferenceValue,
+    RPlanState,
+    RReferenceCatalog,
+)
 
 __all__ = [
     "AssetRawMaterial",
@@ -17,10 +25,20 @@ __all__ = [
     "MovementPeriod",
     "Project",
     "ProjectRole",
+    "RAsset",
+    "RBlock",
+    "RPlanState",
+    "RProjectRole",
+    "RReferenceCatalog",
+    "RUserAsset",
+    "RUserRole",
     "RawMaterial",
     "RawMaterialAsset",
     "RawMaterialPrice",
     "RawMaterialUserAsset",
+    "RenovationPlan",
+    "RenovationPlanRow",
+    "RenovationReferenceValue",
     "User",
     "UserRole",
 ]

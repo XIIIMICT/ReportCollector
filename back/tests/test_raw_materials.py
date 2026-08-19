@@ -7,6 +7,7 @@ from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
 from src.auth.models import ProjectRole, User, UserRole
 from src.auth.service import activate_project_user, grant_project_assets, grant_project_role
 from src.models import Project
+from src.renovation.constants import RENOVATION_PROJECT_KEY
 
 # Edit endpoints require the collab browser-session id (undo scoping);
 # tests that don't exercise undo use one fixed session.
@@ -506,13 +507,17 @@ async def test_create_user_is_provisioned_to_all_projects(client, db_session) ->
 
     raw_project = (await db_session.exec(select(Project).where(col(Project.key) == RAW_MATERIALS_PROJECT_KEY))).one()
     other_project = (await db_session.exec(select(Project).where(col(Project.key) == "kppk"))).one()
+    renovation_project = (
+        await db_session.exec(select(Project).where(col(Project.key) == RENOVATION_PROJECT_KEY))
+    ).one()
     links = (await db_session.exec(select(UserRole).where(col(UserRole.user_id) == user_id))).all()
-    assert {link.project_id for link in links} == {raw_project.id, other_project.id}
+    assert {link.project_id for link in links} == {raw_project.id, other_project.id, renovation_project.id}
     by_project = {link.project_id: link for link in links}
     assert by_project[raw_project.id].is_active is True
     assert by_project[raw_project.id].role == ProjectRole.ADMIN
     assert by_project[other_project.id].is_active is False
     assert by_project[other_project.id].role == ProjectRole.ASSET_WORKER
+    assert by_project[renovation_project.id].is_active is False
 
 
 async def test_create_user_normalizes_email_to_lowercase(client, db_session) -> None:

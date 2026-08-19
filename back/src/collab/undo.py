@@ -13,9 +13,10 @@ from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from src.collab.journal import AppliedCell
-from src.collab.models import canonical_key
+from src.collab.models import RENOVATION_PLAN_ROWS_TABLE, canonical_key
 from src.collab.store import lease_key
 from src.raw_materials.service import apply_cell_value
+from src.renovation.service import apply_renovation_cell_value
 
 if TYPE_CHECKING:
     from sqlmodel.ext.asyncio.session import AsyncSession
@@ -110,14 +111,24 @@ async def _switch_entry(
         return UndoOutcome(applied=False, reason=conflict.reason, conflict=conflict)
 
     value = action["newValue"] if redo else action["oldValue"]
-    await apply_cell_value(
-        session,
-        target_table=target_table,
-        row_id=row_id,
-        field=field,
-        value=value,
-        user=user,
-    )
+    if target_table == RENOVATION_PLAN_ROWS_TABLE:
+        await apply_renovation_cell_value(
+            session,
+            target_table=target_table,
+            row_id=row_id,
+            field=field,
+            value=value,
+            user=user,
+        )
+    else:
+        await apply_cell_value(
+            session,
+            target_table=target_table,
+            row_id=row_id,
+            field=field,
+            value=value,
+            user=user,
+        )
     await store.mark_action_undone(str(user.id), session_id, scope, action_id, undone=not redo)
     revision = await store.bump_cell_state(
         key,
