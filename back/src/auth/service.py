@@ -78,7 +78,7 @@ def verify_signed_identity(headers: Mapping[str, str]) -> CurrentUserIdentity:
     except (ValueError, OSError) as error:
         msg = "Некорректное время подписи."
         raise InvalidIdentityError(msg) from error
-    if abs((datetime.now(UTC) - signed_at).total_seconds()) > 60:
+    if abs((datetime.now(UTC) - signed_at).total_seconds()) > get_settings().auth_identity_ttl:
         msg = "Подпись идентичности устарела."
         raise InvalidIdentityError(msg)
     payload = "\n".join([timestamp, *(value or "" for value in values)])

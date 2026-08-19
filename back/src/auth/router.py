@@ -174,7 +174,7 @@ def _verify_identity_signature(values: list[str | None], *, timestamp: str | Non
         signed_at = datetime.fromtimestamp(int(timestamp), tz=UTC)
     except (ValueError, OSError) as error:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Некорректное время подписи.") from error
-    if abs((datetime.now(UTC) - signed_at).total_seconds()) > 60:
+    if abs((datetime.now(UTC) - signed_at).total_seconds()) > get_settings().auth_identity_ttl:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Подпись идентичности устарела.")
     payload = "\n".join([timestamp, *(value or "" for value in values)])
     expected = new(get_settings().auth_secret.encode(), payload.encode(), sha256).hexdigest()

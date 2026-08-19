@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     auth_secret: str = ""
     auth_seed_admin_email: str | None = None
     auth_seed_admin_password: str | None = None
+    auth_identity_ttl: int = Field(default=60, validation_alias="AUTH_IDENTITY_TTL")
     # Defaults to local dev origins. In the compose stack the value is derived
     # from AUTH_APP_ORIGIN (the single source of the app host); here it matters
     # only when running the backend on the host outside compose.
