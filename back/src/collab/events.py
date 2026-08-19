@@ -50,3 +50,33 @@ async def publish_cell_changed(
                 "at": now_iso(),
             },
         )
+
+
+async def publish_rows_changed(
+    store: CollabStore,
+    *,
+    project_key: str,
+    section: str,
+    report_month: str | None,
+    user_id: UUID,
+    user_name: str,
+    user_email: str,
+) -> None:
+    """
+    Notify room clients that the plan row set changed (add/delete/submit/approve).
+
+    Clients refetch the plan (and meta after lifecycle transitions); the
+    event itself carries no payload.
+    """
+    room = room_key(project_key, section, report_month)
+    await store.publish(
+        room,
+        {
+            "type": "rows:changed",
+            "project": project_key,
+            "section": section,
+            "reportMonth": report_month,
+            "user": {"userId": str(user_id), "name": user_name, "email": user_email},
+            "at": now_iso(),
+        },
+    )

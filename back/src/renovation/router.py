@@ -1,9 +1,11 @@
 """«Ремонт» project API: reading/editing the renovation plan, plan lifecycle, undo/redo."""
 
+from io import BytesIO
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -14,7 +16,7 @@ if TYPE_CHECKING:
 
 from src.auth.router import read_signed_identity
 from src.auth.service import CurrentUserIdentity
-from src.collab.events import publish_cell_changed
+from src.collab.events import publish_cell_changed, publish_rows_changed
 from src.collab.journal import AppliedCell
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
@@ -22,12 +24,16 @@ from src.collab.store import get_collab_store
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.database import get_session
 from src.renovation.constants import RENOVATION_PROJECT_KEY
+from src.renovation.export import render_renovation_workbook
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
 from src.renovation.schemas import (
     RenovationApproveRead,
+    RenovationDiffRead,
     RenovationMetaRead,
     RenovationPlanRead,
+    RenovationPlanRowRead,
     RenovationPlanVersionRead,
+    RenovationRowAddRequest,
     RenovationUpdateRead,
     RenovationUpdateRequest,
 )
@@ -37,9 +43,12 @@ from src.renovation.service import (
     RenovationPermissionError,
     RenovationPlanNotFoundError,
     RenovationPlanStateError,
+    add_plan_row,
     approve_plan,
+    delete_plan_row,
     read_meta,
     read_plan,
+    read_plan_diff,
     read_plan_versions,
     resolve_renovation_access,
     submit_plan,
@@ -178,6 +187,81 @@ async def patch_renovation_plan(
     return RenovationUpdateRead(applied=len(applied), calculated=calculated, renovationIds=renovation_ids)
 
 
+@router.post("/plan/rows", response_model=RenovationPlanRowRead)
+async def post_renovation_row(
+    request: RenovationRowAddRequest,
+    session: SessionDependency,
+    access: AccessDependency,
+) -> RenovationPlanRowRead:
+    """Append a new working-plan row (any project user; the asset is required)."""
+    try:
+        row = await add_plan_row(
+            session,
+            user=access.user,
+            assets=access.assets,
+            asset_id=request.assetId,
+        )
+    except RenovationPermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+    except RenovationPlanNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await _publish_rows_changed(access)
+    return row
+
+
+@router.delete("/plan/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_renovation_row(
+    row_id: UUID,
+    session: SessionDependency,
+    access: AccessDependency,
+) -> None:
+    """Delete a working-plan row (rows of the approved baseline are protected)."""
+    try:
+        await delete_plan_row(session, assets=access.assets, row_id=row_id)
+    except RenovationPermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+    except RenovationPlanNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except RenovationPlanStateError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    await _publish_rows_changed(access)
+
+
+@router.get("/plan/diff", response_model=RenovationDiffRead)
+async def get_renovation_diff(
+    session: SessionDependency,
+    _access: AccessDependency,
+    plan_id: Annotated[UUID, Query()],
+) -> RenovationDiffRead:
+    """Cell diff of an archived version vs the previous archived version."""
+    try:
+        return await read_plan_diff(session, plan_id=plan_id)
+    except RenovationPlanNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except RenovationPlanStateError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+
+@router.get("/plan/export")
+async def export_renovation_plan(
+    session: SessionDependency,
+    access: AccessDependency,
+    plan_id: Annotated[UUID | None, Query()] = None,
+) -> StreamingResponse:
+    """Excel export of a plan version (default — the working plan)."""
+    try:
+        plan = await read_plan(session, access.assets, plan_id=plan_id, state=RPlanState.WORKING)
+    except RenovationPlanNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    content = render_renovation_workbook(plan)
+    filename = f"remont_plan_v{plan.baselineGeneration}_{plan.updatedAt:%Y-%m-%d}.xlsx"
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/plan/submit", response_model=RenovationPlanVersionRead)
 async def post_renovation_submit(
     session: SessionDependency,
@@ -190,6 +274,7 @@ async def post_renovation_submit(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await _publish_rows_changed(access)
     return await _version_read(session, plan)
 
 
@@ -205,9 +290,22 @@ async def post_renovation_approve(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await _publish_rows_changed(access)
     return RenovationApproveRead(
         archived=await _version_read(session, archived),
         working=await _version_read(session, working),
+    )
+
+
+async def _publish_rows_changed(access: RenovationAccess) -> None:
+    await publish_rows_changed(
+        get_collab_store(),
+        project_key=RENOVATION_PROJECT_KEY,
+        section=RENOVATION_SECTION,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
     )
 
 

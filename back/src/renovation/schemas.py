@@ -105,6 +105,47 @@ class RenovationPlanRead(BaseModel):
     updatedAt: datetime
     updatedBy: str
     rows: list[RenovationPlanRowRead]
+    baselineBoundary: int | None = None
+
+
+class RenovationRowAddRequest(BaseModel):
+    """A new working-plan row (the asset is the only required field)."""
+
+    assetId: UUID
+
+
+class RenovationDiffCellRead(BaseModel):
+    """A cell of an archived version that differs from the previous version."""
+
+    field: str
+    oldValue: str | float | bool | date | None = None
+    newValue: str | float | bool | date | None = None
+
+
+class RenovationDiffRowRead(BaseModel):
+    """A diff row: new rows carry every filled cell, changed rows only the changed ones."""
+
+    rowId: UUID
+    position: int
+    assetName: str
+    isNew: bool
+    cells: list[RenovationDiffCellRead] = []
+
+
+class RenovationDeletedRowRead(BaseModel):
+    """A row present in the previous archived version but missing in the target."""
+
+    position: int
+    assetName: str
+
+
+class RenovationDiffRead(BaseModel):
+    """Cell diff of an archived version vs the previous archived version."""
+
+    planId: UUID
+    comparedToPlanId: UUID | None = None
+    rows: list[RenovationDiffRowRead] = []
+    deletedRows: list[RenovationDeletedRowRead] = []
 
 
 class CellUpdate(BaseModel):

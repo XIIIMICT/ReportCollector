@@ -41,6 +41,10 @@ from src.renovation.schemas import (
     RenovationCalculatedCellRead,
     RenovationCatalogOptionRead,
     RenovationCatalogRead,
+    RenovationDeletedRowRead,
+    RenovationDiffCellRead,
+    RenovationDiffRead,
+    RenovationDiffRowRead,
     RenovationFieldRead,
     RenovationIdRead,
     RenovationMetaRead,
@@ -81,6 +85,8 @@ _ERR_SUBMIT_PERMISSION = RenovationPermissionError(
     "Отправить план на согласование может администратор или владелец блока."
 )
 _ERR_APPROVE_PERMISSION = RenovationPermissionError("Утвердить план может утверждающий.")
+_ERR_DELETE_BASELINE_ROW = RenovationPlanStateError("Нельзя удалить строку утверждённой базовой линии.")
+_ERR_DIFF_ARCHIVED_ONLY = RenovationPlanStateError("Сравнение доступно только для архивных версий.")
 
 
 def _unknown_field(field: str) -> CellValidationError:
@@ -238,6 +244,7 @@ async def read_plan(
             .order_by(col(RenovationPlanRow.position))
         )
     ).all()
+    baseline_boundary = await _baseline_boundary(session) if plan.state == RPlanState.WORKING else None
     return RenovationPlanRead(
         id=plan.id,
         state=plan.state.value,
@@ -245,6 +252,7 @@ async def read_plan(
         updatedAt=plan.updated_at,
         updatedBy=plan.updated_by,
         rows=[_plan_row_read(row, asset, label_map) for row, asset in rows if asset.id in asset_ids],
+        baselineBoundary=baseline_boundary,
     )
 
 
@@ -284,6 +292,172 @@ async def read_plan_versions(session: AsyncSession) -> list[RenovationPlanVersio
         )
         for plan in plans
     ]
+
+
+async def add_plan_row(
+    session: AsyncSession,
+    *,
+    user: User,
+    assets: list[RAsset],
+    asset_id: UUID,
+) -> RenovationPlanRowRead:
+    """Append a new row to the working plan (any project user; the asset is required)."""
+    plan = await _plan_by_state(session, RPlanState.WORKING)
+    if plan is None:
+        raise _ERR_NO_WORKING_PLAN
+    asset = next((candidate for candidate in assets if candidate.id == asset_id), None)
+    if asset is None:
+        raise _asset_access()
+    max_position = (
+        await session.exec(
+            select(func.max(col(RenovationPlanRow.position))).where(col(RenovationPlanRow.plan_id) == plan.id)
+        )
+    ).one()
+    now = datetime.now(UTC)
+    updated_by = user.name or user.email or ""
+    row = RenovationPlanRow(
+        plan_id=plan.id,
+        asset_id=asset.id,
+        position=int(max_position) + 1 if max_position is not None else 1,
+        baseline_generation=plan.baseline_generation,
+        revision=0,
+        created_at=now,
+        updated_at=now,
+        updated_by=updated_by,
+    )
+    session.add(row)
+    await session.commit()
+    await session.refresh(row)
+    label_map = await _reference_labels(session)
+    return _plan_row_read(row, asset, label_map)
+
+
+async def delete_plan_row(
+    session: AsyncSession,
+    *,
+    assets: list[RAsset],
+    row_id: UUID,
+) -> None:
+    """Delete a working-plan row (rows of the approved baseline are protected)."""
+    plan = await _plan_by_state(session, RPlanState.WORKING)
+    if plan is None:
+        raise _ERR_NO_WORKING_PLAN
+    row = await session.get(RenovationPlanRow, row_id)
+    if row is None or row.plan_id != plan.id:
+        raise _CELL_PLAN_ROW_NOT_FOUND
+    if row.asset_id not in [asset.id for asset in assets]:
+        raise _asset_access()
+    boundary = await _baseline_boundary(session)
+    if boundary is not None and row.position <= boundary:
+        raise _ERR_DELETE_BASELINE_ROW
+    await session.delete(row)
+    await session.commit()
+
+
+async def read_plan_diff(session: AsyncSession, *, plan_id: UUID) -> RenovationDiffRead:
+    """Cell diff of an archived version vs the previous archived version."""
+    plan = await session.get(RenovationPlan, plan_id)
+    if plan is None:
+        raise _ERR_PLAN_NOT_FOUND
+    if plan.state != RPlanState.ARCHIVED:
+        raise _ERR_DIFF_ARCHIVED_ONLY
+    previous = await _previous_archived_plan(session, plan.created_at)
+    if previous is None:
+        return RenovationDiffRead(planId=plan.id, comparedToPlanId=None)
+    label_map = await _reference_labels(session)
+    target = await _rows_by_position(session, plan.id)
+    before = await _rows_by_position(session, previous.id)
+    diff_rows: list[RenovationDiffRowRead] = []
+    for position, (row, asset) in target.items():
+        prev = before.get(position)
+        cells: list[RenovationDiffCellRead] = []
+        if prev is None:
+            for meta in field_metas():
+                if meta.db_name in _VIRTUAL_FIELDS:
+                    continue
+                if meta.db_name == "col_003":
+                    value = _row_renovation_id(row, asset, label_map)[0]
+                else:
+                    value = _row_value_label(row, meta, label_map)
+                if value is not None:
+                    cells.append(RenovationDiffCellRead(field=meta.db_name, newValue=value))
+        else:
+            for meta in field_metas():
+                if meta.db_name in _VIRTUAL_FIELDS:
+                    continue
+                new_value = _row_value_label(row, meta, label_map)
+                old_value = _row_value_label(prev[0], meta, label_map)
+                if new_value != old_value:
+                    cells.append(RenovationDiffCellRead(field=meta.db_name, oldValue=old_value, newValue=new_value))
+        diff_rows.append(
+            RenovationDiffRowRead(
+                rowId=row.id,
+                position=position,
+                assetName=asset.name,
+                isNew=prev is None,
+                cells=cells,
+            )
+        )
+    deleted = [
+        RenovationDeletedRowRead(position=position, assetName=asset.name)
+        for position, (_, asset) in before.items()
+        if position not in target
+    ]
+    deleted.sort(key=lambda item: item.position)
+    return RenovationDiffRead(
+        planId=plan.id,
+        comparedToPlanId=previous.id,
+        rows=diff_rows,
+        deletedRows=deleted,
+    )
+
+
+async def _rows_by_position(
+    session: AsyncSession,
+    plan_id: UUID,
+) -> dict[int, tuple[RenovationPlanRow, RAsset]]:
+    rows = (
+        await session.exec(
+            select(RenovationPlanRow, RAsset)
+            .join(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
+            .where(col(RenovationPlanRow.plan_id) == plan_id)
+            .order_by(col(RenovationPlanRow.position))
+        )
+    ).all()
+    return {row.position: (row, asset) for row, asset in rows}
+
+
+async def _latest_archived_plan(session: AsyncSession) -> RenovationPlan | None:
+    return (
+        await session.exec(
+            select(RenovationPlan)
+            .where(col(RenovationPlan.state) == RPlanState.ARCHIVED)
+            .order_by(col(RenovationPlan.created_at).desc())
+        )
+    ).first()
+
+
+async def _previous_archived_plan(session: AsyncSession, before: datetime) -> RenovationPlan | None:
+    return (
+        await session.exec(
+            select(RenovationPlan)
+            .where(col(RenovationPlan.state) == RPlanState.ARCHIVED, col(RenovationPlan.created_at) < before)
+            .order_by(col(RenovationPlan.created_at).desc())
+        )
+    ).first()
+
+
+async def _baseline_boundary(session: AsyncSession) -> int | None:
+    """Return the max row position of the latest archived plan (the working baseline)."""
+    plan = await _latest_archived_plan(session)
+    if plan is None:
+        return None
+    max_position = (
+        await session.exec(
+            select(func.max(col(RenovationPlanRow.position))).where(col(RenovationPlanRow.plan_id) == plan.id)
+        )
+    ).one()
+    return int(max_position) if max_position is not None else None
 
 
 def _plan_row_read(row: RenovationPlanRow, asset: RAsset, label_map: dict[UUID, str]) -> RenovationPlanRowRead:

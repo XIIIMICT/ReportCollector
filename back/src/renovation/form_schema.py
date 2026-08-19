@@ -33,6 +33,19 @@ class RenovationFieldMeta:
     responsibility_block: str | None
 
 
+@dataclass(frozen=True)
+class RenovationHeaderCell:
+    """A merged header cell of the legacy form (11 levels, Excel ranges)."""
+
+    cell_id: str
+    text: str
+    start_position: int
+    col_span: int
+    row_span: int
+    level: int
+    excel_range: str
+
+
 @lru_cache(maxsize=1)
 def _load_form() -> dict:
     return json.loads(FORM_DATA_PATH.read_text(encoding="utf-8"))
@@ -94,3 +107,34 @@ def formula_engine() -> FormulaEngine:
 def catalog_labels() -> dict[str, str]:
     """Return reference catalog display names (e.g. «Группа критичности оборудования»)."""
     return {catalog["id"]: catalog["label"] for catalog in _load_form()["catalogs"]}
+
+
+@lru_cache(maxsize=1)
+def header_rows() -> tuple[tuple[int, tuple[RenovationHeaderCell, ...]], ...]:
+    """
+    Return the merged header layout by level (0..10) in the template's Excel ranges.
+
+    Level 0 is the responsibility-block row; deeper levels split the columns
+    down to single fields. The field column of a cell is
+    start_position + 2 (the 0-based index counts from column B; column A is
+    the synthetic row-number column).
+    """
+    form = _load_form()
+    by_id = {cell["id"]: cell for cell in form["headerCells"]}
+    rows: list[tuple[int, tuple[RenovationHeaderCell, ...]]] = []
+    for entry in form["headerRows"]:
+        cells = tuple(
+            RenovationHeaderCell(
+                cell_id=cell["id"],
+                text=cell.get("text", ""),
+                start_position=int(cell["startPosition"]),
+                col_span=int(cell["colSpan"]),
+                row_span=int(cell["rowSpan"]),
+                level=int(cell["level"]),
+                excel_range=cell["excelRange"],
+            )
+            for cell_id in entry["cellIds"]
+            if (cell := by_id.get(cell_id)) is not None
+        )
+        rows.append((int(entry["level"]), cells))
+    return tuple(rows)
