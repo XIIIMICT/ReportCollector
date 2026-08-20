@@ -71,6 +71,9 @@ const DEFAULT_COLUMN_WIDTH: Record<string, number> = {
 const ASSET_COLUMN_PROP = "__assetName";
 const ASSET_COLUMN_WIDTH = 220;
 
+/** Placeholder a missing renovation-id component is replaced with (backend renovation_id.py). */
+const MISSING_COMPONENT = "<NULL>";
+
 /** Service columns revealed by the corner menu («Показать служебные столбцы»). */
 const SERVICE_COLUMNS: ReadonlyArray<{ dbName: string; label: string; width: number }> = [
     { dbName: "id", label: "Идентификатор", width: 120 },
@@ -236,10 +239,14 @@ function RenovationGridInner(
     const shellRef = useRef<HTMLDivElement>(null);
     const verticalScrollRef = useRef<HTMLDivElement>(null);
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
-    const [scrollLeft, setScrollLeft] = useState(0);
+    const headerBodyRef = useRef<HTMLDivElement>(null);
     const [selectionRange, setSelectionRange] = useState<RangeArea | null>(null);
     const selectionRangeRef = useRef<RangeArea | null>(null);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+    // Bumped on Escape: forces a columns rebuild (see the columns memo) that
+    // repaints the selection overlay after the store is cleared — the overlay
+    // does not reliably repaint on a plain store change.
+    const [selectionEpoch, setSelectionEpoch] = useState(0);
     const selectedRowIdSet = useMemo(() => new Set(selectedRowIds), [selectedRowIds]);
     const rowSelectionAnchorRef = useRef<number | null>(null);
     const activeLeaseRef = useRef<string | null>(null);
@@ -256,6 +263,11 @@ function RenovationGridInner(
                 const parsed = Number(saved);
                 if (Number.isFinite(parsed)) result.set(field.dbName, clampWidth(parsed));
             }
+        }
+        const savedAsset = window.localStorage.getItem(WIDTH_STORAGE_PREFIX + ASSET_COLUMN_PROP);
+        if (savedAsset) {
+            const parsed = Number(savedAsset);
+            if (Number.isFinite(parsed)) result.set(ASSET_COLUMN_PROP, clampWidth(parsed));
         }
         return result;
     });
@@ -282,13 +294,19 @@ function RenovationGridInner(
     }, [catalogs, fields]);
 
     const visibleFields = useMemo(() => {
-        const ALWAYS_VISIBLE = new Set(["col_002", "col_003"]);
+        // col_002 (the form's «Предприятие» field) is replaced by the
+        // synthetic asset column (ASSET_COLUMN_PROP) — keep it out of the
+        // field columns to avoid a duplicated column. col_003 (the renovation
+        // id) and col_217 (the note) are always visible regardless of the
+        // block filter, like the synthetic asset column.
+        const ALWAYS_VISIBLE = new Set(["col_003", "col_217"]);
         return [...fields]
             .filter(
                 (field) =>
-                    blockFilter === null ||
-                    ALWAYS_VISIBLE.has(field.dbName) ||
-                    field.responsibilityBlock === blockFilter,
+                    field.dbName !== "col_002" &&
+                    (blockFilter === null ||
+                        ALWAYS_VISIBLE.has(field.dbName) ||
+                        field.responsibilityBlock === blockFilter),
             )
             .sort((a, b) => a.position - b.position);
     }, [blockFilter, fields]);
@@ -353,26 +371,51 @@ function RenovationGridInner(
         [serviceWidthOf, widthOf],
     );
 
+    // The synthetic asset column is resizable like any other column
+    // (its width is persisted under ASSET_COLUMN_PROP).
+    const assetWidth = useMemo(
+        () =>
+            overlayWidths.get(ASSET_COLUMN_PROP) ??
+            widths.get(ASSET_COLUMN_PROP) ??
+            ASSET_COLUMN_WIDTH,
+        [overlayWidths, widths],
+    );
+
     // Left edge of every visible field (grid-relative x, the 52px row header
     // and the synthetic asset column included) and the total content width —
     // live during a resize drag.
     const geometry = useMemo(() => {
         const offsets = new Map<string, number>();
-        let acc = ROW_HEADER_WIDTH + ASSET_COLUMN_WIDTH;
+        let acc = ROW_HEADER_WIDTH + assetWidth;
         for (const field of displayFields) {
             offsets.set(field.dbName, acc);
             acc += fieldWidth(field);
         }
         return { offsets, totalWidth: acc };
-    }, [displayFields, fieldWidth]);
+    }, [assetWidth, displayFields, fieldWidth]);
 
     // The header is a static grid of cells (text, colSpan/rowSpan from the
     // backend). A cell's startPosition is 0-based (0 = the first field, whose
     // position is 1), so the lookup and the span end must add 1 to land on the
     // 1-based position keys of visibleIndexByPosition. Cells whose start field
     // is hidden by the block filter are dropped; spans over hidden fields
-    // render the visible part only.
+    // render the visible part only. Full-height columns that start directly
+    // under a responsibility-block row keep their Excel level; columns with no
+    // level-0 cell above them («Идентификационный код работы/ремонта»,
+    // «Примечание») are raised to the top so their top border becomes the
+    // header's top edge instead of leaving a gap (and a spurious second border).
     const overlayCells = useMemo(() => {
+        const coveredByTopRow = new Set<number>();
+        for (const cell of headerCells) {
+            if (cell.level !== 0) continue;
+            for (
+                let position = cell.startPosition;
+                position < cell.startPosition + cell.colSpan;
+                position += 1
+            ) {
+                coveredByTopRow.add(position);
+            }
+        }
         const cells: Array<{
             id: string;
             text: string;
@@ -394,13 +437,14 @@ function RenovationGridInner(
                 width += widthOf(visibleFields[i]);
             }
             if (width === 0) continue;
+            const topLevel = coveredByTopRow.has(cell.startPosition) ? cell.level : 0;
             cells.push({
                 id: cell.id,
                 text: cell.text,
                 left: geometry.offsets.get(visibleFields[startIndex].dbName) ?? ROW_HEADER_WIDTH,
-                top: cell.level * HEADER_LEVEL_HEIGHT,
+                top: topLevel * HEADER_LEVEL_HEIGHT,
                 width,
-                height: cell.rowSpan * HEADER_LEVEL_HEIGHT,
+                height: (cell.rowSpan + cell.level - topLevel) * HEADER_LEVEL_HEIGHT,
             });
         }
         cells.sort((a, b) => a.top - b.top || a.left - b.left);
@@ -409,7 +453,7 @@ function RenovationGridInner(
             text: "Предприятие",
             left: ROW_HEADER_WIDTH,
             top: 0,
-            width: ASSET_COLUMN_WIDTH,
+            width: assetWidth,
             height: HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT,
         });
         if (showServiceColumns) {
@@ -426,6 +470,7 @@ function RenovationGridInner(
         }
         return cells;
     }, [
+        assetWidth,
         geometry.offsets,
         headerCells,
         serviceWidthOf,
@@ -459,7 +504,7 @@ function RenovationGridInner(
         const assetColumn: ColumnRegular = {
             prop: ASSET_COLUMN_PROP,
             name: "Предприятие",
-            size: ASSET_COLUMN_WIDTH,
+            size: assetWidth,
             minSize: MIN_COLUMN_WIDTH,
             maxSize: MAX_COLUMN_WIDTH,
             editor: "reference",
@@ -476,6 +521,8 @@ function RenovationGridInner(
                         "report-cell--readonly": !row.isPlaceholder,
                         "report-cell--placeholder": Boolean(row.isPlaceholder),
                         "report-cell--empty": Boolean(row.isPlaceholder && !row.__assetName),
+                        "report-cell--baseline-boundary":
+                            baselineBoundary !== null && row.__position === baselineBoundary,
                     },
                 };
             },
@@ -506,6 +553,19 @@ function RenovationGridInner(
                             value === undefined ||
                             value === "" ||
                             (Array.isArray(value) && value.length === 0);
+                        const calculated =
+                            field.isCalculated &&
+                            row.__rowState !== "deleted" &&
+                            !row.isPlaceholder;
+                        // The «Идентификационный код ремонта» (col_003) is red
+                        // when it's incomplete — a component is missing
+                        // (replaced with <NULL>) or the code was never computed.
+                        // Other calculated fields are never highlighted.
+                        const invalid =
+                            field.dbName === "col_003" &&
+                            calculated &&
+                            (row.__missingComponents.length > 0 ||
+                                String(row.col_003 ?? "").includes(MISSING_COMPONENT));
                         return {
                             className: {
                                 "report-cell": true,
@@ -518,6 +578,8 @@ function RenovationGridInner(
                                 "report-cell--deleted": row.__rowState === "deleted",
                                 "report-cell--new": row.__rowState === "new" && !field.isCalculated,
                                 "report-cell--changed": changed && !field.isCalculated,
+                                "report-cell--calculated": calculated && !invalid,
+                                "report-cell--invalid": invalid,
                                 "report-cell--baseline-boundary":
                                     baselineBoundary !== null &&
                                     row.__position === baselineBoundary,
@@ -577,6 +639,7 @@ function RenovationGridInner(
             }),
         ];
     }, [
+        assetWidth,
         assets,
         baselineBoundary,
         catalogLabelsByField,
@@ -588,6 +651,7 @@ function RenovationGridInner(
         readOnly,
         remoteCellInfo,
         selectedRowIdSet,
+        selectionEpoch,
         visibleFields,
     ]);
 
@@ -601,8 +665,6 @@ function RenovationGridInner(
     const clearGridSelection = useCallback(() => {
         const grid = gridRef.current;
         setSelectionRange(null);
-        setSelectedRowIds([]);
-        rowSelectionAnchorRef.current = null;
         if (!grid) return;
         // Landmine: without clearing the pending focus restore, the next
         // render resurrects the old single-cell range.
@@ -1210,8 +1272,6 @@ function RenovationGridInner(
         };
         const handleSetRange = (event: Event) => {
             updateSelectionRange((event as CustomEvent<RangeArea & { type?: string }>).detail);
-            setSelectedRowIds([]);
-            rowSelectionAnchorRef.current = null;
         };
         const handleFocusCell = (event: Event) => {
             const detail = (
@@ -1258,7 +1318,18 @@ function RenovationGridInner(
             if (event.key === "Escape" && !document.fullscreenElement) {
                 const active = document.activeElement as HTMLElement | null;
                 if (active && (active.tagName === "INPUT" || active.isContentEditable)) return;
+                // Swallow the event so revo-grid's built-in Escape (which
+                // collapses the range to a single cell) never runs: the row
+                // selection must clear completely, not shrink to one cell.
+                event.preventDefault();
+                event.stopImmediatePropagation();
                 clearGridSelection();
+                setSelectedRowIds([]);
+                rowSelectionAnchorRef.current = null;
+                // Force a columns rebuild: the selection overlay does not
+                // reliably repaint when only the store changes, and a rebuild
+                // is safe here because the store was already cleared above.
+                setSelectionEpoch((epoch) => epoch + 1);
                 return;
             }
             if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
@@ -1360,13 +1431,19 @@ function RenovationGridInner(
     const startResize = useCallback(
         (event: React.PointerEvent, dbName: string) => {
             event.preventDefault();
-            const startWidth = widths.get(dbName);
+            // Fall back to the rendered width when the column was never
+            // resized (a fresh column has no persisted width) — otherwise
+            // the drag would start from undefined and do nothing.
+            const field = fieldByDbName.get(dbName);
+            const current =
+                dbName === ASSET_COLUMN_PROP ? assetWidth : field ? widthOf(field) : undefined;
+            const startWidth = widths.get(dbName) ?? current;
             if (startWidth === undefined) return;
             dragRef.current = { dbName, startX: event.clientX, startWidth };
             event.currentTarget.setPointerCapture(event.pointerId);
             setResizingField(dbName);
         },
-        [widths],
+        [assetWidth, fieldByDbName, widthOf, widths],
     );
     const moveResize = useCallback((event: React.PointerEvent) => {
         const drag = dragRef.current;
@@ -1396,6 +1473,7 @@ function RenovationGridInner(
     }, [overlayWidths]);
 
     const resetWidths = useCallback(() => {
+        window.localStorage.removeItem(WIDTH_STORAGE_PREFIX + ASSET_COLUMN_PROP);
         for (const field of fields) {
             window.localStorage.removeItem(WIDTH_STORAGE_PREFIX + field.dbName);
         }
@@ -1404,7 +1482,13 @@ function RenovationGridInner(
     }, [fields]);
 
     const handles = useMemo(() => {
-        const result: Array<{ key: string; dbName: string; left: number }> = [];
+        const result: Array<{ key: string; dbName: string; left: number }> = [
+            {
+                key: ASSET_COLUMN_PROP,
+                dbName: ASSET_COLUMN_PROP,
+                left: ROW_HEADER_WIDTH + assetWidth - 3,
+            },
+        ];
         for (let i = 0; i < displayFields.length - 1; i += 1) {
             const field = displayFields[i];
             if (SERVICE_DB_NAMES.has(field.dbName)) continue;
@@ -1415,7 +1499,7 @@ function RenovationGridInner(
             });
         }
         return result;
-    }, [displayFields, fieldWidth, geometry.offsets]);
+    }, [assetWidth, displayFields, fieldWidth, geometry.offsets]);
 
     const headerHeight = HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT;
 
@@ -1482,10 +1566,11 @@ function RenovationGridInner(
         <div className="renovation-grid__header" style={{ height: headerHeight }}>
             <div className="renovation-grid__corner" aria-hidden="true" />
             <div
+                ref={headerBodyRef}
                 className="renovation-grid__header-body"
                 style={{
                     width: geometry.totalWidth,
-                    transform: `translateX(${-scrollLeft}px)`,
+                    height: headerHeight,
                 }}
             >
                 {overlayCells.map((cell) => (
@@ -1527,7 +1612,7 @@ function RenovationGridInner(
             className={[
                 "revo-grid-shell renovation-grid-shell",
                 headerPinned && "revo-grid-shell--pinned",
-                !headerPinned && !hasHorizontalOverflow && "revo-grid-shell--no-hscroll",
+                !hasHorizontalOverflow && "revo-grid-shell--no-hscroll",
             ]
                 .filter(Boolean)
                 .join(" ")}
@@ -1562,7 +1647,14 @@ function RenovationGridInner(
                     onContentsizechanged={() => void refreshHorizontalScrollbar()}
                     onViewportscroll={(event) => {
                         if (event.detail.dimension === "rgCol") {
-                            setScrollLeft(event.detail.coordinate);
+                            // The header overlay tracks the scroll position
+                            // imperatively — no React state per scroll tick
+                            // (a setState per tick re-rendered the whole grid
+                            // and made horizontal scrolling janky).
+                            const body = headerBodyRef.current;
+                            if (body) {
+                                body.style.transform = `translateX(${-event.detail.coordinate}px)`;
+                            }
                             if (!headerPinned) {
                                 const scrollbar = horizontalScrollRef.current;
                                 if (scrollbar && scrollbar.scrollLeft !== event.detail.coordinate) {

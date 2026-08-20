@@ -114,7 +114,7 @@ function formatVersionStamp(value: string): string {
 const VERSION_STATE_LABELS: Record<RenovationPlanVersion["state"], string> = {
     working: "рабочая",
     pendingApproval: "на согласовании",
-    archived: "архивная",
+    archived: "утверждённая",
 };
 
 function blockLabel(block: string): string {
@@ -246,9 +246,14 @@ export function RenovationWorkspace({
     }, [activeProject?.assets, isAdmin, isApprover, meta]);
 
     const blocks = useMemo(() => {
+        // The read_only block groups the hidden/always-visible columns
+        // (the synthetic asset column, the renovation id, the note) — filtering
+        // by it makes no sense, so it's not offered in the dropdown.
         const result = new Set<string>();
         for (const field of meta?.fields ?? []) {
-            if (field.responsibilityBlock) result.add(field.responsibilityBlock);
+            if (field.responsibilityBlock && field.responsibilityBlock !== "read_only") {
+                result.add(field.responsibilityBlock);
+            }
         }
         return [...result].sort();
     }, [meta]);
