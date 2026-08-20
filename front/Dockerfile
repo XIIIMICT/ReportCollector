@@ -23,7 +23,7 @@ FROM deps AS build
 COPY . .
 RUN bun run build
 
-FROM node:25-alpine AS prod
+FROM node:26-alpine AS prod
 ARG PORT=5000
 EXPOSE ${PORT}
 ENV NODE_ENV=production \
