@@ -23,7 +23,7 @@ import {
     User,
 } from "iconoir-react";
 import { useTheme } from "next-themes";
-import { useEffect, useState, type Key } from "react";
+import { useEffect, useMemo, useState, type Key } from "react";
 
 import {
     updateProfile,
@@ -237,6 +237,10 @@ export function ProfileModal({ isOpen, user, onOpenChange, onProfileSaved }: Pro
 }
 
 function ThemeSelector({ value, onChange }: { value: string; onChange: (key: Key) => void }) {
+    // Stable identity: an inline `new Set(...)` changes on every render and
+    // loops HeroUI's selection sync ("Maximum update depth exceeded").
+    const selectedKeys = useMemo(() => new Set([value]), [value]);
+
     return (
         <div className="theme-selector">
             <Label>Тема оформления</Label>
@@ -245,7 +249,7 @@ function ThemeSelector({ value, onChange }: { value: string; onChange: (key: Key
                 fullWidth
                 isDisabled={false}
                 selectionMode="single"
-                selectedKeys={new Set([value])}
+                selectedKeys={selectedKeys}
                 onSelectionChange={(keys) => {
                     const selected = [...keys][0];
                     if (selected !== undefined) onChange(selected);

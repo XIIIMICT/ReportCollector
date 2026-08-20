@@ -1246,6 +1246,30 @@ html {
     height: 100%;
 }
 
+/* Unpinned mode (corner menu «Закрепить заголовок» off) — the same scrolling
+   model as the «Сырьё» grids: the overlay header moves into the scroll flow
+   (scrolled away with the content), the grid is sized by the content height
+   (minus the header, which the grid itself doesn't carry) and internal
+   scrollbars are hidden in favor of the external bottom strip. */
+.revo-grid-shell:not(.revo-grid-shell--pinned) .renovation-grid {
+    height: calc(var(--grid-content-height) - var(--grid-header-height));
+    min-height: calc(100% - var(--grid-header-height));
+}
+
+.revo-grid-shell:not(.revo-grid-shell--pinned) .renovation-grid revogr-scroll-virtual {
+    visibility: hidden;
+}
+
+.revo-grid-shell:not(.revo-grid-shell--pinned) .renovation-grid revogr-scroll-virtual.vertical {
+    width: 0 !important;
+    min-width: 0 !important;
+}
+
+.revo-grid-shell:not(.revo-grid-shell--pinned) .renovation-grid revogr-scroll-virtual.horizontal {
+    height: 0 !important;
+    min-height: 0 !important;
+}
+
 .dark .renovation-grid {
     color-scheme: dark;
 }
@@ -1336,32 +1360,58 @@ html {
 }
 
 /* The overlay column header: the page draws the 11 Excel levels above the
-   grid (the grid's own header is hidden). The corner (52px = № column)
-   sits on the left, the scrollable body follows the grid's scrollLeft. */
-.renovation-grid-shell .renovation-grid__header {
-    position: absolute;
-    z-index: 5;
-    top: 0;
-    right: 0;
-    left: 0;
+   grid (the grid's own header is hidden). The shell is a flex column: the
+   header occupies its own height at the top, and the grid's data area
+   (which starts at y=0, since the native header is display:none) fills the
+   remaining space below — the overlay never covers the rows. The corner
+   (52px = № column) is a fixed absolute block on the left; the body carries
+   the real strip width (geometry.totalWidth, set inline — never flex-sized,
+   so no flex-basis override) and translates by -scrollLeft, so the cells
+   beyond the viewport exist and slide in as the grid scrolls. The corner
+   overlaps the body (z-index 2, opaque) so cells pass underneath it. */
+.renovation-grid-shell {
     display: flex;
+    flex-direction: column;
+}
+
+.renovation-grid-shell .renovation-grid__header {
+    position: relative;
+    z-index: 5;
+    flex: 0 0 auto;
     background: var(--surface);
     overflow: hidden;
+    /* The 11-level overlay leaves a gap above the level-1 cells that have no
+       level-0 cell over them («Предприятие», «Идентификационный код…»): the
+       header's own top edge closes the line across the full width. */
+    box-shadow: 0 1px 0 var(--cell-border) inset;
 }
 
 .renovation-grid__corner {
-    flex: 0 0 52px;
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 52px;
     background: var(--surface);
     box-shadow:
+        1px 0 0 var(--cell-border) inset,
         0 1px 0 var(--cell-border) inset,
         0 -1px 0 var(--cell-border) inset;
 }
 
-.renovation-grid__header-body {
+.renovation-grid-shell .revo-grid-vertical-scroller {
     position: relative;
-    min-width: 0;
+    width: 100%;
+    height: auto;
     flex: 1;
-    overflow: hidden;
+    min-height: 0;
+}
+
+.renovation-grid-shell .renovation-grid__header-body {
+    position: absolute;
+    top: 0;
+    left: 0;
 }
 
 .renovation-grid__header-cell {
@@ -1376,7 +1426,8 @@ html {
     background: var(--surface);
     border: 0;
     box-shadow:
-        -1px 0 0 var(--cell-border) inset,
+        1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
         0 -1px 0 var(--cell-border) inset;
     font-size: 11.5px;
     font-weight: 650;
@@ -1385,6 +1436,28 @@ html {
     text-overflow: ellipsis;
     white-space: normal;
     user-select: none;
+}
+
+/* The «Настройки таблицы» menu inside the 52px corner: the trigger button is
+   centered in the corner block (z-index above the body cells sliding under
+   the corner), the popover is positioned by the HoverDropdown portal. */
+.renovation-grid__options-menu {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+}
+
+/* The menu lives at the shell level (above the header overlay, z-index 5), so
+   the button stays in place while the header scrolls away in unpinned mode —
+   the opaque corner (inside the header) still marks the grid's top-left. */
+.renovation-grid__menu-corner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 6;
+    width: 52px;
 }
 
 .renovation-grid__resize-handle {
@@ -1401,6 +1474,46 @@ html {
 .renovation-grid__resize-handle:hover,
 .renovation-grid__resize-handle.is-dragging {
     background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* Reference dictionary tables shown on the «Ремонт» dictionary tabs. */
+.renovation-dict {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    background: var(--surface);
+}
+
+.renovation-dict__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--foreground);
+}
+
+.renovation-dict__table th {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 650;
+    text-align: left;
+    white-space: nowrap;
+    box-shadow: 0 1px 0 var(--cell-border) inset;
+}
+
+.renovation-dict__table td {
+    padding: 0.375rem 0.75rem;
+    background: var(--cell-base);
+    box-shadow: 0 -1px 0 var(--cell-border) inset;
+}
+
+.renovation-dict__table tbody tr:hover td {
+    background: var(--surface-secondary);
 }
 
 /* The boolean cell: a toggle button (checked cells show «✓»). */

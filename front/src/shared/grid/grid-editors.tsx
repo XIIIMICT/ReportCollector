@@ -12,6 +12,76 @@ import { useMemo, useRef, useState } from "react";
 
 const EMPTY_REFERENCE = "__empty_reference__";
 
+type SelectOption = { value: string; label: string };
+
+export function SelectEditor({ column, save, close }: EditorType) {
+    const rootRef = useRef<HTMLDivElement>(null);
+    const options = useMemo(
+        () => (Array.isArray(column.column.source) ? (column.column.source as SelectOption[]) : []),
+        [column.column.source],
+    );
+    const current = String(column.value ?? column.model[String(column.prop)] ?? "");
+    const { contains } = useFilter({ sensitivity: "base" });
+
+    return (
+        <div
+            ref={rootRef}
+            className="grid-autocomplete-editor"
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Escape") close();
+            }}
+        >
+            <Autocomplete
+                fullWidth
+                defaultOpen
+                aria-label={String(column.column.name)}
+                placeholder="Выберите значение"
+                selectionMode="single"
+                value={current || null}
+                variant="secondary"
+                onChange={(key) => save(key === null ? "" : String(key))}
+            >
+                <Autocomplete.Trigger className="grid-autocomplete-editor__hidden-trigger">
+                    <Autocomplete.Value />
+                    <Autocomplete.Indicator />
+                </Autocomplete.Trigger>
+                <Autocomplete.Popover>
+                    <Autocomplete.Filter filter={contains}>
+                        <SearchField
+                            autoFocus
+                            name="select-search"
+                            aria-label="Найти значение"
+                            variant="secondary"
+                        >
+                            <SearchField.Group>
+                                <SearchField.SearchIcon />
+                                <SearchField.Input placeholder="Найти…" />
+                                <SearchField.ClearButton />
+                            </SearchField.Group>
+                        </SearchField>
+                        <ListBox
+                            renderEmptyState={() => <EmptyState>Ничего не найдено</EmptyState>}
+                        >
+                            {options.map((option) => (
+                                <ListBox.Item
+                                    key={option.value}
+                                    id={option.value}
+                                    textValue={option.label}
+                                >
+                                    {option.label}
+                                    <ListBox.ItemIndicator />
+                                </ListBox.Item>
+                            ))}
+                        </ListBox>
+                    </Autocomplete.Filter>
+                </Autocomplete.Popover>
+            </Autocomplete>
+        </div>
+    );
+}
+
 export function MultiAssetEditor({ column, save, close }: EditorType) {
     const rootRef = useRef<HTMLDivElement>(null);
     const options = useMemo(

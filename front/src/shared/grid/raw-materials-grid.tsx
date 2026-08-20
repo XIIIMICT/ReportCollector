@@ -42,7 +42,7 @@ import {
     type SectionId,
 } from "./grid-config";
 import { extractEdits } from "./grid-edit";
-import { MultiAssetEditor, ReferenceEditor } from "./grid-editors";
+import { MultiAssetEditor, ReferenceEditor, SelectEditor } from "./grid-editors";
 
 export type RawMaterialsGridState = {
     columns: ExportColumn[];
@@ -84,6 +84,10 @@ type Props = {
     onHeaderPinnedChange: (isPinned: boolean) => void;
     assets: ReferenceOption[];
     deliveryBases: ReferenceOption[];
+    /** Custom column set — overrides the built-in descriptors for the section. */
+    columnDescriptors?: ColumnDescriptor[];
+    /** Distinguishes width/sorting persistence when several grids share a section id. */
+    namespace?: string;
     onCommit: (updates: CellUpdate[]) => Promise<boolean>;
     onPlaceholderCommit: (patch: Record<string, unknown>) => Promise<boolean>;
     /** The server rejected the edits: the source must be restored (optimistic rollback). */
@@ -243,6 +247,8 @@ function RawMaterialsGridInner(
         onHeaderPinnedChange,
         assets,
         deliveryBases,
+        columnDescriptors,
+        namespace,
         onCommit,
         onPlaceholderCommit,
         onCommitFailed,
@@ -272,6 +278,7 @@ function RawMaterialsGridInner(
     // grid content actually overflows horizontally (native behavior elsewhere).
     const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
     const resizedWidthsRef = useRef(new Map<string, number>());
+    const widthKeySection = namespace ?? section;
     const [showServiceColumns, setShowServiceColumns] = useState(false);
     const sortingBySectionRef = useRef(new Map<SectionId, GridSortingConfig>());
     const userSortedSectionsRef = useRef(new Set<SectionId>());
@@ -300,8 +307,9 @@ function RawMaterialsGridInner(
         () =>
             getVisibleDescriptors(section, showAssetColumn, showServiceColumns, {
                 keycloakEnabled,
+                descriptors: columnDescriptors,
             }),
-        [section, showAssetColumn, showServiceColumns, keycloakEnabled],
+        [section, showAssetColumn, showServiceColumns, keycloakEnabled, columnDescriptors],
     );
     const descriptorByKey = useMemo(
         () => new Map(descriptors.map((descriptor) => [descriptor.key, descriptor])),
@@ -309,14 +317,16 @@ function RawMaterialsGridInner(
     );
 
     const editableKeys = useMemo(
-        () => getEditableKeys(section, isAdmin, showAssetColumn, keycloakEnabled),
-        [isAdmin, section, showAssetColumn, keycloakEnabled],
+        () =>
+            getEditableKeys(section, isAdmin, showAssetColumn, keycloakEnabled, columnDescriptors),
+        [isAdmin, section, showAssetColumn, keycloakEnabled, columnDescriptors],
     );
 
     const editors = useMemo<Editors>(
         () => ({
             multiAssets: Editor(MultiAssetEditor),
             reference: Editor(ReferenceEditor),
+            select: Editor(SelectEditor),
         }),
         [],
     );
@@ -334,15 +344,17 @@ function RawMaterialsGridInner(
             showServiceColumns,
             remoteLocks,
             remoteCellInfo,
+            descriptors: columnDescriptors,
             onBooleanChange: (row, field, value) => {
                 if (row.isPlaceholder) void onPlaceholderCommit({ [field]: value });
                 else void onCommit([{ rowId: row.id, field, value }]);
             },
         });
-        restoreColumnWidths(next, resizedWidthsRef.current, section);
+        restoreColumnWidths(next, resizedWidthsRef.current, widthKeySection);
         return next;
     }, [
         assets,
+        columnDescriptors,
         deliveryBases,
         hasBaseline,
         isAdmin,
@@ -356,6 +368,7 @@ function RawMaterialsGridInner(
         selectedRowIdSet,
         section,
         showServiceColumns,
+        widthKeySection,
     ]);
 
     const flatColumns: ColumnRegular[] = useMemo(
@@ -937,6 +950,7 @@ function RawMaterialsGridInner(
                     showServiceColumns,
                     [],
                     keycloakEnabled,
+                    columnDescriptors,
                 ),
                 rowIds: rows
                     .filter((row) => !row.isPlaceholder && !row.isDeleted)
@@ -954,12 +968,13 @@ function RawMaterialsGridInner(
                 showServiceColumns,
                 currentColumns as (ColumnRegular | ColumnGrouping)[],
                 keycloakEnabled,
+                columnDescriptors,
             ),
             rowIds: (currentRows as GridRow[])
                 .filter((row) => !row.isPlaceholder && !row.isDeleted)
                 .map((row) => row.id),
         };
-    }, [rows, section, showAssetColumn, showServiceColumns]);
+    }, [rows, section, showAssetColumn, showServiceColumns, columnDescriptors]);
 
     const lastStatsRef = useRef<GridViewStats | null>(null);
 
@@ -1551,7 +1566,7 @@ function RawMaterialsGridInner(
                         for (const column of Object.values(event.detail)) {
                             if (column?.prop !== undefined && typeof column.size === "number") {
                                 resizedWidthsRef.current.set(
-                                    columnWidthKey(section, String(column.prop)),
+                                    columnWidthKey(widthKeySection, String(column.prop)),
                                     column.size,
                                 );
                             }
@@ -1745,14 +1760,14 @@ function namesToIds(value: CellUpdate["value"], assets: ReferenceOption[]): Cell
     return names.map((name) => idsByName.get(name.toLocaleLowerCase("ru-RU")) ?? name);
 }
 
-function columnWidthKey(section: SectionId, prop: string): string {
+function columnWidthKey(section: string, prop: string): string {
     return `${section}\u0000${prop}`;
 }
 
 export function restoreColumnWidths(
     columns: Array<{ prop?: unknown; size?: number; children?: unknown[] }>,
     widths: Map<string, number>,
-    section: SectionId,
+    section: string,
 ) {
     for (const column of columns) {
         if (column.prop !== undefined) {

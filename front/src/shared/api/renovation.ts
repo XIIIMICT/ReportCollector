@@ -287,31 +287,225 @@ export type RenovationUndoResult = {
     revision: number | null;
 };
 
-export async function undoCells(skipActionId: number | null): Promise<RenovationUndoResult> {
-    return requestWrite(`/api/renovation/undo?session_id=${getCollabSessionId()}`, "POST", {
-        skipActionId,
-        section: RENOVATION_SECTION,
-        reportMonth: null,
-    });
-}
-
-export async function redoCells(skipActionId: number | null): Promise<RenovationUndoResult> {
-    return requestWrite(`/api/renovation/redo?session_id=${getCollabSessionId()}`, "POST", {
-        skipActionId,
-        section: RENOVATION_SECTION,
-        reportMonth: null,
-    });
-}
-
 export type RenovationUndoState = {
     canUndo: boolean;
     canRedo: boolean;
 };
 
-export async function getUndoState(): Promise<RenovationUndoState> {
-    const params = new URLSearchParams({
-        section: RENOVATION_SECTION,
-        session_id: getCollabSessionId(),
+// ─── Dictionary grid rows ───────────────────────────────────────────────────
+
+export type RenovationAssetRow = {
+    id: string;
+    repairCode: string;
+    name: string;
+    createdAt: string;
+    updatedAt: string;
+    updatedBy: string;
+};
+
+export type RenovationCatalogOptionRow = {
+    valueId: string;
+    label: string;
+    createdAt: string;
+    updatedAt: string;
+    updatedBy: string;
+};
+
+export type RenovationUserRow = {
+    id: string;
+    email: string;
+    fullname: string;
+    role: string;
+    block: string | null;
+    assetNames: string[];
+    isActive: boolean;
+    lastAuthenticatedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+    updatedBy: string;
+};
+
+export const RENOVATION_ASSETS_SECTION = "renovationAssets";
+export const RENOVATION_USERS_SECTION = "renovationUsers";
+
+export function renovationCatalogSection(catalogId: string): `renovationCatalog:${string}` {
+    return `renovationCatalog:${catalogId}`;
+}
+
+// ─── Dictionary CRUD ───────────────────────────────────────────────────────
+
+export async function getRenovationDictionaryAssets(): Promise<RenovationAssetRow[]> {
+    return requestJson("/api/renovation/dictionary/assets");
+}
+
+export async function createRenovationAsset(
+    name: string,
+    repairCode: string,
+): Promise<RenovationAssetRow> {
+    return requestWrite("/api/renovation/dictionary/assets", "POST", { name, repairCode });
+}
+
+export async function updateRenovationAssetCells(updates: CellUpdate[]): Promise<unknown> {
+    const sessionQuery = `?session_id=${getCollabSessionId()}`;
+    return Promise.all(
+        updates.map((update) =>
+            requestWrite(
+                `/api/renovation/dictionary/assets/${encodeURIComponent(update.rowId)}${sessionQuery}`,
+                "PATCH",
+                {
+                    ...(update.field === "name" ? { name: update.value } : {}),
+                    ...(update.field === "repairCode" ? { repairCode: update.value } : {}),
+                },
+            ),
+        ),
+    );
+}
+
+export async function deleteRenovationAsset(assetId: string): Promise<void> {
+    return requestWrite(
+        `/api/renovation/dictionary/assets/${encodeURIComponent(assetId)}?session_id=${getCollabSessionId()}`,
+        "DELETE",
+    );
+}
+
+export async function getRenovationCatalogOptions(
+    catalogId: string,
+): Promise<RenovationCatalogOptionRow[]> {
+    return requestJson(`/api/renovation/dictionary/catalogs/${encodeURIComponent(catalogId)}`);
+}
+
+export async function createRenovationCatalogOption(
+    catalogId: string,
+    label: string,
+): Promise<RenovationCatalogOptionRow> {
+    return requestWrite(
+        `/api/renovation/dictionary/catalogs/${encodeURIComponent(catalogId)}/options`,
+        "POST",
+        { label },
+    );
+}
+
+export async function updateRenovationCatalogOptionCells(
+    catalogId: string,
+    updates: CellUpdate[],
+): Promise<unknown> {
+    const sessionQuery = `?session_id=${getCollabSessionId()}`;
+    return Promise.all(
+        updates.map((update) =>
+            requestWrite(
+                `/api/renovation/dictionary/catalogs/${encodeURIComponent(catalogId)}/options/${encodeURIComponent(update.rowId)}${sessionQuery}`,
+                "PATCH",
+                update.field === "label" ? { label: update.value } : {},
+            ),
+        ),
+    );
+}
+
+export async function deleteRenovationCatalogOption(
+    catalogId: string,
+    valueId: string,
+): Promise<void> {
+    return requestWrite(
+        `/api/renovation/dictionary/catalogs/${encodeURIComponent(catalogId)}/options/${encodeURIComponent(valueId)}?session_id=${getCollabSessionId()}`,
+        "DELETE",
+    );
+}
+
+export async function getRenovationDictionaryUsers(): Promise<RenovationUserRow[]> {
+    return requestJson("/api/renovation/dictionary/users");
+}
+
+export async function createRenovationUser(payload: {
+    email: string;
+    fullname: string;
+    role: string;
+    block: string | null;
+    assetNames: string[];
+}): Promise<RenovationUserRow> {
+    return requestWrite("/api/renovation/dictionary/users", "POST", payload);
+}
+
+export async function updateRenovationUserCells(updates: CellUpdate[]): Promise<unknown> {
+    const sessionQuery = `?session_id=${getCollabSessionId()}`;
+    return Promise.all(
+        updates.map((update) =>
+            requestWrite(
+                `/api/renovation/dictionary/users/${encodeURIComponent(update.rowId)}${sessionQuery}`,
+                "PATCH",
+                {
+                    ...(update.field === "fullname" ? { fullname: update.value } : {}),
+                    ...(update.field === "role" ? { role: update.value } : {}),
+                    ...(update.field === "block" ? { block: update.value || null } : {}),
+                    ...(update.field === "assetNames" ? { assetNames: update.value } : {}),
+                    ...(update.field === "isActive" ? { isActive: update.value } : {}),
+                },
+            ),
+        ),
+    );
+}
+
+export type RenovationExportColumn = {
+    key: string;
+    headerPath: string[];
+    width: number;
+    numberFormat: string | null;
+};
+
+export async function exportRenovationDictionary(request: {
+    section: string;
+    headerPinned: boolean;
+    columns: RenovationExportColumn[];
+    rowIds: string[] | null;
+    fileName: string;
+}): Promise<Blob> {
+    const response = await fetch("/api/renovation/dictionary/export", {
+        cache: "no-store",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
     });
+    if (!response.ok) {
+        let detail = `Запрос завершился ошибкой ${response.status}.`;
+        try {
+            const payload = (await response.json()) as { detail?: string };
+            if (typeof payload.detail === "string") {
+                detail = payload.detail;
+            }
+        } catch {
+            // For a non-JSON response keep the generic message prepared above.
+        }
+        throw new ReportCollectorApiError(detail, response.status);
+    }
+    return response.blob();
+}
+
+// ─── Section-scoped undo/redo (plan and dictionaries) ─────────────────────
+
+export async function undoCells(
+    skipActionId: number | null,
+    section: string = RENOVATION_SECTION,
+): Promise<RenovationUndoResult> {
+    return requestWrite(`/api/renovation/undo?session_id=${getCollabSessionId()}`, "POST", {
+        skipActionId,
+        section,
+        reportMonth: null,
+    });
+}
+
+export async function redoCells(
+    skipActionId: number | null,
+    section: string = RENOVATION_SECTION,
+): Promise<RenovationUndoResult> {
+    return requestWrite(`/api/renovation/redo?session_id=${getCollabSessionId()}`, "POST", {
+        skipActionId,
+        section,
+        reportMonth: null,
+    });
+}
+
+export async function getUndoState(
+    section: string = RENOVATION_SECTION,
+): Promise<RenovationUndoState> {
+    const params = new URLSearchParams({ section, session_id: getCollabSessionId() });
     return requestJson(`/api/renovation/undo-state?${params.toString()}`);
 }

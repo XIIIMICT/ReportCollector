@@ -8,6 +8,7 @@ import {
     Kbd,
     Skeleton,
     Spinner,
+    Tabs,
     toast,
     Tooltip,
     Typography,
@@ -19,7 +20,6 @@ import {
     Download,
     Expand,
     PasteClipboard,
-    Plus,
     Redo,
     Send,
     Trash,
@@ -53,10 +53,13 @@ import {
     getRenovationPlans,
     getUndoState,
     redoCells,
+    RENOVATION_ASSETS_SECTION,
+    RENOVATION_SECTION,
+    RENOVATION_USERS_SECTION,
+    renovationCatalogSection,
     submitRenovationPlan,
     undoCells,
     updateRenovationCells,
-    RENOVATION_SECTION,
     type RenovationDiff,
     type RenovationMeta,
     type RenovationPlan,
@@ -64,13 +67,17 @@ import {
     type RenovationUndoResult,
 } from "@/shared/api/renovation";
 import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector";
-import { useCollabRoom } from "@/shared/collab/use-collab-room";
+import { canonicalCellKey, useCollabRoom } from "@/shared/collab/use-collab-room";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 
+import {
+    RenovationDictionarySection,
+    renovationSectionTable,
+} from "./renovation-dictionary-section";
 import {
     canonicalRenovationKey,
     RenovationGrid,
@@ -85,6 +92,7 @@ export type RenovationWorkspaceProps = {
 };
 
 const WORKING_VERSION_ID = "__working";
+const PLACEHOLDER_ROW_ID = "placeholder:renovation-plan";
 
 function errorMessage(reason: unknown): string {
     return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
@@ -148,6 +156,7 @@ export function RenovationWorkspace({
     const [isFullscreenPending, setIsFullscreenPending] = useState(false);
     const [footerAutocompleteOpen, setFooterAutocompleteOpen] = useState(false);
     const [gridStats, setGridStats] = useState<GridViewStats | null>(null);
+    const [activeSection, setActiveSection] = useState<string>("plan");
     const [selection, setSelection] = useState<{
         label: string | null;
         cellKeys: string[];
@@ -168,13 +177,22 @@ export function RenovationWorkspace({
     });
     const [profileOpen, setProfileOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
-    const [addOpen, setAddOpen] = useState(false);
     const [submitOpen, setSubmitOpen] = useState(false);
     const [approveOpen, setApproveOpen] = useState(false);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [exportPending, setExportPending] = useState(false);
     const [undoCount, setUndoCount] = useState(0);
     const [redoCount, setRedoCount] = useState(0);
+    // The trailing placeholder row's picked asset (kept on a failed add).
+    const [placeholderAsset, setPlaceholderAsset] = useState("");
+    // Dictionary tab actions are delegated by the active dictionary section.
+    const [dictDeleteState, setDictDeleteState] = useState<{
+        canDelete: boolean;
+        onDelete: () => void;
+    }>({ canDelete: false, onDelete: () => {} });
+    const [dictExportState, setDictExportState] = useState<{ onExport: () => void }>({
+        onExport: () => {},
+    });
     const [pendingSkip, setPendingSkip] = useState<{
         actionId: number;
         direction: "undo" | "redo";
@@ -235,9 +253,54 @@ export function RenovationWorkspace({
         return [...result].sort();
     }, [meta]);
 
+    // Section tabs: the plan grid first, then the reference dictionaries
+    // (enterprises, the five catalogs and project users), mirroring the
+    // «Сырьё» workspace. The dictionaries are admin-only.
+    const sections = useMemo(() => {
+        if (!meta) return [];
+        if (!isAdmin) return [{ id: "plan", label: "Ремонт" }];
+        return [
+            { id: "plan", label: "Ремонт" },
+            { id: "assets", label: "Предприятия" },
+            ...meta.catalogs.map((catalog) => ({ id: catalog.id, label: catalog.label })),
+            { id: "users", label: "Пользователи" },
+        ];
+    }, [isAdmin, meta]);
+
+    useEffect(() => {
+        if (sections.length > 0 && !sections.some((section) => section.id === activeSection)) {
+            setActiveSection("plan");
+        }
+    }, [activeSection, sections]);
+
+    const isPlanSection = activeSection === "plan";
+
+    // The collab room joins the active section: the plan (renovationPlan) or
+    // the dictionary tab (renovationAssets / renovationCatalog:{id} /
+    // renovationUsers). Undo/redo and the remote cell values follow it.
+    const dictSection = isPlanSection
+        ? null
+        : activeSection === "assets"
+          ? RENOVATION_ASSETS_SECTION
+          : activeSection === "users"
+            ? RENOVATION_USERS_SECTION
+            : renovationCatalogSection(activeSection);
+    const collabSection = dictSection ?? RENOVATION_SECTION;
+
     const visibleAssetNames = useMemo(
         () => (meta?.assets ?? []).map((asset) => asset.name),
         [meta],
+    );
+
+    // Stable identities for HeroUI selection sets and the grid's assetFilter
+    // prop: an inline `new Set(...)` changes identity on every render, which
+    // loops HeroUI's selection sync (update-depth crash) and re-fires the
+    // grid's selection effect (its deps include displaySource → assetFilter).
+    const assetFilterKeys = useMemo(() => new Set([assetFilter ?? "__all"]), [assetFilter]);
+    const blockFilterKeys = useMemo(() => new Set([blockFilter ?? "__all"]), [blockFilter]);
+    const assetFilterSet = useMemo(
+        () => (assetFilter ? new Set([assetFilter]) : null),
+        [assetFilter],
     );
 
     const isArchive = viewPlanId !== null;
@@ -250,8 +313,11 @@ export function RenovationWorkspace({
     }, []);
 
     const handleCellChanged = useCallback((event: CollabCellChanged) => {
-        if (event.section !== RENOVATION_SECTION) return;
-        const key = canonicalRenovationKey(event.rowId, event.field);
+        const key = canonicalCellKey(
+            renovationSectionTable(event.section),
+            event.rowId,
+            event.field,
+        );
         setRemoteCellValues((current) => {
             const next = new Map(current);
             next.set(key, event.value);
@@ -261,7 +327,7 @@ export function RenovationWorkspace({
 
     const room = useCollabRoom({
         projectKey: activeProjectKey,
-        section: RENOVATION_SECTION,
+        section: collabSection,
         reportMonth: null,
         enabled: collabEnabled,
         visibleAssets: visibleAssetNames,
@@ -337,7 +403,23 @@ export function RenovationWorkspace({
 
     useEffect(() => {
         setRemoteCellValues(new Map());
-    }, [viewPlanId]);
+    }, [activeSection, viewPlanId]);
+
+    // The version archive applies to the plan only: leaving the plan tab
+    // (e.g. into a dictionary) drops the archive view so the dictionaries
+    // stay live and collab-enabled.
+    useEffect(() => {
+        if (!isPlanSection && viewPlanId !== null) {
+            setViewPlanId(null);
+            setSelection(null);
+        }
+    }, [isPlanSection, viewPlanId]);
+
+    // Clipboard actions are bound to the active grid; reset on tab switch so
+    // a stale handler from the previous section is never invoked.
+    useEffect(() => {
+        setClipboardState({ canPaste: false, onCopy: () => {}, onPaste: () => {} });
+    }, [activeSection]);
 
     // The grid rows: plan rows with diff states plus deleted-row ghosts from
     // the comparison plan (the version being compared to).
@@ -356,6 +438,12 @@ export function RenovationWorkspace({
                 ...row.values,
                 // The read-only «№ ремонта» column shows the computed value.
                 col_003: row.renovationId,
+                // Service columns (corner menu «Показать служебные столбцы»).
+                id: row.id,
+                position: row.position,
+                revision: row.revision,
+                updatedAt: row.updatedAt,
+                updatedBy: row.updatedBy,
                 __id: row.id,
                 __position: row.position,
                 __assetId: row.assetId,
@@ -373,6 +461,11 @@ export function RenovationWorkspace({
                 result.push({
                     ...row.values,
                     col_003: row.renovationId,
+                    id: row.id,
+                    position: row.position,
+                    revision: row.revision,
+                    updatedAt: row.updatedAt,
+                    updatedBy: row.updatedBy,
                     __id: row.id,
                     __position: row.position,
                     __assetId: row.assetId,
@@ -384,8 +477,22 @@ export function RenovationWorkspace({
                 });
             }
         }
-        return result.sort((a, b) => a.__position - b.__position);
-    }, [comparisonPlan, diff, plan]);
+        result.sort((a, b) => a.__position - b.__position);
+        if (!readOnly) {
+            result.push({
+                __id: PLACEHOLDER_ROW_ID,
+                __position: -1,
+                __assetId: "",
+                __assetName: placeholderAsset,
+                __renovationId: null,
+                __rowState: "unchanged",
+                __changedFields: [],
+                __missingComponents: [],
+                isPlaceholder: true,
+            });
+        }
+        return result;
+    }, [comparisonPlan, diff, placeholderAsset, plan, readOnly]);
 
     // Remote cell values (live edits of other users) override the local ones
     // for display — the working plan only.
@@ -403,17 +510,17 @@ export function RenovationWorkspace({
         });
     }, [editableFieldKeys, gridRows, isArchive, remoteCellValues]);
 
-    // Undo/redo is per session and form: the counters are re-read from the
-    // server on every version switch.
+    // Undo/redo is per session, form and collab section: the counters are
+    // re-read from the server on every version or tab switch.
     useEffect(() => {
         if (!collabEnabled) return;
-        void getUndoState()
+        void getUndoState(collabSection)
             .then((state) => {
                 setUndoCount(state.canUndo ? 1 : 0);
                 setRedoCount(state.canRedo ? 1 : 0);
             })
             .catch(() => {});
-    }, [collabEnabled, reloadKey, viewPlanId]);
+    }, [collabEnabled, collabSection, reloadKey, viewPlanId]);
 
     const applyUndoResult = useCallback(
         (result: RenovationUndoResult, direction: "undo" | "redo") => {
@@ -455,24 +562,26 @@ export function RenovationWorkspace({
         try {
             const result = await undoCells(
                 pendingSkip?.direction === "undo" ? pendingSkip.actionId : null,
+                collabSection,
             );
             applyUndoResult(result, "undo");
         } catch (reason) {
             toast.danger("Не удалось отменить действие", { description: errorMessage(reason) });
         }
-    }, [applyUndoResult, pendingSkip]);
+    }, [applyUndoResult, collabSection, pendingSkip]);
 
     const runRedo = useCallback(async () => {
         await pendingCommitRef.current;
         try {
             const result = await redoCells(
                 pendingSkip?.direction === "redo" ? pendingSkip.actionId : null,
+                collabSection,
             );
             applyUndoResult(result, "redo");
         } catch (reason) {
             toast.danger("Не удалось вернуть действие", { description: errorMessage(reason) });
         }
-    }, [applyUndoResult, pendingSkip]);
+    }, [applyUndoResult, collabSection, pendingSkip]);
 
     useEffect(() => {
         if (!collabEnabled) return;
@@ -512,32 +621,42 @@ export function RenovationWorkspace({
         });
     }, [collabEnabled, isArchive, redoCount, room.status, runRedo, runUndo, undoCount]);
 
-    async function commit(updates: CellUpdate[]): Promise<boolean> {
-        if (readOnly || !updates.length) return true;
-        const task = doCommit(updates);
-        pendingCommitRef.current = task;
-        try {
-            return await task;
-        } finally {
-            if (pendingCommitRef.current === task) pendingCommitRef.current = null;
-        }
-    }
+    // Stable identity: `commit` feeds the grid's `columns` memo, which the
+    // selection effect depends on — an inline function would re-trigger the
+    // effect on every render (setSelection → re-render → new commit → columns
+    // → effect again) and overflow the React update-depth guard.
+    const doCommit = useCallback(
+        async (updates: CellUpdate[]): Promise<boolean> => {
+            setIsMutationPending(true);
+            try {
+                await updateRenovationCells(updates);
+                setUndoCount((count) => count + 1);
+                setRedoCount(0);
+                refresh();
+                return true;
+            } catch (reason) {
+                toast.danger("Изменения не сохранены", { description: errorMessage(reason) });
+                return false;
+            } finally {
+                setIsMutationPending(false);
+            }
+        },
+        [refresh],
+    );
 
-    async function doCommit(updates: CellUpdate[]): Promise<boolean> {
-        setIsMutationPending(true);
-        try {
-            await updateRenovationCells(updates);
-            setUndoCount((count) => count + 1);
-            setRedoCount(0);
-            refresh();
-            return true;
-        } catch (reason) {
-            toast.danger("Изменения не сохранены", { description: errorMessage(reason) });
-            return false;
-        } finally {
-            setIsMutationPending(false);
-        }
-    }
+    const commit = useCallback(
+        async (updates: CellUpdate[]): Promise<boolean> => {
+            if (readOnly || !updates.length) return true;
+            const task = doCommit(updates);
+            pendingCommitRef.current = task;
+            try {
+                return await task;
+            } finally {
+                if (pendingCommitRef.current === task) pendingCommitRef.current = null;
+            }
+        },
+        [doCommit, readOnly],
+    );
 
     const exportPlan = useCallback(async () => {
         if (exportPending) return;
@@ -585,7 +704,7 @@ export function RenovationWorkspace({
         setIsMutationPending(true);
         try {
             await addRenovationRow(assetId);
-            setAddOpen(false);
+            setPlaceholderAsset("");
             toast.success("Строка добавлена");
             refresh();
         } catch (reason) {
@@ -595,22 +714,41 @@ export function RenovationWorkspace({
         }
     }
 
+    async function commitPlaceholder(assetName: string): Promise<boolean> {
+        if (isMutationPending) return true;
+        const asset = meta?.assets.find((candidate) => candidate.name === assetName);
+        if (!asset) {
+            toast.danger("Не удалось добавить строку", {
+                description: "Предприятие не найдено в справочнике активов.",
+            });
+            return true;
+        }
+        // Keep the picked name in the placeholder row while the request runs
+        // (gridRows rebuilds with readOnly=true during the mutation).
+        setPlaceholderAsset(assetName);
+        await addRow(asset.id);
+        return true;
+    }
+
     const runSubmit = useCallback(async () => {
         if (isMutationPending) return;
         setIsMutationPending(true);
         try {
-            await submitRenovationPlan();
+            const submitted = await submitRenovationPlan();
             setSubmitOpen(false);
             setUndoCount(0);
             setRedoCount(0);
             toast.success("План отправлен на согласование");
-            refreshMeta();
+            // The working plan is gone; show the pending one read-only instead
+            // of a 404 «Не удалось загрузить план».
+            setViewPlanId(submitted.id);
+            setMetaReloadKey((key) => key + 1);
         } catch (reason) {
             toast.danger("Не удалось отправить план", { description: errorMessage(reason) });
         } finally {
             setIsMutationPending(false);
         }
-    }, [isMutationPending, refreshMeta]);
+    }, [isMutationPending]);
 
     const runApprove = useCallback(async () => {
         if (isMutationPending) return;
@@ -676,6 +814,45 @@ export function RenovationWorkspace({
         });
     }, []);
 
+    // The dictionary grid binds the copy/paste actions to its own handle.
+    const handleDictClipboardState = useCallback(
+        (state: { canPaste: boolean; onCopy: () => void; onPaste: () => void }) => {
+            setClipboardState(state);
+        },
+        [],
+    );
+
+    // Stable identity: the grid's selection effect runs on every prop change
+    // and calls onClipboardStateChange — an inline handler would re-trigger it
+    // on every render (setClipboardState → re-render → new handler → effect
+    // again) and overflow the React update-depth guard.
+    const handleSelectionChange = useCallback(
+        (
+            next: {
+                label: string | null;
+                cellKeys: string[];
+                rowId: string | null;
+            } | null,
+        ) => {
+            setSelection(next);
+            if (suppressSelectionSendRef.current) {
+                // The clear following a preemption from another tab of the same
+                // account is not sent — the server entry belongs to the other tab.
+                suppressSelectionSendRef.current = false;
+                if (!next?.label) return;
+            }
+            if (next) {
+                room.setSelection({
+                    label: next.label ?? "",
+                    cellKeys: next.cellKeys,
+                });
+            } else {
+                room.setSelection(null);
+            }
+        },
+        [room],
+    );
+
     useEffect(() => {
         setClipboardState({
             canPaste: selection !== null,
@@ -732,27 +909,6 @@ export function RenovationWorkspace({
         );
     }
 
-    if (!meta || !plan) {
-        return (
-            <div className="app-shell">
-                <AppHeader
-                    user={user}
-                    projects={user.access ?? []}
-                    activeProjectKey={activeProjectKey}
-                    onProjectChange={onProjectChange}
-                    onOpenProfile={() => setProfileOpen(true)}
-                />
-                <div className="app-body">
-                    <div className="flex items-center gap-3 p-8">
-                        <Spinner size="sm" />
-                        <Typography>Загрузка плана ремонта...</Typography>
-                    </div>
-                    <Skeleton className="h-48 rounded-xl" />
-                </div>
-            </div>
-        );
-    }
-
     if (planError) {
         return (
             <div className="app-shell">
@@ -777,111 +933,158 @@ export function RenovationWorkspace({
         );
     }
 
+    if (!meta || !plan) {
+        return (
+            <div className="app-shell">
+                <AppHeader
+                    user={user}
+                    projects={user.access ?? []}
+                    activeProjectKey={activeProjectKey}
+                    onProjectChange={onProjectChange}
+                    onOpenProfile={() => setProfileOpen(true)}
+                />
+                <div className="app-body">
+                    <div className="flex items-center gap-3 p-8">
+                        <Spinner size="sm" />
+                        <Typography>Загрузка плана ремонта...</Typography>
+                    </div>
+                    <Skeleton className="h-48 rounded-xl" />
+                </div>
+            </div>
+        );
+    }
+
     const toolbar = (
         <div className="table-toolbar">
             {collabEnabled ? <CollabStatusBar room={room} /> : null}
             <div className="table-toolbar__controls">
-                <Dropdown>
-                    <Button
-                        className="toolbar-filter-button"
-                        variant="ghost"
-                        aria-label="Фильтр по активу"
-                    >
-                        {assetFilter ?? "Все активы"}
-                    </Button>
-                    <Dropdown.Popover>
-                        <Dropdown.Menu
-                            aria-label="Активы"
-                            selectionMode="single"
-                            selectedKeys={new Set([assetFilter ?? "__all"])}
-                            onSelectionChange={(keys) => {
-                                const key = keys === "all" ? null : [...keys][0];
-                                setAssetFilter(key && key !== "__all" ? String(key) : null);
-                            }}
-                        >
-                            <Dropdown.Item id="__all" textValue="Все активы">
-                                Все активы
-                            </Dropdown.Item>
-                            {meta.assets.map((asset) => (
-                                <Dropdown.Item
-                                    key={asset.name}
-                                    id={asset.name}
-                                    textValue={asset.name}
+                <Tabs
+                    className="section-tabs"
+                    selectedKey={activeSection}
+                    variant="primary"
+                    onSelectionChange={(key) => setActiveSection(String(key))}
+                >
+                    <Tabs.ListContainer>
+                        <Tabs.List aria-label="Таблицы и справочники">
+                            {sections.map((section, index) => {
+                                const previous = sections[index - 1];
+                                const isFirstDictionary =
+                                    index > 0 && section.id !== "plan" && previous.id === "plan";
+                                return (
+                                    <Tabs.Tab key={section.id} id={section.id}>
+                                        {isFirstDictionary ? <Tabs.Separator /> : null}
+                                        {section.label}
+                                        <Tabs.Indicator />
+                                    </Tabs.Tab>
+                                );
+                            })}
+                        </Tabs.List>
+                    </Tabs.ListContainer>
+                </Tabs>
+                {isPlanSection ? (
+                    <>
+                        <Dropdown>
+                            <Button
+                                className="toolbar-filter-button"
+                                variant="ghost"
+                                aria-label="Фильтр по активу"
+                            >
+                                {assetFilter ?? "Все активы"}
+                            </Button>
+                            <Dropdown.Popover>
+                                <Dropdown.Menu
+                                    aria-label="Активы"
+                                    selectionMode="single"
+                                    selectedKeys={assetFilterKeys}
+                                    onSelectionChange={(keys) => {
+                                        const key = keys === "all" ? null : [...keys][0];
+                                        setAssetFilter(key && key !== "__all" ? String(key) : null);
+                                    }}
                                 >
-                                    {asset.name}
-                                </Dropdown.Item>
-                            ))}
-                        </Dropdown.Menu>
-                    </Dropdown.Popover>
-                </Dropdown>
-                <Dropdown>
-                    <Button
-                        className="toolbar-filter-button"
-                        variant="ghost"
-                        aria-label="Фильтр по блоку"
-                    >
-                        {blockFilter ? `Блок: ${blockLabel(blockFilter)}` : "Все блоки"}
-                    </Button>
-                    <Dropdown.Popover>
-                        <Dropdown.Menu
-                            aria-label="Блоки"
-                            selectionMode="single"
-                            selectedKeys={new Set([blockFilter ?? "__all"])}
-                            onSelectionChange={(keys) => {
-                                const key = keys === "all" ? null : [...keys][0];
-                                setBlockFilter(key && key !== "__all" ? String(key) : null);
-                            }}
-                        >
-                            <Dropdown.Item id="__all" textValue="Все блоки">
-                                Все блоки
-                            </Dropdown.Item>
-                            {blocks.map((block) => (
-                                <Dropdown.Item key={block} id={block} textValue={blockLabel(block)}>
-                                    {blockLabel(block)}
-                                </Dropdown.Item>
-                            ))}
-                        </Dropdown.Menu>
-                    </Dropdown.Popover>
-                </Dropdown>
+                                    <Dropdown.Item id="__all" textValue="Все активы">
+                                        Все активы
+                                    </Dropdown.Item>
+                                    {meta.assets.map((asset) => (
+                                        <Dropdown.Item
+                                            key={asset.name}
+                                            id={asset.name}
+                                            textValue={asset.name}
+                                        >
+                                            {asset.name}
+                                        </Dropdown.Item>
+                                    ))}
+                                </Dropdown.Menu>
+                            </Dropdown.Popover>
+                        </Dropdown>
+                        <Dropdown>
+                            <Button
+                                className="toolbar-filter-button"
+                                variant="ghost"
+                                aria-label="Фильтр по блоку"
+                            >
+                                {blockFilter ? `Блок: ${blockLabel(blockFilter)}` : "Все блоки"}
+                            </Button>
+                            <Dropdown.Popover>
+                                <Dropdown.Menu
+                                    aria-label="Блоки"
+                                    selectionMode="single"
+                                    selectedKeys={blockFilterKeys}
+                                    onSelectionChange={(keys) => {
+                                        const key = keys === "all" ? null : [...keys][0];
+                                        setBlockFilter(key && key !== "__all" ? String(key) : null);
+                                    }}
+                                >
+                                    <Dropdown.Item id="__all" textValue="Все блоки">
+                                        Все блоки
+                                    </Dropdown.Item>
+                                    {blocks.map((block) => (
+                                        <Dropdown.Item
+                                            key={block}
+                                            id={block}
+                                            textValue={blockLabel(block)}
+                                        >
+                                            {blockLabel(block)}
+                                        </Dropdown.Item>
+                                    ))}
+                                </Dropdown.Menu>
+                            </Dropdown.Popover>
+                        </Dropdown>
+                    </>
+                ) : null}
             </div>
         </div>
     );
 
-    const actions: ActionItem[] = [
-        {
-            id: "fullscreen",
-            label: isFullscreen ? "Выйти из полного экрана" : "В полный экран",
-            icon: isFullscreen ? <Collapse /> : <Expand />,
-            onPress: () => void setFullscreenMode(!isFullscreen),
-            disabled: isFullscreenPending,
-        },
-        {
-            id: "export",
-            label: "Скачать в Excel",
-            icon: exportPending ? <Spinner size="sm" /> : <Download />,
-            onPress: () => void exportPlan(),
-            disabled: exportPending || isFullscreenPending,
-        },
-        ...(undoState.enabled
-            ? [
-                  {
-                      id: "undo",
-                      label: "Отменить действие",
-                      icon: <Undo />,
-                      onPress: undoState.onUndo,
-                      disabled: undoState.offline || !undoState.canUndo,
-                      shortcut: { key: "Z", aria: "Control+Z" },
-                  } satisfies ActionItem,
-                  {
-                      id: "redo",
-                      label: "Вернуть действие",
-                      icon: <Redo />,
-                      onPress: undoState.onRedo,
-                      disabled: undoState.offline || !undoState.canRedo,
-                      shortcut: { key: "Y", aria: "Control+Shift+Z" },
-                  } satisfies ActionItem,
-              ]
-            : []),
+    const fullscreenAction: ActionItem = {
+        id: "fullscreen",
+        label: isFullscreen ? "Выйти из полного экрана" : "В полный экран",
+        icon: isFullscreen ? <Collapse /> : <Expand />,
+        onPress: () => void setFullscreenMode(!isFullscreen),
+        disabled: isFullscreenPending,
+    };
+
+    const undoRedoActions: ActionItem[] = undoState.enabled
+        ? [
+              {
+                  id: "undo",
+                  label: "Отменить действие",
+                  icon: <Undo />,
+                  onPress: undoState.onUndo,
+                  disabled: undoState.offline || !undoState.canUndo,
+                  shortcut: { key: "Z", aria: "Control+Z" },
+              } satisfies ActionItem,
+              {
+                  id: "redo",
+                  label: "Вернуть действие",
+                  icon: <Redo />,
+                  onPress: undoState.onRedo,
+                  disabled: undoState.offline || !undoState.canRedo,
+                  shortcut: { key: "Y", aria: "Control+Shift+Z" },
+              } satisfies ActionItem,
+          ]
+        : [];
+
+    const clipboardActions: ActionItem[] = [
         {
             id: "copy",
             label: "Копировать",
@@ -898,6 +1101,19 @@ export function RenovationWorkspace({
             disabled: isFullscreenPending || !clipboardState.canPaste,
             shortcut: { key: "V", aria: "Control+V" },
         } satisfies ActionItem,
+    ];
+
+    const actions: ActionItem[] = [
+        fullscreenAction,
+        {
+            id: "export",
+            label: "Скачать в Excel",
+            icon: exportPending ? <Spinner size="sm" /> : <Download />,
+            onPress: () => void exportPlan(),
+            disabled: exportPending || isFullscreenPending,
+        },
+        ...undoRedoActions,
+        ...clipboardActions,
         ...(!isArchive
             ? [
                   {
@@ -907,13 +1123,6 @@ export function RenovationWorkspace({
                       onPress: () => setDeleteOpen(true),
                       variant: "danger" as const,
                       disabled: !canDeleteRow || isFullscreenPending,
-                  } satisfies ActionItem,
-                  {
-                      id: "add",
-                      label: "Добавить строку",
-                      icon: <Plus />,
-                      onPress: () => setAddOpen(true),
-                      disabled: isMutationPending || isFullscreenPending,
                   } satisfies ActionItem,
               ]
             : []),
@@ -943,10 +1152,37 @@ export function RenovationWorkspace({
             : []),
     ];
 
+    // Dictionary tabs: export/undo/redo/copy/paste act on the dictionary grid;
+    // delete is delegated by the active dictionary section (hidden for users).
+    const dictActions: ActionItem[] = [
+        fullscreenAction,
+        {
+            id: "export",
+            label: "Скачать в Excel",
+            icon: <Download />,
+            onPress: dictExportState.onExport,
+            disabled: isFullscreenPending,
+        },
+        ...undoRedoActions,
+        ...clipboardActions,
+        ...(dictDeleteState.canDelete
+            ? [
+                  {
+                      id: "delete",
+                      label: "Удалить строку",
+                      icon: <Trash />,
+                      onPress: dictDeleteState.onDelete,
+                      variant: "danger" as const,
+                      disabled: isFullscreenPending,
+                  } satisfies ActionItem,
+              ]
+            : []),
+    ];
+
     const footer = (
         <div className="table-footer">
             <div className="table-footer__summary">
-                {archiveItems.length > 0 ? (
+                {isPlanSection && archiveItems.length > 0 ? (
                     <div className="archive-autocomplete">
                         <SearchAutocomplete
                             placeholder="Выберите версию"
@@ -970,7 +1206,9 @@ export function RenovationWorkspace({
                         />
                     </div>
                 ) : null}
-                {gridStats !== null && (selection?.label || gridStats.filtersApplied) ? (
+                {isPlanSection &&
+                gridStats !== null &&
+                (selection?.label || gridStats.filtersApplied) ? (
                     <Tooltip delay={250}>
                         <Tooltip.Trigger>
                             <div className="grid-stats" aria-label="Статистика таблицы">
@@ -1009,7 +1247,7 @@ export function RenovationWorkspace({
                 ) : null}
             </div>
             <RenovationActionBar
-                items={actions}
+                items={isPlanSection ? actions : dictActions}
                 isFullscreen={isFullscreen}
                 isFullscreenPending={isFullscreenPending}
                 onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
@@ -1036,65 +1274,77 @@ export function RenovationWorkspace({
                         <Card.Content className="workspace-card__content">
                             {toolbar}
                             <div className="grid-viewport" aria-busy={isMutationPending}>
-                                <RenovationGrid
-                                    ref={gridRef}
-                                    fields={meta.fields}
-                                    headerCells={meta.headerCells}
-                                    catalogs={meta.catalogs}
-                                    rows={displayRows}
-                                    assetFilter={assetFilter ? new Set([assetFilter]) : null}
-                                    blockFilter={blockFilter}
-                                    baselineBoundary={plan.baselineBoundary}
-                                    readOnly={readOnly}
-                                    editableFieldKeys={editableFieldKeys}
-                                    userAssetIds={userAssetIds}
-                                    remoteLocks={remoteLocks}
-                                    remotePresence={remotePresence}
-                                    remoteCellInfo={remoteCellInfo}
-                                    onAcquireLease={room.acquireLeases}
-                                    onReleaseLease={room.releaseLeases}
-                                    onLockedCellEdit={(_, ownerName) =>
-                                        toast.warning("Ячейка занята", {
-                                            description: `Сейчас её занимает ${ownerName}.`,
-                                        })
-                                    }
-                                    onCommit={commit}
-                                    onCommitFailed={refresh}
-                                    onValidationError={(message) =>
-                                        toast.warning("Некорректное значение", {
-                                            description: message,
-                                        })
-                                    }
-                                    onPasteSkipped={(description) =>
-                                        toast.warning("Вставка выполнена не полностью", {
-                                            description,
-                                        })
-                                    }
-                                    onSelectionChange={(next) => {
-                                        setSelection(next);
-                                        if (suppressSelectionSendRef.current) {
-                                            // The clear following a preemption
-                                            // from another tab of the same
-                                            // account is not sent — the server
-                                            // entry belongs to the other tab.
-                                            suppressSelectionSendRef.current = false;
-                                            if (!next?.label) return;
-                                        }
-                                        if (next) {
-                                            room.setSelection({
-                                                label: next.label ?? "",
-                                                cellKeys: next.cellKeys,
-                                            });
-                                        } else {
-                                            room.setSelection(null);
-                                        }
-                                    }}
-                                    onViewStatsChange={setGridStats}
-                                    onClipboardStateChange={handleClipboardState}
-                                />
-                                {displayRows.length === 0 ? (
-                                    <div className="grid-empty">В этом плане пока нет строк.</div>
-                                ) : null}
+                                {isPlanSection ? (
+                                    <>
+                                        <RenovationGrid
+                                            ref={gridRef}
+                                            fields={meta.fields}
+                                            headerCells={meta.headerCells}
+                                            catalogs={meta.catalogs}
+                                            assets={meta.assets}
+                                            rows={displayRows}
+                                            assetFilter={assetFilterSet}
+                                            blockFilter={blockFilter}
+                                            baselineBoundary={plan.baselineBoundary}
+                                            readOnly={readOnly}
+                                            editableFieldKeys={editableFieldKeys}
+                                            userAssetIds={userAssetIds}
+                                            remoteLocks={remoteLocks}
+                                            remotePresence={remotePresence}
+                                            onResetFilters={() => {
+                                                setAssetFilter(null);
+                                                setBlockFilter(null);
+                                            }}
+                                            remoteCellInfo={remoteCellInfo}
+                                            onAcquireLease={room.acquireLeases}
+                                            onReleaseLease={room.releaseLeases}
+                                            onLockedCellEdit={(_, ownerName) =>
+                                                toast.warning("Ячейка занята", {
+                                                    description: `Сейчас её занимает ${ownerName}.`,
+                                                })
+                                            }
+                                            onCommit={commit}
+                                            onPlaceholderCommit={commitPlaceholder}
+                                            onCommitFailed={refresh}
+                                            onValidationError={(message) =>
+                                                toast.warning("Некорректное значение", {
+                                                    description: message,
+                                                })
+                                            }
+                                            onPasteSkipped={(description) =>
+                                                toast.warning("Вставка выполнена не полностью", {
+                                                    description,
+                                                })
+                                            }
+                                            onSelectionChange={handleSelectionChange}
+                                            onViewStatsChange={setGridStats}
+                                            onClipboardStateChange={handleClipboardState}
+                                        />
+                                        {displayRows.length === 0 ? (
+                                            <div className="grid-empty">
+                                                В этом плане пока нет строк.
+                                            </div>
+                                        ) : null}
+                                    </>
+                                ) : (
+                                    <RenovationDictionarySection
+                                        section={dictSection ?? RENOVATION_ASSETS_SECTION}
+                                        room={room}
+                                        assets={meta.assets}
+                                        catalogs={meta.catalogs}
+                                        collabEnabled={collabEnabled}
+                                        refreshKey={reloadKey}
+                                        remoteCellValues={remoteCellValues}
+                                        onDeleteState={setDictDeleteState}
+                                        onExportState={setDictExportState}
+                                        onClipboardStateChange={handleDictClipboardState}
+                                        onUndoHistoryChanged={() => {
+                                            setUndoCount((count) => count + 1);
+                                            setRedoCount(0);
+                                        }}
+                                        onAssetsChanged={refreshMeta}
+                                    />
+                                )}
                             </div>
                             {footer}
                         </Card.Content>
@@ -1129,13 +1379,6 @@ export function RenovationWorkspace({
                 count={1}
                 onOpenChange={setDeleteOpen}
                 onConfirm={() => void deleteSelectedRow()}
-            />
-            <AddRowDialog
-                isOpen={addOpen}
-                isPending={isMutationPending}
-                assets={meta.assets}
-                onOpenChange={setAddOpen}
-                onConfirm={(assetId) => void addRow(assetId)}
             />
             <SubmitPlanDialog
                 isOpen={submitOpen}
@@ -1221,98 +1464,6 @@ export function RenovationActionBar({
                 );
             })}
         </div>
-    );
-}
-
-function AddRowDialog({
-    isOpen,
-    isPending,
-    assets,
-    onOpenChange,
-    onConfirm,
-}: {
-    isOpen: boolean;
-    isPending: boolean;
-    assets: Array<{ id: string; name: string }>;
-    onOpenChange: (open: boolean) => void;
-    onConfirm: (assetId: string) => void;
-}) {
-    const [assetId, setAssetId] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (!isOpen) setAssetId(null);
-    }, [isOpen]);
-
-    const selectedAsset = assets.find((asset) => asset.id === assetId) ?? null;
-
-    return (
-        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialog.Backdrop isDismissable={!isPending}>
-                <AlertDialog.Container>
-                    <AlertDialog.Dialog>
-                        <AlertDialog.Header>
-                            <AlertDialog.Icon status="success">
-                                <Plus />
-                            </AlertDialog.Icon>
-                            <AlertDialog.Heading>Добавить строку в план</AlertDialog.Heading>
-                        </AlertDialog.Header>
-                        <AlertDialog.Body>
-                            <p className="mb-2 text-sm">
-                                Выберите актив, для которого добавляется строка:
-                            </p>
-                            <Dropdown>
-                                <Button
-                                    variant="ghost"
-                                    className="w-full"
-                                    aria-label="Выберите актив"
-                                >
-                                    {selectedAsset?.name ?? "Выберите актив"}
-                                </Button>
-                                <Dropdown.Popover>
-                                    <Dropdown.Menu
-                                        aria-label="Активы"
-                                        selectionMode="single"
-                                        onSelectionChange={(keys) => {
-                                            const key = keys === "all" ? null : [...keys][0];
-                                            setAssetId(key ? String(key) : null);
-                                        }}
-                                    >
-                                        {assets.map((asset) => (
-                                            <Dropdown.Item
-                                                key={asset.id}
-                                                id={asset.id}
-                                                textValue={asset.name}
-                                            >
-                                                {asset.name}
-                                            </Dropdown.Item>
-                                        ))}
-                                    </Dropdown.Menu>
-                                </Dropdown.Popover>
-                            </Dropdown>
-                        </AlertDialog.Body>
-                        <AlertDialog.Footer>
-                            <Button
-                                variant="tertiary"
-                                onPress={() => onOpenChange(false)}
-                                isDisabled={isPending}
-                            >
-                                Отмена
-                            </Button>
-                            <Button
-                                variant="primary"
-                                onPress={() => {
-                                    if (assetId) onConfirm(assetId);
-                                }}
-                                isDisabled={isPending || assetId === null}
-                            >
-                                {isPending ? <Spinner color="current" size="sm" /> : <Plus />}
-                                Добавить
-                            </Button>
-                        </AlertDialog.Footer>
-                    </AlertDialog.Dialog>
-                </AlertDialog.Container>
-            </AlertDialog.Backdrop>
-        </AlertDialog>
     );
 }
 

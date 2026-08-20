@@ -348,6 +348,8 @@ function SectionContent({
                 return getDeliveryBasisList;
             case "users":
                 return getUserList;
+            default:
+                return () => Promise.resolve([]);
         }
     }, [reportMonth, section]);
 
@@ -1295,7 +1297,7 @@ export function RawMaterialsWorkspace({
                 ? ADMIN_SECTIONS.map((referenceSection) => ({
                       id: referenceSection,
                       section: referenceSection,
-                      label: SECTION_LABELS[referenceSection],
+                      label: SECTION_LABELS[referenceSection] ?? referenceSection,
                       reportMonth: null,
                   }))
                 : []),
@@ -1584,6 +1586,10 @@ function Brand({
         );
     }
 
+    // Stable identity: an inline `new Set(...)` changes on every render and
+    // loops HeroUI's selection sync ("Maximum update depth exceeded").
+    const selectedProjectKeys = useMemo(() => new Set([activeProjectKey]), [activeProjectKey]);
+
     return (
         <div className={compact ? "brand brand--compact" : "brand"}>
             <img
@@ -1606,7 +1612,7 @@ function Brand({
                 <Dropdown.Popover>
                     <Dropdown.Menu
                         aria-label="Доступные проекты"
-                        selectedKeys={new Set([activeProjectKey])}
+                        selectedKeys={selectedProjectKeys}
                         selectionMode="single"
                         onSelectionChange={(selection) => {
                             const keys = selection === "all" ? [] : [...selection];

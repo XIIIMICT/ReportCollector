@@ -14,7 +14,10 @@ export type SectionId =
     | "rawMaterials"
     | "assets"
     | "deliveryBases"
-    | "users";
+    | "users"
+    | "renovationAssets"
+    | "renovationUsers"
+    | `renovationCatalog:${string}`;
 
 export type GridRow = Record<string, unknown> & {
     id: string;
@@ -38,7 +41,13 @@ export type ColumnKind =
     | "assetsMulti"
     | "basis"
     | "datetime"
-    | "calculated";
+    | "calculated"
+    | "select";
+
+export type SelectOption = {
+    value: string;
+    label: string;
+};
 
 export type ColumnDescriptor = {
     key: string;
@@ -46,6 +55,7 @@ export type ColumnDescriptor = {
     path?: string[];
     width: number;
     kind: ColumnKind;
+    options?: SelectOption[];
     fixed?: boolean;
     adminOnly?: boolean;
     exportable?: boolean;
@@ -68,6 +78,8 @@ export type GridColumnContext = {
     /** Cell key → the member currently on it (presence/lease). */
     remoteCellInfo: ReadonlyMap<string, { name: string; label: string | null }>;
     onBooleanChange: (row: GridRow, field: string, value: boolean) => void;
+    /** Custom column set — overrides the built-in descriptors for the section. */
+    descriptors?: ColumnDescriptor[];
 };
 
 export type ExportColumn = {
@@ -77,19 +89,24 @@ export type ExportColumn = {
     numberFormat: string | null;
 };
 
-export const SECTION_LABELS: Record<SectionId, string> = {
-    materialMovement: "Движение",
-    rawMaterialPrices: "Цены",
-    rawMaterials: "Сырьевые позиции",
-    assets: "Активы",
-    deliveryBases: "Базисы поставки",
-    users: "Пользователи",
-};
+type StaticSectionId = Exclude<SectionId, `renovationCatalog:${string}`>;
+
+export const SECTION_LABELS: Record<StaticSectionId, string> & Partial<Record<SectionId, string>> =
+    {
+        materialMovement: "Движение",
+        rawMaterialPrices: "Цены",
+        rawMaterials: "Сырьевые позиции",
+        assets: "Активы",
+        deliveryBases: "Базисы поставки",
+        users: "Пользователи",
+        renovationAssets: "Предприятия",
+        renovationUsers: "Пользователи",
+    };
 
 export const MAIN_SECTIONS = new Set<SectionId>(["materialMovement", "rawMaterialPrices"]);
 export const ADMIN_SECTIONS: SectionId[] = ["rawMaterials", "assets", "deliveryBases", "users"];
 
-const DESCRIPTORS: Record<SectionId, ColumnDescriptor[]> = {
+const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     materialMovement: [
         fixed("rawMaterialName", "Сырьевая позиция", 270),
         { ...fixed("assetName", "Актив", 170), adminOnly: true },
@@ -154,6 +171,37 @@ const DESCRIPTORS: Record<SectionId, ColumnDescriptor[]> = {
             placeholderReadOnly: true,
         },
     ],
+    // Renovation dictionaries. The five reference catalogs are dynamic
+    // ("renovationCatalog:{catalog_id}") — their descriptors are supplied by
+    // the renovation workspace via the grid's columnDescriptors prop.
+    renovationAssets: [text("name", "Наименование", 380), text("repairCode", "Ремонтный код", 170)],
+    renovationUsers: [
+        // The email identifies the user and cannot be changed after creation
+        // (no email in the PATCH schema) — editable in the placeholder row only.
+        { ...text("email", "Email", 220), placeholderOnly: true },
+        text("fullname", "ФИО", 250),
+        optionSelect("role", "Роль", 200, [
+            { value: "admin", label: "Администратор" },
+            { value: "approver", label: "Согласующий" },
+            { value: "block_owner", label: "Ответственный за блок" },
+            { value: "asset_worker", label: "Работник по активу" },
+        ]),
+        optionSelect("block", "Блок", 160, [
+            { value: "tashpaev", label: "Ташпаев" },
+            { value: "borodiichuk", label: "Бородийчук" },
+            { value: "babaeva", label: "Бабаева" },
+        ]),
+        { key: "assetNames", label: "Активы", width: 200, kind: "assetsMulti" },
+        { key: "isActive", label: "Доступ к проекту", width: 120, kind: "boolean" },
+        {
+            key: "lastAuthenticatedAt",
+            label: "Время последнего входа",
+            width: 190,
+            kind: "datetime",
+            fixed: true,
+            exportable: true,
+        },
+    ],
 };
 
 const SERVICE_DESCRIPTORS: ColumnDescriptor[] = [
@@ -187,13 +235,23 @@ function select(
     return { key, label, width, kind };
 }
 
+function optionSelect(
+    key: string,
+    label: string,
+    width: number,
+    options: SelectOption[],
+): ColumnDescriptor {
+    return { key, label, width, kind: "select", options };
+}
+
 export function getVisibleDescriptors(
     section: SectionId,
     showAssetColumn: boolean,
     showServiceColumns = false,
-    options: { keycloakEnabled?: boolean } = {},
+    options: { keycloakEnabled?: boolean; descriptors?: ColumnDescriptor[] } = {},
 ): ColumnDescriptor[] {
-    const visible = DESCRIPTORS[section].filter(
+    const source = options.descriptors ?? DESCRIPTORS[section] ?? [];
+    const visible = source.filter(
         (column) =>
             (!column.adminOnly || showAssetColumn) &&
             // With Keycloak enabled local passwords don't exist — the reset column is meaningless.
@@ -207,9 +265,10 @@ export function getEditableKeys(
     isAdmin: boolean,
     showAssetColumn: boolean,
     keycloakEnabled = false,
+    descriptors?: ColumnDescriptor[],
 ): Set<string> {
     return new Set(
-        getVisibleDescriptors(section, showAssetColumn, false, { keycloakEnabled })
+        getVisibleDescriptors(section, showAssetColumn, false, { keycloakEnabled, descriptors })
             .filter(
                 (column) =>
                     !column.fixed &&
@@ -230,9 +289,11 @@ export function exportColumnsFromGrid(
     showServiceColumns: boolean,
     current: (ColumnRegular | ColumnGrouping)[],
     keycloakEnabled = false,
+    descriptors?: ColumnDescriptor[],
 ): ExportColumn[] {
-    const descriptors = getVisibleDescriptors(section, showAssetColumn, showServiceColumns, {
+    const visibleDescriptors = getVisibleDescriptors(section, showAssetColumn, showServiceColumns, {
         keycloakEnabled,
+        descriptors,
     }).filter((descriptor) => descriptor.exportable !== false);
     const byKey = new Map(
         current
@@ -241,7 +302,7 @@ export function exportColumnsFromGrid(
             )
             .map((column) => [String(column.prop), column]),
     );
-    return descriptors.map((descriptor) => ({
+    return visibleDescriptors.map((descriptor) => ({
         key: descriptor.key,
         headerPath: [...(descriptor.path ?? []), descriptor.label],
         width: pixelsToExcelWidth(byKey.get(descriptor.key)?.size ?? descriptor.width),
@@ -286,7 +347,7 @@ export function exportFileName(
     const base =
         section === "materialMovement"
             ? `Движение сырья — ${reportMonth ? formatMonthName(reportMonth) : "отчёт"}`
-            : SECTION_LABELS[section];
+            : (SECTION_LABELS[section] ?? section);
     return `${base} (${stamp}).xlsx`;
 }
 
@@ -298,7 +359,7 @@ export function buildGridColumns(
         section,
         context.showAssetColumn,
         context.showServiceColumns,
-        { keycloakEnabled: context.keycloakEnabled },
+        { keycloakEnabled: context.keycloakEnabled, descriptors: context.descriptors },
     );
     const hasGroupedHeaders = descriptors.some((descriptor) => descriptor.path?.length);
     const leaves = descriptors.map((descriptor, index) =>
@@ -381,6 +442,11 @@ function buildLeaf(
         column.editor = "multiAssets";
         column.source = context.assets.map(({ name }) => name);
         column.cellTemplate = multiValueCellTemplate;
+    }
+    if (descriptor.kind === "select") {
+        column.editor = "select";
+        column.source = descriptor.options ?? [];
+        column.cellTemplate = (h, props) => selectCellTemplate(h, props, descriptor.options ?? []);
     }
     if (descriptor.kind === "asset" || descriptor.kind === "basis") {
         column.editor = "reference";
@@ -537,6 +603,16 @@ function multiValueCellTemplate(h: HyperFunc<VNode>, { value }: { value?: unknow
         { class: "report-cell__multi-value", title: labels.join(", ") },
         labels.join(", "),
     );
+}
+
+function selectCellTemplate(
+    h: HyperFunc<VNode>,
+    { value }: { value?: unknown },
+    options: SelectOption[],
+): VNode {
+    if (value === null || value === undefined || value === "") return h("span", {}, "");
+    const option = options.find((candidate) => candidate.value === String(value));
+    return h("span", {}, option ? option.label : String(value));
 }
 
 function numberCellTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode {
