@@ -17,7 +17,7 @@ from src.auth.models import Project, ProjectRole, User
 from src.auth.router import read_signed_identity
 from src.auth.service import CurrentUserIdentity, get_user_by_identity
 from src.collab.events import publish_cell_changed
-from src.collab.journal import AppliedCell, record_cell_updates
+from src.collab.journal import record_cell_updates
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
 from src.collab.store import get_collab_store
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
@@ -565,8 +565,8 @@ async def _undo_response(outcome: UndoOutcome, user: User) -> UndoResponse:
                 else []
             ),
         )
-    cell = outcome.applied_cell
-    if cell is None:
+    cells = outcome.applied_cells
+    if not cells:
         return UndoResponse(applied=True, reason="applied", section=outcome.section, reportMonth=outcome.report_month)
     await publish_cell_changed(
         get_collab_store(),
@@ -576,27 +576,17 @@ async def _undo_response(outcome: UndoOutcome, user: User) -> UndoResponse:
         user_id=user.id,
         user_name=user.name or "",
         user_email=user.email or "",
-        cells=[
-            AppliedCell(
-                target_table=cell.target_table,
-                row_id=cell.row_id,
-                field=cell.field,
-                old_value=cell.old_value,
-                new_value=outcome.applied_value,
-                revision=cell.revision,
-                action_id=cell.action_id,
-            )
-        ],
+        cells=cells,
     )
     return UndoResponse(
         applied=True,
         reason="applied",
         section=outcome.section,
         reportMonth=outcome.report_month,
-        rowId=cell.row_id,
-        field=cell.field,
-        value=outcome.applied_value,
-        revision=cell.revision,
+        rowId=cells[0].row_id,
+        field=cells[0].field,
+        value=cells[0].new_value,
+        revision=cells[0].revision,
     )
 
 

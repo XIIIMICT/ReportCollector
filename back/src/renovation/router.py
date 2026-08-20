@@ -800,8 +800,8 @@ async def _undo_response(outcome: UndoOutcome, access: RenovationAccess) -> Undo
                 else []
             ),
         )
-    cell = outcome.applied_cell
-    if cell is None:
+    cells = outcome.applied_cells
+    if not cells:
         return UndoResponse(applied=True, reason="applied", section=outcome.section, reportMonth=outcome.report_month)
     await publish_cell_changed(
         get_collab_store(),
@@ -811,25 +811,15 @@ async def _undo_response(outcome: UndoOutcome, access: RenovationAccess) -> Undo
         user_id=access.user.id,
         user_name=access.user.name or "",
         user_email=access.user.email or "",
-        cells=[
-            AppliedCell(
-                target_table=cell.target_table,
-                row_id=cell.row_id,
-                field=cell.field,
-                old_value=cell.old_value,
-                new_value=outcome.applied_value,
-                revision=cell.revision,
-                action_id=cell.action_id,
-            )
-        ],
+        cells=cells,
     )
     return UndoResponse(
         applied=True,
         reason="applied",
         section=outcome.section,
         reportMonth=outcome.report_month,
-        rowId=cell.row_id,
-        field=cell.field,
-        value=outcome.applied_value,
-        revision=cell.revision,
+        rowId=cells[0].row_id,
+        field=cells[0].field,
+        value=cells[0].new_value,
+        revision=cells[0].revision,
     )

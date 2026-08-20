@@ -184,11 +184,27 @@ class ValkeyStore:
         undone: bool,
         after_action_id: int | None = None,
     ) -> dict | None:
-        """Nearest user action with the required state (freshest first)."""
-        items = await self._redis.lrange(undo_stack_key(user_id, session_id, scope), 0, UNDO_SCAN_LIMIT - 1)
+        """
+        Nearest user action with the required state.
+
+        Undo scans the freshest actions first (front of the stack); redo
+        replays undone actions in their original order, so it scans the
+        oldest first (back of the stack) — redo restores the reverse of
+        the undo sequence. skip: undo skips the conflicted action and
+        everything fresher (id >= after), redo skips it and everything
+        older (id <= after).
+        """
+        key = undo_stack_key(user_id, session_id, scope)
+        if undone:
+            items = await self._redis.lrange(key, -UNDO_SCAN_LIMIT, -1)
+        else:
+            items = await self._redis.lrange(key, 0, UNDO_SCAN_LIMIT - 1)
         for action in map(_decode, items):
-            if after_action_id is not None and int(action["id"]) >= after_action_id:
-                continue
+            if after_action_id is not None:
+                if undone and int(action["id"]) <= after_action_id:
+                    continue
+                if not undone and int(action["id"]) >= after_action_id:
+                    continue
             if bool(action.get("undone")) == undone:
                 return action
         return None
@@ -388,9 +404,14 @@ class MemoryStore:
         after_action_id: int | None = None,
     ) -> dict | None:
         async with self._lock:
-            for action in self._undo.get((user_id, session_id, scope), [])[:UNDO_SCAN_LIMIT]:
-                if after_action_id is not None and int(action["id"]) >= after_action_id:
-                    continue
+            stack = self._undo.get((user_id, session_id, scope), [])
+            items = stack[-UNDO_SCAN_LIMIT:][::-1] if undone else stack[:UNDO_SCAN_LIMIT]
+            for action in items:
+                if after_action_id is not None:
+                    if undone and int(action["id"]) <= after_action_id:
+                        continue
+                    if not undone and int(action["id"]) >= after_action_id:
+                        continue
                 if bool(action.get("undone")) == undone:
                     return action
         return None

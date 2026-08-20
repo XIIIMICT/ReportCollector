@@ -59,11 +59,12 @@ The client maintains `ownedLeases` (Set) and **must remove keys on release** —
 ## Undo/redo (server-side stack)
 
 - Stack is per user **per browser session and form**: `rc:undo:{user_id}:{session_id}:{section}/{reportMonth}` — «Цены» history doesn't undo «Движение», August doesn't undo September. Survives form switches **within one page load**, but a reload gets a fresh `session_id` and starts with an empty history (stale stacks are never referenced again; the client re-reads `/undo-state` on form change).
-- An action is one cell (rowId, field, old/new value, actionId, targetTable, section, reportMonth). Stack limit 500, lookup — last 200.
+- An action is one PATCH batch — a single request that updates several cells is journaled as one action with a `cells` list (each cell: rowId, field, old/new value, revision; the action carries actionId, targetTable, section, reportMonth) and is undone/redone as a whole. Stack limit 500, lookup — last 200. Actions in the old single-cell format are still readable (legacy fallback).
 - **Edit→undo race:** the PATCH that commits a cell edit journals the action asynchronously. A Ctrl+Z fired immediately after Enter can reach `/undo` before the journal push — the server would answer `reason=empty` and the edit would stay. The frontend guards this: `runUndo`/`runRedo` in `raw-materials-workspace.tsx` first await the in-flight commit promise (`pendingCommitRef`), so undo is only sent after the edit landed on the server.
 - New edits **clear the redo branch** (Lua `_CLEAR_REDO_SCRIPT`).
+- **Redo order:** undo removes the freshest action first (4, 3, 2, 1); redo replays undone actions in their **original order** (oldest undone first — 1, 2, 3, 4, the reverse of the undo sequence). `next_action` scans the stack front-first for undo and back-first for redo; the `skipActionId` rule flips accordingly (undo skips `id >= after`, redo skips `id <= after`).
 - Applying undo/redo goes through the same `apply_cell_value` + `bump_cell_state` (revisions, `lastActionId`) and publishes `cell:changed`.
-- Conflicts: if a cell was changed by someone else after the action (`lastActionId` mismatch) or is leased by another — the action is rejected with `reason=conflict/locked`; a second undo press passes `skipActionId` to skip the blocked one.
+- Conflicts: if a cell was changed by someone else after the action (`lastActionId` mismatch **and** `lastUserId` is not the undo author — one's own consecutive edits don't block undoing them) or is leased by another — the action is rejected with `reason=conflict/locked`; a second undo press passes `skipActionId` to skip the blocked one. A batch action is atomic: if any cell conflicts, nothing is applied.
 - **Month fixing clears all undo stacks and cell states** (`clear_all_undo_state`) — the snapshot becomes the single point of reference.
 
 ## Deployment and WS diagnostics

@@ -1,13 +1,14 @@
 """
 Server-side edit journal: the undo/redo stack in Valkey (rc:undo:{user}:{session}:{scope}).
 
-Each action is a record of a single-cell edit. An edit (PATCH) pushes an
-action onto the user's stack (scoped per browser session and form:
-section/reportMonth) and bumps the cell state (rc:cellstate:*). Undo/redo
-toggles the undone flag on the same action, without creating new ones. A
-new edit by the user clears their redo branch; the stack survives form
-switches within the session, is forgotten on page reload (a new session id
-starts empty) and is cleared for the fixed table by a final month fix.
+Each action is a record of one PATCH request (a batch of cell edits —
+`cells: [...]`). A PATCH pushes a single action onto the user's stack
+(scoped per browser session and form: section/reportMonth) and bumps the
+cell state (rc:cellstate:*) of every edited cell. Undo/redo toggles the
+undone flag on the same action, without creating new ones. A new edit by
+the user clears their redo branch; the stack survives form switches within
+the session, is forgotten on page reload (a new session id starts empty)
+and is cleared for the fixed table by a final month fix.
 """
 
 from dataclasses import dataclass
@@ -49,7 +50,7 @@ async def record_cell_updates(
     session_id: str,
     applied: list[AppliedCell],
 ) -> None:
-    """Pushes actions onto the user's session undo/redo stack (on the section form) and bumps cell states."""
+    """Pushes a single batch action (all cells of one PATCH) onto the session undo/redo stack and bumps cell states."""
     if not applied:
         return
     # Undo/redo history is per browser session and form (section + month):
@@ -57,30 +58,32 @@ async def record_cell_updates(
     # (a new session id) starts with an empty history.
     scope = f"{section}/{report_month or ''}"
     await store.clear_redo(str(user_id), session_id, scope)
-    actions: list[dict] = []
+    action_id = await store.next_action_id()
+    cells: list[dict] = []
     for cell in applied:
-        action: dict = {
-            "id": 0,
-            "project": project_key,
-            "section": section,
-            "reportMonth": report_month.isoformat() if report_month is not None else None,
-            "targetTable": cell.target_table,
-            "rowId": str(cell.row_id),
-            "field": cell.field,
-            "oldValue": cell.old_value,
-            "newValue": cell.new_value,
-            "revision": 0,
-            "undone": False,
-        }
-        actions.append(action)
-    for cell, action in zip(applied, actions, strict=True):
-        action["id"] = await store.next_action_id()
-        cell.action_id = action["id"]
+        cell.action_id = action_id
         cell.revision = await store.bump_cell_state(
             cell.canonical,
             user_id=str(user_id),
             user_name=user_name,
-            action_id=action["id"],
+            action_id=action_id,
         )
-        action["revision"] = cell.revision
-    await store.push_actions(str(user_id), session_id, scope, actions)
+        cells.append(
+            {
+                "targetTable": cell.target_table,
+                "rowId": str(cell.row_id),
+                "field": cell.field,
+                "oldValue": cell.old_value,
+                "newValue": cell.new_value,
+                "revision": cell.revision,
+            }
+        )
+    action: dict = {
+        "id": action_id,
+        "project": project_key,
+        "section": section,
+        "reportMonth": report_month.isoformat() if report_month is not None else None,
+        "cells": cells,
+        "undone": False,
+    }
+    await store.push_actions(str(user_id), session_id, scope, [action])

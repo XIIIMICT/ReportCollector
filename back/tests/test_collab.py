@@ -180,11 +180,13 @@ async def test_edit_writes_journal_and_cell_state(client, db_session, store) -> 
     actions = await store.list_actions(str(admin.id), TEST_SESSION_ID, "materialMovement/2026-08-01")
     assert len(actions) == 1
     action = actions[0]
-    assert action["targetTable"] == "rm_material_movements"
-    assert action["rowId"] == row_id
-    assert action["field"] == "balanceOnSiteTons"
-    assert action["oldValue"] == 5.0
-    assert action["newValue"] == 12.5
+    assert len(action["cells"]) == 1
+    cell = action["cells"][0]
+    assert cell["targetTable"] == "rm_material_movements"
+    assert cell["rowId"] == row_id
+    assert cell["field"] == "balanceOnSiteTons"
+    assert cell["oldValue"] == 5.0
+    assert cell["newValue"] == 12.5
     assert action["undone"] is False
     assert action["section"] == "materialMovement"
     assert action["project"] == RAW_MATERIALS_PROJECT_KEY
@@ -213,6 +215,72 @@ async def test_undo_redo_roundtrip(client) -> None:
     assert redone["applied"] is True
     assert redone["value"] == 12.5
     assert await _movement_value(client, row_id, "balanceOnSiteTons") == 12.5
+
+
+async def test_undo_batch_restores_all_cells(client, db_session, store) -> None:
+    """One PATCH of several cells is one action: undo restores the whole batch."""
+    row_id = await _movement_row_id(client)
+    response = await client.patch(
+        "/api/raw-materials/movement",
+        params={"session_id": TEST_SESSION_ID},
+        headers=signed_identity_headers(**admin_headers()),
+        json={
+            "reportMonth": "2026-08-01",
+            "updates": [
+                {"rowId": row_id, "field": "balanceOnSiteTons", "value": 12.5},
+                {"rowId": row_id, "field": "consumptionFactTons", "value": 81.0},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert await _movement_value(client, row_id, "balanceOnSiteTons") == 12.5
+    assert await _movement_value(client, row_id, "consumptionFactTons") == 81.0
+
+    admin = (await db_session.exec(select(User).where(col(User.email) == "admin@example.ru"))).one()
+    actions = await store.list_actions(str(admin.id), TEST_SESSION_ID, "materialMovement/2026-08-01")
+    assert len(actions) == 1
+    assert len(actions[0]["cells"]) == 2
+
+    undone = await _post_undo(client)
+    assert undone["applied"] is True
+    assert undone["reason"] == "applied"
+    assert await _movement_value(client, row_id, "balanceOnSiteTons") == 5.0
+    assert await _movement_value(client, row_id, "consumptionFactTons") == 80.0
+
+    redone = await _post_redo(client)
+    assert redone["applied"] is True
+    assert await _movement_value(client, row_id, "balanceOnSiteTons") == 12.5
+    assert await _movement_value(client, row_id, "consumptionFactTons") == 81.0
+
+
+async def test_undo_twice_same_cell_by_same_user(client) -> None:
+    """Consecutive edits of one cell by the same user undo cleanly (no false conflict)."""
+    row_id = await _movement_row_id(client)
+    await _patch_movement(client, row_id, "balanceOnSiteTons", 12.5)
+    await _patch_movement(client, row_id, "balanceOnSiteTons", 91.0)
+    assert await _movement_value(client, row_id, "balanceOnSiteTons") == 91.0
+
+    first = await _post_undo(client)
+    assert first["applied"] is True
+    assert first["value"] == 12.5
+    assert await _movement_value(client, row_id, "balanceOnSiteTons") == 12.5
+
+    second = await _post_undo(client)
+    assert second["applied"] is True
+    assert second["value"] == 5.0
+    assert await _movement_value(client, row_id, "balanceOnSiteTons") == 5.0
+
+    # Redo replays undone actions in their original order (the reverse of
+    # the undo sequence): the first edit first, then the second.
+    redone = await _post_redo(client)
+    assert redone["applied"] is True
+    assert redone["value"] == 12.5
+    assert await _movement_value(client, row_id, "balanceOnSiteTons") == 12.5
+
+    redone_again = await _post_redo(client)
+    assert redone_again["applied"] is True
+    assert redone_again["value"] == 91.0
+    assert await _movement_value(client, row_id, "balanceOnSiteTons") == 91.0
 
 
 async def test_undo_history_is_per_form(client) -> None:
