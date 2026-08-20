@@ -228,6 +228,20 @@ async def test_patch_rejects_bad_date(client: AsyncClient, db_session: AsyncSess
     assert status == 422
 
 
+async def test_patch_date_field_publishes_json_safe_values(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    # A date edit drives the col_203 date-shift calculation; the journal and
+    # the collab cell_changed payload must carry ISO strings, not raw date
+    # objects (json.dumps has no date default — the Redis store raises).
+    row = await _row_by_asset_code(db_session, "bsk")
+    status, body = await _patch(client, [{"rowId": str(row.id), "field": "col_024", "value": "2027-02-15"}])
+    assert status == 200
+    calculated = {cell["field"]: cell["value"] for cell in body["calculated"]}
+    assert calculated["col_203"] == "2027-01-16"
+
+
 async def test_block_owner_edits_only_own_block(
     client: AsyncClient,
     db_session: AsyncSession,

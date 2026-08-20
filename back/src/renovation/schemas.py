@@ -11,10 +11,20 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+_EMPTY_ASSET_UPDATE = "Задайте хотя бы одно поле: name или repairCode"
+_EMPTY_OPTION_UPDATE = "Задайте поле label"
+
+from src.raw_materials.schemas import ExportColumnRequest  # noqa: TC001
+from src.renovation.models import RBlock, RProjectRole
 
 SectionId = Literal["renovationPlan"]
 """Workspace section ids (match the frontend)."""
+
+# Dictionary collab sections: «renovationAssets», «renovationUsers» and
+# «renovationCatalog:{catalog_id}» (one room/undo scope per catalog).
+DictionarySectionId = str
 
 
 class RenovationAssetRead(BaseModel):
@@ -212,3 +222,114 @@ class RenovationApproveRead(BaseModel):
 
     archived: RenovationPlanVersionRead
     working: RenovationPlanVersionRead
+
+
+class RenovationAssetRowRead(BaseModel):
+    """A dictionary grid row of a renovation asset (legal entity)."""
+
+    id: UUID
+    repairCode: str
+    name: str
+    createdAt: datetime
+    updatedAt: datetime
+    updatedBy: str
+
+
+class RenovationCatalogOptionRowRead(BaseModel):
+    """A dictionary grid row of a renovation reference catalog option."""
+
+    valueId: str
+    label: str
+    createdAt: datetime
+    updatedAt: datetime
+    updatedBy: str
+
+
+class RenovationUserRowRead(BaseModel):
+    """A dictionary grid row of a renovation project user."""
+
+    id: UUID
+    email: str
+    fullname: str
+    role: RProjectRole
+    block: RBlock | None = None
+    assetNames: list[str] = []
+    isActive: bool
+    lastAuthenticatedAt: datetime | None = None
+    createdAt: datetime
+    updatedAt: datetime
+    updatedBy: str
+
+
+class RenovationAssetCreateRequest(BaseModel):
+    """A new renovation asset (name and the official repair code)."""
+
+    name: str = Field(min_length=1, max_length=255)
+    repairCode: str = Field(min_length=1, max_length=64)
+
+
+class RenovationAssetUpdateRequest(BaseModel):
+    """Editable fields of a renovation asset (at least one must be set)."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    repairCode: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> RenovationAssetUpdateRequest:
+        if self.name is None and self.repairCode is None:
+            raise ValueError(_EMPTY_ASSET_UPDATE)
+        return self
+
+
+class RenovationCatalogOptionCreateRequest(BaseModel):
+    """A new option of a renovation reference catalog."""
+
+    label: str = Field(min_length=1, max_length=255)
+
+
+class RenovationCatalogOptionUpdateRequest(BaseModel):
+    """Editable fields of a renovation catalog option (at least one must be set)."""
+
+    label: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> RenovationCatalogOptionUpdateRequest:
+        if self.label is None:
+            raise ValueError(_EMPTY_OPTION_UPDATE)
+        return self
+
+
+class RenovationUserCreateRequest(BaseModel):
+    """A new renovation project user (existing accounts are re-used)."""
+
+    email: str = Field(min_length=3, max_length=255)
+    fullname: str = Field(min_length=1, max_length=255)
+    role: RProjectRole = RProjectRole.ASSET_WORKER
+    block: RBlock | None = None
+    assetNames: list[str] = []
+
+
+class RenovationUserUpdateRequest(BaseModel):
+    """Editable fields of a renovation project user."""
+
+    fullname: str | None = Field(default=None, min_length=1, max_length=255)
+    role: RProjectRole | None = None
+    block: RBlock | None = None
+    assetNames: list[str] | None = None
+    isActive: bool | None = None
+
+
+class RenovationDictionaryUpdateRequest(BaseModel):
+    """Batch of dictionary cell edits (assets, catalog options, users)."""
+
+    updates: list[CellUpdate] = Field(min_length=1, max_length=500)
+
+
+class RenovationExportViewRequest(BaseModel):
+    """Excel export of a renovation dictionary grid («вся» / «видимая»)."""
+
+    section: str
+    headerPinned: bool = True
+    columns: list[ExportColumnRequest] = Field(min_length=1, max_length=64)
+    rowIds: list[UUID] | None = None
+    fileName: str = Field(min_length=1, max_length=255)

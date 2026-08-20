@@ -370,6 +370,8 @@ class MemoryStore:
             return self._action_seq
 
     async def push_actions(self, user_id: str, session_id: str, scope: str, actions: list[dict]) -> None:
+        # Round-trip through JSON like the Redis path (see publish).
+        actions = [_decode(_encode(action)) for action in actions]
         async with self._lock:
             stack = self._undo.setdefault((user_id, session_id, scope), [])
             for action in reversed(actions):
@@ -484,6 +486,9 @@ class MemoryStore:
             return {user_id: payload for user_id, (payload, expires_at) in room_members.items() if expires_at > now}
 
     async def publish(self, room: str, message: dict) -> None:
+        # Round-trip through JSON like the Redis path: non-serializable values
+        # (e.g. a raw date) must fail in tests, not in production.
+        message = _decode(_encode(message))
         async with self._lock:
             for subscriber in self._subscribers.get(room, set()):
                 if subscriber.full():

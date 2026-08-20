@@ -11,14 +11,15 @@ labels (the same pattern as «deliveryBasisName» in the «Цены» form).
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from src.auth.emails import is_valid_email, normalize_email
 from src.auth.models import Project, User
-from src.auth.service import CurrentUserIdentity, get_user_by_identity
+from src.auth.service import CurrentUserIdentity, get_user_by_identity, sync_project_memberships
 from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE
 from src.collab.store import get_collab_store
@@ -34,14 +35,21 @@ from src.renovation.form_schema import (
     header_rows,
 )
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
-from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
-from src.renovation.reference_data import REFERENCE_OPTIONS
+from src.renovation.plan import (
+    RenovationPlan,
+    RenovationPlanRow,
+    RenovationReferenceValue,
+    RPlanState,
+    RReferenceCatalog,
+)
 from src.renovation.renovation_id import RenovationIdInput, calculate_renovation_id
 from src.renovation.schemas import (
     CellUpdate,
     RenovationAssetRead,
+    RenovationAssetRowRead,
     RenovationCalculatedCellRead,
     RenovationCatalogOptionRead,
+    RenovationCatalogOptionRowRead,
     RenovationCatalogRead,
     RenovationDeletedRowRead,
     RenovationDiffCellRead,
@@ -55,6 +63,7 @@ from src.renovation.schemas import (
     RenovationPlanRead,
     RenovationPlanRowRead,
     RenovationPlanVersionRead,
+    RenovationUserRowRead,
 )
 
 
@@ -174,16 +183,25 @@ async def resolve_renovation_access(
 
 async def read_meta(session: AsyncSession, assets: list[RAsset]) -> RenovationMetaRead:
     """Form dictionaries: assets, reference catalogs, field descriptions."""
+    options = (
+        await session.exec(
+            select(RenovationReferenceValue).order_by(
+                col(RenovationReferenceValue.catalog),
+                col(RenovationReferenceValue.sort_order),
+                col(RenovationReferenceValue.label),
+            )
+        )
+    ).all()
+    by_catalog: dict[str, list[RenovationReferenceValue]] = {}
+    for option in options:
+        by_catalog.setdefault(option.catalog.value, []).append(option)
     catalogs: list[RenovationCatalogRead] = []
-    by_catalog: dict[str, list[tuple[str, str]]] = {}
-    for catalog, value_id, label, _ in REFERENCE_OPTIONS:
-        by_catalog.setdefault(catalog, []).append((value_id, label))
-    for catalog_id, options in by_catalog.items():
+    for catalog_id, values in by_catalog.items():
         catalogs.append(
             RenovationCatalogRead(
                 id=catalog_id,
                 label=catalog_labels().get(catalog_id, catalog_id),
-                options=[RenovationCatalogOptionRead(valueId=value_id, label=label) for value_id, label in options],
+                options=[RenovationCatalogOptionRead(valueId=str(value.id), label=value.label) for value in values],
             )
         )
     working_id = await _plan_id_by_state(session, RPlanState.WORKING)
@@ -625,14 +643,18 @@ async def update_plan_cells(
         if asset is None:
             continue
         recalculated = _recalculate_row(session, row)
-        for field, value in recalculated.items():
+        for field, raw_value in recalculated.items():
+            if isinstance(raw_value, Decimal):
+                json_value: str | float | bool | None = float(raw_value)
+            elif isinstance(raw_value, date):
+                json_value = raw_value.isoformat()
+            else:
+                json_value = cast("str | float | bool | None", raw_value)
             calculated.append(
                 RenovationCalculatedCellRead(
                     rowId=row.id,
                     field=field,
-                    value=float(value)
-                    if isinstance(value, Decimal)
-                    else cast("str | float | bool | date | None", value),
+                    value=json_value,
                 )
             )
         result = calculate_renovation_id(_renovation_id_input(row, asset, label_map))
@@ -684,8 +706,8 @@ def _row_value_label(
     row: RenovationPlanRow,
     meta: RenovationFieldMeta,
     label_map: dict[UUID, str],
-) -> str | float | bool | date | None:
-    """Display value of a field (reference → label) for the journal/response."""
+) -> str | float | bool | None:
+    """Display value of a field (reference → label, date → ISO string) for the journal/response."""
     value = getattr(row, meta.db_name)
     if value is None:
         return None
@@ -694,7 +716,10 @@ def _row_value_label(
     if meta.cell_type == "number":
         return float(value) if isinstance(value, Decimal) else value
     if meta.cell_type == "date":
-        return value
+        # Dates must stay JSON-safe: the journal, undo stack and the collab
+        # cell_changed payload are all plain-JSON (json.dumps has no date
+        # default), and the frontend grid cells are ISO strings anyway.
+        return value.isoformat()
     if meta.cell_type == "boolean":
         return bool(value)
     return value
@@ -776,7 +801,47 @@ async def apply_renovation_cell_value(
     The journal holds display labels for reference fields; here they are
     resolved back to value ids. Calculated fields and the renovation ID are
     recomputed after the edit (never journaled — they are derived).
+    Dictionary tables (assets, catalog options, project users) are applied
+    with audit updates, the same way the plan rows are.
     """
+    now = datetime.now(UTC)
+    updated_by = user.name or user.email or ""
+    if target_table == RAsset.__tablename__:
+        if field == "__deleted":
+            await _apply_renovation_asset_deleted(session, row_id, value)
+            return
+        asset = await session.get(RAsset, row_id)
+        if asset is None:
+            raise _DICT_ASSET_NOT_FOUND
+        if field == "name":
+            asset.name = value if isinstance(value, str) else ""
+        elif field == "repairCode":
+            asset.repair_code = value if isinstance(value, str) else ""
+        else:
+            message = f"Неизвестное поле «{field}» справочника «Активы»."
+            raise CellValidationError(message)
+        asset.updated_at = now
+        asset.updated_by = updated_by
+        session.add(asset)
+        return
+    if target_table == RenovationReferenceValue.__tablename__:
+        if field == "__deleted":
+            await _apply_renovation_option_deleted(session, row_id, value)
+            return
+        option = await session.get(RenovationReferenceValue, row_id)
+        if option is None:
+            raise _DICT_OPTION_NOT_FOUND
+        if field != "label":
+            message = f"Неизвестное поле «{field}» справочника каталога."
+            raise CellValidationError(message)
+        option.label = value if isinstance(value, str) else ""
+        option.updated_at = now
+        option.updated_by = updated_by
+        session.add(option)
+        return
+    if target_table == User.__tablename__:
+        await _apply_renovation_user_cell(session, row_id, field, value, user)
+        return
     if target_table != RENOVATION_PLAN_ROWS_TABLE:
         raise _ERR_UNKNOWN_TABLE
     row = await session.get(RenovationPlanRow, row_id)
@@ -790,14 +855,157 @@ async def apply_renovation_cell_value(
     label_map = await _reference_labels(session)
     _, db_value = await _coerce_cell(session, meta, value)
     setattr(row, field, db_value)
-    row.updated_at = datetime.now(UTC)
-    row.updated_by = user.name or user.email or ""
+    row.updated_at = now
+    row.updated_by = updated_by
     asset = await session.get(RAsset, row.asset_id)
     if asset is not None:
         _recalculate_row(session, row)
         result = calculate_renovation_id(_renovation_id_input(row, asset, label_map))
         row.col_003 = result.value
     session.add(row)
+
+
+async def _apply_renovation_asset_deleted(
+    session: AsyncSession,
+    row_id: UUID,
+    value: object,
+) -> None:
+    """Undo/redo of a deleted renovation asset (snapshot restore / re-delete)."""
+    if value is None:
+        # Redo: delete the restored asset again (with its user grants).
+        asset = await session.get(RAsset, row_id)
+        if asset is None:
+            return
+        links = (await session.exec(select(RUserAsset).where(col(RUserAsset.asset_id) == row_id))).all()
+        for link in links:
+            await session.delete(link)
+        await session.delete(asset)
+        return
+    # Undo: restore the row and its per-user grants from the snapshot.
+    if not isinstance(value, dict):
+        message = "Некорректные данные для восстановления актива."
+        raise CellValidationError(message)
+    asset = RAsset(
+        id=row_id,
+        code=str(value.get("code") or ""),
+        name=str(value.get("name") or ""),
+        repair_code=str(value.get("repairCode") or ""),
+    )
+    session.add(asset)
+    for item in value.get("userLinks") or []:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        try:
+            user_id = UUID(str(item[0]))
+            project_id = UUID(str(item[1]))
+        except ValueError:
+            continue
+        session.add(RUserAsset(user_id=user_id, project_id=project_id, asset_id=row_id))
+
+
+async def _apply_renovation_option_deleted(
+    session: AsyncSession,
+    row_id: UUID,
+    value: object,
+) -> None:
+    """Undo/redo of a deleted renovation catalog option (restore / re-delete)."""
+    if value is None:
+        # Redo: delete the restored option again.
+        option = await session.get(RenovationReferenceValue, row_id)
+        if option is None:
+            return
+        await session.delete(option)
+        return
+    # Undo: restore the option from the snapshot.
+    if not isinstance(value, dict):
+        message = "Некорректные данные для восстановления значения каталога."
+        raise CellValidationError(message)
+    try:
+        catalog = RReferenceCatalog(str(value.get("catalog") or ""))
+    except ValueError as error:
+        message = "Некорректный каталог в данных для восстановления."
+        raise CellValidationError(message) from error
+    option = RenovationReferenceValue(
+        id=row_id,
+        catalog=catalog,
+        value_key=str(value.get("valueKey") or ""),
+        label=str(value.get("label") or ""),
+        sort_order=int(value.get("sortOrder") or 0),
+        payload=value.get("payload") if value.get("payload") is not None else None,
+        is_active=True,
+    )
+    session.add(option)
+
+
+async def _apply_renovation_user_cell(
+    session: AsyncSession,
+    row_id: UUID,
+    field: str,
+    value: object,
+    user: User,
+) -> None:
+    """Apply a renovation project-user dictionary cell (undo/redo)."""
+    now = datetime.now(UTC)
+    updated_by = user.name or user.email or ""
+    user_row = await session.get(User, row_id)
+    if user_row is None or user_row.is_deleted:
+        raise _DICT_USER_NOT_FOUND
+    project_id = await _renovation_project_id_required(session)
+    link = (
+        await session.exec(select(RUserRole).where(RUserRole.user_id == row_id, RUserRole.project_id == project_id))
+    ).one_or_none()
+    if field == "email":
+        new_email = value if isinstance(value, str) and value.strip() else None
+        if new_email is not None:
+            user_row.email = new_email
+    elif field == "fullname":
+        user_row.name = value if isinstance(value, str) else ""
+    elif field == "role":
+        if link is None:
+            raise _DICT_USER_NOT_FOUND
+        try:
+            new_role = RProjectRole(value) if isinstance(value, str) else RProjectRole.ASSET_WORKER
+        except ValueError as error:
+            message = f"Неизвестная роль «{value}»."
+            raise CellValidationError(message) from error
+        link.role = new_role
+        if new_role in (RProjectRole.ADMIN, RProjectRole.APPROVER):
+            link.block = None
+            await replace_renovation_user_assets(session, project_id, user_row.id, [])
+    elif field == "block":
+        if link is None:
+            raise _DICT_USER_NOT_FOUND
+        try:
+            link.block = RBlock(value) if isinstance(value, str) and value else None
+        except ValueError as error:
+            message = f"Неизвестный блок «{value}»."
+            raise CellValidationError(message) from error
+    elif field == "isActive":
+        if link is None:
+            raise _DICT_USER_NOT_FOUND
+        link.is_active = bool(value)
+    elif field == "assetNames":
+        await replace_renovation_user_assets(
+            session, project_id, user_row.id, value if isinstance(value, list) else None
+        )
+    else:
+        message = f"Неизвестное поле «{field}» справочника «Пользователи»."
+        raise CellValidationError(message)
+    user_row.updated_at = now
+    session.add(user_row)
+    if link is not None:
+        link.updated_at = now
+        link.updated_by = updated_by
+        session.add(link)
+
+
+async def _renovation_project_id_required(session: AsyncSession) -> UUID:
+    project_id = (
+        await session.exec(select(col(Project.id)).where(col(Project.key) == RENOVATION_PROJECT_KEY))
+    ).one_or_none()
+    if project_id is None:
+        raise _ERR_NO_RENOVATION_PROJECT
+    return project_id
 
 
 async def submit_plan(session: AsyncSession, *, user: User, roles: list[RProjectRole]) -> RenovationPlan:
@@ -905,3 +1113,610 @@ async def _renovation_project_id(session: AsyncSession) -> UUID | None:
         await session.exec(select(col(Project.id)).where(col(Project.key) == RENOVATION_PROJECT_KEY))
     ).one_or_none()
     return project_id
+
+
+# ─── Editable reference dictionaries ─────────────────────────────────────
+
+
+class RenovationDictionaryError(ValueError):
+    """Invalid or conflicting dictionary operation (e.g. a used option)."""
+
+
+# Dictionary error messages (module constants — project style).
+_DICT_ASSET_NOT_FOUND = ValueError("Актив не найден.")
+_DICT_ASSET_USED = RenovationDictionaryError("Нельзя удалить: актив используется в плане ремонта.")
+_DICT_OPTION_NOT_FOUND = ValueError("Значение каталога не найдено.")
+_DICT_OPTION_USED = RenovationDictionaryError("Нельзя удалить: значение используется в плане ремонта.")
+_DICT_USER_EXISTS = RenovationDictionaryError("Пользователь с таким email уже существует.")
+_DICT_USER_NOT_FOUND = ValueError("Пользователь не найден.")
+_DICT_ASSETS_NOT_FOUND = RenovationDictionaryError("Один или несколько активов не найдены.")
+_DICT_ASSET_NAME_EXISTS = RenovationDictionaryError("Актив с таким названием уже существует.")
+_DICT_ASSET_CODE_EXISTS = RenovationDictionaryError("Актив с таким ремонтным кодом уже существует.")
+_DICT_OPTION_LABEL_EMPTY = RenovationDictionaryError("Название значения не может быть пустым.")
+_DICT_USER_INVALID_EMAIL = RenovationDictionaryError("Некорректный email.")
+_DICT_BLOCK_REQUIRED = RenovationDictionaryError("Для этой роли укажите блок ответственности")
+_UNSET = object()
+"""Sentinel: an optional parameter that was not provided by the caller."""
+_ERR_NO_RENOVATION_PROJECT = RenovationPlanNotFoundError("Проект «Ремонт» не найден.")
+
+
+async def read_renovation_asset_rows(
+    session: AsyncSession,
+    *,
+    asset_id: UUID | None = None,
+) -> list[RenovationAssetRowRead]:
+    """«Активы» dictionary rows (all assets, ordered by name)."""
+    query = select(RAsset).order_by(RAsset.name)
+    if asset_id is not None:
+        query = query.where(col(RAsset.id) == asset_id)
+    rows = (await session.exec(query)).all()
+    return [
+        RenovationAssetRowRead(
+            id=asset.id,
+            repairCode=asset.repair_code,
+            name=asset.name,
+            createdAt=asset.created_at,
+            updatedAt=asset.updated_at,
+            updatedBy=asset.updated_by,
+        )
+        for asset in rows
+    ]
+
+
+async def _ensure_asset_unique(
+    session: AsyncSession,
+    *,
+    name: str,
+    repair_code: str,
+    exclude_id: UUID | None = None,
+) -> None:
+    """Reject asset creation/renaming that duplicates name or repair code."""
+    where = [] if exclude_id is None else [RAsset.id != exclude_id]
+    if await session.scalar(select(RAsset.id).where(RAsset.name == name, *where)) is not None:
+        raise _DICT_ASSET_NAME_EXISTS
+    if await session.scalar(select(RAsset.id).where(RAsset.repair_code == repair_code, *where)) is not None:
+        raise _DICT_ASSET_CODE_EXISTS
+
+
+async def create_renovation_asset(
+    session: AsyncSession,
+    *,
+    name: str,
+    repair_code: str,
+    user: User,
+) -> RenovationAssetRowRead:
+    """Create a renovation asset (code is auto-generated; never shown)."""
+    now = datetime.now(UTC)
+    updated_by = user.name or user.email or ""
+    name = name.strip()
+    repair_code = repair_code.strip()
+    await _ensure_asset_unique(session, name=name, repair_code=repair_code)
+    asset = RAsset(
+        code=uuid4().hex,
+        repair_code=repair_code,
+        name=name,
+        created_at=now,
+        updated_at=now,
+        updated_by=updated_by,
+    )
+    session.add(asset)
+    await session.commit()
+    await session.refresh(asset)
+    return (await read_renovation_asset_rows(session, asset_id=asset.id))[0]
+
+
+async def update_renovation_asset(
+    session: AsyncSession,
+    *,
+    asset_id: UUID,
+    name: str | None,
+    repair_code: str | None,
+    user: User,
+) -> tuple[RAsset, list[AppliedCell]]:
+    """Rename a renovation asset / change its repair code."""
+    asset = await session.get(RAsset, asset_id)
+    if asset is None:
+        raise _DICT_ASSET_NOT_FOUND
+    old_name = asset.name
+    old_repair_code = asset.repair_code
+    if name is not None:
+        name = name.strip()
+    if repair_code is not None:
+        repair_code = repair_code.strip()
+    if name is not None and name != old_name:
+        await _ensure_asset_unique(session, name=name, repair_code=asset.repair_code, exclude_id=asset_id)
+    if repair_code is not None and repair_code != old_repair_code:
+        await _ensure_asset_unique(session, name=asset.name, repair_code=repair_code, exclude_id=asset_id)
+    if name is not None:
+        asset.name = name
+    if repair_code is not None:
+        asset.repair_code = repair_code
+    asset.updated_at = datetime.now(UTC)
+    asset.updated_by = user.name or user.email or ""
+    session.add(asset)
+    await session.commit()
+    applied: list[AppliedCell] = []
+    if asset.name != old_name:
+        applied.append(
+            AppliedCell(
+                target_table=RAsset.__tablename__,
+                row_id=asset.id,
+                field="name",
+                old_value=old_name,
+                new_value=asset.name,
+            )
+        )
+    if asset.repair_code != old_repair_code:
+        applied.append(
+            AppliedCell(
+                target_table=RAsset.__tablename__,
+                row_id=asset.id,
+                field="repairCode",
+                old_value=old_repair_code,
+                new_value=asset.repair_code,
+            )
+        )
+    return asset, applied
+
+
+async def delete_renovation_asset(
+    session: AsyncSession,
+    *,
+    asset_id: UUID,
+) -> list[AppliedCell]:
+    """
+    Delete a renovation asset; blocked while used by plan rows.
+
+    The deletion is journaled as an undoable «__deleted» cell: the undo
+    restores the row (and its user grants) from the snapshot, the redo
+    deletes it again.
+    """
+    asset = await session.get(RAsset, asset_id)
+    if asset is None:
+        raise _DICT_ASSET_NOT_FOUND
+    used = (await session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.asset_id) == asset_id))).first()
+    if used is not None:
+        raise _DICT_ASSET_USED
+    user_links = (await session.exec(select(RUserAsset).where(col(RUserAsset.asset_id) == asset_id))).all()
+    links = [(str(link.user_id), str(link.project_id)) for link in user_links]
+    for link in user_links:
+        await session.delete(link)
+    snapshot = {
+        "code": asset.code,
+        "name": asset.name,
+        "repairCode": asset.repair_code,
+        "userLinks": links,
+    }
+    await session.delete(asset)
+    await session.commit()
+    return [
+        AppliedCell(
+            target_table=RAsset.__tablename__,
+            row_id=asset_id,
+            field="__deleted",
+            old_value=snapshot,
+            new_value=None,
+        )
+    ]
+
+
+async def read_renovation_catalog_rows(
+    session: AsyncSession,
+    *,
+    catalog: str,
+    option_id: UUID | None = None,
+) -> list[RenovationCatalogOptionRowRead]:
+    """Options of a renovation reference catalog (ordered by sort_order, label)."""
+    query = (
+        select(RenovationReferenceValue)
+        .where(col(RenovationReferenceValue.catalog) == catalog)
+        .order_by(col(RenovationReferenceValue.sort_order), col(RenovationReferenceValue.label))
+    )
+    if option_id is not None:
+        query = query.where(col(RenovationReferenceValue.id) == option_id)
+    rows = (await session.exec(query)).all()
+    return [
+        RenovationCatalogOptionRowRead(
+            valueId=str(option.id),
+            label=option.label,
+            createdAt=option.created_at,
+            updatedAt=option.updated_at,
+            updatedBy=option.updated_by,
+        )
+        for option in rows
+    ]
+
+
+async def create_renovation_catalog_option(
+    session: AsyncSession,
+    *,
+    catalog: str,
+    label: str,
+    user: User,
+) -> RenovationCatalogOptionRowRead:
+    """Append an option to a renovation reference catalog."""
+    label = label.strip()
+    if not label:
+        raise _DICT_OPTION_LABEL_EMPTY
+    max_order = (
+        await session.exec(
+            select(func.max(col(RenovationReferenceValue.sort_order))).where(
+                col(RenovationReferenceValue.catalog) == catalog
+            )
+        )
+    ).one()
+    now = datetime.now(UTC)
+    option = RenovationReferenceValue(
+        catalog=RReferenceCatalog(catalog),
+        value_key=f"{catalog}_{uuid4().hex[:8]}",
+        label=label,
+        sort_order=int(max_order) + 1 if max_order is not None else 1,
+        created_at=now,
+        updated_at=now,
+        updated_by=user.name or user.email or "",
+    )
+    session.add(option)
+    await session.commit()
+    await session.refresh(option)
+    return (await read_renovation_catalog_rows(session, catalog=catalog, option_id=option.id))[0]
+
+
+async def update_renovation_catalog_option(
+    session: AsyncSession,
+    *,
+    catalog: str,
+    option_id: UUID,
+    label: str | None,
+    user: User,
+) -> tuple[RenovationReferenceValue, list[AppliedCell]]:
+    """Rename an option of a renovation reference catalog."""
+    option = await session.get(RenovationReferenceValue, option_id)
+    if option is None or option.catalog.value != catalog:
+        raise _DICT_OPTION_NOT_FOUND
+    old_label = option.label
+    if label is not None:
+        label = label.strip()
+        if not label:
+            raise _DICT_OPTION_LABEL_EMPTY
+        option.label = label
+    option.updated_at = datetime.now(UTC)
+    option.updated_by = user.name or user.email or ""
+    session.add(option)
+    await session.commit()
+    applied: list[AppliedCell] = []
+    if option.label != old_label:
+        applied.append(
+            AppliedCell(
+                target_table=RenovationReferenceValue.__tablename__,
+                row_id=option.id,
+                field="label",
+                old_value=old_label,
+                new_value=option.label,
+            )
+        )
+    return option, applied
+
+
+async def delete_renovation_catalog_option(
+    session: AsyncSession,
+    *,
+    catalog: str,
+    option_id: UUID,
+) -> list[AppliedCell]:
+    """
+    Delete a catalog option; blocked while used by plan rows.
+
+    The deletion is journaled as an undoable «__deleted» cell (same pattern
+    as the asset deletion: undo restores the option from the snapshot).
+    """
+    option = await session.get(RenovationReferenceValue, option_id)
+    if option is None or option.catalog.value != catalog:
+        raise _DICT_OPTION_NOT_FOUND
+    for meta in field_metas():
+        if meta.catalog != catalog:
+            continue
+        used = (
+            await session.exec(select(RenovationPlanRow).where(getattr(RenovationPlanRow, meta.db_name) == option_id))
+        ).first()
+        if used is not None:
+            raise _DICT_OPTION_USED
+    snapshot = {
+        "catalog": option.catalog.value,
+        "valueKey": option.value_key,
+        "label": option.label,
+        "sortOrder": option.sort_order,
+        "payload": option.payload,
+    }
+    await session.delete(option)
+    await session.commit()
+    return [
+        AppliedCell(
+            target_table=RenovationReferenceValue.__tablename__,
+            row_id=option_id,
+            field="__deleted",
+            old_value=snapshot,
+            new_value=None,
+        )
+    ]
+
+
+async def read_renovation_user_rows(
+    session: AsyncSession,
+    *,
+    user_id: UUID | None = None,
+) -> list[RenovationUserRowRead]:
+    """
+    «Пользователи» dictionary rows (the «Ремонт» project, without deleted).
+
+    Shows all users with an r_user_roles link (including inactive ones —
+    the project admin activates them). isActive and isAdmin come from the
+    per-project link, not from the user's global fields.
+    """
+    project_id = (await session.exec(select(col(Project.id)).where(col(Project.key) == RENOVATION_PROJECT_KEY))).first()
+    if project_id is None:
+        return []
+    query = (
+        select(User, RUserRole)
+        .join(RUserRole, col(RUserRole.user_id) == col(User.id))
+        .where(col(RUserRole.project_id) == project_id, col(User.is_deleted) == False)  # noqa: E712
+        .order_by(col(RUserRole.is_active).desc(), func.coalesce(User.name, ""))
+    )
+    if user_id is not None:
+        query = query.where(col(User.id) == user_id)
+    rows = (await session.exec(query)).all()
+    users = [user for user, _ in rows]
+    links_by_user = {user.id: link for user, link in rows}
+    asset_links = (
+        await session.exec(
+            select(RUserAsset, RAsset)
+            .join(RAsset, col(RAsset.id) == col(RUserAsset.asset_id))
+            .where(col(RUserAsset.user_id).in_([user.id for user in users]))
+            .order_by(RAsset.name)
+        )
+    ).all()
+    names_by_user: dict[UUID, list[str]] = {}
+    for link, asset in asset_links:
+        names_by_user.setdefault(link.user_id, []).append(asset.name)
+    rows: list[RenovationUserRowRead] = []
+    for user, link in ((user, links_by_user[user.id]) for user in users):
+        # Admin/approver implicitly see all assets — the grid shows no list for them.
+        central = link.role in (RProjectRole.ADMIN, RProjectRole.APPROVER)
+        rows.append(
+            RenovationUserRowRead(
+                id=user.id,
+                email=user.email or "",
+                fullname=user.name or "",
+                role=link.role,
+                block=link.block,
+                assetNames=[] if central else names_by_user.get(user.id, []),
+                isActive=link.is_active,
+                lastAuthenticatedAt=user.last_authenticated_at,
+                createdAt=user.created_at,
+                updatedAt=link.updated_at,
+                updatedBy=link.updated_by,
+            )
+        )
+    return rows
+
+
+async def create_renovation_user(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    email: str,
+    fullname: str,
+    role: RProjectRole,
+    block: RBlock | None,
+    asset_names: list[str],
+) -> User:
+    """
+    Add a user to the «Ремонт» project with role and assets.
+
+    The existing app_users record is re-used when present; the renovation
+    link (r_user_roles) is created with the chosen role, and the user is
+    provisioned into all projects through sync_project_memberships (the
+    same cross-project visibility as the «Сырьё» users dictionary).
+    Admin/approver roles implicitly see all assets — no links are stored.
+    """
+    if role in (RProjectRole.BLOCK_OWNER, RProjectRole.ASSET_WORKER) and block is None:
+        raise _DICT_BLOCK_REQUIRED
+    central = role in (RProjectRole.ADMIN, RProjectRole.APPROVER)
+    email = normalize_email(email)
+    if not is_valid_email(email):
+        raise _DICT_USER_INVALID_EMAIL
+    existing = (await session.exec(select(User).where(func.lower(col(User.email)) == email))).one_or_none()
+    if existing is not None:
+        link = (
+            await session.exec(
+                select(RUserRole).where(RUserRole.user_id == existing.id, RUserRole.project_id == project_id)
+            )
+        ).one_or_none()
+        if link is not None:
+            raise _DICT_USER_EXISTS
+        user = existing
+    else:
+        now = datetime.now(UTC)
+        user = User(
+            email=email,
+            name=fullname.strip(),
+            is_deleted=False,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(user)
+        await session.flush()
+    now = datetime.now(UTC)
+    updated_by = user.name or user.email or ""
+    session.add(
+        RUserRole(
+            user_id=user.id,
+            project_id=project_id,
+            role=role,
+            block=None if central else block,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+            updated_by=updated_by,
+        )
+    )
+    await replace_renovation_user_assets(session, project_id, user.id, [] if central else asset_names)
+    await sync_project_memberships(session, user.id)
+    await session.commit()
+    return user
+
+
+async def update_renovation_user(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    user_id: UUID,
+    fullname: str | None = None,
+    role: RProjectRole | None = None,
+    block: RBlock | object | None = _UNSET,
+    asset_names: list[str] | None = None,
+    is_active: bool | None = None,
+    updated_by: str = "",
+) -> tuple[User, list[AppliedCell]]:
+    user = await session.get(User, user_id)
+    if user is None or user.is_deleted:
+        raise _DICT_USER_NOT_FOUND
+    link = (
+        await session.exec(select(RUserRole).where(RUserRole.user_id == user_id, RUserRole.project_id == project_id))
+    ).one_or_none()
+    if link is None:
+        raise _DICT_USER_NOT_FOUND
+    old_fullname = user.name
+    old_role = link.role
+    old_block = link.block
+    old_is_active = link.is_active
+    old_asset_names = await _renovation_user_asset_names(session, project_id, user.id)
+    new_fullname = fullname.strip() if fullname is not None else old_fullname
+    new_role = role if role is not None else old_role
+    block_provided = block is not _UNSET
+    new_block = block if isinstance(block, RBlock) else (old_block if not block_provided else None)
+    if (
+        new_role in (RProjectRole.BLOCK_OWNER, RProjectRole.ASSET_WORKER)
+        and new_block is None
+        and (role is not None or block_provided)
+    ):
+        raise _DICT_BLOCK_REQUIRED
+    new_is_active = is_active if is_active is not None else old_is_active
+    if fullname is not None:
+        user.name = new_fullname
+    if is_active is not None:
+        link.is_active = is_active
+    role_changed = new_role != old_role
+    if role is not None:
+        link.role = new_role
+    if block_provided:
+        link.block = new_block
+    new_central = new_role in (RProjectRole.ADMIN, RProjectRole.APPROVER)
+    if role_changed and new_central:
+        link.block = None
+    if asset_names is not None or role_changed:
+        await replace_renovation_user_assets(
+            session,
+            project_id,
+            user.id,
+            asset_names if asset_names is not None else ([] if new_central else None),
+        )
+    new_asset_names = asset_names if asset_names is not None else ([] if role_changed else old_asset_names)
+    now = datetime.now(UTC)
+    link.updated_at = now
+    link.updated_by = updated_by
+    user.updated_at = now
+    session.add(user)
+    session.add(link)
+    await session.commit()
+    applied: list[AppliedCell] = []
+    if new_fullname != old_fullname:
+        applied.append(
+            AppliedCell(
+                target_table=User.__tablename__,
+                row_id=user.id,
+                field="fullname",
+                old_value=old_fullname,
+                new_value=new_fullname,
+            )
+        )
+    if role_changed:
+        applied.append(
+            AppliedCell(
+                target_table=User.__tablename__,
+                row_id=user.id,
+                field="role",
+                old_value=old_role.value,
+                new_value=new_role.value,
+            )
+        )
+    if block_provided and new_block != old_block:
+        applied.append(
+            AppliedCell(
+                target_table=User.__tablename__,
+                row_id=user.id,
+                field="block",
+                old_value=old_block.value if old_block is not None else None,
+                new_value=new_block.value if new_block is not None else None,
+            )
+        )
+    if new_is_active != old_is_active:
+        applied.append(
+            AppliedCell(
+                target_table=User.__tablename__,
+                row_id=user.id,
+                field="isActive",
+                old_value=old_is_active,
+                new_value=new_is_active,
+            )
+        )
+    if new_asset_names != old_asset_names:
+        applied.append(
+            AppliedCell(
+                target_table=User.__tablename__,
+                row_id=user.id,
+                field="assetNames",
+                old_value=old_asset_names,
+                new_value=new_asset_names,
+            )
+        )
+    return user, applied
+
+
+async def _renovation_user_asset_names(session: AsyncSession, project_id: UUID, user_id: UUID) -> list[str]:
+    rows = (
+        await session.exec(
+            select(RAsset.name)
+            .join(RUserAsset, col(RUserAsset.asset_id) == col(RAsset.id))
+            .where(RUserAsset.user_id == user_id, RUserAsset.project_id == project_id)
+            .order_by(RAsset.name)
+        )
+    ).all()
+    return list(rows)
+
+
+async def replace_renovation_user_assets(
+    session: AsyncSession,
+    project_id: UUID,
+    user_id: UUID,
+    asset_names: list[str] | None,
+) -> None:
+    """Replace the user's renovation asset assignment (None — only remove links)."""
+    existing = (
+        await session.exec(
+            select(RUserAsset).where(col(RUserAsset.user_id) == user_id, col(RUserAsset.project_id) == project_id)
+        )
+    ).all()
+    for link in existing:
+        await session.delete(link)
+    await session.flush()
+    if asset_names:
+        assets = (await session.exec(select(RAsset).where(col(RAsset.name).in_(asset_names)))).all()
+        names_found = {asset.name for asset in assets}
+        missing = [name for name in asset_names if name not in names_found]
+        if missing:
+            message = f"Активы не найдены: {', '.join(missing)}"
+            raise RenovationDictionaryError(message)
+        now = datetime.now(UTC)
+        for asset in assets:
+            session.add(RUserAsset(user_id=user_id, project_id=project_id, asset_id=asset.id, created_at=now))
+    await session.flush()

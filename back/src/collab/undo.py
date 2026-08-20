@@ -16,6 +16,8 @@ from src.collab.journal import AppliedCell
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE, canonical_key
 from src.collab.store import lease_key
 from src.raw_materials.service import apply_cell_value
+from src.renovation.models import RAsset
+from src.renovation.plan import RenovationReferenceValue
 from src.renovation.service import apply_renovation_cell_value
 
 if TYPE_CHECKING:
@@ -23,6 +25,14 @@ if TYPE_CHECKING:
 
     from src.auth.models import User
     from src.collab.store import CollabStore
+
+RENOVATION_TABLES = frozenset(
+    {
+        RENOVATION_PLAN_ROWS_TABLE,
+        RAsset.__tablename__,
+        RenovationReferenceValue.__tablename__,
+    }
+)
 
 
 @dataclass
@@ -111,7 +121,10 @@ async def _switch_entry(
         return UndoOutcome(applied=False, reason=conflict.reason, conflict=conflict)
 
     value = action["newValue"] if redo else action["oldValue"]
-    if target_table == RENOVATION_PLAN_ROWS_TABLE:
+    is_renovation = target_table in RENOVATION_TABLES or (
+        target_table == "app_users" and str(action.get("section", "")).startswith("renovation")
+    )
+    if is_renovation:
         await apply_renovation_cell_value(
             session,
             target_table=target_table,

@@ -15,6 +15,7 @@ Usage:
 import argparse
 import asyncio
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any, TypedDict
 from uuid import uuid4
 
@@ -39,7 +40,7 @@ from src.raw_materials.models import (
 )
 from src.renovation.constants import R_ASSETS, RENOVATION_PROJECT_KEY, RENOVATION_PROJECT_NAME
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
-from src.renovation.plan import RenovationReferenceValue
+from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
 from src.renovation.reference_data import REFERENCE_OPTIONS
 
 # ─── Seed data (first version) ───────────────────────────────────────────
@@ -224,6 +225,14 @@ class SeedRenovationUser(TypedDict):
 # blocks: td → tashpaev, opof → borodiichuk, umto → babaeva.
 RENOVATION_ASSET_WORKER_ASSETS = ["vos", "snhz", "bsk"]
 RENOVATION_USERS: list[SeedRenovationUser] = [
+    {
+        # The platform admin (SEED_ADMIN) — renovation admin with all assets.
+        "email": SEED_ADMIN_EMAIL,
+        "name": SEED_ADMIN_NAME,
+        "role": RProjectRole.ADMIN,
+        "block": None,
+        "assets": [],
+    },
     {
         "email": "vasilenko@ruschem.ru",
         "name": "Василенко Екатерина Игоревна",
@@ -424,6 +433,66 @@ async def seed(session: AsyncSession) -> None:
             )
     await session.flush()
 
+    # Renovation working plan + demo rows (deterministic subset of the legacy
+    # plan so the grid has content right after seeding). Idempotent: the plan
+    # is created only when no working plan exists yet.
+    renovation_reference_by_key: dict[str, RenovationReferenceValue] = {}
+    for value in (await session.exec(select(RenovationReferenceValue))).all():
+        renovation_reference_by_key[value.value_key] = value
+    working_plan = (
+        await session.exec(
+            select(RenovationPlan).where(
+                RenovationPlan.project_id == renovation_project.id,
+                RenovationPlan.state == RPlanState.WORKING,
+            )
+        )
+    ).one_or_none()
+    if working_plan is None:
+        working_plan = RenovationPlan(
+            project_id=renovation_project.id,
+            state=RPlanState.WORKING,
+            baseline_generation=1,
+            created_at=now,
+            created_by=SEED_ADMIN_EMAIL,
+            updated_at=now,
+            updated_by=SEED_ADMIN_EMAIL,
+        )
+        session.add(working_plan)
+        await session.flush()
+        for position, (asset_code, object_name, defect, plan_amount, fact_amount) in enumerate(
+            [
+                ("bsk", "Насос НК 65/35-70", "1382467", Decimal(10), Decimal(20)),
+                ("vos", "Резервуар Р-2", "2247000", Decimal(5), Decimal(7)),
+                ("snhz", "Компрессор К-103", "3100550", Decimal(8), Decimal(12)),
+                ("sz", "Задвижка З-14", "4050200", Decimal(15), Decimal(18)),
+            ]
+        ):
+            session.add(
+                RenovationPlanRow(
+                    plan_id=working_plan.id,
+                    asset_id=r_assets_by_code[asset_code].id,
+                    position=position,
+                    baseline_generation=1,
+                    revision=0,
+                    created_at=now,
+                    updated_at=now,
+                    updated_by=SEED_ADMIN_EMAIL,
+                    col_011=object_name,
+                    col_016="Ремонтный бюджет",
+                    col_017=renovation_reference_by_key["work_category_002"].id,
+                    col_018=renovation_reference_by_key["work_type_002"].id,
+                    col_019=renovation_reference_by_key["cost_allocation_002"].id,
+                    col_020=renovation_reference_by_key["execution_method_001"].id,
+                    col_023=defect,
+                    col_024=date(2027, 1, 1),
+                    col_025=date(2027, 1, 31),
+                    col_028=plan_amount,
+                    col_029=fact_amount,
+                    col_189="1.1.1.",
+                )
+            )
+        await session.flush()
+
     # «Активы» dictionary
     assets: dict[str, RawMaterialAsset] = {}
     for name in ASSET_NAMES:
@@ -605,7 +674,8 @@ async def run(reset: bool = False) -> None:
             f"доп. пользователи={len(SEED_EXTRA_USERS)} ({', '.join(str(u['email']) for u in SEED_EXTRA_USERS)}), "
             f"пользователи реновации={len(RENOVATION_USERS)} "
             f"({', '.join(str(u['email']) for u in RENOVATION_USERS)}), "
-            f"активы реновации={len(R_ASSETS)}, справочники реновации={len(REFERENCE_OPTIONS)}."
+            f"активы реновации={len(R_ASSETS)}, справочники реновации={len(REFERENCE_OPTIONS)}, "
+            f"строк рабочего плана реновации=4."
         )
 
 

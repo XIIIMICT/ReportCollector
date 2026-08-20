@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Text, text
 from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
 
@@ -39,9 +39,14 @@ class RAsset(SQLModel, table=True):
     # Internal stable code, e.g. «vos» (used in asset-scoped user names).
     code: str = Field(sa_column=Column(Text, unique=True, index=True, nullable=False))
     # Official legal-entity repair code from the renovation ID, e.g. «VOZR».
-    repair_code: str = Field(sa_column=Column(Text, nullable=False))
-    name: str = Field(sa_column=Column(Text, nullable=False))
+    repair_code: str = Field(sa_column=Column(Text, unique=True, nullable=False))
+    name: str = Field(sa_column=Column(Text, unique=True, nullable=False))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("now()")),
+    )
+    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
 
 
 class RUserAsset(SQLModel, table=True):

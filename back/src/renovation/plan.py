@@ -49,6 +49,12 @@ class RenovationReferenceValue(SQLModel, table=True):
     sort_order: int = Field(default=0, sa_column=Column(Integer, nullable=False, server_default="0"))
     payload: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     is_active: bool = Field(default=True, sa_column=Column(Boolean, nullable=False, server_default="true"))
+    created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("now()")),
+    )
+    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
     __table_args__ = (Index("ix_renovation_reference_values_catalog_key", "catalog", "value_key", unique=True),)
 
 

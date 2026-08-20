@@ -1,11 +1,15 @@
 """«Ремонт» project API: reading/editing the renovation plan, plan lifecycle, undo/redo."""
 
+from collections.abc import Sequence
 from io import BytesIO
 from typing import TYPE_CHECKING, Annotated
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -14,21 +18,35 @@ if TYPE_CHECKING:
     from src.auth.models import User
     from src.renovation.models import RBlock, RProjectRole
 
+from src.auth.models import Project
 from src.auth.router import read_signed_identity
 from src.auth.service import CurrentUserIdentity
 from src.collab.events import publish_cell_changed, publish_rows_changed
-from src.collab.journal import AppliedCell
+from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
 from src.collab.store import get_collab_store
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.database import get_session
 from src.renovation.constants import RENOVATION_PROJECT_KEY
-from src.renovation.export import render_renovation_workbook
+from src.renovation.export import (
+    ExportValidationError,
+    render_renovation_workbook,
+    render_workbook,
+    validate_export_request,
+)
+from src.renovation.models import RProjectRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
 from src.renovation.schemas import (
     RenovationApproveRead,
+    RenovationAssetCreateRequest,
+    RenovationAssetRowRead,
+    RenovationAssetUpdateRequest,
+    RenovationCatalogOptionCreateRequest,
+    RenovationCatalogOptionRowRead,
+    RenovationCatalogOptionUpdateRequest,
     RenovationDiffRead,
+    RenovationExportViewRequest,
     RenovationMetaRead,
     RenovationPlanRead,
     RenovationPlanRowRead,
@@ -36,23 +54,38 @@ from src.renovation.schemas import (
     RenovationRowAddRequest,
     RenovationUpdateRead,
     RenovationUpdateRequest,
+    RenovationUserCreateRequest,
+    RenovationUserRowRead,
+    RenovationUserUpdateRequest,
 )
 from src.renovation.service import (
     CellValidationError,
     NoRenovationAccessError,
+    RenovationDictionaryError,
     RenovationPermissionError,
     RenovationPlanNotFoundError,
     RenovationPlanStateError,
     add_plan_row,
     approve_plan,
+    create_renovation_asset,
+    create_renovation_catalog_option,
+    create_renovation_user,
     delete_plan_row,
+    delete_renovation_asset,
+    delete_renovation_catalog_option,
     read_meta,
     read_plan,
     read_plan_diff,
     read_plan_versions,
+    read_renovation_asset_rows,
+    read_renovation_catalog_rows,
+    read_renovation_user_rows,
     resolve_renovation_access,
     submit_plan,
     update_plan_cells,
+    update_renovation_asset,
+    update_renovation_catalog_option,
+    update_renovation_user,
 )
 
 router = APIRouter(prefix="/renovation", tags=["renovation"])
@@ -96,6 +129,19 @@ async def require_renovation_access(
 
 
 AccessDependency = Annotated[RenovationAccess, Depends(require_renovation_access)]
+
+
+async def require_renovation_admin(access: AccessDependency) -> RenovationAccess:
+    """Require the project admin role for dictionary mutations."""
+    if RProjectRole.ADMIN not in access.roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Требуются права администратора проекта «Ремонт».",
+        )
+    return access
+
+
+AdminDependency = Annotated[RenovationAccess, Depends(require_renovation_admin)]
 
 
 @router.get("/meta", response_model=RenovationMetaRead)
@@ -295,6 +341,356 @@ async def post_renovation_approve(
         archived=await _version_read(session, archived),
         working=await _version_read(session, working),
     )
+
+
+# ─── Editable reference dictionaries (project admin only) ───────────────
+
+RENOVATION_ASSETS_SECTION = "renovationAssets"
+RENOVATION_USERS_SECTION = "renovationUsers"
+EXPORT_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _catalog_section(catalog: str) -> str:
+    return f"renovationCatalog:{catalog}"
+
+
+@router.get("/dictionary/assets", response_model=list[RenovationAssetRowRead])
+async def get_renovation_assets(
+    session: SessionDependency,
+    _access: AdminDependency,
+) -> list[RenovationAssetRowRead]:
+    """«Активы» dictionary of the renovation project."""
+    return await read_renovation_asset_rows(session)
+
+
+@router.post("/dictionary/assets", response_model=RenovationAssetRowRead, status_code=status.HTTP_201_CREATED)
+async def post_renovation_asset(
+    request: RenovationAssetCreateRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+) -> RenovationAssetRowRead:
+    """Renovation asset creation (project admin only)."""
+    try:
+        return await create_renovation_asset(
+            session,
+            name=request.name,
+            repair_code=request.repairCode,
+            user=access.user,
+        )
+    except RenovationDictionaryError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+
+@router.patch("/dictionary/assets/{asset_id}", response_model=RenovationAssetRowRead)
+async def patch_renovation_asset(
+    asset_id: UUID,
+    request: RenovationAssetUpdateRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+) -> RenovationAssetRowRead:
+    """Renovation asset edit (project admin only)."""
+    try:
+        updated, applied = await update_renovation_asset(
+            session,
+            asset_id=asset_id,
+            name=request.name,
+            repair_code=request.repairCode,
+            user=access.user,
+        )
+    except RenovationDictionaryError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await publish_cell_changed(
+        get_collab_store(),
+        project_key=RENOVATION_PROJECT_KEY,
+        section=RENOVATION_ASSETS_SECTION,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+        cells=applied,
+    )
+    await record_cell_updates(
+        get_collab_store(),
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        project_key=RENOVATION_PROJECT_KEY,
+        section=RENOVATION_ASSETS_SECTION,
+        report_month=None,
+        session_id=session_id,
+        applied=applied,
+    )
+    return (await read_renovation_asset_rows(session, asset_id=updated.id))[0]
+
+
+@router.delete("/dictionary/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_renovation_asset_endpoint(
+    asset_id: UUID,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+) -> None:
+    """Renovation asset deletion (project admin only, undoable)."""
+    try:
+        applied = await delete_renovation_asset(session, asset_id=asset_id)
+    except RenovationDictionaryError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await record_cell_updates(
+        get_collab_store(),
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        project_key=RENOVATION_PROJECT_KEY,
+        section=RENOVATION_ASSETS_SECTION,
+        report_month=None,
+        session_id=session_id,
+        applied=applied,
+    )
+
+
+@router.get("/dictionary/catalogs/{catalog}", response_model=list[RenovationCatalogOptionRowRead])
+async def get_renovation_catalog_options(
+    catalog: str,
+    session: SessionDependency,
+    _access: AdminDependency,
+) -> list[RenovationCatalogOptionRowRead]:
+    """Options of a renovation reference catalog."""
+    return await read_renovation_catalog_rows(session, catalog=catalog)
+
+
+@router.post(
+    "/dictionary/catalogs/{catalog}/options",
+    response_model=RenovationCatalogOptionRowRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def post_renovation_catalog_option(
+    catalog: str,
+    request: RenovationCatalogOptionCreateRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+) -> RenovationCatalogOptionRowRead:
+    """Catalog option creation (project admin only)."""
+    try:
+        return await create_renovation_catalog_option(
+            session,
+            catalog=catalog,
+            label=request.label,
+            user=access.user,
+        )
+    except RenovationDictionaryError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+
+@router.patch(
+    "/dictionary/catalogs/{catalog}/options/{option_id}",
+    response_model=RenovationCatalogOptionRowRead,
+)
+async def patch_renovation_catalog_option(
+    catalog: str,
+    option_id: UUID,
+    request: RenovationCatalogOptionUpdateRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+) -> RenovationCatalogOptionRowRead:
+    """Catalog option edit (project admin only)."""
+    try:
+        updated, applied = await update_renovation_catalog_option(
+            session,
+            catalog=catalog,
+            option_id=option_id,
+            label=request.label,
+            user=access.user,
+        )
+    except RenovationDictionaryError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    section = _catalog_section(catalog)
+    await publish_cell_changed(
+        get_collab_store(),
+        project_key=RENOVATION_PROJECT_KEY,
+        section=section,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+        cells=applied,
+    )
+    await record_cell_updates(
+        get_collab_store(),
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        project_key=RENOVATION_PROJECT_KEY,
+        section=section,
+        report_month=None,
+        session_id=session_id,
+        applied=applied,
+    )
+    return (await read_renovation_catalog_rows(session, catalog=catalog, option_id=updated.id))[0]
+
+
+@router.delete("/dictionary/catalogs/{catalog}/options/{option_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_renovation_catalog_option_endpoint(
+    catalog: str,
+    option_id: UUID,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+) -> None:
+    """Catalog option deletion (project admin only, undoable)."""
+    try:
+        applied = await delete_renovation_catalog_option(session, catalog=catalog, option_id=option_id)
+    except RenovationDictionaryError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await record_cell_updates(
+        get_collab_store(),
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        project_key=RENOVATION_PROJECT_KEY,
+        section=_catalog_section(catalog),
+        report_month=None,
+        session_id=session_id,
+        applied=applied,
+    )
+
+
+@router.get("/dictionary/users", response_model=list[RenovationUserRowRead])
+async def get_renovation_users(
+    session: SessionDependency,
+    _access: AdminDependency,
+) -> list[RenovationUserRowRead]:
+    """«Пользователи» dictionary of the renovation project."""
+    return await read_renovation_user_rows(session)
+
+
+@router.post("/dictionary/users", response_model=RenovationUserRowRead, status_code=status.HTTP_201_CREATED)
+async def post_renovation_user(
+    request: RenovationUserCreateRequest,
+    session: SessionDependency,
+    _access: AdminDependency,
+) -> RenovationUserRowRead:
+    """Renovation project user creation (project admin only)."""
+    project_id = await _renovation_project_id_or_error(session)
+    try:
+        created = await create_renovation_user(
+            session,
+            project_id=project_id,
+            email=request.email,
+            fullname=request.fullname,
+            role=request.role,
+            block=request.block,
+            asset_names=request.assetNames,
+        )
+    except RenovationDictionaryError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return (await read_renovation_user_rows(session, user_id=created.id))[0]
+
+
+@router.patch("/dictionary/users/{user_id}", response_model=RenovationUserRowRead)
+async def patch_renovation_user(
+    user_id: UUID,
+    request: RenovationUserUpdateRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+) -> RenovationUserRowRead:
+    """Renovation project user edit (project admin only)."""
+    project_id = await _renovation_project_id_or_error(session)
+    try:
+        # `block` is only sent when the client explicitly sets it (null = clear);
+        # omitting the kwarg keeps the current value.
+        block_kwargs: dict[str, RBlock | None] = {}
+        if "block" in request.model_fields_set:
+            block_kwargs["block"] = request.block
+        _, applied = await update_renovation_user(
+            session,
+            project_id=project_id,
+            user_id=user_id,
+            fullname=request.fullname,
+            role=request.role,
+            asset_names=request.assetNames,
+            is_active=request.isActive,
+            updated_by=access.user.name or access.user.email or "",
+            **block_kwargs,
+        )
+    except RenovationDictionaryError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await publish_cell_changed(
+        get_collab_store(),
+        project_key=RENOVATION_PROJECT_KEY,
+        section=RENOVATION_USERS_SECTION,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+        cells=applied,
+    )
+    await record_cell_updates(
+        get_collab_store(),
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        project_key=RENOVATION_PROJECT_KEY,
+        section=RENOVATION_USERS_SECTION,
+        report_month=None,
+        session_id=session_id,
+        applied=applied,
+    )
+    return (await read_renovation_user_rows(session, user_id=user_id))[0]
+
+
+@router.post("/dictionary/export")
+async def export_renovation_dictionary(
+    request: RenovationExportViewRequest,
+    session: SessionDependency,
+    _access: AdminDependency,
+) -> Response:
+    """Excel export of a renovation dictionary grid («вся» / «видимая»)."""
+    try:
+        validate_export_request(request)
+    except ExportValidationError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+    rows = await _dictionary_export_rows(session, request)
+    if request.rowIds is not None:
+        by_id = {str(getattr(row, "id", "") or getattr(row, "valueId", "")): row for row in rows}
+        rows = [by_id[str(row_id)] for row_id in request.rowIds if str(row_id) in by_id]
+    asset_names = [asset.name for asset in await read_renovation_asset_rows(session)]
+    payload = await run_in_threadpool(render_workbook, request, rows, asset_names)
+    return Response(
+        content=payload,
+        media_type=EXPORT_MEDIA_TYPE,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(request.fileName.strip())}"},
+    )
+
+
+async def _dictionary_export_rows(
+    session: AsyncSession,
+    request: RenovationExportViewRequest,
+) -> Sequence[BaseModel]:
+    if request.section == RENOVATION_ASSETS_SECTION:
+        return await read_renovation_asset_rows(session)
+    if request.section == RENOVATION_USERS_SECTION:
+        return await read_renovation_user_rows(session)
+    if request.section.startswith("renovationCatalog:"):
+        catalog = request.section.removeprefix("renovationCatalog:")
+        return await read_renovation_catalog_rows(session, catalog=catalog)
+    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Некорректная секция экспорта.")
+
+
+async def _renovation_project_id_or_error(session: AsyncSession) -> UUID:
+    project_id = (
+        await session.exec(select(col(Project.id)).where(col(Project.key) == RENOVATION_PROJECT_KEY))
+    ).one_or_none()
+    if project_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Проект «Ремонт» не найден.")
+    return project_id
 
 
 async def _publish_rows_changed(access: RenovationAccess) -> None:
