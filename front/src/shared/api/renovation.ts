@@ -96,6 +96,17 @@ export type RenovationPlan = {
     baselineBoundary: number | null;
 };
 
+export type RenovationPlanRows = {
+    id: string;
+    state: "working" | "pendingApproval" | "archived";
+    baselineGeneration: number;
+    updatedAt: string;
+    updatedBy: string;
+    rows: RenovationPlanRow[];
+    total: number;
+    baselineBoundary: number | null;
+};
+
 export type RenovationDiffCell = {
     field: string;
     oldValue?: string | number | boolean | null;
@@ -214,6 +225,18 @@ export async function getRenovationMeta(): Promise<RenovationMeta> {
 export async function getRenovationPlan(planId?: string): Promise<RenovationPlan> {
     const query = planId ? `?plan_id=${encodeURIComponent(planId)}` : "";
     return requestJson(`/api/renovation/plan${query}`);
+}
+
+export async function getRenovationPlanRows(
+    offset: number,
+    limit: number,
+    planId?: string,
+    asset?: string | null,
+): Promise<RenovationPlanRows> {
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    if (planId) params.set("plan_id", planId);
+    if (asset) params.set("asset", asset);
+    return requestJson(`/api/renovation/plan/rows?${params.toString()}`);
 }
 
 export async function getRenovationPlans(): Promise<RenovationPlanVersion[]> {

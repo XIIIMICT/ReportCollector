@@ -62,6 +62,7 @@ from src.renovation.schemas import (
     RenovationMetaRead,
     RenovationPlanRead,
     RenovationPlanRowRead,
+    RenovationPlanRowsRead,
     RenovationPlanVersionRead,
     RenovationUserRowRead,
 )
@@ -295,6 +296,71 @@ async def read_plan(
         updatedAt=plan.updated_at,
         updatedBy=plan.updated_by,
         rows=[_plan_row_read(row, asset, label_map) for row, asset in rows if asset.id in asset_ids],
+        baselineBoundary=baseline_boundary,
+    )
+
+
+async def read_plan_rows(
+    session: AsyncSession,
+    assets: list[RAsset],
+    *,
+    plan_id: UUID | None = None,
+    state: RPlanState = RPlanState.WORKING,
+    offset: int = 0,
+    limit: int = 1000,
+    asset_name: str | None = None,
+) -> RenovationPlanRowsRead:
+    """Return a window of plan rows plus the total row count (lazy loading)."""
+    if plan_id is not None:
+        plan = await session.get(RenovationPlan, plan_id)
+        if plan is None:
+            raise _ERR_PLAN_NOT_FOUND
+    else:
+        plan = await _plan_by_state(session, state)
+        if plan is None:
+            error = RenovationPlanNotFoundError(f"Нет плана в состоянии «{state.value}».")
+            raise error
+    asset_ids = [asset.id for asset in assets]
+    if asset_name is not None:
+        # The client asset filter is by display name; narrow the permitted
+        # asset set so SQL offset/limit count only the visible rows.
+        asset_ids = [asset.id for asset in assets if asset.name == asset_name]
+    label_map = await _reference_labels(session)
+
+    # The asset filter must be applied in SQL so offset/limit count only the
+    # rows the caller may see — not the full plan.
+    total = (
+        await session.exec(
+            select(func.count())
+            .select_from(RenovationPlanRow)
+            .where(
+                col(RenovationPlanRow.plan_id) == plan.id,
+                col(RenovationPlanRow.asset_id).in_(asset_ids),
+            )
+        )
+    ).one()
+    rows = (
+        await session.exec(
+            select(RenovationPlanRow, RAsset)
+            .join(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
+            .where(
+                col(RenovationPlanRow.plan_id) == plan.id,
+                col(RenovationPlanRow.asset_id).in_(asset_ids),
+            )
+            .order_by(col(RenovationPlanRow.position))
+            .offset(offset)
+            .limit(limit)
+        )
+    ).all()
+    baseline_boundary = await _baseline_boundary(session) if plan.state == RPlanState.WORKING else None
+    return RenovationPlanRowsRead(
+        id=plan.id,
+        state=plan.state.value,
+        baselineGeneration=plan.baseline_generation,
+        updatedAt=plan.updated_at,
+        updatedBy=plan.updated_by,
+        rows=[_plan_row_read(row, asset, label_map) for row, asset in rows],
+        total=total,
         baselineBoundary=baseline_boundary,
     )
 

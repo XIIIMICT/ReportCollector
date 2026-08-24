@@ -139,6 +139,19 @@ class RenovationPlanRead(BaseModel):
     baselineBoundary: int | None = None
 
 
+class RenovationPlanRowsRead(BaseModel):
+    """A window of renovation plan rows plus the total row count (lazy loading)."""
+
+    id: UUID
+    state: str
+    baselineGeneration: int
+    updatedAt: datetime
+    updatedBy: str
+    rows: list[RenovationPlanRowRead]
+    total: int
+    baselineBoundary: int | None = None
+
+
 class RenovationRowAddRequest(BaseModel):
     """A new working-plan row (the asset is the only required field)."""
 

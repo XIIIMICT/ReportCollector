@@ -132,6 +132,29 @@ async def test_read_plan_returns_rows_with_labels_and_ids(
     assert by_asset["vos"]["renovationId"] == "2027_VOZR_1.1.1._2247000_00"
 
 
+async def test_read_plan_rows_windows_with_total(client: AsyncClient) -> None:
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        params={"offset": 0, "limit": 1},
+        headers=ADMIN_HEADERS,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert len(body["rows"]) == 1
+
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        params={"offset": 1, "limit": 1},
+        headers=ADMIN_HEADERS,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["rows"]) == 1
+    # The second window returns the other asset (rows are ordered by position).
+    assert body["rows"][0]["position"] != 0
+
+
 async def test_read_plan_versions_lists_working_plan(client: AsyncClient) -> None:
     response = await client.get("/api/renovation/plans", headers=ADMIN_HEADERS)
     assert response.status_code == 200

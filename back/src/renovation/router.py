@@ -50,6 +50,7 @@ from src.renovation.schemas import (
     RenovationMetaRead,
     RenovationPlanRead,
     RenovationPlanRowRead,
+    RenovationPlanRowsRead,
     RenovationPlanVersionRead,
     RenovationRowAddRequest,
     RenovationUpdateRead,
@@ -76,6 +77,7 @@ from src.renovation.service import (
     read_meta,
     read_plan,
     read_plan_diff,
+    read_plan_rows,
     read_plan_versions,
     read_renovation_asset_rows,
     read_renovation_catalog_rows,
@@ -167,6 +169,31 @@ async def get_renovation_plan(
             access.assets,
             plan_id=plan_id,
             state=state if state is not None else RPlanState.WORKING,
+        )
+    except RenovationPlanNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+
+@router.get("/plan/rows", response_model=RenovationPlanRowsRead)
+async def get_renovation_plan_rows(
+    session: SessionDependency,
+    access: AccessDependency,
+    plan_id: Annotated[UUID | None, Query()] = None,
+    state: Annotated[RPlanState | None, Query()] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=10000)] = 1000,
+    asset: Annotated[str | None, Query()] = None,
+) -> RenovationPlanRowsRead:
+    """Return a window of renovation plan rows plus the total (lazy loading)."""
+    try:
+        return await read_plan_rows(
+            session,
+            access.assets,
+            plan_id=plan_id,
+            state=state if state is not None else RPlanState.WORKING,
+            offset=offset,
+            limit=limit,
+            asset_name=asset,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
