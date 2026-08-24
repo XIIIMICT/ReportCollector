@@ -15,10 +15,12 @@ Usage:
 import argparse
 import asyncio
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any, TypedDict
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+from openpyxl import load_workbook
 from sqlalchemy import text
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -39,6 +41,7 @@ from src.raw_materials.models import (
     RawMaterialUserAsset,
 )
 from src.renovation.constants import R_ASSETS, RENOVATION_PROJECT_KEY, RENOVATION_PROJECT_NAME
+from src.renovation.form_schema import field_metas
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
 from src.renovation.reference_data import REFERENCE_OPTIONS
@@ -323,8 +326,198 @@ def _price_business_plan_tons(index: int) -> float:
     return 800.0 + (index % 9) * 125.5
 
 
-async def seed(session: AsyncSession) -> None:
-    """Fill the base data (idempotent: existing rows are not recreated)."""
+# ─── Renovation plan import from the «Пообъектный план» Excel file ─────────
+#
+# The legacy workbook ("Общее оборудование" sheet) holds ~94k rows × 217
+# columns; the first 12 rows are a multi-level header and a column-numbering
+# helper row, the data starts at row 13. Excel column N maps 1:1 onto the
+# plan-row field col_00N: column 1 is the row position («№ п/п»), column 2 is
+# the asset («Предприятие», an r_assets reference), columns 3..217 are
+# col_003..col_217. Calculated fields (formulas) are skipped — the application
+# recomputes them from the imported raw values.
+
+# Repository-root-relative path of the seed workbook (also the fallback name
+# used when the seed is run from anywhere).
+RENOVATION_PLAN_XLSX = Path(__file__).resolve().parents[3] / "docs" / "seed" / "renovation_plan_vos_2027.xlsx"
+
+# First data row of the «Общее оборудование» sheet (1-based, after the header).
+XLSX_DATA_START_ROW = 13
+
+
+def _column_types() -> dict[int, str]:
+    """Excel column number → cell type (from the form schema, col_00N ↔ column N)."""
+    return {int(meta.db_name[4:]): meta.cell_type for meta in field_metas()}
+
+
+def _column_catalogs() -> dict[int, str]:
+    """Excel column number → reference catalog id (reference fields only)."""
+    return {int(meta.db_name[4:]): meta.catalog for meta in field_metas() if meta.catalog is not None}
+
+
+# Fields whose Excel value is a formula (sums, quarterly splits, corrections)
+# or a derived identifier — the app recalculates them. Imported as NULL.
+# Derived from the form schema: everything with is_calculated=True.
+XLSX_SKIP_COLUMNS: frozenset[int] = frozenset(int(meta.db_name[4:]) for meta in field_metas() if meta.is_calculated)
+
+
+def _normalize_asset_name(name: str) -> str:
+    """Compare asset names regardless of the quote style («» vs "")."""
+    return name.strip().replace("«", '"').replace("»", '"')
+
+
+def _parse_decimal(value: object) -> Decimal | None:
+    """Coerce a numeric Excel cell to Decimal (handles strings and thousands)."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, (int, float)):
+        return Decimal(str(value))
+    text = str(value).strip()
+    if text == "":
+        return None
+    # Remove NBSP and regular spaces (thousands separators), swap comma for dot.
+    text = text.replace("\u00a0", "").replace(" ", "").replace(",", ".")
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return None
+
+
+def _parse_date(value: object) -> date | None:
+    """Coerce an Excel date cell to a datetime.date."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return None
+
+
+def _parse_bool(value: object) -> bool | None:
+    """Coerce a Да/Нет cell to a boolean."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("да", "true", "1", "истина"):
+        return True
+    if text in ("нет", "false", "0", "ложь"):
+        return False
+    return None
+
+
+def _parse_text(value: object) -> str | None:
+    """Coerce a text cell to a trimmed string (empty → None)."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def load_renovation_plan_rows(
+    asset_by_normalized_name: dict[str, UUID],
+    reference_id: dict[tuple[str, str], UUID],
+    limit: int | None = None,
+) -> list[RenovationPlanRow]:
+    """
+    Read the «Пообъектный план» workbook into RenovationPlanRow objects.
+
+    Only non-calculated columns are imported; reference columns are resolved
+    to renovation_reference_values ids by (catalog, label), and the asset is
+    resolved by its normalized name. `limit` caps the number of rows for
+    smoke-testing a big file.
+    """
+    column_types = _column_types()
+    column_catalogs = _column_catalogs()
+    workbook = load_workbook(RENOVATION_PLAN_XLSX, read_only=True, data_only=False)
+    sheet = workbook["Общее оборудование"]
+    rows: list[RenovationPlanRow] = []
+    unmatched_assets: set[str] = set()
+    now = utc_now()
+    try:
+        for row in sheet.iter_rows(min_row=XLSX_DATA_START_ROW, values_only=True):
+            if limit is not None and len(rows) >= limit:
+                break
+            position_value = row[0] if len(row) > 0 else None
+            if position_value is None or str(position_value).strip() == "":
+                # A gap row (e.g. a trailing empty line) — stop only if the
+                # position is not numeric, otherwise keep going.
+                continue
+            try:
+                position = int(position_value)
+            except (TypeError, ValueError) as _:
+                continue
+
+            asset_name = _normalize_asset_name(str(row[1])) if len(row) > 1 and row[1] is not None else ""
+            asset_id = asset_by_normalized_name.get(asset_name)
+            if asset_id is None:
+                # Unknown enterprise name — skip the row rather than violate
+                # the non-null asset foreign key.
+                unmatched_assets.add(asset_name)
+                continue
+
+            row_values: dict[str, Any] = {}
+            for col_number in range(3, min(len(row), 217) + 1):
+                if col_number in XLSX_SKIP_COLUMNS:
+                    continue
+                value = row[col_number - 1]
+                if value is None or (isinstance(value, str) and value.strip() == ""):
+                    continue
+                field = f"col_{col_number:03d}"
+                cell_type = column_types.get(col_number, "text")
+                catalog = column_catalogs.get(col_number)
+                if catalog is not None:
+                    ref = reference_id.get((catalog, str(value).strip()))
+                    if ref is not None:
+                        row_values[field] = ref
+                elif cell_type == "number":
+                    parsed = _parse_decimal(value)
+                    if parsed is not None:
+                        row_values[field] = parsed
+                elif cell_type == "date":
+                    parsed = _parse_date(value)
+                    if parsed is not None:
+                        row_values[field] = parsed
+                elif cell_type == "boolean":
+                    parsed = _parse_bool(value)
+                    if parsed is not None:
+                        row_values[field] = parsed
+                else:
+                    parsed = _parse_text(value)
+                    if parsed is not None:
+                        row_values[field] = parsed
+
+            rows.append(
+                RenovationPlanRow(
+                    asset_id=asset_id,
+                    position=position,
+                    baseline_generation=1,
+                    revision=0,
+                    created_at=now,
+                    updated_at=now,
+                    updated_by=SEED_ADMIN_EMAIL,
+                    **row_values,
+                )
+            )
+    finally:
+        workbook.close()
+    if unmatched_assets:
+        print(f"Внимание: пропущены строки с неизвестными предприятиями: {sorted(unmatched_assets)}")
+    return rows
+
+
+async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
+    """
+    Seed the renovation-project data only (assets, users, catalogs, plan).
+
+    Returns the projects keyed by their key (for reuse by the full seed).
+    Does not commit — the caller owns the transaction.
+    """
     now = utc_now()
     seed_password = get_settings().auth_seed_admin_password
 
@@ -433,9 +626,10 @@ async def seed(session: AsyncSession) -> None:
             )
     await session.flush()
 
-    # Renovation working plan + demo rows (deterministic subset of the legacy
-    # plan so the grid has content right after seeding). Idempotent: the plan
-    # is created only when no working plan exists yet.
+    # Renovation working plan + rows (the legacy «Пообъектный план», or a small
+    # deterministic demo when the workbook is absent). The plan is recreated
+    # only when no working plan exists yet — for a fresh re-import, truncate
+    # the renovation tables first (see `run --renovation`).
     renovation_reference_by_key: dict[str, RenovationReferenceValue] = {}
     for value in (await session.exec(select(RenovationReferenceValue))).all():
         renovation_reference_by_key[value.value_key] = value
@@ -459,39 +653,73 @@ async def seed(session: AsyncSession) -> None:
         )
         session.add(working_plan)
         await session.flush()
-        for position, (asset_code, object_name, defect, plan_amount, fact_amount) in enumerate(
-            [
-                ("bsk", "Насос НК 65/35-70", "1382467", Decimal(10), Decimal(20)),
-                ("vos", "Резервуар Р-2", "2247000", Decimal(5), Decimal(7)),
-                ("snhz", "Компрессор К-103", "3100550", Decimal(8), Decimal(12)),
-                ("sz", "Задвижка З-14", "4050200", Decimal(15), Decimal(18)),
-            ]
-        ):
-            session.add(
-                RenovationPlanRow(
-                    plan_id=working_plan.id,
-                    asset_id=r_assets_by_code[asset_code].id,
-                    position=position,
-                    baseline_generation=1,
-                    revision=0,
-                    created_at=now,
-                    updated_at=now,
-                    updated_by=SEED_ADMIN_EMAIL,
-                    col_011=object_name,
-                    col_016="Ремонтный бюджет",
-                    col_017=renovation_reference_by_key["work_category_002"].id,
-                    col_018=renovation_reference_by_key["work_type_002"].id,
-                    col_019=renovation_reference_by_key["cost_allocation_002"].id,
-                    col_020=renovation_reference_by_key["execution_method_001"].id,
-                    col_023=defect,
-                    col_024=date(2027, 1, 1),
-                    col_025=date(2027, 1, 31),
-                    col_028=plan_amount,
-                    col_029=fact_amount,
-                    col_189="1.1.1.",
+        # Resolve the «Предприятие» name (straight quotes) to an r_assets id,
+        # and reference labels to renovation_reference_values ids.
+        asset_by_normalized_name = {
+            _normalize_asset_name(name): r_assets_by_code[code].id for code, _, name in R_ASSETS
+        }
+        reference_id: dict[tuple[str, str], UUID] = {}
+        for value in (await session.exec(select(RenovationReferenceValue))).all():
+            reference_id[(value.catalog, value.label)] = value.id
+
+        if RENOVATION_PLAN_XLSX.exists():
+            # Import the real legacy plan (~94k rows) so the grid exercises
+            # lazy-loading and heavy data handling right after seeding.
+            plan_rows = load_renovation_plan_rows(asset_by_normalized_name, reference_id)
+            for row in plan_rows:
+                row.plan_id = working_plan.id
+            # One flush for the whole batch — SQLAlchemy uses insertmanyvalues
+            # (fast multi-row INSERT) instead of 94k round-trips.
+            session.add_all(plan_rows)
+            await session.flush()
+            session.info["renovation_plan_rows"] = len(plan_rows)
+        else:
+            # Fallback: a small deterministic demo so the grid still has
+            # content when the workbook is absent.
+            for position, (asset_code, object_name, defect, plan_amount, fact_amount) in enumerate(
+                [
+                    ("bsk", "Насос НК 65/35-70", "1382467", Decimal(10), Decimal(20)),
+                    ("vos", "Резервуар Р-2", "2247000", Decimal(5), Decimal(7)),
+                    ("snhz", "Компрессор К-103", "3100550", Decimal(8), Decimal(12)),
+                    ("sz", "Задвижка З-14", "4050200", Decimal(15), Decimal(18)),
+                ]
+            ):
+                session.add(
+                    RenovationPlanRow(
+                        plan_id=working_plan.id,
+                        asset_id=r_assets_by_code[asset_code].id,
+                        position=position,
+                        baseline_generation=1,
+                        revision=0,
+                        created_at=now,
+                        updated_at=now,
+                        updated_by=SEED_ADMIN_EMAIL,
+                        col_011=object_name,
+                        col_016="Ремонтный бюджет",
+                        col_017=renovation_reference_by_key["work_category_002"].id,
+                        col_018=renovation_reference_by_key["work_type_002"].id,
+                        col_019=renovation_reference_by_key["cost_allocation_002"].id,
+                        col_020=renovation_reference_by_key["execution_method_001"].id,
+                        col_023=defect,
+                        col_024=date(2027, 1, 1),
+                        col_025=date(2027, 1, 31),
+                        col_028=plan_amount,
+                        col_029=fact_amount,
+                        col_189="1.1.1.",
+                    )
                 )
-            )
+            session.info["renovation_plan_rows"] = 4
         await session.flush()
+
+    return projects
+
+
+async def seed(session: AsyncSession) -> None:
+    """Fill the base data (idempotent: existing rows are not recreated)."""
+    now = utc_now()
+    seed_password = get_settings().auth_seed_admin_password
+
+    projects = await seed_renovation(session)
 
     # «Активы» dictionary
     assets: dict[str, RawMaterialAsset] = {}
@@ -654,17 +882,49 @@ async def seed(session: AsyncSession) -> None:
     await session.commit()
 
 
-async def run(reset: bool = False) -> None:
+# Renovation-only tables, truncated by `--renovation` before re-importing the
+# plan. `app_users` and `projects` are left untouched — real users already work
+# in the system. TRUNCATE ... CASCADE also clears anything that references them
+# (r_user_assets/r_user_roles → app_users are CASCADE anyway).
+RENOVATION_TABLES: tuple[str, ...] = (
+    "renovation_plan_rows",
+    "renovation_plans",
+    "renovation_reference_values",
+    "r_user_assets",
+    "r_user_roles",
+    "r_assets",
+)
+
+
+async def run(reset: bool = False, renovation_only: bool = False) -> None:
     settings = get_settings()
     async with async_engine.begin() as conn:
         if reset:
             await conn.execute(text(f'DROP SCHEMA IF EXISTS "{settings.postgres_schema}" CASCADE'))
         await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{settings.postgres_schema}"'))
         await conn.run_sync(SQLModel.metadata.create_all)
+        if renovation_only and not reset:
+            # Re-seed only the renovation data: wipe its tables (not app_users)
+            # and let seed_renovation rebuild them.
+            tables = ", ".join(f'"{settings.postgres_schema}"."{t}"' for t in RENOVATION_TABLES)
+            await conn.execute(text(f"TRUNCATE TABLE {tables} RESTART IDENTITY CASCADE"))
 
     async with async_session_factory() as session:
+        if renovation_only:
+            await seed_renovation(session)
+            await session.commit()
+            plan_rows_count = session.info.get("renovation_plan_rows", 0)
+            print(
+                "Сидирование реновации завершено: "
+                f"активы реновации={len(R_ASSETS)}, справочники реновации={len(REFERENCE_OPTIONS)}, "
+                f"пользователи реновации={len(RENOVATION_USERS)}, "
+                f"строк рабочего плана реновации={plan_rows_count}."
+            )
+            return
+
         await seed(session)
         arms_count = sum(len(assets) for _, assets in RAW_MATERIAL_ASSETS)
+        plan_rows_count = session.info.get("renovation_plan_rows", 4)
         print(
             f"Сидирование завершено: проектов={len(PROJECTS)}, активов={len(ASSET_NAMES)}, "
             f"базисов={len(DELIVERY_BASIS_NAMES)}, сырьё={len(RAW_MATERIAL_NAMES)}, "
@@ -675,15 +935,20 @@ async def run(reset: bool = False) -> None:
             f"пользователи реновации={len(RENOVATION_USERS)} "
             f"({', '.join(str(u['email']) for u in RENOVATION_USERS)}), "
             f"активы реновации={len(R_ASSETS)}, справочники реновации={len(REFERENCE_OPTIONS)}, "
-            f"строк рабочего плана реновации=4."
+            f"строк рабочего плана реновации={plan_rows_count}."
         )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Создание схемы и сидирование базовых данных ReportCollector.")
     parser.add_argument("--reset", action="store_true", help="Пересоздать схему перед сидированием")
+    parser.add_argument(
+        "--renovation",
+        action="store_true",
+        help="Перезатереть только таблицы реновации (без drop schema и без app_users) и пересидировать их",
+    )
     args = parser.parse_args()
-    asyncio.run(run(reset=args.reset))
+    asyncio.run(run(reset=args.reset, renovation_only=args.renovation))
 
 
 if __name__ == "__main__":
