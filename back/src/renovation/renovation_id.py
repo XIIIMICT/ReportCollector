@@ -100,10 +100,6 @@ def _invalid_project_code(value: str) -> RenovationIdError:
     return RenovationIdError(f"некорректный код проекта `{value}`: точка должна разделять непустые части кода")
 
 
-def _reserved_separator(field: str, separator: str) -> RenovationIdError:
-    return RenovationIdError(f"{field} содержит зарезервированный разделитель `{separator}`")
-
-
 def _control_character(field: str) -> RenovationIdError:
     return RenovationIdError(f"{field} содержит управляющий символ или перевод строки")
 
@@ -309,9 +305,11 @@ def _validate_project_code(value: str) -> None:
 
 
 def _validate_object_component(value: str, field: str) -> None:
-    for separator in ("_", "*"):
-        if separator in value:
-            raise _reserved_separator(field, separator)
+    # Free-text object components (technological position, work type, project
+    # code) may legitimately contain `_` or `*` in real data («ЛабСтолВПУ_210»).
+    # They only compose a whole string that is never parsed back into parts, so
+    # these separators are harmless; control characters are the real corruption
+    # risk and stay rejected.
     if any(_is_control_character(char) for char in value):
         raise _control_character(field)
 

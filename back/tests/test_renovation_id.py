@@ -4,8 +4,6 @@ import pytest
 
 from src.renovation.renovation_id import (
     PROJECT_CODE_FIELD,
-    TECHNOLOGY_POSITION_FIELD,
-    WORK_TYPE_FIELD,
     RenovationIdError,
     RenovationIdInput,
     calculate_renovation_id,
@@ -149,14 +147,16 @@ def test_rejects_a_standard_statement_suffix_without_a_defect_number() -> None:
         calculate_renovation_id(base_input(typical_defect_suffix="01"))
 
 
-def test_rejects_reserved_separators_and_control_characters() -> None:
-    with pytest.raises(RenovationIdError) as error:
-        calculate_renovation_id(base_input(technology_position="ID_39"))
-    assert f"{TECHNOLOGY_POSITION_FIELD} содержит зарезервированный разделитель `_`" in str(error.value)
+def test_allows_reserved_separators_but_rejects_control_characters() -> None:
+    # `_` and `*` are legitimate in free-text object components (real data:
+    # «ЛабСтолВПУ_210») and only compose a whole string that is never parsed
+    # back — so they must not be rejected.
+    result = calculate_renovation_id(base_input(technology_position="ID_39"))
+    assert "*Январь_00" in result.value
+    assert "ID_39*" in result.value
 
-    with pytest.raises(RenovationIdError) as error:
-        calculate_renovation_id(base_input(work_type_label="ТР*КР"))
-    assert f"{WORK_TYPE_FIELD} содержит зарезервированный разделитель `*`" in str(error.value)
+    result = calculate_renovation_id(base_input(work_type_label="ТР*КР"))
+    assert "ТР*КР*" in result.value
 
     with pytest.raises(RenovationIdError) as error:
         calculate_renovation_id(base_input(bpof_section="Проекты улучшения", project_code="10.2\n44.7"))
