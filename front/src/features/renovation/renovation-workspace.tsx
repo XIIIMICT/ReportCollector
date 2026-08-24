@@ -6,6 +6,7 @@ import {
     Card,
     Dropdown,
     Kbd,
+    Pagination,
     Skeleton,
     Spinner,
     Tabs,
@@ -50,6 +51,7 @@ import {
     getRenovationDiff,
     getRenovationMeta,
     getRenovationPlan,
+    getRenovationPlanRows,
     getRenovationPlans,
     getUndoState,
     redoCells,
@@ -63,6 +65,7 @@ import {
     type RenovationDiff,
     type RenovationMeta,
     type RenovationPlan,
+    type RenovationPlanRows,
     type RenovationPlanVersion,
     type RenovationUndoResult,
 } from "@/shared/api/renovation";
@@ -93,6 +96,10 @@ export type RenovationWorkspaceProps = {
 
 const WORKING_VERSION_ID = "__working";
 const PLACEHOLDER_ROW_ID = "placeholder:renovation-plan";
+// Rows per page of the working plan (server-driven pagination, not a client
+// side window): the grid holds at most this many rows in memory, so editing
+// and toggling the pinned header never pay for all ~94k rows.
+const PLAN_PAGE_SIZE = 200;
 
 function errorMessage(reason: unknown): string {
     return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
@@ -121,6 +128,20 @@ function blockLabel(block: string): string {
     return block.charAt(0).toUpperCase() + block.slice(1);
 }
 
+/** Page numbers with ellipsis markers for a compact pagination strip. */
+function pageRange(current: number, total: number): Array<number | "ellipsis"> {
+    const pages: Array<number | "ellipsis"> = [];
+    const push = (n: number) => pages.push(n);
+    for (let i = 0; i < total; i += 1) {
+        if (i === 0 || i === total - 1 || Math.abs(i - current) <= 1) {
+            push(i);
+        } else if (pages[pages.length - 1] !== "ellipsis") {
+            pages.push("ellipsis");
+        }
+    }
+    return pages;
+}
+
 export function RenovationWorkspace({
     currentUser,
     activeProjectKey,
@@ -128,6 +149,9 @@ export function RenovationWorkspace({
 }: RenovationWorkspaceProps) {
     const [metaReloadKey, setMetaReloadKey] = useState(0);
     const [reloadKey, setReloadKey] = useState(0);
+    const [assetFilter, setAssetFilter] = useState<string | null>(null);
+    const [blockFilter, setBlockFilter] = useState<string | null>(null);
+    const [planPage, setPlanPage] = useState(0);
     const { data: meta, error } = useAsyncData<RenovationMeta | null>(
         () => getRenovationMeta().catch(() => null),
         [metaReloadKey],
@@ -137,10 +161,26 @@ export function RenovationWorkspace({
         [metaReloadKey],
     );
     const [viewPlanId, setViewPlanId] = useState<string | null>(null);
-    const { data: plan, error: planError } = useAsyncData<RenovationPlan | null>(
-        () => (meta ? getRenovationPlan(viewPlanId ?? undefined) : Promise.resolve(null)),
-        [meta, metaReloadKey, reloadKey, viewPlanId],
-    );
+    // The working plan is paginated (server-driven) so the grid holds at most
+    // PLAN_PAGE_SIZE rows in memory; archived plans are read-only comparisons
+    // and stay full. Both share the `plan` shape (rows + baselineBoundary).
+    const { data: plan, error: planError } = useAsyncData<
+        RenovationPlan | RenovationPlanRows | null
+    >(() => {
+        if (!meta) return Promise.resolve(null);
+        if (viewPlanId) return getRenovationPlan(viewPlanId);
+        return getRenovationPlanRows(
+            planPage * PLAN_PAGE_SIZE,
+            PLAN_PAGE_SIZE,
+            undefined,
+            assetFilter,
+        );
+    }, [meta, metaReloadKey, reloadKey, viewPlanId, planPage, assetFilter]);
+    // Reset to the first page whenever the plan, filter, or a reload changes
+    // (the total — and thus the last valid page — may shrink).
+    useEffect(() => {
+        setPlanPage(0);
+    }, [viewPlanId, assetFilter, metaReloadKey, reloadKey]);
     const { data: diff } = useAsyncData<RenovationDiff | null>(
         () => (viewPlanId ? getRenovationDiff(viewPlanId) : Promise.resolve(null)),
         [metaReloadKey, reloadKey, viewPlanId],
@@ -150,6 +190,11 @@ export function RenovationWorkspace({
         () => (comparedToPlanId ? getRenovationPlan(comparedToPlanId) : Promise.resolve(null)),
         [comparedToPlanId, metaReloadKey, reloadKey],
     );
+
+    // Pagination is only for the working plan (archived plans are full reads).
+    const planTotal = viewPlanId === null && plan && "total" in plan ? plan.total : null;
+    const planPageCount =
+        planTotal !== null ? Math.max(1, Math.ceil(planTotal / PLAN_PAGE_SIZE)) : 1;
 
     const [user, setUser] = useState(currentUser);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -211,8 +256,6 @@ export function RenovationWorkspace({
     const remoteLocksKeyRef = useRef<string>("");
     const remotePresenceRef = useRef<Map<string, { fullname: string; email: string }>>(new Map());
     const remotePresenceKeyRef = useRef<string>("");
-    const [assetFilter, setAssetFilter] = useState<string | null>(null);
-    const [blockFilter, setBlockFilter] = useState<string | null>(null);
     const [remoteCellValues, setRemoteCellValues] = useState<Map<string, unknown>>(new Map());
     const { setTheme } = useTheme();
 
@@ -1307,6 +1350,55 @@ export function RenovationWorkspace({
                     <Card className="workspace-card">
                         <Card.Content className="workspace-card__content">
                             {toolbar}
+                            {isPlanSection && viewPlanId === null && planPageCount > 1 ? (
+                                <div className="plan-pagination">
+                                    <Pagination size="sm">
+                                        <Pagination.Content>
+                                            <Pagination.Item>
+                                                <Pagination.Previous
+                                                    aria-label="Предыдущая страница"
+                                                    isDisabled={planPage === 0}
+                                                    onPress={() =>
+                                                        setPlanPage((page) => Math.max(0, page - 1))
+                                                    }
+                                                >
+                                                    <Pagination.PreviousIcon />
+                                                </Pagination.Previous>
+                                            </Pagination.Item>
+                                            {pageRange(planPage, planPageCount).map(
+                                                (entry, index) =>
+                                                    typeof entry === "number" ? (
+                                                        <Pagination.Item key={entry}>
+                                                            <Pagination.Link
+                                                                isActive={entry === planPage}
+                                                                onPress={() => setPlanPage(entry)}
+                                                            >
+                                                                {entry + 1}
+                                                            </Pagination.Link>
+                                                        </Pagination.Item>
+                                                    ) : (
+                                                        <Pagination.Item key={`ellipsis-${index}`}>
+                                                            <Pagination.Ellipsis />
+                                                        </Pagination.Item>
+                                                    ),
+                                            )}
+                                            <Pagination.Item>
+                                                <Pagination.Next
+                                                    aria-label="Следующая страница"
+                                                    isDisabled={planPage >= planPageCount - 1}
+                                                    onPress={() =>
+                                                        setPlanPage((page) =>
+                                                            Math.min(planPageCount - 1, page + 1),
+                                                        )
+                                                    }
+                                                >
+                                                    <Pagination.NextIcon />
+                                                </Pagination.Next>
+                                            </Pagination.Item>
+                                        </Pagination.Content>
+                                    </Pagination>
+                                </div>
+                            ) : null}
                             <div className="grid-viewport" aria-busy={isMutationPending}>
                                 {isPlanSection ? (
                                     <>
