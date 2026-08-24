@@ -203,6 +203,14 @@ export function RenovationWorkspace({
     // is cleared programmatically; the resulting empty presence update must be
     // swallowed (the server entry belongs to the other tab).
     const suppressSelectionSendRef = useRef(false);
+    const remoteCellInfoRef = useRef<Map<string, { name: string; label: string | null }>>(
+        new Map(),
+    );
+    const remoteCellInfoKeyRef = useRef<string>("");
+    const remoteLocksRef = useRef<Map<string, { fullname: string; email: string }>>(new Map());
+    const remoteLocksKeyRef = useRef<string>("");
+    const remotePresenceRef = useRef<Map<string, { fullname: string; email: string }>>(new Map());
+    const remotePresenceKeyRef = useRef<string>("");
     const [assetFilter, setAssetFilter] = useState<string | null>(null);
     const [blockFilter, setBlockFilter] = useState<string | null>(null);
     const [remoteCellValues, setRemoteCellValues] = useState<Map<string, unknown>>(new Map());
@@ -350,6 +358,10 @@ export function RenovationWorkspace({
         for (const [key, user] of room.lockedCells) {
             result.set(key, { fullname: user.name || "", email: user.email || "" });
         }
+        const key = JSON.stringify([...result.entries()]);
+        if (key === remoteLocksKeyRef.current) return remoteLocksRef.current;
+        remoteLocksKeyRef.current = key;
+        remoteLocksRef.current = result;
         return result;
     }, [room.lockedCells]);
 
@@ -370,12 +382,21 @@ export function RenovationWorkspace({
                 }
             }
         }
+        const key = JSON.stringify([...result.entries()]);
+        if (key === remotePresenceKeyRef.current) return remotePresenceRef.current;
+        remotePresenceKeyRef.current = key;
+        remotePresenceRef.current = result;
         return result;
     }, [room.me?.userId, room.members]);
 
     // Cells where other members are: their presence ranges (canonical keys —
     // the same for everyone regardless of the column set) plus leased cells.
     // Needed for the yellow highlight and the FIO tooltip.
+    //
+    // The map is stabilized by content: presence heartbeats replace
+    // `room.members`/`room.lockedCells` with fresh references even when nothing
+    // changed, which — as a columns-memo dependency — rebuilt the 216-column
+    // grid on every tick and froze the drag cursor / janked scrolling.
     const remoteCellInfo = useMemo(() => {
         const meId = room.me?.userId ?? null;
         const result = new Map<string, { name: string; label: string | null }>();
@@ -401,6 +422,14 @@ export function RenovationWorkspace({
                 result.set(key, { name: user.name || "", label: null });
             }
         }
+        // Content fingerprint: return the previous Map object when nothing
+        // changed so downstream memos keep their identity.
+        const key = JSON.stringify([...result.entries()]);
+        if (key === remoteCellInfoKeyRef.current) {
+            return remoteCellInfoRef.current;
+        }
+        remoteCellInfoKeyRef.current = key;
+        remoteCellInfoRef.current = result;
         return result;
     }, [room.lockedCells, room.me?.userId, room.members]);
 

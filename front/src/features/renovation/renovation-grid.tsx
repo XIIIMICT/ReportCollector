@@ -254,6 +254,7 @@ function RenovationGridInner(
     const [headerPinned, setHeaderPinned] = useState(true);
     const [showServiceColumns, setShowServiceColumns] = useState(false);
     const [horizontalContentWidth, setHorizontalContentWidth] = useState(0);
+    const horizontalContentWidthRef = useRef(0);
     const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
     const [widths, setWidths] = useState<Map<string, number>>(() => {
         const result = new Map<string, number>();
@@ -666,11 +667,32 @@ function RenovationGridInner(
         const grid = gridRef.current;
         setSelectionRange(null);
         if (!grid) return;
-        // Landmine: without clearing the pending focus restore, the next
-        // render resurrects the old single-cell range.
-        (grid as unknown as { pendingColumnFocusRestore?: unknown }).pendingColumnFocusRestore =
-            undefined;
-        void grid.clearFocus().then(() => grid.refresh());
+        const doClear = () => {
+            (grid as unknown as { pendingColumnFocusRestore?: unknown }).pendingColumnFocusRestore =
+                undefined;
+            return grid.clearFocus().then(() => grid.refresh());
+        };
+        // A drag-created range resurrects as a single-cell range on the first
+        // clear: revo-grid re-applies the stale focus during the re-render
+        // that `refresh()` triggers. Re-check after that render settles and
+        // repeat until the store is really empty — the same pass that works on
+        // a second Escape now runs automatically on the first.
+        void doClear().then(() => {
+            const verify = () =>
+                grid
+                    .getSelectedRange()
+                    .then((range) => {
+                        if (range) doClear();
+                    })
+                    .catch(() => {
+                        /* grid disposed */
+                    });
+            if (typeof requestAnimationFrame === "function") {
+                requestAnimationFrame(() => void verify());
+            } else {
+                void verify();
+            }
+        });
     }, []);
 
     // Row-number click: select the whole row (shift — range, Ctrl/Cmd —
@@ -1290,7 +1312,12 @@ function RenovationGridInner(
                     y1: detail.end.y,
                 },
             );
-            setSelectedRowIds([]);
+            // Only clear the row selection if there actually is one: assigning
+            // a fresh [] on every focuscell (which revo-grid fires continuously
+            // during a drag) changed the selectedRowIds reference, rebuilt the
+            // 216-column memo and re-rendered the whole grid each tick — the
+            // drag stopped tracking the cursor and scrolling janked.
+            setSelectedRowIds((prev) => (prev.length === 0 ? prev : []));
             rowSelectionAnchorRef.current = null;
         };
         const handleCancelEdit = () => {
@@ -1517,6 +1544,13 @@ function RenovationGridInner(
             ? verticalScroller.offsetWidth - verticalScroller.clientWidth
             : 0;
         const width = size.x + scrollbarGutter + ROW_HEADER_WIDTH;
+        // revo-grid fires contentsizechanged on every virtualized scroll tick;
+        // re-setting the same width re-rendered the grid, which rebuilt the
+        // 216-column memo and re-fired contentsizechanged — an endless loop
+        // that froze the drag cursor and janked horizontal scrolling. Only
+        // commit state when the width actually changed.
+        if (width === horizontalContentWidthRef.current) return;
+        horizontalContentWidthRef.current = width;
         setHorizontalContentWidth(width);
         const shell = shellRef.current;
         setHasHorizontalOverflow(width > (shell?.clientWidth ?? 0));
