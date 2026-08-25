@@ -1234,7 +1234,7 @@ export function RenovationWorkspace({
                     </div>
                 ) : null}
                 {isPlanSection && viewPlanId === null && planPageCount > 1 ? (
-                    <Pagination size="sm" className="plan-pagination">
+                    <Pagination className="plan-pagination">
                         <Pagination.Content>
                             <Pagination.Item>
                                 <Pagination.Previous

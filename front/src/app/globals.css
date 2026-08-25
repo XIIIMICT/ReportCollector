@@ -1,6 +1,16 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 
+@theme {
+    /* Freeze HeroUI's responsive component scaling: the theme shrinks
+       buttons/pagination/values above sm (40rem) and md (48rem), which made
+       controls jump between viewports. The app itself never uses sm:/md:
+       utilities, so pinning these two breakpoints to 0 renders every
+       component's roomier base look on all viewports. lg is untouched. */
+    --breakpoint-sm: 0rem;
+    --breakpoint-md: 0rem;
+}
+
 .scrollbar-hidden {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -665,60 +675,6 @@ html {
 .action-button:focus-visible .action-button__label {
     max-width: 13rem;
     opacity: 1;
-}
-
-/* HeroUI's theme shrinks buttons/pagination above md (button height 10→9
-   spacing units, icon-only width, pagination links 9→8), which made the
-   desktop toolbar and pagination look squeezed next to the sub-md rendering.
-   Pin the roomier sub-md sizes on every viewport for our controls. */
-@media (min-width: 48rem) {
-    .view-strip .button,
-    .action-bar .button {
-        height: calc(var(--spacing) * 10);
-    }
-
-    .plan-pagination .pagination__link {
-        width: calc(var(--spacing) * 9);
-        height: calc(var(--spacing) * 9);
-    }
-}
-
-/* And the mirror case below sm (40rem): the sm:text-sm utility simply doesn't
-   apply there, so the value falls back to its base text-base size and the
-   whole trigger grows. Pin the sm+ sizing unconditionally — an unlayered
-   !important outranks every HeroUI layer/utility at any viewport. */
-.plan-filters [data-slot="select-value"],
-.plan-filters [data-slot="autocomplete-value"],
-.plan-filters .select__value,
-.plan-filters .autocomplete__value {
-    font-size: var(--text-sm) !important;
-    line-height: var(--tw-leading, var(--text-sm--line-height)) !important;
-}
-
-.plan-filters .select__trigger,
-.plan-filters .autocomplete__trigger,
-.plan-filters [data-slot="select-trigger"],
-.plan-filters [data-slot="autocomplete-trigger"] {
-    line-height: var(--tw-leading, var(--text-sm--line-height));
-}
-
-.plan-filters .select__trigger svg,
-.plan-filters .autocomplete__trigger svg,
-.plan-filters [data-slot="select-trigger"] svg,
-.plan-filters [data-slot="autocomplete-trigger"] svg,
-.plan-filters .button svg {
-    width: calc(var(--spacing) * 4);
-    height: calc(var(--spacing) * 4);
-}
-
-/* Below sm the same gap hits the bare-icon triggers of the compact menus
-   («Действия» / «Настройки»): no wrapper constrains their svg, so it renders
-   at its natural size. Pin 16px here as well. */
-.action-more-button > svg,
-.action-more-button .button svg {
-    flex: 0 0 auto;
-    width: calc(var(--spacing) * 4);
-    height: calc(var(--spacing) * 4);
 }
 
 /* Compact view menu (< md): fixed-width check column keeps the toggle and
