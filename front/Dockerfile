@@ -1,4 +1,4 @@
-FROM oven/bun:1.3-slim AS base
+FROM oven/bun:1.4-slim AS base
 # Порт фронтенда. Единственная точка в Dockerfile: значение задаёт
 # compose.yaml из FRONT_PORT в .env.
 ARG PORT=5000
