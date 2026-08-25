@@ -1322,6 +1322,22 @@ function RawMaterialsGridInner(
         const handleAfterFilterApply = () => {
             void measureViewport();
         };
+        // A header click on RevoGrid's native filter funnel also falls through to
+        // the column sort (`beforeheaderclick`), so opening a filter silently
+        // sorts the column as well. That extra sort is what makes the funnel
+        // (and the newly revealed sort indicator) jump from the left edge of the
+        // header cell to the right. Suppress the sort for funnel clicks in the
+        // capture phase — before the sorting plugin's bubble handler — while
+        // still letting the click reach the filter plugin (preventDefault does
+        // not stop propagation). `rv-filter` is RevoGrid's filter-button class.
+        const handleBeforeHeaderClickCapture = (event: Event) => {
+            const originalEvent = (event as CustomEvent<{ originalEvent?: MouseEvent | null }>)
+                .detail?.originalEvent;
+            const target = originalEvent?.target as Element | null;
+            if (!target) return;
+            const hit = target.classList?.contains("rv-filter") || target.closest?.(".rv-filter");
+            if (hit) event.preventDefault();
+        };
         const handleCancelEdit = () => {
             if (!activeLeaseRef.current) return;
             onReleaseLease?.([activeLeaseRef.current]);
@@ -1333,6 +1349,7 @@ function RawMaterialsGridInner(
         grid.addEventListener("focuscell", handleFocusCell);
         grid.addEventListener("afterfilterapply", handleAfterFilterApply);
         grid.addEventListener("canceledit", handleCancelEdit);
+        grid.addEventListener("beforeheaderclick", handleBeforeHeaderClickCapture, true);
         return () => {
             window.removeEventListener("copy", handleCopy, true);
             window.removeEventListener("paste", handlePaste, true);
@@ -1340,6 +1357,7 @@ function RawMaterialsGridInner(
             grid.removeEventListener("focuscell", handleFocusCell);
             grid.removeEventListener("afterfilterapply", handleAfterFilterApply);
             grid.removeEventListener("canceledit", handleCancelEdit);
+            grid.removeEventListener("beforeheaderclick", handleBeforeHeaderClickCapture, true);
         };
     }, [copySelection, pasteIntoSelection, updateSelectionRange, measureViewport]);
     useImperativeHandle(
