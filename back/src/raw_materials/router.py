@@ -3,7 +3,6 @@
 from collections.abc import Sequence
 from datetime import date
 from typing import Annotated
-from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -22,6 +21,7 @@ from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, Undo
 from src.collab.store import get_collab_store
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.database import get_session
+from src.downloads import attachment_response
 from src.raw_materials.approve import (
     ApprovalError,
     fix_report,
@@ -335,7 +335,6 @@ async def _latest_period(session: AsyncSession) -> date:
 
 
 DICTIONARY_SECTIONS = frozenset({"rawMaterials", "assets", "deliveryBases", "users"})
-EXPORT_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 @router.post("/export")
@@ -373,11 +372,7 @@ async def export_table(
     asset_names = [asset.name for asset in user_assets]
     delivery_bases = [basis.name for basis in await read_delivery_basis_rows(session)]
     payload = await run_in_threadpool(render_workbook, request, rows, asset_names, delivery_bases)
-    return Response(
-        content=payload,
-        media_type=EXPORT_MEDIA_TYPE,
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(request.fileName.strip())}"},
-    )
+    return attachment_response(payload, filename=request.fileName.strip())
 
 
 async def _export_rows(

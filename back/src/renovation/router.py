@@ -1,14 +1,11 @@
 """«Ремонт» project API: reading/editing the renovation plan, plan lifecycle, undo/redo."""
 
 from collections.abc import Sequence
-from io import BytesIO
 from typing import TYPE_CHECKING, Annotated
-from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlmodel import col, select
@@ -28,6 +25,7 @@ from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, Undo
 from src.collab.store import get_collab_store
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.database import get_session
+from src.downloads import attachment_response
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.export import (
     ExportValidationError,
@@ -321,19 +319,13 @@ async def export_renovation_plan(
     session: SessionDependency,
     access: AccessDependency,
     plan_id: Annotated[UUID | None, Query()] = None,
-) -> StreamingResponse:
+) -> Response:
     """Excel export of a plan version (default — the working plan)."""
     try:
         plan = await read_plan(session, access.assets, plan_id=plan_id, state=RPlanState.WORKING)
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    content = render_renovation_workbook(plan)
-    filename = f"remont_plan_v{plan.baselineGeneration}_{plan.updatedAt:%Y-%m-%d}.xlsx"
-    return StreamingResponse(
-        BytesIO(content),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return await _plan_export_response(plan)
 
 
 @router.post("/plan/export")
@@ -341,7 +333,7 @@ async def post_export_renovation_plan(
     session: SessionDependency,
     access: AccessDependency,
     payload: RenovationPlanExportRequest,
-) -> StreamingResponse:
+) -> Response:
     """Excel export of a plan version: all rows or only the visible ones."""
     try:
         plan = await read_plan(session, access.assets, plan_id=payload.planId, state=RPlanState.WORKING)
@@ -350,13 +342,14 @@ async def post_export_renovation_plan(
     if payload.rowIds is not None:
         by_id = {row.id: row for row in plan.rows}
         plan.rows = [by_id[row_id] for row_id in payload.rowIds if row_id in by_id]
-    content = render_renovation_workbook(plan)
+    return await _plan_export_response(plan)
+
+
+async def _plan_export_response(plan: RenovationPlanRead) -> Response:
+    """Render a plan version off the event loop and wrap it into a download response."""
+    content = await run_in_threadpool(render_renovation_workbook, plan)
     filename = f"remont_plan_v{plan.baselineGeneration}_{plan.updatedAt:%Y-%m-%d}.xlsx"
-    return StreamingResponse(
-        BytesIO(content),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return attachment_response(content, filename=filename)
 
 
 @router.post("/plan/submit", response_model=RenovationPlanVersionRead)
@@ -398,7 +391,6 @@ async def post_renovation_approve(
 
 RENOVATION_ASSETS_SECTION = "renovationAssets"
 RENOVATION_USERS_SECTION = "renovationUsers"
-EXPORT_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _catalog_section(catalog: str) -> str:
@@ -714,11 +706,7 @@ async def export_renovation_dictionary(
         rows = [by_id[str(row_id)] for row_id in request.rowIds if str(row_id) in by_id]
     asset_names = [asset.name for asset in await read_renovation_asset_rows(session)]
     payload = await run_in_threadpool(render_workbook, request, rows, asset_names)
-    return Response(
-        content=payload,
-        media_type=EXPORT_MEDIA_TYPE,
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(request.fileName.strip())}"},
-    )
+    return attachment_response(payload, filename=request.fileName.strip())
 
 
 async def _dictionary_export_rows(
