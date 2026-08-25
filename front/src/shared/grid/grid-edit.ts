@@ -53,7 +53,15 @@ export function extractEdits(
     };
 }
 
-function toCellValue(value: unknown): CellUpdate["value"] {
+/** Parse a locale-formatted number ('1 234,5' with any Unicode spaces → 1234.5 | null). */
+export function parseNumericText(item: unknown): number | null {
+    const text = String(item).replace(/\s/g, "").replace(",", ".");
+    if (!text) return null;
+    const parsed = Number.parseFloat(text);
+    return Number.isNaN(parsed) ? null : parsed;
+}
+
+export function toCellValue(value: unknown): CellUpdate["value"] {
     if (Array.isArray(value)) {
         return value
             .filter((item): item is string => typeof item === "string")
@@ -81,18 +89,12 @@ function sameCellValue(known: unknown, value: unknown): boolean {
     ) {
         return false;
     }
-    const parse = (item: unknown): number | null => {
-        const text = String(item).replace("\u00a0", " ").replace(/\s/g, "").replace(",", ".");
-        if (!text) return null;
-        const parsed = Number.parseFloat(text);
-        return Number.isNaN(parsed) ? null : parsed;
-    };
-    const left = parse(previous);
-    const right = parse(next);
+    const left = parseNumericText(previous);
+    const right = parseNumericText(next);
     return left !== null && right !== null && left === right;
 }
 
-function deduplicateUpdates(updates: CellUpdate[]): CellUpdate[] {
+export function deduplicateUpdates(updates: CellUpdate[]): CellUpdate[] {
     const result = new Map<string, CellUpdate>();
     for (const update of updates) result.set(`${update.rowId}\u0000${update.field}`, update);
     return [...result.values()];

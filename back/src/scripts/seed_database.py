@@ -378,8 +378,9 @@ def _parse_decimal(value: object) -> Decimal | None:
     text = str(value).strip()
     if text == "":
         return None
-    # Remove NBSP and regular spaces (thousands separators), swap comma for dot.
-    text = text.replace("\u00a0", "").replace(" ", "").replace(",", ".")
+    # Any Unicode whitespace works as a thousands separator (regular space,
+    # NBSP \u00a0, narrow NBSP \u202f — Excel uses different ones); comma → dot.
+    text = "".join(text.split()).replace(",", ".")
     try:
         return Decimal(text)
     except InvalidOperation:

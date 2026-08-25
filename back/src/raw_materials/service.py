@@ -503,13 +503,33 @@ async def update_movement_cells(
     """Apply «Движение» form cell edits and write the journal (same transaction)."""
     asset_ids = [asset.id for asset in assets]
     applied: list[AppliedCell] = []
+    # Batch-load rows, links and prices up front: one query per table instead
+    # of two-three per cell (a paste can carry hundreds of cells).
+    row_ids = [update.rowId for update in updates if update.rowId is not None]
+    movements = {
+        movement.id: movement
+        for movement in (
+            await session.exec(select(MaterialMovement).where(col(MaterialMovement.id).in_(row_ids)))
+        ).all()
+    }
+    arms = await _arms_by_id(session, {movement.asset_raw_material_id for movement in movements.values()})
+    prices = (
+        await _prices_by_arm(session, set(arms))
+        if any(update.field in MOVEMENT_PRICE_FIELDS for update in updates)
+        else {}
+    )
     for update in updates:
         if update.rowId is None or not update.field:
             raise _CELL_MISSING_ROW_OR_FIELD
         row_id = update.rowId
         field = update.field
         value = update.value
-        movement = await _movement_row(session, row_id, report_month, asset_ids)
+        movement = movements.get(row_id)
+        if movement is None or movement.report_month != report_month:
+            raise _CELL_MOVEMENT_NOT_FOUND
+        arm = arms.get(movement.asset_raw_material_id)
+        if asset_ids and (arm is None or arm.asset_id not in asset_ids):
+            raise _CELL_MOVEMENT_NO_ACCESS
         if field in MOVEMENT_CELL_FIELDS:
             column = MOVEMENT_CELL_FIELDS[field]
             old_value = getattr(movement, column)
@@ -518,7 +538,9 @@ async def update_movement_cells(
                 continue
             setattr(movement, column, new_value)
         elif field in MOVEMENT_PRICE_FIELDS:
-            price = await _movement_price(session, movement)
+            price = prices.get(movement.asset_raw_material_id)
+            if price is None:
+                raise _CELL_MOVEMENT_NO_PRICE
             column = MOVEMENT_PRICE_FIELDS[field]
             old_value = getattr(price, column)
             new_value = coerce_number_or_text(value, field)
@@ -568,17 +590,37 @@ async def update_price_cells(
     """Apply «Цены» form cell edits and write the journal (same transaction)."""
     asset_ids = [asset.id for asset in assets]
     applied: list[AppliedCell] = []
+    # Batch-load prices and links up front (one query per table); the basis
+    # dictionary is tiny, so it's loaded whole once for journal old-values.
+    row_ids = [update.rowId for update in updates if update.rowId is not None]
+    prices = {
+        price.id: price
+        for price in (await session.exec(select(RawMaterialPrice).where(col(RawMaterialPrice.id).in_(row_ids)))).all()
+    }
+    arms = await _arms_by_id(session, {price.asset_raw_material_id for price in prices.values()})
+    basis_names = {basis.id: basis.name for basis in (await session.exec(select(DeliveryBasis))).all()}
+    resolved_bases: dict[str | None, UUID | None] = {}
     for update in updates:
         if update.rowId is None or not update.field:
             raise _CELL_MISSING_ROW_OR_FIELD
         row_id = update.rowId
         field = update.field
         value = update.value
-        price = await _price_row(session, row_id, asset_ids)
+        price = prices.get(row_id)
+        if price is None:
+            raise _CELL_PRICE_NOT_FOUND
+        arm = arms.get(price.asset_raw_material_id)
+        if asset_ids and (arm is None or arm.asset_id not in asset_ids):
+            raise _CELL_PRICE_NO_ACCESS
         if field == "deliveryBasisName":
-            old_value = await _basis_name(session, price.delivery_basis_id)
+            old_value = basis_names.get(price.delivery_basis_id)
             new_value = coerce_text(value)
-            price.delivery_basis_id = await resolve_basis_id(session, new_value)
+            if new_value in resolved_bases:
+                price.delivery_basis_id = resolved_bases[new_value]
+            else:
+                basis_id = await resolve_basis_id(session, new_value)
+                resolved_bases[new_value] = basis_id
+                price.delivery_basis_id = basis_id
         elif field in PRICE_CELL_FIELDS:
             column = PRICE_CELL_FIELDS[field]
             old_value = getattr(price, column)
@@ -734,26 +776,22 @@ async def apply_cell_value(
     raise CellValidationError(message)
 
 
-async def _basis_name(session: AsyncSession, basis_id: UUID | None) -> str | None:
-    """Delivery basis name by id (for the deliveryBasisName cell journal)."""
-    if basis_id is None:
-        return None
-    basis = await session.get(DeliveryBasis, basis_id)
-    return basis.name if basis is not None else None
+async def _arms_by_id(session: AsyncSession, arm_ids: set[UUID]) -> dict[UUID, AssetRawMaterial]:
+    """Batch asset-link lookup (access checks when editing form cells)."""
+    if not arm_ids:
+        return {}
+    rows = (await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.id).in_(arm_ids)))).all()
+    return {arm.id: arm for arm in rows}
 
 
-async def _movement_row(
-    session: AsyncSession,
-    row_id: UUID,
-    report_month: date,
-    asset_ids: list[UUID],
-) -> MaterialMovement:
-    movement = await session.get(MaterialMovement, row_id)
-    if movement is None or movement.report_month != report_month:
-        raise _CELL_MOVEMENT_NOT_FOUND
-    if asset_ids and not await _arm_belongs_to_assets(session, movement.asset_raw_material_id, asset_ids):
-        raise _CELL_MOVEMENT_NO_ACCESS
-    return movement
+async def _prices_by_arm(session: AsyncSession, arm_ids: set[UUID]) -> dict[UUID, RawMaterialPrice]:
+    """Batch price lookup by link id (a link has at most one price row)."""
+    if not arm_ids:
+        return {}
+    rows = (
+        await session.exec(select(RawMaterialPrice).where(col(RawMaterialPrice.asset_raw_material_id).in_(arm_ids)))
+    ).all()
+    return {price.asset_raw_material_id: price for price in rows}
 
 
 async def _movement_price(session: AsyncSession, movement: MaterialMovement) -> RawMaterialPrice:
@@ -769,19 +807,52 @@ async def _movement_price(session: AsyncSession, movement: MaterialMovement) -> 
     return price
 
 
-async def _price_row(session: AsyncSession, row_id: UUID, asset_ids: list[UUID]) -> RawMaterialPrice:
-    price = await session.get(RawMaterialPrice, row_id)
+async def _arm_rows(
+    session: AsyncSession, arm_ids: list[UUID]
+) -> tuple[dict[UUID, list[MaterialMovement]], dict[UUID, RawMaterialPrice]]:
+    """Group the links' «Движение»/«Цены» rows for the filled-data checks."""
+    if not arm_ids:
+        return {}, {}
+    movement_rows = (
+        await session.exec(select(MaterialMovement).where(col(MaterialMovement.asset_raw_material_id).in_(arm_ids)))
+    ).all()
+    price_rows = (
+        await session.exec(select(RawMaterialPrice).where(col(RawMaterialPrice.asset_raw_material_id).in_(arm_ids)))
+    ).all()
+    movements_by_arm: dict[UUID, list[MaterialMovement]] = {}
+    for row in movement_rows:
+        movements_by_arm.setdefault(row.asset_raw_material_id, []).append(row)
+    prices_by_arm = {price.asset_raw_material_id: price for price in price_rows}
+    return movements_by_arm, prices_by_arm
+
+
+def _arm_rows_have_data(movements: list[MaterialMovement], price: RawMaterialPrice | None) -> bool:
+    """Whether the link has filled «Движение»/«Цены» rows (empty ones don't count)."""
+    movement_fields = (
+        "demand_plan_tons",
+        "consumption_fact_tons",
+        "delivery_plan_tons",
+        "delivery_fact_tons",
+        "balance_start_tons",
+        "balance_on_site_tons",
+        "balance_in_transit_tons",
+        "balance_end_tons",
+        "storage_standard_tons",
+        "deviation_reason",
+    )
+    for row in movements:
+        if any(getattr(row, field) not in (None, "") for field in movement_fields):
+            return True
     if price is None:
-        raise _CELL_PRICE_NOT_FOUND
-    if asset_ids and not await _arm_belongs_to_assets(session, price.asset_raw_material_id, asset_ids):
-        raise _CELL_PRICE_NO_ACCESS
-    return price
-
-
-async def _arm_belongs_to_assets(session: AsyncSession, arm_id: UUID, asset_ids: list[UUID]) -> bool:
-    """Whether the asset-raw-material link belongs to one of the user's assets."""
-    arm = await session.get(AssetRawMaterial, arm_id)
-    return arm is not None and arm.asset_id in asset_ids
+        return False
+    price_fields = (
+        "fact_2025",
+        "business_plan_quantity_tons",
+        "business_plan_usd_per_ton",
+        "business_plan_rub_per_ton",
+        "delivery_cost_rub",
+    )
+    return any(getattr(price, field) is not None for field in price_fields)
 
 
 def coerce_number_or_text(value: object, field: str) -> float | str | None:
@@ -796,7 +867,9 @@ def coerce_number(value: object) -> float | None:
         return None
     if isinstance(value, (int, float)):
         return float(value)
-    text = str(value).strip().replace("\u00a0", " ").replace(" ", "").replace(",", ".")
+    # Any Unicode whitespace works as a thousands separator here (regular
+    # space, NBSP \u00a0, narrow NBSP \u202f — Excel uses different ones).
+    text = "".join(str(value).split()).replace(",", ".")
     if not text:
         return None
     try:
@@ -955,8 +1028,9 @@ async def delete_raw_material(session: AsyncSession, *, raw_material_id: UUID) -
     links = (
         await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.raw_material_id) == raw_material_id))
     ).all()
+    movements_by_arm, prices_by_arm = await _arm_rows(session, [link.id for link in links])
     for link in links:
-        if await _arm_has_data(session, link.id):
+        if _arm_rows_have_data(movements_by_arm.get(link.id, []), prices_by_arm.get(link.id)):
             raise _DICT_REF_RAW_MATERIAL_USED
         await _delete_arm_rows(session, link.id)
         await session.delete(link)
@@ -1013,8 +1087,9 @@ async def delete_asset(session: AsyncSession, *, asset_id: UUID) -> None:
     if asset is None:
         raise _DICT_REF_ASSET_NOT_FOUND
     links = (await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.asset_id) == asset_id))).all()
+    movements_by_arm, prices_by_arm = await _arm_rows(session, [link.id for link in links])
     for link in links:
-        if await _arm_has_data(session, link.id):
+        if _arm_rows_have_data(movements_by_arm.get(link.id, []), prices_by_arm.get(link.id)):
             raise _DICT_REF_ASSET_USED
         await _delete_arm_rows(session, link.id)
         await session.delete(link)
@@ -1311,10 +1386,11 @@ async def replace_asset_links(session: AsyncSession, raw_material_id: UUID, asse
     removed_ids = existing_ids - new_ids
     if removed_ids:
         blocked_ids: list[UUID] = []
-        for asset_id in removed_ids:
-            link = existing[asset_id]
-            if await _arm_has_data(session, link.id):
-                blocked_ids.append(asset_id)
+        removed_links = [existing[asset_id] for asset_id in sorted(removed_ids)]
+        movements_by_arm, prices_by_arm = await _arm_rows(session, [link.id for link in removed_links])
+        for link in removed_links:
+            if _arm_rows_have_data(movements_by_arm.get(link.id, []), prices_by_arm.get(link.id)):
+                blocked_ids.append(link.asset_id)
             else:
                 await _delete_arm_rows(session, link.id)
                 await session.delete(link)
@@ -1394,38 +1470,3 @@ async def _delete_arm_rows(session: AsyncSession, arm_id: UUID) -> None:
     """Delete the link's (empty) «Движение» and «Цены» rows before deleting the link itself."""
     await session.exec(delete(MaterialMovement).where(col(MaterialMovement.asset_raw_material_id) == arm_id))
     await session.exec(delete(RawMaterialPrice).where(col(RawMaterialPrice.asset_raw_material_id) == arm_id))
-
-
-async def _arm_has_data(session: AsyncSession, arm_id: UUID) -> bool:
-    """Whether the link has filled «Движение»/«Цены» rows (empty ones don't count)."""
-    movement_fields = (
-        "demand_plan_tons",
-        "consumption_fact_tons",
-        "delivery_plan_tons",
-        "delivery_fact_tons",
-        "balance_start_tons",
-        "balance_on_site_tons",
-        "balance_in_transit_tons",
-        "balance_end_tons",
-        "storage_standard_tons",
-        "deviation_reason",
-    )
-    rows = (
-        await session.exec(select(MaterialMovement).where(col(MaterialMovement.asset_raw_material_id) == arm_id))
-    ).all()
-    for row in rows:
-        if any(getattr(row, field) not in (None, "") for field in movement_fields):
-            return True
-    price = (
-        await session.exec(select(RawMaterialPrice).where(col(RawMaterialPrice.asset_raw_material_id) == arm_id))
-    ).first()
-    if price is None:
-        return False
-    price_fields = (
-        "fact_2025",
-        "business_plan_quantity_tons",
-        "business_plan_usd_per_ton",
-        "business_plan_rub_per_ton",
-        "delivery_cost_rub",
-    )
-    return any(getattr(price, field) is not None for field in price_fields)

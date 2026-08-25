@@ -31,6 +31,7 @@ import type {
     RenovationHeaderCell,
 } from "@/shared/api/renovation";
 import type { ReferenceOption } from "@/shared/grid/grid-config";
+import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { ReferenceEditor } from "@/shared/grid/grid-editors";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 
@@ -826,13 +827,8 @@ function RenovationGridInner(
             if (value === null || value === undefined || String(value).trim() === "") {
                 return { ok: true, value: null };
             }
-            const text = String(value)
-                .trim()
-                .replace("\u00a0", " ")
-                .replace(/\s/g, "")
-                .replace(",", ".");
-            const parsed = Number.parseFloat(text);
-            if (!Number.isFinite(parsed)) {
+            const parsed = parseNumericText(value);
+            if (parsed === null || !Number.isFinite(parsed)) {
                 return { ok: false, message: `Введите число в ячейку «${field.label}».` };
             }
             return { ok: true, value: parsed };
@@ -1057,11 +1053,7 @@ function RenovationGridInner(
                 updates.push({ rowId: row.__id, field, value: toCellValue(detail.val) });
             }
         }
-        const deduplicated = new Map<string, CellUpdate>();
-        for (const update of updates) {
-            deduplicated.set(`${update.rowId}\u0000${update.field}`, update);
-        }
-        return { updates: [...deduplicated.values()], placeholderPatch };
+        return { updates: deduplicateUpdates(updates), placeholderPatch };
     }
 
     function afterEdit(event: CustomEvent<BeforeSaveDataDetails | Record<string, unknown>>) {
@@ -1742,20 +1734,6 @@ function RenovationGridInner(
 }
 
 export const RenovationGrid = forwardRef(RenovationGridInner);
-
-function toCellValue(value: unknown): CellUpdate["value"] {
-    if (Array.isArray(value)) {
-        return value
-            .filter((item): item is string => typeof item === "string")
-            .map((item) => item.trim())
-            .filter(Boolean);
-    }
-    if (value === null || typeof value === "number" || typeof value === "boolean") {
-        return value;
-    }
-    if (typeof value === "string") return value.trim();
-    return value === undefined ? null : String(value);
-}
 
 function serializeCellValue(value: unknown): string {
     if (value === null || value === undefined) return "";
