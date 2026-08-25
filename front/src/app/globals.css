@@ -336,7 +336,10 @@ html {
 .table-toolbar__controls {
     display: flex;
     min-width: 0;
-    flex: 1;
+    /* Tabs take at most half of the toolbar; the merged «На форме» summary
+       takes the rest (see .form-status). */
+    flex: 0 1 50%;
+    max-width: 50%;
     align-items: center;
     gap: 0.8rem;
     overflow: hidden;
@@ -442,7 +445,8 @@ html {
    spells out the breakdown first, then the presence list. */
 .form-status {
     display: flex;
-    flex: 0 0 auto;
+    /* Take the toolbar half the tabs don't use (tabs are capped at 50%). */
+    flex: 1 1 auto;
     min-width: 0;
     align-items: center;
     gap: 0.5rem;
@@ -503,11 +507,22 @@ html {
 
 .form-status-detail__presence {
     display: grid;
-    gap: 0.4rem;
+    gap: 0.3rem;
     margin: 0.3rem 0 0;
-    padding: 0.3rem 0 0;
-    list-style: none;
+    padding: 0.4rem 0 0;
     border-top: 1px solid var(--divider);
+}
+
+.form-status-detail__presence-summary {
+    font-size: 0.8rem;
+}
+
+.form-status-detail__presence-list {
+    display: grid;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
 }
 
 .form-status-detail__presence-item {

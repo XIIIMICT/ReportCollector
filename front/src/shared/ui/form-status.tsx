@@ -39,7 +39,6 @@ export function FormStatus({
         : room && room.status !== "online"
           ? COLLAB_STATUS_LABELS[room.status]
           : null;
-    const solo = members.length <= 1;
 
     return (
         <Tooltip delay={250}>
@@ -93,12 +92,19 @@ export function FormStatus({
                             </span>
                         </>
                     ) : null}
-                    {hasPresence && !solo ? (
-                        <ul className="form-status-detail__presence">
-                            {members.map((member) => (
-                                <PresenceRow member={member} key={member.userId} />
-                            ))}
-                        </ul>
+                    {/* Presence is always spelled out — including the solo
+                        case («только вы») — so the hover never looks empty. */}
+                    {hasPresence ? (
+                        <div className="form-status-detail__presence">
+                            <div className="form-status-detail__presence-summary">
+                                <b>На форме:</b> {membershipSummary(members, selfId)}
+                            </div>
+                            <ul className="form-status-detail__presence-list">
+                                {members.map((member) => (
+                                    <PresenceRow member={member} key={member.userId} />
+                                ))}
+                            </ul>
+                        </div>
                     ) : null}
                 </div>
             </Tooltip.Content>

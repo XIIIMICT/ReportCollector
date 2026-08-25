@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Checkbox, Dropdown, Spinner } from "@heroui/react";
+import { Button, Dropdown, Spinner, Switch } from "@heroui/react";
 import { Collapse, Download, Expand, Refresh } from "iconoir-react";
 import type { ReactNode } from "react";
 
@@ -51,27 +51,27 @@ export function ViewStrip({
                 {hasToggles ? (
                     <div className="view-strip__toggles">
                         {/* Full compound structure: without Content/Control/
-                            Indicator HeroUI renders only the plain label text
-                            and nothing is clickable. */}
-                        <Checkbox isSelected={headerPinned} onChange={onHeaderPinnedChange}>
-                            <Checkbox.Content>
-                                <Checkbox.Control>
-                                    <Checkbox.Indicator />
-                                </Checkbox.Control>
+                            Thumb HeroUI renders only the plain label text and
+                            nothing is clickable. */}
+                        <Switch isSelected={headerPinned} onChange={onHeaderPinnedChange}>
+                            <Switch.Content>
+                                <Switch.Control>
+                                    <Switch.Thumb />
+                                </Switch.Control>
                                 Закрепить заголовок
-                            </Checkbox.Content>
-                        </Checkbox>
-                        <Checkbox
+                            </Switch.Content>
+                        </Switch>
+                        <Switch
                             isSelected={showServiceColumns}
                             onChange={onShowServiceColumnsChange}
                         >
-                            <Checkbox.Content>
-                                <Checkbox.Control>
-                                    <Checkbox.Indicator />
-                                </Checkbox.Control>
+                            <Switch.Content>
+                                <Switch.Control>
+                                    <Switch.Thumb />
+                                </Switch.Control>
                                 Показать служебные столбцы
-                            </Checkbox.Content>
-                        </Checkbox>
+                            </Switch.Content>
+                        </Switch>
                     </div>
                 ) : null}
             </div>
