@@ -408,6 +408,14 @@ html {
     font-size: 0.8rem;
 }
 
+/* The forced two-line break in the switch labels applies below lg only; from
+   lg up the labels read on a single line. */
+@media (width >= 64rem) {
+    .view-strip__br {
+        display: none;
+    }
+}
+
 .view-strip__actions {
     display: flex;
     flex: 0 0 auto;
@@ -657,6 +665,31 @@ html {
 .action-button:focus-visible .action-button__label {
     max-width: 13rem;
     opacity: 1;
+}
+
+/* HeroUI's theme shrinks buttons/pagination above md (button height 10→9
+   spacing units, icon-only width, pagination links 9→8), which made the
+   desktop toolbar and pagination look squeezed next to the sub-md rendering.
+   Pin the roomier sub-md sizes on every viewport for our controls. */
+@media (min-width: 48rem) {
+    .view-strip .button,
+    .action-bar .button {
+        height: calc(var(--spacing) * 10);
+    }
+
+    .plan-pagination .pagination__link {
+        width: calc(var(--spacing) * 9);
+        height: calc(var(--spacing) * 9);
+    }
+}
+
+/* Compact view menu (< md): fixed-width check column keeps the toggle and
+   action entries aligned. */
+.view-strip-menu-check {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: 1.1rem;
+    justify-content: center;
 }
 
 .app-shell--fullscreen .app-header {
@@ -1603,15 +1636,30 @@ html {
     }
 
     /* Status summary on narrow screens: dot only — the «На форме: …» and
-       «Выделено» lines are hidden (inline text of changing width would shift
-       the tabs), and the tabs take the full remaining row width. The tooltip
+       «Выделено» lines are hidden, and the tabs take the full remaining row
+       width up to the badge (the 50% tab cap applies at lg only). The tooltip
        still opens from the badge. */
+    .form-status {
+        flex: 0 0 auto;
+    }
+
     .form-status__presence,
     .form-status__selection,
     .form-status__rows {
         display: none;
     }
 
+    .table-toolbar__controls {
+        flex: 1 1 auto;
+        max-width: none;
+    }
+
+    /* Two-line switch labels: keep the forced break tight. */
+    .view-strip__toggles [data-slot="switch-content"] {
+        line-height: 1.15;
+        text-align: left;
+        white-space: normal;
+    }
     /* Action bar: the inline buttons are replaced by the single «Действия»
        hover-menu (the component itself renders only one of the two). */
     .action-more-button {
