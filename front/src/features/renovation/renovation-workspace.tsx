@@ -4,9 +4,10 @@ import {
     AlertDialog,
     Button,
     Card,
-    Dropdown,
     Kbd,
+    ListBox,
     Pagination,
+    Select,
     Skeleton,
     Spinner,
     Tabs,
@@ -32,7 +33,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
 import {
     AppHeader,
-    CollabStatusBar,
     CompactActionMenu,
     DeleteRecordDialog,
     downloadBlob,
@@ -75,6 +75,7 @@ import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
+import { FormStatus } from "@/shared/ui/form-status";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 
 import {
@@ -348,12 +349,6 @@ export function RenovationWorkspace({
         [meta],
     );
 
-    // Stable identities for HeroUI selection sets and the grid's assetFilter
-    // prop: an inline `new Set(...)` changes identity on every render, which
-    // loops HeroUI's selection sync (update-depth crash) and re-fires the
-    // grid's selection effect (its deps include displaySource → assetFilter).
-    const assetFilterKeys = useMemo(() => new Set([assetFilter ?? "__all"]), [assetFilter]);
-    const blockFilterKeys = useMemo(() => new Set([blockFilter ?? "__all"]), [blockFilter]);
     const assetFilterSet = useMemo(
         () => (assetFilter ? new Set([assetFilter]) : null),
         [assetFilter],
@@ -1033,7 +1028,6 @@ export function RenovationWorkspace({
 
     const toolbar = (
         <div className="table-toolbar">
-            {collabEnabled ? <CollabStatusBar room={room} /> : null}
             <div className="table-toolbar__controls">
                 <Tabs
                     className="section-tabs"
@@ -1058,76 +1052,6 @@ export function RenovationWorkspace({
                         </Tabs.List>
                     </Tabs.ListContainer>
                 </Tabs>
-                {isPlanSection ? (
-                    <>
-                        <Dropdown>
-                            <Button
-                                className="toolbar-filter-button"
-                                variant="ghost"
-                                aria-label="Фильтр по активу"
-                            >
-                                {assetFilter ?? "Все активы"}
-                            </Button>
-                            <Dropdown.Popover>
-                                <Dropdown.Menu
-                                    aria-label="Активы"
-                                    selectionMode="single"
-                                    selectedKeys={assetFilterKeys}
-                                    onSelectionChange={(keys) => {
-                                        const key = keys === "all" ? null : [...keys][0];
-                                        setAssetFilter(key && key !== "__all" ? String(key) : null);
-                                    }}
-                                >
-                                    <Dropdown.Item id="__all" textValue="Все активы">
-                                        Все активы
-                                    </Dropdown.Item>
-                                    {meta.assets.map((asset) => (
-                                        <Dropdown.Item
-                                            key={asset.name}
-                                            id={asset.name}
-                                            textValue={asset.name}
-                                        >
-                                            {asset.name}
-                                        </Dropdown.Item>
-                                    ))}
-                                </Dropdown.Menu>
-                            </Dropdown.Popover>
-                        </Dropdown>
-                        <Dropdown>
-                            <Button
-                                className="toolbar-filter-button"
-                                variant="ghost"
-                                aria-label="Фильтр по блоку"
-                            >
-                                {blockFilter ? `Блок: ${blockLabel(blockFilter)}` : "Все блоки"}
-                            </Button>
-                            <Dropdown.Popover>
-                                <Dropdown.Menu
-                                    aria-label="Блоки"
-                                    selectionMode="single"
-                                    selectedKeys={blockFilterKeys}
-                                    onSelectionChange={(keys) => {
-                                        const key = keys === "all" ? null : [...keys][0];
-                                        setBlockFilter(key && key !== "__all" ? String(key) : null);
-                                    }}
-                                >
-                                    <Dropdown.Item id="__all" textValue="Все блоки">
-                                        Все блоки
-                                    </Dropdown.Item>
-                                    {blocks.map((block) => (
-                                        <Dropdown.Item
-                                            key={block}
-                                            id={block}
-                                            textValue={blockLabel(block)}
-                                        >
-                                            {blockLabel(block)}
-                                        </Dropdown.Item>
-                                    ))}
-                                </Dropdown.Menu>
-                            </Dropdown.Popover>
-                        </Dropdown>
-                    </>
-                ) : null}
             </div>
         </div>
     );
@@ -1283,45 +1207,53 @@ export function RenovationWorkspace({
                         />
                     </div>
                 ) : null}
-                {isPlanSection &&
-                gridStats !== null &&
-                (selection?.label || gridStats.filtersApplied) ? (
-                    <Tooltip delay={250}>
-                        <Tooltip.Trigger>
-                            <div className="grid-stats" aria-label="Статистика таблицы">
-                                {selection?.label ? (
-                                    <span>
-                                        <b>Выделено:</b> {selection.label}
-                                    </span>
-                                ) : null}
-                                {gridStats.filtersApplied ? (
-                                    <span>
-                                        <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
-                                        {gridStats.totalRows} всего
-                                    </span>
-                                ) : null}
-                            </div>
-                        </Tooltip.Trigger>
-                        <Tooltip.Content placement="top" className="grid-stats-tooltip">
-                            <div className="grid-stats-detail">
-                                {selection?.label ? (
-                                    <span>
-                                        <b>Выделено:</b> {selection.label}
-                                    </span>
-                                ) : null}
-                                <span>
-                                    <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
-                                    {gridStats.totalRows} всего
-                                </span>
-                                <span>
-                                    <b>Столбцы:</b> {gridStats.immutableCols} неизменяемых +{" "}
-                                    {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
-                                    заполняемых = {gridStats.totalCols} всего
-                                </span>
-                            </div>
-                        </Tooltip.Content>
-                    </Tooltip>
+                {isPlanSection && viewPlanId === null && planPageCount > 1 ? (
+                    <Pagination size="sm" className="plan-pagination">
+                        <Pagination.Content>
+                            <Pagination.Item>
+                                <Pagination.Previous
+                                    aria-label="Предыдущая страница"
+                                    isDisabled={planPage === 0}
+                                    onPress={() => setPlanPage((page) => Math.max(0, page - 1))}
+                                >
+                                    <Pagination.PreviousIcon />
+                                </Pagination.Previous>
+                            </Pagination.Item>
+                            {pageRange(planPage, planPageCount).map((entry, index) =>
+                                typeof entry === "number" ? (
+                                    <Pagination.Item key={entry}>
+                                        <Pagination.Link
+                                            isActive={entry === planPage}
+                                            onPress={() => setPlanPage(entry)}
+                                        >
+                                            {entry + 1}
+                                        </Pagination.Link>
+                                    </Pagination.Item>
+                                ) : (
+                                    <Pagination.Item key={`ellipsis-${index}`}>
+                                        <Pagination.Ellipsis />
+                                    </Pagination.Item>
+                                ),
+                            )}
+                            <Pagination.Item>
+                                <Pagination.Next
+                                    aria-label="Следующая страница"
+                                    isDisabled={planPage >= planPageCount - 1}
+                                    onPress={() =>
+                                        setPlanPage((page) => Math.min(planPageCount - 1, page + 1))
+                                    }
+                                >
+                                    <Pagination.NextIcon />
+                                </Pagination.Next>
+                            </Pagination.Item>
+                        </Pagination.Content>
+                    </Pagination>
                 ) : null}
+                <FormStatus
+                    room={collabEnabled ? room : null}
+                    selectionLabel={isPlanSection ? (selection?.label ?? null) : null}
+                    gridStats={isPlanSection ? gridStats : null}
+                />
             </div>
             <RenovationActionBar
                 items={isPlanSection ? actions : dictActions}
@@ -1350,53 +1282,60 @@ export function RenovationWorkspace({
                     <Card className="workspace-card">
                         <Card.Content className="workspace-card__content">
                             {toolbar}
-                            {isPlanSection && viewPlanId === null && planPageCount > 1 ? (
-                                <div className="plan-pagination">
-                                    <Pagination size="sm">
-                                        <Pagination.Content>
-                                            <Pagination.Item>
-                                                <Pagination.Previous
-                                                    aria-label="Предыдущая страница"
-                                                    isDisabled={planPage === 0}
-                                                    onPress={() =>
-                                                        setPlanPage((page) => Math.max(0, page - 1))
-                                                    }
-                                                >
-                                                    <Pagination.PreviousIcon />
-                                                </Pagination.Previous>
-                                            </Pagination.Item>
-                                            {pageRange(planPage, planPageCount).map(
-                                                (entry, index) =>
-                                                    typeof entry === "number" ? (
-                                                        <Pagination.Item key={entry}>
-                                                            <Pagination.Link
-                                                                isActive={entry === planPage}
-                                                                onPress={() => setPlanPage(entry)}
-                                                            >
-                                                                {entry + 1}
-                                                            </Pagination.Link>
-                                                        </Pagination.Item>
-                                                    ) : (
-                                                        <Pagination.Item key={`ellipsis-${index}`}>
-                                                            <Pagination.Ellipsis />
-                                                        </Pagination.Item>
-                                                    ),
-                                            )}
-                                            <Pagination.Item>
-                                                <Pagination.Next
-                                                    aria-label="Следующая страница"
-                                                    isDisabled={planPage >= planPageCount - 1}
-                                                    onPress={() =>
-                                                        setPlanPage((page) =>
-                                                            Math.min(planPageCount - 1, page + 1),
-                                                        )
-                                                    }
-                                                >
-                                                    <Pagination.NextIcon />
-                                                </Pagination.Next>
-                                            </Pagination.Item>
-                                        </Pagination.Content>
-                                    </Pagination>
+                            {isPlanSection ? (
+                                <div className="plan-filters">
+                                    <div className="plan-filters__asset">
+                                        <SearchAutocomplete
+                                            placeholder="Все активы"
+                                            compactLabel="Актив"
+                                            items={[
+                                                { id: "__all", name: "Все активы" },
+                                                ...meta.assets.map((asset) => ({
+                                                    id: asset.name,
+                                                    name: asset.name,
+                                                })),
+                                            ]}
+                                            selectedKey={assetFilter ?? "__all"}
+                                            onSelectionChange={(key) =>
+                                                setAssetFilter(
+                                                    key && key !== "__all" ? String(key) : null,
+                                                )
+                                            }
+                                        />
+                                    </div>
+                                    <Select
+                                        className="plan-filters__block"
+                                        aria-label="Фильтр по блоку"
+                                        selectionMode="single"
+                                        variant="secondary"
+                                        selectedKey={blockFilter ?? "__all"}
+                                        onSelectionChange={(key) =>
+                                            setBlockFilter(
+                                                key && key !== "__all" ? String(key) : null,
+                                            )
+                                        }
+                                    >
+                                        <Select.Trigger>
+                                            <Select.Value />
+                                            <Select.Indicator />
+                                        </Select.Trigger>
+                                        <Select.Popover className="plan-filters__popover">
+                                            <ListBox>
+                                                <ListBox.Item id="__all" textValue="Все блоки">
+                                                    Все блоки
+                                                </ListBox.Item>
+                                                {blocks.map((block) => (
+                                                    <ListBox.Item
+                                                        key={block}
+                                                        id={block}
+                                                        textValue={blockLabel(block)}
+                                                    >
+                                                        {blockLabel(block)}
+                                                    </ListBox.Item>
+                                                ))}
+                                            </ListBox>
+                                        </Select.Popover>
+                                    </Select>
                                 </div>
                             ) : null}
                             <div className="grid-viewport" aria-busy={isMutationPending}>

@@ -201,16 +201,16 @@ test("regression: copy, approve dialog, collab bar, column stats", async ({ brow
     await approveDialog.getByRole("button", { name: "Отмена" }).click();
     await expect(approveDialog).toHaveCount(0);
 
-    // 3. Collab bar: no "активно" label, no right border (splitter).
+    // 3. Presence: no offline/connecting label, no right border (splitter).
     const collabState = await page.evaluate(() => {
-        const bar = document.querySelector(".collab-bar");
+        const bar = document.querySelector(".form-status");
         if (!bar) return null;
         return {
             text: (bar as HTMLElement).innerText,
             borderRight: getComputedStyle(bar).borderRightWidth,
         };
     });
-    expect(collabState?.text).not.toContain("Совместное редактирование активно");
+    expect(collabState?.text).not.toContain("Совместное редактирование недоступно");
     expect(collabState?.borderRight).toBe("0px");
 
     // 1. Column stats: the footer shows a compact summary; the full «Столбцы»
@@ -221,7 +221,7 @@ test("regression: copy, approve dialog, collab bar, column stats", async ({ brow
         };
         return (await grid.getColumns()).length;
     });
-    await expect(page.locator(".grid-stats")).toBeVisible({ timeout: 15000 });
+    await expect(page.locator(".form-status")).toBeVisible({ timeout: 15000 });
     // A single .hover() jump can land while the footer re-renders (presence
     // updates, cell states) and the tooltip never registers the enter — move
     // the mouse in steps so the enter fires on a stable target.
@@ -235,7 +235,7 @@ test("regression: copy, approve dialog, collab bar, column stats", async ({ brow
         .poll(
             async () => {
                 await page.waitForTimeout(1000);
-                const statsBox = await page.locator(".grid-stats").boundingBox();
+                const statsBox = await page.locator(".form-status").boundingBox();
                 if (!statsBox) return false;
                 const hit = await page.evaluate(
                     ({ x, y }) => {
@@ -254,13 +254,13 @@ test("regression: copy, approve dialog, collab bar, column stats", async ({ brow
             { timeout: 25000 },
         )
         .toBe(true);
-    await page.locator(".grid-stats").hover();
+    await page.locator(".form-status").hover();
     try {
         await expect
             .poll(
                 () =>
                     page.evaluate(() => {
-                        const tooltip = document.querySelector(".grid-stats-tooltip");
+                        const tooltip = document.querySelector(".form-status-tooltip");
                         return tooltip?.textContent ?? "";
                     }),
                 { timeout: 10000 },
@@ -268,14 +268,14 @@ test("regression: copy, approve dialog, collab bar, column stats", async ({ brow
             .toContain(`= ${columnCount} всего`);
     } catch (error) {
         const diag = await page.evaluate(() => {
-            const stats = document.querySelector(".grid-stats");
+            const stats = document.querySelector(".form-status");
             if (!stats) return { stats: null };
             const r = stats.getBoundingClientRect();
             const at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
             return {
                 statsRect: { x: r.x, y: r.y, w: r.width, h: r.height },
                 elementAtStatsCenter: at ? at.tagName + "." + at.className : null,
-                tooltips: [...document.querySelectorAll(".grid-stats-tooltip")].map((el) => ({
+                tooltips: [...document.querySelectorAll(".form-status-tooltip")].map((el) => ({
                     cls: el.className,
                     text: el.textContent?.slice(0, 50),
                     display: getComputedStyle(el).display,

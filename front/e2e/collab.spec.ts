@@ -6,10 +6,10 @@ const KEYCLOAK_AUTH = /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/ope
 /** Open the «На форме» tooltip: park the mouse above the bar, then move to the
     dot center (a single move, so the pointer enters the tiny trigger). */
 async function hoverCollabBar(page: Page) {
-    const trigger = page.locator(".collab-bar__trigger");
+    const trigger = page.locator(".form-status");
     await expect(trigger).toBeVisible({ timeout: 15000 });
     const box = await trigger.boundingBox();
-    if (!box) throw new Error("collab-bar trigger has no bounding box");
+    if (!box) throw new Error("form-status trigger has no bounding box");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 80);
     await page.waitForTimeout(150);
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -92,34 +92,34 @@ test.describe("collab: совместное редактирование", () =>
         // names only); full FIO and ranges live in the Tooltip opened on hover.
         // locator.hover() can miss the small trigger, so aim with an explicit
         // mouse.move instead.
-        await expect(pageA.locator(".collab-bar b")).toHaveText("На форме:", {
+        await expect(pageA.locator(".form-status__presence b")).toHaveText("На форме:", {
             timeout: 15000,
         });
-        await expect(pageA.locator(".collab-bar")).toContainText("вы");
+        await expect(pageA.locator(".form-status__presence")).toContainText("вы");
         await hoverCollabBar(pageA);
         // Лебедева (только ВОС) на «Движении» видит администратора (Евтушенко)
         // и себя — но не Смирнова (СНХЗ).
-        await expect(pageA.locator(".collab-bar-tooltip")).toContainText("Евтушенко", {
+        await expect(pageA.locator(".form-status-tooltip")).toContainText("Евтушенко", {
             timeout: 15000,
         });
-        await expect(pageA.locator(".collab-bar-tooltip")).toContainText("Лебедева");
-        await expect(pageA.locator(".collab-bar-tooltip")).not.toContainText("Смирнов");
+        await expect(pageA.locator(".form-status-tooltip")).toContainText("Лебедева");
+        await expect(pageA.locator(".form-status-tooltip")).not.toContainText("Смирнов");
 
         // Смирнов (СНХЗ) видит Евтушенко и себя — но не Лебедеву (ВОС).
         await hoverCollabBar(pageB);
-        await expect(pageB.locator(".collab-bar-tooltip")).toContainText("Евтушенко", {
+        await expect(pageB.locator(".form-status-tooltip")).toContainText("Евтушенко", {
             timeout: 15000,
         });
-        await expect(pageB.locator(".collab-bar-tooltip")).toContainText("Смирнов");
-        await expect(pageB.locator(".collab-bar-tooltip")).not.toContainText("Лебедева");
+        await expect(pageB.locator(".form-status-tooltip")).toContainText("Смирнов");
+        await expect(pageB.locator(".form-status-tooltip")).not.toContainText("Лебедева");
 
         // Администратор видит всех.
         await hoverCollabBar(pageC);
-        await expect(pageC.locator(".collab-bar-tooltip")).toContainText("Евтушенко", {
+        await expect(pageC.locator(".form-status-tooltip")).toContainText("Евтушенко", {
             timeout: 15000,
         });
-        await expect(pageC.locator(".collab-bar-tooltip")).toContainText("Смирнов");
-        await expect(pageC.locator(".collab-bar-tooltip")).toContainText("Лебедева");
+        await expect(pageC.locator(".form-status-tooltip")).toContainText("Смирнов");
+        await expect(pageC.locator(".form-status-tooltip")).toContainText("Лебедева");
 
         await ctxA.close();
         await ctxB.close();
@@ -211,25 +211,25 @@ test.describe("collab: совместное редактирование", () =>
 
         // 1. Вкладка A выделяет ячейку — в её футере появляется «Выделено».
         await cellA().click();
-        await expect(pageA.locator(".grid-stats")).toContainText("Выделено:", {
+        await expect(pageA.locator(".form-status__selection")).toContainText("Выделено:", {
             timeout: 15000,
         });
 
         // 2. Вкладка B выделяет другую ячейку: выделение переходит к B,
-        //    у A локальное выделение сбрасывается — блок футера скрывается
-        //    (нет ни выделения, ни фильтров).
+        //    у A локальное выделение сбрасывается — строка «Выделено» скрывается
+        //    (блок «На форме» при этом остаётся).
         await cellB(1).click();
-        await expect(pageB.locator(".grid-stats")).toContainText("Выделено:", {
+        await expect(pageB.locator(".form-status__selection")).toContainText("Выделено:", {
             timeout: 15000,
         });
-        await expect(pageA.locator(".grid-stats")).toHaveCount(0, { timeout: 15000 });
+        await expect(pageA.locator(".form-status__selection")).toHaveCount(0, { timeout: 15000 });
 
         // 3. Обратно: A выделяет — сбрасывается у B.
         await pageA.locator("revogr-data .rgCell:not(.report-row-header)").nth(2).click();
-        await expect(pageA.locator(".grid-stats")).toContainText("Выделено:", {
+        await expect(pageA.locator(".form-status__selection")).toContainText("Выделено:", {
             timeout: 15000,
         });
-        await expect(pageB.locator(".grid-stats")).toHaveCount(0, { timeout: 15000 });
+        await expect(pageB.locator(".form-status__selection")).toHaveCount(0, { timeout: 15000 });
 
         await ctxA.close();
         await ctxB.close();

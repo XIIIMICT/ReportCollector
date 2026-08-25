@@ -74,7 +74,7 @@ import {
     useCollabRoom,
     type CollabRoom,
 } from "@/shared/collab/use-collab-room";
-import type { CollabCellChanged, CollabMember, CollabStatus } from "@/shared/collab/ws-client";
+import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import { isValidEmail } from "@/shared/email";
 import {
     ADMIN_SECTIONS,
@@ -95,6 +95,7 @@ import {
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
+import { FormStatus } from "@/shared/ui/form-status";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 
@@ -1059,6 +1060,7 @@ function SectionFooter({
     onCopy,
     onPaste,
     onAutocompleteOpenChange,
+    room,
 }: {
     section: SectionId;
     canDelete: boolean;
@@ -1072,6 +1074,7 @@ function SectionFooter({
     clipboardState: { canPaste: boolean };
     isFullscreen: boolean;
     isFullscreenPending: boolean;
+    room: CollabRoom | null;
     onToggleFullscreen: () => void;
     onDelete: () => void;
     onCopy: () => void;
@@ -1107,43 +1110,7 @@ function SectionFooter({
                         />
                     </div>
                 ) : null}
-                {gridStats !== null && (selectionLabel || gridStats.filtersApplied) ? (
-                    <Tooltip delay={250}>
-                        <Tooltip.Trigger>
-                            <div className="grid-stats" aria-label="Статистика таблицы">
-                                {selectionLabel ? (
-                                    <span>
-                                        <b>Выделено:</b> {selectionLabel}
-                                    </span>
-                                ) : null}
-                                {gridStats.filtersApplied ? (
-                                    <span>
-                                        <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
-                                        {gridStats.totalRows} всего
-                                    </span>
-                                ) : null}
-                            </div>
-                        </Tooltip.Trigger>
-                        <Tooltip.Content placement="top" className="grid-stats-tooltip">
-                            <div className="grid-stats-detail">
-                                {selectionLabel ? (
-                                    <span>
-                                        <b>Выделено:</b> {selectionLabel}
-                                    </span>
-                                ) : null}
-                                <span>
-                                    <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
-                                    {gridStats.totalRows} всего
-                                </span>
-                                <span>
-                                    <b>Столбцы:</b> {gridStats.immutableCols} неизменяемых +{" "}
-                                    {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
-                                    заполняемых = {gridStats.totalCols} всего
-                                </span>
-                            </div>
-                        </Tooltip.Content>
-                    </Tooltip>
-                ) : null}
+                <FormStatus room={room} selectionLabel={selectionLabel} gridStats={gridStats} />
             </div>
             <ActionBar
                 section={section}
@@ -1455,7 +1422,6 @@ export function RawMaterialsWorkspace({
 
     const toolbar = (
         <div className="table-toolbar">
-            {collabEnabled ? <CollabStatusBar room={room} /> : null}
             <div className="table-toolbar__controls">
                 <SectionTabs
                     tabs={tabs}
@@ -1478,6 +1444,7 @@ export function RawMaterialsWorkspace({
             gridStats={gridStats}
             selectionLabel={selectionLabel}
             clipboardState={clipboardState}
+            room={collabEnabled ? room : null}
             isFullscreen={isFullscreen}
             isFullscreenPending={isFullscreenPending}
             onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
@@ -1983,111 +1950,6 @@ export function CompactActionMenu({ items }: { items: ActionItem[] }) {
                 </Dropdown.Menu>
             }
         />
-    );
-}
-
-export const COLLAB_STATUS_LABELS: Record<Exclude<CollabStatus, "online">, string> = {
-    connecting: "Подключение к совместному редактированию...",
-    offline: "Совместное редактирование недоступно",
-};
-
-/** Last name only (the first word of the full name, fullname.partition(" ")[0]). */
-export function shortName(fullname: string): string {
-    const first = fullname.trim().split(/\s+/)[0];
-    return first || fullname;
-}
-
-/**
- * What to show in parentheses: for an admin — the role, for an asset worker —
- * the comma-joined asset list (e.g. «СНХЗ, БСК»).
- */
-export function memberDetail(member: CollabMember): string | null {
-    if (member.role === "admin") return "админ";
-    const assets = (member.assets ?? []).filter((asset) => asset.trim().length > 0);
-    if (assets.length > 0) return assets.join(", ");
-    return member.role === "asset_worker" ? "Работник по активам" : member.role || null;
-}
-
-/** Cell / cell range where the member currently is (from presence). */
-export function memberSelectionLabel(member: CollabMember | null): string | null {
-    if (!member) return null;
-    const label = member.selection?.label;
-    return typeof label === "string" && label.length > 0 ? label : null;
-}
-
-export function CollabStatusBar({ room }: { room: CollabRoom }) {
-    const me = room.me;
-    const self = room.members.find((member) => member.userId === me?.userId) ?? null;
-    const others = room.members
-        .filter((member) => member.userId !== me?.userId)
-        .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email, "ru"));
-    const solo = room.members.length <= 1;
-    // The status line shows only last names (full FIO and cell ranges live in
-    // the Tooltip). On narrow screens the text is hidden by CSS — the dot
-    // alone opens the tooltip there, and the tabs take the full row width.
-    const membersText = solo
-        ? "только вы"
-        : `вы${others.length ? `, ${others.map((member) => shortName(member.name || member.email)).join(", ")}` : ""}`;
-    const tooltipMembers = self ? [self, ...others] : room.members;
-
-    return (
-        <div className="collab-bar" role="status">
-            <Tooltip delay={250}>
-                <Tooltip.Trigger>
-                    {/* The trigger wraps the dot and the text: on narrow screens
-                        the text is hidden by CSS and the dot alone opens the
-                        tooltip. */}
-                    <span className="collab-bar__trigger">
-                        <span
-                            className={`collab-bar__dot collab-bar__dot--${room.status}`}
-                            aria-hidden="true"
-                        />
-                        {room.status === "online" ? (
-                            <span className="collab-bar__members">
-                                <b>На форме:</b> {membersText}
-                            </span>
-                        ) : (
-                            <span className="collab-bar__label">
-                                {COLLAB_STATUS_LABELS[room.status]}
-                            </span>
-                        )}
-                    </span>
-                </Tooltip.Trigger>
-                <Tooltip.Content placement="top" className="collab-bar-tooltip">
-                    {room.status === "online" ? (
-                        <ul className="collab-bar-tooltip__list">
-                            {tooltipMembers.map((member) => {
-                                const cells = memberSelectionLabel(member);
-                                const detail = memberDetail(member);
-                                return (
-                                    <li key={member.userId} className="collab-bar-tooltip__item">
-                                        <span className="collab-bar-tooltip__head">
-                                            <span className="collab-bar-tooltip__name">
-                                                {member.name || member.email}
-                                            </span>
-                                            {detail ? (
-                                                <span className="collab-bar-tooltip__role">
-                                                    ({detail})
-                                                </span>
-                                            ) : null}
-                                        </span>
-                                        {cells ? (
-                                            <span className="collab-bar-tooltip__cells">
-                                                {cells}
-                                            </span>
-                                        ) : null}
-                                    </li>
-                                );
-                            })}
-                        </ul>
-                    ) : (
-                        <span className="collab-bar-tooltip__status">
-                            {COLLAB_STATUS_LABELS[room.status]}
-                        </span>
-                    )}
-                </Tooltip.Content>
-            </Tooltip>
-        </div>
     );
 }
 
