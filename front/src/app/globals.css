@@ -683,15 +683,21 @@ html {
     }
 }
 
-/* And the mirror case below sm (40rem): HeroUI renders larger value text and
-   trigger icons there, which made the plan filters jump on small screens.
-   Pin the sm+ sizing on every viewport. */
-.plan-filters .select__value,
-.plan-filters .autocomplete__value {
+/* And the mirror case below sm (40rem): the sm:text-sm utility and smaller
+   trigger icons simply don't apply there, so value text and icons render at
+   their base sizes — the plan filters jumped on small screens. Pin the sm+
+   sizing on every viewport (data-slot selectors target the rendered slots
+   directly). */
+.plan-filters [data-slot="select-value"],
+.plan-filters [data-slot="autocomplete-value"] {
     font-size: var(--text-sm);
     line-height: var(--tw-leading, var(--text-sm--line-height));
 }
 
+.plan-filters .select__trigger svg,
+.plan-filters .autocomplete__trigger svg,
+.plan-filters [data-slot="select-trigger"] svg,
+.plan-filters [data-slot="autocomplete-trigger"] svg,
 .plan-filters .button svg {
     width: calc(var(--spacing) * 4);
     height: calc(var(--spacing) * 4);

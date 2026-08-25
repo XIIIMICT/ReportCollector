@@ -72,6 +72,19 @@ export function FormStatus({
             </Tooltip.Trigger>
             <Tooltip.Content placement="top" className="form-status-tooltip">
                 <div className="form-status-detail">
+                    {/* Presence first, then the selection breakdown. */}
+                    {hasPresence ? (
+                        <div className="form-status-detail__presence">
+                            <div className="form-status-detail__presence-summary">
+                                <b>На форме:</b> {membershipSummary(members, selfId)}
+                            </div>
+                            <ul className="form-status-detail__presence-list">
+                                {members.map((member) => (
+                                    <PresenceRow member={member} key={member.userId} />
+                                ))}
+                            </ul>
+                        </div>
+                    ) : null}
                     {selectionLabel ? (
                         <div className="form-status-detail__row">
                             <span>
@@ -91,20 +104,6 @@ export function FormStatus({
                                 заполняемых = {gridStats.totalCols} всего
                             </span>
                         </>
-                    ) : null}
-                    {/* Presence is always spelled out — including the solo
-                        case («только вы») — so the hover never looks empty. */}
-                    {hasPresence ? (
-                        <div className="form-status-detail__presence">
-                            <div className="form-status-detail__presence-summary">
-                                <b>На форме:</b> {membershipSummary(members, selfId)}
-                            </div>
-                            <ul className="form-status-detail__presence-list">
-                                {members.map((member) => (
-                                    <PresenceRow member={member} key={member.userId} />
-                                ))}
-                            </ul>
-                        </div>
                     ) : null}
                 </div>
             </Tooltip.Content>
