@@ -703,6 +703,16 @@ html {
     height: calc(var(--spacing) * 4);
 }
 
+/* Below sm the same gap hits the bare-icon triggers of the compact menus
+   («Действия» / «Настройки»): no wrapper constrains their svg, so it renders
+   at its natural size. Pin 16px here as well. */
+.action-more-button > svg,
+.action-more-button .button svg {
+    flex: 0 0 auto;
+    width: calc(var(--spacing) * 4);
+    height: calc(var(--spacing) * 4);
+}
+
 /* Compact view menu (< md): fixed-width check column keeps the toggle and
    action entries aligned. */
 .view-strip-menu-check {
