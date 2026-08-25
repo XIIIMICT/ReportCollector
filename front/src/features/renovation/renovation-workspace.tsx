@@ -18,7 +18,7 @@ import {
 } from "@heroui/react";
 import { CheckCircle, Copy, PasteClipboard, Redo, Send, Trash, Undo } from "iconoir-react";
 import { useTheme } from "next-themes";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
 import {
@@ -1536,15 +1536,29 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
         <div className="action-bar" aria-label="Действия с таблицей">
             {groupActionItems(items).map((chunk) =>
                 chunk.length > 1 ? (
+                    // Direct Button children only: ButtonGroup injects props
+                    // into them (`__button_group_child`), which a Fragment or
+                    // Tooltip wrapper would reject.
                     <ButtonGroup key={`group-${chunk[0].id}`}>
                         {chunk.map((action) => (
-                            <Fragment key={action.id}>{renderAction(action)}</Fragment>
+                            <Button
+                                key={action.id}
+                                className="action-button"
+                                variant={action.variant ?? "secondary"}
+                                isDisabled={action.disabled}
+                                aria-label={action.label}
+                                aria-keyshortcuts={action.shortcut?.aria}
+                                onPress={action.onPress}
+                            >
+                                <span className="action-button__icon">{action.icon}</span>
+                                <span className="action-button__label">{action.label}</span>
+                            </Button>
                         ))}
                     </ButtonGroup>
                 ) : (
-                    <Fragment key={chunk[0].id}>
-                        <span className="action-button-wrapper">{renderAction(chunk[0])}</span>
-                    </Fragment>
+                    <span key={chunk[0].id} className="action-button-wrapper">
+                        {renderAction(chunk[0])}
+                    </span>
                 ),
             )}
         </div>
