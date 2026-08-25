@@ -148,6 +148,8 @@ export type RenovationGridHandle = {
     pasteIntoSelection: () => void;
     /** Ids of the rows currently on screen (visible source, no placeholder/deleted). */
     getVisibleRowIds: () => Promise<string[]>;
+    /** Drop the persisted per-column widths — columns return to defaults. */
+    resetColumnWidths: () => void;
 };
 
 export function canonicalRenovationKey(rowId: string, field: string): string {
@@ -1254,17 +1256,6 @@ function RenovationGridInner(
         [applyGridRange, columns, getVisibleRows, onPasteSkipped],
     );
 
-    useImperativeHandle(
-        forwardedRef,
-        () => ({
-            copySelection,
-            clearSelection: clearGridSelection,
-            pasteIntoSelection: () => void pasteIntoSelection(),
-            getVisibleRowIds,
-        }),
-        [clearGridSelection, copySelection, getVisibleRowIds, pasteIntoSelection],
-    );
-
     // Window-level copy/paste (capture): works regardless of the focus inside
     // the grid's shadow DOM.
     useEffect(() => {
@@ -1517,6 +1508,18 @@ function RenovationGridInner(
         setWidths(new Map());
         setOverlayWidths(new Map());
     }, [fields]);
+
+    useImperativeHandle(
+        forwardedRef,
+        () => ({
+            copySelection,
+            clearSelection: clearGridSelection,
+            pasteIntoSelection: () => void pasteIntoSelection(),
+            getVisibleRowIds,
+            resetColumnWidths: resetWidths,
+        }),
+        [clearGridSelection, copySelection, getVisibleRowIds, pasteIntoSelection, resetWidths],
+    );
 
     const handles = useMemo(() => {
         const result: Array<{ key: string; dbName: string; left: number }> = [

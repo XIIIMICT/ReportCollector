@@ -298,6 +298,7 @@ function SectionContent({
     remoteCellValues,
     onDeleteState,
     onExportState,
+    onResetState,
     onUndoState,
     onApproveState,
     onArchiveState,
@@ -319,6 +320,11 @@ function SectionContent({
     remoteCellValues: Map<string, unknown>;
     onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
     onExportState: (state: ExportState) => void;
+    /** Registers the display-reset handlers of the active section grid. */
+    onResetState: (state: {
+        resetColumnWidths: () => void;
+        resetFiltersSorting: () => void;
+    }) => void;
     onUndoState: (state: UndoState) => void;
     onApproveState: (state: ApproveState) => void;
     onArchiveState: (state: ArchiveState) => void;
@@ -521,6 +527,13 @@ function SectionContent({
     useEffect(() => {
         onDeleteState({ canDelete, onDelete: () => setDeleteOpen(true) });
     }, [canDelete, onDeleteState]);
+
+    useEffect(() => {
+        onResetState({
+            resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
+            resetFiltersSorting: () => void gridRef.current?.resetFiltersSorting(),
+        });
+    }, [onResetState]);
 
     const gridRows = useMemo(() => {
         const base = (rows ?? []).map((row) => {
@@ -1150,6 +1163,10 @@ export function RawMaterialsWorkspace({
         pending: false,
         onExport: async () => {},
     });
+    const [gridResetState, setGridResetState] = useState<{
+        resetColumnWidths: () => void;
+        resetFiltersSorting: () => void;
+    }>({ resetColumnWidths: () => {}, resetFiltersSorting: () => {} });
     const [undoState, setUndoState] = useState<UndoState>({
         enabled: false,
         offline: false,
@@ -1432,6 +1449,14 @@ export function RawMaterialsWorkspace({
         />
     );
 
+    const handleStripReset = useCallback(
+        (scope: "columnWidths" | "filtersSorting") => {
+            if (scope === "columnWidths") gridResetState.resetColumnWidths();
+            else void gridResetState.resetFiltersSorting();
+        },
+        [gridResetState],
+    );
+
     // Display-only controls in one row: export/fullscreen on the right (the raw
     // sections have no asset/block filters). Rendered both in the normal flow
     // and on the floating top panel in fullscreen mode.
@@ -1439,6 +1464,7 @@ export function RawMaterialsWorkspace({
         <ViewStrip
             exportPending={exportState.pending}
             onExport={(scope) => void exportState.onExport(scope)}
+            onReset={handleStripReset}
             isFullscreen={isFullscreen}
             isFullscreenPending={isFullscreenPending}
             onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
@@ -1466,6 +1492,7 @@ export function RawMaterialsWorkspace({
                                 remoteCellValues={remoteCellValues}
                                 onDeleteState={handleDeleteState}
                                 onExportState={handleExportState}
+                                onResetState={setGridResetState}
                                 onUndoState={handleUndoState}
                                 onApproveState={handleApproveState}
                                 onArchiveState={handleArchiveState}

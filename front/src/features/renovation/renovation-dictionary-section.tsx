@@ -180,6 +180,7 @@ export function RenovationDictionarySection({
     remoteCellValues,
     onDeleteState,
     onExportState,
+    onResetState,
     onClipboardStateChange,
     onUndoHistoryChanged,
     onAssetsChanged,
@@ -194,6 +195,11 @@ export function RenovationDictionarySection({
     remoteCellValues: ReadonlyMap<string, unknown>;
     onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
     onExportState: (state: { onExport: (scope: "all" | "visible") => void }) => void;
+    /** Registers the display-reset handlers of the active dictionary grid. */
+    onResetState: (state: {
+        resetColumnWidths: () => void;
+        resetFiltersSorting: () => void;
+    }) => void;
     onClipboardStateChange: (state: {
         canPaste: boolean;
         onCopy: () => void;
@@ -544,6 +550,13 @@ export function RenovationDictionarySection({
     useEffect(() => {
         onExportState({ onExport: (scope) => void exportTable(scope) });
     }, [exportTable, onExportState]);
+
+    useEffect(() => {
+        onResetState({
+            resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
+            resetFiltersSorting: () => void gridRef.current?.resetFiltersSorting(),
+        });
+    }, [onResetState]);
 
     const handleClipboardState = useCallback(
         (state: { canPaste: boolean }) => {

@@ -70,6 +70,10 @@ export type RawMaterialsGridHandle = {
     pasteIntoSelection: () => Promise<void>;
     /** Reset the cell range selection (same path as Escape). */
     clearSelection: () => void;
+    /** Drop the persisted per-column widths — columns return to defaults. */
+    resetColumnWidths: () => void;
+    /** Clear every column filter and the user sorting. */
+    resetFiltersSorting: () => Promise<void>;
 };
 
 type Props = {
@@ -278,6 +282,9 @@ function RawMaterialsGridInner(
     // grid content actually overflows horizontally (native behavior elsewhere).
     const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
     const resizedWidthsRef = useRef(new Map<string, number>());
+    // Bumped after a widths reset: the columns memo reads the ref, so it needs
+    // a dependency change to rebuild with default sizes.
+    const [widthsVersion, setWidthsVersion] = useState(0);
     const widthKeySection = namespace ?? section;
     const [showServiceColumns, setShowServiceColumns] = useState(false);
     const sortingBySectionRef = useRef(new Map<SectionId, GridSortingConfig>());
@@ -369,6 +376,7 @@ function RawMaterialsGridInner(
         section,
         showServiceColumns,
         widthKeySection,
+        widthsVersion,
     ]);
 
     const flatColumns: ColumnRegular[] = useMemo(
@@ -1036,6 +1044,11 @@ function RawMaterialsGridInner(
         gridRef.current?.classList.remove("raw-materials-grid--user-sorted");
     }, [section]);
 
+    const resetColumnWidths = useCallback(() => {
+        resizedWidthsRef.current.clear();
+        setWidthsVersion((version) => version + 1);
+    }, []);
+
     const buildCopyText = useCallback(
         async (range: RangeArea | null): Promise<string | null> => {
             if (columns.length === 0) return null;
@@ -1367,8 +1380,17 @@ function RawMaterialsGridInner(
             copySelection,
             pasteIntoSelection,
             clearSelection: clearGridSelection,
+            resetColumnWidths,
+            resetFiltersSorting: resetGridView,
         }),
-        [clearGridSelection, copySelection, getExportState, pasteIntoSelection],
+        [
+            clearGridSelection,
+            copySelection,
+            getExportState,
+            pasteIntoSelection,
+            resetColumnWidths,
+            resetGridView,
+        ],
     );
 
     useEffect(() => {

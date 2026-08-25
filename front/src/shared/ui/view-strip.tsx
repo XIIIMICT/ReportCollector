@@ -1,20 +1,22 @@
 "use client";
 
 import { Button, Dropdown, Spinner } from "@heroui/react";
-import { Collapse, Download, Expand } from "iconoir-react";
+import { Collapse, Download, Expand, Refresh } from "iconoir-react";
 import type { ReactNode } from "react";
 
 /**
  * One shared strip between the toolbar and the grid: display-only controls.
  * Left — optional filters (the «Ремонт» plan asset/block pickers); right —
- * the Excel export dropdown («вся» / «видимая» таблица) and the fullscreen
- * toggle, identical in every project. Actions belong to the bottom panel;
+ * the Excel export dropdown («вся» / «видимая» таблица), the reset dropdown
+ * (column widths / all filters & sorting) and the fullscreen toggle,
+ * identical in every project. Actions belong to the bottom panel;
  * everything display-related lives here.
  */
 export function ViewStrip({
     filters = null,
     exportPending,
     onExport,
+    onReset,
     isFullscreen,
     isFullscreenPending,
     onToggleFullscreen,
@@ -22,6 +24,7 @@ export function ViewStrip({
     filters?: ReactNode;
     exportPending: boolean;
     onExport: (scope: "all" | "visible") => void;
+    onReset: (scope: "columnWidths" | "filtersSorting") => void;
     isFullscreen: boolean;
     isFullscreenPending: boolean;
     onToggleFullscreen: () => void;
@@ -58,6 +61,39 @@ export function ViewStrip({
                             </Dropdown.Item>
                             <Dropdown.Item id="visible" textValue="Скачать видимую таблицу">
                                 Скачать видимую таблицу
+                            </Dropdown.Item>
+                        </Dropdown.Menu>
+                    </Dropdown.Popover>
+                </Dropdown>
+                <Dropdown>
+                    <Button
+                        className="action-button"
+                        variant="danger"
+                        isDisabled={isFullscreenPending}
+                        aria-label="Сброс отображения таблицы"
+                    >
+                        <span className="action-button__icon">
+                            <Refresh />
+                        </span>
+                        <span className="action-button__label">Сброс</span>
+                    </Button>
+                    <Dropdown.Popover>
+                        <Dropdown.Menu
+                            aria-label="Сброс отображения таблицы"
+                            onAction={(key) => {
+                                if (key === "columnWidths" || key === "filtersSorting") {
+                                    onReset(key);
+                                }
+                            }}
+                        >
+                            <Dropdown.Item id="columnWidths" textValue="Сброс ширины столбцов">
+                                Сброс ширины столбцов
+                            </Dropdown.Item>
+                            <Dropdown.Item
+                                id="filtersSorting"
+                                textValue="Сброс всех фильтров и сортировок"
+                            >
+                                Сброс всех фильтров и сортировок
                             </Dropdown.Item>
                         </Dropdown.Menu>
                     </Dropdown.Popover>

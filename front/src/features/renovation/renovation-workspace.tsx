@@ -231,6 +231,10 @@ export function RenovationWorkspace({
     const [dictExportState, setDictExportState] = useState<{
         onExport: (scope: "all" | "visible") => void;
     }>({ onExport: () => {} });
+    const [dictResetState, setDictResetState] = useState<{
+        resetColumnWidths: () => void;
+        resetFiltersSorting: () => void;
+    }>({ resetColumnWidths: () => {}, resetFiltersSorting: () => {} });
     const [pendingSkip, setPendingSkip] = useState<{
         actionId: number;
         direction: "undo" | "redo";
@@ -753,6 +757,24 @@ export function RenovationWorkspace({
             else dictExportState.onExport(scope);
         },
         [dictExportState, exportPlan, isPlanSection],
+    );
+
+    // The plan grid resets its own widths and the workspace asset/block
+    // filters; dictionary sections register their grid's reset handlers.
+    const handleStripReset = useCallback(
+        (scope: "columnWidths" | "filtersSorting") => {
+            if (isPlanSection) {
+                if (scope === "columnWidths") gridRef.current?.resetColumnWidths();
+                else {
+                    setAssetFilter(null);
+                    setBlockFilter(null);
+                }
+                return;
+            }
+            if (scope === "columnWidths") dictResetState.resetColumnWidths();
+            else void dictResetState.resetFiltersSorting();
+        },
+        [dictResetState, isPlanSection],
     );
 
     const selectedRow = useMemo(
@@ -1323,6 +1345,7 @@ export function RenovationWorkspace({
             }
             exportPending={exportPending}
             onExport={handleStripExport}
+            onReset={handleStripReset}
             isFullscreen={isFullscreen}
             isFullscreenPending={isFullscreenPending}
             onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
@@ -1402,6 +1425,7 @@ export function RenovationWorkspace({
                                         remoteCellValues={remoteCellValues}
                                         onDeleteState={setDictDeleteState}
                                         onExportState={setDictExportState}
+                                        onResetState={setDictResetState}
                                         onClipboardStateChange={handleDictClipboardState}
                                         onUndoHistoryChanged={() => {
                                             setUndoCount((count) => count + 1);
