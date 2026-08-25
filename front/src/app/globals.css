@@ -683,6 +683,20 @@ html {
     }
 }
 
+/* And the mirror case below sm (40rem): HeroUI renders larger value text and
+   trigger icons there, which made the plan filters jump on small screens.
+   Pin the sm+ sizing on every viewport. */
+.plan-filters .select__value,
+.plan-filters .autocomplete__value {
+    font-size: var(--text-sm);
+    line-height: var(--tw-leading, var(--text-sm--line-height));
+}
+
+.plan-filters .button svg {
+    width: calc(var(--spacing) * 4);
+    height: calc(var(--spacing) * 4);
+}
+
 /* Compact view menu (< md): fixed-width check column keeps the toggle and
    action entries aligned. */
 .view-strip-menu-check {
