@@ -193,7 +193,7 @@ export function RenovationDictionarySection({
     refreshKey: number;
     remoteCellValues: ReadonlyMap<string, unknown>;
     onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
-    onExportState: (state: { onExport: () => void }) => void;
+    onExportState: (state: { onExport: (scope: "all" | "visible") => void }) => void;
     onClipboardStateChange: (state: {
         canPaste: boolean;
         onCopy: () => void;
@@ -513,31 +513,36 @@ export function RenovationDictionarySection({
         }
     }
 
-    const exportTable = useCallback(async () => {
-        if (exportPending) return;
-        const state = await gridRef.current?.getExportState();
-        if (!state) return;
-        setExportPending(true);
-        const fileName = stampFileName(sectionLabel);
-        try {
-            const blob = await exportRenovationDictionary({
-                section: dictSection,
-                headerPinned,
-                columns: state.columns,
-                rowIds: null,
-                fileName,
-            });
-            downloadBlob(blob, fileName);
-            toast.success("Файл выгружен", { description: fileName });
-        } catch (reason) {
-            toast.danger("Не удалось выгрузить файл", { description: errorMessage(reason) });
-        } finally {
-            setExportPending(false);
-        }
-    }, [dictSection, exportPending, headerPinned, sectionLabel]);
+    const exportTable = useCallback(
+        async (scope: "all" | "visible") => {
+            if (exportPending) return;
+            const state = await gridRef.current?.getExportState();
+            if (!state) return;
+            setExportPending(true);
+            const fileName = stampFileName(sectionLabel);
+            try {
+                const blob = await exportRenovationDictionary({
+                    section: dictSection,
+                    headerPinned,
+                    columns: state.columns,
+                    // «Видимая таблица» — the rows currently on screen
+                    // (filters/sorting applied), same as the raw project.
+                    rowIds: scope === "visible" ? (state.rowIds ?? null) : null,
+                    fileName,
+                });
+                downloadBlob(blob, fileName);
+                toast.success("Файл выгружен", { description: fileName });
+            } catch (reason) {
+                toast.danger("Не удалось выгрузить файл", { description: errorMessage(reason) });
+            } finally {
+                setExportPending(false);
+            }
+        },
+        [dictSection, exportPending, headerPinned, sectionLabel],
+    );
 
     useEffect(() => {
-        onExportState({ onExport: () => void exportTable() });
+        onExportState({ onExport: (scope) => void exportTable(scope) });
     }, [exportTable, onExportState]);
 
     const handleClipboardState = useCallback(

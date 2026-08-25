@@ -146,6 +146,8 @@ export type RenovationGridHandle = {
     copySelection: () => void;
     clearSelection: () => void;
     pasteIntoSelection: () => void;
+    /** Ids of the rows currently on screen (visible source, no placeholder/deleted). */
+    getVisibleRowIds: () => Promise<string[]>;
 };
 
 export function canonicalRenovationKey(rowId: string, field: string): string {
@@ -1110,6 +1112,13 @@ function RenovationGridInner(
         return (await grid.getVisibleSource("rgRow")) as RenovationGridRow[];
     }, []);
 
+    const getVisibleRowIds = useCallback(async (): Promise<string[]> => {
+        const visible = await getVisibleRows();
+        return visible
+            .filter((row) => !row.isPlaceholder && row.__rowState !== "deleted")
+            .map((row) => row.__id);
+    }, [getVisibleRows]);
+
     const applyGridRange = useCallback(
         async (start: { x: number; y: number }, end: { x: number; y: number }) => {
             const grid = gridRef.current;
@@ -1251,8 +1260,9 @@ function RenovationGridInner(
             copySelection,
             clearSelection: clearGridSelection,
             pasteIntoSelection: () => void pasteIntoSelection(),
+            getVisibleRowIds,
         }),
-        [clearGridSelection, copySelection, pasteIntoSelection],
+        [clearGridSelection, copySelection, getVisibleRowIds, pasteIntoSelection],
     );
 
     // Window-level copy/paste (capture): works regardless of the focus inside

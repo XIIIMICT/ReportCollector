@@ -261,9 +261,15 @@ export async function getRenovationDiff(planId: string): Promise<RenovationDiff>
     return requestJson(`/api/renovation/plan/diff?plan_id=${encodeURIComponent(planId)}`);
 }
 
-export async function exportRenovationPlan(planId?: string): Promise<RenovationPlanExport> {
-    const query = planId ? `?plan_id=${encodeURIComponent(planId)}` : "";
-    const response = await fetch(`/api/renovation/plan/export${query}`, { cache: "no-store" });
+export async function exportRenovationPlan(
+    params: { planId?: string; rowIds?: string[] | null } = {},
+): Promise<RenovationPlanExport> {
+    const response = await fetch("/api/renovation/plan/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planId: params.planId ?? null, rowIds: params.rowIds ?? null }),
+        cache: "no-store",
+    });
     if (!response.ok) {
         let detail = `Запрос завершился ошибкой ${response.status}.`;
         try {
@@ -280,7 +286,7 @@ export async function exportRenovationPlan(planId?: string): Promise<RenovationP
     const match = /filename="?([^";]+)"?/.exec(disposition);
     return {
         blob: await response.blob(),
-        fileName: match?.[1] ?? `remont_plan_v${planId ?? "working"}.xlsx`,
+        fileName: match?.[1] ?? `remont_plan_v${params.planId ?? "working"}.xlsx`,
     };
 }
 

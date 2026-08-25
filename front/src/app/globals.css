@@ -655,6 +655,7 @@ html {
 }
 
 .app-shell--fullscreen .workspace-card .table-toolbar,
+.app-shell--fullscreen .workspace-card .view-strip,
 .app-shell--fullscreen .workspace-card .table-footer {
     min-height: 0;
     max-height: 0;
@@ -663,13 +664,9 @@ html {
     pointer-events: none;
 }
 
+/* Collapsed to zero height (above), so the grid reclaims the full viewport;
+    the transform just keeps the pre-existing slide-out animation direction. */
 .app-shell--fullscreen .workspace-card .table-toolbar {
-    transform: translateY(-100%);
-}
-
-/* The view strip slides away with the toolbar: in fullscreen it lives on the
-   floating top panel instead (see the fullscreen-reveal branch). */
-.app-shell--fullscreen .workspace-card .view-strip {
     transform: translateY(-100%);
 }
 

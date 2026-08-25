@@ -659,3 +659,21 @@ async def test_export_archived_plan_by_id(client: AsyncClient) -> None:
     )
     assert response.status_code == 200
     assert response.content[:2] == b"PK"
+
+
+async def test_export_visible_rows_only(client: AsyncClient) -> None:
+    """POST export with rowIds renders only the requested rows («видимая»)."""
+    rows = (await client.get("/api/renovation/plan/rows?offset=0&limit=3", headers=ADMIN_HEADERS)).json()
+    visible_ids = [row["id"] for row in rows["rows"][:1]]
+
+    response = await client.post(
+        "/api/renovation/plan/export",
+        headers=ADMIN_HEADERS,
+        json={"planId": None, "rowIds": visible_ids},
+    )
+    assert response.status_code == 200
+    assert response.content[:2] == b"PK"
+
+    worksheet = load_workbook(BytesIO(response.content)).active
+    # Header rows + exactly the one requested plan row.
+    assert worksheet.max_row == 12

@@ -346,3 +346,10 @@ class RenovationExportViewRequest(BaseModel):
     columns: list[ExportColumnRequest] = Field(min_length=1, max_length=64)
     rowIds: list[UUID] | None = None
     fileName: str = Field(min_length=1, max_length=255)
+
+
+class RenovationPlanExportRequest(BaseModel):
+    """Excel export of a plan version: all rows or only the visible ones."""
+
+    planId: UUID | None = None
+    rowIds: list[UUID] | None = None

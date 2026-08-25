@@ -3,6 +3,7 @@
 import {
     AlertDialog,
     Button,
+    ButtonGroup,
     Card,
     Dropdown,
     Kbd,
@@ -13,20 +14,18 @@ import {
     Tooltip,
     Typography,
 } from "@heroui/react";
-import {
-    Collapse,
-    CheckCircle,
-    Copy,
-    Download,
-    Expand,
-    MoreHoriz,
-    PasteClipboard,
-    Redo,
-    Trash,
-    Undo,
-} from "iconoir-react";
+import { CheckCircle, Copy, MoreHoriz, PasteClipboard, Redo, Trash, Undo } from "iconoir-react";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useRef, useState, type Key, type ReactNode } from "react";
+import {
+    Fragment,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type Key,
+    type ReactNode,
+} from "react";
 
 import {
     createDictionaryRecord,
@@ -98,6 +97,7 @@ import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { FormStatus } from "@/shared/ui/form-status";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
+import { ViewStrip } from "@/shared/ui/view-strip";
 
 import { ProfileModal } from "./profile-modal";
 
@@ -1436,57 +1436,13 @@ export function RawMaterialsWorkspace({
     // sections have no asset/block filters). Rendered both in the normal flow
     // and on the floating top panel in fullscreen mode.
     const viewStrip = (
-        <div className="view-strip">
-            <div className="view-strip__filters" />
-            <div className="view-strip__actions">
-                <Button
-                    className="action-button"
-                    variant="secondary"
-                    isDisabled={isFullscreenPending}
-                    aria-label={isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
-                    onPress={() => void setFullscreenMode(!isFullscreen)}
-                >
-                    <span className="action-button__icon">
-                        {isFullscreen ? <Collapse /> : <Expand />}
-                    </span>
-                    <span className="action-button__label">
-                        {isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
-                    </span>
-                </Button>
-                <Dropdown>
-                    <Button
-                        className="action-button"
-                        variant="secondary"
-                        isDisabled={exportState.pending || isFullscreenPending}
-                        aria-label="Скачать таблицу в Excel"
-                    >
-                        <span className="action-button__icon">
-                            {exportState.pending ? <Spinner size="sm" /> : <Download />}
-                        </span>
-                        <span className="action-button__label">
-                            {exportState.pending ? "Выгрузка..." : "Скачать в Excel"}
-                        </span>
-                    </Button>
-                    <Dropdown.Popover>
-                        <Dropdown.Menu
-                            aria-label="Формат выгрузки"
-                            onAction={(key) => {
-                                if (key === "all" || key === "visible") {
-                                    void exportState.onExport(key);
-                                }
-                            }}
-                        >
-                            <Dropdown.Item id="all" textValue="Скачать всю таблицу">
-                                Скачать всю таблицу
-                            </Dropdown.Item>
-                            <Dropdown.Item id="visible" textValue="Скачать видимую таблицу">
-                                Скачать видимую таблицу
-                            </Dropdown.Item>
-                        </Dropdown.Menu>
-                    </Dropdown.Popover>
-                </Dropdown>
-            </div>
-        </div>
+        <ViewStrip
+            exportPending={exportState.pending}
+            onExport={(scope) => void exportState.onExport(scope)}
+            isFullscreen={isFullscreen}
+            isFullscreenPending={isFullscreenPending}
+            onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
+        />
     );
 
     return (
@@ -1692,7 +1648,26 @@ export type ActionItem = {
     variant?: "primary" | "secondary" | "danger";
     disabled?: boolean;
     shortcut?: { key: "Z" | "Y" | "C" | "V" | "Del"; aria: string };
+    /**
+     * Consecutive items sharing a group render joined in one HeroUI
+     * ButtonGroup («Отменить/Вернуть», «Копировать/Вставить»).
+     */
+    group?: "history" | "clipboard";
 };
+
+/** Chunk actions into ButtonGroup runs: consecutive items with equal `group`. */
+export function groupActionItems(items: ActionItem[]): ActionItem[][] {
+    const chunks: ActionItem[][] = [];
+    for (const item of items) {
+        const last = chunks[chunks.length - 1];
+        if (last && item.group !== undefined && last[0].group === item.group) {
+            last.push(item);
+        } else {
+            chunks.push([item]);
+        }
+    }
+    return chunks;
+}
 
 function ActionBar({
     section,
@@ -1730,6 +1705,7 @@ function ActionBar({
                       onPress: undoState.onUndo,
                       disabled: undoState.offline || !undoState.canUndo,
                       shortcut: { key: "Z", aria: "Control+Z" },
+                      group: "history",
                   } satisfies ActionItem,
                   {
                       id: "redo",
@@ -1738,6 +1714,7 @@ function ActionBar({
                       onPress: undoState.onRedo,
                       disabled: undoState.offline || !undoState.canRedo,
                       shortcut: { key: "Y", aria: "Control+Shift+Z" },
+                      group: "history",
                   } satisfies ActionItem,
               ]
             : []),
@@ -1748,6 +1725,7 @@ function ActionBar({
             onPress: onCopy,
             disabled: isFullscreenPending,
             shortcut: { key: "C", aria: "Control+C" },
+            group: "clipboard",
         } satisfies ActionItem,
         ...(showPaste
             ? [
@@ -1758,6 +1736,7 @@ function ActionBar({
                       onPress: onPaste,
                       disabled: isFullscreenPending || !clipboardState.canPaste,
                       shortcut: { key: "V", aria: "Control+V" },
+                      group: "clipboard",
                   } satisfies ActionItem,
               ]
             : []),
@@ -1796,42 +1775,50 @@ function ActionBar({
         );
     }
 
+    const renderTrailing = (action: ActionItem) => {
+        const button = (
+            <Button
+                className="action-button"
+                variant={action.variant ?? "secondary"}
+                isDisabled={action.disabled}
+                aria-label={action.label}
+                aria-keyshortcuts={action.shortcut?.aria}
+                onPress={action.onPress}
+            >
+                <span className="action-button__icon">{action.icon}</span>
+                <span className="action-button__label">{action.label}</span>
+            </Button>
+        );
+        if (!action.shortcut) return button;
+        return (
+            <Tooltip delay={250}>
+                <Tooltip.Trigger>{button}</Tooltip.Trigger>
+                <Tooltip.Content placement="top" className="shortcut-tooltip">
+                    <span>{action.label}</span>
+                    <Kbd>
+                        <Kbd.Abbr keyValue="ctrl" />
+                        <Kbd.Content>{action.shortcut.key}</Kbd.Content>
+                    </Kbd>
+                </Tooltip.Content>
+            </Tooltip>
+        );
+    };
+
     return (
         <div className="action-bar" aria-label="Действия с таблицей">
-            {trailingActions.map((action) => {
-                const button = (
-                    <Button
-                        className="action-button"
-                        variant={action.variant ?? "secondary"}
-                        isDisabled={action.disabled}
-                        aria-label={action.label}
-                        aria-keyshortcuts={action.shortcut?.aria}
-                        onPress={action.onPress}
-                    >
-                        <span className="action-button__icon">{action.icon}</span>
-                        <span className="action-button__label">{action.label}</span>
-                    </Button>
-                );
-                if (!action.shortcut) {
-                    return (
-                        <span key={action.id} className="action-button-wrapper">
-                            {button}
-                        </span>
-                    );
-                }
-                return (
-                    <Tooltip key={action.id} delay={250}>
-                        <Tooltip.Trigger>{button}</Tooltip.Trigger>
-                        <Tooltip.Content placement="top" className="shortcut-tooltip">
-                            <span>{action.label}</span>
-                            <Kbd>
-                                <Kbd.Abbr keyValue="ctrl" />
-                                <Kbd.Content>{action.shortcut.key}</Kbd.Content>
-                            </Kbd>
-                        </Tooltip.Content>
-                    </Tooltip>
-                );
-            })}
+            {groupActionItems(trailingActions).map((chunk) =>
+                chunk.length > 1 ? (
+                    <ButtonGroup key={`group-${chunk[0].id}`}>
+                        {chunk.map((action) => (
+                            <Fragment key={action.id}>{renderTrailing(action)}</Fragment>
+                        ))}
+                    </ButtonGroup>
+                ) : (
+                    <Fragment key={chunk[0].id}>
+                        <span className="action-button-wrapper">{renderTrailing(chunk[0])}</span>
+                    </Fragment>
+                ),
+            )}
         </div>
     );
 }

@@ -3,6 +3,7 @@
 import {
     AlertDialog,
     Button,
+    ButtonGroup,
     Card,
     Kbd,
     ListBox,
@@ -15,20 +16,9 @@ import {
     Tooltip,
     Typography,
 } from "@heroui/react";
-import {
-    CheckCircle,
-    Collapse,
-    Copy,
-    Download,
-    Expand,
-    PasteClipboard,
-    Redo,
-    Send,
-    Trash,
-    Undo,
-} from "iconoir-react";
+import { CheckCircle, Copy, PasteClipboard, Redo, Send, Trash, Undo } from "iconoir-react";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
 import {
@@ -36,6 +26,7 @@ import {
     CompactActionMenu,
     DeleteRecordDialog,
     downloadBlob,
+    groupActionItems,
     type ActionItem,
     type ArchiveItem,
     type ArchiveState,
@@ -77,6 +68,7 @@ import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { FormStatus } from "@/shared/ui/form-status";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
+import { ViewStrip } from "@/shared/ui/view-strip";
 
 import {
     RenovationDictionarySection,
@@ -236,9 +228,9 @@ export function RenovationWorkspace({
         canDelete: boolean;
         onDelete: () => void;
     }>({ canDelete: false, onDelete: () => {} });
-    const [dictExportState, setDictExportState] = useState<{ onExport: () => void }>({
-        onExport: () => {},
-    });
+    const [dictExportState, setDictExportState] = useState<{
+        onExport: (scope: "all" | "visible") => void;
+    }>({ onExport: () => {} });
     const [pendingSkip, setPendingSkip] = useState<{
         actionId: number;
         direction: "undo" | "redo";
@@ -730,19 +722,38 @@ export function RenovationWorkspace({
         [doCommit, readOnly],
     );
 
-    const exportPlan = useCallback(async () => {
-        if (exportPending) return;
-        setExportPending(true);
-        try {
-            const { blob, fileName } = await exportRenovationPlan(viewPlanId ?? undefined);
-            downloadBlob(blob, fileName);
-            toast.success("Файл выгружен", { description: fileName });
-        } catch (reason) {
-            toast.danger("Не удалось выгрузить файл", { description: errorMessage(reason) });
-        } finally {
-            setExportPending(false);
-        }
-    }, [exportPending, viewPlanId]);
+    const exportPlan = useCallback(
+        async (scope: "all" | "visible") => {
+            if (exportPending) return;
+            setExportPending(true);
+            try {
+                let rowIds: string[] | null = null;
+                if (scope === "visible") {
+                    // The rows currently on screen (filtered/sorted page view).
+                    rowIds = (await gridRef.current?.getVisibleRowIds()) ?? null;
+                }
+                const { blob, fileName } = await exportRenovationPlan({
+                    planId: viewPlanId ?? undefined,
+                    rowIds,
+                });
+                downloadBlob(blob, fileName);
+                toast.success("Файл выгружен", { description: fileName });
+            } catch (reason) {
+                toast.danger("Не удалось выгрузить файл", { description: errorMessage(reason) });
+            } finally {
+                setExportPending(false);
+            }
+        },
+        [exportPending, viewPlanId],
+    );
+
+    const handleStripExport = useCallback(
+        (scope: "all" | "visible") => {
+            if (isPlanSection) void exportPlan(scope);
+            else dictExportState.onExport(scope);
+        },
+        [dictExportState, exportPlan, isPlanSection],
+    );
 
     const selectedRow = useMemo(
         () => displayRows.find((row) => row.__id === selection?.rowId) ?? null,
@@ -1063,24 +1074,6 @@ export function RenovationWorkspace({
         </div>
     );
 
-    const fullscreenAction: ActionItem = {
-        id: "fullscreen",
-        label: isFullscreen ? "Выйти из полного экрана" : "В полный экран",
-        icon: isFullscreen ? <Collapse /> : <Expand />,
-        onPress: () => void setFullscreenMode(!isFullscreen),
-        disabled: isFullscreenPending,
-    };
-    const viewActions: ActionItem[] = [
-        {
-            id: "export",
-            label: "Скачать в Excel",
-            icon: exportPending ? <Spinner size="sm" /> : <Download />,
-            onPress: () => (isPlanSection ? void exportPlan() : dictExportState.onExport()),
-            disabled: exportPending || isFullscreenPending,
-        },
-        fullscreenAction,
-    ];
-
     const undoRedoActions: ActionItem[] = undoState.enabled
         ? [
               {
@@ -1090,6 +1083,7 @@ export function RenovationWorkspace({
                   onPress: undoState.onUndo,
                   disabled: undoState.offline || !undoState.canUndo,
                   shortcut: { key: "Z", aria: "Control+Z" },
+                  group: "history",
               } satisfies ActionItem,
               {
                   id: "redo",
@@ -1098,6 +1092,7 @@ export function RenovationWorkspace({
                   onPress: undoState.onRedo,
                   disabled: undoState.offline || !undoState.canRedo,
                   shortcut: { key: "Y", aria: "Control+Shift+Z" },
+                  group: "history",
               } satisfies ActionItem,
           ]
         : [];
@@ -1110,6 +1105,7 @@ export function RenovationWorkspace({
             onPress: clipboardState.onCopy,
             disabled: isFullscreenPending,
             shortcut: { key: "C", aria: "Control+C" },
+            group: "clipboard",
         } satisfies ActionItem,
         {
             id: "paste",
@@ -1118,6 +1114,7 @@ export function RenovationWorkspace({
             onPress: clipboardState.onPaste,
             disabled: isFullscreenPending || !clipboardState.canPaste,
             shortcut: { key: "V", aria: "Control+V" },
+            group: "clipboard",
         } satisfies ActionItem,
     ];
 
@@ -1266,78 +1263,70 @@ export function RenovationWorkspace({
     );
 
     // Display-only controls in one row: the plan filters on the left, the
-    // export/fullscreen buttons on the right. Rendered both in the normal flow
-    // and on the floating top panel in fullscreen mode.
+    // export/fullscreen buttons on the right (shared ViewStrip). Rendered both
+    // in the normal flow and on the floating top panel in fullscreen mode.
     const viewStrip = (
-        <div className="view-strip">
-            {isPlanSection ? (
-                <div className="view-strip__filters">
-                    <div className="plan-filters__asset">
-                        <SearchAutocomplete
-                            placeholder="Все активы"
-                            compactLabel="Актив"
-                            items={[
-                                { id: "__all", name: "Все активы" },
-                                ...meta.assets.map((asset) => ({
-                                    id: asset.name,
-                                    name: asset.name,
-                                })),
-                            ]}
-                            selectedKey={assetFilter ?? "__all"}
+        <ViewStrip
+            filters={
+                isPlanSection ? (
+                    <>
+                        <div className="plan-filters__asset">
+                            <SearchAutocomplete
+                                placeholder="Все активы"
+                                compactLabel="Актив"
+                                items={[
+                                    { id: "__all", name: "Все активы" },
+                                    ...meta.assets.map((asset) => ({
+                                        id: asset.name,
+                                        name: asset.name,
+                                    })),
+                                ]}
+                                selectedKey={assetFilter ?? "__all"}
+                                onSelectionChange={(key) =>
+                                    setAssetFilter(key && key !== "__all" ? String(key) : null)
+                                }
+                            />
+                        </div>
+                        <Select
+                            className="plan-filters__block"
+                            aria-label="Фильтр по блоку"
+                            selectionMode="single"
+                            variant="secondary"
+                            selectedKey={blockFilter ?? "__all"}
                             onSelectionChange={(key) =>
-                                setAssetFilter(key && key !== "__all" ? String(key) : null)
+                                setBlockFilter(key && key !== "__all" ? String(key) : null)
                             }
-                        />
-                    </div>
-                    <Select
-                        className="plan-filters__block"
-                        aria-label="Фильтр по блоку"
-                        selectionMode="single"
-                        variant="secondary"
-                        selectedKey={blockFilter ?? "__all"}
-                        onSelectionChange={(key) =>
-                            setBlockFilter(key && key !== "__all" ? String(key) : null)
-                        }
-                    >
-                        <Select.Trigger>
-                            <Select.Value />
-                            <Select.Indicator />
-                        </Select.Trigger>
-                        <Select.Popover className="plan-filters__popover">
-                            <ListBox>
-                                <ListBox.Item id="__all" textValue="Все блоки">
-                                    Все блоки
-                                </ListBox.Item>
-                                {blocks.map((block) => (
-                                    <ListBox.Item
-                                        key={block}
-                                        id={block}
-                                        textValue={blockLabel(block)}
-                                    >
-                                        {blockLabel(block)}
+                        >
+                            <Select.Trigger>
+                                <Select.Value />
+                                <Select.Indicator />
+                            </Select.Trigger>
+                            <Select.Popover className="plan-filters__popover">
+                                <ListBox>
+                                    <ListBox.Item id="__all" textValue="Все блоки">
+                                        Все блоки
                                     </ListBox.Item>
-                                ))}
-                            </ListBox>
-                        </Select.Popover>
-                    </Select>
-                </div>
-            ) : null}
-            <div className="view-strip__actions">
-                {viewActions.map((action) => (
-                    <Button
-                        key={action.id}
-                        className="action-button"
-                        variant={action.variant ?? "ghost"}
-                        isDisabled={action.disabled}
-                        aria-label={action.label}
-                        onPress={action.onPress}
-                    >
-                        <span className="action-button__icon">{action.icon}</span>
-                        <span className="action-button__label">{action.label}</span>
-                    </Button>
-                ))}
-            </div>
-        </div>
+                                    {blocks.map((block) => (
+                                        <ListBox.Item
+                                            key={block}
+                                            id={block}
+                                            textValue={blockLabel(block)}
+                                        >
+                                            {blockLabel(block)}
+                                        </ListBox.Item>
+                                    ))}
+                                </ListBox>
+                            </Select.Popover>
+                        </Select>
+                    </>
+                ) : null
+            }
+            exportPending={exportPending}
+            onExport={handleStripExport}
+            isFullscreen={isFullscreen}
+            isFullscreenPending={isFullscreenPending}
+            onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
+        />
     );
 
     return (
@@ -1485,6 +1474,33 @@ export function RenovationWorkspace({
 
 export function RenovationActionBar({ items }: { items: ActionItem[] }) {
     const isCompact = useMediaQuery("(width < 64rem)");
+    const renderAction = (action: ActionItem) => {
+        const button = (
+            <Button
+                className="action-button"
+                variant={action.variant ?? "secondary"}
+                isDisabled={action.disabled}
+                aria-label={action.label}
+                onPress={action.onPress}
+            >
+                <span className="action-button__icon">{action.icon}</span>
+                <span className="action-button__label">{action.label}</span>
+            </Button>
+        );
+        if (!action.shortcut) return button;
+        return (
+            <Tooltip delay={250}>
+                <Tooltip.Trigger>{button}</Tooltip.Trigger>
+                <Tooltip.Content placement="top" className="shortcut-tooltip">
+                    <span>{action.label}</span>
+                    <Kbd>
+                        <Kbd.Abbr keyValue="ctrl" />
+                        <Kbd.Content>{action.shortcut.key}</Kbd.Content>
+                    </Kbd>
+                </Tooltip.Content>
+            </Tooltip>
+        );
+    };
     if (isCompact) {
         return (
             <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
@@ -1494,39 +1510,19 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
     }
     return (
         <div className="action-bar" aria-label="Действия с таблицей">
-            {items.map((action) => {
-                const button = (
-                    <Button
-                        className="action-button"
-                        variant={action.variant ?? "secondary"}
-                        isDisabled={action.disabled}
-                        aria-label={action.label}
-                        onPress={action.onPress}
-                    >
-                        <span className="action-button__icon">{action.icon}</span>
-                        <span className="action-button__label">{action.label}</span>
-                    </Button>
-                );
-                if (!action.shortcut) {
-                    return (
-                        <span key={action.id} className="action-button-wrapper">
-                            {button}
-                        </span>
-                    );
-                }
-                return (
-                    <Tooltip key={action.id} delay={250}>
-                        <Tooltip.Trigger>{button}</Tooltip.Trigger>
-                        <Tooltip.Content placement="top" className="shortcut-tooltip">
-                            <span>{action.label}</span>
-                            <Kbd>
-                                <Kbd.Abbr keyValue="ctrl" />
-                                <Kbd.Content>{action.shortcut.key}</Kbd.Content>
-                            </Kbd>
-                        </Tooltip.Content>
-                    </Tooltip>
-                );
-            })}
+            {groupActionItems(items).map((chunk) =>
+                chunk.length > 1 ? (
+                    <ButtonGroup key={`group-${chunk[0].id}`}>
+                        {chunk.map((action) => (
+                            <Fragment key={action.id}>{renderAction(action)}</Fragment>
+                        ))}
+                    </ButtonGroup>
+                ) : (
+                    <Fragment key={chunk[0].id}>
+                        <span className="action-button-wrapper">{renderAction(chunk[0])}</span>
+                    </Fragment>
+                ),
+            )}
         </div>
     );
 }

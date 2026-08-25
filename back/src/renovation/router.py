@@ -48,6 +48,7 @@ from src.renovation.schemas import (
     RenovationDiffRead,
     RenovationExportViewRequest,
     RenovationMetaRead,
+    RenovationPlanExportRequest,
     RenovationPlanRead,
     RenovationPlanRowRead,
     RenovationPlanRowsRead,
@@ -326,6 +327,29 @@ async def export_renovation_plan(
         plan = await read_plan(session, access.assets, plan_id=plan_id, state=RPlanState.WORKING)
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    content = render_renovation_workbook(plan)
+    filename = f"remont_plan_v{plan.baselineGeneration}_{plan.updatedAt:%Y-%m-%d}.xlsx"
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/plan/export")
+async def post_export_renovation_plan(
+    session: SessionDependency,
+    access: AccessDependency,
+    payload: RenovationPlanExportRequest,
+) -> StreamingResponse:
+    """Excel export of a plan version: all rows or only the visible ones."""
+    try:
+        plan = await read_plan(session, access.assets, plan_id=payload.planId, state=RPlanState.WORKING)
+    except RenovationPlanNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    if payload.rowIds is not None:
+        by_id = {row.id: row for row in plan.rows}
+        plan.rows = [by_id[row_id] for row_id in payload.rowIds if row_id in by_id]
     content = render_renovation_workbook(plan)
     filename = f"remont_plan_v{plan.baselineGeneration}_{plan.updatedAt:%Y-%m-%d}.xlsx"
     return StreamingResponse(
