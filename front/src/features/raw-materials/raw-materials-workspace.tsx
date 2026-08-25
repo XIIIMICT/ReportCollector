@@ -1167,6 +1167,14 @@ export function RawMaterialsWorkspace({
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
     }>({ resetColumnWidths: () => {}, resetFiltersSorting: () => {} });
+    // Declared before the early returns below: hooks must run unconditionally.
+    const handleStripReset = useCallback(
+        (scope: "columnWidths" | "filtersSorting") => {
+            if (scope === "columnWidths") gridResetState.resetColumnWidths();
+            else void gridResetState.resetFiltersSorting();
+        },
+        [gridResetState],
+    );
     const [undoState, setUndoState] = useState<UndoState>({
         enabled: false,
         offline: false,
@@ -1447,14 +1455,6 @@ export function RawMaterialsWorkspace({
             onPaste={clipboardState.onPaste}
             onAutocompleteOpenChange={setFooterAutocompleteOpen}
         />
-    );
-
-    const handleStripReset = useCallback(
-        (scope: "columnWidths" | "filtersSorting") => {
-            if (scope === "columnWidths") gridResetState.resetColumnWidths();
-            else void gridResetState.resetFiltersSorting();
-        },
-        [gridResetState],
     );
 
     // Display-only controls in one row: export/fullscreen on the right (the raw
