@@ -1,15 +1,10 @@
-from datetime import UTC, datetime
-from hashlib import sha256
-from hmac import compare_digest, new
 from typing import Annotated
-from urllib.parse import unquote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.models import ProjectRole
-from src.config import get_settings
 from src.database import get_session
 
 from . import constants as auth_constants
@@ -21,13 +16,16 @@ from .schemas import (
     UpdateProfileRequest,
 )
 from .service import (
+    IDENTITY_HEADER_NAMES,
     BlockedUserError,
     CurrentUserIdentity,
     InvalidCredentialsError,
+    InvalidIdentityError,
     authenticate_local_user,
     get_current_user,
     reset_user_password,
     update_profile,
+    verify_signed_identity,
 )
 
 router = APIRouter(tags=["auth"])
@@ -47,31 +45,33 @@ def read_signed_identity(
     timestamp: Annotated[str | None, Header(alias="X-ReportCollector-Identity-Timestamp")] = None,
     signature: Annotated[str | None, Header(alias="X-ReportCollector-Identity-Signature")] = None,
 ) -> CurrentUserIdentity:
-    values = [
-        decode_identity_header(value)
-        for value in (
-            user_email,
-            user_name,
-            user_sub,
-            issuer,
-            preferred_username,
-            given_name,
-            family_name,
-            email_verified,
+    """Parse and verify the signed identity headers set by the frontend proxy."""
+    headers = {
+        name: value
+        for name, value in zip(
+            IDENTITY_HEADER_NAMES,
+            (
+                user_email,
+                user_name,
+                user_sub,
+                issuer,
+                preferred_username,
+                given_name,
+                family_name,
+                email_verified,
+            ),
+            strict=True,
         )
-    ]
-    _verify_identity_signature(values, timestamp=timestamp, signature=signature)
-    email, name, subject, oidc_issuer, preferred, given, family, verified = values
-    return CurrentUserIdentity(
-        email=email,
-        email_verified=_parse_optional_bool(verified),
-        family_name=family,
-        given_name=given,
-        issuer=oidc_issuer,
-        name=name,
-        oidc_sub=subject,
-        preferred_username=preferred,
-    )
+        if value is not None
+    }
+    if timestamp:
+        headers["X-ReportCollector-Identity-Timestamp"] = timestamp
+    if signature:
+        headers["X-ReportCollector-Identity-Signature"] = signature
+    try:
+        return verify_signed_identity(headers)
+    except InvalidIdentityError as error:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
 
 
 @router.post("/auth/login", response_model=LocalLoginResponse)
@@ -165,28 +165,3 @@ async def update_current_user(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
-
-
-def _verify_identity_signature(values: list[str | None], *, timestamp: str | None, signature: str | None) -> None:
-    if not timestamp or not signature:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Отсутствует подпись идентичности.")
-    try:
-        signed_at = datetime.fromtimestamp(int(timestamp), tz=UTC)
-    except (ValueError, OSError) as error:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Некорректное время подписи.") from error
-    if abs((datetime.now(UTC) - signed_at).total_seconds()) > get_settings().auth_identity_ttl:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Подпись идентичности устарела.")
-    payload = "\n".join([timestamp, *(value or "" for value in values)])
-    expected = new(get_settings().auth_secret.encode(), payload.encode(), sha256).hexdigest()
-    if not compare_digest(signature, expected):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Подпись идентичности неверна.")
-
-
-def decode_identity_header(value: str | None) -> str | None:
-    return unquote(value) if value else None
-
-
-def _parse_optional_bool(value: str | None) -> bool | None:
-    if value is None:
-        return None
-    return value.casefold() == "true"
