@@ -1,4 +1,4 @@
-import { Button, Dropdown, Label, Tooltip, type Selection } from "@heroui/react";
+import { Tooltip } from "@heroui/react";
 import {
     Editor,
     RevoGrid,
@@ -12,7 +12,6 @@ import {
     type RowHeaders,
     type VNode,
 } from "@revolist/react-datagrid";
-import { MoreVert, Refresh } from "iconoir-react";
 import {
     useCallback,
     useEffect,
@@ -26,7 +25,6 @@ import {
 } from "react";
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
-import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 
 import {
     buildGridColumns,
@@ -84,8 +82,10 @@ type Props = {
     showAssetColumn: boolean;
     readOnly: boolean;
     hasBaseline: boolean;
+    /** Controlled «Закрепить заголовок» toggle (rendered in the view strip). */
     headerPinned: boolean;
-    onHeaderPinnedChange: (isPinned: boolean) => void;
+    /** Controlled «Показать служебные столбцы» toggle (lives in the view strip). */
+    showServiceColumns: boolean;
     assets: ReferenceOption[];
     deliveryBases: ReferenceOption[];
     /** Custom column set — overrides the built-in descriptors for the section. */
@@ -248,7 +248,7 @@ function RawMaterialsGridInner(
         readOnly,
         hasBaseline,
         headerPinned,
-        onHeaderPinnedChange,
+        showServiceColumns,
         assets,
         deliveryBases,
         columnDescriptors,
@@ -286,7 +286,6 @@ function RawMaterialsGridInner(
     // a dependency change to rebuild with default sizes.
     const [widthsVersion, setWidthsVersion] = useState(0);
     const widthKeySection = namespace ?? section;
-    const [showServiceColumns, setShowServiceColumns] = useState(false);
     const sortingBySectionRef = useRef(new Map<SectionId, GridSortingConfig>());
     const userSortedSectionsRef = useRef(new Set<SectionId>());
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
@@ -1629,21 +1628,6 @@ function RawMaterialsGridInner(
                     onBeforerange={(event) => updateSelectionRange(event.detail.newRange)}
                 />
             </div>
-            {/* The corner menu is rendered in the regular tree and overlaid on
-                the grid's top-left header cell. Mounting it into the grid's
-                shadow DOM (createRoot inside the Stencil root) breaks react-aria
-                dropdowns: the collection builds a virtual document that lacks
-                createTextNode, and React crashes on any text node. The same
-                HoverDropdown as the «Действия» bar works from the main tree. */}
-            <div className="grid-options-menu-corner" style={{ height: headerHeight }}>
-                <GridOptionsMenu
-                    headerPinned={headerPinned}
-                    showServiceColumns={showServiceColumns}
-                    onHeaderPinnedChange={onHeaderPinnedChange}
-                    onShowServiceColumnsChange={setShowServiceColumns}
-                    onResetView={() => void resetGridView()}
-                />
-            </div>
             {!headerPinned ? (
                 <div
                     ref={horizontalScrollRef}
@@ -1664,79 +1648,6 @@ function RawMaterialsGridInner(
 }
 
 export const RawMaterialsGrid = forwardRef(RawMaterialsGridInner);
-
-type GridOptionsMenuProps = {
-    headerPinned: boolean;
-    showServiceColumns: boolean;
-    onHeaderPinnedChange: (value: boolean) => void;
-    onShowServiceColumnsChange: (value: boolean) => void;
-    onResetView: () => void;
-};
-
-function GridOptionsMenu({
-    headerPinned,
-    showServiceColumns,
-    onHeaderPinnedChange,
-    onShowServiceColumnsChange,
-    onResetView,
-}: GridOptionsMenuProps) {
-    const selectedKeys = new Set<string>();
-    if (headerPinned) selectedKeys.add("pin-header");
-    if (showServiceColumns) selectedKeys.add("service-columns");
-    const toggleKeys = ["pin-header", "service-columns"];
-    const applySelection = (selection: Selection) => {
-        const keys = selection === "all" ? new Set(toggleKeys) : new Set(selection);
-        if (keys.has("reset-view")) {
-            // Momentary action, not a persisted toggle: fire it and drop the
-            // key so it never sticks in the controlled selection.
-            onResetView();
-            keys.delete("reset-view");
-        }
-        onHeaderPinnedChange(keys.has("pin-header"));
-        onShowServiceColumnsChange(keys.has("service-columns"));
-    };
-    return (
-        <div className="grid-options-menu">
-            <HoverDropdown
-                className="grid-options-popover min-w-[260px]"
-                trigger={({ ref, onMouseEnter }) => (
-                    <Button
-                        ref={ref}
-                        onMouseEnter={onMouseEnter}
-                        isIconOnly
-                        aria-label="Настройки таблицы"
-                        variant="ghost"
-                    >
-                        <MoreVert aria-hidden="true" />
-                    </Button>
-                )}
-                content={
-                    <Dropdown.Menu
-                        selectedKeys={selectedKeys}
-                        selectionMode="multiple"
-                        onSelectionChange={applySelection}
-                    >
-                        <Dropdown.Item id="pin-header" textValue="Закрепить заголовок">
-                            <Dropdown.ItemIndicator />
-                            <Label>Закрепить заголовок</Label>
-                        </Dropdown.Item>
-                        <Dropdown.Item id="service-columns" textValue="Показать служебные столбцы">
-                            <Dropdown.ItemIndicator />
-                            <Label>Показать служебные столбцы</Label>
-                        </Dropdown.Item>
-                        <Dropdown.Item
-                            id="reset-view"
-                            textValue="Сбросить все фильтры и сортировки"
-                        >
-                            <Refresh aria-hidden="true" />
-                            <Label>Сбросить все фильтры и сортировки</Label>
-                        </Dropdown.Item>
-                    </Dropdown.Menu>
-                }
-            />
-        </div>
-    );
-}
 
 function canonicalOptions(
     values: unknown[],

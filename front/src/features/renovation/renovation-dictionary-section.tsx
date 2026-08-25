@@ -181,6 +181,8 @@ export function RenovationDictionarySection({
     onDeleteState,
     onExportState,
     onResetState,
+    headerPinned,
+    showServiceColumns,
     onClipboardStateChange,
     onUndoHistoryChanged,
     onAssetsChanged,
@@ -200,6 +202,9 @@ export function RenovationDictionarySection({
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
     }) => void;
+    /** Controlled display toggles (rendered in the workspace view strip). */
+    headerPinned: boolean;
+    showServiceColumns: boolean;
     onClipboardStateChange: (state: {
         canPaste: boolean;
         onCopy: () => void;
@@ -211,7 +216,6 @@ export function RenovationDictionarySection({
 }) {
     const gridRef = useRef<RawMaterialsGridHandle>(null);
     const [reloadKey, setReloadKey] = useState(0);
-    const [headerPinned, setHeaderPinned] = useState(false);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [exportPending, setExportPending] = useState(false);
@@ -584,7 +588,7 @@ export function RenovationDictionarySection({
                 readOnly={readOnly}
                 hasBaseline={false}
                 headerPinned={headerPinned}
-                onHeaderPinnedChange={setHeaderPinned}
+                showServiceColumns={showServiceColumns}
                 assets={toAssetOptions(assets)}
                 deliveryBases={[]}
                 columnDescriptors={catalogDescriptors(catalogId)}

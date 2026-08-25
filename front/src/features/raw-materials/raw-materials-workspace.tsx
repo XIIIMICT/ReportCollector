@@ -290,6 +290,8 @@ function SectionContent({
     onDeleteState,
     onExportState,
     onResetState,
+    headerPinned,
+    showServiceColumns,
     onUndoState,
     onApproveState,
     onArchiveState,
@@ -316,6 +318,9 @@ function SectionContent({
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
     }) => void;
+    /** Controlled display toggles (rendered in the workspace view strip). */
+    headerPinned: boolean;
+    showServiceColumns: boolean;
     onUndoState: (state: UndoState) => void;
     onApproveState: (state: ApproveState) => void;
     onArchiveState: (state: ArchiveState) => void;
@@ -373,7 +378,6 @@ function SectionContent({
 
     // Pinned (sticky) header is the default view; the grid uses its own
     // scrollbars in this mode (the header stays visible while scrolling).
-    const [headerPinned, setHeaderPinned] = useState(true);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [approveOpen, setApproveOpen] = useState(false);
@@ -978,7 +982,7 @@ function SectionContent({
                     readOnly={readOnly}
                     hasBaseline={false}
                     headerPinned={headerPinned}
-                    onHeaderPinnedChange={setHeaderPinned}
+                    showServiceColumns={showServiceColumns}
                     assets={assets}
                     deliveryBases={deliveryBases}
                     remoteLocks={remoteLocks}
@@ -1158,6 +1162,9 @@ export function RawMaterialsWorkspace({
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
     }>({ resetColumnWidths: () => {}, resetFiltersSorting: () => {} });
+    // Display toggles for the active grid (rendered in the view strip).
+    const [headerPinned, setHeaderPinned] = useState(true);
+    const [showServiceColumns, setShowServiceColumns] = useState(false);
     // Declared before the early returns below: hooks must run unconditionally.
     const handleStripReset = useCallback(
         (scope: "columnWidths" | "filtersSorting") => {
@@ -1453,6 +1460,10 @@ export function RawMaterialsWorkspace({
     // and on the floating top panel in fullscreen mode.
     const viewStrip = (
         <ViewStrip
+            headerPinned={headerPinned}
+            onHeaderPinnedChange={setHeaderPinned}
+            showServiceColumns={showServiceColumns}
+            onShowServiceColumnsChange={setShowServiceColumns}
             exportPending={exportState.pending}
             onExport={(scope) => void exportState.onExport(scope)}
             onReset={handleStripReset}
@@ -1484,6 +1495,8 @@ export function RawMaterialsWorkspace({
                                 onDeleteState={handleDeleteState}
                                 onExportState={handleExportState}
                                 onResetState={setGridResetState}
+                                headerPinned={headerPinned}
+                                showServiceColumns={showServiceColumns}
                                 onUndoState={handleUndoState}
                                 onApproveState={handleApproveState}
                                 onArchiveState={handleArchiveState}

@@ -395,6 +395,16 @@ html {
     gap: 0.75rem;
 }
 
+/* «Закрепить заголовок» / «Показать служебные столбцы» — compact inline
+   checkboxes right after the block filter. */
+.view-strip__toggles {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 1rem;
+    font-size: 0.8rem;
+}
+
 .view-strip__actions {
     display: flex;
     flex: 0 0 auto;
@@ -1165,29 +1175,6 @@ html {
     white-space: nowrap;
 }
 
-/* The corner menu overlays the grid's top-left header cell (row-header column
-   width × header height). It lives in the regular DOM tree, NOT inside the
-   grid's shadow root: react-aria dropdowns crash when mounted into a
-   shadow-rooted React root (the collection's virtual document has no
-   createTextNode, and React dies on the first text node). */
-.grid-options-menu-corner {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 3;
-    width: 52px;
-}
-
-.grid-options-menu {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    display: grid;
-    width: 100%;
-    height: 100%;
-    place-items: center;
-}
-
 /* The compact «Архив» trigger is narrow; the opened list must not shrink to
    the trigger width (Autocomplete locks it to `--trigger-width`). */
 .search-autocomplete-popover {
@@ -1474,28 +1461,6 @@ html {
     text-overflow: ellipsis;
     white-space: normal;
     user-select: none;
-}
-
-/* The «Настройки таблицы» menu inside the 52px corner: the trigger button is
-   centered in the corner block (z-index above the body cells sliding under
-   the corner), the popover is positioned by the HoverDropdown portal. */
-.renovation-grid__options-menu {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    display: grid;
-    place-items: center;
-}
-
-/* The menu lives at the shell level (above the header overlay, z-index 5), so
-   the button stays in place while the header scrolls away in unpinned mode —
-   the opaque corner (inside the header) still marks the grid's top-left. */
-.renovation-grid__menu-corner {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 6;
-    width: 52px;
 }
 
 .renovation-grid__resize-handle {

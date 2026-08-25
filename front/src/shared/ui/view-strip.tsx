@@ -1,19 +1,23 @@
 "use client";
 
-import { Button, Dropdown, Spinner } from "@heroui/react";
+import { Button, Checkbox, Dropdown, Spinner } from "@heroui/react";
 import { Collapse, Download, Expand, Refresh } from "iconoir-react";
 import type { ReactNode } from "react";
 
 /**
  * One shared strip between the toolbar and the grid: display-only controls.
- * Left — optional filters (the «Ремонт» plan asset/block pickers); right —
- * the Excel export dropdown («вся» / «видимая» таблица), the reset dropdown
- * (column widths / all filters & sorting) and the fullscreen toggle,
- * identical in every project. Actions belong to the bottom panel;
- * everything display-related lives here.
+ * Left — optional filters plus the «Закрепить заголовок» / «Показать служебные
+ * столбцы» checkboxes; right — the Excel export dropdown («вся» / «видимая»
+ * таблица), the reset dropdown (column widths / all filters & sorting) and the
+ * fullscreen toggle, identical in every project. Actions belong to the bottom
+ * panel; everything display-related lives here.
  */
 export function ViewStrip({
     filters = null,
+    headerPinned,
+    onHeaderPinnedChange,
+    showServiceColumns,
+    onShowServiceColumnsChange,
     exportPending,
     onExport,
     onReset,
@@ -22,6 +26,11 @@ export function ViewStrip({
     onToggleFullscreen,
 }: {
     filters?: ReactNode;
+    /** Both toggle pairs are optional: pass them where the grid supports them. */
+    headerPinned?: boolean;
+    onHeaderPinnedChange?: (value: boolean) => void;
+    showServiceColumns?: boolean;
+    onShowServiceColumnsChange?: (value: boolean) => void;
     exportPending: boolean;
     onExport: (scope: "all" | "visible") => void;
     onReset: (scope: "columnWidths" | "filtersSorting") => void;
@@ -29,9 +38,30 @@ export function ViewStrip({
     isFullscreenPending: boolean;
     onToggleFullscreen: () => void;
 }) {
+    const hasToggles =
+        headerPinned !== undefined &&
+        onHeaderPinnedChange !== undefined &&
+        showServiceColumns !== undefined &&
+        onShowServiceColumnsChange !== undefined;
+
     return (
         <div className="view-strip">
-            <div className="view-strip__filters">{filters}</div>
+            <div className="view-strip__filters">
+                {filters}
+                {hasToggles ? (
+                    <div className="view-strip__toggles">
+                        <Checkbox isSelected={headerPinned} onChange={onHeaderPinnedChange}>
+                            Закрепить заголовок
+                        </Checkbox>
+                        <Checkbox
+                            isSelected={showServiceColumns}
+                            onChange={onShowServiceColumnsChange}
+                        >
+                            Показать служебные столбцы
+                        </Checkbox>
+                    </div>
+                ) : null}
+            </div>
             <div className="view-strip__actions">
                 <Dropdown>
                     <Button

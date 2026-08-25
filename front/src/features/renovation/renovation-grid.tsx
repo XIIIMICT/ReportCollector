@@ -1,6 +1,5 @@
 "use client";
 
-import { Button, Dropdown, Label, type Selection } from "@heroui/react";
 import {
     Editor,
     RevoGrid,
@@ -13,7 +12,6 @@ import {
     type RowHeaders,
     type VNode,
 } from "@revolist/react-datagrid";
-import { MoreVert, Refresh } from "iconoir-react";
 import {
     forwardRef,
     useCallback,
@@ -35,7 +33,6 @@ import type {
 import type { ReferenceOption } from "@/shared/grid/grid-config";
 import { ReferenceEditor } from "@/shared/grid/grid-editors";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
-import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 
 /**
  * The «Ремонт» plan grid.
@@ -138,8 +135,9 @@ export type RenovationGridProps = {
     ) => void;
     onClipboardStateChange: (state: { canPaste: boolean }) => void;
     onViewStatsChange: (stats: GridViewStats) => void;
-    /** Clears the workspace asset/block filters (corner menu). */
-    onResetFilters: () => void;
+    /** Controlled display toggles (rendered in the view strip). */
+    headerPinned: boolean;
+    showServiceColumns: boolean;
 };
 
 export type RenovationGridHandle = {
@@ -235,7 +233,8 @@ function RenovationGridInner(
         onSelectionChange,
         onClipboardStateChange,
         onViewStatsChange,
-        onResetFilters,
+        headerPinned,
+        showServiceColumns,
     }: RenovationGridProps,
     forwardedRef: Ref<RenovationGridHandle>,
 ) {
@@ -255,8 +254,6 @@ function RenovationGridInner(
     const rowSelectionAnchorRef = useRef<number | null>(null);
     const activeLeaseRef = useRef<string | null>(null);
     const rowValuesRef = useRef<Map<string, Readonly<Record<string, unknown>>>>(new Map());
-    const [headerPinned, setHeaderPinned] = useState(true);
-    const [showServiceColumns, setShowServiceColumns] = useState(false);
     const [horizontalContentWidth, setHorizontalContentWidth] = useState(0);
     const horizontalContentWidthRef = useRef(0);
     const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
@@ -1725,21 +1722,6 @@ function RenovationGridInner(
                     onBeforerange={(event) => updateSelectionRange(event.detail.newRange)}
                 />
             </div>
-            {/* The corner menu is rendered in the regular tree over the
-                grid's top-left corner. Mounting it into the grid's shadow DOM
-                breaks react-aria dropdowns, so it lives at the shell level —
-                above the header overlay, which keeps the button in place while
-                the header scrolls away in unpinned mode. */}
-            <div className="renovation-grid__menu-corner" style={{ height: headerHeight }}>
-                <RenovationGridOptionsMenu
-                    headerPinned={headerPinned}
-                    showServiceColumns={showServiceColumns}
-                    onHeaderPinnedChange={setHeaderPinned}
-                    onShowServiceColumnsChange={setShowServiceColumns}
-                    onResetWidths={resetWidths}
-                    onResetFilters={onResetFilters}
-                />
-            </div>
             {!headerPinned ? (
                 <div
                     ref={horizontalScrollRef}
@@ -1760,97 +1742,6 @@ function RenovationGridInner(
 }
 
 export const RenovationGrid = forwardRef(RenovationGridInner);
-
-type RenovationGridOptionsMenuProps = {
-    headerPinned: boolean;
-    showServiceColumns: boolean;
-    onHeaderPinnedChange: (value: boolean) => void;
-    onShowServiceColumnsChange: (value: boolean) => void;
-    onResetWidths: () => void;
-    onResetFilters: () => void;
-};
-
-/**
- * The «Настройки таблицы» menu in the top-left corner — the same
- * HoverDropdown + MoreVert widget and items as in the «Сырьё» grids, plus the
- * «Сбросить ширину столбцов» action specific to the renovation grid (the
- * column widths are persisted in localStorage). «Сбросить все фильтры и
- * сортировки» resets the workspace asset/block filters (the grid has no
- * sorting).
- */
-function RenovationGridOptionsMenu({
-    headerPinned,
-    showServiceColumns,
-    onHeaderPinnedChange,
-    onShowServiceColumnsChange,
-    onResetWidths,
-    onResetFilters,
-}: RenovationGridOptionsMenuProps) {
-    const selectedKeys = new Set<string>();
-    if (headerPinned) selectedKeys.add("pin-header");
-    if (showServiceColumns) selectedKeys.add("service-columns");
-    const toggleKeys = ["pin-header", "service-columns", "reset-widths"];
-    const applySelection = (selection: Selection) => {
-        const keys = selection === "all" ? new Set(toggleKeys) : new Set(selection);
-        if (keys.has("reset-widths")) {
-            // Momentary action, not a persisted toggle: fire it and drop the
-            // key so it never sticks in the controlled selection.
-            onResetWidths();
-            keys.delete("reset-widths");
-        }
-        if (keys.has("reset-view")) {
-            onResetFilters();
-            keys.delete("reset-view");
-        }
-        onHeaderPinnedChange(keys.has("pin-header"));
-        onShowServiceColumnsChange(keys.has("service-columns"));
-    };
-    return (
-        <div className="renovation-grid__options-menu">
-            <HoverDropdown
-                className="renovation-grid-options-popover min-w-[260px]"
-                trigger={({ ref, onMouseEnter }) => (
-                    <Button
-                        ref={ref}
-                        onMouseEnter={onMouseEnter}
-                        isIconOnly
-                        aria-label="Настройки таблицы"
-                        variant="ghost"
-                    >
-                        <MoreVert aria-hidden="true" />
-                    </Button>
-                )}
-                content={
-                    <Dropdown.Menu
-                        selectedKeys={selectedKeys}
-                        selectionMode="multiple"
-                        onSelectionChange={applySelection}
-                    >
-                        <Dropdown.Item id="pin-header" textValue="Закрепить заголовок">
-                            <Dropdown.ItemIndicator />
-                            <Label>Закрепить заголовок</Label>
-                        </Dropdown.Item>
-                        <Dropdown.Item id="service-columns" textValue="Показать служебные столбцы">
-                            <Dropdown.ItemIndicator />
-                            <Label>Показать служебные столбцы</Label>
-                        </Dropdown.Item>
-                        <Dropdown.Item id="reset-widths" textValue="Сбросить ширину столбцов">
-                            <Refresh aria-hidden="true" />
-                            <Label>Сбросить ширину столбцов</Label>
-                        </Dropdown.Item>
-                        <Dropdown.Item
-                            id="reset-view"
-                            textValue="Сбросить все фильтры и сортировки"
-                        >
-                            <Refresh aria-hidden="true" />
-                            <Label>Сбросить все фильтры и сортировки</Label>
-                        </Dropdown.Item>
-                    </Dropdown.Menu>
-                }
-            />
-        </div>
-    );
-}
 
 function toCellValue(value: unknown): CellUpdate["value"] {
     if (Array.isArray(value)) {

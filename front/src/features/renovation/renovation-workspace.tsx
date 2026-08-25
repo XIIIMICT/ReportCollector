@@ -235,6 +235,12 @@ export function RenovationWorkspace({
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
     }>({ resetColumnWidths: () => {}, resetFiltersSorting: () => {} });
+    // Display toggles for the active grid (rendered in the view strip). The
+    // plan grid starts pinned; dictionaries start unpinned, as before.
+    const [planHeaderPinned, setPlanHeaderPinned] = useState(true);
+    const [planServiceColumns, setPlanServiceColumns] = useState(false);
+    const [dictHeaderPinned, setDictHeaderPinned] = useState(false);
+    const [dictServiceColumns, setDictServiceColumns] = useState(false);
     const [pendingSkip, setPendingSkip] = useState<{
         actionId: number;
         direction: "undo" | "redo";
@@ -1343,6 +1349,12 @@ export function RenovationWorkspace({
                     </>
                 ) : null
             }
+            headerPinned={isPlanSection ? planHeaderPinned : dictHeaderPinned}
+            onHeaderPinnedChange={isPlanSection ? setPlanHeaderPinned : setDictHeaderPinned}
+            showServiceColumns={isPlanSection ? planServiceColumns : dictServiceColumns}
+            onShowServiceColumnsChange={
+                isPlanSection ? setPlanServiceColumns : setDictServiceColumns
+            }
             exportPending={exportPending}
             onExport={handleStripExport}
             onReset={handleStripReset}
@@ -1379,10 +1391,6 @@ export function RenovationWorkspace({
                                             userAssetIds={userAssetIds}
                                             remoteLocks={remoteLocks}
                                             remotePresence={remotePresence}
-                                            onResetFilters={() => {
-                                                setAssetFilter(null);
-                                                setBlockFilter(null);
-                                            }}
                                             remoteCellInfo={remoteCellInfo}
                                             onAcquireLease={room.acquireLeases}
                                             onReleaseLease={room.releaseLeases}
@@ -1407,6 +1415,8 @@ export function RenovationWorkspace({
                                             onSelectionChange={handleSelectionChange}
                                             onViewStatsChange={setGridStats}
                                             onClipboardStateChange={handleClipboardState}
+                                            headerPinned={planHeaderPinned}
+                                            showServiceColumns={planServiceColumns}
                                         />
                                         {displayRows.length === 0 ? (
                                             <div className="grid-empty">
@@ -1426,6 +1436,8 @@ export function RenovationWorkspace({
                                         onDeleteState={setDictDeleteState}
                                         onExportState={setDictExportState}
                                         onResetState={setDictResetState}
+                                        headerPinned={dictHeaderPinned}
+                                        showServiceColumns={dictServiceColumns}
                                         onClipboardStateChange={handleDictClipboardState}
                                         onUndoHistoryChanged={() => {
                                             setUndoCount((count) => count + 1);
