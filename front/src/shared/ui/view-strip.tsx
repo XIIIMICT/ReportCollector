@@ -50,14 +50,27 @@ export function ViewStrip({
                 {filters}
                 {hasToggles ? (
                     <div className="view-strip__toggles">
+                        {/* Full compound structure: without Content/Control/
+                            Indicator HeroUI renders only the plain label text
+                            and nothing is clickable. */}
                         <Checkbox isSelected={headerPinned} onChange={onHeaderPinnedChange}>
-                            Закрепить заголовок
+                            <Checkbox.Content>
+                                <Checkbox.Control>
+                                    <Checkbox.Indicator />
+                                </Checkbox.Control>
+                                Закрепить заголовок
+                            </Checkbox.Content>
                         </Checkbox>
                         <Checkbox
                             isSelected={showServiceColumns}
                             onChange={onShowServiceColumnsChange}
                         >
-                            Показать служебные столбцы
+                            <Checkbox.Content>
+                                <Checkbox.Control>
+                                    <Checkbox.Indicator />
+                                </Checkbox.Control>
+                                Показать служебные столбцы
+                            </Checkbox.Content>
                         </Checkbox>
                     </div>
                 ) : null}
