@@ -1045,37 +1045,23 @@ const WORKING_VERSION_ID = "__working";
 function SectionFooter({
     section,
     canDelete,
-    exportState,
-    showExport,
     undoState,
     approveState,
     archiveState,
-    gridStats,
-    selectionLabel,
     clipboardState,
-    isFullscreen,
     isFullscreenPending,
-    onToggleFullscreen,
     onDelete,
     onCopy,
     onPaste,
     onAutocompleteOpenChange,
-    room,
 }: {
     section: SectionId;
     canDelete: boolean;
-    exportState: ExportState;
-    showExport: boolean;
     undoState: UndoState;
     approveState: ApproveState;
     archiveState: ArchiveState;
-    gridStats: GridViewStats | null;
-    selectionLabel: string | null;
     clipboardState: { canPaste: boolean };
-    isFullscreen: boolean;
     isFullscreenPending: boolean;
-    room: CollabRoom | null;
-    onToggleFullscreen: () => void;
     onDelete: () => void;
     onCopy: () => void;
     onPaste: () => void;
@@ -1110,20 +1096,15 @@ function SectionFooter({
                         />
                     </div>
                 ) : null}
-                <FormStatus room={room} selectionLabel={selectionLabel} gridStats={gridStats} />
             </div>
             <ActionBar
                 section={section}
                 canDelete={canDelete}
-                exportState={exportState}
-                showExport={showExport}
                 undoState={undoState}
                 approveState={approveState}
                 isArchive={archiveState.selectedKey !== null}
                 clipboardState={clipboardState}
-                isFullscreen={isFullscreen}
                 isFullscreenPending={isFullscreenPending}
-                onToggleFullscreen={onToggleFullscreen}
                 onDelete={onDelete}
                 onCopy={onCopy}
                 onPaste={onPaste}
@@ -1422,6 +1403,9 @@ export function RawMaterialsWorkspace({
 
     const toolbar = (
         <div className="table-toolbar">
+            {collabEnabled ? (
+                <FormStatus room={room} selectionLabel={selectionLabel} gridStats={gridStats} />
+            ) : null}
             <div className="table-toolbar__controls">
                 <SectionTabs
                     tabs={tabs}
@@ -1436,23 +1420,73 @@ export function RawMaterialsWorkspace({
         <SectionFooter
             section={selectedTab.section}
             canDelete={deleteState.canDelete}
-            exportState={exportState}
-            showExport
             undoState={undoState}
             approveState={approveState}
             archiveState={archiveState}
-            gridStats={gridStats}
-            selectionLabel={selectionLabel}
             clipboardState={clipboardState}
-            room={collabEnabled ? room : null}
-            isFullscreen={isFullscreen}
             isFullscreenPending={isFullscreenPending}
-            onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
             onDelete={deleteState.onDelete}
             onCopy={clipboardState.onCopy}
             onPaste={clipboardState.onPaste}
             onAutocompleteOpenChange={setFooterAutocompleteOpen}
         />
+    );
+
+    // Display-only controls in one row: export/fullscreen on the right (the raw
+    // sections have no asset/block filters). Rendered both in the normal flow
+    // and on the floating top panel in fullscreen mode.
+    const viewStrip = (
+        <div className="view-strip">
+            <div className="view-strip__filters" />
+            <div className="view-strip__actions">
+                <Button
+                    className="action-button"
+                    variant="secondary"
+                    isDisabled={isFullscreenPending}
+                    aria-label={isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
+                    onPress={() => void setFullscreenMode(!isFullscreen)}
+                >
+                    <span className="action-button__icon">
+                        {isFullscreen ? <Collapse /> : <Expand />}
+                    </span>
+                    <span className="action-button__label">
+                        {isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
+                    </span>
+                </Button>
+                <Dropdown>
+                    <Button
+                        className="action-button"
+                        variant="secondary"
+                        isDisabled={exportState.pending || isFullscreenPending}
+                        aria-label="Скачать таблицу в Excel"
+                    >
+                        <span className="action-button__icon">
+                            {exportState.pending ? <Spinner size="sm" /> : <Download />}
+                        </span>
+                        <span className="action-button__label">
+                            {exportState.pending ? "Выгрузка..." : "Скачать в Excel"}
+                        </span>
+                    </Button>
+                    <Dropdown.Popover>
+                        <Dropdown.Menu
+                            aria-label="Формат выгрузки"
+                            onAction={(key) => {
+                                if (key === "all" || key === "visible") {
+                                    void exportState.onExport(key);
+                                }
+                            }}
+                        >
+                            <Dropdown.Item id="all" textValue="Скачать всю таблицу">
+                                Скачать всю таблицу
+                            </Dropdown.Item>
+                            <Dropdown.Item id="visible" textValue="Скачать видимую таблицу">
+                                Скачать видимую таблицу
+                            </Dropdown.Item>
+                        </Dropdown.Menu>
+                    </Dropdown.Popover>
+                </Dropdown>
+            </div>
+        </div>
     );
 
     return (
@@ -1463,6 +1497,7 @@ export function RawMaterialsWorkspace({
                     <Card className="workspace-card">
                         <Card.Content className="workspace-card__content">
                             {toolbar}
+                            {viewStrip}
                             <SectionContent
                                 section={selectedTab.section}
                                 reportMonth={selectedTab.reportMonth}
@@ -1496,6 +1531,7 @@ export function RawMaterialsWorkspace({
                         <div className="fullscreen-panel fullscreen-panel--top">
                             {header}
                             {toolbar}
+                            {viewStrip}
                         </div>
                     </div>
                     <div
@@ -1661,30 +1697,22 @@ export type ActionItem = {
 function ActionBar({
     section,
     canDelete,
-    exportState,
-    showExport,
     undoState,
     approveState,
     isArchive,
     clipboardState,
-    isFullscreen,
     isFullscreenPending,
-    onToggleFullscreen,
     onDelete,
     onCopy,
     onPaste,
 }: {
     section: SectionId;
     canDelete: boolean;
-    exportState: ExportState;
-    showExport: boolean;
     undoState: UndoState;
     approveState: ApproveState;
     isArchive: boolean;
     clipboardState: { canPaste: boolean };
-    isFullscreen: boolean;
     isFullscreenPending: boolean;
-    onToggleFullscreen: () => void;
     onDelete: () => void;
     onCopy: () => void;
     onPaste: () => void;
@@ -1692,15 +1720,6 @@ function ActionBar({
     const showDelete = !MAIN_SECTIONS.has(section) && section !== "users";
     const showApprove = section === "materialMovement" && !isArchive;
     const showPaste = !isArchive;
-    const leadingActions: ActionItem[] = [
-        {
-            id: "fullscreen",
-            label: isFullscreen ? "Выйти из полного экрана" : "В полный экран",
-            icon: isFullscreen ? <Collapse /> : <Expand />,
-            onPress: onToggleFullscreen,
-            disabled: isFullscreenPending,
-        },
-    ];
     const trailingActions: ActionItem[] = [
         ...(undoState.enabled
             ? [
@@ -1768,91 +1787,17 @@ function ActionBar({
               ]
             : []),
     ];
-    const exportItems: ActionItem[] = showExport
-        ? [
-              {
-                  id: "export-all",
-                  label: "Скачать всю таблицу",
-                  icon: <Download />,
-                  onPress: () => void exportState.onExport("all"),
-                  disabled: exportState.pending || isFullscreenPending,
-              },
-              {
-                  id: "export-visible",
-                  label: "Скачать видимую таблицу",
-                  icon: <Download />,
-                  onPress: () => void exportState.onExport("visible"),
-                  disabled: exportState.pending || isFullscreenPending,
-              },
-          ]
-        : []; // Narrow screens: the whole row collapses into a single «Действия» button
-    // whose dropdown (full-text items) opens on hover.
     const isCompact = useMediaQuery("(width < 64rem)");
     if (isCompact) {
         return (
             <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
-                <CompactActionMenu
-                    items={[...leadingActions, ...exportItems, ...trailingActions]}
-                />
+                <CompactActionMenu items={trailingActions} />
             </div>
         );
     }
 
     return (
         <div className="action-bar" aria-label="Действия с таблицей">
-            {leadingActions.map((action) => {
-                const button = (
-                    <Button
-                        className="action-button"
-                        variant={action.variant ?? "secondary"}
-                        isDisabled={action.disabled}
-                        aria-label={action.label}
-                        onPress={action.onPress}
-                    >
-                        <span className="action-button__icon">{action.icon}</span>
-                        <span className="action-button__label">{action.label}</span>
-                    </Button>
-                );
-                return (
-                    <span key={action.id} className="action-button-wrapper">
-                        {button}
-                    </span>
-                );
-            })}
-            {showExport ? (
-                <Dropdown>
-                    <Button
-                        className="action-button"
-                        variant="secondary"
-                        isDisabled={exportState.pending || isFullscreenPending}
-                        aria-label="Скачать таблицу в Excel"
-                    >
-                        <span className="action-button__icon">
-                            {exportState.pending ? <Spinner size="sm" /> : <Download />}
-                        </span>
-                        <span className="action-button__label">
-                            {exportState.pending ? "Выгрузка..." : "Скачать в Excel"}
-                        </span>
-                    </Button>
-                    <Dropdown.Popover>
-                        <Dropdown.Menu
-                            aria-label="Формат выгрузки"
-                            onAction={(key) => {
-                                if (key === "all" || key === "visible") {
-                                    void exportState.onExport(key);
-                                }
-                            }}
-                        >
-                            <Dropdown.Item id="all" textValue="Скачать всю таблицу">
-                                Скачать всю таблицу
-                            </Dropdown.Item>
-                            <Dropdown.Item id="visible" textValue="Скачать видимую таблицу">
-                                Скачать видимую таблицу
-                            </Dropdown.Item>
-                        </Dropdown.Menu>
-                    </Dropdown.Popover>
-                </Dropdown>
-            ) : null}
             {trailingActions.map((action) => {
                 const button = (
                     <Button

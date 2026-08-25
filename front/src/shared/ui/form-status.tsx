@@ -41,40 +41,34 @@ export function FormStatus({
           : null;
     const solo = members.length <= 1;
 
-    const showInline =
-        presenceText !== null || selectionLabel !== null || gridStats?.filtersApplied;
-
     return (
         <Tooltip delay={250}>
             <Tooltip.Trigger>
                 <div className="form-status" aria-label="Статус таблицы">
-                    {showInline ? (
-                        <>
-                            {presenceText !== null ? (
-                                <div className="form-status__presence">
-                                    <b>На форме:</b> {presenceText}
-                                </div>
-                            ) : null}
-                            {room ? (
-                                <div className="form-status__badge" aria-hidden="true">
-                                    <span
-                                        className={`form-status__dot form-status__dot--${room.status}`}
-                                    />
-                                </div>
-                            ) : null}
-                            {selectionLabel ? (
-                                <div className="form-status__selection">
-                                    <b>Выделено:</b> {selectionLabel}
-                                </div>
-                            ) : null}
-                            {gridStats?.filtersApplied ? (
-                                <div className="form-status__rows">
-                                    <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
-                                    {gridStats.totalRows} всего
-                                </div>
-                            ) : null}
-                        </>
+                    {room ? (
+                        <span
+                            className={`form-status__dot form-status__dot--${room.status}`}
+                            aria-hidden="true"
+                        />
                     ) : null}
+                    <div className="form-status__body">
+                        {presenceText !== null ? (
+                            <div className="form-status__presence">
+                                <b>На форме:</b> {presenceText}
+                            </div>
+                        ) : null}
+                        {selectionLabel ? (
+                            <div className="form-status__selection">
+                                <b>Выделено:</b> {selectionLabel}
+                            </div>
+                        ) : null}
+                        {gridStats?.filtersApplied ? (
+                            <div className="form-status__rows">
+                                <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
+                                {gridStats.totalRows} всего
+                            </div>
+                        ) : null}
+                    </div>
                 </div>
             </Tooltip.Trigger>
             <Tooltip.Content placement="top" className="form-status-tooltip">

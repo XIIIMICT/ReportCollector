@@ -1028,6 +1028,13 @@ export function RenovationWorkspace({
 
     const toolbar = (
         <div className="table-toolbar">
+            {collabEnabled ? (
+                <FormStatus
+                    room={room}
+                    selectionLabel={isPlanSection ? (selection?.label ?? null) : null}
+                    gridStats={isPlanSection ? gridStats : null}
+                />
+            ) : null}
             <div className="table-toolbar__controls">
                 <Tabs
                     className="section-tabs"
@@ -1063,6 +1070,16 @@ export function RenovationWorkspace({
         onPress: () => void setFullscreenMode(!isFullscreen),
         disabled: isFullscreenPending,
     };
+    const viewActions: ActionItem[] = [
+        {
+            id: "export",
+            label: "Скачать в Excel",
+            icon: exportPending ? <Spinner size="sm" /> : <Download />,
+            onPress: () => (isPlanSection ? void exportPlan() : dictExportState.onExport()),
+            disabled: exportPending || isFullscreenPending,
+        },
+        fullscreenAction,
+    ];
 
     const undoRedoActions: ActionItem[] = undoState.enabled
         ? [
@@ -1105,14 +1122,6 @@ export function RenovationWorkspace({
     ];
 
     const actions: ActionItem[] = [
-        fullscreenAction,
-        {
-            id: "export",
-            label: "Скачать в Excel",
-            icon: exportPending ? <Spinner size="sm" /> : <Download />,
-            onPress: () => void exportPlan(),
-            disabled: exportPending || isFullscreenPending,
-        },
         ...undoRedoActions,
         ...clipboardActions,
         ...(!isArchive
@@ -1156,14 +1165,6 @@ export function RenovationWorkspace({
     // Dictionary tabs: export/undo/redo/copy/paste act on the dictionary grid;
     // delete is delegated by the active dictionary section (hidden for users).
     const dictActions: ActionItem[] = [
-        fullscreenAction,
-        {
-            id: "export",
-            label: "Скачать в Excel",
-            icon: <Download />,
-            onPress: dictExportState.onExport,
-            disabled: isFullscreenPending,
-        },
         ...undoRedoActions,
         ...clipboardActions,
         ...(dictDeleteState.canDelete
@@ -1249,18 +1250,8 @@ export function RenovationWorkspace({
                         </Pagination.Content>
                     </Pagination>
                 ) : null}
-                <FormStatus
-                    room={collabEnabled ? room : null}
-                    selectionLabel={isPlanSection ? (selection?.label ?? null) : null}
-                    gridStats={isPlanSection ? gridStats : null}
-                />
             </div>
-            <RenovationActionBar
-                items={isPlanSection ? actions : dictActions}
-                isFullscreen={isFullscreen}
-                isFullscreenPending={isFullscreenPending}
-                onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
-            />
+            <RenovationActionBar items={isPlanSection ? actions : dictActions} />
         </div>
     );
 
@@ -1274,6 +1265,81 @@ export function RenovationWorkspace({
         />
     );
 
+    // Display-only controls in one row: the plan filters on the left, the
+    // export/fullscreen buttons on the right. Rendered both in the normal flow
+    // and on the floating top panel in fullscreen mode.
+    const viewStrip = (
+        <div className="view-strip">
+            {isPlanSection ? (
+                <div className="view-strip__filters">
+                    <div className="plan-filters__asset">
+                        <SearchAutocomplete
+                            placeholder="Все активы"
+                            compactLabel="Актив"
+                            items={[
+                                { id: "__all", name: "Все активы" },
+                                ...meta.assets.map((asset) => ({
+                                    id: asset.name,
+                                    name: asset.name,
+                                })),
+                            ]}
+                            selectedKey={assetFilter ?? "__all"}
+                            onSelectionChange={(key) =>
+                                setAssetFilter(key && key !== "__all" ? String(key) : null)
+                            }
+                        />
+                    </div>
+                    <Select
+                        className="plan-filters__block"
+                        aria-label="Фильтр по блоку"
+                        selectionMode="single"
+                        variant="secondary"
+                        selectedKey={blockFilter ?? "__all"}
+                        onSelectionChange={(key) =>
+                            setBlockFilter(key && key !== "__all" ? String(key) : null)
+                        }
+                    >
+                        <Select.Trigger>
+                            <Select.Value />
+                            <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover className="plan-filters__popover">
+                            <ListBox>
+                                <ListBox.Item id="__all" textValue="Все блоки">
+                                    Все блоки
+                                </ListBox.Item>
+                                {blocks.map((block) => (
+                                    <ListBox.Item
+                                        key={block}
+                                        id={block}
+                                        textValue={blockLabel(block)}
+                                    >
+                                        {blockLabel(block)}
+                                    </ListBox.Item>
+                                ))}
+                            </ListBox>
+                        </Select.Popover>
+                    </Select>
+                </div>
+            ) : null}
+            <div className="view-strip__actions">
+                {viewActions.map((action) => (
+                    <Button
+                        key={action.id}
+                        className="action-button"
+                        variant={action.variant ?? "ghost"}
+                        isDisabled={action.disabled}
+                        aria-label={action.label}
+                        onPress={action.onPress}
+                    >
+                        <span className="action-button__icon">{action.icon}</span>
+                        <span className="action-button__label">{action.label}</span>
+                    </Button>
+                ))}
+            </div>
+        </div>
+    );
+
     return (
         <main className={isFullscreen ? "app-shell app-shell--fullscreen" : "app-shell"}>
             {header}
@@ -1282,62 +1348,7 @@ export function RenovationWorkspace({
                     <Card className="workspace-card">
                         <Card.Content className="workspace-card__content">
                             {toolbar}
-                            {isPlanSection ? (
-                                <div className="plan-filters">
-                                    <div className="plan-filters__asset">
-                                        <SearchAutocomplete
-                                            placeholder="Все активы"
-                                            compactLabel="Актив"
-                                            items={[
-                                                { id: "__all", name: "Все активы" },
-                                                ...meta.assets.map((asset) => ({
-                                                    id: asset.name,
-                                                    name: asset.name,
-                                                })),
-                                            ]}
-                                            selectedKey={assetFilter ?? "__all"}
-                                            onSelectionChange={(key) =>
-                                                setAssetFilter(
-                                                    key && key !== "__all" ? String(key) : null,
-                                                )
-                                            }
-                                        />
-                                    </div>
-                                    <Select
-                                        className="plan-filters__block"
-                                        aria-label="Фильтр по блоку"
-                                        selectionMode="single"
-                                        variant="secondary"
-                                        selectedKey={blockFilter ?? "__all"}
-                                        onSelectionChange={(key) =>
-                                            setBlockFilter(
-                                                key && key !== "__all" ? String(key) : null,
-                                            )
-                                        }
-                                    >
-                                        <Select.Trigger>
-                                            <Select.Value />
-                                            <Select.Indicator />
-                                        </Select.Trigger>
-                                        <Select.Popover className="plan-filters__popover">
-                                            <ListBox>
-                                                <ListBox.Item id="__all" textValue="Все блоки">
-                                                    Все блоки
-                                                </ListBox.Item>
-                                                {blocks.map((block) => (
-                                                    <ListBox.Item
-                                                        key={block}
-                                                        id={block}
-                                                        textValue={blockLabel(block)}
-                                                    >
-                                                        {blockLabel(block)}
-                                                    </ListBox.Item>
-                                                ))}
-                                            </ListBox>
-                                        </Select.Popover>
-                                    </Select>
-                                </div>
-                            ) : null}
+                            {viewStrip}
                             <div className="grid-viewport" aria-busy={isMutationPending}>
                                 {isPlanSection ? (
                                     <>
@@ -1423,6 +1434,7 @@ export function RenovationWorkspace({
                         <div className="fullscreen-panel fullscreen-panel--top">
                             {header}
                             {toolbar}
+                            {viewStrip}
                         </div>
                     </div>
                     <div
@@ -1471,20 +1483,7 @@ export function RenovationWorkspace({
     );
 }
 
-export function RenovationActionBar({
-    items,
-    isFullscreen,
-    isFullscreenPending,
-    onToggleFullscreen,
-}: {
-    items: ActionItem[];
-    isFullscreen: boolean;
-    isFullscreenPending: boolean;
-    onToggleFullscreen: () => void;
-}) {
-    void isFullscreen;
-    void isFullscreenPending;
-    void onToggleFullscreen;
+export function RenovationActionBar({ items }: { items: ActionItem[] }) {
     const isCompact = useMediaQuery("(width < 64rem)");
     if (isCompact) {
         return (

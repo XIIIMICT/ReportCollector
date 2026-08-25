@@ -374,26 +374,38 @@ html {
     align-items: center;
 }
 
-/* The plan filter strip sits between the toolbar and the grid: the asset
-   Autocomplete and the block Select. Both are compact secondary controls; the
-   asset autocomplete reuses the data-sized popover of «Рабочая версия». */
-.plan-filters {
+/* View strip between the toolbar and the grid: display-only controls in ONE
+   row — asset/block filters («Ремонт» plan) on the left, export/fullscreen
+   buttons on the right. The filters take exactly the width they need. */
+.view-strip {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: 0.75rem;
+    justify-content: space-between;
+    gap: 1rem;
     padding: 0.4rem 0.75rem;
     background: var(--surface);
     border-bottom: 1px solid var(--divider);
 }
 
-.plan-filters__asset {
-    width: min(20rem, 100%);
+.view-strip__filters {
+    display: flex;
     min-width: 0;
+    align-items: center;
+    gap: 0.75rem;
 }
 
+.view-strip__actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+/* Content-sized filters: no fixed width — each control is as wide as its
+   value/placeholder needs. */
+.plan-filters__asset,
 .plan-filters__block {
-    width: 14rem;
     min-width: 0;
 }
 
@@ -414,19 +426,27 @@ html {
     text-align: left;
 }
 
-/* Merged footer summary: collab presence («На форме»), the selection badge
-   and the selection/filter breakdown («Выделено», «Строки»). Inline it reads
-   top-to-bottom «На форме» → badge (centered) → «Выделено»; the hover tooltip
+/* Merged summary in the top toolbar: the status badge (dot, LEFT, vertically
+   centered against the stacked lines), the collab presence («На форме») and
+   the selection/filter breakdown («Выделено», «Строки»). The hover tooltip
    spells out the breakdown first, then the presence list. */
 .form-status {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.1rem;
-    font-size: 0.75rem;
+    flex: 0 0 auto;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
     line-height: 1.25;
     color: var(--text-secondary);
     white-space: nowrap;
+}
+
+.form-status__body {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.1rem;
 }
 
 .form-status__presence,
@@ -436,14 +456,8 @@ html {
     font-size: 0.8rem;
 }
 
-.form-status__badge {
-    align-self: center;
-    display: flex;
-    width: 2rem;
-    justify-content: center;
-}
-
 .form-status__dot {
+    flex: 0 0 auto;
     width: 0.5rem;
     height: 0.5rem;
     border-radius: 999px;
@@ -653,6 +667,12 @@ html {
     transform: translateY(-100%);
 }
 
+/* The view strip slides away with the toolbar: in fullscreen it lives on the
+   floating top panel instead (see the fullscreen-reveal branch). */
+.app-shell--fullscreen .workspace-card .view-strip {
+    transform: translateY(-100%);
+}
+
 .app-shell--fullscreen .workspace-card .table-footer {
     transform: translateY(100%);
 }
@@ -710,6 +730,7 @@ html {
 
 .fullscreen-panel .app-header,
 .fullscreen-panel .table-toolbar,
+.fullscreen-panel .view-strip,
 .fullscreen-panel .table-footer {
     border: 0;
     border-radius: inherit;
