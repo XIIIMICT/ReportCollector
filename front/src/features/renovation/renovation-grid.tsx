@@ -197,6 +197,51 @@ function numberTemplate(decimals: number | null | undefined) {
     };
 }
 
+// Unified date/datetime rendering (Russian): дд.мм.гггг and дд.мм.гггг, чч:мм:сс.
+// Date values arrive as 'YYYY-MM-DD'; datetimes as a full ISO string.
+function formatPlanDate(value: unknown): string {
+    if (value === null || value === undefined || value === "") return "";
+    const s = String(value);
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s.trim());
+    if (m) return `${m[3]}.${m[2]}.${m[1]}`;
+    const parsed = new Date(s);
+    return Number.isNaN(parsed.getTime())
+        ? s
+        : new Intl.DateTimeFormat("ru-RU", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+          }).format(parsed);
+}
+
+function formatPlanDateTime(value: unknown): string {
+    if (value === null || value === undefined || value === "") return "";
+    const s = String(value);
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(s.trim());
+    if (m) return `${m[3]}.${m[2]}.${m[1]}, ${m[4]}:${m[5]}:${m[6]}`;
+    const parsed = new Date(s);
+    return Number.isNaN(parsed.getTime())
+        ? s
+        : new Intl.DateTimeFormat("ru-RU", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+          }).format(parsed);
+}
+
+function dateTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode {
+    const label = formatPlanDate(value);
+    return label ? h("span", {}, label) : h("span", {});
+}
+
+function dateTimeTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode {
+    const label = formatPlanDateTime(value);
+    return label ? h("span", {}, label) : h("span", {});
+}
+
 function normalizeDate(text: string): string | null {
     const dotted = text.split(".");
     if (dotted.length === 3) {
@@ -651,6 +696,13 @@ function RenovationGridInner(
                 };
                 if (field.cellType === "number") {
                     column.cellTemplate = numberTemplate(field.decimals);
+                }
+                if (field.cellType === "date") {
+                    column.cellTemplate = dateTemplate;
+                }
+                // The service «Обновлено» column carries a full timestamp.
+                if (field.dbName === "updatedAt") {
+                    column.cellTemplate = dateTimeTemplate;
                 }
                 if (field.cellType === "boolean") {
                     column.cellTemplate = (h, props) => {
