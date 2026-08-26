@@ -937,6 +937,16 @@ export function RenovationWorkspace({
     // and calls onClipboardStateChange — an inline handler would re-trigger it
     // on every render (setClipboardState → re-render → new handler → effect
     // again) and overflow the React update-depth guard.
+    //
+    // Echo-loop breaker: every presence send comes back as a members update,
+    // which rebuilds `room`, which re-runs the grid's selection effect, which
+    // calls this handler with a fresh (content-equal) object — setSelection
+    // then re-renders the whole workspace and the loop closes at WebSocket
+    // RTT speed (~20 renders/s measured: 61 → 20 fps with one cell selected,
+    // button animations janking too). Content-equal payloads are dropped;
+    // the suppress flag is reset before the check so a preemption clear
+    // still swallows its echo.
+    const lastSelectionContentRef = useRef("");
     const handleSelectionChange = useCallback(
         (
             next: {
@@ -945,13 +955,23 @@ export function RenovationWorkspace({
                 rowId: string | null;
             } | null,
         ) => {
-            setSelection(next);
+            let suppressed = false;
             if (suppressSelectionSendRef.current) {
                 // The clear following a preemption from another tab of the same
                 // account is not sent — the server entry belongs to the other tab.
                 suppressSelectionSendRef.current = false;
-                if (!next?.label) return;
+                suppressed = true;
             }
+            const content = next
+                ? `${next.label ?? ""}|${next.cellKeys.join(",")}|${next.rowId ?? ""}`
+                : "";
+            if (content === lastSelectionContentRef.current) {
+                if (suppressed && !next?.label) return;
+                return;
+            }
+            lastSelectionContentRef.current = content;
+            setSelection(next);
+            if (suppressed && !next?.label) return;
             if (next) {
                 room.setSelection({
                     label: next.label ?? "",

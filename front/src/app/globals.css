@@ -1272,6 +1272,12 @@ html {
     --revo-grid-header-resize-hover: var(--accent);
     border: 0 !important;
     background: var(--surface) !important;
+    /* The library stylesheet sets `revo-grid { min-height: 300px }` (a Safari
+       stretch workaround). Under the pinned 264px overlay header the data
+       viewport is often shorter than that — the grid then refuses to shrink,
+       overflows the clipped viewport and the last rows (the «+» add-row) are
+       unreachable. Let it shrink to the space the shell gives it. */
+    min-height: 0;
 }
 
 .revo-grid-shell--pinned .renovation-grid {

@@ -246,6 +246,13 @@ function RenovationGridInner(
     const headerBodyRef = useRef<HTMLDivElement>(null);
     const [selectionRange, setSelectionRange] = useState<RangeArea | null>(null);
     const selectionRangeRef = useRef<RangeArea | null>(null);
+    // Synchronous mirror of the last range pushed into the state. revo-grid
+    // re-emits `beforecellfocus` on every virtualization tick while a cell is
+    // focused (the focused row leaves/enters the rendered window), and each
+    // emission used to set a fresh object — a full component re-render per
+    // scroll tick (measured: 61 fps → 20 fps with one cell selected). Skip
+    // identical ranges; copy/paste read the ref, so nothing else changes.
+    const lastRangeRef = useRef<RangeArea | null>(null);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     // Bumped on Escape: forces a columns rebuild (see the columns memo) that
     // repaints the selection overlay after the store is cleared — the overlay
@@ -667,6 +674,7 @@ function RenovationGridInner(
 
     const clearGridSelection = useCallback(() => {
         const grid = gridRef.current;
+        lastRangeRef.current = null;
         setSelectionRange(null);
         if (!grid) return;
         const doClear = () => {
@@ -777,8 +785,8 @@ function RenovationGridInner(
                         title: row.isPlaceholder
                             ? "Добавить строку"
                             : selected
-                              ? `Снять выделение строки ${row.__position + 1}`
-                              : `Выделить строку ${row.__position + 1}`,
+                              ? `Снять выделение строки ${row.__position}`
+                              : `Выделить строку ${row.__position}`,
                         onMouseDown: (event: MouseEvent) => {
                             event.stopPropagation();
                         },
@@ -787,7 +795,7 @@ function RenovationGridInner(
                             handleRowNumberClick(event, rowIndex, row.__id);
                         },
                     },
-                    row.isPlaceholder ? "+" : String(row.__position + 1),
+                    row.isPlaceholder ? "+" : String(row.__position),
                 );
             },
         }),
@@ -1121,6 +1129,19 @@ function RenovationGridInner(
     );
 
     const updateSelectionRange = useCallback((range: RangeArea | null) => {
+        const prev = lastRangeRef.current;
+        if (
+            prev === range ||
+            (prev !== null &&
+                range !== null &&
+                prev.x === range.x &&
+                prev.y === range.y &&
+                prev.x1 === range.x1 &&
+                prev.y1 === range.y1)
+        ) {
+            return;
+        }
+        lastRangeRef.current = range;
         setSelectionRange(range);
     }, []);
 
@@ -1413,8 +1434,8 @@ function RenovationGridInner(
         const rowText =
             firstRow && lastRow
                 ? firstRow.__position === lastRow.__position
-                    ? `строка ${firstRow.__position + 1}`
-                    : `строки ${firstRow.__position + 1}–${lastRow.__position + 1}`
+                    ? `строка ${firstRow.__position}`
+                    : `строки ${firstRow.__position}–${lastRow.__position}`
                 : "";
         const label = [columnText, rowText].filter(Boolean).join(", ") || null;
         const cellKeys: string[] = [];
