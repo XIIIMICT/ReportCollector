@@ -139,7 +139,7 @@ const VERSION_STATE_LABELS: Record<RenovationPlanVersion["state"], string> = {
 const BLOCK_LABELS: Record<string, string> = {
     tashpaev: "1) Блок Ташпаева",
     borodiichuk: "2) Блок Бородийчука",
-    babaeva: "3) Блок Бабаева",
+    babaeva: "3) Блок Бабаевой",
 };
 /** Preferred dropdown order (after «Все блоки»). */
 const BLOCK_ORDER = ["tashpaev", "borodiichuk", "babaeva"];

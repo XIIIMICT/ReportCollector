@@ -79,7 +79,7 @@ const LAZY_EDGE_PX = LAZY_EDGE_ROWS * 36;
 const BLOCK_HEADER_LABELS: Record<string, string> = {
     tashpaev: "1) Блок Ташпаева",
     borodiichuk: "2) Блок Бородийчука",
-    babaeva: "3) Блок Бабаева",
+    babaeva: "3) Блок Бабаевой",
 };
 
 /** Service columns revealed by the corner menu («Показать служебные столбцы»). */
