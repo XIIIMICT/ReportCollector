@@ -287,123 +287,68 @@
         },
         {
           "valueId": "work_type_012",
-          "label": "ТО",
+          "label": "Вспомогательные работы (леса, изоляция и пр)",
           "sortOrder": 12
         },
         {
           "valueId": "work_type_013",
-          "label": "ТР",
+          "label": "Оснащенность ремонтного персонала",
           "sortOrder": 13
         },
         {
           "valueId": "work_type_014",
-          "label": "СР",
+          "label": "ТОиР непроизводственных объектов предприятия",
           "sortOrder": 14
         },
         {
           "valueId": "work_type_015",
-          "label": "КР",
+          "label": "Расходы без влияния на механическую готовность",
           "sortOrder": 15
         },
         {
           "valueId": "work_type_016",
-          "label": "Чистка",
+          "label": "Экспертиза",
           "sortOrder": 16
         },
         {
           "valueId": "work_type_017",
-          "label": "Испытания",
+          "label": "Тех. освидетельствование",
           "sortOrder": 17
         },
         {
           "valueId": "work_type_018",
-          "label": "Поверка",
+          "label": "Диагностические обследования",
           "sortOrder": 18
         },
         {
           "valueId": "work_type_019",
-          "label": "Калибровка",
+          "label": "Инспекции",
           "sortOrder": 19
         },
         {
           "valueId": "work_type_020",
-          "label": "Измерения",
+          "label": "Замена физически изношенного оборудования",
           "sortOrder": 20
         },
         {
           "valueId": "work_type_021",
-          "label": "Корректирующие работы",
+          "label": "Реконструкция",
           "sortOrder": 21
         },
         {
           "valueId": "work_type_022",
-          "label": "Работы по фактическому тех.состоянию",
+          "label": "Модернизация",
           "sortOrder": 22
         },
         {
           "valueId": "work_type_023",
-          "label": "Вспомогательные работы (леса, изоляция и пр)",
+          "label": "Техническое перевооружение",
           "sortOrder": 23
         },
         {
           "valueId": "work_type_024",
-          "label": "Оснащенность ремонтного персонала",
-          "sortOrder": 24
-        },
-        {
-          "valueId": "work_type_025",
-          "label": "ТОиР непроизводственных объектов предприятия",
-          "sortOrder": 25
-        },
-        {
-          "valueId": "work_type_026",
-          "label": "Расходы без влияния на механическую готовность",
-          "sortOrder": 26
-        },
-        {
-          "valueId": "work_type_027",
-          "label": "Экспертиза",
-          "sortOrder": 27
-        },
-        {
-          "valueId": "work_type_028",
-          "label": "Тех. освидетельствование",
-          "sortOrder": 28
-        },
-        {
-          "valueId": "work_type_029",
-          "label": "Диагностические обследования",
-          "sortOrder": 29
-        },
-        {
-          "valueId": "work_type_030",
-          "label": "Инспекции",
-          "sortOrder": 30
-        },
-        {
-          "valueId": "work_type_031",
-          "label": "Замена физически изношенного оборудования",
-          "sortOrder": 31
-        },
-        {
-          "valueId": "work_type_032",
-          "label": "Реконструкция",
-          "sortOrder": 32
-        },
-        {
-          "valueId": "work_type_033",
-          "label": "Модернизация",
-          "sortOrder": 33
-        },
-        {
-          "valueId": "work_type_034",
-          "label": "Техническое перевооружение",
-          "sortOrder": 34
-        },
-        {
-          "valueId": "work_type_035",
           "label": "Капитальное строительство",
-          "sortOrder": 35
+          "sortOrder": 24
         }
       ]
     },
