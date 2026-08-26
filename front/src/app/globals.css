@@ -656,6 +656,14 @@ html {
     transform: translateY(-1px);
 }
 
+/* While a HoverDropdown trigger's menu is open the button loses :hover
+   (react-aria inerts the rest of the page), so keep the label/expanded look
+   via an explicit class instead. */
+.action-button--open {
+    gap: 0.45rem;
+    transform: translateY(-1px);
+}
+
 .action-button__icon {
     display: inline-grid;
     flex: 0 0 auto;
@@ -678,7 +686,8 @@ html {
 }
 
 .action-button:hover .action-button__label,
-.action-button:focus-visible .action-button__label {
+.action-button:focus-visible .action-button__label,
+.action-button--open .action-button__label {
     max-width: 13rem;
     opacity: 1;
 }

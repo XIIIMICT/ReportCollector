@@ -18,6 +18,8 @@ type HoverDropdownTriggerProps = {
     /** Forward to the trigger element — used to keep the pointer-position check honest. */
     ref: (element: HTMLElement | null) => void;
     onMouseEnter: () => void;
+    /** The dropdown is open — the trigger may keep its "expanded" look (hover is lost while open). */
+    isOpen: boolean;
 };
 
 /**
@@ -109,6 +111,7 @@ export function HoverDropdown({
         ref: (element) => {
             triggerRef.current = element;
         },
+        isOpen: open,
         onMouseEnter: () => {
             if (suppressHoverRef.current) return;
             setOpen(true);

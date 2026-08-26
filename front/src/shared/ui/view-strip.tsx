@@ -189,11 +189,13 @@ export function ViewStrip({
                 <div className="view-strip__actions">
                     <HoverDropdown
                         className="view-strip-popover"
-                        trigger={({ ref, onMouseEnter }) => (
+                        trigger={({ ref, onMouseEnter, isOpen }) => (
                             <Button
                                 ref={ref}
                                 onMouseEnter={onMouseEnter}
-                                className="action-button"
+                                className={
+                                    isOpen ? "action-button action-button--open" : "action-button"
+                                }
                                 variant="tertiary"
                                 isDisabled={exportPending || isFullscreenPending}
                                 aria-label="Скачать таблицу в Excel"
@@ -226,11 +228,13 @@ export function ViewStrip({
                     />
                     <HoverDropdown
                         className="view-strip-popover"
-                        trigger={({ ref, onMouseEnter }) => (
+                        trigger={({ ref, onMouseEnter, isOpen }) => (
                             <Button
                                 ref={ref}
                                 onMouseEnter={onMouseEnter}
-                                className="action-button"
+                                className={
+                                    isOpen ? "action-button action-button--open" : "action-button"
+                                }
                                 variant="danger"
                                 isDisabled={isFullscreenPending}
                                 aria-label="Сброс отображения таблицы"
