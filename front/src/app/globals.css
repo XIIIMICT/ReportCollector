@@ -1230,12 +1230,13 @@ html {
     max-width: max(var(--trigger-width, 0px), 22rem);
 }
 
-.raw-materials-grid.raw-materials-grid--merged-header
-    revogr-header
-    .rgHeaderCell.report-row-header--heading {
-    top: calc(-1 * var(--grid-header-height) / 2);
-    height: 200%;
-    z-index: 2;
+/* The «№» corner header above the row numbers (rendered by the shared grid's
+   rowHeaders columnTemplate). */
+.report-row-header__heading {
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 650;
+    user-select: none;
 }
 
 /* ─── RevoGrid (план «Ремонт») ────────────────────────────── */
@@ -1454,26 +1455,10 @@ html {
     flex: 0 0 auto;
     background: var(--surface);
     overflow: hidden;
-    /* Full-height columns that have no level-0 cell over them are raised to
-       the top by the overlay, so their own top edges already close the line
-       at y=0; this edge still runs across the whole header width so the very
-       top of the blocks and of the raised columns is a single straight line. */
+    /* The container's own top line shows only over the 52px № corner (no
+       header cell lives there); the rest of the header's top line is drawn
+       by the top-row cells (.renovation-grid__header-cell--top). */
     box-shadow: 0 1px 0 var(--cell-border) inset;
-}
-
-.renovation-grid__corner {
-    position: absolute;
-    z-index: 2;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: 52px;
-    background: var(--surface);
-    box-shadow:
-        1px 0 0 var(--cell-border) inset,
-        -1px 0 0 var(--cell-border) inset,
-        0 1px 0 var(--cell-border) inset,
-        0 -1px 0 var(--cell-border) inset;
 }
 
 .renovation-grid-shell .revo-grid-vertical-scroller {
@@ -1506,8 +1491,8 @@ html {
        data gridlines (a +1px shift of the whole header grid). Only the LEFT
        and BOTTOM lines are painted: a TOP line on every cell would double to
        a 2px border where a cell meets the one above it (both draw the shared
-       edge) — the boundary falls on the cell above's bottom line, and the
-       very top of the header is the container's single top line. */
+       edge). The top row of cells draws the table's top line itself (see
+       --top). */
     box-shadow:
         -1px 0 0 var(--cell-border) inset,
         0 -1px 0 var(--cell-border) inset;
@@ -1518,6 +1503,15 @@ html {
     text-overflow: ellipsis;
     white-space: normal;
     user-select: none;
+}
+
+/* The header's top row closes the table's top line (the container's own line
+   covers only the empty № corner). */
+.renovation-grid__header-cell--top {
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
 }
 
 .renovation-grid__resize-handle {

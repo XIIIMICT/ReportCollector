@@ -456,6 +456,8 @@ function RenovationGridInner(
             top: number;
             width: number;
             height: number;
+            /** The cell is in the header's top row — it draws the table's top line. */
+            isTop: boolean;
         }> = [];
         for (const cell of headerCells) {
             const startIndex = visibleIndexByPosition.get(cell.startPosition + 1);
@@ -471,6 +473,7 @@ function RenovationGridInner(
             }
             if (width === 0) continue;
             const topLevel = coveredByTopRow.has(cell.startPosition) ? cell.level : 0;
+            const top = topLevel * HEADER_LEVEL_HEIGHT;
             // The level-0 responsibility-block group headers carry Excel text
             // («Блок Ташпаев А.А. (раздел 1)»); show the same canonical label
             // as the «Все блоки» filter instead.
@@ -492,9 +495,10 @@ function RenovationGridInner(
                 id: cell.id,
                 text,
                 left: geometry.offsets.get(visibleFields[startIndex].dbName) ?? ROW_HEADER_WIDTH,
-                top: topLevel * HEADER_LEVEL_HEIGHT,
+                top,
                 width,
                 height: (cell.rowSpan + cell.level - topLevel) * HEADER_LEVEL_HEIGHT,
+                isTop: top === 0,
             });
         }
         cells.sort((a, b) => a.top - b.top || a.left - b.left);
@@ -505,6 +509,7 @@ function RenovationGridInner(
             top: 0,
             width: assetWidth,
             height: HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT,
+            isTop: true,
         });
         if (showServiceColumns) {
             for (const column of SERVICE_COLUMNS) {
@@ -515,6 +520,7 @@ function RenovationGridInner(
                     top: 0,
                     width: serviceWidthOf(column.dbName),
                     height: HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT,
+                    isTop: true,
                 });
             }
         }
@@ -787,7 +793,6 @@ function RenovationGridInner(
             columnProperties: () => ({
                 className: {
                     "report-row-header": true,
-                    "report-row-header--heading": true,
                 },
             }),
             cellProperties: ({ model }) => {
@@ -953,26 +958,45 @@ function RenovationGridInner(
 
     // After a structural window load the workspace asks to jump to an edge:
     // the working plan anchors at its TAIL (rows are appended at the end), the
-    // archive reads top-down.
+    // archive reads top-down. Resolved via setTimeout so it holds until the
+    // stencil strip exists and the spacer is measured (the edge watcher's
+    // lazyTargetRef may attach later — never depend on it here).
     useEffect(() => {
         if (!scrollToEdge) return;
         const edge = scrollToEdge.edge;
         let attempts = 0;
+        let timer: number | undefined;
         const apply = () => {
-            const el = lazyTargetRef.current;
-            if (!el) return;
+            // Pinned mode MUST target the internal strip — the external
+            // scroller never scrolls there, so falling back to it would lock
+            // the page at the top. Poll until the strip exists.
+            let el: HTMLElement | null = null;
+            if (headerPinned) {
+                el = gridRef.current?.querySelector(
+                    "revogr-scroll-virtual.vertical",
+                ) as HTMLElement | null;
+            } else {
+                el = verticalScrollRef.current;
+            }
+            if (!el) {
+                attempts += 1;
+                if (attempts < 200) timer = window.setTimeout(apply, 100);
+                return;
+            }
             const target = edge === "bottom" ? el.scrollHeight - el.clientHeight : 0;
             if (el.scrollTop !== target) {
                 el.scrollTop = target;
-                if (attempts < 5) {
+                if (attempts < 30) {
                     attempts += 1;
-                    requestAnimationFrame(apply);
+                    timer = window.setTimeout(apply, 50);
                 }
             }
         };
-        const frame = requestAnimationFrame(apply);
-        return () => cancelAnimationFrame(frame);
-    }, [scrollToEdge]);
+        apply();
+        return () => {
+            if (timer !== undefined) window.clearTimeout(timer);
+        };
+    }, [scrollToEdge, headerPinned]);
 
     function normalizeValue(value: unknown, field: RenovationField): NormalizeResult {
         if (field.cellType === "number") {
@@ -1730,7 +1754,6 @@ function RenovationGridInner(
 
     const headerOverlay = (
         <div className="renovation-grid__header" style={{ height: headerHeight }}>
-            <div className="renovation-grid__corner" aria-hidden="true" />
             <div
                 ref={headerBodyRef}
                 className="renovation-grid__header-body"
@@ -1742,7 +1765,11 @@ function RenovationGridInner(
                 {overlayCells.map((cell) => (
                     <div
                         key={cell.id}
-                        className="renovation-grid__header-cell"
+                        className={
+                            cell.isTop
+                                ? "renovation-grid__header-cell renovation-grid__header-cell--top"
+                                : "renovation-grid__header-cell"
+                        }
                         style={{
                             left: cell.left,
                             top: cell.top,

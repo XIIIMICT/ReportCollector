@@ -581,10 +581,11 @@ function RawMaterialsGridInner(
         () => ({
             prop: "__rowNumber",
             size: 52,
+            columnTemplate: (h: HyperFunc<VNode>) =>
+                h("span", { class: "report-row-header__heading" }, "№"),
             columnProperties: () => ({
                 className: {
                     "report-row-header": true,
-                    "report-row-header--heading": true,
                 },
             }),
             cellProperties: ({ model }) => {
