@@ -1754,6 +1754,7 @@ function RenovationGridInner(
 
     const headerOverlay = (
         <div className="renovation-grid__header" style={{ height: headerHeight }}>
+            <div className="renovation-grid__corner">№</div>
             <div
                 ref={headerBodyRef}
                 className="renovation-grid__header-body"

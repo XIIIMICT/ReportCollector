@@ -586,6 +586,7 @@ function RawMaterialsGridInner(
             columnProperties: () => ({
                 className: {
                     "report-row-header": true,
+                    "report-row-header--heading": true,
                 },
             }),
             cellProperties: ({ model }) => {

@@ -1231,12 +1231,22 @@ html {
 }
 
 /* The «№» corner header above the row numbers (rendered by the shared grid's
-   rowHeaders columnTemplate). */
+   rowHeaders columnTemplate). On grids with merged (multi-level) headers the
+   corner cell sits in the lowest header row — stretch it up so the «№» reads
+   across the full header height, like the joined column headers do. */
 .report-row-header__heading {
     color: var(--muted);
     font-size: 11.5px;
     font-weight: 650;
     user-select: none;
+}
+
+.raw-materials-grid.raw-materials-grid--merged-header
+    revogr-header
+    .rgHeaderCell.report-row-header--heading {
+    top: calc(-1 * var(--grid-header-height) / 2);
+    height: 200%;
+    z-index: 2;
 }
 
 /* ─── RevoGrid (план «Ремонт») ────────────────────────────── */
@@ -1455,10 +1465,31 @@ html {
     flex: 0 0 auto;
     background: var(--surface);
     overflow: hidden;
-    /* The container's own top line shows only over the 52px № corner (no
-       header cell lives there); the rest of the header's top line is drawn
-       by the top-row cells (.renovation-grid__header-cell--top). */
-    box-shadow: 0 1px 0 var(--cell-border) inset;
+}
+
+/* The «№» corner above the row numbers: an opaque, full-header-height cell
+   that hides the № buttons scrolling beneath. It closes all four edges by
+   itself — the synthetic column headers around it don't reach this corner. */
+.renovation-grid__corner {
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 650;
+    user-select: none;
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
 }
 
 .renovation-grid-shell .revo-grid-vertical-scroller {
