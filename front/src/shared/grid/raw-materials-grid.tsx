@@ -599,6 +599,8 @@ function RawMaterialsGridInner(
             cellTemplate: (h: HyperFunc<VNode>, { rowIndex, model }) => {
                 const row = model as GridRow;
                 const selected = selectedRowIds.includes(row.id);
+                // The trailing «добавить запись» row shows «+» instead of a
+                // number — same as the renovation plan grid.
                 return h(
                     "button",
                     {
@@ -607,9 +609,11 @@ function RawMaterialsGridInner(
                             "report-row-header__button": true,
                             "report-row-header__button--selected": selected,
                         },
-                        title: selected
-                            ? `Снять выделение строки ${rowIndex + 1}`
-                            : `Выделить строку ${rowIndex + 1}`,
+                        title: row.isPlaceholder
+                            ? "Добавить строку"
+                            : selected
+                              ? `Снять выделение строки ${rowIndex + 1}`
+                              : `Выделить строку ${rowIndex + 1}`,
                         onMouseDown: (event: MouseEvent) => {
                             event.stopPropagation();
                         },
@@ -618,7 +622,7 @@ function RawMaterialsGridInner(
                             handleRowNumberClick(event, rowIndex, row.id);
                         },
                     },
-                    String(rowIndex + 1),
+                    row.isPlaceholder ? "+" : String(rowIndex + 1),
                 );
             },
         }),
