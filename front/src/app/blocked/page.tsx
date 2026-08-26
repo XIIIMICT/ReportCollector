@@ -12,7 +12,7 @@ export default function BlockedPage() {
                     </Typography>
                     <div className="flex gap-3">
                         <a href="/api/auth/logout">
-                            <Button variant="secondary">Выйти</Button>
+                            <Button variant="tertiary">Выйти</Button>
                         </a>
                     </div>
                 </Card.Content>

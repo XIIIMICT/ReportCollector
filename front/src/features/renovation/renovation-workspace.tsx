@@ -1802,7 +1802,7 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
         const button = (
             <Button
                 className="action-button"
-                variant={action.variant ?? "secondary"}
+                variant={action.variant ?? "tertiary"}
                 isDisabled={action.disabled}
                 aria-label={action.label}
                 onPress={action.onPress}
@@ -1844,7 +1844,7 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
                             <Button
                                 key={action.id}
                                 className="action-button"
-                                variant={action.variant ?? "secondary"}
+                                variant={action.variant ?? "tertiary"}
                                 isDisabled={action.disabled}
                                 aria-label={action.label}
                                 aria-keyshortcuts={action.shortcut?.aria}

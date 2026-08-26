@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, Dropdown, Label, Spinner, Switch } from "@heroui/react";
-import { Check, Collapse, Download, Expand, MoreVert, Refresh } from "iconoir-react";
+import { Check, Collapse, Download, Expand, MoreHoriz, Refresh } from "iconoir-react";
 import { type Key, type ReactNode } from "react";
 
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
@@ -79,8 +79,14 @@ export function ViewStrip({
     };
 
     /** Menu item with a leading check column (for the toggle entries). */
-    const menuItem = (id: string, label: string, active = false, icon?: ReactNode) => (
-        <Dropdown.Item id={id} textValue={label}>
+    const menuItem = (
+        id: string,
+        label: string,
+        active = false,
+        icon?: ReactNode,
+        variant?: "danger",
+    ) => (
+        <Dropdown.Item id={id} textValue={label} variant={variant}>
             <span className="view-strip-menu-check">
                 {active ? <Check aria-hidden="true" /> : (icon ?? null)}
             </span>
@@ -99,8 +105,8 @@ export function ViewStrip({
                     variant="tertiary"
                     aria-label="Настройки таблицы"
                 >
-                    <MoreVert aria-hidden="true" />
-                    <span className="action-more-button__label">Настройки</span>
+                    <MoreHoriz aria-hidden="true" />
+                    <span className="action-more-button__label">Таблица</span>
                 </Button>
             )}
             content={
@@ -121,12 +127,19 @@ export function ViewStrip({
                         : null}
                     {menuItem("export-all", "Скачать всю таблицу", false, <Download />)}
                     {menuItem("export-visible", "Скачать видимую таблицу", false, <Download />)}
-                    {menuItem("reset-column-widths", "Сброс ширины столбцов", false, <Refresh />)}
+                    {menuItem(
+                        "reset-column-widths",
+                        "Сброс ширины столбцов",
+                        false,
+                        <Refresh />,
+                        "danger",
+                    )}
                     {menuItem(
                         "reset-filters-sorting",
                         "Сброс всех фильтров и сортировок",
                         false,
                         <Refresh />,
+                        "danger",
                     )}
                     {menuItem(
                         "fullscreen",
@@ -174,21 +187,26 @@ export function ViewStrip({
                 compactMenu
             ) : (
                 <div className="view-strip__actions">
-                    <Dropdown>
-                        <Button
-                            className="action-button"
-                            variant="secondary"
-                            isDisabled={exportPending || isFullscreenPending}
-                            aria-label="Скачать таблицу в Excel"
-                        >
-                            <span className="action-button__icon">
-                                {exportPending ? <Spinner size="sm" /> : <Download />}
-                            </span>
-                            <span className="action-button__label">
-                                {exportPending ? "Выгрузка..." : "Скачать в Excel"}
-                            </span>
-                        </Button>
-                        <Dropdown.Popover>
+                    <HoverDropdown
+                        className="view-strip-popover"
+                        trigger={({ ref, onMouseEnter }) => (
+                            <Button
+                                ref={ref}
+                                onMouseEnter={onMouseEnter}
+                                className="action-button"
+                                variant="tertiary"
+                                isDisabled={exportPending || isFullscreenPending}
+                                aria-label="Скачать таблицу в Excel"
+                            >
+                                <span className="action-button__icon">
+                                    {exportPending ? <Spinner size="sm" /> : <Download />}
+                                </span>
+                                <span className="action-button__label">
+                                    {exportPending ? "Выгрузка..." : "Скачать в Excel"}
+                                </span>
+                            </Button>
+                        )}
+                        content={
                             <Dropdown.Menu
                                 aria-label="Формат выгрузки"
                                 onAction={(key) => {
@@ -204,21 +222,26 @@ export function ViewStrip({
                                     Скачать видимую таблицу
                                 </Dropdown.Item>
                             </Dropdown.Menu>
-                        </Dropdown.Popover>
-                    </Dropdown>
-                    <Dropdown>
-                        <Button
-                            className="action-button"
-                            variant="danger"
-                            isDisabled={isFullscreenPending}
-                            aria-label="Сброс отображения таблицы"
-                        >
-                            <span className="action-button__icon">
-                                <Refresh />
-                            </span>
-                            <span className="action-button__label">Сброс</span>
-                        </Button>
-                        <Dropdown.Popover>
+                        }
+                    />
+                    <HoverDropdown
+                        className="view-strip-popover"
+                        trigger={({ ref, onMouseEnter }) => (
+                            <Button
+                                ref={ref}
+                                onMouseEnter={onMouseEnter}
+                                className="action-button"
+                                variant="danger"
+                                isDisabled={isFullscreenPending}
+                                aria-label="Сброс отображения таблицы"
+                            >
+                                <span className="action-button__icon">
+                                    <Refresh />
+                                </span>
+                                <span className="action-button__label">Сброс настроек таблицы</span>
+                            </Button>
+                        )}
+                        content={
                             <Dropdown.Menu
                                 aria-label="Сброс отображения таблицы"
                                 onAction={(key) => {
@@ -227,21 +250,26 @@ export function ViewStrip({
                                     }
                                 }}
                             >
-                                <Dropdown.Item id="columnWidths" textValue="Сброс ширины столбцов">
+                                <Dropdown.Item
+                                    id="columnWidths"
+                                    textValue="Сброс ширины столбцов"
+                                    variant="danger"
+                                >
                                     Сброс ширины столбцов
                                 </Dropdown.Item>
                                 <Dropdown.Item
                                     id="filtersSorting"
                                     textValue="Сброс всех фильтров и сортировок"
+                                    variant="danger"
                                 >
                                     Сброс всех фильтров и сортировок
                                 </Dropdown.Item>
                             </Dropdown.Menu>
-                        </Dropdown.Popover>
-                    </Dropdown>
+                        }
+                    />
                     <Button
                         className="action-button"
-                        variant="secondary"
+                        variant="tertiary"
                         isDisabled={isFullscreenPending}
                         aria-label={isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
                         onPress={onToggleFullscreen}

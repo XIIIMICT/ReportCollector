@@ -1591,15 +1591,20 @@ function Brand({
                 }}
             />
             <span className="brand__name">РепортКоллектор</span>
-            <Dropdown>
-                <Button
-                    className="brand__edition brand__edition--button"
-                    variant="ghost"
-                    aria-label={`Проект: ${projectName}. Выберите проект`}
-                >
-                    {projectName}
-                </Button>
-                <Dropdown.Popover>
+            <HoverDropdown
+                className="brand-popover"
+                trigger={({ ref, onMouseEnter }) => (
+                    <Button
+                        ref={ref}
+                        onMouseEnter={onMouseEnter}
+                        className="brand__edition brand__edition--button"
+                        variant="ghost"
+                        aria-label={`Проект: ${projectName}. Выберите проект`}
+                    >
+                        {projectName}
+                    </Button>
+                )}
+                content={
                     <Dropdown.Menu
                         aria-label="Доступные проекты"
                         selectedKeys={selectedProjectKeys}
@@ -1620,8 +1625,8 @@ function Brand({
                             </Dropdown.Item>
                         ))}
                     </Dropdown.Menu>
-                </Dropdown.Popover>
-            </Dropdown>
+                }
+            />
         </div>
     );
 }
@@ -1810,7 +1815,7 @@ function ActionBar({
         const button = (
             <Button
                 className="action-button"
-                variant={action.variant ?? "secondary"}
+                variant={action.variant ?? "tertiary"}
                 isDisabled={action.disabled}
                 aria-label={action.label}
                 aria-keyshortcuts={action.shortcut?.aria}
@@ -1847,7 +1852,7 @@ function ActionBar({
                             <Button
                                 key={action.id}
                                 className="action-button"
-                                variant={action.variant ?? "secondary"}
+                                variant={action.variant ?? "tertiary"}
                                 isDisabled={action.disabled}
                                 aria-label={action.label}
                                 aria-keyshortcuts={action.shortcut?.aria}
