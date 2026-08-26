@@ -54,7 +54,9 @@ def render_renovation_workbook(plan: RenovationPlanRead) -> bytes:
     for row_index, row in enumerate(plan.rows):
         excel_row = len(header_rows()) + row_index + 1
         number_cell = worksheet.cell(row=excel_row, column=1)
-        number_cell.value = row.position + 1
+        # «№» is the stable plan position (1-based) — the same number the
+        # grid's row header shows.
+        number_cell.value = row.position
         number_cell.alignment = Alignment(horizontal="center", vertical="center")
         number_cell.border = _THIN_BORDER
         for index, meta in enumerate(fields):

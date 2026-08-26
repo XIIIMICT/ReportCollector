@@ -487,7 +487,7 @@ async def test_add_row_appends_new_asset_row(client: AsyncClient, db_session: As
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["position"] == 2
+    assert body["position"] == 3
     assert body["assetCode"] == "vos"
     assert body["values"]["col_002"] == asset.name
     assert isinstance(body["renovationId"], str)
@@ -496,7 +496,7 @@ async def test_add_row_appends_new_asset_row(client: AsyncClient, db_session: As
     plan = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
     rows = plan.json()["rows"]
     assert len(rows) == 3
-    assert [row["position"] for row in rows] == [0, 1, 2]
+    assert [row["position"] for row in rows] == [1, 2, 3]
 
 
 async def test_add_row_restricted_to_assigned_assets(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -550,7 +550,7 @@ async def test_delete_baseline_row_is_forbidden(client: AsyncClient, db_session:
         headers=ADMIN_HEADERS,
         json={"assetId": str(asset.id)},
     )
-    assert added.json()["position"] == 2
+    assert added.json()["position"] == 3
     baseline_row = await _row_by_asset_code(db_session, "bsk")
     denied = await client.delete(
         f"/api/renovation/plan/rows/{baseline_row.id}",
@@ -571,7 +571,7 @@ async def test_plan_read_exposes_baseline_boundary(client: AsyncClient) -> None:
     await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
     await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)
     refreshed = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
-    assert refreshed.json()["baselineBoundary"] == 1
+    assert refreshed.json()["baselineBoundary"] == 2
 
 
 async def test_diff_compares_archived_versions(
@@ -593,7 +593,7 @@ async def test_diff_compares_archived_versions(
     assert diff.status_code == 200
     body = diff.json()
     assert body["comparedToPlanId"] == first_id
-    bsk_diff = next(item for item in body["rows"] if item["position"] == 0)
+    bsk_diff = next(item for item in body["rows"] if item["position"] == 1)
     assert bsk_diff["isNew"] is False
     assert {"field": "col_028", "oldValue": 10.0, "newValue": 15.0} in bsk_diff["cells"]
     assert all(item["isNew"] is False for item in body["rows"])
@@ -611,7 +611,7 @@ async def test_diff_marks_new_rows(client: AsyncClient, db_session: AsyncSession
     diff = await client.get("/api/renovation/plan/diff", headers=ADMIN_HEADERS, params={"plan_id": second_id})
     body = diff.json()
     assert body["comparedToPlanId"] == first_id
-    new_row = next(item for item in body["rows"] if item["position"] == 2)
+    new_row = next(item for item in body["rows"] if item["position"] == 3)
     assert new_row["isNew"] is True
     assert new_row["assetName"] == asset.name
     assert all(cell["oldValue"] is None for cell in new_row["cells"])

@@ -245,11 +245,15 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
     session.add(working)
     await session.flush()
 
+    # Positions are 1-based everywhere in production: the Excel seed reads the
+    # «№ п/п» column and add_row starts at 1. Keep the fixture on the same
+    # base — the UI shows the stored position verbatim («№» column).
     for position, (code, defect, d1, d2) in enumerate(
         [
             ("bsk", "1382467", Decimal(10), Decimal(20)),
             ("vos", "2247000", Decimal(5), Decimal(7)),
-        ]
+        ],
+        start=1,
     ):
         session.add(
             RenovationPlanRow(
