@@ -876,7 +876,7 @@
   "headerCells": [
     {
       "id": "header_d6_ae6",
-      "text": "Блок Ташпаев А.А. (раздел 1)",
+      "text": "1) Блок Ташпаева",
       "startPosition": 2,
       "colSpan": 28,
       "rowSpan": 1,
@@ -885,7 +885,7 @@
     },
     {
       "id": "header_af6_gs6",
-      "text": "Блок Бородийчук А.В.  (раздел 2)",
+      "text": "2) Блок Бородийчука",
       "startPosition": 30,
       "colSpan": 170,
       "rowSpan": 1,
@@ -894,7 +894,7 @@
     },
     {
       "id": "header_gt6_hh6",
-      "text": "Блок Бабаева И.Р. (раздел 3)",
+      "text": "3) Блок Бабаева",
       "startPosition": 200,
       "colSpan": 15,
       "rowSpan": 1,
