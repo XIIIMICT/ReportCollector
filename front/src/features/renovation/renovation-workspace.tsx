@@ -7,7 +7,6 @@ import {
     Card,
     Kbd,
     ListBox,
-    Pagination,
     Select,
     Skeleton,
     Spinner,
@@ -16,7 +15,7 @@ import {
     Tooltip,
     Typography,
 } from "@heroui/react";
-import { CheckCircle, Copy, PasteClipboard, Redo, Send, Trash, Undo } from "iconoir-react";
+import { CheckCircle, Copy, PasteClipboard, Plus, Redo, Send, Trash, Undo } from "iconoir-react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -56,7 +55,7 @@ import {
     type RenovationDiff,
     type RenovationMeta,
     type RenovationPlan,
-    type RenovationPlanRows,
+    type RenovationPlanRow,
     type RenovationPlanVersion,
     type RenovationUndoResult,
 } from "@/shared/api/renovation";
@@ -88,11 +87,26 @@ export type RenovationWorkspaceProps = {
 };
 
 const WORKING_VERSION_ID = "__working";
-const PLACEHOLDER_ROW_ID = "placeholder:renovation-plan";
-// Rows per page of the working plan (server-driven pagination, not a client
-// side window): the grid holds at most this many rows in memory, so editing
-// and toggling the pinned header never pay for all ~94k rows.
-const PLAN_PAGE_SIZE = 200;
+// ── Sliding-window lazy loading of the working plan ──────────────────────────
+// The plan holds ~94k rows — too much for one request or for memory, so the
+// grid renders a contiguous WINDOW of rows: chunks arrive as the user scrolls
+// towards the edges and the far side is evicted, with the grid's scroll
+// position compensated by the evicted height. Row numbering is the stored
+// position («№»), so windowing is invisible in the UI. Archived versions are
+// read-only comparisons and stay full reads.
+const WINDOW_CHUNK = 300;
+const WINDOW_MAX_ROWS = 1200;
+
+type PlanWindow = {
+    id: string;
+    rows: RenovationPlanRow[];
+    /** Offset of rows[0] in the filtered plan (0 for archive full reads). */
+    start: number;
+    total: number;
+    baselineBoundary: number | null;
+    /** Archive full read — no lazy loading. */
+    complete: boolean;
+};
 
 function errorMessage(reason: unknown): string {
     return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
@@ -117,23 +131,18 @@ const VERSION_STATE_LABELS: Record<RenovationPlanVersion["state"], string> = {
     archived: "утверждённая",
 };
 
-function blockLabel(block: string): string {
-    return block.charAt(0).toUpperCase() + block.slice(1);
-}
-
-/** Page numbers with ellipsis markers for a compact pagination strip. */
-function pageRange(current: number, total: number): Array<number | "ellipsis"> {
-    const pages: Array<number | "ellipsis"> = [];
-    const push = (n: number) => pages.push(n);
-    for (let i = 0; i < total; i += 1) {
-        if (i === 0 || i === total - 1 || Math.abs(i - current) <= 1) {
-            push(i);
-        } else if (pages[pages.length - 1] !== "ellipsis") {
-            pages.push("ellipsis");
-        }
-    }
-    return pages;
-}
+/**
+ * Canonical display names of the responsibility blocks — the same strings in
+ * the plan's column-header overlay and in the «Все блоки» filter dropdown.
+ * The values are the backend RBlock keys (tashpaev, borodiichuk, babaeva).
+ */
+const BLOCK_LABELS: Record<string, string> = {
+    tashpaev: "1) Блок Ташпаева",
+    borodiichuk: "2) Блок Бородийчука",
+    babaeva: "3) Блок Бабаева",
+};
+/** Preferred dropdown order (after «Все блоки»). */
+const BLOCK_ORDER = ["tashpaev", "borodiichuk", "babaeva"];
 
 export function RenovationWorkspace({
     currentUser,
@@ -144,7 +153,6 @@ export function RenovationWorkspace({
     const [reloadKey, setReloadKey] = useState(0);
     const [assetFilter, setAssetFilter] = useState<string | null>(null);
     const [blockFilter, setBlockFilter] = useState<string | null>(null);
-    const [planPage, setPlanPage] = useState(0);
     const { data: meta, error } = useAsyncData<RenovationMeta | null>(
         () => getRenovationMeta().catch(() => null),
         [metaReloadKey],
@@ -154,26 +162,316 @@ export function RenovationWorkspace({
         [metaReloadKey],
     );
     const [viewPlanId, setViewPlanId] = useState<string | null>(null);
-    // The working plan is paginated (server-driven) so the grid holds at most
-    // PLAN_PAGE_SIZE rows in memory; archived plans are read-only comparisons
-    // and stay full. Both share the `plan` shape (rows + baselineBoundary).
-    const { data: plan, error: planError } = useAsyncData<
-        RenovationPlan | RenovationPlanRows | null
-    >(() => {
-        if (!meta) return Promise.resolve(null);
-        if (viewPlanId) return getRenovationPlan(viewPlanId);
-        return getRenovationPlanRows(
-            planPage * PLAN_PAGE_SIZE,
-            PLAN_PAGE_SIZE,
-            undefined,
-            assetFilter,
-        );
-    }, [meta, metaReloadKey, reloadKey, viewPlanId, planPage, assetFilter]);
-    // Reset to the first page whenever the plan, filter, or a reload changes
-    // (the total — and thus the last valid page — may shrink).
+    // The loaded window of the working plan (see PlanWindow above). `refresh()`
+    // reloads it in place (cell edits, undo/redo, remote row changes keep the
+    // anchor); switching the version or the asset filter resets it to the top.
+    const [planWindow, setPlanWindow] = useState<PlanWindow | null>(null);
+    const [planError, setPlanError] = useState<string | null>(null);
+    const [scrollCompensation, setScrollCompensation] = useState<{
+        deltaRows: number;
+        token: number;
+    } | null>(null);
+    const windowGenerationRef = useRef(0);
+    const planWindowRef = useRef<PlanWindow | null>(null);
+    const loadingBottomRef = useRef(false);
+    const loadingTopRef = useRef(false);
+    const compensationTokenRef = useRef(0);
+    // After a structural load the grid jumps to this edge of the loaded data:
+    // the working plan anchors at its TAIL (rows are appended at the end), the
+    // archive reads top-down.
+    const [scrollToEdge, setScrollToEdge] = useState<{
+        edge: "top" | "bottom";
+        token: number;
+    } | null>(null);
+    const scrollToEdgeTokenRef = useRef(0);
+
+    // Structural reset: a new plan version or a new asset filter restarts the
+    // window. The working plan anchors at its tail — the first request reads
+    // the total (one row), the second fetches the last WINDOW_CHUNK rows.
+    // Bumping the generation discards in-flight chunks.
     useEffect(() => {
-        setPlanPage(0);
-    }, [viewPlanId, assetFilter, metaReloadKey, reloadKey]);
+        if (!meta) return;
+        const generation = ++windowGenerationRef.current;
+        loadingBottomRef.current = false;
+        loadingTopRef.current = false;
+        let cancelled = false;
+        setPlanError(null);
+        void (async () => {
+            try {
+                if (viewPlanId) {
+                    const full = await getRenovationPlan(viewPlanId);
+                    if (!cancelled && generation === windowGenerationRef.current) {
+                        const next: PlanWindow = {
+                            id: full.id,
+                            rows: full.rows,
+                            start: 0,
+                            total: full.rows.length,
+                            baselineBoundary: full.baselineBoundary ?? null,
+                            complete: true,
+                        };
+                        planWindowRef.current = next;
+                        setPlanWindow(next);
+                        scrollToEdgeTokenRef.current += 1;
+                        setScrollToEdge({ edge: "top", token: scrollToEdgeTokenRef.current });
+                    }
+                } else {
+                    const head = await getRenovationPlanRows(0, 1, undefined, assetFilter);
+                    if (cancelled || generation !== windowGenerationRef.current) return;
+                    const total = head.total;
+                    const start = Math.max(0, total - WINDOW_CHUNK);
+                    if (start <= 0) {
+                        // The whole plan fits into one window.
+                        const page = await getRenovationPlanRows(
+                            0,
+                            WINDOW_CHUNK,
+                            undefined,
+                            assetFilter,
+                        );
+                        if (cancelled || generation !== windowGenerationRef.current) return;
+                        const next: PlanWindow = {
+                            id: page.id,
+                            rows: page.rows,
+                            start: 0,
+                            total: page.total,
+                            baselineBoundary: page.baselineBoundary ?? null,
+                            complete: false,
+                        };
+                        planWindowRef.current = next;
+                        setPlanWindow(next);
+                    } else {
+                        const page = await getRenovationPlanRows(
+                            start,
+                            WINDOW_CHUNK,
+                            undefined,
+                            assetFilter,
+                        );
+                        if (cancelled || generation !== windowGenerationRef.current) return;
+                        const next: PlanWindow = {
+                            id: page.id,
+                            rows: page.rows,
+                            start,
+                            total: page.total,
+                            baselineBoundary: page.baselineBoundary ?? null,
+                            complete: false,
+                        };
+                        planWindowRef.current = next;
+                        setPlanWindow(next);
+                    }
+                    scrollToEdgeTokenRef.current += 1;
+                    setScrollToEdge({ edge: "bottom", token: scrollToEdgeTokenRef.current });
+                }
+            } catch (reason) {
+                if (!cancelled && generation === windowGenerationRef.current) {
+                    setPlanError(errorMessage(reason));
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [meta, viewPlanId, assetFilter]);
+
+    // In-place reload (refresh()): re-read the current window, keep the anchor.
+    useEffect(() => {
+        if (reloadKey === 0) return;
+        const base = planWindowRef.current;
+        if (!base) return;
+        const generation = windowGenerationRef.current;
+        let cancelled = false;
+        void (async () => {
+            try {
+                if (base.complete) {
+                    const full = await getRenovationPlan(base.id);
+                    if (!cancelled && generation === windowGenerationRef.current) {
+                        const next: PlanWindow = {
+                            id: full.id,
+                            rows: full.rows,
+                            start: 0,
+                            total: full.rows.length,
+                            baselineBoundary: full.baselineBoundary ?? null,
+                            complete: true,
+                        };
+                        planWindowRef.current = next;
+                        setPlanWindow(next);
+                    }
+                } else {
+                    const limit = Math.max(base.rows.length, WINDOW_CHUNK);
+                    const page = await getRenovationPlanRows(
+                        base.start,
+                        limit,
+                        undefined,
+                        assetFilter,
+                    );
+                    if (!cancelled && generation === windowGenerationRef.current) {
+                        const prev = planWindowRef.current;
+                        if (!prev) return;
+                        const next: PlanWindow = {
+                            ...prev,
+                            id: page.id,
+                            rows: page.rows,
+                            total: page.total,
+                            baselineBoundary: page.baselineBoundary ?? null,
+                        };
+                        planWindowRef.current = next;
+                        setPlanWindow(next);
+                    }
+                }
+            } catch {
+                // Keep the current rows; the next refresh retries.
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [reloadKey, assetFilter]);
+
+    /** Merge a fetched chunk into the window; evict the far side when it overflows. */
+    const applyWindowChunk = useCallback(
+        (
+            chunk: RenovationPlanRow[],
+            chunkStart: number,
+            direction: "top" | "bottom",
+            total: number,
+            baselineBoundary: number | null,
+            id: string,
+        ) => {
+            // The ref is the synchronous source of truth: edge events can fire
+            // before React commits the previous chunk, and reading state would
+            // fetch the same chunk twice.
+            const prev = planWindowRef.current;
+            if (!prev) return;
+            const baseEnd = prev.start + prev.rows.length;
+            const chunkEnd = chunkStart + chunk.length;
+            const start = Math.min(prev.start, chunkStart);
+            const end = Math.max(baseEnd, chunkEnd);
+            // Offset-indexed fill; fresh chunk rows win over stale base rows.
+            const merged: Array<RenovationPlanRow | undefined> = Array.from({
+                length: end - start,
+            });
+            for (let i = 0; i < prev.rows.length; i += 1) {
+                merged[prev.start + i - start] = prev.rows[i];
+            }
+            for (let i = 0; i < chunk.length; i += 1) {
+                merged[chunkStart + i - start] = chunk[i];
+            }
+            // Trim possible holes from racing fetches: keep the contiguous
+            // run around the chunk.
+            let first = 0;
+            while (first < merged.length && merged[first] === undefined) first += 1;
+            let last = merged.length - 1;
+            while (last >= 0 && merged[last] === undefined) last -= 1;
+            let rows = (
+                first <= last
+                    ? merged.slice(first, last + 1).filter((row) => row !== undefined)
+                    : []
+            ) as RenovationPlanRow[];
+            let newStart = start + first;
+            let deltaRows = 0;
+            if (rows.length > WINDOW_MAX_ROWS) {
+                if (direction === "top") {
+                    // Prepend: rows above the viewport grew — shift the scroll
+                    // down by the same height; the overflow is trimmed from
+                    // the far (bottom) side, which needs no compensation.
+                    deltaRows = chunk.length;
+                    rows = rows.slice(0, WINDOW_MAX_ROWS);
+                } else {
+                    const evict = rows.length - WINDOW_MAX_ROWS;
+                    rows = rows.slice(evict);
+                    newStart += evict;
+                    // Append overflow trims the TOP — the content above the
+                    // viewport shrank, move the scroll up accordingly.
+                    deltaRows = -evict;
+                }
+            }
+            const next: PlanWindow = {
+                id,
+                rows,
+                start: newStart,
+                total,
+                baselineBoundary,
+                complete: false,
+            };
+            planWindowRef.current = next;
+            if (deltaRows !== 0) {
+                compensationTokenRef.current += 1;
+                setScrollCompensation({ deltaRows, token: compensationTokenRef.current });
+            }
+            setPlanWindow(next);
+        },
+        [],
+    );
+
+    const loadChunk = useCallback(
+        async (direction: "top" | "bottom") => {
+            const base = planWindowRef.current;
+            if (!base || base.complete) return;
+            const generation = windowGenerationRef.current;
+            try {
+                if (direction === "bottom") {
+                    const chunkStart = base.start + base.rows.length;
+                    if (chunkStart >= base.total) return;
+                    const page = await getRenovationPlanRows(
+                        chunkStart,
+                        WINDOW_CHUNK,
+                        undefined,
+                        assetFilter,
+                    );
+                    if (generation !== windowGenerationRef.current) return;
+                    applyWindowChunk(
+                        page.rows,
+                        chunkStart,
+                        "bottom",
+                        page.total,
+                        page.baselineBoundary ?? null,
+                        page.id,
+                    );
+                } else {
+                    const chunkStart = Math.max(0, base.start - WINDOW_CHUNK);
+                    if (chunkStart >= base.start) return;
+                    const page = await getRenovationPlanRows(
+                        chunkStart,
+                        base.start - chunkStart,
+                        undefined,
+                        assetFilter,
+                    );
+                    if (generation !== windowGenerationRef.current) return;
+                    applyWindowChunk(
+                        page.rows,
+                        chunkStart,
+                        "top",
+                        page.total,
+                        page.baselineBoundary ?? null,
+                        page.id,
+                    );
+                }
+            } catch {
+                // Chunk fetch failed — the next edge approach retries.
+            }
+        },
+        [applyWindowChunk, assetFilter],
+    );
+
+    const handleNearBottom = useCallback(() => {
+        if (loadingBottomRef.current) return;
+        const base = planWindowRef.current;
+        if (!base || base.complete) return;
+        if (base.start + base.rows.length >= base.total) return;
+        loadingBottomRef.current = true;
+        void loadChunk("bottom").finally(() => {
+            loadingBottomRef.current = false;
+        });
+    }, [loadChunk]);
+
+    const handleNearTop = useCallback(() => {
+        if (loadingTopRef.current) return;
+        const base = planWindowRef.current;
+        if (!base || base.complete) return;
+        if (base.start <= 0) return;
+        loadingTopRef.current = true;
+        void loadChunk("top").finally(() => {
+            loadingTopRef.current = false;
+        });
+    }, [loadChunk]);
     const { data: diff } = useAsyncData<RenovationDiff | null>(
         () => (viewPlanId ? getRenovationDiff(viewPlanId) : Promise.resolve(null)),
         [metaReloadKey, reloadKey, viewPlanId],
@@ -184,10 +482,11 @@ export function RenovationWorkspace({
         [comparedToPlanId, metaReloadKey, reloadKey],
     );
 
-    // Pagination is only for the working plan (archived plans are full reads).
-    const planTotal = viewPlanId === null && plan && "total" in plan ? plan.total : null;
-    const planPageCount =
-        planTotal !== null ? Math.max(1, Math.ceil(planTotal / PLAN_PAGE_SIZE)) : 1;
+    const hasMoreTop = !!planWindow && !planWindow.complete && planWindow.start > 0;
+    const hasMoreBottom =
+        !!planWindow &&
+        !planWindow.complete &&
+        planWindow.start + planWindow.rows.length < planWindow.total;
 
     const [user, setUser] = useState(currentUser);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -221,8 +520,9 @@ export function RenovationWorkspace({
     const [exportPending, setExportPending] = useState(false);
     const [undoCount, setUndoCount] = useState(0);
     const [redoCount, setRedoCount] = useState(0);
-    // The trailing placeholder row's picked asset (kept on a failed add).
-    const [placeholderAsset, setPlaceholderAsset] = useState("");
+    // The «Добавить строку» dialog (asset picker → an empty row at the end).
+    const [addOpen, setAddOpen] = useState(false);
+    const [addAssetKey, setAddAssetKey] = useState<string | null>(null);
     // Dictionary tab actions are delegated by the active dictionary section.
     const [dictDeleteState, setDictDeleteState] = useState<{
         canDelete: boolean;
@@ -302,14 +602,15 @@ export function RenovationWorkspace({
     const blocks = useMemo(() => {
         // The read_only block groups the hidden/always-visible columns
         // (the synthetic asset column, the renovation id, the note) — filtering
-        // by it makes no sense, so it's not offered in the dropdown.
-        const result = new Set<string>();
+        // by it makes no sense, so it's not offered in the dropdown. The
+        // dropdown follows the canonical 1/2/3 block order.
+        const present = new Set<string>();
         for (const field of meta?.fields ?? []) {
             if (field.responsibilityBlock && field.responsibilityBlock !== "read_only") {
-                result.add(field.responsibilityBlock);
+                present.add(field.responsibilityBlock);
             }
         }
-        return [...result].sort();
+        return BLOCK_ORDER.filter((block) => present.has(block));
     }, [meta]);
 
     // Section tabs: the plan grid first, then the reference dictionaries
@@ -498,10 +799,10 @@ export function RenovationWorkspace({
     // The grid rows: plan rows with diff states plus deleted-row ghosts from
     // the comparison plan (the version being compared to).
     const gridRows = useMemo<RenovationGridRow[]>(() => {
-        if (!plan) return [];
+        if (!planWindow) return [];
         const result: RenovationGridRow[] = [];
         const diffByRow = new Map((diff?.rows ?? []).map((row) => [row.rowId, row]));
-        for (const row of plan.rows) {
+        for (const row of planWindow.rows) {
             const diffRow = diffByRow.get(row.id);
             const rowState: RenovationGridRow["__rowState"] = diffRow
                 ? diffRow.isNew
@@ -552,21 +853,8 @@ export function RenovationWorkspace({
             }
         }
         result.sort((a, b) => a.__position - b.__position);
-        if (!readOnly) {
-            result.push({
-                __id: PLACEHOLDER_ROW_ID,
-                __position: -1,
-                __assetId: "",
-                __assetName: placeholderAsset,
-                __renovationId: null,
-                __rowState: "unchanged",
-                __changedFields: [],
-                __missingComponents: [],
-                isPlaceholder: true,
-            });
-        }
         return result;
-    }, [comparisonPlan, diff, placeholderAsset, plan, readOnly]);
+    }, [comparisonPlan, diff, planWindow]);
 
     // Remote cell values (live edits of other users) override the local ones
     // for display — the working plan only.
@@ -815,7 +1103,8 @@ export function RenovationWorkspace({
         setIsMutationPending(true);
         try {
             await addRenovationRow(assetId);
-            setPlaceholderAsset("");
+            setAddOpen(false);
+            setAddAssetKey(null);
             toast.success("Строка добавлена");
             refresh();
         } catch (reason) {
@@ -823,22 +1112,6 @@ export function RenovationWorkspace({
         } finally {
             setIsMutationPending(false);
         }
-    }
-
-    async function commitPlaceholder(assetName: string): Promise<boolean> {
-        if (isMutationPending) return true;
-        const asset = meta?.assets.find((candidate) => candidate.name === assetName);
-        if (!asset) {
-            toast.danger("Не удалось добавить строку", {
-                description: "Предприятие не найдено в справочнике активов.",
-            });
-            return true;
-        }
-        // Keep the picked name in the placeholder row while the request runs
-        // (gridRows rebuilds with readOnly=true during the mutation).
-        setPlaceholderAsset(assetName);
-        await addRow(asset.id);
-        return true;
     }
 
     const runSubmit = useCallback(async () => {
@@ -883,8 +1156,19 @@ export function RenovationWorkspace({
         !isArchive &&
         !readOnly &&
         meta?.workingPlanId != null &&
-        (plan?.rows.length ?? 0) > 0;
+        (planWindow?.total ?? 0) > 0;
     const canApprovePlan = canApprove && !isArchive && !readOnly && meta?.pendingPlanId != null;
+
+    // Assets the user may add rows for: everyone sees the full dictionary
+    // except asset workers, who are restricted to their own assets (the
+    // server enforces the same rule).
+    const addRowAssets = useMemo(() => {
+        const all = meta?.assets ?? [];
+        if (userAssetIds === null) return all.map((asset) => ({ id: asset.id, name: asset.name }));
+        return all
+            .filter((asset) => userAssetIds.has(asset.id))
+            .map((asset) => ({ id: asset.id, name: asset.name }));
+    }, [meta, userAssetIds]);
 
     // Version footer: the working version plus every non-working version
     // (pending approval and archived) viewed read-only with a diff.
@@ -1064,7 +1348,7 @@ export function RenovationWorkspace({
         );
     }
 
-    if (!meta || !plan) {
+    if (!meta || !planWindow) {
         return (
             <div className="app-shell">
                 <AppHeader
@@ -1172,6 +1456,16 @@ export function RenovationWorkspace({
         ...(!isArchive
             ? [
                   {
+                      id: "add",
+                      label: "Добавить строку",
+                      icon: <Plus />,
+                      onPress: () => {
+                          setAddAssetKey(null);
+                          setAddOpen(true);
+                      },
+                      disabled: readOnly || isFullscreenPending,
+                  } satisfies ActionItem,
+                  {
                       id: "delete",
                       label: "Удалить строку",
                       icon: <Trash />,
@@ -1253,48 +1547,6 @@ export function RenovationWorkspace({
                         />
                     </div>
                 ) : null}
-                {isPlanSection && viewPlanId === null && planPageCount > 1 ? (
-                    <Pagination className="plan-pagination">
-                        <Pagination.Content>
-                            <Pagination.Item>
-                                <Pagination.Previous
-                                    aria-label="Предыдущая страница"
-                                    isDisabled={planPage === 0}
-                                    onPress={() => setPlanPage((page) => Math.max(0, page - 1))}
-                                >
-                                    <Pagination.PreviousIcon />
-                                </Pagination.Previous>
-                            </Pagination.Item>
-                            {pageRange(planPage, planPageCount).map((entry, index) =>
-                                typeof entry === "number" ? (
-                                    <Pagination.Item key={entry}>
-                                        <Pagination.Link
-                                            isActive={entry === planPage}
-                                            onPress={() => setPlanPage(entry)}
-                                        >
-                                            {entry + 1}
-                                        </Pagination.Link>
-                                    </Pagination.Item>
-                                ) : (
-                                    <Pagination.Item key={`ellipsis-${index}`}>
-                                        <Pagination.Ellipsis />
-                                    </Pagination.Item>
-                                ),
-                            )}
-                            <Pagination.Item>
-                                <Pagination.Next
-                                    aria-label="Следующая страница"
-                                    isDisabled={planPage >= planPageCount - 1}
-                                    onPress={() =>
-                                        setPlanPage((page) => Math.min(planPageCount - 1, page + 1))
-                                    }
-                                >
-                                    <Pagination.NextIcon />
-                                </Pagination.Next>
-                            </Pagination.Item>
-                        </Pagination.Content>
-                    </Pagination>
-                ) : null}
             </div>
             <RenovationActionBar items={isPlanSection ? actions : dictActions} />
         </div>
@@ -1358,9 +1610,9 @@ export function RenovationWorkspace({
                                         <ListBox.Item
                                             key={block}
                                             id={block}
-                                            textValue={blockLabel(block)}
+                                            textValue={BLOCK_LABELS[block] ?? block}
                                         >
-                                            {blockLabel(block)}
+                                            {BLOCK_LABELS[block] ?? block}
                                         </ListBox.Item>
                                     ))}
                                 </ListBox>
@@ -1401,11 +1653,10 @@ export function RenovationWorkspace({
                                             fields={meta.fields}
                                             headerCells={meta.headerCells}
                                             catalogs={meta.catalogs}
-                                            assets={meta.assets}
                                             rows={displayRows}
                                             assetFilter={assetFilterSet}
                                             blockFilter={blockFilter}
-                                            baselineBoundary={plan.baselineBoundary}
+                                            baselineBoundary={planWindow.baselineBoundary}
                                             readOnly={readOnly}
                                             editableFieldKeys={editableFieldKeys}
                                             userAssetIds={userAssetIds}
@@ -1420,7 +1671,6 @@ export function RenovationWorkspace({
                                                 })
                                             }
                                             onCommit={commit}
-                                            onPlaceholderCommit={commitPlaceholder}
                                             onCommitFailed={refresh}
                                             onValidationError={(message) =>
                                                 toast.warning("Некорректное значение", {
@@ -1437,6 +1687,13 @@ export function RenovationWorkspace({
                                             onClipboardStateChange={handleClipboardState}
                                             headerPinned={planHeaderPinned}
                                             showServiceColumns={planServiceColumns}
+                                            hasMoreTop={hasMoreTop}
+                                            hasMoreBottom={hasMoreBottom}
+                                            onNearTop={handleNearTop}
+                                            onNearBottom={handleNearBottom}
+                                            scrollCompensation={scrollCompensation}
+                                            scrollToEdge={scrollToEdge}
+                                            totalRowsOverride={planWindow.total}
                                         />
                                         {displayRows.length === 0 ? (
                                             <div className="grid-empty">
@@ -1501,6 +1758,17 @@ export function RenovationWorkspace({
                 count={1}
                 onOpenChange={setDeleteOpen}
                 onConfirm={() => void deleteSelectedRow()}
+            />
+            <AddRowDialog
+                isOpen={addOpen}
+                isPending={isMutationPending}
+                assets={addRowAssets}
+                selectedKey={addAssetKey}
+                onSelectionChange={setAddAssetKey}
+                onOpenChange={setAddOpen}
+                onConfirm={() => {
+                    if (addAssetKey) void addRow(addAssetKey);
+                }}
             />
             <SubmitPlanDialog
                 isOpen={submitOpen}
@@ -1594,6 +1862,73 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
                 ),
             )}
         </div>
+    );
+}
+
+function AddRowDialog({
+    isOpen,
+    isPending,
+    assets,
+    selectedKey,
+    onSelectionChange,
+    onOpenChange,
+    onConfirm,
+}: {
+    isOpen: boolean;
+    isPending: boolean;
+    assets: Array<{ id: string; name: string }>;
+    selectedKey: string | null;
+    onSelectionChange: (key: string | null) => void;
+    onOpenChange: (open: boolean) => void;
+    onConfirm: () => void;
+}) {
+    return (
+        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
+            <AlertDialog.Backdrop isDismissable={!isPending}>
+                <AlertDialog.Container>
+                    <AlertDialog.Dialog>
+                        <AlertDialog.Header>
+                            <AlertDialog.Icon status="success">
+                                <Plus />
+                            </AlertDialog.Icon>
+                            <AlertDialog.Heading>Добавить строку плана</AlertDialog.Heading>
+                        </AlertDialog.Header>
+                        <AlertDialog.Body>
+                            <div className="add-row-dialog__field">
+                                <SearchAutocomplete
+                                    placeholder="Предприятие"
+                                    compactLabel="Предприятие"
+                                    items={assets}
+                                    selectedKey={selectedKey}
+                                    onSelectionChange={onSelectionChange}
+                                />
+                                <p className="add-row-dialog__hint">
+                                    Пустая строка для выбранного предприятия будет добавлена в конец
+                                    плана.
+                                </p>
+                            </div>
+                        </AlertDialog.Body>
+                        <AlertDialog.Footer>
+                            <Button
+                                variant="tertiary"
+                                onPress={() => onOpenChange(false)}
+                                isDisabled={isPending}
+                            >
+                                Отмена
+                            </Button>
+                            <Button
+                                variant="primary"
+                                onPress={onConfirm}
+                                isDisabled={isPending || selectedKey === null}
+                            >
+                                {isPending ? <Spinner color="current" size="sm" /> : <Plus />}
+                                Добавить
+                            </Button>
+                        </AlertDialog.Footer>
+                    </AlertDialog.Dialog>
+                </AlertDialog.Container>
+            </AlertDialog.Backdrop>
+        </AlertDialog>
     );
 }
 

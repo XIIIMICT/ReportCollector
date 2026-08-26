@@ -34,6 +34,9 @@ export function FormStatus({
     const hasPresence = room !== null && room.status === "online";
     const members = room?.members ?? [];
     const selfId = room?.me?.userId ?? null;
+    // Other members for the tooltip list: the current user's own selection is
+    // shown separately below as «Выделено», so it is not repeated here.
+    const otherMembers = members.filter((member) => member.userId !== selfId);
     const presenceText = hasPresence
         ? membershipSummary(members, selfId)
         : room && room.status !== "online"
@@ -79,7 +82,7 @@ export function FormStatus({
                                 <b>На форме:</b> {membershipSummary(members, selfId)}
                             </div>
                             <ul className="form-status-detail__presence-list">
-                                {members.map((member) => (
+                                {otherMembers.map((member) => (
                                     <PresenceRow member={member} key={member.userId} />
                                 ))}
                             </ul>

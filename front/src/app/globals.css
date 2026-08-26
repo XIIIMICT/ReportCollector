@@ -381,10 +381,17 @@ html {
     background: var(--surface);
 }
 
-.plan-pagination {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
+/* The «Добавить строку» dialog: the asset picker fills the body width. */
+.add-row-dialog__field {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.add-row-dialog__hint {
+    color: var(--muted);
+    font-size: 0.8rem;
 }
 
 /* View strip between the toolbar and the grid: display-only controls in ONE
@@ -516,7 +523,7 @@ html {
 .form-status-detail {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 0.4rem;
     font-size: 0.8rem;
     line-height: 1.2;
     white-space: nowrap;
@@ -526,9 +533,8 @@ html {
 .form-status-detail__presence {
     display: grid;
     gap: 0.3rem;
-    margin: 0.3rem 0 0;
-    padding: 0.4rem 0 0;
-    border-top: 1px solid var(--divider);
+    margin: 0;
+    padding: 0;
 }
 
 .form-status-detail__presence-summary {
@@ -1497,10 +1503,13 @@ html {
     border: 0;
     /* Vertical lines at the RIGHT edge, like the data cells below — an
        inset 1px line at the left edge would sit 1px to the right of the
-       data gridlines (a +1px shift of the whole header grid). */
+       data gridlines (a +1px shift of the whole header grid). Only the LEFT
+       and BOTTOM lines are painted: a TOP line on every cell would double to
+       a 2px border where a cell meets the one above it (both draw the shared
+       edge) — the boundary falls on the cell above's bottom line, and the
+       very top of the header is the container's single top line. */
     box-shadow:
         -1px 0 0 var(--cell-border) inset,
-        0 1px 0 var(--cell-border) inset,
         0 -1px 0 var(--cell-border) inset;
     font-size: 11.5px;
     font-weight: 650;

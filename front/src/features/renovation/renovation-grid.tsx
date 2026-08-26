@@ -30,7 +30,6 @@ import type {
     RenovationField,
     RenovationHeaderCell,
 } from "@/shared/api/renovation";
-import type { ReferenceOption } from "@/shared/grid/grid-config";
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { ReferenceEditor } from "@/shared/grid/grid-editors";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
@@ -72,6 +71,17 @@ const ASSET_COLUMN_WIDTH = 220;
 /** Placeholder a missing renovation-id component is replaced with (backend renovation_id.py). */
 const MISSING_COMPONENT = "<NULL>";
 
+/** Lazy window: start loading the next chunk this many rows before the edge. */
+const LAZY_EDGE_ROWS = 90;
+const LAZY_EDGE_PX = LAZY_EDGE_ROWS * 36;
+
+/** Canonical responsibility-block labels — must match the «Все блоки» filter. */
+const BLOCK_HEADER_LABELS: Record<string, string> = {
+    tashpaev: "1) Блок Ташпаева",
+    borodiichuk: "2) Блок Бородийчука",
+    babaeva: "3) Блок Бабаева",
+};
+
 /** Service columns revealed by the corner menu («Показать служебные столбцы»). */
 const SERVICE_COLUMNS: ReadonlyArray<{ dbName: string; label: string; width: number }> = [
     { dbName: "id", label: "Идентификатор", width: 120 },
@@ -95,15 +105,12 @@ export type RenovationGridRow = {
     __rowState: "unchanged" | "new" | "changed" | "deleted";
     __changedFields: string[];
     __missingComponents: string[];
-    /** Trailing add-row row: only its asset cell is editable. */
-    isPlaceholder?: boolean;
 } & Record<string, unknown>;
 
 export type RenovationGridProps = {
     fields: RenovationField[];
     headerCells: RenovationHeaderCell[];
     catalogs: RenovationCatalog[];
-    assets: ReferenceOption[];
     rows: RenovationGridRow[];
     /** Asset-name filter (client-side); null — show all rows. */
     assetFilter: Set<string> | null;
@@ -121,8 +128,6 @@ export type RenovationGridProps = {
     onReleaseLease: (keys: string[]) => void;
     onLockedCellEdit: (key: string, owner: string) => void;
     onCommit: (updates: CellUpdate[]) => Promise<boolean>;
-    /** The user picked an asset in the placeholder row — add a plan row. */
-    onPlaceholderCommit: (assetName: string) => Promise<boolean>;
     onCommitFailed: () => void;
     onValidationError: (message: string) => void;
     onPasteSkipped: (description: string) => void;
@@ -139,6 +144,19 @@ export type RenovationGridProps = {
     /** Controlled display toggles (rendered in the view strip). */
     headerPinned: boolean;
     showServiceColumns: boolean;
+    // ── Lazy window (the workspace loads chunks and evicts far rows) ─────────
+    /** More rows exist above / below the loaded window. */
+    hasMoreTop?: boolean;
+    hasMoreBottom?: boolean;
+    /** The user scrolled within LAZY_EDGE_ROWS of the window edge. */
+    onNearTop?: () => void;
+    onNearBottom?: () => void;
+    /** Shift the vertical scroll after a window slide (evicted/prepended rows). */
+    scrollCompensation?: { deltaRows: number; token: number } | null;
+    /** The full plan size — the loaded window is only a slice of it. */
+    totalRowsOverride?: number | null;
+    /** After a structural window load, jump to this edge of the loaded data. */
+    scrollToEdge?: { edge: "top" | "bottom"; token: number } | null;
 };
 
 export type RenovationGridHandle = {
@@ -212,7 +230,6 @@ function RenovationGridInner(
         fields,
         headerCells,
         catalogs,
-        assets,
         rows,
         assetFilter,
         blockFilter,
@@ -227,7 +244,6 @@ function RenovationGridInner(
         onReleaseLease,
         onLockedCellEdit,
         onCommit,
-        onPlaceholderCommit,
         onCommitFailed,
         onValidationError,
         onPasteSkipped,
@@ -236,6 +252,13 @@ function RenovationGridInner(
         onViewStatsChange,
         headerPinned,
         showServiceColumns,
+        hasMoreTop = false,
+        hasMoreBottom = false,
+        onNearTop,
+        onNearBottom,
+        scrollCompensation,
+        totalRowsOverride = null,
+        scrollToEdge,
     }: RenovationGridProps,
     forwardedRef: Ref<RenovationGridHandle>,
 ) {
@@ -448,9 +471,26 @@ function RenovationGridInner(
             }
             if (width === 0) continue;
             const topLevel = coveredByTopRow.has(cell.startPosition) ? cell.level : 0;
+            // The level-0 responsibility-block group headers carry Excel text
+            // («Блок Ташпаев А.А. (раздел 1)»); show the same canonical label
+            // as the «Все блоки» filter instead.
+            let text = cell.text;
+            if (cell.level === 0 && text.startsWith("Блок ")) {
+                for (
+                    let i = startIndex;
+                    i < visibleFields.length && visibleFields[i].position < endPosition;
+                    i += 1
+                ) {
+                    const fieldBlock = visibleFields[i].responsibilityBlock;
+                    if (fieldBlock && fieldBlock !== "read_only") {
+                        text = BLOCK_HEADER_LABELS[fieldBlock] ?? text;
+                        break;
+                    }
+                }
+            }
             cells.push({
                 id: cell.id,
-                text: cell.text,
+                text,
                 left: geometry.offsets.get(visibleFields[startIndex].dbName) ?? ROW_HEADER_WIDTH,
                 top: topLevel * HEADER_LEVEL_HEIGHT,
                 width,
@@ -493,7 +533,6 @@ function RenovationGridInner(
     const editableCell = useCallback(
         (field: RenovationField, row: RenovationGridRow): boolean => {
             if (readOnly) return false;
-            if (row.isPlaceholder) return false;
             if (field.isCalculated || field.isReadOnly) return false;
             if (!editableFieldKeys.has(field.dbName)) return false;
             if (row.__rowState === "deleted") return false;
@@ -517,20 +556,15 @@ function RenovationGridInner(
             size: assetWidth,
             minSize: MIN_COLUMN_WIDTH,
             maxSize: MAX_COLUMN_WIDTH,
-            editor: "reference",
-            source: assets.map((asset) => asset.name),
-            readonly: ({ model }) => {
-                const row = model as RenovationGridRow;
-                return readOnly || !row.isPlaceholder;
-            },
+            // The asset is fixed per row — rows are added through the fixed
+            // add-row strip below the table, not through this column.
+            readonly: true,
             cellProperties: ({ model }) => {
                 const row = model as RenovationGridRow;
                 return {
                     className: {
                         "report-cell": true,
-                        "report-cell--readonly": !row.isPlaceholder,
-                        "report-cell--placeholder": Boolean(row.isPlaceholder),
-                        "report-cell--empty": Boolean(row.isPlaceholder && !row.__assetName),
+                        "report-cell--readonly": true,
                         "report-cell--baseline-boundary":
                             baselineBoundary !== null && row.__position === baselineBoundary,
                     },
@@ -650,7 +684,6 @@ function RenovationGridInner(
         ];
     }, [
         assetWidth,
-        assets,
         baselineBoundary,
         catalogLabelsByField,
         displayFields,
@@ -713,8 +746,6 @@ function RenovationGridInner(
         (event: MouseEvent, rowIndex: number, id: string) => {
             event.preventDefault();
             event.stopPropagation();
-            const row = displaySource[rowIndex];
-            if (row?.isPlaceholder) return;
             const modifiers = event.ctrlKey || event.metaKey;
             if (event.shiftKey && !modifiers) {
                 const anchor = rowSelectionAnchorRef.current ?? rowIndex;
@@ -782,11 +813,9 @@ function RenovationGridInner(
                             "report-row-header__button": true,
                             "report-row-header__button--selected": selected,
                         },
-                        title: row.isPlaceholder
-                            ? "Добавить строку"
-                            : selected
-                              ? `Снять выделение строки ${row.__position}`
-                              : `Выделить строку ${row.__position}`,
+                        title: selected
+                            ? `Снять выделение строки ${row.__position}`
+                            : `Выделить строку ${row.__position}`,
                         onMouseDown: (event: MouseEvent) => {
                             event.stopPropagation();
                         },
@@ -795,7 +824,7 @@ function RenovationGridInner(
                             handleRowNumberClick(event, rowIndex, row.__id);
                         },
                     },
-                    row.isPlaceholder ? "+" : String(row.__position),
+                    String(row.__position),
                 );
             },
         }),
@@ -805,8 +834,14 @@ function RenovationGridInner(
 
     useEffect(() => {
         onViewStatsChange({
-            filteredRows: displaySource.length,
-            totalRows: rows.length,
+            // The loaded window is a slice of the plan — «всего» comes from the
+            // server total, and with the server-side asset filter the slice
+            // size isn't the filtered count either.
+            filteredRows:
+                assetFilter && totalRowsOverride !== null
+                    ? totalRowsOverride
+                    : displaySource.length,
+            totalRows: totalRowsOverride ?? rows.length,
             totalCols: displayFields.length,
             filtersApplied: assetFilter !== null,
             immutableCols: displayFields.filter((field) => field.isReadOnly && !field.isCalculated)
@@ -824,11 +859,120 @@ function RenovationGridInner(
         editableFieldKeys,
         onViewStatsChange,
         rows.length,
+        totalRowsOverride,
     ]);
 
     useEffect(() => {
         rowValuesRef.current = new Map(rows.map((row) => [row.__id, { ...row }]));
     }, [rows]);
+
+    // ── Lazy window: edge watching + scroll compensation ─────────────────────
+    // The workspace owns the loaded window; the grid reports when the user
+    // gets within LAZY_EDGE_PX of either edge of the loaded data. Pinned mode
+    // scrolls the internal virtual strip, unpinned — the external scroller.
+    // The stencil strip appears ASYNC after mount — poll until it exists,
+    // otherwise the listener silently sticks to the wrong element forever.
+    const lazyTargetRef = useRef<HTMLElement | null>(null);
+    useEffect(() => {
+        if (!onNearBottom && !onNearTop) return;
+        let target: HTMLElement | null = null;
+        let detached = false;
+        const observer = new ResizeObserver(() => check());
+        const getTarget = (): HTMLElement | null => {
+            if (headerPinned) {
+                // The internal strip renders async — null until then. No
+                // fallback: the external scroller never scrolls in pinned
+                // mode, and attaching to it would silence the watcher.
+                return gridRef.current?.querySelector(
+                    "revogr-scroll-virtual.vertical",
+                ) as HTMLElement | null;
+            }
+            return verticalScrollRef.current;
+        };
+        const check = () => {
+            const el = target;
+            if (!el) return;
+            // No overflow yet (the spacer is not measured, or everything fits)
+            // — nothing to approach.
+            if (el.scrollHeight <= el.clientHeight) return;
+            if (hasMoreBottom && el.scrollHeight - el.scrollTop - el.clientHeight < LAZY_EDGE_PX) {
+                onNearBottom?.();
+            }
+            if (hasMoreTop && el.scrollTop < LAZY_EDGE_PX) {
+                onNearTop?.();
+            }
+        };
+        const onScroll = () => check();
+        const attach = () => {
+            if (detached) return;
+            const desired = getTarget();
+            if (desired && desired !== target) {
+                target = desired;
+                lazyTargetRef.current = desired;
+                target.addEventListener("scroll", onScroll, { passive: true });
+                observer.observe(target);
+                check();
+            }
+            if (!target) setTimeout(attach, 150);
+        };
+        attach();
+        return () => {
+            detached = true;
+            if (target) target.removeEventListener("scroll", onScroll);
+            observer.disconnect();
+        };
+    }, [hasMoreBottom, hasMoreTop, headerPinned, onNearBottom, onNearTop, displaySource]);
+
+    // After a window slide (rows prepended or evicted from the top) the scroll
+    // position must move by the same height, or the viewport jumps. The
+    // virtual spacer resizes asynchronously (stencil) — apply on the next
+    // frame and retry while the value is being clamped.
+    useEffect(() => {
+        if (!scrollCompensation || scrollCompensation.deltaRows === 0) return;
+        const delta = scrollCompensation.deltaRows * 36;
+        let attempts = 0;
+        const apply = () => {
+            const el =
+                lazyTargetRef.current ??
+                (headerPinned
+                    ? (gridRef.current?.querySelector(
+                          "revogr-scroll-virtual.vertical",
+                      ) as HTMLElement | null)
+                    : verticalScrollRef.current);
+            if (!el) return;
+            const before = el.scrollTop;
+            el.scrollTop = before + delta;
+            if (el.scrollTop !== before + delta && attempts < 3) {
+                attempts += 1;
+                requestAnimationFrame(apply);
+            }
+        };
+        const frame = requestAnimationFrame(apply);
+        return () => cancelAnimationFrame(frame);
+    }, [scrollCompensation, headerPinned]);
+
+    // After a structural window load the workspace asks to jump to an edge:
+    // the working plan anchors at its TAIL (rows are appended at the end), the
+    // archive reads top-down.
+    useEffect(() => {
+        if (!scrollToEdge) return;
+        const edge = scrollToEdge.edge;
+        let attempts = 0;
+        const apply = () => {
+            const el = lazyTargetRef.current;
+            if (!el) return;
+            const target = edge === "bottom" ? el.scrollHeight - el.clientHeight : 0;
+            if (el.scrollTop !== target) {
+                el.scrollTop = target;
+                if (attempts < 5) {
+                    attempts += 1;
+                    requestAnimationFrame(apply);
+                }
+            }
+        };
+        const frame = requestAnimationFrame(apply);
+        return () => cancelAnimationFrame(frame);
+    }, [scrollToEdge]);
 
     function normalizeValue(value: unknown, field: RenovationField): NormalizeResult {
         if (field.cellType === "number") {
@@ -889,7 +1033,6 @@ function RenovationGridInner(
     function cellAllowed(field: RenovationField, row: RenovationGridRow): string | null {
         // null — allowed; a string is the skip reason.
         if (readOnly) return "таблица открыта только для просмотра";
-        if (row.isPlaceholder) return "добавление строки — выберите предприятие";
         if (field.isCalculated) return "расчётное поле";
         if (field.isReadOnly) return "поле доступно только для чтения";
         if (!editableFieldKeys.has(field.dbName)) return "поле недоступно для редактирования";
@@ -900,15 +1043,6 @@ function RenovationGridInner(
     }
 
     function beforeEditStart(event: CustomEvent<BeforeSaveDataDetails>) {
-        if (event.detail.prop === ASSET_COLUMN_PROP) {
-            const row = event.detail.model as RenovationGridRow;
-            if (readOnly || !row.isPlaceholder) {
-                event.preventDefault();
-                return;
-            }
-            // The placeholder row takes no lease.
-            return;
-        }
         const field = fieldByDbName.get(String(event.detail.prop));
         const row = event.detail.model as RenovationGridRow;
         const reason = field ? cellAllowed(field, row) : "поле недоступно для редактирования";
@@ -932,15 +1066,6 @@ function RenovationGridInner(
     }
 
     function beforeEdit(event: CustomEvent<BeforeSaveDataDetails>) {
-        if (event.detail.prop === ASSET_COLUMN_PROP) {
-            const row = event.detail.model as RenovationGridRow;
-            if (readOnly || !row.isPlaceholder) {
-                event.preventDefault();
-                return;
-            }
-            event.detail.val = String(event.detail.val ?? "").trim();
-            return;
-        }
         const field = fieldByDbName.get(String(event.detail.prop));
         const row = event.detail.model as RenovationGridRow;
         if (!field) {
@@ -1025,10 +1150,8 @@ function RenovationGridInner(
 
     function extractEdits(detail: BeforeSaveDataDetails | Record<string, unknown>): {
         updates: CellUpdate[];
-        placeholderPatch: Record<string, unknown>;
     } {
         const updates: CellUpdate[] = [];
-        const placeholderPatch: Record<string, unknown> = {};
         if ("data" in detail) {
             const models = (detail as { models?: RenovationGridRow[] }).models ?? [];
             for (const [rowIndex, patch] of Object.entries(
@@ -1039,11 +1162,6 @@ function RenovationGridInner(
                 if (!row?.__id || row.__rowState === "deleted") continue;
                 const known = rowValuesRef.current.get(row.__id);
                 for (const [field, value] of Object.entries(patch)) {
-                    if (row.isPlaceholder) {
-                        if (field === ASSET_COLUMN_PROP)
-                            placeholderPatch[field] = toCellValue(value);
-                        continue;
-                    }
                     if (!editableFieldKeys.has(field)) continue;
                     if (known && known[field] === value) continue;
                     updates.push({ rowId: row.__id, field, value: toCellValue(value) });
@@ -1053,19 +1171,17 @@ function RenovationGridInner(
             const field = String(detail.prop);
             const row = detail.model as RenovationGridRow;
             if (!row?.__id || row.__rowState === "deleted") {
-                return { updates, placeholderPatch };
+                return { updates };
             }
-            if (row.isPlaceholder) {
-                if (field === ASSET_COLUMN_PROP) placeholderPatch[field] = toCellValue(detail.val);
-            } else if (editableFieldKeys.has(field)) {
+            if (editableFieldKeys.has(field)) {
                 updates.push({ rowId: row.__id, field, value: toCellValue(detail.val) });
             }
         }
-        return { updates: deduplicateUpdates(updates), placeholderPatch };
+        return { updates: deduplicateUpdates(updates) };
     }
 
     function afterEdit(event: CustomEvent<BeforeSaveDataDetails | Record<string, unknown>>) {
-        const { updates, placeholderPatch } = extractEdits(event.detail);
+        const { updates } = extractEdits(event.detail);
         const releaseKeys: string[] = [];
         if ("data" in event.detail) {
             const models = (event.detail as { models?: RenovationGridRow[] }).models ?? [];
@@ -1073,7 +1189,7 @@ function RenovationGridInner(
                 event.detail.data as Record<string, Record<string, unknown>>,
             )) {
                 const row = (models[Number(rowIndex)] ?? patch) as RenovationGridRow;
-                if (!row?.__id || row.__rowState === "deleted" || row.isPlaceholder) continue;
+                if (!row?.__id || row.__rowState === "deleted") continue;
                 for (const field of Object.keys(patch)) {
                     if (editableFieldKeys.has(field)) {
                         releaseKeys.push(canonicalRenovationKey(row.__id, field));
@@ -1083,18 +1199,14 @@ function RenovationGridInner(
         } else {
             const row = event.detail.model as RenovationGridRow;
             const key =
-                row && !row.isPlaceholder && row.__id
+                row && row.__id
                     ? canonicalRenovationKey(row.__id, String(event.detail.prop))
                     : null;
             if (key) releaseKeys.push(key);
         }
         void (async () => {
             try {
-                const assetName = placeholderPatch[ASSET_COLUMN_PROP];
-                if (typeof assetName === "string" && assetName) {
-                    const ok = await onPlaceholderCommit(assetName);
-                    if (!ok) onCommitFailed();
-                } else if (updates.length > 0) {
+                if (updates.length > 0) {
                     const ok = await onCommit(updates);
                     if (!ok) onCommitFailed();
                 }
@@ -1113,9 +1225,7 @@ function RenovationGridInner(
 
     const getVisibleRowIds = useCallback(async (): Promise<string[]> => {
         const visible = await getVisibleRows();
-        return visible
-            .filter((row) => !row.isPlaceholder && row.__rowState !== "deleted")
-            .map((row) => row.__id);
+        return visible.filter((row) => row.__rowState !== "deleted").map((row) => row.__id);
     }, [getVisibleRows]);
 
     const applyGridRange = useCallback(
@@ -1403,8 +1513,7 @@ function RenovationGridInner(
             }
             const first = positions[0]!;
             const last = positions[positions.length - 1]!;
-            const label =
-                first === last ? `строка ${first + 1}` : `строки ${first + 1}–${last + 1}`;
+            const label = first === last ? `строка ${first}` : `строки ${first}–${last}`;
             onSelectionChange({
                 label,
                 cellKeys: [],
@@ -1421,7 +1530,7 @@ function RenovationGridInner(
         const rangeRows: RenovationGridRow[] = [];
         for (let y = selectionRange.y; y <= selectionRange.y1 && y < displaySource.length; y += 1) {
             const row = displaySource[y];
-            if (row && !row.isPlaceholder) rangeRows.push(row);
+            if (row) rangeRows.push(row);
         }
         const firstRow = rangeRows[0];
         const lastRow = rangeRows[rangeRows.length - 1];
@@ -1441,7 +1550,7 @@ function RenovationGridInner(
         const cellKeys: string[] = [];
         for (let y = selectionRange.y; y <= selectionRange.y1 && y < displaySource.length; y += 1) {
             const row = displaySource[y];
-            if (!row || row.isPlaceholder) continue;
+            if (!row) continue;
             for (let x = selectionRange.x; x <= selectionRange.x1; x += 1) {
                 const column = columns[x] as ColumnRegular | undefined;
                 if (!column || column.prop === undefined) continue;
