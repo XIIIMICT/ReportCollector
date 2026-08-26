@@ -145,6 +145,7 @@ async def _seed_session(session: AsyncSession) -> None:
                 business_plan_usd_per_ton=200.0,
                 business_plan_rub_per_ton=20000.0,
                 delivery_cost_rub=500.0,
+                storage_standard_tons=50.0,
                 created_at=now,
                 updated_at=now,
             )
@@ -163,7 +164,6 @@ async def _seed_session(session: AsyncSession) -> None:
             balance_on_site_tons=5.0,
             balance_in_transit_tons=2.0,
             balance_end_tons=1.0,
-            storage_standard_tons=50.0,
             deviation_reason="Недопоставка",
             created_at=now,
             updated_at=now - timedelta(hours=1),

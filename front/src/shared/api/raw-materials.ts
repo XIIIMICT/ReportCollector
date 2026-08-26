@@ -93,6 +93,7 @@ export type PriceRow = {
     key: string;
     rawMaterialId: string;
     rawMaterialName: string;
+    storageStandardTons: number | null;
     updatedAt: string;
     updatedBy: string;
 };

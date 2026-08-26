@@ -110,7 +110,6 @@ class MaterialMovement(SQLModel, table=True):
     balance_on_site_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     balance_in_transit_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     balance_end_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
-    storage_standard_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     deviation_reason: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
@@ -148,11 +147,14 @@ class RawMaterialPrice(SQLModel, table=True):
     business_plan_usd_per_ton: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     business_plan_rub_per_ton: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     delivery_cost_rub: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
+    storage_standard_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
     business_plan_updated_at: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
     business_plan_updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    storage_standard_updated_at: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    storage_standard_updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
 
 
 class ReportSnapshot(SQLModel, table=True):

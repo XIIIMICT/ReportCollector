@@ -45,9 +45,8 @@ COMPLETENESS_FIELDS = (
     "balance_on_site_tons",
     "balance_in_transit_tons",
     "balance_end_tons",
-    "storage_standard_tons",
 )
-"""«Движение» fields required for fixing (without deviation_reason)."""
+"""«Движение» fields required for fixing (without deviation_reason and storage_standard_tons, which live in prices)."""
 
 
 class ApprovalError(Exception):
@@ -65,6 +64,8 @@ ERR_NEXT_MONTH = "Не удалось открыть следующий отчё
 
 def _movement_row_complete(row: MaterialMovement, price: RawMaterialPrice | None) -> bool:
     if price is None or price.business_plan_quantity_tons is None:
+        return False
+    if price.storage_standard_tons is None:
         return False
     if not (row.deviation_reason or "").strip():
         return False
@@ -184,7 +185,7 @@ async def fix_report(
                 balance_on_site_tons=row.balance_on_site_tons,
                 balance_in_transit_tons=row.balance_in_transit_tons,
                 balance_end_tons=row.balance_end_tons,
-                storage_standard_tons=row.storage_standard_tons,
+                storage_standard_tons=price.storage_standard_tons,
                 deviation_reason=row.deviation_reason,
             )
         )

@@ -316,7 +316,6 @@ def _movement_values(index: int) -> dict[str, Any]:
         "balance_on_site_tons": 290.0 + (index % 4) * 60.0,
         "balance_in_transit_tons": 120.0 + (index % 3) * 25.0,
         "balance_end_tons": 310.0 + (index % 6) * 50.0,
-        "storage_standard_tons": 950.0 + (index % 10) * 40.0,
         "deviation_reason": "Плановая потребность производства",
     }
 
@@ -786,6 +785,7 @@ async def seed(session: AsyncSession) -> None:
                 asset_raw_material_id=arm.id,
                 delivery_basis_id=bases[DEFAULT_DELIVERY_BASIS].id,
                 business_plan_quantity_tons=_price_business_plan_tons(arm_index),
+                storage_standard_tons=950.0 + (arm_index % 10) * 40.0,
                 created_at=now,
                 updated_at=now,
             )

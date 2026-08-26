@@ -42,7 +42,6 @@ async def _fill_month(session: AsyncSession, report_month: date) -> None:
         row.balance_on_site_tons = 5.0
         row.balance_in_transit_tons = 2.0
         row.balance_end_tons = 1.0
-        row.storage_standard_tons = 50.0
         row.deviation_reason = "Недопоставка"
         row.updated_at = now
     await session.flush()

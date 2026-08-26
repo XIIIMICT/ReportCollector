@@ -123,7 +123,8 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
         number("balanceOnSiteTons", "На площадке, т", 145, ["Остатки"]),
         number("balanceInTransitTons", "В пути, т", 120, ["Остатки"]),
         number("balanceEndTons", "На конец периода, т", 160, ["Остатки"]),
-        number("storageStandardTons", "Норматив хранения, т", 170),
+        // The storage standard is filled in the «Цены» form and projected here as read-only.
+        { ...fixed("storageStandardTons", "Норматив хранения, т", 170), kind: "number" },
         text("deviationReason", "Причина отклонения", 260),
     ],
     rawMaterialPrices: [
@@ -135,6 +136,7 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
         number("businessPlanUsdPerTon", "USD / т", 130, ["Бизнес-план 2026"]),
         number("businessPlanRubPerTon", "руб. / т", 130, ["Бизнес-план 2026"]),
         number("deliveryCostRub", "Стоимость доставки, руб.", 190, ["Бизнес-план 2026"]),
+        number("storageStandardTons", "Норматив хранения, т", 170),
     ],
     rawMaterials: [
         text("name", "Сырьевая позиция", 430),

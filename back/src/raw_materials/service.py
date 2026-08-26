@@ -172,7 +172,7 @@ async def read_movement_rows(
                 balanceOnSiteTons=movement.balance_on_site_tons,
                 balanceInTransitTons=movement.balance_in_transit_tons,
                 balanceEndTons=movement.balance_end_tons,
-                storageStandardTons=movement.storage_standard_tons,
+                storageStandardTons=price.storage_standard_tons,
                 deviationReason=movement.deviation_reason,
                 createdAt=arm.created_at,
                 updatedAt=updated_at,
@@ -412,16 +412,20 @@ def movement_audit(
     price: RawMaterialPrice,
 ) -> tuple[datetime, str]:
     """
-    «Движение» row audit: takes the fresher edit from movement or prices.
+    «Движение» row audit: takes the freshest edit from movement or prices.
 
     In SQLite this is a CASE string comparison; in Postgres
     business_plan_updated_at is TEXT (may hold the '<УГАДАЙТЕ>' stub), so
     invalid values are treated as "not updated" and the movement audit wins.
     """
+    candidates: list[tuple[datetime, str]] = [(movement.updated_at, movement.updated_by)]
     plan_updated_at = parse_datetime_or_none(price.business_plan_updated_at)
-    if plan_updated_at is not None and plan_updated_at > movement.updated_at:
-        return plan_updated_at, price.business_plan_updated_by
-    return movement.updated_at, movement.updated_by
+    if plan_updated_at is not None:
+        candidates.append((plan_updated_at, price.business_plan_updated_by))
+    storage_updated_at = parse_datetime_or_none(price.storage_standard_updated_at)
+    if storage_updated_at is not None:
+        candidates.append((storage_updated_at, price.storage_standard_updated_by))
+    return max(candidates, key=lambda c: c[0])
 
 
 def parse_datetime_or_none(value: str | None) -> datetime | None:
@@ -468,13 +472,13 @@ MOVEMENT_CELL_FIELDS: dict[str, str] = {
     "balanceOnSiteTons": "balance_on_site_tons",
     "balanceInTransitTons": "balance_in_transit_tons",
     "balanceEndTons": "balance_end_tons",
-    "storageStandardTons": "storage_standard_tons",
     "deviationReason": "deviation_reason",
 }
 
-# «Движение» form fields written into RawMaterialPrice (business plan).
+# «Движение» form fields written into RawMaterialPrice (business plan, storage standard).
 MOVEMENT_PRICE_FIELDS: dict[str, str] = {
     "businessPlanTons": "business_plan_quantity_tons",
+    "storageStandardTons": "storage_standard_tons",
 }
 
 # «Цены» form fields written into RawMaterialPrice.
@@ -484,6 +488,7 @@ PRICE_CELL_FIELDS: dict[str, str] = {
     "businessPlanUsdPerTon": "business_plan_usd_per_ton",
     "businessPlanRubPerTon": "business_plan_rub_per_ton",
     "deliveryCostRub": "delivery_cost_rub",
+    "storageStandardTons": "storage_standard_tons",
 }
 
 
@@ -547,8 +552,12 @@ async def update_movement_cells(
             if new_value == old_value:
                 continue
             setattr(price, column, new_value)
-            price.business_plan_updated_at = datetime.now(UTC).isoformat()
-            price.business_plan_updated_by = user.name or user.email or ""
+            if field == "businessPlanTons":
+                price.business_plan_updated_at = datetime.now(UTC).isoformat()
+                price.business_plan_updated_by = user.name or user.email or ""
+            elif field == "storageStandardTons":
+                price.storage_standard_updated_at = datetime.now(UTC).isoformat()
+                price.storage_standard_updated_by = user.name or user.email or ""
             session.add(price)
         else:
             message = f"Неизвестное поле «{field}» формы «Движение»."
@@ -674,8 +683,12 @@ async def apply_cell_value(
         if field in MOVEMENT_PRICE_FIELDS:
             price = await _movement_price(session, movement)
             setattr(price, MOVEMENT_PRICE_FIELDS[field], value)
-            price.business_plan_updated_at = now.isoformat()
-            price.business_plan_updated_by = updated_by
+            if field == "businessPlanTons":
+                price.business_plan_updated_at = now.isoformat()
+                price.business_plan_updated_by = updated_by
+            elif field == "storageStandardTons":
+                price.storage_standard_updated_at = now.isoformat()
+                price.storage_standard_updated_by = updated_by
             session.add(price)
         elif field in MOVEMENT_CELL_FIELDS:
             setattr(movement, MOVEMENT_CELL_FIELDS[field], value)
@@ -837,7 +850,6 @@ def _arm_rows_have_data(movements: list[MaterialMovement], price: RawMaterialPri
         "balance_on_site_tons",
         "balance_in_transit_tons",
         "balance_end_tons",
-        "storage_standard_tons",
         "deviation_reason",
     )
     for row in movements:
@@ -851,6 +863,7 @@ def _arm_rows_have_data(movements: list[MaterialMovement], price: RawMaterialPri
         "business_plan_usd_per_ton",
         "business_plan_rub_per_ton",
         "delivery_cost_rub",
+        "storage_standard_tons",
     )
     return any(getattr(price, field) is not None for field in price_fields)
 
