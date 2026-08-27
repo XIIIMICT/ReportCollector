@@ -788,16 +788,14 @@ export function RenovationWorkspace({
         [assetFilter],
     );
 
-    const isArchive = viewPlanId !== null;
-    // The collab room (and thus the form status) stays active for the working
-    // plan and for the pending («на согласовании») version — viewing it is
-    // still a live collaborative form even though it is read-only here (it's
-    // edited by the block owners). Only the approved (archived) version has no
-    // room/status.
+    // A selected version is read-only («archive») only when it is the approved
+    // one. The pending («на согласовании») version is still edited by the block
+    // owners/admins, so it keeps the collab room, editing and undo/redo.
     const isArchivedView =
         viewPlanId !== null &&
         (versions?.find((version) => version.id === viewPlanId)?.state ?? "archived") ===
             "archived";
+    const isArchive = isArchivedView;
     const collabEnabled = !isArchivedView;
 
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
@@ -1776,8 +1774,29 @@ export function RenovationWorkspace({
     // Dictionary tabs: export/undo/redo/copy/paste act on the dictionary grid;
     // delete is delegated by the active dictionary section (hidden for users).
     const dictActions: ActionItem[] = [
-        ...undoRedoActions,
         ...clipboardActions,
+        ...undoRedoActions,
+        {
+            id: "export",
+            label: "Скачать в Excel",
+            icon: <Download />,
+            onPress: () => dictExportState.onExport("all"),
+            disabled: exportPending || isFullscreenPending,
+            pending: exportPending,
+            group: "download",
+            menu: [
+                {
+                    id: "all",
+                    label: "Скачать всю таблицу",
+                    onPress: () => dictExportState.onExport("all"),
+                },
+                {
+                    id: "visible",
+                    label: "Скачать видимую таблицу",
+                    onPress: () => dictExportState.onExport("visible"),
+                },
+            ],
+        } satisfies ActionItem,
         ...(dictDeleteState.canDelete
             ? [
                   {

@@ -643,12 +643,16 @@ async def update_plan_cells(
     session_id: str,
 ) -> tuple[list[AppliedCell], list[RenovationCalculatedCellRead], list[RenovationIdRead]]:
     """
-    Apply working-plan cell edits, recalculate formula fields and the renovation ID, and write the edit journal (same transaction).
+    Apply plan cell edits, recalculate formula fields and the renovation ID, and write the edit journal (same transaction).
 
-    The returned lists contain the recalculated cells and IDs of every
-    touched row (published to the room; not journaled — they are derived).
+    The plan edited is the current working plan when one exists, otherwise the
+    pending («на согласовании») one — the block owners/admins keep refining it
+    until it is approved. The returned lists contain the recalculated cells and
+    IDs of every touched row (published to the room; not journaled — derived).
     """
     plan = await _plan_by_state(session, RPlanState.WORKING)
+    if plan is None:
+        plan = await _plan_by_state(session, RPlanState.PENDING_APPROVAL)
     if plan is None:
         raise _ERR_NO_WORKING_PLAN
     asset_ids = [asset.id for asset in assets]
