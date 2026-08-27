@@ -1,8 +1,8 @@
 ﻿"use client";
 
 import { Button, Dropdown, Label, Spinner } from "@heroui/react";
-import { Check, Collapse, Download, Expand, MoreHoriz } from "iconoir-react";
-import { type Key } from "react";
+import { Check, Collapse, Download, Expand, MoreHoriz, Refresh } from "iconoir-react";
+import { type Key, type ReactNode } from "react";
 
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 
@@ -130,20 +130,23 @@ export function ViewStrip({
                                   showServiceColumns,
                               )
                             : null}
-                        {menuItem("reset-column-widths", "Сброс ширины столбцов", false, true)}
+                        {menuItem(
+                            "reset-column-widths",
+                            "Сброс ширины столбцов",
+                            false,
+                            true,
+                            <Refresh aria-hidden="true" />,
+                        )}
                         {menuItem(
                             "reset-filters-sorting",
                             "Сброс всех фильтров и сортировок",
                             false,
                             true,
+                            <Refresh aria-hidden="true" />,
                         )}
                         <Dropdown.Item
                             id="fullscreen"
                             textValue={isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
-                            // HeroUI ships only a `danger` MenuItem variant; success is
-                            // reproduced the same way — color the label slot via the
-                            // theme's `--success` token.
-                            className="[&_[data-slot=label]]:text-success"
                         >
                             <span className="view-strip-menu-check">
                                 {isFullscreen ? (
@@ -162,12 +165,13 @@ export function ViewStrip({
         </div>
     );
 
-    /** Toggle/reset entry with a leading check for active toggles. */
-    function menuItem(id: string, label: string, active = false, danger = false) {
+    /** Toggle/reset entry. Toggles render a check when active; reset entries
+        render their explicit icon (width/filters reset) instead. */
+    function menuItem(id: string, label: string, active = false, danger = false, icon?: ReactNode) {
         return (
             <Dropdown.Item id={id} textValue={label} variant={danger ? "danger" : undefined}>
                 <span className="view-strip-menu-check">
-                    {active ? <Check aria-hidden="true" /> : null}
+                    {icon ?? (active ? <Check aria-hidden="true" /> : null)}
                 </span>
                 <Label>{label}</Label>
             </Dropdown.Item>

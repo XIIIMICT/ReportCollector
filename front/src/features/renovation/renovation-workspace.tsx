@@ -1296,8 +1296,10 @@ export function RenovationWorkspace({
             .filter((version) => version.state !== "working")
             .map((version) => ({
                 id: version.id,
-                name: `Версия ${VERSION_STATE_LABELS[version.state]} от ${formatVersionStamp(version.createdAt)}`,
-                description: version.createdBy,
+                // Main label is the state only ("Версия на согласовании" etc.);
+                // the description carries the date+time, like the «Сырьё» picker.
+                name: `Версия ${VERSION_STATE_LABELS[version.state]}`,
+                description: formatVersionStamp(version.createdAt),
             }));
     }, [versions]);
 
