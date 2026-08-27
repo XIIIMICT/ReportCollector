@@ -10,7 +10,6 @@ import {
     Select,
     Skeleton,
     Spinner,
-    Tabs,
     toast,
     Tooltip,
     Typography,
@@ -153,6 +152,69 @@ export function RenovationWorkspace({
     const [reloadKey, setReloadKey] = useState(0);
     const [assetFilter, setAssetFilter] = useState<string | null>(null);
     const [blockFilter, setBlockFilter] = useState<string | null>(null);
+    // Active section (plan vs dictionary) — declared early because the
+    // plan-window reset effect keys off it.
+    const [activeSection, setActiveSection] = useState<string>("plan");
+    const isPlanSection = activeSection === "plan";
+    // The block Select is hover-open with hover-close, same as every toolbar
+    // autocomplete. Closing is POINT-COORDINATE driven (document mousemove vs.
+    // the trigger/popover rects), not enter/leave timers — the open popover's
+    // overlay sits above the trigger and fires a spurious mouseleave, which is
+    // the flicker a structural handler caused.
+    const [blockFilterOpen, setBlockFilterOpen] = useState(false);
+    const blockFilterOpenRef = useRef(false);
+    const blockFilterWrapRef = useRef<HTMLDivElement | null>(null);
+    const blockFilterCloseRef = useRef<number | null>(null);
+    useEffect(() => {
+        blockFilterOpenRef.current = blockFilterOpen;
+    }, [blockFilterOpen]);
+    useEffect(() => {
+        function onMouseMove(event: MouseEvent) {
+            if (!blockFilterOpenRef.current) return;
+            const wrapper = blockFilterWrapRef.current;
+            const popover = document.querySelector<HTMLElement>(".plan-filters__popover");
+            const x = event.clientX;
+            const y = event.clientY;
+            // Use the whole wrapper rect, not the inner button (the button is
+            // smaller than the component — moving over its padding would fall
+            // outside and cause the in-component flicker).
+            const wRect = wrapper?.getBoundingClientRect();
+            const insideTrigger =
+                !!wRect &&
+                x >= wRect.left &&
+                x <= wRect.right &&
+                y >= wRect.top &&
+                y <= wRect.bottom;
+            const pRect = popover?.getBoundingClientRect();
+            const insidePopover =
+                !!pRect &&
+                x >= pRect.left &&
+                x <= pRect.right &&
+                y >= pRect.top &&
+                y <= pRect.bottom;
+            if (insideTrigger || insidePopover) {
+                if (blockFilterCloseRef.current !== null) {
+                    window.clearTimeout(blockFilterCloseRef.current);
+                    blockFilterCloseRef.current = null;
+                }
+                return;
+            }
+            if (blockFilterCloseRef.current === null) {
+                blockFilterCloseRef.current = window.setTimeout(() => {
+                    blockFilterCloseRef.current = null;
+                    setBlockFilterOpen(false);
+                }, 200);
+            }
+        }
+        document.addEventListener("mousemove", onMouseMove, { passive: true });
+        return () => {
+            document.removeEventListener("mousemove", onMouseMove);
+            if (blockFilterCloseRef.current !== null) {
+                window.clearTimeout(blockFilterCloseRef.current);
+                blockFilterCloseRef.current = null;
+            }
+        };
+    }, []);
     const { data: meta, error } = useAsyncData<RenovationMeta | null>(
         () => getRenovationMeta().catch(() => null),
         [metaReloadKey],
@@ -191,6 +253,15 @@ export function RenovationWorkspace({
     // Bumping the generation discards in-flight chunks.
     useEffect(() => {
         if (!meta) return;
+        // The window belongs to the plan section only; on a dictionary there is
+        // nothing to load and the working-plan read would 404 («Нет плана в
+        // состоянии working») into an error card over the dictionary.
+        if (!isPlanSection) {
+            setPlanError(null);
+            planWindowRef.current = null;
+            setPlanWindow(null);
+            return;
+        }
         const generation = ++windowGenerationRef.current;
         loadingBottomRef.current = false;
         loadingTopRef.current = false;
@@ -199,28 +270,41 @@ export function RenovationWorkspace({
         void (async () => {
             try {
                 if (viewPlanId) {
-                    const full = await getRenovationPlan(viewPlanId);
-                    if (!cancelled && generation === windowGenerationRef.current) {
-                        const next: PlanWindow = {
-                            id: full.id,
-                            rows: full.rows,
-                            start: 0,
-                            total: full.rows.length,
-                            baselineBoundary: full.baselineBoundary ?? null,
-                            complete: true,
-                        };
-                        planWindowRef.current = next;
-                        setPlanWindow(next);
-                        scrollToEdgeTokenRef.current += 1;
-                        setScrollToEdge({ edge: "top", token: scrollToEdgeTokenRef.current });
-                    }
-                } else if (meta?.workingPlanId == null) {
+                    // Archive/pending view: lazy-load a tail window too — a full
+                    // read of a ~94k-row plan is slow and fills memory. Reuse the
+                    // same getRenovationPlanRows(offset, limit, planId, asset)
+                    // path as the working window.
+                    const head = await getRenovationPlanRows(0, 1, viewPlanId, assetFilter);
+                    if (cancelled || generation !== windowGenerationRef.current) return;
+                    const total = head.total;
+                    const start = Math.max(0, total - WINDOW_CHUNK);
+                    const page = await getRenovationPlanRows(
+                        start,
+                        WINDOW_CHUNK,
+                        viewPlanId,
+                        assetFilter,
+                    );
+                    if (cancelled || generation !== windowGenerationRef.current) return;
+                    const next: PlanWindow = {
+                        id: page.id,
+                        rows: page.rows,
+                        start,
+                        total: page.total,
+                        baselineBoundary: page.baselineBoundary ?? null,
+                        complete: false,
+                    };
+                    planWindowRef.current = next;
+                    setPlanWindow(next);
+                    scrollToEdgeTokenRef.current += 1;
+                    setScrollToEdge({ edge: "bottom", token: scrollToEdgeTokenRef.current });
+                } else if (meta?.workingPlanId == null && isPlanSection) {
                     // No working plan — right after submit, or a cold load with
-                    // only pending/archived versions. Reading the working window
-                    // would 404 («Нет плана в состоянии working»), so auto-select
-                    // the pending plan (the most relevant) and let the effect
-                    // re-run its archive branch. With nothing to show, the grid
-                    // stays empty.
+                    // only pending/archived versions. Only on the plan section:
+                    // auto-select the pending plan (the most relevant) and let the
+                    // effect re-run its archive branch. Guarded by isPlanSection so
+                    // leaving into a dictionary (which resets viewPlanId to null)
+                    // doesn't re-select the pending plan and fight the reset — that
+                    // toggle (null ↔ pending) would loop past the update-depth guard.
                     const nextPlanId = meta?.pendingPlanId ?? null;
                     if (nextPlanId && nextPlanId !== viewPlanId) {
                         setViewPlanId(nextPlanId);
@@ -280,7 +364,7 @@ export function RenovationWorkspace({
         return () => {
             cancelled = true;
         };
-    }, [meta, viewPlanId, assetFilter]);
+    }, [meta, viewPlanId, assetFilter, isPlanSection]);
 
     // In-place reload (refresh()): re-read the current window, keep the anchor.
     // Only the WORKING view re-reads its window — when viewing an archive (or
@@ -427,7 +511,7 @@ export function RenovationWorkspace({
                     const page = await getRenovationPlanRows(
                         chunkStart,
                         WINDOW_CHUNK,
-                        undefined,
+                        viewPlanId ?? undefined,
                         assetFilter,
                     );
                     if (generation !== windowGenerationRef.current) return;
@@ -445,7 +529,7 @@ export function RenovationWorkspace({
                     const page = await getRenovationPlanRows(
                         chunkStart,
                         base.start - chunkStart,
-                        undefined,
+                        viewPlanId ?? undefined,
                         assetFilter,
                     );
                     if (generation !== windowGenerationRef.current) return;
@@ -462,7 +546,7 @@ export function RenovationWorkspace({
                 // Chunk fetch failed — the next edge approach retries.
             }
         },
-        [applyWindowChunk, assetFilter],
+        [applyWindowChunk, assetFilter, viewPlanId],
     );
 
     const handleNearBottom = useCallback(() => {
@@ -506,7 +590,6 @@ export function RenovationWorkspace({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isFullscreenPending, setIsFullscreenPending] = useState(false);
     const [gridStats, setGridStats] = useState<GridViewStats | null>(null);
-    const [activeSection, setActiveSection] = useState<string>("plan");
     const [selection, setSelection] = useState<{
         label: string | null;
         cellKeys: string[];
@@ -587,8 +670,11 @@ export function RenovationWorkspace({
     const isAdmin = isProjectAdmin(activeProject) || roles.includes("admin");
     const isApprover = roles.includes("approver");
     const isBlockOwner = roles.includes("block_owner");
-    const canSubmit = isAdmin || isBlockOwner;
-    const canApprove = isAdmin || isApprover;
+    // The admin role is stripped of both the submit and the approve actions —
+    // they belong to the block_owner / approver roles, so an admin sees neither
+    // button (they manage access, not the plan workflow).
+    const canSubmit = isBlockOwner;
+    const canApprove = isApprover;
 
     // The backend derives the responsibility block from the user-role link
     // (empty only for the central roles) and rejects edits outside it. The
@@ -631,9 +717,9 @@ export function RenovationWorkspace({
     // «Сырьё» workspace. The dictionaries are admin-only.
     const sections = useMemo(() => {
         if (!meta) return [];
-        if (!isAdmin) return [{ id: "plan", label: "Ремонт" }];
+        if (!isAdmin) return [{ id: "plan", label: "Пообъектовый план" }];
         return [
-            { id: "plan", label: "Ремонт" },
+            { id: "plan", label: "Пообъектовый план" },
             { id: "assets", label: "Предприятия" },
             ...meta.catalogs.map((catalog) => ({ id: catalog.id, label: catalog.label })),
             { id: "users", label: "Пользователи" },
@@ -646,7 +732,26 @@ export function RenovationWorkspace({
         }
     }, [activeSection, sections]);
 
-    const isPlanSection = activeSection === "plan";
+    // Stable item list for the section Autocomplete — a fresh array reference
+    // on every render makes HeroUI's controlled Autocomplete re-sync in an
+    // effect (item-map rebuild), which setStates → re-renders → loop.
+    const sectionOptions = useMemo(
+        () => sections.map((section) => ({ id: section.id, name: section.label })),
+        [sections],
+    );
+
+    // Guard the controlled echo: a selection with the same key must be a no-op,
+    // otherwise HeroUI's Autocomplete re-dispatches it on re-render → infinite
+    // setState. Memoized so the callback identity is stable across renders too.
+    const handleSectionChange = useCallback(
+        (key: string | null) => {
+            const next = key && sections.some((section) => section.id === key) ? String(key) : null;
+            if (next && next !== activeSection) {
+                setActiveSection(next);
+            }
+        },
+        [activeSection, sections],
+    );
 
     // The collab room joins the active section: the plan (renovationPlan) or
     // the dictionary tab (renovationAssets / renovationCatalog:{id} /
@@ -1337,7 +1442,7 @@ export function RenovationWorkspace({
         );
     }
 
-    if (planError) {
+    if (isPlanSection && planError) {
         return (
             <div className="app-shell">
                 <AppHeader
@@ -1361,7 +1466,10 @@ export function RenovationWorkspace({
         );
     }
 
-    if (!meta || !planWindow) {
+    // meta is foundational for every section; the plan window belongs to the
+    // plan section only — a dictionary renders its own grid, so a null plan
+    // window must not show the plan loading screen over it.
+    if (!meta) {
         return (
             <div className="app-shell">
                 <AppHeader
@@ -1374,7 +1482,7 @@ export function RenovationWorkspace({
                 <div className="app-body">
                     <div className="flex items-center gap-3 p-8">
                         <Spinner size="sm" />
-                        <Typography>Загрузка плана ремонта...</Typography>
+                        <Typography>Загрузка...</Typography>
                     </div>
                     <Skeleton className="h-48 rounded-xl" />
                 </div>
@@ -1383,118 +1491,126 @@ export function RenovationWorkspace({
     }
 
     // Filters (plan only) — between the version picker and the right controls.
+    // Filter by asset (plan only) — in the toolbar after the block tabs.
     const planFilters = isPlanSection ? (
-        <>
-            <div className="plan-filters__asset">
-                <SearchAutocomplete
-                    placeholder="Все активы"
-                    compactLabel="Актив"
-                    items={[
-                        { id: "__all", name: "Все активы" },
-                        ...meta.assets.map((asset) => ({
-                            id: asset.name,
-                            name: asset.name,
-                        })),
-                    ]}
-                    selectedKey={assetFilter ?? "__all"}
-                    onSelectionChange={(key) =>
-                        setAssetFilter(key && key !== "__all" ? String(key) : null)
-                    }
-                />
-            </div>
-            <Select
-                className="plan-filters__block"
-                aria-label="Фильтр по блоку"
-                selectionMode="single"
-                variant="secondary"
-                selectedKey={blockFilter ?? "__all"}
+        <div className="plan-filters__asset">
+            <SearchAutocomplete
+                placeholder="Все активы"
+                compactLabel="Актив"
+                items={[
+                    { id: "__all", name: "Все активы" },
+                    ...meta.assets.map((asset) => ({
+                        id: asset.name,
+                        name: asset.name,
+                    })),
+                ]}
+                selectedKey={assetFilter ?? "__all"}
                 onSelectionChange={(key) =>
-                    setBlockFilter(key && key !== "__all" ? String(key) : null)
+                    setAssetFilter(key && key !== "__all" ? String(key) : null)
                 }
-            >
-                <Select.Trigger>
-                    <Select.Value />
-                    <Select.Indicator />
-                </Select.Trigger>
-                <Select.Popover className="plan-filters__popover">
-                    <ListBox>
-                        <ListBox.Item id="__all" textValue="Все блоки">
-                            Все блоки
-                        </ListBox.Item>
-                        {blocks.map((block) => (
-                            <ListBox.Item
-                                key={block}
-                                id={block}
-                                textValue={BLOCK_LABELS[block] ?? block}
-                            >
-                                {BLOCK_LABELS[block] ?? block}
-                            </ListBox.Item>
-                        ))}
-                    </ListBox>
-                </Select.Popover>
-            </Select>
-        </>
+            />
+        </div>
     ) : null;
 
-    // «Рабочая версия» / version picker — moved into the toolbar.
+    // «Рабочая версия» / version picker — moved into the toolbar. It stays
+    // mounted across section switches so its collapse/expand can animate
+    // (width + opacity transition); the `is-hidden` class hides and drops it
+    // out of the tab order when the section has no versions to pick from.
     const hasWorkingPlan = meta?.workingPlanId != null;
     const versionItems = archiveItems.length > 0 || hasWorkingPlan ? archiveItems : [];
-    const versionPicker =
-        isPlanSection && versionItems.length > 0 ? (
-            <div className="archive-autocomplete">
-                <SearchAutocomplete
-                    placeholder="Выберите версию"
-                    compactLabel="Архив"
-                    items={[
-                        ...(hasWorkingPlan
-                            ? [
-                                  {
-                                      id: WORKING_VERSION_ID,
-                                      name: "Рабочая версия",
-                                      description: "Доступна для редактирования",
-                                  },
-                              ]
-                            : []),
-                        ...archiveItems,
-                    ]}
-                    selectedKey={viewPlanId ?? WORKING_VERSION_ID}
-                    onSelectionChange={(key) => {
-                        if (key === null) return;
-                        archiveState.onSelect(key === WORKING_VERSION_ID ? null : String(key));
-                    }}
-                />
+    const showVersionPicker = isPlanSection && versionItems.length > 0;
+    const versionPicker = (
+        <div
+            className={
+                showVersionPicker
+                    ? "archive-autocomplete archive-autocomplete--visible"
+                    : "archive-autocomplete archive-autocomplete--hidden"
+            }
+            aria-hidden={showVersionPicker ? undefined : true}
+        >
+            <SearchAutocomplete
+                placeholder="Выберите версию"
+                compactLabel="Архив"
+                isDisabled={!showVersionPicker}
+                items={[
+                    ...(hasWorkingPlan
+                        ? [
+                              {
+                                  id: WORKING_VERSION_ID,
+                                  name: "Рабочая версия",
+                                  description: "Доступна для редактирования",
+                              },
+                          ]
+                        : []),
+                    ...archiveItems,
+                ]}
+                selectedKey={viewPlanId ?? WORKING_VERSION_ID}
+                onSelectionChange={(key) => {
+                    if (key === null) return;
+                    archiveState.onSelect(key === WORKING_VERSION_ID ? null : String(key));
+                }}
+            />
+        </div>
+    );
+
+    // Block filter as a Select (asset first, then block) — blocks are rare,
+    // so the compact popover wins over a tab row in the toolbar.
+    const blockFilterSelect =
+        isPlanSection && blocks.length > 0 ? (
+            <div
+                ref={blockFilterWrapRef}
+                className="plan-filters__block"
+                onMouseEnter={() => setBlockFilterOpen(true)}
+            >
+                <Select
+                    aria-label="Фильтр по блоку"
+                    selectionMode="single"
+                    variant="secondary"
+                    isOpen={blockFilterOpen}
+                    onOpenChange={setBlockFilterOpen}
+                    selectedKey={blockFilter ?? "__all"}
+                    onSelectionChange={(key) =>
+                        setBlockFilter(key && key !== "__all" ? String(key) : null)
+                    }
+                >
+                    <Select.Trigger>
+                        <Select.Value />
+                        <Select.Indicator />
+                    </Select.Trigger>
+                    <Select.Popover className="plan-filters__popover">
+                        <ListBox>
+                            <ListBox.Item id="__all" textValue="Все блоки">
+                                Все блоки
+                            </ListBox.Item>
+                            {blocks.map((block) => (
+                                <ListBox.Item
+                                    key={block}
+                                    id={block}
+                                    textValue={BLOCK_LABELS[block] ?? block}
+                                >
+                                    {BLOCK_LABELS[block] ?? block}
+                                </ListBox.Item>
+                            ))}
+                        </ListBox>
+                    </Select.Popover>
+                </Select>
             </div>
         ) : null;
 
     const toolbar = (
         <div className="table-toolbar">
-            <div className="table-toolbar__controls">
-                <Tabs
-                    className="section-tabs"
-                    selectedKey={activeSection}
-                    variant="primary"
-                    onSelectionChange={(key) => setActiveSection(String(key))}
-                >
-                    <Tabs.ListContainer>
-                        <Tabs.List aria-label="Таблицы и справочники">
-                            {sections.map((section, index) => {
-                                const previous = sections[index - 1];
-                                const isFirstDictionary =
-                                    index > 0 && section.id !== "plan" && previous.id === "plan";
-                                return (
-                                    <Tabs.Tab key={section.id} id={section.id}>
-                                        {isFirstDictionary ? <Tabs.Separator /> : null}
-                                        {section.label}
-                                        <Tabs.Indicator />
-                                    </Tabs.Tab>
-                                );
-                            })}
-                        </Tabs.List>
-                    </Tabs.ListContainer>
-                </Tabs>
-            </div>
             {versionPicker}
+            <div className="table-toolbar__controls">
+                <SearchAutocomplete
+                    placeholder="Форма"
+                    compactLabel="Форма"
+                    items={sectionOptions}
+                    selectedKey={activeSection}
+                    onSelectionChange={handleSectionChange}
+                />
+            </div>
             {planFilters}
+            {blockFilterSelect}
             <ViewStrip
                 headerPinned={isPlanSection ? planHeaderPinned : dictHeaderPinned}
                 onHeaderPinnedChange={isPlanSection ? setPlanHeaderPinned : setDictHeaderPinned}
@@ -1663,60 +1779,70 @@ export function RenovationWorkspace({
                             {toolbar}
                             <div className="grid-viewport" aria-busy={isMutationPending}>
                                 {isPlanSection ? (
-                                    <>
-                                        <RenovationGrid
-                                            ref={gridRef}
-                                            fields={meta.fields}
-                                            headerCells={meta.headerCells}
-                                            catalogs={meta.catalogs}
-                                            rows={displayRows}
-                                            assetFilter={assetFilterSet}
-                                            blockFilter={blockFilter}
-                                            baselineBoundary={planWindow.baselineBoundary}
-                                            readOnly={readOnly}
-                                            editableFieldKeys={editableFieldKeys}
-                                            userAssetIds={userAssetIds}
-                                            remoteLocks={remoteLocks}
-                                            remotePresence={remotePresence}
-                                            remoteCellInfo={remoteCellInfo}
-                                            onAcquireLease={room.acquireLeases}
-                                            onReleaseLease={room.releaseLeases}
-                                            onLockedCellEdit={(_, ownerName) =>
-                                                toast.warning("Ячейка занята", {
-                                                    description: `Сейчас её занимает ${ownerName}.`,
-                                                })
-                                            }
-                                            onCommit={commit}
-                                            onCommitFailed={refresh}
-                                            onValidationError={(message) =>
-                                                toast.warning("Некорректное значение", {
-                                                    description: message,
-                                                })
-                                            }
-                                            onPasteSkipped={(description) =>
-                                                toast.warning("Вставка выполнена не полностью", {
-                                                    description,
-                                                })
-                                            }
-                                            onSelectionChange={handleSelectionChange}
-                                            onViewStatsChange={setGridStats}
-                                            onClipboardStateChange={handleClipboardState}
-                                            headerPinned={planHeaderPinned}
-                                            showServiceColumns={planServiceColumns}
-                                            hasMoreTop={hasMoreTop}
-                                            hasMoreBottom={hasMoreBottom}
-                                            onNearTop={handleNearTop}
-                                            onNearBottom={handleNearBottom}
-                                            scrollCompensation={scrollCompensation}
-                                            scrollToEdge={scrollToEdge}
-                                            totalRowsOverride={planWindow.total}
-                                        />
-                                        {displayRows.length === 0 ? (
-                                            <div className="grid-empty">
-                                                В этом плане пока нет строк.
-                                            </div>
-                                        ) : null}
-                                    </>
+                                    planWindow ? (
+                                        <>
+                                            <RenovationGrid
+                                                ref={gridRef}
+                                                fields={meta.fields}
+                                                headerCells={meta.headerCells}
+                                                catalogs={meta.catalogs}
+                                                rows={displayRows}
+                                                assetFilter={assetFilterSet}
+                                                blockFilter={blockFilter}
+                                                baselineBoundary={planWindow.baselineBoundary}
+                                                readOnly={readOnly}
+                                                editableFieldKeys={editableFieldKeys}
+                                                userAssetIds={userAssetIds}
+                                                remoteLocks={remoteLocks}
+                                                remotePresence={remotePresence}
+                                                remoteCellInfo={remoteCellInfo}
+                                                onAcquireLease={room.acquireLeases}
+                                                onReleaseLease={room.releaseLeases}
+                                                onLockedCellEdit={(_, ownerName) =>
+                                                    toast.warning("Ячейка занята", {
+                                                        description: `Сейчас её занимает ${ownerName}.`,
+                                                    })
+                                                }
+                                                onCommit={commit}
+                                                onCommitFailed={refresh}
+                                                onValidationError={(message) =>
+                                                    toast.warning("Некорректное значение", {
+                                                        description: message,
+                                                    })
+                                                }
+                                                onPasteSkipped={(description) =>
+                                                    toast.warning(
+                                                        "Вставка выполнена не полностью",
+                                                        {
+                                                            description,
+                                                        },
+                                                    )
+                                                }
+                                                onSelectionChange={handleSelectionChange}
+                                                onViewStatsChange={setGridStats}
+                                                onClipboardStateChange={handleClipboardState}
+                                                headerPinned={planHeaderPinned}
+                                                showServiceColumns={planServiceColumns}
+                                                hasMoreTop={hasMoreTop}
+                                                hasMoreBottom={hasMoreBottom}
+                                                onNearTop={handleNearTop}
+                                                onNearBottom={handleNearBottom}
+                                                scrollCompensation={scrollCompensation}
+                                                scrollToEdge={scrollToEdge}
+                                                totalRowsOverride={planWindow.total}
+                                            />
+                                            {displayRows.length === 0 ? (
+                                                <div className="grid-empty">
+                                                    В этом плане пока нет строк.
+                                                </div>
+                                            ) : null}
+                                        </>
+                                    ) : (
+                                        <div className="grid-empty">
+                                            <Spinner size="sm" />
+                                            <Typography>Загрузка плана ремонта...</Typography>
+                                        </div>
+                                    )
                                 ) : (
                                     <RenovationDictionarySection
                                         section={dictSection ?? RENOVATION_ASSETS_SECTION}

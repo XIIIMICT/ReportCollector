@@ -488,17 +488,23 @@ export function RenovationDictionarySection({
         }
     }
 
-    async function commitPlaceholderPatch(patch: Record<string, unknown>): Promise<boolean> {
-        if (isMutationPending) return true;
-        const next = { ...placeholderDraftRef.current, ...patch };
-        placeholderDraftRef.current = next;
-        setPlaceholderDraft(next);
-        const payload = placeholderPayload(dictSection, next);
-        // createRecord itself shows the error and keeps the placeholder-row draft,
-        // so no source rollback is needed.
-        if (payload) await createRecord(payload);
-        return true;
-    }
+    // Stable identity for the grid's `onPlaceholderCommit` (a `columns` memo
+    // dep): an inline/recreated function would rebuild columns on every render,
+    // which re-emits cell focus → fresh row-selection → parent setState → repeat.
+    const commitPlaceholderPatch = useCallback(
+        async function (patch: Record<string, unknown>): Promise<boolean> {
+            if (isMutationPending) return true;
+            const next = { ...placeholderDraftRef.current, ...patch };
+            placeholderDraftRef.current = next;
+            setPlaceholderDraft(next);
+            const payload = placeholderPayload(dictSection, next);
+            // createRecord itself shows the error and keeps the placeholder-row draft,
+            // so no source rollback is needed.
+            if (payload) await createRecord(payload);
+            return true;
+        },
+        [createRecord, dictSection, isMutationPending],
+    );
 
     async function deleteRecords() {
         if (!canDelete) return;
@@ -577,6 +583,26 @@ export function RenovationDictionarySection({
         return <div className="grid-empty">Не удалось загрузить справочник: {String(error)}</div>;
     }
 
+    // Stabilize the props we hand to the grid: the `columns` memo inside
+    // RawMaterialsGrid depends on `assets`/`deliveryBases`/`onPlaceholderCommit`,
+    // and the selection row-identity depends on `onSelectedRowsChange`. Passing
+    // fresh references each render rebuilds columns → RevoGrid re-emits cell
+    // focus → fresh row-selection → grid's selection effect calls this setter →
+    // re-render → fresh references again → infinite update-depth loop.
+    const assetOptions = useMemo(() => toAssetOptions(assets), [assets]);
+    const deliveryBasisOptions = useMemo(() => [] as { id: string; name: string }[], []);
+    const descriptorOptions = useMemo(() => catalogDescriptors(catalogId), [catalogId]);
+    const lastRowSelectionRef = useRef("");
+    const handleSelectedRowsChange = useCallback(
+        (selection: { ids: string[]; wholeRows: boolean }) => {
+            const content = selection.ids.join("\u0000");
+            if (content === lastRowSelectionRef.current) return;
+            lastRowSelectionRef.current = content;
+            setSelectedRowIds(selection.ids);
+        },
+        [],
+    );
+
     return (
         <>
             <RawMaterialsGrid
@@ -589,14 +615,14 @@ export function RenovationDictionarySection({
                 hasBaseline={false}
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}
-                assets={toAssetOptions(assets)}
-                deliveryBases={[]}
-                columnDescriptors={catalogDescriptors(catalogId)}
+                assets={assetOptions}
+                deliveryBases={deliveryBasisOptions}
+                columnDescriptors={descriptorOptions}
                 namespace={`renovation:${dictSection}`}
                 onCommit={commit}
                 onPlaceholderCommit={commitPlaceholderPatch}
                 onCommitFailed={refresh}
-                onSelectedRowsChange={(selection) => setSelectedRowIds(selection.ids)}
+                onSelectedRowsChange={handleSelectedRowsChange}
                 onValidationError={(message) =>
                     toast.warning("Некорректное значение", { description: message })
                 }

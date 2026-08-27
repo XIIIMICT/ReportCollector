@@ -1,0 +1,75 @@
+import { expect, test } from "@playwright/test";
+
+// Regression coverage for the toolbar hover-open autocompletes/selects
+// (version picker, section/asset/block filters):
+//  - hovering the trigger opens the popover,
+//  - the popover stays open while the pointer moves WITHIN the component and
+//    while it sits still (no open/close flicker — HeroUI draws an overlay above
+//    the trigger when the popover is open, so structural mouseleave timers loop),
+//  - it closes shortly after the pointer leaves the trigger and the popover.
+
+async function login(page: import("@playwright/test").Page) {
+    await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
+    await page.waitForURL(
+        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
+        { timeout: 20000 },
+    );
+    await page.locator("#username").fill("evtushenko");
+    await page.locator("#password").fill("TestPassword123");
+    await page.locator('button[type="submit"]').click();
+    await page.waitForURL(/127\.0\.0\.1:5000/, { timeout: 20000 });
+}
+
+async function switchToRenovation(page: import("@playwright/test").Page) {
+    await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 30000 });
+    const switcher = page.locator(".brand__edition--button");
+    await expect(switcher).toBeVisible();
+    if (!(await switcher.innerText()).includes("Ремонт")) {
+        await switcher.click();
+        await expect(page.locator("[data-slot=dropdown-menu]")).toBeVisible();
+        await page
+            .locator("[data-slot=dropdown-menu] [data-slot=menu-item]", { hasText: "Ремонт" })
+            .click();
+    }
+    await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 40000 });
+}
+
+test("version autocomplete: hover opens, stays open moving within, closes after leaving", async ({
+    page,
+}) => {
+    await login(page);
+    await switchToRenovation(page);
+    await page.waitForTimeout(1000);
+
+    const trigger = page.locator(".archive-autocomplete").first().locator("button").first();
+    await trigger.scrollIntoViewIfNeeded();
+    const box = await trigger.boundingBox();
+    expect(box).not.toBeNull();
+    const cx = box!.x + box!.width / 2;
+    const cy = box!.y + box!.height / 2;
+
+    // Open by hovering the trigger.
+    await page.mouse.move(cx, cy);
+    await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: 5000 });
+
+    // Must STAY open while moving within the component (10 scattered moves).
+    for (let i = 0; i < 10; i++) {
+        const ox = cx + ((i % 3) - 1) * 4;
+        const oy = cy + (((i + 1) % 3) - 1) * 3;
+        await page.mouse.move(ox, oy, { steps: 1 });
+        await page.waitForTimeout(100);
+        expect(await trigger.getAttribute("aria-expanded"), `closed at move ${i}`).toBe("true");
+    }
+    // And stays open while the pointer rests (no flicker).
+    const samples: boolean[] = [];
+    for (let i = 0; i < 20; i++) {
+        samples.push((await trigger.getAttribute("aria-expanded")) === "true");
+        await page.waitForTimeout(80);
+    }
+    const transitions = samples.filter((s, i) => i > 0 && s !== samples[i - 1]).length;
+    expect(transitions).toBe(0);
+
+    // Moving well away closes it shortly after.
+    await page.mouse.move(5, 5);
+    await expect(trigger).toHaveAttribute("aria-expanded", "false", { timeout: 6000 });
+});

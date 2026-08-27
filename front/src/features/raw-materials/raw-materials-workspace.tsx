@@ -1392,14 +1392,25 @@ export function RawMaterialsWorkspace({
     const deliveryBases = toReferenceOptions(meta.deliveryBases);
 
     // «Рабочая версия» / version picker — moved into the toolbar (raw and
-    // renovation show it for «Движение» / plan when an archive exists).
+    // renovation show it for «Движение» / plan when an archive exists). It
+    // stays mounted across tab switches so its collapse/expand can animate
+    // (width + opacity transition); `--hidden` drops it from the tab order
+    // when the current section has no versions to pick from.
     const showVersionPicker =
         selectedTab.section === "materialMovement" && archiveState.items.length > 0;
-    const versionPicker = showVersionPicker ? (
-        <div className="archive-autocomplete">
+    const versionPicker = (
+        <div
+            className={
+                showVersionPicker
+                    ? "archive-autocomplete archive-autocomplete--visible"
+                    : "archive-autocomplete archive-autocomplete--hidden"
+            }
+            aria-hidden={showVersionPicker ? undefined : true}
+        >
             <SearchAutocomplete
                 placeholder="Выберите версию"
                 compactLabel="Архив"
+                isDisabled={!showVersionPicker}
                 items={[
                     {
                         id: WORKING_VERSION_ID,
@@ -1415,10 +1426,11 @@ export function RawMaterialsWorkspace({
                 }}
             />
         </div>
-    ) : null;
+    );
 
     const toolbar = (
         <div className="table-toolbar">
+            {versionPicker}
             <div className="table-toolbar__controls">
                 <SectionTabs
                     tabs={tabs}
@@ -1426,7 +1438,6 @@ export function RawMaterialsWorkspace({
                     onChange={(tab) => setSelectedTabId(tab.id)}
                 />
             </div>
-            {versionPicker}
             <ViewStrip
                 headerPinned={headerPinned}
                 onHeaderPinnedChange={setHeaderPinned}
