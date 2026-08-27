@@ -214,6 +214,17 @@ export function RenovationWorkspace({
                         scrollToEdgeTokenRef.current += 1;
                         setScrollToEdge({ edge: "top", token: scrollToEdgeTokenRef.current });
                     }
+                } else if (meta?.workingPlanId == null) {
+                    // No working plan — right after submit, or a cold load with
+                    // only pending/archived versions. Reading the working window
+                    // would 404 («Нет плана в состоянии working»), so auto-select
+                    // the pending plan (the most relevant) and let the effect
+                    // re-run its archive branch. With nothing to show, the grid
+                    // stays empty.
+                    const nextPlanId = meta?.pendingPlanId ?? null;
+                    if (nextPlanId && nextPlanId !== viewPlanId) {
+                        setViewPlanId(nextPlanId);
+                    }
                 } else {
                     const head = await getRenovationPlanRows(0, 1, undefined, assetFilter);
                     if (cancelled || generation !== windowGenerationRef.current) return;
