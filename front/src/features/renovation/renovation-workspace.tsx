@@ -380,11 +380,11 @@ export function RenovationWorkspace({
     }, [meta, viewPlanId, assetFilter, isPlanSection]);
 
     // In-place reload (refresh()): re-read the current window, keep the anchor.
-    // Only the WORKING view re-reads its window — when viewing an archive (or
-    // right after submit, when the working plan is gone) the reset effect owns
-    // the load; re-reading the stale working window here would hit a 404.
+    // The working and the pending («на согласовании») views re-read their own
+    // window (so recalced cells like the renovation ID appear in place); only a
+    // read-only archive skips the re-read.
     useEffect(() => {
-        if (reloadKey === 0 || viewPlanId !== null) return;
+        if (reloadKey === 0 || isArchive) return;
         const base = planWindowRef.current;
         if (!base) return;
         const generation = windowGenerationRef.current;
@@ -410,7 +410,7 @@ export function RenovationWorkspace({
                     const page = await getRenovationPlanRows(
                         base.start,
                         limit,
-                        undefined,
+                        viewPlanId ?? undefined,
                         assetFilter,
                     );
                     if (!cancelled && generation === windowGenerationRef.current) {
