@@ -355,16 +355,32 @@ html {
 .table-toolbar__controls {
     display: flex;
     min-width: 0;
-    flex: 0 0 auto;
+    /* Grow into the free middle but shrink when the tabs are wide, so the
+       right cluster («Скачать в Excel» / «Вид таблицы») is never pushed off
+       the screen — the tabs compress (and clip internally) before pushing. */
+    flex: 1 1 auto;
     align-items: center;
     gap: 0.8rem;
     overflow: hidden;
 }
 
+/* The right cluster and the version picker are fixed-size: they must always
+   be present, so they never shrink to make room for the tabs. */
+.view-strip__actions,
+.archive-autocomplete {
+    flex-shrink: 0;
+}
 .section-tabs {
     width: 100%;
     min-width: 0;
     flex: 1;
+}
+
+/* Override the fixed-size `flex` the toolbar's blanket child rule applies:
+   the tab strip must be able to shrink so the right cluster always stays on
+   screen when the tabs are wide. */
+.table-toolbar > .table-toolbar__controls {
+    flex: 1 1 auto;
 }
 
 .section-tabs [role="tab"],
