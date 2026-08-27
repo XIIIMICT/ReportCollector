@@ -549,10 +549,10 @@ export function RenovationWorkspace({
         resetFiltersSorting: () => void;
     }>({ resetColumnWidths: () => {}, resetFiltersSorting: () => {} });
     // Display toggles for the active grid (rendered in the view strip). The
-    // plan grid starts pinned; dictionaries start unpinned, as before.
+    // Header pinning defaults on everywhere (plan and dictionaries).
     const [planHeaderPinned, setPlanHeaderPinned] = useState(true);
     const [planServiceColumns, setPlanServiceColumns] = useState(false);
-    const [dictHeaderPinned, setDictHeaderPinned] = useState(false);
+    const [dictHeaderPinned, setDictHeaderPinned] = useState(true);
     const [dictServiceColumns, setDictServiceColumns] = useState(false);
     const [pendingSkip, setPendingSkip] = useState<{
         actionId: number;
@@ -1570,6 +1570,7 @@ export function RenovationWorkspace({
                           setAddOpen(true);
                       },
                       disabled: readOnly || isFullscreenPending,
+                      group: "row" as const,
                   } satisfies ActionItem,
                   {
                       id: "delete",
@@ -1578,6 +1579,7 @@ export function RenovationWorkspace({
                       onPress: () => setDeleteOpen(true),
                       variant: "danger" as const,
                       disabled: !canDeleteRow || isFullscreenPending,
+                      group: "row" as const,
                   } satisfies ActionItem,
               ]
             : []),

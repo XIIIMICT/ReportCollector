@@ -1668,7 +1668,7 @@ export type ActionItem = {
      * Consecutive items sharing a group render joined in one HeroUI
      * ButtonGroup («Отменить/Вернуть», «Копировать/Вставить»).
      */
-    group?: "history" | "clipboard";
+    group?: "history" | "clipboard" | "row";
 };
 
 /** Chunk actions into ButtonGroup runs: consecutive items with equal `group`. */
