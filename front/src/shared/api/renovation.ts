@@ -62,7 +62,8 @@ export type RenovationMeta = {
 
 export type RenovationPlanVersion = {
     id: string;
-    state: "working" | "pendingApproval" | "archived";
+    /** Backend wire values (RPlanState): "pending_approval" is the pending one. */
+    state: "working" | "pending_approval" | "archived";
     baselineGeneration: number;
     rowCount: number;
     createdAt: string;

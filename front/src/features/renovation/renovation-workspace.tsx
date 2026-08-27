@@ -125,9 +125,9 @@ function formatVersionStamp(value: string): string {
     }).format(date);
 }
 
-const VERSION_STATE_LABELS: Record<RenovationPlanVersion["state"], string> = {
+const VERSION_STATE_LABELS: Record<string, string> = {
     working: "рабочая",
-    pendingApproval: "на согласовании",
+    pending_approval: "на согласовании",
     archived: "утверждённая",
 };
 
@@ -272,8 +272,11 @@ export function RenovationWorkspace({
     }, [meta, viewPlanId, assetFilter]);
 
     // In-place reload (refresh()): re-read the current window, keep the anchor.
+    // Only the WORKING view re-reads its window — when viewing an archive (or
+    // right after submit, when the working plan is gone) the reset effect owns
+    // the load; re-reading the stale working window here would hit a 404.
     useEffect(() => {
-        if (reloadKey === 0) return;
+        if (reloadKey === 0 || viewPlanId !== null) return;
         const base = planWindowRef.current;
         if (!base) return;
         const generation = windowGenerationRef.current;
@@ -323,7 +326,7 @@ export function RenovationWorkspace({
         return () => {
             cancelled = true;
         };
-    }, [reloadKey, assetFilter]);
+    }, [reloadKey, assetFilter, viewPlanId]);
 
     /** Merge a fetched chunk into the window; evict the far side when it overflows. */
     const applyWindowChunk = useCallback(
@@ -491,7 +494,6 @@ export function RenovationWorkspace({
     const [user, setUser] = useState(currentUser);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isFullscreenPending, setIsFullscreenPending] = useState(false);
-    const [footerAutocompleteOpen, setFooterAutocompleteOpen] = useState(false);
     const [gridStats, setGridStats] = useState<GridViewStats | null>(null);
     const [activeSection, setActiveSection] = useState<string>("plan");
     const [selection, setSelection] = useState<{
@@ -1369,15 +1371,92 @@ export function RenovationWorkspace({
         );
     }
 
+    // Filters (plan only) — between the version picker and the right controls.
+    const planFilters = isPlanSection ? (
+        <>
+            <div className="plan-filters__asset">
+                <SearchAutocomplete
+                    placeholder="Все активы"
+                    compactLabel="Актив"
+                    items={[
+                        { id: "__all", name: "Все активы" },
+                        ...meta.assets.map((asset) => ({
+                            id: asset.name,
+                            name: asset.name,
+                        })),
+                    ]}
+                    selectedKey={assetFilter ?? "__all"}
+                    onSelectionChange={(key) =>
+                        setAssetFilter(key && key !== "__all" ? String(key) : null)
+                    }
+                />
+            </div>
+            <Select
+                className="plan-filters__block"
+                aria-label="Фильтр по блоку"
+                selectionMode="single"
+                variant="secondary"
+                selectedKey={blockFilter ?? "__all"}
+                onSelectionChange={(key) =>
+                    setBlockFilter(key && key !== "__all" ? String(key) : null)
+                }
+            >
+                <Select.Trigger>
+                    <Select.Value />
+                    <Select.Indicator />
+                </Select.Trigger>
+                <Select.Popover className="plan-filters__popover">
+                    <ListBox>
+                        <ListBox.Item id="__all" textValue="Все блоки">
+                            Все блоки
+                        </ListBox.Item>
+                        {blocks.map((block) => (
+                            <ListBox.Item
+                                key={block}
+                                id={block}
+                                textValue={BLOCK_LABELS[block] ?? block}
+                            >
+                                {BLOCK_LABELS[block] ?? block}
+                            </ListBox.Item>
+                        ))}
+                    </ListBox>
+                </Select.Popover>
+            </Select>
+        </>
+    ) : null;
+
+    // «Рабочая версия» / version picker — moved into the toolbar.
+    const hasWorkingPlan = meta?.workingPlanId != null;
+    const versionItems = archiveItems.length > 0 || hasWorkingPlan ? archiveItems : [];
+    const versionPicker =
+        isPlanSection && versionItems.length > 0 ? (
+            <div className="archive-autocomplete">
+                <SearchAutocomplete
+                    placeholder="Выберите версию"
+                    compactLabel="Архив"
+                    items={[
+                        ...(hasWorkingPlan
+                            ? [
+                                  {
+                                      id: WORKING_VERSION_ID,
+                                      name: "Рабочая версия",
+                                      description: "Доступна для редактирования",
+                                  },
+                              ]
+                            : []),
+                        ...archiveItems,
+                    ]}
+                    selectedKey={viewPlanId ?? WORKING_VERSION_ID}
+                    onSelectionChange={(key) => {
+                        if (key === null) return;
+                        archiveState.onSelect(key === WORKING_VERSION_ID ? null : String(key));
+                    }}
+                />
+            </div>
+        ) : null;
+
     const toolbar = (
         <div className="table-toolbar">
-            {collabEnabled ? (
-                <FormStatus
-                    room={room}
-                    selectionLabel={isPlanSection ? (selection?.label ?? null) : null}
-                    gridStats={isPlanSection ? gridStats : null}
-                />
-            ) : null}
             <div className="table-toolbar__controls">
                 <Tabs
                     className="section-tabs"
@@ -1403,6 +1482,22 @@ export function RenovationWorkspace({
                     </Tabs.ListContainer>
                 </Tabs>
             </div>
+            {versionPicker}
+            {planFilters}
+            <ViewStrip
+                headerPinned={isPlanSection ? planHeaderPinned : dictHeaderPinned}
+                onHeaderPinnedChange={isPlanSection ? setPlanHeaderPinned : setDictHeaderPinned}
+                showServiceColumns={isPlanSection ? planServiceColumns : dictServiceColumns}
+                onShowServiceColumnsChange={
+                    isPlanSection ? setPlanServiceColumns : setDictServiceColumns
+                }
+                exportPending={exportPending}
+                onExport={handleStripExport}
+                onReset={handleStripReset}
+                isFullscreen={isFullscreen}
+                isFullscreenPending={isFullscreenPending}
+                onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
+            />
         </div>
     );
 
@@ -1522,30 +1617,13 @@ export function RenovationWorkspace({
 
     const footer = (
         <div className="table-footer">
-            <div className="table-footer__summary">
-                {isPlanSection && archiveItems.length > 0 ? (
-                    <div className="archive-autocomplete">
-                        <SearchAutocomplete
-                            placeholder="Выберите версию"
-                            compactLabel="Архив"
-                            items={[
-                                {
-                                    id: WORKING_VERSION_ID,
-                                    name: "Рабочая версия",
-                                    description: "Доступна для редактирования",
-                                },
-                                ...archiveItems,
-                            ]}
-                            selectedKey={viewPlanId ?? WORKING_VERSION_ID}
-                            onSelectionChange={(key) => {
-                                if (key === null) return;
-                                archiveState.onSelect(
-                                    key === WORKING_VERSION_ID ? null : String(key),
-                                );
-                            }}
-                            onOpenChange={setFooterAutocompleteOpen}
-                        />
-                    </div>
+            <div className="table-footer__status">
+                {collabEnabled ? (
+                    <FormStatus
+                        room={room}
+                        selectionLabel={isPlanSection ? (selection?.label ?? null) : null}
+                        gridStats={isPlanSection ? gridStats : null}
+                    />
                 ) : null}
             </div>
             <RenovationActionBar items={isPlanSection ? actions : dictActions} />
@@ -1562,80 +1640,6 @@ export function RenovationWorkspace({
         />
     );
 
-    // Display-only controls in one row: the plan filters on the left, the
-    // export/fullscreen buttons on the right (shared ViewStrip). Rendered both
-    // in the normal flow and on the floating top panel in fullscreen mode.
-    const viewStrip = (
-        <ViewStrip
-            filters={
-                isPlanSection ? (
-                    <>
-                        <div className="plan-filters__asset">
-                            <SearchAutocomplete
-                                placeholder="Все активы"
-                                compactLabel="Актив"
-                                items={[
-                                    { id: "__all", name: "Все активы" },
-                                    ...meta.assets.map((asset) => ({
-                                        id: asset.name,
-                                        name: asset.name,
-                                    })),
-                                ]}
-                                selectedKey={assetFilter ?? "__all"}
-                                onSelectionChange={(key) =>
-                                    setAssetFilter(key && key !== "__all" ? String(key) : null)
-                                }
-                            />
-                        </div>
-                        <Select
-                            className="plan-filters__block"
-                            aria-label="Фильтр по блоку"
-                            selectionMode="single"
-                            variant="secondary"
-                            selectedKey={blockFilter ?? "__all"}
-                            onSelectionChange={(key) =>
-                                setBlockFilter(key && key !== "__all" ? String(key) : null)
-                            }
-                        >
-                            <Select.Trigger>
-                                <Select.Value />
-                                <Select.Indicator />
-                            </Select.Trigger>
-                            <Select.Popover className="plan-filters__popover">
-                                <ListBox>
-                                    <ListBox.Item id="__all" textValue="Все блоки">
-                                        Все блоки
-                                    </ListBox.Item>
-                                    {blocks.map((block) => (
-                                        <ListBox.Item
-                                            key={block}
-                                            id={block}
-                                            textValue={BLOCK_LABELS[block] ?? block}
-                                        >
-                                            {BLOCK_LABELS[block] ?? block}
-                                        </ListBox.Item>
-                                    ))}
-                                </ListBox>
-                            </Select.Popover>
-                        </Select>
-                    </>
-                ) : null
-            }
-            headerPinned={isPlanSection ? planHeaderPinned : dictHeaderPinned}
-            onHeaderPinnedChange={isPlanSection ? setPlanHeaderPinned : setDictHeaderPinned}
-            showServiceColumns={isPlanSection ? planServiceColumns : dictServiceColumns}
-            onShowServiceColumnsChange={
-                isPlanSection ? setPlanServiceColumns : setDictServiceColumns
-            }
-            exportPending={exportPending}
-            onExport={handleStripExport}
-            onReset={handleStripReset}
-            isFullscreen={isFullscreen}
-            isFullscreenPending={isFullscreenPending}
-            onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
-        />
-    );
-
     return (
         <main className={isFullscreen ? "app-shell app-shell--fullscreen" : "app-shell"}>
             {header}
@@ -1644,7 +1648,6 @@ export function RenovationWorkspace({
                     <Card className="workspace-card">
                         <Card.Content className="workspace-card__content">
                             {toolbar}
-                            {viewStrip}
                             <div className="grid-viewport" aria-busy={isMutationPending}>
                                 {isPlanSection ? (
                                     <>
@@ -1736,16 +1739,9 @@ export function RenovationWorkspace({
                         <div className="fullscreen-panel fullscreen-panel--top">
                             {header}
                             {toolbar}
-                            {viewStrip}
                         </div>
                     </div>
-                    <div
-                        className={
-                            footerAutocompleteOpen
-                                ? "fullscreen-reveal fullscreen-reveal--bottom is-open"
-                                : "fullscreen-reveal fullscreen-reveal--bottom"
-                        }
-                    >
+                    <div className="fullscreen-reveal fullscreen-reveal--bottom">
                         <div className="fullscreen-panel fullscreen-panel--bottom">{footer}</div>
                     </div>
                 </>
@@ -1780,7 +1776,7 @@ export function RenovationWorkspace({
                 isOpen={approveOpen}
                 isPending={isMutationPending}
                 pendingCreatedBy={
-                    versions?.find((version) => version.state === "pendingApproval")?.createdBy ??
+                    versions?.find((version) => version.state === "pending_approval")?.createdBy ??
                     null
                 }
                 onOpenChange={setApproveOpen}
@@ -1801,7 +1797,11 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
     const renderAction = (action: ActionItem) => {
         const button = (
             <Button
-                className="action-button"
+                className={
+                    action.variant === "primary"
+                        ? "action-button action-button--primary"
+                        : "action-button"
+                }
                 variant={action.variant ?? "tertiary"}
                 isDisabled={action.disabled}
                 aria-label={action.label}
@@ -1843,7 +1843,11 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
                         {chunk.map((action) => (
                             <Button
                                 key={action.id}
-                                className="action-button"
+                                className={
+                                    action.variant === "primary"
+                                        ? "action-button action-button--primary"
+                                        : "action-button"
+                                }
                                 variant={action.variant ?? "tertiary"}
                                 isDisabled={action.disabled}
                                 aria-label={action.label}

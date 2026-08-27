@@ -1055,62 +1055,30 @@ function SectionFooter({
     canDelete,
     undoState,
     approveState,
-    archiveState,
     clipboardState,
     isFullscreenPending,
     onDelete,
     onCopy,
     onPaste,
-    onAutocompleteOpenChange,
 }: {
     section: SectionId;
     canDelete: boolean;
     undoState: UndoState;
     approveState: ApproveState;
-    archiveState: ArchiveState;
     clipboardState: { canPaste: boolean };
     isFullscreenPending: boolean;
     onDelete: () => void;
     onCopy: () => void;
     onPaste: () => void;
-    onAutocompleteOpenChange: (open: boolean) => void;
 }) {
-    const showArchive = section === "materialMovement" && archiveState.items.length > 0;
-    const archiveItems: ArchiveItem[] = showArchive
-        ? [
-              {
-                  id: WORKING_VERSION_ID,
-                  name: "Рабочая версия",
-                  description: "Доступна для редактирования",
-              },
-              ...archiveState.items,
-          ]
-        : [];
     return (
         <div className="table-footer">
-            <div className="table-footer__summary">
-                {showArchive ? (
-                    <div className="archive-autocomplete">
-                        <SearchAutocomplete
-                            placeholder="Выберите версию"
-                            compactLabel="Архив"
-                            items={archiveItems}
-                            selectedKey={archiveState.selectedKey ?? WORKING_VERSION_ID}
-                            onSelectionChange={(key) => {
-                                if (key === null) return;
-                                archiveState.onSelect(key === WORKING_VERSION_ID ? null : key);
-                            }}
-                            onOpenChange={onAutocompleteOpenChange}
-                        />
-                    </div>
-                ) : null}
-            </div>
             <ActionBar
                 section={section}
                 canDelete={canDelete}
                 undoState={undoState}
                 approveState={approveState}
-                isArchive={archiveState.selectedKey !== null}
+                isArchive={false}
                 clipboardState={clipboardState}
                 isFullscreenPending={isFullscreenPending}
                 onDelete={onDelete}
@@ -1136,7 +1104,6 @@ export function RawMaterialsWorkspace({
     const [selectedTabId, setSelectedTabId] = useState<string | null>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isFullscreenPending, setIsFullscreenPending] = useState(false);
-    const [footerAutocompleteOpen, setFooterAutocompleteOpen] = useState(false);
     const [gridStats, setGridStats] = useState<GridViewStats | null>(null);
     // Completed cell/row selection of the current user, in the same format as
     // in the «На форме» tooltip (e.g. «Потребность / План, т», строки 3–5).
@@ -1424,11 +1391,34 @@ export function RawMaterialsWorkspace({
     const assets = toAssetOptions(meta.assets);
     const deliveryBases = toReferenceOptions(meta.deliveryBases);
 
+    // «Рабочая версия» / version picker — moved into the toolbar (raw and
+    // renovation show it for «Движение» / plan when an archive exists).
+    const showVersionPicker =
+        selectedTab.section === "materialMovement" && archiveState.items.length > 0;
+    const versionPicker = showVersionPicker ? (
+        <div className="archive-autocomplete">
+            <SearchAutocomplete
+                placeholder="Выберите версию"
+                compactLabel="Архив"
+                items={[
+                    {
+                        id: WORKING_VERSION_ID,
+                        name: "Рабочая версия",
+                        description: "Доступна для редактирования",
+                    },
+                    ...archiveState.items,
+                ]}
+                selectedKey={archiveState.selectedKey ?? WORKING_VERSION_ID}
+                onSelectionChange={(key) => {
+                    if (key === null) return;
+                    archiveState.onSelect(key === WORKING_VERSION_ID ? null : key);
+                }}
+            />
+        </div>
+    ) : null;
+
     const toolbar = (
         <div className="table-toolbar">
-            {collabEnabled ? (
-                <FormStatus room={room} selectionLabel={selectionLabel} gridStats={gridStats} />
-            ) : null}
             <div className="table-toolbar__controls">
                 <SectionTabs
                     tabs={tabs}
@@ -1436,41 +1426,39 @@ export function RawMaterialsWorkspace({
                     onChange={(tab) => setSelectedTabId(tab.id)}
                 />
             </div>
+            {versionPicker}
+            <ViewStrip
+                headerPinned={headerPinned}
+                onHeaderPinnedChange={setHeaderPinned}
+                showServiceColumns={showServiceColumns}
+                onShowServiceColumnsChange={setShowServiceColumns}
+                exportPending={exportState.pending}
+                onExport={(scope) => void exportState.onExport(scope)}
+                onReset={handleStripReset}
+                isFullscreen={isFullscreen}
+                isFullscreenPending={isFullscreenPending}
+                onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
+            />
         </div>
     );
 
     const footer = (
-        <SectionFooter
-            section={selectedTab.section}
-            canDelete={deleteState.canDelete}
-            undoState={undoState}
-            approveState={approveState}
-            archiveState={archiveState}
-            clipboardState={clipboardState}
-            isFullscreenPending={isFullscreenPending}
-            onDelete={deleteState.onDelete}
-            onCopy={clipboardState.onCopy}
-            onPaste={clipboardState.onPaste}
-            onAutocompleteOpenChange={setFooterAutocompleteOpen}
-        />
-    );
-
-    // Display-only controls in one row: export/fullscreen on the right (the raw
-    // sections have no asset/block filters). Rendered both in the normal flow
-    // and on the floating top panel in fullscreen mode.
-    const viewStrip = (
-        <ViewStrip
-            headerPinned={headerPinned}
-            onHeaderPinnedChange={setHeaderPinned}
-            showServiceColumns={showServiceColumns}
-            onShowServiceColumnsChange={setShowServiceColumns}
-            exportPending={exportState.pending}
-            onExport={(scope) => void exportState.onExport(scope)}
-            onReset={handleStripReset}
-            isFullscreen={isFullscreen}
-            isFullscreenPending={isFullscreenPending}
-            onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
-        />
+        <div className="table-footer">
+            <div className="table-footer__status">
+                <FormStatus room={room} selectionLabel={selectionLabel} gridStats={gridStats} />
+            </div>
+            <SectionFooter
+                section={selectedTab.section}
+                canDelete={deleteState.canDelete}
+                undoState={undoState}
+                approveState={approveState}
+                clipboardState={clipboardState}
+                isFullscreenPending={isFullscreenPending}
+                onDelete={deleteState.onDelete}
+                onCopy={clipboardState.onCopy}
+                onPaste={clipboardState.onPaste}
+            />
+        </div>
     );
 
     return (
@@ -1481,7 +1469,6 @@ export function RawMaterialsWorkspace({
                     <Card className="workspace-card">
                         <Card.Content className="workspace-card__content">
                             {toolbar}
-                            {viewStrip}
                             <SectionContent
                                 section={selectedTab.section}
                                 reportMonth={selectedTab.reportMonth}
@@ -1518,16 +1505,9 @@ export function RawMaterialsWorkspace({
                         <div className="fullscreen-panel fullscreen-panel--top">
                             {header}
                             {toolbar}
-                            {viewStrip}
                         </div>
                     </div>
-                    <div
-                        className={
-                            footerAutocompleteOpen
-                                ? "fullscreen-reveal fullscreen-reveal--bottom is-open"
-                                : "fullscreen-reveal fullscreen-reveal--bottom"
-                        }
-                    >
+                    <div className="fullscreen-reveal fullscreen-reveal--bottom">
                         <div className="fullscreen-panel fullscreen-panel--bottom">{footer}</div>
                     </div>
                 </>
@@ -1814,7 +1794,11 @@ function ActionBar({
     const renderTrailing = (action: ActionItem) => {
         const button = (
             <Button
-                className="action-button"
+                className={
+                    action.variant === "primary"
+                        ? "action-button action-button--primary"
+                        : "action-button"
+                }
                 variant={action.variant ?? "tertiary"}
                 isDisabled={action.disabled}
                 aria-label={action.label}
@@ -1851,7 +1835,11 @@ function ActionBar({
                         {chunk.map((action) => (
                             <Button
                                 key={action.id}
-                                className="action-button"
+                                className={
+                                    action.variant === "primary"
+                                        ? "action-button action-button--primary"
+                                        : "action-button"
+                                }
                                 variant={action.variant ?? "tertiary"}
                                 isDisabled={action.disabled}
                                 aria-label={action.label}
