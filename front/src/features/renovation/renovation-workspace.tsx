@@ -5,7 +5,9 @@ import {
     Button,
     ButtonGroup,
     Card,
+    Dropdown,
     Kbd,
+    Label,
     ListBox,
     Select,
     Skeleton,
@@ -14,7 +16,17 @@ import {
     Tooltip,
     Typography,
 } from "@heroui/react";
-import { CheckCircle, Copy, PasteClipboard, Plus, Redo, Send, Trash, Undo } from "iconoir-react";
+import {
+    CheckCircle,
+    Copy,
+    Download,
+    PasteClipboard,
+    Plus,
+    Redo,
+    Send,
+    Trash,
+    Undo,
+} from "iconoir-react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -65,6 +77,7 @@ import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { FormStatus } from "@/shared/ui/form-status";
+import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { ViewStrip } from "@/shared/ui/view-strip";
 
@@ -776,7 +789,16 @@ export function RenovationWorkspace({
     );
 
     const isArchive = viewPlanId !== null;
-    const collabEnabled = !isArchive;
+    // The collab room (and thus the form status) stays active for the working
+    // plan and for the pending («на согласовании») version — viewing it is
+    // still a live collaborative form even though it is read-only here (it's
+    // edited by the block owners). Only the approved (archived) version has no
+    // room/status.
+    const isArchivedView =
+        viewPlanId !== null &&
+        (versions?.find((version) => version.id === viewPlanId)?.state ?? "archived") ===
+            "archived";
+    const collabEnabled = !isArchivedView;
 
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
     const refreshMeta = useCallback(() => {
@@ -1532,7 +1554,7 @@ export function RenovationWorkspace({
         >
             <SearchAutocomplete
                 placeholder="Выберите версию"
-                compactLabel="Архив"
+                compactLabel="Версия"
                 isDisabled={!showVersionPicker}
                 items={[
                     ...(hasWorkingPlan
@@ -1602,17 +1624,19 @@ export function RenovationWorkspace({
     const toolbar = (
         <div className="table-toolbar">
             {versionPicker}
-            <div className="table-toolbar__controls">
-                <SearchAutocomplete
-                    placeholder="Форма"
-                    compactLabel="Форма"
-                    items={sectionOptions}
-                    selectedKey={activeSection}
-                    onSelectionChange={handleSectionChange}
-                />
+            <div className="table-toolbar__filters">
+                <div className="table-toolbar__controls">
+                    <SearchAutocomplete
+                        placeholder="Форма"
+                        compactLabel="Форма"
+                        items={sectionOptions}
+                        selectedKey={activeSection}
+                        onSelectionChange={handleSectionChange}
+                    />
+                </div>
+                {planFilters}
+                {blockFilterSelect}
             </div>
-            {planFilters}
-            {blockFilterSelect}
             <ViewStrip
                 headerPinned={isPlanSection ? planHeaderPinned : dictHeaderPinned}
                 onHeaderPinnedChange={isPlanSection ? setPlanHeaderPinned : setDictHeaderPinned}
@@ -1623,6 +1647,7 @@ export function RenovationWorkspace({
                 exportPending={exportPending}
                 onExport={handleStripExport}
                 onReset={handleStripReset}
+                hideExport
                 isFullscreen={isFullscreen}
                 isFullscreenPending={isFullscreenPending}
                 onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
@@ -1675,8 +1700,29 @@ export function RenovationWorkspace({
     ];
 
     const actions: ActionItem[] = [
-        ...undoRedoActions,
         ...clipboardActions,
+        ...undoRedoActions,
+        {
+            id: "export",
+            label: "Скачать в Excel",
+            icon: <Download />,
+            onPress: () => void handleStripExport("all"),
+            disabled: exportPending || isFullscreenPending,
+            pending: exportPending,
+            group: "download",
+            menu: [
+                {
+                    id: "all",
+                    label: "Скачать всю таблицу",
+                    onPress: () => void handleStripExport("all"),
+                },
+                {
+                    id: "visible",
+                    label: "Скачать видимую таблицу",
+                    onPress: () => void handleStripExport("visible"),
+                },
+            ],
+        } satisfies ActionItem,
         ...(!isArchive
             ? [
                   {
@@ -1934,21 +1980,73 @@ export function RenovationWorkspace({
 }
 
 export function RenovationActionBar({ items }: { items: ActionItem[] }) {
-    const isCompact = useMediaQuery("(width < 64rem)");
+    // Responsive tiers (Tailwind constants): on sm (<=40rem) every action
+    // collapses into one «Действия» button; on md (<=48rem) the primary actions
+    // (submit/approve) collapse to icons; on desktop everything is expanded.
+    const isSm = useMediaQuery("(max-width: 40rem)");
+    const isMd = useMediaQuery("(max-width: 48rem)");
+    const collapsePrimaryAtMd = isMd && !isSm;
+    const classNameFor = (action: ActionItem) =>
+        collapsePrimaryAtMd && action.variant === "primary"
+            ? "action-button"
+            : action.variant === "primary"
+              ? "action-button action-button--primary"
+              : "action-button";
     const renderAction = (action: ActionItem) => {
+        const icon = action.pending ? <Spinner size="sm" /> : action.icon;
+        if (action.menu) {
+            return (
+                <HoverDropdown
+                    className="action-more-popover"
+                    trigger={({ ref, onMouseEnter, isOpen }) => (
+                        <Button
+                            ref={ref}
+                            onMouseEnter={onMouseEnter}
+                            className={
+                                isOpen
+                                    ? classNameFor(action) + " action-button--open"
+                                    : classNameFor(action)
+                            }
+                            variant={action.variant ?? "tertiary"}
+                            isDisabled={action.disabled}
+                            aria-label={action.label}
+                        >
+                            <span className="action-button__icon">{icon}</span>
+                            <span className="action-button__label">{action.label}</span>
+                        </Button>
+                    )}
+                    content={
+                        <Dropdown.Menu
+                            aria-label={action.label}
+                            onAction={(key) => {
+                                const item = action.menu?.find((m) => m.id === String(key));
+                                item?.onPress();
+                            }}
+                            className="action-more-menu"
+                        >
+                            {action.menu.map((menuItem) => (
+                                <Dropdown.Item
+                                    key={menuItem.id}
+                                    id={menuItem.id}
+                                    textValue={menuItem.label}
+                                >
+                                    <Label>{menuItem.label}</Label>
+                                </Dropdown.Item>
+                            ))}
+                        </Dropdown.Menu>
+                    }
+                />
+            );
+        }
         const button = (
             <Button
-                className={
-                    action.variant === "primary"
-                        ? "action-button action-button--primary"
-                        : "action-button"
-                }
+                className={classNameFor(action)}
                 variant={action.variant ?? "tertiary"}
                 isDisabled={action.disabled}
                 aria-label={action.label}
                 onPress={action.onPress}
             >
-                <span className="action-button__icon">{action.icon}</span>
+                <span className="action-button__icon">{icon}</span>
                 <span className="action-button__label">{action.label}</span>
             </Button>
         );
@@ -1966,7 +2064,7 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
             </Tooltip>
         );
     };
-    if (isCompact) {
+    if (isSm) {
         return (
             <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
                 <CompactActionMenu items={items} />
@@ -1984,11 +2082,7 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
                         {chunk.map((action) => (
                             <Button
                                 key={action.id}
-                                className={
-                                    action.variant === "primary"
-                                        ? "action-button action-button--primary"
-                                        : "action-button"
-                                }
+                                className={classNameFor(action)}
                                 variant={action.variant ?? "tertiary"}
                                 isDisabled={action.disabled}
                                 aria-label={action.label}

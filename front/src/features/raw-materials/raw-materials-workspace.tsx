@@ -15,7 +15,16 @@ import {
     Tooltip,
     Typography,
 } from "@heroui/react";
-import { CheckCircle, Copy, MoreHoriz, PasteClipboard, Redo, Trash, Undo } from "iconoir-react";
+import {
+    CheckCircle,
+    Copy,
+    Download,
+    MoreHoriz,
+    PasteClipboard,
+    Redo,
+    Trash,
+    Undo,
+} from "iconoir-react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState, type Key, type ReactNode } from "react";
 
@@ -1058,6 +1067,8 @@ function SectionFooter({
     approveState,
     clipboardState,
     isFullscreenPending,
+    exportPending,
+    onExport,
     onDelete,
     onCopy,
     onPaste,
@@ -1068,6 +1079,8 @@ function SectionFooter({
     approveState: ApproveState;
     clipboardState: { canPaste: boolean };
     isFullscreenPending: boolean;
+    exportPending: boolean;
+    onExport: (scope: "all" | "visible") => void;
     onDelete: () => void;
     onCopy: () => void;
     onPaste: () => void;
@@ -1082,6 +1095,8 @@ function SectionFooter({
                 isArchive={false}
                 clipboardState={clipboardState}
                 isFullscreenPending={isFullscreenPending}
+                exportPending={exportPending}
+                onExport={onExport}
                 onDelete={onDelete}
                 onCopy={onCopy}
                 onPaste={onPaste}
@@ -1410,7 +1425,7 @@ export function RawMaterialsWorkspace({
         >
             <SearchAutocomplete
                 placeholder="Выберите версию"
-                compactLabel="Архив"
+                compactLabel="Версия"
                 isDisabled={!showVersionPicker}
                 items={[
                     {
@@ -1447,6 +1462,7 @@ export function RawMaterialsWorkspace({
                 exportPending={exportState.pending}
                 onExport={(scope) => void exportState.onExport(scope)}
                 onReset={handleStripReset}
+                hideExport
                 isFullscreen={isFullscreen}
                 isFullscreenPending={isFullscreenPending}
                 onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
@@ -1466,6 +1482,8 @@ export function RawMaterialsWorkspace({
                 approveState={approveState}
                 clipboardState={clipboardState}
                 isFullscreenPending={isFullscreenPending}
+                exportPending={exportState.pending}
+                onExport={(scope) => void exportState.onExport(scope)}
                 onDelete={deleteState.onDelete}
                 onCopy={clipboardState.onCopy}
                 onPaste={clipboardState.onPaste}
@@ -1693,7 +1711,14 @@ export type ActionItem = {
      * Consecutive items sharing a group render joined in one HeroUI
      * ButtonGroup («Отменить/Вернуть», «Копировать/Вставить»).
      */
-    group?: "history" | "clipboard" | "row";
+    group?: "history" | "clipboard" | "row" | "download";
+    /**
+     * A trigger with a dropdown (e.g. download with «всю таблицу» /
+     * «видимую таблицу» sub-actions) instead of a one-shot button.
+     */
+    menu?: Array<{ id: string; label: string; onPress: () => void }>;
+    /** Show a spinner in place of the icon while a background job runs. */
+    pending?: boolean;
 };
 
 /** Chunk actions into ButtonGroup runs: consecutive items with equal `group`. */
@@ -1718,6 +1743,8 @@ function ActionBar({
     isArchive,
     clipboardState,
     isFullscreenPending,
+    exportPending,
+    onExport,
     onDelete,
     onCopy,
     onPaste,
@@ -1729,6 +1756,8 @@ function ActionBar({
     isArchive: boolean;
     clipboardState: { canPaste: boolean };
     isFullscreenPending: boolean;
+    exportPending: boolean;
+    onExport: (scope: "all" | "visible") => void;
     onDelete: () => void;
     onCopy: () => void;
     onPaste: () => void;
@@ -1737,6 +1766,28 @@ function ActionBar({
     const showApprove = section === "materialMovement" && !isArchive;
     const showPaste = !isArchive;
     const trailingActions: ActionItem[] = [
+        {
+            id: "copy",
+            label: "Копировать",
+            icon: <Copy />,
+            onPress: onCopy,
+            disabled: isFullscreenPending,
+            shortcut: { key: "C", aria: "Control+C" },
+            group: "clipboard",
+        } satisfies ActionItem,
+        ...(showPaste
+            ? [
+                  {
+                      id: "paste",
+                      label: "Вставить",
+                      icon: <PasteClipboard />,
+                      onPress: onPaste,
+                      disabled: isFullscreenPending || !clipboardState.canPaste,
+                      shortcut: { key: "V", aria: "Control+V" },
+                      group: "clipboard",
+                  } satisfies ActionItem,
+              ]
+            : []),
         ...(undoState.enabled
             ? [
                   {
@@ -1760,27 +1811,22 @@ function ActionBar({
               ]
             : []),
         {
-            id: "copy",
-            label: "Копировать",
-            icon: <Copy />,
-            onPress: onCopy,
-            disabled: isFullscreenPending,
-            shortcut: { key: "C", aria: "Control+C" },
-            group: "clipboard",
+            id: "export",
+            label: "Скачать в Excel",
+            icon: <Download />,
+            onPress: () => onExport("all"),
+            disabled: exportPending || isFullscreenPending,
+            pending: exportPending,
+            group: "download",
+            menu: [
+                { id: "all", label: "Скачать всю таблицу", onPress: () => onExport("all") },
+                {
+                    id: "visible",
+                    label: "Скачать видимую таблицу",
+                    onPress: () => onExport("visible"),
+                },
+            ],
         } satisfies ActionItem,
-        ...(showPaste
-            ? [
-                  {
-                      id: "paste",
-                      label: "Вставить",
-                      icon: <PasteClipboard />,
-                      onPress: onPaste,
-                      disabled: isFullscreenPending || !clipboardState.canPaste,
-                      shortcut: { key: "V", aria: "Control+V" },
-                      group: "clipboard",
-                  } satisfies ActionItem,
-              ]
-            : []),
         ...(showDelete
             ? [
                   {
@@ -1829,6 +1875,52 @@ function ActionBar({
               : "action-button";
 
     const renderTrailing = (action: ActionItem) => {
+        const icon = action.pending ? <Spinner size="sm" /> : action.icon;
+        // A menu-trigger (e.g. download «всю/видимую таблицу»).
+        if (action.menu) {
+            return (
+                <HoverDropdown
+                    className="action-more-popover"
+                    trigger={({ ref, onMouseEnter, isOpen }) => (
+                        <Button
+                            ref={ref}
+                            onMouseEnter={onMouseEnter}
+                            className={
+                                isOpen
+                                    ? classNameFor(action) + " action-button--open"
+                                    : classNameFor(action)
+                            }
+                            variant={action.variant ?? "tertiary"}
+                            isDisabled={action.disabled}
+                            aria-label={action.label}
+                        >
+                            <span className="action-button__icon">{icon}</span>
+                            <span className="action-button__label">{action.label}</span>
+                        </Button>
+                    )}
+                    content={
+                        <Dropdown.Menu
+                            aria-label={action.label}
+                            onAction={(key) => {
+                                const item = action.menu?.find((m) => m.id === String(key));
+                                item?.onPress();
+                            }}
+                            className="action-more-menu"
+                        >
+                            {action.menu.map((menuItem) => (
+                                <Dropdown.Item
+                                    key={menuItem.id}
+                                    id={menuItem.id}
+                                    textValue={menuItem.label}
+                                >
+                                    <Label>{menuItem.label}</Label>
+                                </Dropdown.Item>
+                            ))}
+                        </Dropdown.Menu>
+                    }
+                />
+            );
+        }
         const button = (
             <Button
                 className={classNameFor(action)}
@@ -1838,7 +1930,7 @@ function ActionBar({
                 aria-keyshortcuts={action.shortcut?.aria}
                 onPress={action.onPress}
             >
-                <span className="action-button__icon">{action.icon}</span>
+                <span className="action-button__icon">{icon}</span>
                 <span className="action-button__label">{action.label}</span>
             </Button>
         );
@@ -1899,8 +1991,19 @@ function ActionBar({
 export function CompactActionMenu({ items }: { items: ActionItem[] }) {
     const handleAction = useCallback(
         (key: Key) => {
-            const item = items.find((candidate) => candidate.id === String(key));
-            item?.onPress();
+            const raw = String(key);
+            for (const item of items) {
+                if (item.menu) {
+                    const sub = item.menu.find((m) => `${item.id}:${m.id}` === raw);
+                    if (sub) {
+                        sub.onPress();
+                        return;
+                    }
+                } else if (item.id === raw) {
+                    item.onPress();
+                    return;
+                }
+            }
         },
         [items],
     );
@@ -1928,32 +2031,44 @@ export function CompactActionMenu({ items }: { items: ActionItem[] }) {
                     onAction={handleAction}
                     className="action-more-menu"
                 >
-                    {items.map((item) => (
-                        <Dropdown.Item
-                            key={item.id}
-                            id={item.id}
-                            textValue={item.label}
-                            isDisabled={item.disabled}
-                            variant={item.variant === "danger" ? "danger" : undefined}
-                            // HeroUI ships only a `danger` MenuItem variant; success is
-                            // reproduced the same way — color the label slot via the
-                            // theme's `--success` token (stock Tailwind utility, no CSS).
-                            className={
-                                item.variant === "primary"
-                                    ? "[&_[data-slot=label]]:text-success"
-                                    : undefined
-                            }
-                        >
-                            <span className="action-more-menu__icon">{item.icon}</span>
-                            <Label>{item.label}</Label>
-                            {item.shortcut ? (
-                                <Kbd className="ms-auto" slot="keyboard" variant="light">
-                                    <Kbd.Abbr keyValue="ctrl" />
-                                    <Kbd.Content>{item.shortcut.key}</Kbd.Content>
-                                </Kbd>
-                            ) : null}
-                        </Dropdown.Item>
-                    ))}
+                    {items.flatMap((item) =>
+                        item.menu
+                            ? item.menu.map((sub) => (
+                                  <Dropdown.Item
+                                      key={`${item.id}:${sub.id}`}
+                                      id={`${item.id}:${sub.id}`}
+                                      textValue={sub.label}
+                                  >
+                                      <Label>{sub.label}</Label>
+                                  </Dropdown.Item>
+                              ))
+                            : [
+                                  <Dropdown.Item
+                                      key={item.id}
+                                      id={item.id}
+                                      textValue={item.label}
+                                      isDisabled={item.disabled}
+                                      variant={item.variant === "danger" ? "danger" : undefined}
+                                      // HeroUI ships only a `danger` MenuItem variant; success is
+                                      // reproduced the same way — color the label slot via the
+                                      // theme's `--success` token (stock Tailwind utility, no CSS).
+                                      className={
+                                          item.variant === "primary"
+                                              ? "[&_[data-slot=label]]:text-success"
+                                              : undefined
+                                      }
+                                  >
+                                      <span className="action-more-menu__icon">{item.icon}</span>
+                                      <Label>{item.label}</Label>
+                                      {item.shortcut ? (
+                                          <Kbd className="ms-auto" slot="keyboard" variant="light">
+                                              <Kbd.Abbr keyValue="ctrl" />
+                                              <Kbd.Content>{item.shortcut.key}</Kbd.Content>
+                                          </Kbd>
+                                      ) : null}
+                                  </Dropdown.Item>,
+                              ],
+                    )}
                 </Dropdown.Menu>
             }
         />

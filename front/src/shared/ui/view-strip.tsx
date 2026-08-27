@@ -25,6 +25,7 @@ export function ViewStrip({
     isFullscreen,
     isFullscreenPending,
     onToggleFullscreen,
+    hideExport = false,
 }: {
     headerPinned?: boolean;
     onHeaderPinnedChange?: (value: boolean) => void;
@@ -36,6 +37,8 @@ export function ViewStrip({
     isFullscreen: boolean;
     isFullscreenPending: boolean;
     onToggleFullscreen: () => void;
+    /** Hide the download button (its action moved into the footer action bar). */
+    hideExport?: boolean;
 }) {
     const hasToggles =
         headerPinned !== undefined &&
@@ -86,29 +89,31 @@ export function ViewStrip({
 
     return (
         <div className="view-strip__actions">
-            <HoverDropdown
-                className="view-strip-popover"
-                trigger={({ ref, onMouseEnter, isOpen }) =>
-                    collapsedDownloadButton(isOpen, exportPending, { ref, onMouseEnter })
-                }
-                content={
-                    <Dropdown.Menu
-                        aria-label="Формат выгрузки"
-                        onAction={(key) => {
-                            if (key === "all" || key === "visible") {
-                                onExport(key);
-                            }
-                        }}
-                    >
-                        <Dropdown.Item id="all" textValue="Скачать всю таблицу">
-                            Скачать всю таблицу
-                        </Dropdown.Item>
-                        <Dropdown.Item id="visible" textValue="Скачать видимую таблицу">
-                            Скачать видимую таблицу
-                        </Dropdown.Item>
-                    </Dropdown.Menu>
-                }
-            />
+            {hideExport ? null : (
+                <HoverDropdown
+                    className="view-strip-popover"
+                    trigger={({ ref, onMouseEnter, isOpen }) =>
+                        collapsedDownloadButton(isOpen, exportPending, { ref, onMouseEnter })
+                    }
+                    content={
+                        <Dropdown.Menu
+                            aria-label="Формат выгрузки"
+                            onAction={(key) => {
+                                if (key === "all" || key === "visible") {
+                                    onExport(key);
+                                }
+                            }}
+                        >
+                            <Dropdown.Item id="all" textValue="Скачать всю таблицу">
+                                Скачать всю таблицу
+                            </Dropdown.Item>
+                            <Dropdown.Item id="visible" textValue="Скачать видимую таблицу">
+                                Скачать видимую таблицу
+                            </Dropdown.Item>
+                        </Dropdown.Menu>
+                    }
+                />
+            )}
             <HoverDropdown
                 className="view-strip-popover"
                 trigger={({ ref, onMouseEnter, isOpen }) =>

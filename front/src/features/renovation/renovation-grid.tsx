@@ -522,7 +522,7 @@ function RenovationGridInner(
             // The level-0 responsibility-block group headers carry Excel text
             // («Блок Ташпаев А.А. (раздел 1)»); show the same canonical label
             // as the «Все блоки» filter instead.
-            let text = cell.text;
+            let text = cell.text.trim();
             if (cell.level === 0 && text.startsWith("Блок ")) {
                 for (
                     let i = startIndex;
