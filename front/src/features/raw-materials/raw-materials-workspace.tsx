@@ -2,6 +2,7 @@
 
 import {
     AlertDialog,
+    Avatar,
     Button,
     ButtonGroup,
     Card,
@@ -1637,6 +1638,16 @@ export function AppHeader({
 }) {
     const fullname = user.name ?? "";
     const email = user.email ?? "";
+    const initials = user.name
+        ? user.name
+              .trim()
+              .split(/\s+/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((part) => part[0])
+              .join("")
+              .toUpperCase()
+        : (email[0] ?? "").toUpperCase();
     const projectName =
         projects.find((project) => project.key === activeProjectKey)?.name ?? "Сырьё";
 
@@ -1657,6 +1668,9 @@ export function AppHeader({
                     onPress={onOpenProfile}
                     aria-label="Открыть профиль"
                 >
+                    <Avatar className="profile-pill__avatar" aria-hidden="true">
+                        <Avatar.Fallback>{initials || "?"}</Avatar.Fallback>
+                    </Avatar>
                     <span className="profile-pill__copy">
                         <strong>{fullname || email}</strong>
                         <small>{email}</small>
@@ -1793,8 +1807,13 @@ function ActionBar({
               ]
             : []),
     ];
-    const isCompact = useMediaQuery("(width < 64rem)");
-    if (isCompact) {
+    // Responsive tiers (Tailwind constants): on sm (≤40rem) every action
+    // collapses into one «Действия» button; on md (≤48rem) only the fix action
+    // collapses to an icon; on desktop everything is expanded.
+    const isSm = useMediaQuery("(max-width: 40rem)");
+    const isMd = useMediaQuery("(max-width: 48rem)");
+    const collapseFixAtMd = isMd && !isSm;
+    if (isSm) {
         return (
             <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
                 <CompactActionMenu items={trailingActions} />
@@ -1802,14 +1821,17 @@ function ActionBar({
         );
     }
 
+    const classNameFor = (action: ActionItem) =>
+        collapseFixAtMd && action.variant === "primary"
+            ? "action-button"
+            : action.variant === "primary"
+              ? "action-button action-button--primary"
+              : "action-button";
+
     const renderTrailing = (action: ActionItem) => {
         const button = (
             <Button
-                className={
-                    action.variant === "primary"
-                        ? "action-button action-button--primary"
-                        : "action-button"
-                }
+                className={classNameFor(action)}
                 variant={action.variant ?? "tertiary"}
                 isDisabled={action.disabled}
                 aria-label={action.label}
@@ -1846,11 +1868,7 @@ function ActionBar({
                         {chunk.map((action) => (
                             <Button
                                 key={action.id}
-                                className={
-                                    action.variant === "primary"
-                                        ? "action-button action-button--primary"
-                                        : "action-button"
-                                }
+                                className={classNameFor(action)}
                                 variant={action.variant ?? "tertiary"}
                                 isDisabled={action.disabled}
                                 aria-label={action.label}
@@ -1890,16 +1908,18 @@ export function CompactActionMenu({ items }: { items: ActionItem[] }) {
     return (
         <HoverDropdown
             className="action-more-popover"
-            trigger={({ ref, onMouseEnter }) => (
+            trigger={({ ref, onMouseEnter, isOpen }) => (
                 <Button
                     ref={ref}
                     onMouseEnter={onMouseEnter}
-                    className="action-more-button"
+                    className={isOpen ? "action-button action-button--open" : "action-button"}
                     variant="tertiary"
                     aria-label="Действия с таблицей"
                 >
-                    <MoreHoriz aria-hidden="true" />
-                    <span className="action-more-button__label">Действия</span>
+                    <span className="action-button__icon">
+                        <MoreHoriz aria-hidden="true" />
+                    </span>
+                    <span className="action-button__label">Действия</span>
                 </Button>
             )}
             content={
@@ -1924,8 +1944,14 @@ export function CompactActionMenu({ items }: { items: ActionItem[] }) {
                                     : undefined
                             }
                         >
-                            {item.icon}
+                            <span className="action-more-menu__icon">{item.icon}</span>
                             <Label>{item.label}</Label>
+                            {item.shortcut ? (
+                                <Kbd className="ms-auto" slot="keyboard" variant="light">
+                                    <Kbd.Abbr keyValue="ctrl" />
+                                    <Kbd.Content>{item.shortcut.key}</Kbd.Content>
+                                </Kbd>
+                            ) : null}
                         </Dropdown.Item>
                     ))}
                 </Dropdown.Menu>

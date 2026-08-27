@@ -212,7 +212,6 @@ html {
     font-weight: 760;
     line-height: 1;
 }
-
 .brand__edition {
     color: var(--muted);
     font-size: 1.65rem;
@@ -1726,20 +1725,8 @@ html {
         padding: 0.52rem 0.5rem;
     }
 
-    /* Status summary on narrow screens: dot only — the «На форме: …» and
-       «Выделено» lines are hidden, and the tabs take the full remaining row
-       width up to the badge (the 50% tab cap applies at lg only). The tooltip
-       still opens from the badge. */
-    .form-status {
-        flex: 0 0 auto;
-    }
-
-    .form-status__presence,
-    .form-status__selection,
-    .form-status__rows {
-        display: none;
-    }
-
+    /* Status summary keeps its full-width layout on every breakpoint — it never
+       collapses to a dot. */
     .table-toolbar__controls {
         flex: 1 1 auto;
         max-width: none;
@@ -1817,4 +1804,34 @@ html {
     gap: 0.45rem;
     padding: 0.55rem;
     border-top: 1px solid var(--separator);
+}
+
+.profile-pill__avatar {
+    flex: 0 0 auto;
+}
+
+@media (min-width: 40.01rem) {
+    .profile-pill__avatar {
+        display: none;
+    }
+}
+
+/* sm tier (Tailwind sm = 40rem): hide «РепортКоллектор» from the logo, keep
+   the icon + project switcher; show the profile as an initials avatar instead
+   of the name + email. */
+@media (max-width: 40rem) {
+    .brand__name {
+        display: none;
+    }
+
+    .profile-pill {
+        min-width: 2.5rem;
+        max-width: 2.5rem;
+        justify-content: center;
+        padding-block: 0;
+    }
+
+    .profile-pill__copy {
+        display: none;
+    }
 }
