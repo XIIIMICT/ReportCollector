@@ -1012,10 +1012,14 @@ function RenovationGridInner(
     // the working plan anchors at its TAIL (rows are appended at the end), the
     // archive reads top-down. Resolved via setTimeout so it holds until the
     // stencil strip exists and the spacer is measured (the edge watcher's
-    // lazyTargetRef may attach later — never depend on it here).
+    // lazyTargetRef may attach later — never depend on it here). Switching the
+    // asset filter reloads the window, so the target is re-computed against the
+    // freshest row dimensions for a short window — otherwise a stale scrollHeight
+    // (the pre-filter rows) resolves first and the scroll never reaches the tail.
     useEffect(() => {
         if (!scrollToEdge) return;
         const edge = scrollToEdge.edge;
+        let landedConsecutive = 0;
         let attempts = 0;
         let timer: number | undefined;
         const apply = () => {
@@ -1032,16 +1036,18 @@ function RenovationGridInner(
             }
             if (!el) {
                 attempts += 1;
-                if (attempts < 200) timer = window.setTimeout(apply, 100);
+                if (attempts < 400) timer = window.setTimeout(apply, 100);
                 return;
             }
             const target = edge === "bottom" ? el.scrollHeight - el.clientHeight : 0;
-            if (el.scrollTop !== target) {
-                el.scrollTop = target;
-                if (attempts < 30) {
-                    attempts += 1;
-                    timer = window.setTimeout(apply, 50);
-                }
+            const prev = el.scrollTop;
+            if (el.scrollTop !== target) el.scrollTop = target;
+            // Count how many consecutive checks we landed on the current target;
+            // only stop after the position has been stable (data swap done).
+            landedConsecutive = Math.abs(el.scrollTop - target) <= 1 ? landedConsecutive + 1 : 0;
+            if (attempts < 40 && (landedConsecutive < 2 || prev !== el.scrollTop)) {
+                attempts += 1;
+                timer = window.setTimeout(apply, 60);
             }
         };
         apply();
