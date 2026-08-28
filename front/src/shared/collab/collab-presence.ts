@@ -15,14 +15,30 @@ export function shortName(fullname: string): string {
 }
 
 /**
- * What to show in parentheses: for an admin — the role, for an asset worker —
- * the comma-joined asset list (e.g. «СНХЗ, БСК»).
+ * What to show in parentheses: an admin — «админ»; an approver — «Утверждающий»;
+ * a block owner — «Ответственный за блок»; only an asset worker gets the
+ * comma-joined asset list (e.g. «СНХЗ, БСК») — the central roles implicitly
+ * cover every asset, so listing them adds noise.
  */
 export function memberDetail(member: CollabMember): string | null {
-    if (member.role === "admin") return "админ";
+    switch (member.role) {
+        case "admin":
+            return "админ";
+        case "approver":
+            return "Утверждающий";
+        case "block_owner":
+            return "Ответственный за блок";
+        case "asset_worker":
+            return assetsDetail(member);
+        default:
+            return assetsDetail(member) || member.role || null;
+    }
+}
+
+function assetsDetail(member: CollabMember): string | null {
     const assets = (member.assets ?? []).filter((asset) => asset.trim().length > 0);
     if (assets.length > 0) return assets.join(", ");
-    return member.role === "asset_worker" ? "Работник по активам" : member.role || null;
+    return "Работник по активам";
 }
 
 /** Cell / cell range where the member currently is (from presence). */

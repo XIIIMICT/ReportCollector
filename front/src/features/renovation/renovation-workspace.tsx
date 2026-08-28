@@ -6,7 +6,6 @@ import {
     ButtonGroup,
     Card,
     Dropdown,
-    Kbd,
     Label,
     ListBox,
     Select,
@@ -1777,7 +1776,7 @@ export function RenovationWorkspace({
                   } satisfies ActionItem,
               ]
             : []),
-        ...(!isArchive
+        ...(canSubmit && !isArchive
             ? [
                   {
                       id: "submit",
@@ -1787,18 +1786,18 @@ export function RenovationWorkspace({
                       variant: "primary" as const,
                       disabled: isMutationPending || !canSubmitPlan || isFullscreenPending,
                   } satisfies ActionItem,
-                  ...(canApprovePlan
-                      ? [
-                            {
-                                id: "approve",
-                                label: "Согласовать",
-                                icon: <CheckCircle />,
-                                onPress: () => setApproveOpen(true),
-                                variant: "primary" as const,
-                                disabled: isMutationPending || isFullscreenPending,
-                            } satisfies ActionItem,
-                        ]
-                      : []),
+              ]
+            : []),
+        ...(canApprovePlan && !isArchive
+            ? [
+                  {
+                      id: "approve",
+                      label: "Согласовать",
+                      icon: <CheckCircle />,
+                      onPress: () => setApproveOpen(true),
+                      variant: "primary" as const,
+                      disabled: isMutationPending || isFullscreenPending,
+                  } satisfies ActionItem,
               ]
             : []),
     ];
@@ -2043,8 +2042,19 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
             : action.variant === "primary"
               ? "action-button action-button--primary"
               : "action-button";
+    // Floating tooltip: shows the label (+ kbd) over every inline action button,
+    // including the ones grouped in a ButtonGroup (whose children can't be
+    // wrapped in a per-button Tooltip).
+    const [actionTip, setActionTip] = useState<{ text: string; left: number; top: number } | null>(
+        null,
+    );
+    const actionTipTargetRef = useRef<Element | null>(null);
+    const actionTipText = (action: ActionItem) =>
+        action.shortcut ? `${action.label} (Ctrl${action.shortcut.key})` : action.label;
+
     const renderAction = (action: ActionItem) => {
         const icon = action.pending ? <Spinner size="sm" /> : action.icon;
+        const tip = actionTipText(action);
         if (action.menu) {
             return (
                 <HoverDropdown
@@ -2061,6 +2071,7 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
                             variant={action.variant ?? "tertiary"}
                             isDisabled={action.disabled}
                             aria-label={action.label}
+                            data-action-tooltip={tip}
                         >
                             <span className="action-button__icon">{icon}</span>
                             <span className="action-button__label">{action.label}</span>
@@ -2070,8 +2081,8 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
                         <Dropdown.Menu
                             aria-label={action.label}
                             onAction={(key) => {
-                                const item = action.menu?.find((m) => m.id === String(key));
-                                item?.onPress();
+                                const menuItem = action.menu?.find((m) => m.id === String(key));
+                                menuItem?.onPress();
                             }}
                             className="action-more-menu"
                         >
@@ -2095,25 +2106,15 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
                 variant={action.variant ?? "tertiary"}
                 isDisabled={action.disabled}
                 aria-label={action.label}
+                aria-keyshortcuts={action.shortcut?.aria}
+                data-action-tooltip={tip}
                 onPress={action.onPress}
             >
                 <span className="action-button__icon">{icon}</span>
                 <span className="action-button__label">{action.label}</span>
             </Button>
         );
-        if (!action.shortcut) return button;
-        return (
-            <Tooltip delay={250}>
-                <Tooltip.Trigger>{button}</Tooltip.Trigger>
-                <Tooltip.Content placement="top" className="shortcut-tooltip">
-                    <span>{action.label}</span>
-                    <Kbd>
-                        <Kbd.Abbr keyValue="ctrl" />
-                        <Kbd.Content>{action.shortcut.key}</Kbd.Content>
-                    </Kbd>
-                </Tooltip.Content>
-            </Tooltip>
-        );
+        return button;
     };
     if (isSm) {
         return (
@@ -2123,12 +2124,35 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
         );
     }
     return (
-        <div className="action-bar" aria-label="Действия с таблицей">
+        <div
+            className="action-bar"
+            aria-label="Действия с таблицей"
+            onPointerMove={(event) => {
+                const target = (event.target as Element).closest?.("[data-action-tooltip]") ?? null;
+                if (target === actionTipTargetRef.current) return;
+                actionTipTargetRef.current = target;
+                if (!target) {
+                    setActionTip(null);
+                    return;
+                }
+                const rect = target.getBoundingClientRect();
+                setActionTip({
+                    text: target.getAttribute("data-action-tooltip") ?? "",
+                    left: rect.left + rect.width / 2,
+                    top: rect.top,
+                });
+            }}
+            onPointerLeave={() => {
+                actionTipTargetRef.current = null;
+                setActionTip(null);
+            }}
+        >
             {groupActionItems(items).map((chunk) =>
                 chunk.length > 1 ? (
                     // Direct Button children only: ButtonGroup injects props
                     // into them (`__button_group_child`), which a Fragment or
-                    // Tooltip wrapper would reject.
+                    // Tooltip wrapper would reject — the kbd hint is shown by the
+                    // floating tooltip above instead.
                     <ButtonGroup key={`group-${chunk[0].id}`}>
                         {chunk.map((action) => (
                             <Button
@@ -2138,6 +2162,7 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
                                 isDisabled={action.disabled}
                                 aria-label={action.label}
                                 aria-keyshortcuts={action.shortcut?.aria}
+                                data-action-tooltip={actionTipText(action)}
                                 onPress={action.onPress}
                             >
                                 <span className="action-button__icon">{action.icon}</span>
@@ -2151,6 +2176,20 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
                     </span>
                 ),
             )}
+            <Tooltip isOpen={actionTip !== null}>
+                <Tooltip.Trigger
+                    className="remote-cell-tooltip-trigger"
+                    style={{
+                        left: actionTip?.left ?? -1000,
+                        top: actionTip?.top ?? -1000,
+                    }}
+                >
+                    <span aria-hidden="true" />
+                </Tooltip.Trigger>
+                <Tooltip.Content placement="top" className="shortcut-tooltip">
+                    <span>{actionTip?.text ?? ""}</span>
+                </Tooltip.Content>
+            </Tooltip>
         </div>
     );
 }

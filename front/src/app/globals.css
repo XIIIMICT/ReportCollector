@@ -255,8 +255,9 @@ html {
 
 .profile-pill {
     height: auto;
-    min-width: 13rem;
-    max-width: 19rem;
+    width: auto;
+    min-width: 0;
+    max-width: 24rem;
     align-self: center;
     justify-content: flex-start;
     padding-block: 0.625rem;

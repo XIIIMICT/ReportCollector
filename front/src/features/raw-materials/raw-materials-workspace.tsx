@@ -1859,6 +1859,15 @@ function ActionBar({
     const isSm = useMediaQuery("(max-width: 40rem)");
     const isMd = useMediaQuery("(max-width: 48rem)");
     const collapseFixAtMd = isMd && !isSm;
+    // Floating tooltip showing the label (+ kbd) over every inline action
+    // button, including the ones grouped in a ButtonGroup (whose children can't
+    // be wrapped in a per-button Tooltip).
+    const [actionTip, setActionTip] = useState<{ text: string; left: number; top: number } | null>(
+        null,
+    );
+    const actionTipTargetRef = useRef<Element | null>(null);
+    const actionTipText = (action: ActionItem) =>
+        action.shortcut ? `${action.label} (Ctrl${action.shortcut.key})` : action.label;
     if (isSm) {
         return (
             <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
@@ -1893,6 +1902,7 @@ function ActionBar({
                             variant={action.variant ?? "tertiary"}
                             isDisabled={action.disabled}
                             aria-label={action.label}
+                            data-action-tooltip={actionTipText(action)}
                         >
                             <span className="action-button__icon">{icon}</span>
                             <span className="action-button__label">{action.label}</span>
@@ -1902,8 +1912,8 @@ function ActionBar({
                         <Dropdown.Menu
                             aria-label={action.label}
                             onAction={(key) => {
-                                const item = action.menu?.find((m) => m.id === String(key));
-                                item?.onPress();
+                                const menuItem = action.menu?.find((m) => m.id === String(key));
+                                menuItem?.onPress();
                             }}
                             className="action-more-menu"
                         >
@@ -1928,34 +1938,46 @@ function ActionBar({
                 isDisabled={action.disabled}
                 aria-label={action.label}
                 aria-keyshortcuts={action.shortcut?.aria}
+                data-action-tooltip={actionTipText(action)}
                 onPress={action.onPress}
             >
                 <span className="action-button__icon">{icon}</span>
                 <span className="action-button__label">{action.label}</span>
             </Button>
         );
-        if (!action.shortcut) return button;
-        return (
-            <Tooltip delay={250}>
-                <Tooltip.Trigger>{button}</Tooltip.Trigger>
-                <Tooltip.Content placement="top" className="shortcut-tooltip">
-                    <span>{action.label}</span>
-                    <Kbd>
-                        <Kbd.Abbr keyValue="ctrl" />
-                        <Kbd.Content>{action.shortcut.key}</Kbd.Content>
-                    </Kbd>
-                </Tooltip.Content>
-            </Tooltip>
-        );
+        return button;
     };
 
     return (
-        <div className="action-bar" aria-label="Действия с таблицей">
+        <div
+            className="action-bar"
+            aria-label="Действия с таблицей"
+            onPointerMove={(event) => {
+                const target = (event.target as Element).closest?.("[data-action-tooltip]") ?? null;
+                if (target === actionTipTargetRef.current) return;
+                actionTipTargetRef.current = target;
+                if (!target) {
+                    setActionTip(null);
+                    return;
+                }
+                const rect = target.getBoundingClientRect();
+                setActionTip({
+                    text: target.getAttribute("data-action-tooltip") ?? "",
+                    left: rect.left + rect.width / 2,
+                    top: rect.top,
+                });
+            }}
+            onPointerLeave={() => {
+                actionTipTargetRef.current = null;
+                setActionTip(null);
+            }}
+        >
             {groupActionItems(trailingActions).map((chunk) =>
                 chunk.length > 1 ? (
                     // Direct Button children only: ButtonGroup injects props
                     // into them (`__button_group_child`), which a Fragment or
-                    // Tooltip wrapper would reject.
+                    // Tooltip wrapper would reject — the kbd hint is shown by the
+                    // floating tooltip above instead.
                     <ButtonGroup key={`group-${chunk[0].id}`}>
                         {chunk.map((action) => (
                             <Button
@@ -1965,6 +1987,7 @@ function ActionBar({
                                 isDisabled={action.disabled}
                                 aria-label={action.label}
                                 aria-keyshortcuts={action.shortcut?.aria}
+                                data-action-tooltip={actionTipText(action)}
                                 onPress={action.onPress}
                             >
                                 <span className="action-button__icon">{action.icon}</span>
@@ -1978,6 +2001,20 @@ function ActionBar({
                     </span>
                 ),
             )}
+            <Tooltip isOpen={actionTip !== null}>
+                <Tooltip.Trigger
+                    className="remote-cell-tooltip-trigger"
+                    style={{
+                        left: actionTip?.left ?? -1000,
+                        top: actionTip?.top ?? -1000,
+                    }}
+                >
+                    <span aria-hidden="true" />
+                </Tooltip.Trigger>
+                <Tooltip.Content placement="top" className="shortcut-tooltip">
+                    <span>{actionTip?.text ?? ""}</span>
+                </Tooltip.Content>
+            </Tooltip>
         </div>
     );
 }

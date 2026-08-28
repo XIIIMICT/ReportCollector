@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip } from "@heroui/react";
 import {
     Editor,
     RevoGrid,
@@ -354,6 +355,13 @@ function RenovationGridInner(
     const [overlayWidths, setOverlayWidths] = useState<Map<string, number>>(new Map());
     const [resizingField, setResizingField] = useState<string | null>(null);
     const dragRef = useRef<{ dbName: string; startX: number; startWidth: number } | null>(null);
+    // Floating tooltip over a cell occupied by another participant (lease/presence).
+    const [remoteTooltip, setRemoteTooltip] = useState<{
+        text: string;
+        left: number;
+        top: number;
+    } | null>(null);
+    const remoteTooltipTargetRef = useRef<Element | null>(null);
 
     const catalogLabelsByField = useMemo(() => {
         const optionsByCatalog = new Map<string, string[]>();
@@ -1874,8 +1882,41 @@ function RenovationGridInner(
                     "--grid-header-height": `${headerHeight}px`,
                 } as CSSProperties
             }
+            onPointerMove={(event) => {
+                const target = (event.target as Element).closest?.("[data-remote-lock]") ?? null;
+                if (target === remoteTooltipTargetRef.current) return;
+                remoteTooltipTargetRef.current = target;
+                if (!target) {
+                    setRemoteTooltip(null);
+                    return;
+                }
+                const rect = target.getBoundingClientRect();
+                setRemoteTooltip({
+                    text:
+                        target.getAttribute("data-remote-lock") ??
+                        "Ячейка занята другим пользователем",
+                    left: rect.left + rect.width / 2,
+                    top: rect.top,
+                });
+            }}
+            onPointerLeave={() => {
+                remoteTooltipTargetRef.current = null;
+                setRemoteTooltip(null);
+            }}
         >
             {headerPinned ? headerOverlay : null}
+            <Tooltip isOpen={remoteTooltip !== null}>
+                <Tooltip.Trigger
+                    className="remote-cell-tooltip-trigger"
+                    style={{
+                        left: remoteTooltip?.left ?? -1000,
+                        top: remoteTooltip?.top ?? -1000,
+                    }}
+                >
+                    <span aria-hidden="true" />
+                </Tooltip.Trigger>
+                <Tooltip.Content placement="top">{remoteTooltip?.text}</Tooltip.Content>
+            </Tooltip>
             <div ref={verticalScrollRef} className="revo-grid-vertical-scroller">
                 {!headerPinned ? headerOverlay : null}
                 <RevoGrid
