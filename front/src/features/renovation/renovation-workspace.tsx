@@ -1213,11 +1213,24 @@ export function RenovationWorkspace({
         () => displayRows.find((row) => row.__id === selection?.rowId) ?? null,
         [displayRows, selection?.rowId],
     );
+    // A row may be deleted by anyone except the approver, and only while it
+    // holds no data — just the mandatory asset plus the technical columns.
+    // (The asset lives in __assetId; col_003 is the computed renovation ID.)
+    const rowIsEmpty = useMemo(() => {
+        if (!selectedRow) return true;
+        const row = selectedRow as unknown as Record<string, unknown>;
+        return [...editableFieldKeys].every((field) => {
+            const value = row[field];
+            return value === undefined || value === null || String(value).trim() === "";
+        });
+    }, [editableFieldKeys, selectedRow]);
     const canDeleteRow =
         !readOnly &&
         !isArchive &&
+        !isApprover &&
         selection?.rowId != null &&
-        selectedRow?.__rowState !== "deleted";
+        selectedRow?.__rowState !== "deleted" &&
+        rowIsEmpty;
 
     async function deleteSelectedRow() {
         const rowId = selection?.rowId;

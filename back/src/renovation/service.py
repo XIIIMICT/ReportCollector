@@ -29,6 +29,7 @@ from src.renovation.form_schema import (
     RenovationFieldMeta,
     RenovationHeaderCell,
     catalog_labels,
+    editable_fields,
     field_meta,
     field_metas,
     formula_engine,
@@ -100,6 +101,8 @@ _ERR_SUBMIT_PERMISSION = RenovationPermissionError(
 )
 _ERR_APPROVE_PERMISSION = RenovationPermissionError("Утвердить план может утверждающий.")
 _ERR_DELETE_BASELINE_ROW = RenovationPlanStateError("Нельзя удалить строку утверждённой базовой линии.")
+_ERR_DELETE_APPROVER = RenovationPermissionError("Утверждающий не удаляет строки плана.")
+_ERR_DELETE_NOT_EMPTY = RenovationPlanStateError("Строку с заполненными данными удалить нельзя — очистите её сначала.")
 _ERR_DIFF_ARCHIVED_ONLY = RenovationPlanStateError("Сравнение доступно только для архивных версий.")
 
 
@@ -445,12 +448,25 @@ async def delete_plan_row(
     session: AsyncSession,
     *,
     assets: list[RAsset],
+    roles: list[RProjectRole],
     row_id: UUID,
 ) -> None:
-    """Delete a working-plan row (rows of the approved baseline are protected)."""
+    """
+    Delete a plan row.
+
+    Delete is allowed for anyone who can reach the row (administrators, block
+    owners, asset workers on their own assets) — but NOT the approver — and only
+    while the row holds no data: just the mandatory asset plus the technical
+    (created/updated) columns. A row with any filled editable field can only be
+    cleared and then deleted.
+    """
     plan = await _plan_by_state(session, RPlanState.WORKING)
     if plan is None:
+        plan = await _plan_by_state(session, RPlanState.PENDING_APPROVAL)
+    if plan is None:
         raise _ERR_NO_WORKING_PLAN
+    if RProjectRole.APPROVER in roles:
+        raise _ERR_DELETE_APPROVER
     row = await session.get(RenovationPlanRow, row_id)
     if row is None or row.plan_id != plan.id:
         raise _CELL_PLAN_ROW_NOT_FOUND
@@ -459,6 +475,9 @@ async def delete_plan_row(
     boundary = await _baseline_boundary(session)
     if boundary is not None and row.position <= boundary:
         raise _ERR_DELETE_BASELINE_ROW
+    # A row may be deleted only while it has no data beyond the mandatory asset.
+    if any(getattr(row, field) not in (None, "") for field in editable_fields()):
+        raise _ERR_DELETE_NOT_EMPTY
     await session.delete(row)
     await session.commit()
 

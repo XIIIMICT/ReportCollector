@@ -289,7 +289,7 @@ async def delete_renovation_row(
 ) -> None:
     """Delete a working-plan row (rows of the approved baseline are protected)."""
     try:
-        await delete_plan_row(session, assets=access.assets, row_id=row_id)
+        await delete_plan_row(session, assets=access.assets, roles=access.roles, row_id=row_id)
     except RenovationPermissionError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
