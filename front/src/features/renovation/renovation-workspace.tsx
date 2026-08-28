@@ -236,6 +236,13 @@ export function RenovationWorkspace({
         [metaReloadKey],
     );
     const [viewPlanId, setViewPlanId] = useState<string | null>(null);
+    // After an approve, immediately show the resulting versions from the response
+    // (the async meta/plans refetch may lag a moment); cleared once the server
+    // list arrives so it never goes stale.
+    const [approveVersions, setApproveVersions] = useState<RenovationPlanVersion[] | null>(null);
+    useEffect(() => {
+        setApproveVersions(null);
+    }, [versions]);
     // The loaded window of the working plan (see PlanWindow above). `refresh()`
     // reloads it in place (cell edits, undo/redo, remote row changes keep the
     // anchor); switching the version or the asset filter resets it to the top.
@@ -1302,11 +1309,13 @@ export function RenovationWorkspace({
         if (isMutationPending) return;
         setIsMutationPending(true);
         try {
-            await approveRenovationPlan();
+            const result = await approveRenovationPlan();
             setApproveOpen(false);
             setUndoCount(0);
             setRedoCount(0);
             toast.success("План согласован и заархивирован");
+            // Show the archived + new working version in the picker right away.
+            setApproveVersions([result.archived, result.working]);
             refreshMeta();
         } catch (reason) {
             toast.danger("Не удалось согласовать план", { description: errorMessage(reason) });
@@ -1337,8 +1346,9 @@ export function RenovationWorkspace({
     // Version footer: the working version plus every non-working version
     // (pending approval and archived) viewed read-only with a diff.
     const archiveItems = useMemo<ArchiveItem[]>(() => {
-        if (!versions || versions.length === 0) return [];
-        return versions
+        const effective = approveVersions ?? versions;
+        if (!effective || effective.length === 0) return [];
+        return effective
             .filter((version) => version.state !== "working")
             .map((version) => ({
                 id: version.id,
@@ -1347,7 +1357,7 @@ export function RenovationWorkspace({
                 name: `Версия ${VERSION_STATE_LABELS[version.state]}`,
                 description: formatVersionStamp(version.createdAt),
             }));
-    }, [versions]);
+    }, [approveVersions, versions]);
 
     const archiveState = useMemo<ArchiveState>(
         () => ({
