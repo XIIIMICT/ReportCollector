@@ -58,6 +58,10 @@ export type RenovationMeta = {
     headerRows: RenovationHeaderRow[];
     workingPlanId: string | null;
     pendingPlanId: string | null;
+    /** The current user's responsibility block (null for central roles). */
+    userBlock: string | null;
+    /** The user's renovation roles — source of truth for plan edit rights. */
+    userRoles: string[];
 };
 
 export type RenovationPlanVersion = {

@@ -151,7 +151,7 @@ async def get_renovation_meta(
     access: AccessDependency,
 ) -> RenovationMetaRead:
     """Form dictionaries: assets, reference catalogs, field descriptions."""
-    return await read_meta(session, access.assets)
+    return await read_meta(session, access.assets, user_block=access.block, user_roles=access.roles)
 
 
 @router.get("/plan", response_model=RenovationPlanRead)

@@ -583,8 +583,13 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
             )
         await session.flush()
 
+        # Block owners and approvers have implicit access to all assets
+        # in their scope — no per-asset grants needed.
         ren_asset_codes = list(ren_user["assets"])
-        if not ren_asset_codes:
+        if not ren_asset_codes and ren_user["role"] not in (
+            RProjectRole.BLOCK_OWNER,
+            RProjectRole.APPROVER,
+        ):
             ren_asset_codes = [code for code, _, _ in R_ASSETS]
         for code in ren_asset_codes:
             grant = (

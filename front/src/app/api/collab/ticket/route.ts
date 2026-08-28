@@ -1,6 +1,6 @@
 import { buildIdentityHeaders } from "@/shared/auth/identity-headers";
 import { getSession } from "@/shared/auth/session";
-import { COLLAB_WS_PATH } from "@/shared/collab/ws-client";
+import { collabWsPath } from "@/shared/collab/ws-client";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
         h: Object.fromEntries(headers.entries()),
     };
     const baseWsUrl = process.env.COLLAB_WS_PUBLIC_URL?.trim() ?? "";
-    const wsUrl = baseWsUrl ? `${baseWsUrl}${COLLAB_WS_PATH}` : "";
+    const wsUrl = baseWsUrl ? `${baseWsUrl}${collabWsPath(project)}` : "";
     return Response.json({
         ticket: Buffer.from(JSON.stringify(ticket)).toString("base64url"),
         expiresIn: TICKET_TTL_SECONDS,

@@ -95,6 +95,11 @@ class RenovationMetaRead(BaseModel):
     headerRows: list[RenovationHeaderRowRead] = []
     workingPlanId: UUID | None = None
     pendingPlanId: UUID | None = None
+    # The current user's responsibility block (None for central roles).
+    userBlock: str | None = None
+    # The user's renovation roles (source of truth for plan edit rights; the
+    # auth ProjectRole only carries admin/asset_worker).
+    userRoles: list[str] = []
 
 
 class RenovationPlanVersionRead(BaseModel):

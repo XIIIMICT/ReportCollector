@@ -103,8 +103,18 @@ function toMembers(raw: unknown): CollabMember[] {
     );
 }
 
-/** The single backend WS endpoint: the project goes in the query (rooms are isolated by it). */
-export const COLLAB_WS_PATH = "/api/ws/raw-materials";
+/** Backend WS endpoints: routed by project key. */
+const COLLAB_WS_PATHS: Record<string, string> = {
+    raw_materials: "/api/ws/raw-materials",
+    renovation: "/api/ws/renovation",
+    kppk: "/api/ws/raw-materials",
+};
+const DEFAULT_COLLAB_WS_PATH = "/api/ws/raw-materials";
+
+/** Return the WS endpoint path for the given project key. */
+export function collabWsPath(projectKey: string): string {
+    return COLLAB_WS_PATHS[projectKey] ?? DEFAULT_COLLAB_WS_PATH;
+}
 
 export class CollabWsClient {
     private readonly sessionId = getCollabSessionId();
@@ -178,9 +188,10 @@ export class CollabWsClient {
                 sessionId: this.sessionId,
                 ticket: payload.ticket,
             });
+            const wsPath = COLLAB_WS_PATHS[this.room.projectKey] ?? DEFAULT_COLLAB_WS_PATH;
             const baseUrl = payload.wsUrl?.trim()
                 ? payload.wsUrl
-                : `${protocol}//${window.location.host}${COLLAB_WS_PATH}`;
+                : `${protocol}//${window.location.host}${wsPath}`;
             const socket = new WebSocket(`${baseUrl}?${query}`);
             this.socket = socket;
             socket.onopen = () => {

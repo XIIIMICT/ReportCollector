@@ -185,7 +185,13 @@ async def resolve_renovation_access(
     return user, roles, list(assets), block
 
 
-async def read_meta(session: AsyncSession, assets: list[RAsset]) -> RenovationMetaRead:
+async def read_meta(
+    session: AsyncSession,
+    assets: list[RAsset],
+    *,
+    user_block: RBlock | None = None,
+    user_roles: list[RProjectRole] | None = None,
+) -> RenovationMetaRead:
     """Form dictionaries: assets, reference catalogs, field descriptions."""
     options = (
         await session.exec(
@@ -218,6 +224,8 @@ async def read_meta(session: AsyncSession, assets: list[RAsset]) -> RenovationMe
         headerRows=[_header_row_read(level, cells) for level, cells in header_rows()],
         workingPlanId=working_id,
         pendingPlanId=pending_id,
+        userBlock=user_block.value if user_block is not None else None,
+        userRoles=sorted({role.value for role in user_roles}) if user_roles else [],
     )
 
 
@@ -1568,8 +1576,8 @@ async def read_renovation_user_rows(
         names_by_user.setdefault(link.user_id, []).append(asset.name)
     rows: list[RenovationUserRowRead] = []
     for user, link in ((user, links_by_user[user.id]) for user in users):
-        # Admin/approver implicitly see all assets — the grid shows no list for them.
-        central = link.role in (RProjectRole.ADMIN, RProjectRole.APPROVER)
+        # Admin/approver/block_owner implicitly see all assets — no list shown.
+        central = link.role in (RProjectRole.ADMIN, RProjectRole.APPROVER, RProjectRole.BLOCK_OWNER)
         rows.append(
             RenovationUserRowRead(
                 id=user.id,

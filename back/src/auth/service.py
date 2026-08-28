@@ -219,20 +219,43 @@ async def sync_project_memberships(session: AsyncSession, user_id: UUID, *, acti
     Missing links are created with is_active=False and the asset_worker role;
     for the seed admin (activate_admin=True) new links are active with the
     admin role. Existing links are never changed.
+
+    Renovation-only users (those with a role in r_user_roles) skip raw_materials
+    and kppk — they don't need those workspaces.  The seed admin bypasses this
+    check and gets links to every project.
     """
+    # Projects the user should be linked to.
     projects = (await session.exec(select(Project).order_by(Project.key))).all()
     existing = (await session.exec(select(UserRole).where(col(UserRole.user_id) == user_id))).all()
     existing_by_project = {role.project_id: role for role in existing}
     now = datetime.now(UTC)
+
+    # Skip non-renovation projects for users that only have renovation roles;
+    # auto-activate the renovation project when an active RUserRole exists.
+    if not activate_admin:
+        from src.renovation.models import RUserRole  # noqa: PLC0415 (avoids a circular import)
+
+        r_roles = list((await session.exec(select(RUserRole).where(col(RUserRole.user_id) == user_id))).all())
+        has_renovation_role = bool(r_roles)
+        if has_renovation_role:
+            skip_keys = {"raw_materials", "kppk"}
+            projects = [p for p in projects if p.key not in skip_keys]
+        # Active r_user_roles → the corresponding user_role should be active too.
+        r_active_project_ids = {rur.project_id for rur in r_roles if rur.is_active}
+
     for project in projects:
         if project.id in existing_by_project:
             continue
+        # Auto-activate when the user already has an active renovation role.
+        should_activate = activate_admin or (
+            not activate_admin and has_renovation_role and project.id in r_active_project_ids
+        )
         session.add(
             UserRole(
                 user_id=user_id,
                 project_id=project.id,
                 role=ProjectRole.ADMIN if activate_admin else ProjectRole.ASSET_WORKER,
-                is_active=activate_admin,
+                is_active=should_activate,
                 created_at=now,
                 updated_at=now,
                 updated_by="",

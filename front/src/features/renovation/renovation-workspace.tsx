@@ -680,9 +680,17 @@ export function RenovationWorkspace({
 
     const activeProject = user.access?.find((project) => project.key === activeProjectKey);
     const roles = activeProject?.roles ?? [];
-    const isAdmin = isProjectAdmin(activeProject) || roles.includes("admin");
-    const isApprover = roles.includes("approver");
-    const isBlockOwner = roles.includes("block_owner");
+    // The renovation roles carried in meta are the source of truth for plan
+    // edit rights — the auth ProjectRole only knows admin/asset_worker, so the
+    // renovation approver/block_owner roles arrive here. Fall back to the auth
+    // roles for robustness.
+    const renovationRoles = meta?.userRoles ?? [];
+    const isAdmin =
+        isProjectAdmin(activeProject) ||
+        roles.includes("admin") ||
+        renovationRoles.includes("admin");
+    const isApprover = renovationRoles.includes("approver") || roles.includes("approver");
+    const isBlockOwner = renovationRoles.includes("block_owner") || roles.includes("block_owner");
     // The admin role is stripped of both the submit and the approve actions —
     // they belong to the block_owner / approver roles, so an admin sees neither
     // button (they manage access, not the plan workflow).
@@ -690,18 +698,24 @@ export function RenovationWorkspace({
     const canApprove = isApprover;
 
     // The backend derives the responsibility block from the user-role link
-    // (empty only for the central roles) and rejects edits outside it. The
-    // /api/me response doesn't carry the block, so v1 marks every non-calc,
-    // non-read-only field editable and the server 403 is surfaced as a toast.
+    // and rejects edits outside it. The meta now carries userBlock so the
+    // frontend can restrict editing to the user's block on the client side.
+    const userBlock = meta?.userBlock ?? null;
     const editableFieldKeys = useMemo(() => {
         const keys = new Set<string>();
         if (!meta) return keys;
         if (isApprover) return keys;
         for (const field of meta.fields) {
-            if (!field.isCalculated && !field.isReadOnly) keys.add(field.dbName);
+            if (field.isCalculated || field.isReadOnly) continue;
+            // Block owners can only edit fields in their block (+ central
+            // fields with no block assignment).
+            if (userBlock && field.responsibilityBlock && field.responsibilityBlock !== userBlock) {
+                continue;
+            }
+            keys.add(field.dbName);
         }
         return keys;
-    }, [isApprover, meta]);
+    }, [isApprover, meta, userBlock]);
 
     const userAssetIds = useMemo(() => {
         if (!meta) return null;
@@ -1526,26 +1540,29 @@ export function RenovationWorkspace({
     }
 
     // Filters (plan only) — between the version picker and the right controls.
-    // Filter by asset (plan only) — in the toolbar after the block tabs.
-    const planFilters = isPlanSection ? (
-        <div className="plan-filters__asset">
-            <SearchAutocomplete
-                placeholder="Все активы"
-                compactLabel="Актив"
-                items={[
-                    { id: "__all", name: "Все активы" },
-                    ...meta.assets.map((asset) => ({
-                        id: asset.name,
-                        name: asset.name,
-                    })),
-                ]}
-                selectedKey={assetFilter ?? "__all"}
-                onSelectionChange={(key) =>
-                    setAssetFilter(key && key !== "__all" ? String(key) : null)
-                }
-            />
-        </div>
-    ) : null;
+    // Filter by asset (plan only). Asset workers see only their own assets and
+    // the filter is hidden when they answer for a single asset.
+    const isAssetWorker = roles.includes("asset_worker");
+    const accessibleAssetOptions =
+        isAssetWorker && userAssetIds
+            ? meta.assets
+                  .filter((asset) => userAssetIds.has(asset.id))
+                  .map((asset) => ({ id: asset.name, name: asset.name }))
+            : meta.assets.map((asset) => ({ id: asset.name, name: asset.name }));
+    const planFilters =
+        isPlanSection && accessibleAssetOptions.length > 1 ? (
+            <div className="plan-filters__asset">
+                <SearchAutocomplete
+                    placeholder="Все активы"
+                    compactLabel="Актив"
+                    items={[{ id: "__all", name: "Все активы" }, ...accessibleAssetOptions]}
+                    selectedKey={assetFilter ?? "__all"}
+                    onSelectionChange={(key) =>
+                        setAssetFilter(key && key !== "__all" ? String(key) : null)
+                    }
+                />
+            </div>
+        ) : null;
 
     // «Рабочая версия» / version picker — moved into the toolbar. It stays
     // mounted across section switches so its collapse/expand can animate
@@ -1636,15 +1653,17 @@ export function RenovationWorkspace({
         <div className="table-toolbar">
             {versionPicker}
             <div className="table-toolbar__filters">
-                <div className="table-toolbar__controls">
-                    <SearchAutocomplete
-                        placeholder="Форма"
-                        compactLabel="Форма"
-                        items={sectionOptions}
-                        selectedKey={activeSection}
-                        onSelectionChange={handleSectionChange}
-                    />
-                </div>
+                {isAdmin ? (
+                    <div className="table-toolbar__controls">
+                        <SearchAutocomplete
+                            placeholder="Форма"
+                            compactLabel="Форма"
+                            items={sectionOptions}
+                            selectedKey={activeSection}
+                            onSelectionChange={handleSectionChange}
+                        />
+                    </div>
+                ) : null}
                 {planFilters}
                 {blockFilterSelect}
             </div>
