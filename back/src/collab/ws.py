@@ -348,10 +348,15 @@ async def _handle_message(
         return
     if message_type == "presence":
         parsed = PresenceMessage.model_validate(message)
+        # Re-store the member's presence so the selection highlight clears
+        # immediately for others (e.g. after Esc), not only when the presence
+        # TTL expires. The selection field is included only when non-null.
+        payload = {**owner}
         if parsed.selection is not None:
-            await store.room_join(room, str(owner["userId"]), {**owner, "selection": parsed.selection})
-            members = await store.room_members(room)
-            await store.publish(room, {"type": "presence:update", "members": members})
+            payload["selection"] = parsed.selection
+        await store.room_join(room, str(owner["userId"]), payload)
+        members = await store.room_members(room)
+        await store.publish(room, {"type": "presence:update", "members": members})
         return
     parsed = LeaseMessage.model_validate(message)
     cells = parsed.cells[:_MAX_LEASE_CELLS]
