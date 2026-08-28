@@ -570,6 +570,20 @@ html {
     color: var(--text);
 }
 
+/* Each section (На форме / Выделено / Строки-Столбцы) is separated by an
+   extra blank line, not just the tight gap. */
+.form-status-detail__presence,
+.form-status-detail__row,
+.form-status-detail > span {
+    margin-block: 0.45rem;
+}
+
+.form-status-detail__presence:first-child,
+.form-status-detail__row:first-child,
+.form-status-detail > span:first-child {
+    margin-top: 0;
+}
+
 .form-status-detail__presence {
     display: grid;
     gap: 0.3rem;
@@ -1269,6 +1283,12 @@ html {
     width: 0;
     height: 0;
     pointer-events: none;
+}
+
+.lock-tooltip {
+    display: block;
+    line-height: 1.35;
+    white-space: nowrap;
 }
 
 .raw-materials-grid revogr-data .rgCell.report-cell--placeholder {

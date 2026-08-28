@@ -355,9 +355,11 @@ function RenovationGridInner(
     const [overlayWidths, setOverlayWidths] = useState<Map<string, number>>(new Map());
     const [resizingField, setResizingField] = useState<string | null>(null);
     const dragRef = useRef<{ dbName: string; startX: number; startWidth: number } | null>(null);
-    // Floating tooltip over a cell occupied by another participant (lease/presence).
+    // Floating tooltip over a cell occupied by another participant (lease/presence):
+    // the owner's name in bold, then the selected range.
     const [remoteTooltip, setRemoteTooltip] = useState<{
-        text: string;
+        name: string;
+        label: string | null;
         left: number;
         top: number;
     } | null>(null);
@@ -695,9 +697,10 @@ function RenovationGridInner(
                                     empty,
                             },
                             "data-remote-lock": remoteUser
-                                ? remoteUser.label
-                                    ? `${remoteUser.name} — ${remoteUser.label}`
-                                    : remoteUser.name
+                                ? JSON.stringify({
+                                      name: remoteUser.name,
+                                      label: remoteUser.label ?? null,
+                                  })
                                 : undefined,
                         };
                     },
@@ -1891,10 +1894,16 @@ function RenovationGridInner(
                     return;
                 }
                 const rect = target.getBoundingClientRect();
+                let lock: { name?: string; label?: string | null } | null = null;
+                try {
+                    const raw = target.getAttribute("data-remote-lock");
+                    if (raw) lock = JSON.parse(raw);
+                } catch {
+                    lock = null;
+                }
                 setRemoteTooltip({
-                    text:
-                        target.getAttribute("data-remote-lock") ??
-                        "Ячейка занята другим пользователем",
+                    name: lock?.name ?? target.getAttribute("data-remote-lock") ?? "",
+                    label: lock?.label ?? null,
                     left: rect.left + rect.width / 2,
                     top: rect.top,
                 });
@@ -1915,7 +1924,17 @@ function RenovationGridInner(
                 >
                     <span aria-hidden="true" />
                 </Tooltip.Trigger>
-                <Tooltip.Content placement="top">{remoteTooltip?.text}</Tooltip.Content>
+                <Tooltip.Content placement="top" className="form-status-tooltip">
+                    <span className="lock-tooltip">
+                        <strong>{remoteTooltip?.name ?? ""}</strong>
+                        {remoteTooltip?.label ? (
+                            <>
+                                <br />
+                                {remoteTooltip.label}
+                            </>
+                        ) : null}
+                    </span>
+                </Tooltip.Content>
             </Tooltip>
             <div ref={verticalScrollRef} className="revo-grid-vertical-scroller">
                 {!headerPinned ? headerOverlay : null}

@@ -79,7 +79,7 @@ export function FormStatus({
                     {hasPresence ? (
                         <div className="form-status-detail__presence">
                             <div className="form-status-detail__presence-summary">
-                                <b>На форме:</b> {membershipSummary(members, selfId)}
+                                <b>На форме:</b>
                             </div>
                             <ul className="form-status-detail__presence-list">
                                 {otherMembers.map((member) => (
@@ -96,17 +96,12 @@ export function FormStatus({
                         </div>
                     ) : null}
                     {gridStats ? (
-                        <>
-                            <span>
-                                <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
-                                {gridStats.totalRows} всего
-                            </span>
-                            <span>
-                                <b>Столбцы:</b> {gridStats.immutableCols} неизменяемых +{" "}
-                                {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
-                                заполняемых = {gridStats.totalCols} всего
-                            </span>
-                        </>
+                        <span className="form-status-detail__rows">
+                            <b>Строки:</b> {gridStats.filteredRows} найдено, {gridStats.totalRows}{" "}
+                            всего · <b>Столбцы:</b> {gridStats.immutableCols} неизменяемых +{" "}
+                            {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
+                            заполняемых = {gridStats.totalCols} всего
+                        </span>
                     ) : null}
                 </div>
             </Tooltip.Content>
