@@ -1112,7 +1112,13 @@ async def delete_asset(session: AsyncSession, *, asset_id: UUID) -> None:
     for link in user_links:
         await session.delete(link)
     await session.delete(asset)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as error:
+        # A reference slipped in between the reference check and the commit
+        # (a race) — surface a clean 409, never a 500.
+        await session.rollback()
+        raise _DICT_REF_ASSET_USED from error
 
 
 async def create_delivery_basis(session: AsyncSession, *, name: str, user: User) -> DeliveryBasis:
@@ -1169,7 +1175,14 @@ async def delete_delivery_basis(session: AsyncSession, *, basis_id: UUID) -> Non
     if price is not None:
         raise _DICT_REF_BASIS_USED
     await session.delete(basis)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as error:
+        # A reference slipped in between the check and the commit (a race), or a
+        # table we don't pre-check references the basis — surface a clean 409,
+        # never a 500.
+        await session.rollback()
+        raise _DICT_REF_BASIS_USED from error
 
 
 async def create_project_user(
