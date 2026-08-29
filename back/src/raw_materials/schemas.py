@@ -88,6 +88,7 @@ class PriceRowRead(BaseModel):
     businessPlanUsdPerTon: float | None
     businessPlanRubPerTon: float | None
     deliveryCostRub: float | None
+    storageStandardTons: float | None
     createdAt: datetime
     updatedAt: datetime
     updatedBy: str

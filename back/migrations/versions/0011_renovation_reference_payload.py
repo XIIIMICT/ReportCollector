@@ -18,7 +18,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0011_renovation_reference_payload"
+revision: str = "0011_renovation_ref_payload"
 down_revision: str | None = "0010_move_storage_to_prices"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

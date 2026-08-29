@@ -570,18 +570,14 @@ html {
     color: var(--text);
 }
 
-/* Each section (На форме / Выделено / Строки-Столбцы) is separated by an
-   extra blank line, not just the tight gap. */
-.form-status-detail__presence,
-.form-status-detail__row,
-.form-status-detail > span {
-    margin-block: 0.45rem;
-}
-
-.form-status-detail__presence:first-child,
-.form-status-detail__row:first-child,
-.form-status-detail > span:first-child {
-    margin-top: 0;
+/* The Строки/Столбцы stats sit as their own group, separated from «Выделено»
+   by a two-line gap (0.6rem ≈ two line breaks); within the group Строки and
+   Столбцы are one line apart (the parent's tight gap). */
+.form-status-detail__stats {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
 }
 
 .form-status-detail__presence {

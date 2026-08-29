@@ -96,12 +96,17 @@ export function FormStatus({
                         </div>
                     ) : null}
                     {gridStats ? (
-                        <span className="form-status-detail__rows">
-                            <b>Строки:</b> {gridStats.filteredRows} найдено, {gridStats.totalRows}{" "}
-                            всего · <b>Столбцы:</b> {gridStats.immutableCols} неизменяемых +{" "}
-                            {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
-                            заполняемых = {gridStats.totalCols} всего
-                        </span>
+                        <div className="form-status-detail__stats">
+                            <span className="form-status-detail__rows">
+                                <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
+                                {gridStats.totalRows} всего
+                            </span>
+                            <span className="form-status-detail__cols">
+                                <b>Столбцы:</b> {gridStats.immutableCols} неизменяемых +{" "}
+                                {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
+                                заполняемых = {gridStats.totalCols} всего
+                            </span>
+                        </div>
                     ) : null}
                 </div>
             </Tooltip.Content>

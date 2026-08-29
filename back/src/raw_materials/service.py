@@ -274,6 +274,7 @@ async def read_price_rows(
                 businessPlanUsdPerTon=price.business_plan_usd_per_ton,
                 businessPlanRubPerTon=price.business_plan_rub_per_ton,
                 deliveryCostRub=price.delivery_cost_rub,
+                storageStandardTons=price.storage_standard_tons,
                 createdAt=arm.created_at,
                 updatedAt=price.updated_at,
                 updatedBy=price.updated_by,

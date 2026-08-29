@@ -1019,6 +1019,53 @@ function RenovationGridInner(
         return () => cancelAnimationFrame(frame);
     }, [scrollCompensation, headerPinned]);
 
+    // Toggling headerPinned swaps the scroll target (pinned → the internal
+    // virtual strip, unpinned → the external scroller), which would drop the
+    // viewport to the top. Track the current top row continuously and restore it
+    // on the newly active scroller after the swap so the position is preserved.
+    const topRowRef = useRef(0);
+    useEffect(() => {
+        const update = () => {
+            const el = headerPinned
+                ? (gridRef.current?.querySelector(
+                      "revogr-scroll-virtual.vertical",
+                  ) as HTMLElement | null)
+                : verticalScrollRef.current;
+            if (el) topRowRef.current = Math.round(el.scrollTop / 36);
+        };
+        const el = headerPinned
+            ? (gridRef.current?.querySelector(
+                  "revogr-scroll-virtual.vertical",
+              ) as HTMLElement | null)
+            : verticalScrollRef.current;
+        el?.addEventListener("scroll", update, { passive: true });
+        return () => el?.removeEventListener("scroll", update);
+    }, [headerPinned]);
+
+    useEffect(() => {
+        const ROW_H = 36;
+        let attempts = 0;
+        const apply = () => {
+            const el = headerPinned
+                ? (gridRef.current?.querySelector(
+                      "revogr-scroll-virtual.vertical",
+                  ) as HTMLElement | null)
+                : verticalScrollRef.current;
+            if (!el) {
+                if (attempts < 40) setTimeout(apply, 100);
+                return;
+            }
+            const target = Math.max(0, topRowRef.current * ROW_H);
+            if (Math.abs(el.scrollTop - target) > 1 && attempts < 30) {
+                el.scrollTop = target;
+                attempts += 1;
+                setTimeout(apply, 60);
+            }
+        };
+        const t = setTimeout(apply, 0);
+        return () => clearTimeout(t);
+    }, [headerPinned]);
+
     // After a structural window load the workspace asks to jump to an edge:
     // the working plan anchors at its TAIL (rows are appended at the end), the
     // archive reads top-down. Resolved via setTimeout so it holds until the
