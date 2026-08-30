@@ -60,6 +60,7 @@ export function SearchAutocomplete({
     const [isOpen, setIsOpen] = useState(false);
     const openRef = useRef(false);
     const wrapperRef = useRef<HTMLDivElement | null>(null);
+    const popoverRef = useRef<HTMLElement | null>(null);
     const closeTimerRef = useRef<number | null>(null);
 
     useEffect(() => {
@@ -88,7 +89,7 @@ export function SearchAutocomplete({
         function onMouseMove(event: MouseEvent) {
             if (!openRef.current) return;
             const wrapper = wrapperRef.current;
-            const popover = document.querySelector<HTMLElement>(".search-autocomplete-popover");
+            const popover = popoverRef.current;
             const x = event.clientX;
             const y = event.clientY;
             const wRect = wrapper?.getBoundingClientRect();
@@ -188,7 +189,7 @@ export function SearchAutocomplete({
                     </Autocomplete.Value>
                     <Autocomplete.Indicator />
                 </Autocomplete.Trigger>
-                <Autocomplete.Popover className="search-autocomplete-popover">
+                <Autocomplete.Popover ref={popoverRef} className="search-autocomplete-popover">
                     <Autocomplete.Filter filter={contains}>
                         <SearchField
                             autoFocus

@@ -29,17 +29,17 @@ export async function proxyBackend(request: Request, path: string, method = requ
 
     const response = await fetch(targetUrl, init);
     const responseContentType = response.headers.get("Content-Type") ?? "application/json";
-    if (responseContentType.includes("application/json")) {
-        return Response.json(await response.json(), { status: response.status });
-    }
-
-    const responseHeaders = new Headers({ "Content-Type": responseContentType });
-    const contentDisposition = response.headers.get("Content-Disposition");
-    if (contentDisposition) {
-        responseHeaders.set("Content-Disposition", contentDisposition);
+    // Forward the headers a browser cares about, for both JSON and binary
+    // responses (previously only the non-JSON branch kept Content-Disposition,
+    // and Cache-Control was dropped everywhere). The body is passed through
+    // verbatim (arrayBuffer) so the proxy stays transparent for both.
+    const forwardedHeaders = new Headers({ "Content-Type": responseContentType });
+    for (const name of ["Content-Disposition", "Cache-Control", "ETag"]) {
+        const value = response.headers.get(name);
+        if (value) forwardedHeaders.set(name, value);
     }
     return new Response(await response.arrayBuffer(), {
-        headers: responseHeaders,
+        headers: forwardedHeaders,
         status: response.status,
     });
 }
