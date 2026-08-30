@@ -336,6 +336,9 @@ function RenovationGridInner(
     const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
     const [widths, setWidths] = useState<Map<string, number>>(() => {
         const result = new Map<string, number>();
+        // Guard the lazy initializer: it runs during render, which can happen
+        // in an environment without `window` (SSR / early hydration / some e2e).
+        if (typeof window === "undefined") return result;
         for (const field of fields) {
             const saved = window.localStorage.getItem(WIDTH_STORAGE_PREFIX + field.dbName);
             if (saved) {

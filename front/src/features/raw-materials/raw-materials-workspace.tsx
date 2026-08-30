@@ -278,7 +278,9 @@ export function downloadBlob(blob: Blob, fileName: string): void {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(url);
+    // Defer the revoke: revoking synchronously right after click() can cancel
+    // an in-progress download in some browsers (notably Safari, and big files).
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export type ClipboardActions = {
@@ -367,7 +369,11 @@ function SectionContent({
     }, [reportMonth, section]);
 
     const [reloadKey, setReloadKey] = useState(0);
-    const { data: rows, error } = useAsyncData<
+    const {
+        data: rows,
+        error,
+        loading: rowsLoading,
+    } = useAsyncData<
         MovementRow[] | PriceRow[] | RawMaterialRow[] | AssetRow[] | DeliveryBasisRow[] | UserRow[]
     >(loader, [loader, reloadKey]);
 
@@ -969,7 +975,7 @@ function SectionContent({
         );
     }
 
-    if (rows === null) {
+    if (rows === null || rowsLoading) {
         return (
             <div className="grid-viewport" aria-busy>
                 <div className="grid-empty">
