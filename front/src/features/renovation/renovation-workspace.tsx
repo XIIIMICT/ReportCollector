@@ -221,7 +221,13 @@ export function RenovationWorkspace({
             if (blockFilterCloseRef.current === null) {
                 blockFilterCloseRef.current = window.setTimeout(() => {
                     blockFilterCloseRef.current = null;
-                    setBlockFilterOpen(false);
+                    // Close the (uncontrolled) HeroUI Select via Escape on the
+                    // trigger; the onOpenChange handler syncs the flags.
+                    const btn = blockFilterWrapRef.current?.querySelector("button");
+                    btn?.dispatchEvent(
+                        new KeyboardEvent("keydown", { key: "Escape", keyCode: 27 }),
+                    );
+                    btn?.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", keyCode: 27 }));
                 }, 200);
             }
         }
@@ -1660,13 +1666,18 @@ export function RenovationWorkspace({
             <div
                 ref={blockFilterWrapRef}
                 className="plan-filters__block"
-                onMouseEnter={() => setBlockFilterOpen(true)}
+                onMouseEnter={() => {
+                    // Hover-open a HeroUI Select by a real press on its trigger —
+                    // a scripted `isOpen` on a controlled Select can mount two
+                    // popovers. Guard so a re-enter while open doesn't toggle it.
+                    if (blockFilterOpenRef.current) return;
+                    blockFilterWrapRef.current?.querySelector("button")?.click();
+                }}
             >
                 <Select
                     aria-label="Фильтр по блоку"
                     selectionMode="single"
                     variant="secondary"
-                    isOpen={blockFilterOpen}
                     onOpenChange={(open) => {
                         setBlockFilterOpen(open);
                         setToolbarControlOpen(open);
