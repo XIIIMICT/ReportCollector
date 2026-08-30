@@ -27,6 +27,9 @@ type SearchAutocompleteProps = {
     placeholder: string;
     selectedKey: string | null;
     onSelectionChange: (key: string | null) => void;
+    /** Notifies the owner whether the popover is open (used to hold the
+        fullscreen toolbar panels open while a dropdown is expanded). */
+    onOpenChange?: (open: boolean) => void;
     isDisabled?: boolean;
     /**
      * Short label shown in the trigger instead of the selected value on narrow
@@ -41,6 +44,7 @@ export function SearchAutocomplete({
     placeholder,
     selectedKey,
     onSelectionChange,
+    onOpenChange,
     isDisabled = false,
     compactLabel,
 }: SearchAutocompleteProps) {
@@ -60,7 +64,8 @@ export function SearchAutocomplete({
 
     useEffect(() => {
         openRef.current = isOpen;
-    }, [isOpen]);
+        onOpenChange?.(isOpen);
+    }, [isOpen, onOpenChange]);
 
     useEffect(() => {
         setIsMounted(true);

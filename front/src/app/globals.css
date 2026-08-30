@@ -890,7 +890,8 @@ html {
     border-radius: inherit;
 }
 
-.fullscreen-reveal:hover .fullscreen-panel {
+.fullscreen-reveal:hover .fullscreen-panel,
+.fullscreen-reveal--open .fullscreen-panel {
     opacity: 1;
     pointer-events: auto;
     transform: translate(0);

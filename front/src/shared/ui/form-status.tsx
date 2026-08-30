@@ -34,9 +34,14 @@ export function FormStatus({
     const hasPresence = room !== null && room.status === "online";
     const members = room?.members ?? [];
     const selfId = room?.me?.userId ?? null;
-    // Other members for the tooltip list: the current user's own selection is
-    // shown separately below as «Выделено», so it is not repeated here.
-    const otherMembers = members.filter((member) => member.userId !== selfId);
+    // The tooltip list: other members first (with what they have selected), then
+    // the current user's own name last WITHOUT a selection — the standalone
+    // «Выделено» block that follows covers it.
+    const others = members
+        .filter((member) => member.userId !== selfId)
+        .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email, "ru"));
+    const me = members.find((member) => member.userId === selfId) ?? null;
+    const hasOthers = others.length > 0;
     const presenceText = hasPresence
         ? membershipSummary(members, selfId)
         : room && room.status !== "online"
@@ -75,17 +80,34 @@ export function FormStatus({
             </Tooltip.Trigger>
             <Tooltip.Content placement="top" className="form-status-tooltip">
                 <div className="form-status-detail">
-                    {/* Presence first, then the selection breakdown. */}
                     {hasPresence ? (
                         <div className="form-status-detail__presence">
                             <div className="form-status-detail__presence-summary">
                                 <b>На форме:</b>
                             </div>
-                            <ul className="form-status-detail__presence-list">
-                                {otherMembers.map((member) => (
-                                    <PresenceRow member={member} key={member.userId} />
-                                ))}
-                            </ul>
+                            {hasOthers ? (
+                                <ul className="form-status-detail__presence-list">
+                                    {others.map((member) => (
+                                        <PresenceRow member={member} key={member.userId} />
+                                    ))}
+                                    {me ? (
+                                        <li className="form-status-detail__presence-item">
+                                            <span className="form-status-detail__head">
+                                                <span className="form-status-detail__name">
+                                                    {me.name || me.email}
+                                                </span>
+                                                {memberDetail(me) ? (
+                                                    <span className="form-status-detail__role">
+                                                        ({memberDetail(me)})
+                                                    </span>
+                                                ) : null}
+                                            </span>
+                                        </li>
+                                    ) : null}
+                                </ul>
+                            ) : (
+                                <span className="form-status-detail__alone">только вы</span>
+                            )}
                         </div>
                     ) : null}
                     {selectionLabel ? (

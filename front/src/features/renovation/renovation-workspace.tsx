@@ -164,6 +164,9 @@ export function RenovationWorkspace({
     const [reloadKey, setReloadKey] = useState(0);
     const [assetFilter, setAssetFilter] = useState<string | null>(null);
     const [blockFilter, setBlockFilter] = useState<string | null>(null);
+    // True while a toolbar autocomplete/select has an open popover — keeps the
+    // fullscreen reveal panels from hiding while you interact with a dropdown.
+    const [toolbarControlOpen, setToolbarControlOpen] = useState(false);
     // Active section (plan vs dictionary) — declared early because the
     // plan-window reset effect keys off it.
     const [activeSection, setActiveSection] = useState<string>("plan");
@@ -1564,6 +1567,7 @@ export function RenovationWorkspace({
                 <SearchAutocomplete
                     placeholder="Все активы"
                     compactLabel="Актив"
+                    onOpenChange={setToolbarControlOpen}
                     items={[{ id: "__all", name: "Все активы" }, ...accessibleAssetOptions]}
                     selectedKey={assetFilter ?? "__all"}
                     onSelectionChange={(key) =>
@@ -1593,6 +1597,7 @@ export function RenovationWorkspace({
                 placeholder="Выберите версию"
                 compactLabel="Версия"
                 isDisabled={!showVersionPicker}
+                onOpenChange={setToolbarControlOpen}
                 items={[
                     ...(hasWorkingPlan
                         ? [
@@ -1628,7 +1633,10 @@ export function RenovationWorkspace({
                     selectionMode="single"
                     variant="secondary"
                     isOpen={blockFilterOpen}
-                    onOpenChange={setBlockFilterOpen}
+                    onOpenChange={(open) => {
+                        setBlockFilterOpen(open);
+                        setToolbarControlOpen(open);
+                    }}
                     selectedKey={blockFilter ?? "__all"}
                     onSelectionChange={(key) =>
                         setBlockFilter(key && key !== "__all" ? String(key) : null)
@@ -1667,6 +1675,7 @@ export function RenovationWorkspace({
                         <SearchAutocomplete
                             placeholder="Форма"
                             compactLabel="Форма"
+                            onOpenChange={setToolbarControlOpen}
                             items={sectionOptions}
                             selectedKey={activeSection}
                             onSelectionChange={handleSectionChange}
@@ -1982,7 +1991,13 @@ export function RenovationWorkspace({
 
             {isFullscreen && !isFullscreenPending ? (
                 <>
-                    <div className="fullscreen-reveal fullscreen-reveal--top">
+                    <div
+                        className={
+                            toolbarControlOpen
+                                ? "fullscreen-reveal fullscreen-reveal--top fullscreen-reveal--open"
+                                : "fullscreen-reveal fullscreen-reveal--top"
+                        }
+                    >
                         <div className="fullscreen-panel fullscreen-panel--top">
                             {header}
                             {toolbar}
