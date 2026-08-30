@@ -2029,7 +2029,15 @@ function ActionBar({
  * opens on hover. See `HoverDropdown` for why closing is pointer-position
  * based rather than mouseleave.
  */
-export function CompactActionMenu({ items }: { items: ActionItem[] }) {
+export function CompactActionMenu({
+    items,
+    onOpenChange,
+}: {
+    items: ActionItem[];
+    /** Notifies the owner when the menu opens/closes (holds the fullscreen
+        panels open while the compact «Действия» menu is expanded). */
+    onOpenChange?: (open: boolean) => void;
+}) {
     const handleAction = useCallback(
         (key: Key) => {
             const raw = String(key);
@@ -2052,6 +2060,7 @@ export function CompactActionMenu({ items }: { items: ActionItem[] }) {
     return (
         <HoverDropdown
             className="action-more-popover"
+            onOpenChange={onOpenChange}
             trigger={({ ref, onMouseEnter, isOpen }) => (
                 <Button
                     ref={ref}

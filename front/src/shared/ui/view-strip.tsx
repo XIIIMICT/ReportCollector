@@ -26,6 +26,7 @@ export function ViewStrip({
     isFullscreenPending,
     onToggleFullscreen,
     hideExport = false,
+    onDropdownOpenChange,
 }: {
     headerPinned?: boolean;
     onHeaderPinnedChange?: (value: boolean) => void;
@@ -39,6 +40,9 @@ export function ViewStrip({
     onToggleFullscreen: () => void;
     /** Hide the download button (its action moved into the footer action bar). */
     hideExport?: boolean;
+    /** Notifies the owner when a hover dropdown opens/closes (holds the
+        fullscreen toolbar panels open while its menu is expanded). */
+    onDropdownOpenChange?: (open: boolean) => void;
 }) {
     const hasToggles =
         headerPinned !== undefined &&
@@ -92,6 +96,7 @@ export function ViewStrip({
             {hideExport ? null : (
                 <HoverDropdown
                     className="view-strip-popover"
+                    onOpenChange={onDropdownOpenChange}
                     trigger={({ ref, onMouseEnter, isOpen }) =>
                         collapsedDownloadButton(isOpen, exportPending, { ref, onMouseEnter })
                     }
@@ -116,6 +121,7 @@ export function ViewStrip({
             )}
             <HoverDropdown
                 className="view-strip-popover"
+                onOpenChange={onDropdownOpenChange}
                 trigger={({ ref, onMouseEnter, isOpen }) =>
                     collapsedViewButton(isOpen, { ref, onMouseEnter })
                 }

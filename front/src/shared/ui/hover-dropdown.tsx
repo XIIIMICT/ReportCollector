@@ -43,12 +43,23 @@ export function HoverDropdown({
     trigger,
     content,
     className,
+    onOpenChange,
 }: {
     trigger: (props: HoverDropdownTriggerProps) => ReactElement;
     content: ReactNode;
     className?: string;
+    /** Notifies the owner whether the dropdown is open (used e.g. to hold the
+        fullscreen toolbar panels open while a hover menu is expanded). */
+    onOpenChange?: (open: boolean) => void;
 }) {
-    const [open, setOpen] = useState(false);
+    const [open, setOpenState] = useState(false);
+    const onOpenChangeRef = useRef(onOpenChange);
+    onOpenChangeRef.current = onOpenChange;
+
+    const setOpen = (next: boolean) => {
+        setOpenState(next);
+        onOpenChangeRef.current?.(next);
+    };
     const triggerRef = useRef<HTMLElement | null>(null);
     const popoverRef = useRef<HTMLDivElement | null>(null);
     const lastPointRef = useRef<{ x: number; y: number } | null>(null);

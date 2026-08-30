@@ -1653,6 +1653,7 @@ export function RenovationWorkspace({
                 isFullscreen={isFullscreen}
                 isFullscreenPending={isFullscreenPending}
                 onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
+                onDropdownOpenChange={setToolbarControlOpen}
             />
         </div>
     );
@@ -1826,7 +1827,10 @@ export function RenovationWorkspace({
                     />
                 ) : null}
             </div>
-            <RenovationActionBar items={isPlanSection ? actions : dictActions} />
+            <RenovationActionBar
+                items={isPlanSection ? actions : dictActions}
+                onDropdownOpenChange={setToolbarControlOpen}
+            />
         </div>
     );
 
@@ -2014,7 +2018,13 @@ export function RenovationWorkspace({
     );
 }
 
-export function RenovationActionBar({ items }: { items: ActionItem[] }) {
+export function RenovationActionBar({
+    items,
+    onDropdownOpenChange,
+}: {
+    items: ActionItem[];
+    onDropdownOpenChange?: (open: boolean) => void;
+}) {
     // Responsive tiers (Tailwind constants): on sm (<=40rem) every action
     // collapses into one «Действия» button; on md (<=48rem) the primary actions
     // (submit/approve) collapse to icons; on desktop everything is expanded.
@@ -2044,6 +2054,7 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
             return (
                 <HoverDropdown
                     className="action-more-popover"
+                    onOpenChange={onDropdownOpenChange}
                     trigger={({ ref, onMouseEnter, isOpen }) => (
                         <Button
                             ref={ref}
@@ -2104,7 +2115,7 @@ export function RenovationActionBar({ items }: { items: ActionItem[] }) {
     if (isSm) {
         return (
             <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
-                <CompactActionMenu items={items} />
+                <CompactActionMenu items={items} onOpenChange={onDropdownOpenChange} />
             </div>
         );
     }
