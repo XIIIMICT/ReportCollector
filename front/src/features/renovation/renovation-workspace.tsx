@@ -1174,6 +1174,9 @@ export function RenovationWorkspace({
     const commit = useCallback(
         async (updates: CellUpdate[]): Promise<boolean> => {
             if (readOnly || !updates.length) return true;
+            // Serialize commits so consecutive edits apply in order and a stale
+            // refresh() from an earlier PATCH can't clobber a later one.
+            await pendingCommitRef.current;
             const task = doCommit(updates);
             pendingCommitRef.current = task;
             try {

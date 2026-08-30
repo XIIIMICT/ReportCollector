@@ -583,6 +583,10 @@ function SectionContent({
 
     async function commit(updates: CellUpdate[]): Promise<boolean> {
         if (readOnly || !updates.length) return true;
+        // Serialize commits: consecutive edits (e.g. a fast paste + Enter) must
+        // apply in order, otherwise a stale refresh() from an earlier PATCH can
+        // overwrite the result of a later one in the visible source.
+        await pendingCommitRef.current;
         const task = doCommit(updates);
         pendingCommitRef.current = task;
         try {

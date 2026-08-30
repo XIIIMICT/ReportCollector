@@ -23,7 +23,11 @@ export function extractEdits(
             detail.data as Record<string, Record<string, unknown>>,
         )) {
             const previous = models[Number(rowIndex)] as GridRow | undefined;
-            const row = (previous ?? patch) as GridRow;
+            // A range save must carry the full row model: without it there is no
+            // id/canonicalCells and the edit would be silently dropped. Patch
+            // objects are partial, so they must never be used as the row source.
+            if (!previous) continue;
+            const row = previous;
             if (!row?.id || row.isDeleted) continue;
             const known = previousValues.get(row.id);
             for (const [field, value] of Object.entries(patch)) {

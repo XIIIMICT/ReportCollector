@@ -717,7 +717,7 @@ function RawMaterialsGridInner(
         if (kind === "boolean") {
             if (typeof value === "boolean") return { ok: true, value };
             const normalized = String(value).trim().toLocaleLowerCase("ru-RU");
-            if (["РґР°", "true", "1"].includes(normalized)) return { ok: true, value: true };
+            if (["да", "true", "1"].includes(normalized)) return { ok: true, value: true };
             if (["нет", "false", "0"].includes(normalized)) return { ok: true, value: false };
             return { ok: false, message: "выберите «Да» или «Нет»." };
         }
@@ -1714,7 +1714,12 @@ function namesToIds(value: CellUpdate["value"], assets: ReferenceOption[]): Cell
     const idsByName = new Map(
         assets.map(({ id, name }) => [name.trim().toLocaleLowerCase("ru-RU"), id]),
     );
-    return names.map((name) => idsByName.get(name.toLocaleLowerCase("ru-RU")) ?? name);
+    // An unmatched name is not a valid asset reference: passing the name string
+    // through as an id would send garbage to the backend. Drop it instead — the
+    // server would reject it anyway, and this keeps the payload honest.
+    return names
+        .map((name) => idsByName.get(name.toLocaleLowerCase("ru-RU")))
+        .filter((id): id is string => typeof id === "string");
 }
 
 function columnWidthKey(section: string, prop: string): string {

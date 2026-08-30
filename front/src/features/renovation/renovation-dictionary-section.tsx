@@ -406,6 +406,7 @@ export function RenovationDictionarySection({
     const commit = useCallback(
         async (updates: CellUpdate[]): Promise<boolean> => {
             if (readOnly || !updates.length) return true;
+            await pendingCommitRef.current;
             const task = doCommit(updates);
             pendingCommitRef.current = task;
             try {
