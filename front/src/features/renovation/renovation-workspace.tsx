@@ -7,8 +7,6 @@ import {
     Card,
     Dropdown,
     Label,
-    ListBox,
-    Select,
     Skeleton,
     Spinner,
     toast,
@@ -175,65 +173,6 @@ export function RenovationWorkspace({
     // plan-window reset effect keys off it.
     const [activeSection, setActiveSection] = useState<string>("plan");
     const isPlanSection = activeSection === "plan";
-    // The block Select is hover-open with hover-close, same as every toolbar
-    // autocomplete. Closing is POINT-COORDINATE driven (document mousemove vs.
-    // the trigger/popover rects), not enter/leave timers — the open popover's
-    // overlay sits above the trigger and fires a spurious mouseleave, which is
-    // the flicker a structural handler caused.
-    const [blockFilterOpen, setBlockFilterOpen] = useState(false);
-    const blockFilterOpenRef = useRef(false);
-    const blockFilterWrapRef = useRef<HTMLDivElement | null>(null);
-    const blockFilterCloseRef = useRef<number | null>(null);
-    useEffect(() => {
-        blockFilterOpenRef.current = blockFilterOpen;
-    }, [blockFilterOpen]);
-    useEffect(() => {
-        function onMouseMove(event: MouseEvent) {
-            if (!blockFilterOpenRef.current) return;
-            const wrapper = blockFilterWrapRef.current;
-            const popover = document.querySelector<HTMLElement>(".plan-filters__popover");
-            const x = event.clientX;
-            const y = event.clientY;
-            // Use the whole wrapper rect, not the inner button (the button is
-            // smaller than the component — moving over its padding would fall
-            // outside and cause the in-component flicker).
-            const wRect = wrapper?.getBoundingClientRect();
-            const insideTrigger =
-                !!wRect &&
-                x >= wRect.left &&
-                x <= wRect.right &&
-                y >= wRect.top &&
-                y <= wRect.bottom;
-            const pRect = popover?.getBoundingClientRect();
-            const insidePopover =
-                !!pRect &&
-                x >= pRect.left &&
-                x <= pRect.right &&
-                y >= pRect.top &&
-                y <= pRect.bottom;
-            if (insideTrigger || insidePopover) {
-                if (blockFilterCloseRef.current !== null) {
-                    window.clearTimeout(blockFilterCloseRef.current);
-                    blockFilterCloseRef.current = null;
-                }
-                return;
-            }
-            if (blockFilterCloseRef.current === null) {
-                blockFilterCloseRef.current = window.setTimeout(() => {
-                    blockFilterCloseRef.current = null;
-                    setBlockFilterOpen(false);
-                }, 200);
-            }
-        }
-        document.addEventListener("mousemove", onMouseMove, { passive: true });
-        return () => {
-            document.removeEventListener("mousemove", onMouseMove);
-            if (blockFilterCloseRef.current !== null) {
-                window.clearTimeout(blockFilterCloseRef.current);
-                blockFilterCloseRef.current = null;
-            }
-        };
-    }, []);
     const { data: meta, error } = useAsyncData<RenovationMeta | null>(
         () => getRenovationMeta().catch(() => null),
         [metaReloadKey],
@@ -1656,50 +1595,28 @@ export function RenovationWorkspace({
         </div>
     );
 
-    // Block filter as a Select (asset first, then block) — blocks are rare,
-    // so the compact popover wins over a tab row in the toolbar.
+    // Block filter (asset first, then block) — blocks are rare, so the compact
+    // popover wins over a tab row in the toolbar. It is a SearchAutocomplete like
+    // the asset/version/form filters: a raw HeroUI `Select` here double-opened.
     const blockFilterSelect =
         isPlanSection && blocks.length > 0 ? (
-            <div
-                ref={blockFilterWrapRef}
-                className="plan-filters__block"
-                onMouseEnter={() => setBlockFilterOpen(true)}
-            >
-                <Select
-                    aria-label="Фильтр по блоку"
-                    selectionMode="single"
-                    variant="secondary"
-                    isOpen={blockFilterOpen}
-                    onOpenChange={(open) => {
-                        setBlockFilterOpen(open);
-                        setToolbarControlOpen(open);
-                    }}
+            <div className="plan-filters__block">
+                <SearchAutocomplete
+                    placeholder="Все блоки"
+                    compactLabel="Блок"
+                    onOpenChange={setToolbarControlOpen}
+                    items={[
+                        { id: "__all", name: "Все блоки" },
+                        ...blocks.map((block) => ({
+                            id: block,
+                            name: BLOCK_LABELS[block] ?? block,
+                        })),
+                    ]}
                     selectedKey={blockFilter ?? "__all"}
                     onSelectionChange={(key) =>
                         setBlockFilter(key && key !== "__all" ? String(key) : null)
                     }
-                >
-                    <Select.Trigger>
-                        <Select.Value />
-                        <Select.Indicator />
-                    </Select.Trigger>
-                    <Select.Popover className="plan-filters__popover">
-                        <ListBox>
-                            <ListBox.Item id="__all" textValue="Все блоки">
-                                Все блоки
-                            </ListBox.Item>
-                            {blocks.map((block) => (
-                                <ListBox.Item
-                                    key={block}
-                                    id={block}
-                                    textValue={BLOCK_LABELS[block] ?? block}
-                                >
-                                    {BLOCK_LABELS[block] ?? block}
-                                </ListBox.Item>
-                            ))}
-                        </ListBox>
-                    </Select.Popover>
-                </Select>
+                />
             </div>
         ) : null;
 
