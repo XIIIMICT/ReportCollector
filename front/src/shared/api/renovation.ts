@@ -1,3 +1,7 @@
+import {
+    requestJson as requestJsonShared,
+    requestWrite as requestWriteShared,
+} from "@/shared/api/api-error";
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import { ReportCollectorApiError } from "@/shared/api/report-collector";
 import { getCollabSessionId } from "@/shared/collab/ws-client";
@@ -155,16 +159,7 @@ export type RenovationPlanExport = {
 };
 
 async function requestJson<T>(path: string): Promise<T> {
-    const response = await fetch(path, { cache: "no-store" });
-    if (!response.ok) {
-        throw new ReportCollectorApiError(
-            readApiDetail(await readPayload(response)) ??
-                `Запрос завершился ошибкой ${response.status}.`,
-            response.status,
-        );
-    }
-
-    return (await response.json()) as T;
+    return requestJsonShared<T>(path);
 }
 
 async function requestWrite<T>(
@@ -172,55 +167,7 @@ async function requestWrite<T>(
     method: "POST" | "PATCH" | "DELETE",
     body?: unknown,
 ): Promise<T> {
-    const init: RequestInit = { cache: "no-store", method };
-    if (method !== "DELETE" && body !== undefined) {
-        init.headers = { "Content-Type": "application/json" };
-        init.body = JSON.stringify(body);
-    }
-    const response = await fetch(path, init);
-    if (!response.ok) {
-        throw new ReportCollectorApiError(
-            readApiDetail(await readPayload(response)) ??
-                `Запрос завершился ошибкой ${response.status}.`,
-            response.status,
-        );
-    }
-    if (response.status === 204) {
-        return undefined as T;
-    }
-    return (await response.json()) as T;
-}
-
-async function readPayload(response: Response): Promise<unknown> {
-    try {
-        return (await response.json()) as unknown;
-    } catch {
-        return null;
-    }
-}
-
-/**
- * Human-readable API error description: the detail string, or the pydantic
- * validation errors list (422), or null.
- */
-function readApiDetail(payload: unknown): string | null {
-    if (!payload || typeof payload !== "object") return null;
-    const detail = (payload as { detail?: unknown }).detail;
-    if (typeof detail === "string") return detail;
-    if (!Array.isArray(detail)) return null;
-    const messages = detail
-        .map((item) => {
-            if (
-                item &&
-                typeof item === "object" &&
-                typeof (item as { msg?: unknown }).msg === "string"
-            ) {
-                return (item as { msg: string }).msg.replace(/^Value error,\s*/, "");
-            }
-            return null;
-        })
-        .filter((message): message is string => Boolean(message));
-    return messages.length > 0 ? messages.join("; ") : null;
+    return requestWriteShared<T>(path, method, body);
 }
 
 export async function getRenovationMeta(): Promise<RenovationMeta> {
