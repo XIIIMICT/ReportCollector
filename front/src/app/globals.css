@@ -891,6 +891,7 @@ html {
 }
 
 .fullscreen-reveal:hover .fullscreen-panel,
+.fullscreen-reveal:has(.fullscreen-panel:hover) .fullscreen-panel,
 .fullscreen-reveal--open .fullscreen-panel {
     opacity: 1;
     pointer-events: auto;

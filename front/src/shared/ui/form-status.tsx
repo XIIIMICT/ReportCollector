@@ -83,7 +83,13 @@ export function FormStatus({
                     {hasPresence ? (
                         <div className="form-status-detail__presence">
                             <div className="form-status-detail__presence-summary">
-                                <b>На форме:</b>
+                                {hasOthers ? (
+                                    <b>На форме:</b>
+                                ) : (
+                                    <>
+                                        <b>На форме:</b> только вы
+                                    </>
+                                )}
                             </div>
                             {hasOthers ? (
                                 <ul className="form-status-detail__presence-list">
@@ -105,9 +111,7 @@ export function FormStatus({
                                         </li>
                                     ) : null}
                                 </ul>
-                            ) : (
-                                <span className="form-status-detail__alone">только вы</span>
-                            )}
+                            ) : null}
                         </div>
                     ) : null}
                     {selectionLabel ? (

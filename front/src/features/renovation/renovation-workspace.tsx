@@ -167,6 +167,10 @@ export function RenovationWorkspace({
     // True while a toolbar autocomplete/select has an open popover — keeps the
     // fullscreen reveal panels from hiding while you interact with a dropdown.
     const [toolbarControlOpen, setToolbarControlOpen] = useState(false);
+    // True while the pointer is over either fullscreen panel (or its reveal
+    // strip) — both panels then stay visible and can be shown simultaneously.
+    const [panelsHovered, setPanelsHovered] = useState(false);
+    const fullscreenPanelsOpen = toolbarControlOpen || panelsHovered;
     // Active section (plan vs dictionary) — declared early because the
     // plan-window reset effect keys off it.
     const [activeSection, setActiveSection] = useState<string>("plan");
@@ -1486,6 +1490,36 @@ export function RenovationWorkspace({
         return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
     }, [isFullscreen]);
 
+    // In fullscreen, keep the top/bottom panels (and their reveal strips) visible
+    // whenever the pointer is over either — and allow them to show at the same
+    // time. Point-coordinate check against the panels' rects (the popovers are
+    // portaled out of the panels, so a structural hover can't cover them).
+    useEffect(() => {
+        if (!isFullscreen) return;
+        const onPointerMove = (event: PointerEvent) => {
+            const x = event.clientX;
+            const y = event.clientY;
+            let hit = false;
+            for (const sel of [
+                ".fullscreen-panel--top",
+                ".fullscreen-panel--bottom",
+                ".fullscreen-reveal--top",
+                ".fullscreen-reveal--bottom",
+            ]) {
+                const el = document.querySelector<HTMLElement>(sel);
+                if (!el) continue;
+                const rect = el.getBoundingClientRect();
+                if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+                    hit = true;
+                    break;
+                }
+            }
+            setPanelsHovered(hit);
+        };
+        document.addEventListener("pointermove", onPointerMove, { passive: true });
+        return () => document.removeEventListener("pointermove", onPointerMove);
+    }, [isFullscreen]);
+
     if (error || versionsError) {
         return (
             <div className="app-shell">
@@ -1993,7 +2027,7 @@ export function RenovationWorkspace({
                 <>
                     <div
                         className={
-                            toolbarControlOpen
+                            fullscreenPanelsOpen
                                 ? "fullscreen-reveal fullscreen-reveal--top fullscreen-reveal--open"
                                 : "fullscreen-reveal fullscreen-reveal--top"
                         }
@@ -2003,7 +2037,13 @@ export function RenovationWorkspace({
                             {toolbar}
                         </div>
                     </div>
-                    <div className="fullscreen-reveal fullscreen-reveal--bottom">
+                    <div
+                        className={
+                            fullscreenPanelsOpen
+                                ? "fullscreen-reveal fullscreen-reveal--bottom fullscreen-reveal--open"
+                                : "fullscreen-reveal fullscreen-reveal--bottom"
+                        }
+                    >
                         <div className="fullscreen-panel fullscreen-panel--bottom">{footer}</div>
                     </div>
                 </>
