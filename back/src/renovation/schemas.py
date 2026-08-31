@@ -155,6 +155,9 @@ class RenovationPlanRowsRead(BaseModel):
     rows: list[RenovationPlanRowRead]
     total: int
     baselineBoundary: int | None = None
+    # Total rows in the plan WITHOUT the asset filter (for the «всего» counter,
+    # which must not shrink when a filter hides rows).
+    totalAll: int | None = None
 
 
 class RenovationRowAddRequest(BaseModel):

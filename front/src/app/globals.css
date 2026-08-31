@@ -1845,7 +1845,24 @@ html {
     background: transparent !important;
     box-shadow: none !important;
 }
-.raw-materials-grid revogr-edit:has(.grid-autocomplete-editor) {
+/* DatePicker (date cells): the calendar popover is anchored explicitly to the
+   editor wrapper via triggerRef (see DateEditor), so only the visible field is
+   hidden — the floating calendar opens beside the cell. */
+.grid-autocomplete-editor [data-slot="date-picker"] {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+.grid-autocomplete-editor [data-slot="date-picker-trigger"] {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+.raw-materials-grid revogr-edit:has(.grid-autocomplete-editor),
+.renovation-grid revogr-edit:has(.grid-autocomplete-editor) {
     background: transparent !important;
     border-color: transparent !important;
 }

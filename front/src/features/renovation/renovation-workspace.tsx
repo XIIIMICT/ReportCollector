@@ -112,6 +112,8 @@ type PlanWindow = {
     /** Offset of rows[0] in the filtered plan (0 for archive full reads). */
     start: number;
     total: number;
+    /** Whole-plan row count (ignoring the asset filter) — «всего» counter. */
+    totalAll: number | null;
     baselineBoundary: number | null;
     /** Archive full read — no lazy loading. */
     complete: boolean;
@@ -255,6 +257,7 @@ export function RenovationWorkspace({
                         rows: page.rows,
                         start,
                         total: page.total,
+                        totalAll: page.totalAll ?? null,
                         baselineBoundary: page.baselineBoundary ?? null,
                         complete: false,
                     };
@@ -293,6 +296,7 @@ export function RenovationWorkspace({
                             rows: page.rows,
                             start: 0,
                             total: page.total,
+                            totalAll: page.totalAll ?? null,
                             baselineBoundary: page.baselineBoundary ?? null,
                             complete: false,
                         };
@@ -311,6 +315,7 @@ export function RenovationWorkspace({
                             rows: page.rows,
                             start,
                             total: page.total,
+                            totalAll: page.totalAll ?? null,
                             baselineBoundary: page.baselineBoundary ?? null,
                             complete: false,
                         };
@@ -351,6 +356,7 @@ export function RenovationWorkspace({
                             rows: full.rows,
                             start: 0,
                             total: full.rows.length,
+                            totalAll: full.rows.length,
                             baselineBoundary: full.baselineBoundary ?? null,
                             complete: true,
                         };
@@ -451,6 +457,7 @@ export function RenovationWorkspace({
                 rows,
                 start: newStart,
                 total,
+                totalAll: prev.totalAll,
                 baselineBoundary,
                 complete: false,
             };
@@ -1905,6 +1912,7 @@ export function RenovationWorkspace({
                                                 scrollCompensation={scrollCompensation}
                                                 scrollToEdge={scrollToEdge}
                                                 totalRowsOverride={planWindow.total}
+                                                totalAllRowsOverride={planWindow.totalAll}
                                             />
                                             {displayRows.length === 0 ? (
                                                 <div className="grid-empty">

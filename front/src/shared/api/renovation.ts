@@ -114,6 +114,8 @@ export type RenovationPlanRows = {
     rows: RenovationPlanRow[];
     total: number;
     baselineBoundary: number | null;
+    /** Whole-plan row count (ignoring the asset filter) for the «всего» counter. */
+    totalAll: number | null;
 };
 
 export type RenovationDiffCell = {

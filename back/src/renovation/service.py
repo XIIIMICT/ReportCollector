@@ -350,6 +350,15 @@ async def read_plan_rows(
             )
         )
     ).one()
+    # The unfiltered total (for the «всего» counter) — the whole plan, ignoring
+    # the asset filter.
+    total_all: int | None = None
+    if len(asset_ids) != len(assets):
+        total_all = (
+            await session.exec(
+                select(func.count()).select_from(RenovationPlanRow).where(col(RenovationPlanRow.plan_id) == plan.id)
+            )
+        ).one()
     rows = (
         await session.exec(
             select(RenovationPlanRow, RAsset)
@@ -373,6 +382,7 @@ async def read_plan_rows(
         rows=[_plan_row_read(row, asset, label_map) for row, asset in rows],
         total=total,
         baselineBoundary=baseline_boundary,
+        totalAll=total_all,
     )
 
 

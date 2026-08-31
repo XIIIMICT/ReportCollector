@@ -32,7 +32,7 @@ import type {
     RenovationHeaderCell,
 } from "@/shared/api/renovation";
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
-import { ReferenceEditor } from "@/shared/grid/grid-editors";
+import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 
 /**
@@ -156,6 +156,8 @@ export type RenovationGridProps = {
     scrollCompensation?: { deltaRows: number; token: number } | null;
     /** The full plan size — the loaded window is only a slice of it. */
     totalRowsOverride?: number | null;
+    /** Whole-plan row count (unfiltered) — the «всего» counter; null → same as totalRowsOverride. */
+    totalAllRowsOverride?: number | null;
     /** After a structural window load, jump to this edge of the loaded data. */
     scrollToEdge?: { edge: "top" | "bottom"; token: number } | null;
 };
@@ -304,6 +306,7 @@ function RenovationGridInner(
         onNearBottom,
         scrollCompensation,
         totalRowsOverride = null,
+        totalAllRowsOverride = null,
         scrollToEdge,
     }: RenovationGridProps,
     forwardedRef: Ref<RenovationGridHandle>,
@@ -606,7 +609,10 @@ function RenovationGridInner(
         [editableFieldKeys, readOnly, remoteLocks, userAssetIds],
     );
 
-    const editors = useMemo<Editors>(() => ({ reference: Editor(ReferenceEditor) }), []);
+    const editors = useMemo<Editors>(
+        () => ({ reference: Editor(ReferenceEditor), date: Editor(DateEditor) }),
+        [],
+    );
 
     const columns = useMemo<ColumnRegular[]>(() => {
         const commitBoolean = (rowId: string, field: string, value: boolean) => {
@@ -713,6 +719,7 @@ function RenovationGridInner(
                 }
                 if (field.cellType === "date") {
                     column.cellTemplate = dateTemplate;
+                    column.editor = "date";
                 }
                 // The service «Обновлено» column carries a full timestamp.
                 if (field.dbName === "updatedAt") {
@@ -905,14 +912,15 @@ function RenovationGridInner(
 
     useEffect(() => {
         onViewStatsChange({
-            // The loaded window is a slice of the plan — «всего» comes from the
-            // server total, and with the server-side asset filter the slice
-            // size isn't the filtered count either.
-            filteredRows:
-                assetFilter && totalRowsOverride !== null
-                    ? totalRowsOverride
-                    : displaySource.length,
-            totalRows: totalRowsOverride ?? rows.length,
+            // «Всего» — the whole plan WITHOUT the asset filter (totalAll); it
+            // must not shrink when a filter hides rows. «Найдено» — the FULL
+            // server-side filtered count (totalOverride), never the loaded
+            // chunk size (the lazy window is just a slice).
+            filteredRows: totalRowsOverride ?? displaySource.length,
+            totalRows:
+                totalAllRowsOverride ??
+                totalRowsOverride ??
+                rows.filter((row) => row.__rowState !== "deleted").length,
             totalCols: displayFields.length,
             filtersApplied: assetFilter !== null,
             immutableCols: displayFields.filter((field) => field.isReadOnly && !field.isCalculated)
@@ -929,7 +937,8 @@ function RenovationGridInner(
         displaySource.length,
         editableFieldKeys,
         onViewStatsChange,
-        rows.length,
+        rows,
+        totalAllRowsOverride,
         totalRowsOverride,
     ]);
 
