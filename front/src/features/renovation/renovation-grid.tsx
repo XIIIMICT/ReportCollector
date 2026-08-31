@@ -953,11 +953,12 @@ function RenovationGridInner(
     // The stencil strip appears ASYNC after mount — poll until it exists,
     // otherwise the listener silently sticks to the wrong element forever.
     const lazyTargetRef = useRef<HTMLElement | null>(null);
-    // True while the initial edge-jump (open at the tail) is still settling.
-    // The lazy edge-watcher must not fire during it: at mount scrollTop is 0,
-    // which the watcher reads as "near the top" and would load chunks above,
-    // sliding the window and fighting the deliberate scroll-to-bottom.
-    const settlingScrollRef = useRef(false);
+    // True while the grid is being positioned by a deliberate edge jump (open
+    // at the tail). It must START true: the lazy watcher attaches on mount with
+    // scrollTop still 0, and would otherwise read that as "near the top" and
+    // load chunks above (sliding the window and fighting the jump). It is
+    // cleared once the edge jump settles (or there is no jump to perform).
+    const settlingScrollRef = useRef(true);
     useEffect(() => {
         if (!onNearBottom && !onNearTop) return;
         let target: HTMLElement | null = null;
@@ -1093,7 +1094,11 @@ function RenovationGridInner(
     // freshest row dimensions for a short window — otherwise a stale scrollHeight
     // (the pre-filter rows) resolves first and the scroll never reaches the tail.
     useEffect(() => {
-        if (!scrollToEdge) return;
+        if (!scrollToEdge) {
+            // No pending jump — allow lazy loading.
+            settlingScrollRef.current = false;
+            return;
+        }
         const edge = scrollToEdge.edge;
         let idlePolls = 0;
         let landingPolls = 0;
