@@ -953,6 +953,11 @@ function RenovationGridInner(
     // The stencil strip appears ASYNC after mount — poll until it exists,
     // otherwise the listener silently sticks to the wrong element forever.
     const lazyTargetRef = useRef<HTMLElement | null>(null);
+    // True while the initial edge-jump (open at the tail) is still settling.
+    // The lazy edge-watcher must not fire during it: at mount scrollTop is 0,
+    // which the watcher reads as "near the top" and would load chunks above,
+    // sliding the window and fighting the deliberate scroll-to-bottom.
+    const settlingScrollRef = useRef(false);
     useEffect(() => {
         if (!onNearBottom && !onNearTop) return;
         let target: HTMLElement | null = null;
@@ -970,6 +975,7 @@ function RenovationGridInner(
             return verticalScrollRef.current;
         };
         const check = () => {
+            if (settlingScrollRef.current) return;
             const el = target;
             if (!el) return;
             // No overflow yet (the spacer is not measured, or everything fits)
@@ -1089,13 +1095,13 @@ function RenovationGridInner(
     useEffect(() => {
         if (!scrollToEdge) return;
         const edge = scrollToEdge.edge;
-        let landedConsecutive = 0;
-        let attempts = 0;
+        let idlePolls = 0;
+        let landingPolls = 0;
+        let lastOverflow = 0;
+        let stablePolls = 0;
         let timer: number | undefined;
+        settlingScrollRef.current = true;
         const apply = () => {
-            // Pinned mode MUST target the internal strip — the external
-            // scroller never scrolls there, so falling back to it would lock
-            // the page at the top. Poll until the strip exists.
             let el: HTMLElement | null = null;
             if (headerPinned) {
                 el = gridRef.current?.querySelector(
@@ -1105,23 +1111,39 @@ function RenovationGridInner(
                 el = verticalScrollRef.current;
             }
             if (!el) {
-                attempts += 1;
-                if (attempts < 400) timer = window.setTimeout(apply, 100);
+                idlePolls += 1;
+                if (idlePolls < 400) timer = window.setTimeout(apply, 100);
                 return;
             }
-            const target = edge === "bottom" ? el.scrollHeight - el.clientHeight : 0;
-            const prev = el.scrollTop;
+            const overflow = el.scrollHeight - el.clientHeight;
+            const target = edge === "bottom" ? overflow : 0;
             if (el.scrollTop !== target) el.scrollTop = target;
-            // Count how many consecutive checks we landed on the current target;
-            // only stop after the position has been stable (data swap done).
-            landedConsecutive = Math.abs(el.scrollTop - target) <= 1 ? landedConsecutive + 1 : 0;
-            if (attempts < 40 && (landedConsecutive < 2 || prev !== el.scrollTop)) {
-                attempts += 1;
-                timer = window.setTimeout(apply, 60);
+            const landed = Math.abs(el.scrollTop - target) <= 1;
+            // Before the tail window is mounted, overflow is ~0 and scrollTop
+            // "lands" trivially — never treat that as done.
+            if (edge === "bottom" && overflow <= 1) {
+                landingPolls += 1;
+                if (landingPolls < 120) timer = window.setTimeout(apply, 60);
+                return;
             }
+            // Keep going until the overflow is stable AND the scroll is parked
+            // at it — the window may still be settling its height.
+            if (landed && Math.abs(overflow - lastOverflow) <= 1) {
+                stablePolls += 1;
+            } else {
+                stablePolls = 0;
+            }
+            lastOverflow = overflow;
+            if (!landed || stablePolls < 3) {
+                landingPolls += 1;
+                if (landingPolls < 120) timer = window.setTimeout(apply, 60);
+                return;
+            }
+            settlingScrollRef.current = false;
         };
         apply();
         return () => {
+            settlingScrollRef.current = false;
             if (timer !== undefined) window.clearTimeout(timer);
         };
     }, [scrollToEdge, headerPinned]);
