@@ -33,8 +33,8 @@ from src.renovation.export import (
     render_workbook,
     validate_export_request,
 )
-from src.renovation.models import RProjectRole
-from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
+from src.renovation.models import RAsset, RProjectRole
+from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
 from src.renovation.schemas import (
     RenovationApproveRead,
     RenovationAssetCreateRequest,
@@ -411,10 +411,11 @@ async def post_renovation_asset(
     request: RenovationAssetCreateRequest,
     session: SessionDependency,
     access: AdminDependency,
+    session_id: str = "",
 ) -> RenovationAssetRowRead:
-    """Renovation asset creation (project admin only)."""
+    """Renovation asset creation (project admin only); journaled as an undoable «__created» record."""
     try:
-        return await create_renovation_asset(
+        created, row = await create_renovation_asset(
             session,
             name=request.name,
             repair_code=request.repairCode,
@@ -422,6 +423,30 @@ async def post_renovation_asset(
         )
     except RenovationDictionaryError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    if session_id:
+        await record_cell_updates(
+            get_collab_store(),
+            user_id=access.user.id,
+            user_name=access.user.name or "",
+            project_key=RENOVATION_PROJECT_KEY,
+            section=RENOVATION_ASSETS_SECTION,
+            report_month=None,
+            session_id=session_id,
+            applied=[
+                AppliedCell(
+                    target_table=RAsset.__tablename__,
+                    row_id=created.id,
+                    field="__created",
+                    old_value=None,
+                    new_value={
+                        "code": created.code,
+                        "name": created.name,
+                        "repairCode": created.repair_code,
+                    },
+                )
+            ],
+        )
+    return row
 
 
 @router.patch("/dictionary/assets/{asset_id}", response_model=RenovationAssetRowRead)
@@ -514,10 +539,11 @@ async def post_renovation_catalog_option(
     request: RenovationCatalogOptionCreateRequest,
     session: SessionDependency,
     access: AdminDependency,
+    session_id: str = "",
 ) -> RenovationCatalogOptionRowRead:
-    """Catalog option creation (project admin only)."""
+    """Catalog option creation (project admin only); journaled as an undoable «__created» record."""
     try:
-        return await create_renovation_catalog_option(
+        created, row = await create_renovation_catalog_option(
             session,
             catalog=catalog,
             label=request.label,
@@ -525,6 +551,32 @@ async def post_renovation_catalog_option(
         )
     except RenovationDictionaryError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    if session_id:
+        await record_cell_updates(
+            get_collab_store(),
+            user_id=access.user.id,
+            user_name=access.user.name or "",
+            project_key=RENOVATION_PROJECT_KEY,
+            section=_catalog_section(catalog),
+            report_month=None,
+            session_id=session_id,
+            applied=[
+                AppliedCell(
+                    target_table=RenovationReferenceValue.__tablename__,
+                    row_id=created.id,
+                    field="__created",
+                    old_value=None,
+                    new_value={
+                        "catalog": created.catalog.value,
+                        "valueKey": created.value_key,
+                        "label": created.label,
+                        "sortOrder": created.sort_order,
+                        "payload": created.payload,
+                    },
+                )
+            ],
+        )
+    return row
 
 
 @router.patch(

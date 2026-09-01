@@ -914,7 +914,11 @@ async def apply_renovation_cell_value(
     now = datetime.now(UTC)
     updated_by = user.name or user.email or ""
     if target_table == RAsset.__tablename__:
-        if field == "__deleted":
+        # Both journal pseudo-fields share the same apply: __deleted carries
+        # {old: snapshot, new: None}, __created carries {old: None, new:
+        # snapshot} — value None means "end state deleted", a snapshot means
+        # "end state restored".
+        if field in ("__deleted", "__created"):
             await _apply_renovation_asset_deleted(session, row_id, value)
             return
         asset = await session.get(RAsset, row_id)
@@ -932,7 +936,7 @@ async def apply_renovation_cell_value(
         session.add(asset)
         return
     if target_table == RenovationReferenceValue.__tablename__:
-        if field == "__deleted":
+        if field in ("__deleted", "__created"):
             await _apply_renovation_option_deleted(session, row_id, value)
             return
         option = await session.get(RenovationReferenceValue, row_id)
@@ -1291,7 +1295,7 @@ async def create_renovation_asset(
     name: str,
     repair_code: str,
     user: User,
-) -> RenovationAssetRowRead:
+) -> tuple[RAsset, RenovationAssetRowRead]:
     """Create a renovation asset (code is auto-generated; never shown)."""
     now = datetime.now(UTC)
     updated_by = user.name or user.email or ""
@@ -1309,7 +1313,8 @@ async def create_renovation_asset(
     session.add(asset)
     await session.commit()
     await session.refresh(asset)
-    return (await read_renovation_asset_rows(session, asset_id=asset.id))[0]
+    row = (await read_renovation_asset_rows(session, asset_id=asset.id))[0]
+    return asset, row
 
 
 async def update_renovation_asset(
@@ -1434,17 +1439,38 @@ async def read_renovation_catalog_rows(
     ]
 
 
+async def _ensure_option_label_free(
+    session: AsyncSession,
+    *,
+    catalog: str,
+    label: str,
+    exclude_id: UUID | None,
+) -> None:
+    """Reject a duplicate label within one catalog (case-insensitive)."""
+    query = select(RenovationReferenceValue).where(
+        col(RenovationReferenceValue.catalog) == RReferenceCatalog(catalog),
+        func.lower(col(RenovationReferenceValue.label)) == label.lower(),
+    )
+    if exclude_id is not None:
+        query = query.where(col(RenovationReferenceValue.id) != exclude_id)
+    duplicate = (await session.exec(query)).first()
+    if duplicate is not None:
+        message = f"Запись «{label}» уже есть в этом справочнике."
+        raise RenovationDictionaryError(message)
+
+
 async def create_renovation_catalog_option(
     session: AsyncSession,
     *,
     catalog: str,
     label: str,
     user: User,
-) -> RenovationCatalogOptionRowRead:
+) -> tuple[RenovationReferenceValue, RenovationCatalogOptionRowRead]:
     """Append an option to a renovation reference catalog."""
     label = label.strip()
     if not label:
         raise _DICT_OPTION_LABEL_EMPTY
+    await _ensure_option_label_free(session, catalog=catalog, label=label, exclude_id=None)
     max_order = (
         await session.exec(
             select(func.max(col(RenovationReferenceValue.sort_order))).where(
@@ -1465,7 +1491,8 @@ async def create_renovation_catalog_option(
     session.add(option)
     await session.commit()
     await session.refresh(option)
-    return (await read_renovation_catalog_rows(session, catalog=catalog, option_id=option.id))[0]
+    row = (await read_renovation_catalog_rows(session, catalog=catalog, option_id=option.id))[0]
+    return option, row
 
 
 async def update_renovation_catalog_option(
@@ -1485,6 +1512,7 @@ async def update_renovation_catalog_option(
         label = label.strip()
         if not label:
             raise _DICT_OPTION_LABEL_EMPTY
+        await _ensure_option_label_free(session, catalog=catalog, label=label, exclude_id=option_id)
         option.label = label
     option.updated_at = datetime.now(UTC)
     option.updated_by = user.name or user.email or ""

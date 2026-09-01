@@ -537,3 +537,68 @@ async def test_dictionary_export_validation(
         },
     )
     assert response.status_code == 422
+
+
+async def test_catalog_option_create_is_undoable_and_redoable(client) -> None:
+    """A created catalog option is undone (record gone) and redone (record back)."""
+    response = await client.post(
+        "/api/renovation/dictionary/catalogs/work_type/options",
+        headers=ADMIN_HEADERS,
+        params={"session_id": TEST_SESSION_ID},
+        json={"label": "Тестовая работа"},
+    )
+    assert response.status_code == 201
+    created_id = response.json()["valueId"]
+
+    undone = await client.post(
+        "/api/renovation/undo",
+        headers=ADMIN_HEADERS,
+        params={"session_id": TEST_SESSION_ID},
+        json={"section": "renovationCatalog:work_type"},
+    )
+    assert undone.status_code == 200
+    assert undone.json()["applied"] is True
+    assert undone.json()["field"] == "__created"
+
+    rows = (await client.get("/api/renovation/dictionary/catalogs/work_type", headers=ADMIN_HEADERS)).json()
+    assert all(option["valueId"] != created_id for option in rows)
+
+    redone = await client.post(
+        "/api/renovation/redo",
+        headers=ADMIN_HEADERS,
+        params={"session_id": TEST_SESSION_ID},
+        json={"section": "renovationCatalog:work_type"},
+    )
+    assert redone.status_code == 200
+    assert redone.json()["applied"] is True
+    rows = (await client.get("/api/renovation/dictionary/catalogs/work_type", headers=ADMIN_HEADERS)).json()
+    assert any(option["valueId"] == created_id for option in rows)
+
+
+async def test_catalog_option_duplicate_label_rejected(client) -> None:
+    await client.post(
+        "/api/renovation/dictionary/catalogs/work_type/options",
+        headers=ADMIN_HEADERS,
+        json={"label": "Уникальная работа"},
+    )
+    duplicate = await client.post(
+        "/api/renovation/dictionary/catalogs/work_type/options",
+        headers=ADMIN_HEADERS,
+        json={"label": "уникальная работа"},
+    )
+    assert duplicate.status_code == 409
+    assert "уже есть" in duplicate.json()["detail"]
+
+    # Rename onto an existing label is rejected too.
+    created = await client.post(
+        "/api/renovation/dictionary/catalogs/work_type/options",
+        headers=ADMIN_HEADERS,
+        json={"label": "Другая уникальная работа"},
+    )
+    renamed = await client.patch(
+        f"/api/renovation/dictionary/catalogs/work_type/options/{created.json()['valueId']}",
+        params={"session_id": TEST_SESSION_ID},
+        headers=ADMIN_HEADERS,
+        json={"label": "Уникальная работа"},
+    )
+    assert renamed.status_code == 409

@@ -325,7 +325,12 @@ export async function createRenovationAsset(
     name: string,
     repairCode: string,
 ): Promise<RenovationAssetRow> {
-    return requestWrite("/api/renovation/dictionary/assets", "POST", { name, repairCode });
+    // session_id makes the create an undoable action (server-side journal).
+    return requestWrite(
+        `/api/renovation/dictionary/assets?session_id=${getCollabSessionId()}`,
+        "POST",
+        { name, repairCode },
+    );
 }
 
 export async function updateRenovationAssetCells(updates: CellUpdate[]): Promise<unknown> {
@@ -361,8 +366,9 @@ export async function createRenovationCatalogOption(
     catalogId: string,
     label: string,
 ): Promise<RenovationCatalogOptionRow> {
+    // session_id makes the create an undoable action (server-side journal).
     return requestWrite(
-        `/api/renovation/dictionary/catalogs/${encodeURIComponent(catalogId)}/options`,
+        `/api/renovation/dictionary/catalogs/${encodeURIComponent(catalogId)}/options?session_id=${getCollabSessionId()}`,
         "POST",
         { label },
     );

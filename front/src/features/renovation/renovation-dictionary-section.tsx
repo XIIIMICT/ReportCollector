@@ -492,6 +492,9 @@ export function RenovationDictionarySection({
                 await createRenovationCatalogOption(catalogId, String(payload.label));
             }
             refresh();
+            // The create is journaled server-side as an undoable action:
+            // notify the workspace so Ctrl+Z is offered right away.
+            onUndoHistoryChanged();
             const next = initialPlaceholderDraft(dictSection);
             placeholderDraftRef.current = next;
             setPlaceholderDraft(next);

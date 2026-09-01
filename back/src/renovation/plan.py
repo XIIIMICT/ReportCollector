@@ -55,7 +55,16 @@ class RenovationReferenceValue(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("now()")),
     )
     updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
-    __table_args__ = (Index("ix_renovation_reference_values_catalog_key", "catalog", "value_key", unique=True),)
+    __table_args__ = (
+        Index("ix_renovation_reference_values_catalog_key", "catalog", "value_key", unique=True),
+        # A catalog is a dictionary: one entry per label (case-insensitive).
+        Index(
+            "uq_renovation_reference_values_catalog_label",
+            "catalog",
+            text("lower(label)"),
+            unique=True,
+        ),
+    )
 
 
 class RenovationPlan(SQLModel, table=True):
