@@ -84,6 +84,7 @@ A split-screen tab (≈ half a desktop) triggers the compact shell; one `@media 
 ## Misc
 
 - **revo-grid 4.27 event shapes:** plain `afteredit` carries a `data` key even for single-cell edits — the whole source snapshot as an ARRAY; a range save carries a keyed patch object plus `models` and no `prop`. `extractEdits` (both `grid-edit.ts` and the renovation grid) keys off that shape — `data` presence alone is not a range-save marker, and getting it wrong silently drops every cell edit (the grid shows the new value locally, the server never hears about it).
+- **Ctrl+V goes through the native paste event** (the window `paste` listener): the keydown handlers don't intercept it, so Chrome's clipboard-read confirmation prompt never appears. The «Вставить» button still reads via `navigator.clipboard.readText()` — a one-time permission prompt is possible there.
 - Changes apply live: `cell:changed` from the room updates rows (see `use-collab-room.ts`).
 - Excel export — `POST /export` (openpyxl, see `export.ts` and `back/src/raw_materials/export.py`).
 - Front unit tests: `front/src/shared/grid/__tests__/` (`grid-clipboard.test.ts`, `grid-export.test.ts`), run — `bun test` (happy-dom).

@@ -1439,13 +1439,11 @@ function RawMaterialsGridInner(
             if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
             // event.code — the physical key: works in any layout
             // (in Russian event.key gives «с»/«м»/«ч»/«ф»).
-            if (
-                event.code !== "KeyC" &&
-                event.code !== "KeyV" &&
-                event.code !== "KeyX" &&
-                event.code !== "KeyA"
-            )
-                return;
+            // Ctrl+V is intentionally NOT intercepted: the native paste event
+            // (the window "paste" listener below) carries the text without the
+            // clipboard-read confirmation prompt Chrome shows for
+            // navigator.clipboard.readText().
+            if (event.code !== "KeyC" && event.code !== "KeyX" && event.code !== "KeyA") return;
             if (isEditableTarget(document.activeElement)) return;
             const grid = gridRef.current;
             if (!grid || !isGridTarget(event, grid)) return;
@@ -1459,16 +1457,14 @@ function RawMaterialsGridInner(
                 void selectAllCells();
             } else if (event.code === "KeyC") {
                 void copySelection();
-            } else if (event.code === "KeyX") {
-                void cutSelection();
             } else {
-                void pasteIntoSelection();
+                void cutSelection();
             }
         };
         // capture: intercept Ctrl+A before revo-grid.
         document.addEventListener("keydown", handleKeyDown, true);
         return () => document.removeEventListener("keydown", handleKeyDown, true);
-    }, [clearGridSelection, copySelection, cutSelection, pasteIntoSelection, selectAllCells]);
+    }, [clearGridSelection, copySelection, cutSelection, selectAllCells]);
 
     useEffect(() => {
         const frame = requestAnimationFrame(() => {

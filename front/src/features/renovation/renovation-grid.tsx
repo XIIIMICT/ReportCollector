@@ -1600,15 +1600,9 @@ function RenovationGridInner(
         };
         const handlePaste = (event: ClipboardEvent) => {
             if (!isGridTarget(event, grid)) return;
-            const active = document.activeElement as HTMLElement | null;
-            if (
-                active &&
-                (active.tagName === "INPUT" ||
-                    active.tagName === "TEXTAREA" ||
-                    active.isContentEditable)
-            ) {
-                return;
-            }
+            // isFromTextEditor sees through the shadow DOM (revo-grid's built-in
+            // cell editors), so pasting into an open editor stays native.
+            if (isFromTextEditor(event)) return;
             const text = event.clipboardData?.getData("text/plain");
             if (text == null || text === "") return;
             event.preventDefault();
@@ -1682,7 +1676,11 @@ function RenovationGridInner(
                 return;
             }
             if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
-            if (event.code !== "KeyC" && event.code !== "KeyV" && event.code !== "KeyA") return;
+            // Ctrl+V is intentionally NOT intercepted: the native paste event
+            // (the window "paste" listener above) carries the text without the
+            // clipboard-read confirmation prompt Chrome shows for
+            // navigator.clipboard.readText().
+            if (event.code !== "KeyC" && event.code !== "KeyA") return;
             const grid = gridRef.current;
             if (!grid || !isGridTarget(event, grid)) return;
             if (isFromTextEditor(event)) return;
@@ -1697,15 +1695,11 @@ function RenovationGridInner(
                 return;
             }
             event.preventDefault();
-            if (event.code === "KeyC") {
-                void copySelection();
-            } else {
-                void pasteIntoSelection();
-            }
+            void copySelection();
         };
         window.addEventListener("keydown", handleKeyDown, true);
         return () => window.removeEventListener("keydown", handleKeyDown, true);
-    }, [clearGridSelection, copySelection, pasteIntoSelection]);
+    }, [clearGridSelection, copySelection]);
 
     useEffect(() => {
         selectionRangeRef.current = selectionRange;
