@@ -18,7 +18,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-    themeColor: "#ffffff",
+    // Browser chrome follows the color scheme (next-themes defaults to the
+    // system theme, so prefers-color-scheme matches in the common case).
+    // Values approximate the theme's --background tokens.
+    themeColor: [
+        { media: "(prefers-color-scheme: light)", color: "#f5f7f7" },
+        { media: "(prefers-color-scheme: dark)", color: "#1c1c1c" },
+    ],
 };
 
 export default function RootLayout({
