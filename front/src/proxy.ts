@@ -13,5 +13,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-    matcher: "/",
+    // /blocked is only meaningful with a session: without one, redirect to
+    // the login page just like the root route.
+    matcher: ["/", "/blocked"],
 };
