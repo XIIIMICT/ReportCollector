@@ -116,7 +116,17 @@ export function useCollabRoom({
                 onCellChanged: (event) => handlersRef.current.onCellChanged?.(event),
                 onRowsChanged: (event) => handlersRef.current.onRowsChanged?.(event),
                 onSelectionPreempted: () => handlersRef.current.onSelectionPreempted?.(),
-                onConnectionChange: setStatus,
+                onConnectionChange: (next) => {
+                    if (next !== "online") {
+                        // cell:unlocked events fired during the gap are lost:
+                        // drop the remote lease map, otherwise cells released
+                        // while disconnected stay blocked in the UI forever
+                        // (server leases expire by TTL in 20s; the fresh room
+                        // state rebuilds the map from live events on connect).
+                        setLockedCells(new Map());
+                    }
+                    setStatus(next);
+                },
             },
         );
         clientRef.current = client;
