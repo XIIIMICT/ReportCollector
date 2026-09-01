@@ -497,6 +497,9 @@ class CellValidationError(ValueError):
     """Invalid cell (field name or value)."""
 
 
+_DICT_CREATED_SNAPSHOT_INVALID = CellValidationError("Некорректный снимок записи.")
+
+
 async def update_movement_cells(
     session: AsyncSession,
     *,
@@ -677,6 +680,9 @@ async def apply_cell_value(
     """Apply a normalized cell value (undo/redo) with audit update."""
     now = datetime.now(UTC)
     updated_by = user.name or user.email or ""
+    if field == "__created":
+        await _apply_created_record(session, target_table=target_table, row_id=row_id, snapshot=value, user=user)
+        return
     if target_table == MOVEMENT_TABLE:
         movement = await session.get(MaterialMovement, row_id)
         if movement is None:
@@ -785,6 +791,102 @@ async def apply_cell_value(
             link.updated_at = now
             link.updated_by = updated_by
             session.add(link)
+        return
+    message = f"Неизвестная таблица «{target_table}»."
+    raise CellValidationError(message)
+
+
+async def _apply_created_record(
+    session: AsyncSession,
+    *,
+    target_table: str,
+    row_id: UUID,
+    snapshot: object,
+    user: User,
+) -> None:
+    """
+    Undo/redo of a dictionary record creation.
+
+    The create endpoints journal an «__created» pseudo-cell whose new value is
+    the record snapshot. Undo (value=None) removes the created record with the
+    same business rules as a manual delete; redo (value=snapshot) restores it
+    with the original id. Users can't be deleted (the product closes access
+    with the «Активен» flag instead), so their undo deactivates the project
+    link and clears the asset list, and their redo restores role, activity
+    and assets.
+    """
+    if target_table == User.__tablename__:
+        project_id = (
+            await session.exec(select(col(Project.id)).where(col(Project.key) == RAW_MATERIALS_PROJECT_KEY))
+        ).first()
+        if project_id is None:
+            raise _DICT_REF_USER_NOT_FOUND
+        link = (
+            await session.exec(select(UserRole).where(UserRole.user_id == row_id, UserRole.project_id == project_id))
+        ).one_or_none()
+        if snapshot is None:
+            if link is None:
+                raise _DICT_REF_USER_NOT_FOUND
+            link.is_active = False
+            link.updated_at = datetime.now(UTC)
+            session.add(link)
+            await replace_user_assets(session, row_id, [])
+            await session.commit()
+            return
+        if not isinstance(snapshot, dict):
+            raise _DICT_CREATED_SNAPSHOT_INVALID
+        if link is None:
+            now = datetime.now(UTC)
+            link = UserRole(
+                user_id=row_id,
+                project_id=project_id,
+                role=ProjectRole.ADMIN if snapshot.get("isAdmin") else ProjectRole.ASSET_WORKER,
+                is_active=bool(snapshot.get("isActive", True)),
+                created_at=now,
+                updated_at=now,
+            )
+        else:
+            link.role = ProjectRole.ADMIN if snapshot.get("isAdmin") else ProjectRole.ASSET_WORKER
+            link.is_active = bool(snapshot.get("isActive", True))
+            link.updated_at = datetime.now(UTC)
+        session.add(link)
+        asset_names = snapshot.get("assetNames")
+        await replace_user_assets(session, row_id, asset_names if isinstance(asset_names, list) else [])
+        await session.commit()
+        return
+    if snapshot is None:
+        if target_table == RawMaterialAsset.__tablename__:
+            await delete_asset(session, asset_id=row_id)
+            return
+        if target_table == DeliveryBasis.__tablename__:
+            await delete_delivery_basis(session, basis_id=row_id)
+            return
+        if target_table == RawMaterial.__tablename__:
+            await delete_raw_material(session, raw_material_id=row_id)
+            return
+        message = f"Неизвестная таблица «{target_table}»."
+        raise CellValidationError(message)
+    if not isinstance(snapshot, dict):
+        raise _DICT_CREATED_SNAPSHOT_INVALID
+    now = datetime.now(UTC)
+    updated_by = user.name or user.email or ""
+    name = snapshot.get("name")
+    if target_table == RawMaterialAsset.__tablename__:
+        session.add(RawMaterialAsset(id=row_id, name=str(name), created_at=now, updated_at=now, updated_by=updated_by))
+        return
+    if target_table == DeliveryBasis.__tablename__:
+        session.add(DeliveryBasis(id=row_id, name=str(name), created_at=now, updated_at=now, updated_by=updated_by))
+        return
+    if target_table == RawMaterial.__tablename__:
+        raw_material = RawMaterial(id=row_id, name=str(name), created_at=now, updated_at=now, updated_by=updated_by)
+        session.add(raw_material)
+        await session.flush()
+        raw_asset_ids = snapshot.get("assetIds")
+        await replace_asset_links(
+            session,
+            raw_material.id,
+            [UUID(item) for item in raw_asset_ids] if isinstance(raw_asset_ids, list) else [],
+        )
         return
     message = f"Неизвестная таблица «{target_table}»."
     raise CellValidationError(message)

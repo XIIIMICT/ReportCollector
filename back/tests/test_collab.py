@@ -748,3 +748,63 @@ async def test_ws_connect_keeps_undo_stack(client, db_session, store) -> None:
 
     fake.disconnect = True
     await task
+
+
+async def test_created_asset_is_undoable_and_redoable(client) -> None:
+    """A created dictionary record is undone (record gone) and redone (record back)."""
+    created = await client.post(
+        "/api/raw-materials/assets",
+        params={"session_id": TEST_SESSION_ID},
+        headers=signed_identity_headers(**admin_headers()),
+        json={"name": "Тестовый актив на отмену"},
+    )
+    assert created.status_code == 201
+    created_id = created.json()["id"]
+
+    undone = await _post_undo(client, section="assets", report_month=None)
+    assert undone["applied"] is True
+    assert undone["field"] == "__created"
+
+    rows = (await client.get("/api/raw-materials/assets", headers=signed_identity_headers(**admin_headers()))).json()
+    assert all(row["id"] != created_id for row in rows)
+
+    redone = await _post_redo(client, section="assets", report_month=None)
+    assert redone["applied"] is True
+
+    rows = (await client.get("/api/raw-materials/assets", headers=signed_identity_headers(**admin_headers()))).json()
+    restored = next(row for row in rows if row["id"] == created_id)
+    assert restored["name"] == "Тестовый актив на отмену"
+
+
+async def test_created_user_undo_deactivates_redo_restores(client, db_session) -> None:
+    """Users are never deleted: undo of a user-create deactivates the project link, redo restores it."""
+    created = await client.post(
+        "/api/raw-materials/users",
+        params={"session_id": TEST_SESSION_ID},
+        headers=signed_identity_headers(**admin_headers()),
+        json={
+            "email": "accidental@example.ru",
+            "fullname": "Случайный Случай",
+            "isAdmin": False,
+            "assetNames": ["СНХЗ"],
+        },
+    )
+    assert created.status_code == 201
+    created_id = created.json()["id"]
+
+    undone = await _post_undo(client, section="users", report_month=None)
+    assert undone["applied"] is True
+    assert undone["field"] == "__created"
+
+    rows = (await client.get("/api/raw-materials/users", headers=signed_identity_headers(**admin_headers()))).json()
+    row = next(candidate for candidate in rows if candidate["id"] == created_id)
+    assert row["isActive"] is False
+    assert row["assetNames"] == []
+
+    redone = await _post_redo(client, section="users", report_month=None)
+    assert redone["applied"] is True
+
+    rows = (await client.get("/api/raw-materials/users", headers=signed_identity_headers(**admin_headers()))).json()
+    row = next(candidate for candidate in rows if candidate["id"] == created_id)
+    assert row["isActive"] is True
+    assert row["assetNames"] == ["СНХЗ"]

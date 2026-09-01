@@ -339,7 +339,12 @@ export async function createDictionaryRecord(
                     assetNames: payload.assetNames ?? [],
                 }
               : { name: payload.name };
-    return requestWrite(`/api/raw-materials/${endpoint}`, "POST", body);
+    // session_id makes the create an undoable action (server-side journal).
+    return requestWrite(
+        `/api/raw-materials/${endpoint}?session_id=${getCollabSessionId()}`,
+        "POST",
+        body,
+    );
 }
 
 export async function deleteDictionaryRecord(

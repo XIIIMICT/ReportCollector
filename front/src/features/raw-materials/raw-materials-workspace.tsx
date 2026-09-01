@@ -665,6 +665,14 @@ function SectionContent({
             }
             await createDictionaryRecord(section, payload);
             refresh();
+            // The create is journaled server-side as an undoable action:
+            // re-read the undo state so Ctrl+Z is offered immediately.
+            void getUndoState(section, reportMonth)
+                .then((state) => {
+                    setUndoCount(state.canUndo ? 1 : 0);
+                    setRedoCount(state.canRedo ? 1 : 0);
+                })
+                .catch(() => {});
             const next = initialPlaceholderDraft(section);
             placeholderDraftRef.current = next;
             setPlaceholderDraft(next);

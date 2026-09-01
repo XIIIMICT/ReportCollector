@@ -16,7 +16,7 @@ from src.auth.models import Project, ProjectRole, User
 from src.auth.router import read_signed_identity
 from src.auth.service import CurrentUserIdentity, get_user_by_identity
 from src.collab.events import publish_cell_changed
-from src.collab.journal import record_cell_updates
+from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
 from src.collab.store import get_collab_store
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
@@ -32,7 +32,14 @@ from src.raw_materials.export import (
     render_workbook,
     validate_export_request,
 )
-from src.raw_materials.models import MovementPeriod, RawMaterialAsset, ReportSnapshot, SnapshotMaterialMovement
+from src.raw_materials.models import (
+    DeliveryBasis,
+    MovementPeriod,
+    RawMaterial,
+    RawMaterialAsset,
+    ReportSnapshot,
+    SnapshotMaterialMovement,
+)
 from src.raw_materials.schemas import (
     AssetCreateRequest,
     AssetRowRead,
@@ -591,12 +598,35 @@ async def post_raw_material(
     session: SessionDependency,
     user: UserDependency,
     _assets: AdminDependency,
+    session_id: str = "",
 ) -> RawMaterialRowRead:
-    """Raw-material item creation (project admin only)."""
+    """Raw-material item creation (project admin only); journaled as an undoable «__created» record."""
     try:
         created = await create_raw_material(session, name=request.name, asset_ids=request.assetIds, user=user)
     except DictionaryReferenceError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    if session_id:
+        await record_cell_updates(
+            get_collab_store(),
+            user_id=user.id,
+            user_name=user.name or "",
+            project_key=RAW_MATERIALS_PROJECT_KEY,
+            section="rawMaterials",
+            report_month=None,
+            session_id=session_id,
+            applied=[
+                AppliedCell(
+                    target_table=RawMaterial.__tablename__,
+                    row_id=created.id,
+                    field="__created",
+                    old_value=None,
+                    new_value={
+                        "name": created.name,
+                        "assetIds": [str(item) for item in request.assetIds],
+                    },
+                )
+            ],
+        )
     return (await read_raw_material_rows(session, raw_material_id=created.id))[0]
 
 
@@ -665,9 +695,29 @@ async def post_asset(
     session: SessionDependency,
     user: UserDependency,
     _assets: AdminDependency,
+    session_id: str = "",
 ) -> AssetRowRead:
-    """Asset creation (project admin only)."""
+    """Asset creation (project admin only); journaled as an undoable «__created» record."""
     created = await create_asset(session, name=request.name, user=user)
+    if session_id:
+        await record_cell_updates(
+            get_collab_store(),
+            user_id=user.id,
+            user_name=user.name or "",
+            project_key=RAW_MATERIALS_PROJECT_KEY,
+            section="assets",
+            report_month=None,
+            session_id=session_id,
+            applied=[
+                AppliedCell(
+                    target_table=RawMaterialAsset.__tablename__,
+                    row_id=created.id,
+                    field="__created",
+                    old_value=None,
+                    new_value={"name": created.name},
+                )
+            ],
+        )
     return (await read_asset_rows([created]))[0]
 
 
@@ -728,9 +778,29 @@ async def post_delivery_basis(
     session: SessionDependency,
     user: UserDependency,
     _assets: AdminDependency,
+    session_id: str = "",
 ) -> DeliveryBasisRowRead:
-    """Delivery basis creation (project admin only)."""
+    """Delivery basis creation (project admin only); journaled as an undoable «__created» record."""
     created = await create_delivery_basis(session, name=request.name, user=user)
+    if session_id:
+        await record_cell_updates(
+            get_collab_store(),
+            user_id=user.id,
+            user_name=user.name or "",
+            project_key=RAW_MATERIALS_PROJECT_KEY,
+            section="deliveryBases",
+            report_month=None,
+            session_id=session_id,
+            applied=[
+                AppliedCell(
+                    target_table=DeliveryBasis.__tablename__,
+                    row_id=created.id,
+                    field="__created",
+                    old_value=None,
+                    new_value={"name": created.name},
+                )
+            ],
+        )
     return (await read_delivery_basis_rows(session, delivery_basis_id=created.id))[0]
 
 
@@ -789,10 +859,16 @@ async def delete_delivery_basis_endpoint(
 async def post_user(
     request: UserCreateRequest,
     session: SessionDependency,
-    _user: UserDependency,
+    user: UserDependency,
     _assets: AdminDependency,
+    session_id: str = "",
 ) -> UserRowRead:
-    """«Сырьё» project user creation (project admin only)."""
+    """
+    «Сырьё» project user creation (project admin only); journaled as an undoable «__created» record.
+
+    Undo closes the access («Активен» = off, assets cleared) — users are never
+    deleted; redo restores the access.
+    """
     project_id = await _raw_materials_project_id(session)
     try:
         created = await create_project_user(
@@ -805,6 +881,31 @@ async def post_user(
         )
     except DictionaryReferenceError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    if session_id:
+        await record_cell_updates(
+            get_collab_store(),
+            user_id=user.id,
+            user_name=user.name or "",
+            project_key=RAW_MATERIALS_PROJECT_KEY,
+            section="users",
+            report_month=None,
+            session_id=session_id,
+            applied=[
+                AppliedCell(
+                    target_table=User.__tablename__,
+                    row_id=created.id,
+                    field="__created",
+                    old_value=None,
+                    new_value={
+                        "email": request.email,
+                        "fullname": request.fullname,
+                        "isAdmin": request.isAdmin,
+                        "assetNames": request.assetNames,
+                        "isActive": True,
+                    },
+                )
+            ],
+        )
     return (await read_user_rows(session, user_id=created.id))[0]
 
 
