@@ -10,6 +10,15 @@ async function loginAsEvtushenko(page: import("@playwright/test").Page) {
     await page.locator("#password").fill("TestPassword123");
     await page.locator('button[type="submit"]').click();
     await page.waitForURL(/127\.0\.0\.1:5000/, { timeout: 20000 });
+    // The workspace defaults to «Ремонт»; these specs run on «Сырьё» forms.
+    await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
+    const switcher = page.locator(".brand__edition--button");
+    await expect(switcher).toBeVisible();
+    await switcher.click();
+    await page
+        .locator("[data-slot=dropdown-menu] [data-slot=menu-item]", { hasText: "Сырьё" })
+        .click();
+    await expect(page.getByRole("tab", { name: "Цены" })).toBeVisible({ timeout: 20000 });
 }
 
 test("clipboard: keyboard copy and paste applies values to cells", async ({ page, context }) => {
