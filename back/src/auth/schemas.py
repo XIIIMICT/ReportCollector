@@ -23,6 +23,12 @@ class CurrentUserRead(BaseModel):
     access: list[ProjectAccessRead]
 
 
+class ProjectAccessCheckRead(BaseModel):
+    """Result of a self-requested project membership (see request_project_access)."""
+
+    hasAccess: bool
+
+
 class LocalLoginRequest(BaseModel):
     email: str
     password: str

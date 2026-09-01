@@ -12,6 +12,7 @@ from .schemas import (
     CurrentUserRead,
     LocalLoginRequest,
     LocalLoginResponse,
+    ProjectAccessCheckRead,
     ResetPasswordRequest,
     UpdateProfileRequest,
 )
@@ -23,6 +24,7 @@ from .service import (
     InvalidIdentityError,
     authenticate_local_user,
     get_current_user,
+    request_project_access,
     reset_user_password,
     update_profile,
     verify_signed_identity,
@@ -100,7 +102,9 @@ async def _current_user_dependency(
     session: SessionDependency,
     identity: Annotated[CurrentUserIdentity, Depends(read_signed_identity)],
 ) -> CurrentUserRead:
-    return await get_current_user(session, identity)
+    # create=False: API calls never auto-provision a user — the membership is
+    # created by request_project_access (opening a project URL) or by an admin.
+    return await get_current_user(session, identity, create=False)
 
 
 @router.post("/auth/users/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT)
@@ -135,11 +139,36 @@ async def read_current_user(
 
     Пользователь создаётся при первом входе (is_active=False). Запрос всегда
     отвечает 200: решение о блокировке принимает интерфейс по полю is_active.
+    Неизвестный пользователь не создаётся и не получает связей с проектами:
+    членыство оформляется запросом на URL конкретного проекта
+    (request-access). Корневой URL просто отвечает пустым access.
     """
     try:
-        return await get_current_user(session, identity)
+        return await get_current_user(session, identity, create=False)
     except BlockedUserError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+
+@router.post(
+    "/me/projects/{project_key}/request-access",
+    response_model=ProjectAccessCheckRead,
+)
+async def request_project_access_endpoint(
+    project_key: str,
+    session: SessionDependency,
+    identity: Annotated[CurrentUserIdentity, Depends(read_signed_identity)],
+) -> ProjectAccessCheckRead:
+    """
+    Self-requested membership in one project (the user opened its URL).
+
+    Creates the user record when missing and a single inactive project link,
+    so the project admin sees the person in «Пользователи» and can grant
+    access. hasAccess reports whether the project is already usable.
+    """
+    try:
+        return await request_project_access(session, identity, project_key)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
 
 
 @router.patch("/me", response_model=CurrentUserRead)

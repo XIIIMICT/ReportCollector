@@ -6,12 +6,14 @@ import { NextResponse } from "next/server";
 
 import {
     AUTH_NONCE_COOKIE,
+    AUTH_RETURN_TO_COOKIE,
     AUTH_STATE_COOKIE,
     AUTH_VERIFIER_COOKIE,
     SESSION_COOKIE,
     clearCookieOptions,
     encodeSession,
     getAuthConfig,
+    safeReturnTo,
     sessionCookieOptions,
     sessionMaxAgeSeconds,
     stringClaim,
@@ -83,11 +85,15 @@ export async function GET(request: Request) {
 
         const session = buildSession(idTokenPayload, userInfo);
         const sessionMaxAge = Math.max(1, Math.floor((session.expiresAt - Date.now()) / 1000));
-        const response = NextResponse.redirect(config.appOrigin);
+        // Keycloak always returns to the app root; the return_to cookie (set
+        // by the login route) restores the originally requested path.
+        const returnTo = safeReturnTo(cookieStore.get(AUTH_RETURN_TO_COOKIE)?.value) ?? "/";
+        const response = NextResponse.redirect(new URL(returnTo, config.appOrigin));
         const clearOptions = clearCookieOptions(config);
         response.cookies.set(AUTH_STATE_COOKIE, "", clearOptions);
         response.cookies.set(AUTH_VERIFIER_COOKIE, "", clearOptions);
         response.cookies.set(AUTH_NONCE_COOKIE, "", clearOptions);
+        response.cookies.set(AUTH_RETURN_TO_COOKIE, "", clearOptions);
         response.cookies.set(
             SESSION_COOKIE,
             encodeSession(session),

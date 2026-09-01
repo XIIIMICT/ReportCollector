@@ -17,7 +17,7 @@ from src.app_logging import log_event
 from src.auth.emails import normalize_email
 from src.auth.models import Project, ProjectRole, Theme, User, UserRole
 from src.auth.passwords import hash_password, validate_new_password, verify_password
-from src.auth.schemas import AssetAccessRead, CurrentUserRead, ProjectAccessRead
+from src.auth.schemas import AssetAccessRead, CurrentUserRead, ProjectAccessCheckRead, ProjectAccessRead
 from src.config import get_settings
 from src.raw_materials.models import RawMaterialAsset, RawMaterialUserAsset
 
@@ -136,7 +136,9 @@ _UNKNOWN_USER = ValueError("Пользователь не найден.")
 _USER_BLOCKED = BlockedUserError("Пользователь заблокирован в ReportCollector.")
 
 
-async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdentity) -> User:
+async def upsert_current_user(
+    session: AsyncSession, identity: CurrentUserIdentity, *, create: bool = True
+) -> User | None:
     """
     Register or update the user from OIDC identity data.
 
@@ -145,6 +147,12 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
     Access to a specific project is granted by the admin enabling is_active
     in their project. The AUTH_SEED_ADMIN_EMAIL user is created active and
     gets the admin role in all projects.
+
+    With create=False an unknown user is not written at all (None is
+    returned): visiting the root URL must not provision anything. Existing
+    users are still refreshed with the identity data. The all-projects
+    provisioning runs only for the seed admin; a regular user gets a project
+    membership through request_project_access instead.
     """
     log_event(
         LOGGER,
@@ -167,6 +175,8 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
     )
 
     if user is None:
+        if not create:
+            return None
         user = User(
             email=normalize_email(identity.email) if identity.email else None,
             name=identity.name,
@@ -191,9 +201,12 @@ async def upsert_current_user(session: AsyncSession, identity: CurrentUserIdenti
     session.add(user)
     await session.flush()
 
-    # Provisioning: the user has links to all projects. New links are created
-    # inactive; the seed admin is active and administers all projects.
-    await sync_project_memberships(session, user.id, activate_admin=is_seed_admin)
+    # Provisioning: the seed admin is linked to every project (active, admin
+    # role). Regular users are NOT auto-provisioned — a project membership is
+    # created when they open that project's URL (request_project_access) or
+    # when an admin adds them.
+    if is_seed_admin:
+        await sync_project_memberships(session, user.id, activate_admin=True)
 
     await session.commit()
     await session.refresh(user)
@@ -351,8 +364,13 @@ async def reset_user_password(session: AsyncSession, user_id: UUID, new_password
     await session.commit()
 
 
-async def get_current_user(session: AsyncSession, identity: CurrentUserIdentity) -> CurrentUserRead:
-    user = await upsert_current_user(session, identity)
+async def get_current_user(
+    session: AsyncSession, identity: CurrentUserIdentity, *, create: bool = True
+) -> CurrentUserRead:
+    user = await upsert_current_user(session, identity, create=create)
+    if user is None:
+        # Unknown user on the root URL: nothing is provisioned, no access.
+        return CurrentUserRead(access=[], email=identity.email, name=identity.name)
     access = await read_user_access(session, user.id)
     return CurrentUserRead(
         access=access,
@@ -360,6 +378,76 @@ async def get_current_user(session: AsyncSession, identity: CurrentUserIdentity)
         name=user.name,
         theme=user.theme,
     )
+
+
+async def request_project_access(
+    session: AsyncSession, identity: CurrentUserIdentity, project_key: str
+) -> ProjectAccessCheckRead:
+    """
+    Self-requested membership in one project (opened the project's URL).
+
+    Creates the user record when missing and a single inactive project link,
+    so the project admin sees the person in the «Пользователи» dictionary and
+    can grant access. Existing links are never modified. hasAccess reports
+    whether the project is already usable right now.
+    """
+    from src.renovation.constants import RENOVATION_PROJECT_KEY  # noqa: PLC0415
+    from src.renovation.models import RProjectRole, RUserRole  # noqa: PLC0415
+
+    project = (await session.exec(select(Project).where(col(Project.key) == project_key))).one_or_none()
+    if project is None:
+        message = f"Проект «{project_key}» не найден."
+        raise ValueError(message)
+
+    user = await upsert_current_user(session, identity, create=True)
+    if user is None:
+        # Unreachable with create=True; keeps the type narrow for user.id.
+        message = "Пользователь не найден."
+        raise ValueError(message)
+    link = (
+        await session.exec(select(UserRole).where(UserRole.user_id == user.id, UserRole.project_id == project.id))
+    ).one_or_none()
+    if link is None:
+        now = datetime.now(UTC)
+        session.add(
+            UserRole(
+                user_id=user.id,
+                project_id=project.id,
+                role=ProjectRole.ASSET_WORKER,
+                is_active=False,
+                created_at=now,
+                updated_at=now,
+                updated_by="",
+            )
+        )
+        await session.flush()
+        link = (
+            await session.exec(select(UserRole).where(UserRole.user_id == user.id, UserRole.project_id == project.id))
+        ).one()
+    if project_key == RENOVATION_PROJECT_KEY:
+        # The renovation «Пользователи» dictionary lists users by r_user_roles:
+        # create the inactive renovation link too (the admin picks the block).
+        r_link = (
+            await session.exec(
+                select(RUserRole).where(RUserRole.user_id == user.id, RUserRole.project_id == project.id)
+            )
+        ).one_or_none()
+        if r_link is None:
+            now = datetime.now(UTC)
+            session.add(
+                RUserRole(
+                    user_id=user.id,
+                    project_id=project.id,
+                    role=RProjectRole.ASSET_WORKER,
+                    block=None,
+                    is_active=False,
+                    created_at=now,
+                    updated_at=now,
+                    updated_by="",
+                )
+            )
+    await session.commit()
+    return ProjectAccessCheckRead(hasAccess=bool(link.is_active))
 
 
 async def update_profile(

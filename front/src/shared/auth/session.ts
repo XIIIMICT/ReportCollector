@@ -6,6 +6,7 @@ export const SESSION_COOKIE = "rc_session";
 export const AUTH_STATE_COOKIE = "rc_auth_state";
 export const AUTH_VERIFIER_COOKIE = "rc_auth_verifier";
 export const AUTH_NONCE_COOKIE = "rc_auth_nonce";
+export const AUTH_RETURN_TO_COOKIE = "rc_auth_return_to";
 
 export type AuthSession = {
     expiresAt: number;
@@ -216,4 +217,15 @@ function parseList(value: string): string[] {
         throw new Error("Список допустимых алгоритмов подписи OIDC не может быть пустым.");
     }
     return items;
+}
+
+/**
+ * A safe post-authentication redirect target: only relative in-app paths
+ * ("/raw-materials"), never protocol-relative ("//host") or absolute URLs.
+ */
+export function safeReturnTo(value: string | null | undefined): string | undefined {
+    if (!value) return undefined;
+    if (!value.startsWith("/") || value.startsWith("//")) return undefined;
+    if (value.includes("\\") || value.includes("\n") || value.includes("\r")) return undefined;
+    return value;
 }

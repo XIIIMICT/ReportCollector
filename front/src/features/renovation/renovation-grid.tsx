@@ -1665,6 +1665,12 @@ function RenovationGridInner(
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape" && !document.fullscreenElement) {
                 if (isFromTextEditor(event)) return;
+                const grid = gridRef.current;
+                // Escape is only swallowed for the grid itself: with the
+                // event target outside the grid (menus, dialogs, body) the
+                // key belongs to whoever has focus, and a page-wide
+                // stopImmediatePropagation would break every Escape consumer.
+                if (!grid || !isGridTarget(event, grid)) return;
                 // Swallow the event so revo-grid's built-in Escape (which
                 // collapses the range to a single cell) never runs: the row
                 // selection must clear completely, not shrink to one cell.

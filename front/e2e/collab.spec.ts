@@ -16,12 +16,16 @@ async function hoverCollabBar(page: Page) {
 }
 
 async function loginAs(page: Page, username: string, password: string) {
-    await page.goto(APP_ORIGIN + "/", { waitUntil: "domcontentloaded" });
+    // Deep-link into the raw-materials project: the scenario is about the
+    // asset-scoped presence on its «Движение» form. The Keycloak callback
+    // lands on the preferred project, so navigate again after the login.
+    await page.goto(APP_ORIGIN + "/raw-materials", { waitUntil: "domcontentloaded" });
     await page.waitForURL(KEYCLOAK_AUTH, { timeout: 20000 });
     await page.locator("#username").fill(username);
     await page.locator("#password").fill(password);
     await page.locator('button[type="submit"]').click();
     await page.waitForURL(new RegExp(APP_ORIGIN.replace(".", "\\.")), { timeout: 20000 });
+    await page.goto(APP_ORIGIN + "/raw-materials", { waitUntil: "domcontentloaded" });
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 30000 });
 }
 
@@ -55,7 +59,9 @@ async function gridCellByProp(page: Page, prop: string, rowIndex: number) {
 async function cellValue(page: Page, prop: string, rowIndex: number): Promise<string> {
     return page.evaluate(
         ({ prop, rowIndex }) => {
-            const grid = document.querySelector("revo-grid")!;
+            const grid = document.querySelector("revo-grid");
+            // null during a grid remount: an empty read lets expect.poll retry.
+            if (!grid) return "";
             return Promise.all([grid.getSource(), grid.getColumns()]).then(([source, cols]) => {
                 const flat = cols.flatMap((c) => (c.children?.length ? c.children : [c]));
                 const col = flat.find((c) => c.prop === prop);
@@ -96,30 +102,42 @@ test.describe("collab: совместное редактирование", () =>
             timeout: 15000,
         });
         await expect(pageA.locator(".form-status__presence")).toContainText("вы");
-        await hoverCollabBar(pageA);
+        // Presence heartbeats re-render the bar and can close a just-opened
+        // tooltip: re-hover until it renders, then read its text once.
+        const readTooltip = async (page: Page): Promise<string> => {
+            await hoverCollabBar(page);
+            await page.waitForTimeout(700);
+            const tooltip = page.locator(".form-status-tooltip");
+            return (await tooltip.count()) > 0 ? ((await tooltip.textContent()) ?? "") : "";
+        };
+
         // Лебедева (только ВОС) на «Движении» видит администратора (Евтушенко)
         // и себя — но не Смирнова (СНХЗ).
-        await expect(pageA.locator(".form-status-tooltip")).toContainText("Евтушенко", {
-            timeout: 15000,
-        });
-        await expect(pageA.locator(".form-status-tooltip")).toContainText("Лебедева");
-        await expect(pageA.locator(".form-status-tooltip")).not.toContainText("Смирнов");
+        let tooltipA = "";
+        for (let attempt = 0; attempt < 10 && !tooltipA.includes("Евтушенко"); attempt += 1) {
+            tooltipA = await readTooltip(pageA);
+        }
+        expect(tooltipA).toContain("Евтушенко");
+        expect(tooltipA).toContain("Лебедева");
+        expect(tooltipA).not.toContain("Смирнов");
 
         // Смирнов (СНХЗ) видит Евтушенко и себя — но не Лебедеву (ВОС).
-        await hoverCollabBar(pageB);
-        await expect(pageB.locator(".form-status-tooltip")).toContainText("Евтушенко", {
-            timeout: 15000,
-        });
-        await expect(pageB.locator(".form-status-tooltip")).toContainText("Смирнов");
-        await expect(pageB.locator(".form-status-tooltip")).not.toContainText("Лебедева");
+        let tooltipB = "";
+        for (let attempt = 0; attempt < 10 && !tooltipB.includes("Евтушенко"); attempt += 1) {
+            tooltipB = await readTooltip(pageB);
+        }
+        expect(tooltipB).toContain("Евтушенко");
+        expect(tooltipB).toContain("Смирнов");
+        expect(tooltipB).not.toContain("Лебедева");
 
         // Администратор видит всех.
-        await hoverCollabBar(pageC);
-        await expect(pageC.locator(".form-status-tooltip")).toContainText("Евтушенко", {
-            timeout: 15000,
-        });
-        await expect(pageC.locator(".form-status-tooltip")).toContainText("Смирнов");
-        await expect(pageC.locator(".form-status-tooltip")).toContainText("Лебедева");
+        let tooltipC = "";
+        for (let attempt = 0; attempt < 10 && !tooltipC.includes("Смирнов"); attempt += 1) {
+            tooltipC = await readTooltip(pageC);
+        }
+        expect(tooltipC).toContain("Евтушенко");
+        expect(tooltipC).toContain("Смирнов");
+        expect(tooltipC).toContain("Лебедева");
 
         await ctxA.close();
         await ctxB.close();

@@ -2,9 +2,9 @@ import { buildIdentityHeaders } from "@/shared/auth/identity-headers";
 import type { AuthSession } from "@/shared/auth/session";
 import { getBackendInternalUrl } from "@/shared/config";
 
-import { ReportCollectorApiError } from "./report-collector";
+import { ReportCollectorApiError, type CurrentUser } from "./report-collector";
 
-export async function getCurrentUserServer(session: AuthSession | null) {
+export async function getCurrentUserServer(session: AuthSession | null): Promise<CurrentUser> {
     const response = await fetch(new URL("/api/me", getBackendInternalUrl()), {
         cache: "no-store",
         headers: buildIdentityHeaders(session),
@@ -24,7 +24,7 @@ export async function getCurrentUserServer(session: AuthSession | null) {
         throw new ReportCollectorApiError(detail, response.status);
     }
 
-    return (await response.json()) as {
+    const raw = (await response.json()) as {
         access?: Array<{
             assets: Array<{ name: string }>;
             key: string;
@@ -35,4 +35,39 @@ export async function getCurrentUserServer(session: AuthSession | null) {
         name?: string | null;
         theme?: string;
     };
+    return {
+        access: raw.access,
+        email: raw.email ?? undefined,
+        name: raw.name ?? undefined,
+        theme: (raw.theme ?? "system") as CurrentUser["theme"],
+    };
+}
+
+/**
+ * Self-requested membership in one project: creates the user record and an
+ * inactive project link (the admin grants access later). Returns whether the
+ * project is already usable right now.
+ */
+export async function requestProjectAccessServer(
+    session: AuthSession | null,
+    projectKey: string,
+): Promise<{ hasAccess: boolean }> {
+    const response = await fetch(
+        new URL(
+            `/api/me/projects/${encodeURIComponent(projectKey)}/request-access`,
+            getBackendInternalUrl(),
+        ),
+        {
+            cache: "no-store",
+            headers: buildIdentityHeaders(session),
+            method: "POST",
+        },
+    );
+    if (!response.ok) {
+        throw new ReportCollectorApiError(
+            `Запрос доступа завершился ошибкой ${response.status}.`,
+            response.status,
+        );
+    }
+    return (await response.json()) as { hasAccess: boolean };
 }

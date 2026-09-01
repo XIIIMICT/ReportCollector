@@ -116,7 +116,9 @@ test("clipboard: reference fields paste validates values and rejects unknown", a
 
     const readAssets = () =>
         page.evaluate((rowIndex) => {
-            const grid = document.querySelector("revo-grid")!;
+            const grid = document.querySelector("revo-grid");
+            // null during a grid remount: an empty read lets callers retry.
+            if (!grid) return "null";
             return Promise.all([grid.getSource(), grid.getColumns()]).then(([source, cols]) => {
                 const flat = cols.flatMap((c) => (c.children?.length ? c.children : [c]));
                 const col = flat.find((c) => c.prop === "assetNames");
@@ -158,7 +160,10 @@ test("clipboard: reference fields paste validates values and rejects unknown", a
             .poll(
                 () =>
                     page.evaluate((rowIndex) => {
-                        const grid = document.querySelector("revo-grid")!;
+                        const grid = document.querySelector("revo-grid");
+                        // null during a grid remount: return "" so the poll
+                        // retries instead of failing.
+                        if (!grid) return "";
                         return Promise.all([grid.getSource(), grid.getColumns()]).then(
                             ([source, cols]) => {
                                 const flat = cols.flatMap((c) =>

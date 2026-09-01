@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import {
     AUTH_NONCE_COOKIE,
+    AUTH_RETURN_TO_COOKIE,
     AUTH_STATE_COOKIE,
     AUTH_VERIFIER_COOKIE,
     SESSION_COOKIE,
@@ -10,6 +11,7 @@ import {
     getSessionConfig,
     isKeycloakEnabled,
     randomBase64Url,
+    safeReturnTo,
     sessionCookieOptions,
     sessionMaxAgeSeconds,
     sha256Base64Url,
@@ -20,7 +22,7 @@ import { isValidEmail } from "@/shared/email";
 
 export const dynamic = "force-dynamic";
 
-export function GET() {
+export async function GET(request: Request) {
     if (!isKeycloakEnabled()) {
         return new NextResponse(localLoginPage(), {
             headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -28,6 +30,7 @@ export function GET() {
     }
 
     const config = getAuthConfig();
+    const returnTo = safeReturnTo(new URL(request.url).searchParams.get("return_to"));
     const state = randomBase64Url();
     const nonce = randomBase64Url();
     const codeVerifier = randomBase64Url(48);
@@ -48,6 +51,11 @@ export function GET() {
     response.cookies.set(AUTH_STATE_COOKIE, state, cookieOptions);
     response.cookies.set(AUTH_VERIFIER_COOKIE, codeVerifier, cookieOptions);
     response.cookies.set(AUTH_NONCE_COOKIE, nonce, cookieOptions);
+    if (returnTo) {
+        // The Keycloak callback always returns to the app root; the return_to
+        // cookie carries the originally requested path past it.
+        response.cookies.set(AUTH_RETURN_TO_COOKIE, returnTo, cookieOptions);
+    }
     return response;
 }
 
@@ -86,7 +94,8 @@ export async function POST(request: Request) {
     const config = getSessionConfig();
     const sessionSeconds = sessionMaxAgeSeconds();
     const expiresAt = Date.now() + sessionSeconds * 1000;
-    const redirect = NextResponse.redirect(new URL("/", config.appOrigin), 303);
+    const returnTo = safeReturnTo(new URL(request.url).searchParams.get("return_to")) ?? "/";
+    const redirect = NextResponse.redirect(new URL(returnTo, config.appOrigin), 303);
     redirect.cookies.set(
         SESSION_COOKIE,
         encodeSession({

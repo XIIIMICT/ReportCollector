@@ -6,8 +6,8 @@ import { test, expect } from "@playwright/test";
 // open, which would make a mouseleave-based close loop forever), must close on
 // an outside click, and must close on Escape without immediately reopening
 // (the closing menu un-inerts the trigger and the still-hovering pointer would
-// otherwise re-open it). Both the compact action menu and the grid corner
-// options menu run on the same HoverDropdown.
+// otherwise re-open it). The compact action menu (below sm) and the view
+// strip's «Вид таблицы» menu run on the same HoverDropdown.
 
 async function login(page: import("@playwright/test").Page) {
     await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
@@ -20,9 +20,6 @@ async function login(page: import("@playwright/test").Page) {
     await page.locator('button[type="submit"]').click();
     await page.waitForURL(/127\.0\.0\.1:5000/, { timeout: 20000 });
     await expect(page.locator(".app-shell")).toBeVisible({ timeout: 30000 });
-    // Compact mode kicks in below lg (64rem = 1024px).
-    await page.setViewportSize({ width: 900, height: 700 });
-    await page.waitForTimeout(1000);
 }
 
 async function hoverWithRealMouse(
@@ -39,63 +36,64 @@ async function hoverWithRealMouse(
     await page.mouse.move(cx, cy);
 }
 
+async function assertNoFlicker(
+    page: import("@playwright/test").Page,
+    locator: import("@playwright/test").Locator,
+    samples: number,
+) {
+    const states: boolean[] = [];
+    for (let i = 0; i < samples; i++) {
+        states.push((await locator.count()) > 0);
+        await page.waitForTimeout(100);
+    }
+    const transitions = states.filter((s, i) => i > 0 && s !== states[i - 1]).length;
+    expect(transitions).toBe(0);
+}
+
 test("compact action menu: no flicker on hover, closes on outside click and Escape", async ({
     page,
 }) => {
     await login(page);
-    const btn = page.locator(".action-more-button");
+    // The compact «Действия» menu renders below sm (40rem = 640px).
+    await page.setViewportSize({ width: 600, height: 900 });
+    await page.waitForTimeout(1000);
+
+    const btn = page.getByRole("button", { name: "Действия с таблицей" });
     await expect(btn).toBeVisible({ timeout: 15000 });
 
     await hoverWithRealMouse(page, btn);
-    await expect(page.locator(".action-more-menu")).toBeVisible({ timeout: 5000 });
+    const menu = page.locator(".action-more-menu");
+    await expect(menu).toBeVisible({ timeout: 5000 });
 
     // The menu must stay open while the pointer sits still on the button.
-    const samples: boolean[] = [];
-    for (let i = 0; i < 30; i++) {
-        samples.push((await page.locator(".action-more-menu").count()) > 0);
-        await page.waitForTimeout(100);
-    }
-    const transitions = samples.filter((s, i) => i > 0 && s !== samples[i - 1]).length;
-    expect(transitions).toBe(0);
+    await assertNoFlicker(page, menu, 30);
 
     // Outside click closes it.
     await page.mouse.click(30, 200);
-    await expect(page.locator(".action-more-menu")).toHaveCount(0, { timeout: 3000 });
+    await expect(menu).toHaveCount(0, { timeout: 3000 });
 
     // Hover again, then Escape closes it without an instant reopen.
     await hoverWithRealMouse(page, btn);
-    await expect(page.locator(".action-more-menu")).toBeVisible({ timeout: 5000 });
+    await expect(menu).toBeVisible({ timeout: 5000 });
     await page.keyboard.press("Escape");
-    await expect(page.locator(".action-more-menu")).toHaveCount(0, { timeout: 3000 });
+    await expect(menu).toHaveCount(0, { timeout: 3000 });
     await page.waitForTimeout(400);
-    await expect(page.locator(".action-more-menu")).toHaveCount(0);
+    await expect(menu).toHaveCount(0);
 });
 
-test("grid corner options menu: opens on hover, no flicker, items toggle, Escape closes", async ({
-    page,
-}) => {
+test("view strip menu: opens on hover, no flicker, Escape closes", async ({ page }) => {
     await login(page);
-    const btn = page.locator('[aria-label="Настройки таблицы"]');
+    const btn = page.locator('button[aria-label="Вид таблицы"]');
     await expect(btn).toBeVisible({ timeout: 15000 });
 
     await hoverWithRealMouse(page, btn);
-    await expect(page.locator(".grid-options-popover")).toBeVisible({ timeout: 5000 });
+    const menu = page.locator(".view-strip-popover");
+    await expect(menu).toBeVisible({ timeout: 5000 });
+    await expect(menu.getByText("Закрепить заголовок")).toBeVisible();
 
-    const samples: boolean[] = [];
-    for (let i = 0; i < 25; i++) {
-        samples.push((await page.locator(".grid-options-popover").count()) > 0);
-        await page.waitForTimeout(100);
-    }
-    const transitions = samples.filter((s, i) => i > 0 && s !== samples[i - 1]).length;
-    expect(transitions).toBe(0);
-
-    // A multi-select menu stays open on item click; the checked state flips.
-    const item = page.locator('.grid-options-popover [data-key="pin-header"]');
-    const before = await item.getAttribute("aria-checked");
-    await item.click();
-    await expect(page.locator(".grid-options-popover")).toHaveCount(1);
-    await expect(item).toHaveAttribute("aria-checked", before === "true" ? "false" : "true");
+    // The menu must stay open while the pointer sits still on the button.
+    await assertNoFlicker(page, menu, 25);
 
     await page.keyboard.press("Escape");
-    await expect(page.locator(".grid-options-popover")).toHaveCount(0, { timeout: 3000 });
+    await expect(menu).toHaveCount(0, { timeout: 3000 });
 });
