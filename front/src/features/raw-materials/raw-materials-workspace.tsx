@@ -1576,6 +1576,11 @@ function Brand({
     activeProjectKey: string;
     onProjectChange: (key: string) => void;
 }) {
+    // Stable identity: an inline `new Set(...)` changes on every render and
+    // loops HeroUI's selection sync ("Maximum update depth exceeded"). Declared
+    // before the early return below: hooks must run unconditionally.
+    const selectedProjectKeys = useMemo(() => new Set([activeProjectKey]), [activeProjectKey]);
+
     if (projects.length <= 1) {
         return (
             <div
@@ -1595,10 +1600,6 @@ function Brand({
             </div>
         );
     }
-
-    // Stable identity: an inline `new Set(...)` changes on every render and
-    // loops HeroUI's selection sync ("Maximum update depth exceeded").
-    const selectedProjectKeys = useMemo(() => new Set([activeProjectKey]), [activeProjectKey]);
 
     return (
         <div className={compact ? "brand brand--compact" : "brand"}>
