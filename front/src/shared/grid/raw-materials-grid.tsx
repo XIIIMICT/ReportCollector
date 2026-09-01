@@ -39,7 +39,7 @@ import {
     type ReferenceOption,
     type SectionId,
 } from "./grid-config";
-import { extractEdits } from "./grid-edit";
+import { extractEdits, parseNumericText } from "./grid-edit";
 import { MultiAssetEditor, ReferenceEditor, SelectEditor } from "./grid-editors";
 
 export type RawMaterialsGridState = {
@@ -707,9 +707,10 @@ function RawMaterialsGridInner(
             if (value === null || value === undefined || String(value).trim() === "") {
                 return { ok: true, value: null };
             }
-            const parsed =
-                typeof value === "number" ? value : Number(String(value).trim().replace(",", "."));
-            if (!Number.isFinite(parsed) || parsed < 0) {
+            // parseNumericText accepts any Unicode whitespace as a thousands
+            // separator and ',' as the decimal mark (Excel ru-RU buffers).
+            const parsed = typeof value === "number" ? value : parseNumericText(value);
+            if (parsed === null || !Number.isFinite(parsed) || parsed < 0) {
                 return { ok: false, message: "введите конечное неотрицательное число." };
             }
             return { ok: true, value: parsed };
