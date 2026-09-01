@@ -745,19 +745,29 @@ function SectionContent({
         (result: UndoResult, direction: "undo" | "redo") => {
             if (result.applied) {
                 setPendingSkip(null);
-                if (direction === "undo") {
-                    setUndoCount((count) => Math.max(0, count - 1));
-                    setRedoCount((count) => count + 1);
-                } else {
-                    setRedoCount((count) => Math.max(0, count - 1));
-                    setUndoCount((count) => count + 1);
-                }
+                // Re-read the stack state from the server instead of local ±1:
+                // the counters only track presence (canUndo/canRedo), and a
+                // locally decremented count died after a single undo even when
+                // the server stack still had actions.
+                void getUndoState(section, reportMonth)
+                    .then((state) => {
+                        setUndoCount(state.canUndo ? 1 : 0);
+                        setRedoCount(state.canRedo ? 1 : 0);
+                    })
+                    .catch(() => {});
                 refresh();
                 toast.success(direction === "undo" ? "Действие отменено" : "Действие возвращено");
                 return;
             }
             if (result.reason === "empty") {
                 setPendingSkip(null);
+                // The counters drifted from the actual stack — re-sync.
+                void getUndoState(section, reportMonth)
+                    .then((state) => {
+                        setUndoCount(state.canUndo ? 1 : 0);
+                        setRedoCount(state.canRedo ? 1 : 0);
+                    })
+                    .catch(() => {});
                 return;
             }
             const conflict = result.conflicts[0];
@@ -773,7 +783,7 @@ function SectionContent({
             }
             setPendingSkip(null);
         },
-        [refresh],
+        [refresh, reportMonth, section],
     );
 
     const runUndo = useCallback(async () => {
