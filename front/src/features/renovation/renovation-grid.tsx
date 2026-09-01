@@ -34,6 +34,7 @@ import type {
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
+import { isFromTextEditor } from "@/shared/keyboard";
 
 /**
  * The «Ремонт» plan grid.
@@ -1658,8 +1659,7 @@ function RenovationGridInner(
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape" && !document.fullscreenElement) {
-                const active = document.activeElement as HTMLElement | null;
-                if (active && (active.tagName === "INPUT" || active.isContentEditable)) return;
+                if (isFromTextEditor(event)) return;
                 // Swallow the event so revo-grid's built-in Escape (which
                 // collapses the range to a single cell) never runs: the row
                 // selection must clear completely, not shrink to one cell.
@@ -1675,11 +1675,20 @@ function RenovationGridInner(
                 return;
             }
             if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
-            if (event.code !== "KeyC" && event.code !== "KeyV") return;
+            if (event.code !== "KeyC" && event.code !== "KeyV" && event.code !== "KeyA") return;
             const grid = gridRef.current;
             if (!grid || !isGridTarget(event, grid)) return;
-            const active = document.activeElement as HTMLElement | null;
-            if (active && (active.tagName === "INPUT" || active.isContentEditable)) return;
+            if (isFromTextEditor(event)) return;
+            if (event.code === "KeyA") {
+                // Select-all is disabled on the plan: the full form holds
+                // ~94k rows and a whole-form copy would overflow the
+                // clipboard. Swallow the event so revo-grid's built-in
+                // select-all (which selects headers and tears the frame)
+                // never runs either.
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                return;
+            }
             event.preventDefault();
             if (event.code === "KeyC") {
                 void copySelection();
