@@ -54,6 +54,8 @@ Both stores (`ValkeyStore`, `MemoryStore`) implement one interface; the choice d
 - **Month fixing** checks `any_active_lease` across all the month's cells → «Фиксация временно недоступна: другой пользователь сейчас редактирует ячейку (имя)».
 - **Archive version** — read-only, no presence, the person is "offline".
 
+On connection loss the client drops its whole remote-lease map (`useCollabRoom` clears `lockedCells` whenever the status leaves "online"): `cell:unlocked` events fired during the gap never arrive after a reconnect, and without the reset, released cells would stay blocked in the UI until a reload. Server leases expire by TTL in 20s; live `cell:locked`/`cell:unlocked` events and the fresh `hello` rebuild the map after reconnect.
+
 The client maintains `ownedLeases` (Set) and **must remove keys on release** — otherwise it hits the 1000 limit and leases stop being granted.
 
 ## Undo/redo (server-side stack)
@@ -61,6 +63,7 @@ The client maintains `ownedLeases` (Set) and **must remove keys on release** —
 - Stack is per user **per browser session and form**: `rc:undo:{user_id}:{session_id}:{section}/{reportMonth}` — «Цены» history doesn't undo «Движение», August doesn't undo September. Survives form switches **within one page load**, but a reload gets a fresh `session_id` and starts with an empty history (stale stacks are never referenced again; the client re-reads `/undo-state` on form change).
 - An action is one PATCH batch — a single request that updates several cells is journaled as one action with a `cells` list (each cell: rowId, field, old/new value, revision; the action carries actionId, targetTable, section, reportMonth) and is undone/redone as a whole. Stack limit 500, lookup — last 200. Actions in the old single-cell format are still readable (legacy fallback).
 - **Edit→undo race:** the PATCH that commits a cell edit journals the action asynchronously. A Ctrl+Z fired immediately after Enter can reach `/undo` before the journal push — the server would answer `reason=empty` and the edit would stay. The frontend guards this: `runUndo`/`runRedo` in `raw-materials-workspace.tsx` first await the in-flight commit promise (`pendingCommitRef`), so undo is only sent after the edit landed on the server.
+- **Counter re-sync:** `GET /undo-state` reports only presence (`canUndo`/`canRedo`), so after an applied action — and after `reason=empty` (drift) — the client re-reads it instead of local ±1 arithmetic; a locally decremented counter used to kill the undo/redo buttons after a single press even when the server stack still had actions.
 - New edits **clear the redo branch** (Lua `_CLEAR_REDO_SCRIPT`).
 - **Redo order:** undo removes the freshest action first (4, 3, 2, 1); redo replays undone actions in their **original order** (oldest undone first — 1, 2, 3, 4, the reverse of the undo sequence). `next_action` scans the stack front-first for undo and back-first for redo; the `skipActionId` rule flips accordingly (undo skips `id >= after`, redo skips `id <= after`).
 - Applying undo/redo goes through the same `apply_cell_value` + `bump_cell_state` (revisions, `lastActionId`) and publishes `cell:changed`.
