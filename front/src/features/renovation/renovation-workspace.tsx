@@ -2063,10 +2063,11 @@ export function RenovationActionBar({
                 <HoverDropdown
                     className="action-more-popover"
                     onOpenChange={onDropdownOpenChange}
-                    trigger={({ ref, onMouseEnter, isOpen }) => (
+                    trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
                         <Button
                             ref={ref}
                             onMouseEnter={onMouseEnter}
+                            onPress={onPress}
                             className={
                                 isOpen
                                     ? classNameFor(action) + " action-button--open"

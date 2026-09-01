@@ -54,11 +54,16 @@ export function ViewStrip({
     const collapsedDownloadButton = (
         isOpen: boolean,
         pending: boolean,
-        handlers: { ref: React.Ref<HTMLButtonElement>; onMouseEnter: () => void },
+        handlers: {
+            ref: React.Ref<HTMLButtonElement>;
+            onMouseEnter: () => void;
+            onPress: () => void;
+        },
     ) => (
         <Button
             ref={handlers.ref}
             onMouseEnter={handlers.onMouseEnter}
+            onPress={handlers.onPress}
             className={isOpen ? "action-button action-button--open" : "action-button"}
             variant="tertiary"
             isDisabled={pending || isFullscreenPending}
@@ -75,11 +80,16 @@ export function ViewStrip({
 
     const collapsedViewButton = (
         isOpen: boolean,
-        handlers: { ref: React.Ref<HTMLButtonElement>; onMouseEnter: () => void },
+        handlers: {
+            ref: React.Ref<HTMLButtonElement>;
+            onMouseEnter: () => void;
+            onPress: () => void;
+        },
     ) => (
         <Button
             ref={handlers.ref}
             onMouseEnter={handlers.onMouseEnter}
+            onPress={handlers.onPress}
             className={isOpen ? "action-button action-button--open" : "action-button"}
             variant="tertiary"
             aria-label="Вид таблицы"
@@ -97,8 +107,12 @@ export function ViewStrip({
                 <HoverDropdown
                     className="view-strip-popover"
                     onOpenChange={onDropdownOpenChange}
-                    trigger={({ ref, onMouseEnter, isOpen }) =>
-                        collapsedDownloadButton(isOpen, exportPending, { ref, onMouseEnter })
+                    trigger={({ ref, onMouseEnter, isOpen, onPress }) =>
+                        collapsedDownloadButton(isOpen, exportPending, {
+                            ref,
+                            onMouseEnter,
+                            onPress,
+                        })
                     }
                     content={
                         <Dropdown.Menu
@@ -122,8 +136,8 @@ export function ViewStrip({
             <HoverDropdown
                 className="view-strip-popover"
                 onOpenChange={onDropdownOpenChange}
-                trigger={({ ref, onMouseEnter, isOpen }) =>
-                    collapsedViewButton(isOpen, { ref, onMouseEnter })
+                trigger={({ ref, onMouseEnter, isOpen, onPress }) =>
+                    collapsedViewButton(isOpen, { ref, onMouseEnter, onPress })
                 }
                 content={
                     <Dropdown.Menu

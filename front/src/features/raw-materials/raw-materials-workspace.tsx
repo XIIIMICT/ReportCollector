@@ -1614,10 +1614,11 @@ function Brand({
             <span className="brand__name">РепортКоллектор</span>
             <HoverDropdown
                 className="brand-popover"
-                trigger={({ ref, onMouseEnter }) => (
+                trigger={({ ref, onMouseEnter, onPress }) => (
                     <Button
                         ref={ref}
                         onMouseEnter={onMouseEnter}
+                        onPress={onPress}
                         className="brand__edition brand__edition--button"
                         variant="ghost"
                         aria-label={`Проект: ${projectName}. Выберите проект`}
@@ -1901,10 +1902,11 @@ function ActionBar({
             return (
                 <HoverDropdown
                     className="action-more-popover"
-                    trigger={({ ref, onMouseEnter, isOpen }) => (
+                    trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
                         <Button
                             ref={ref}
                             onMouseEnter={onMouseEnter}
+                            onPress={onPress}
                             className={
                                 isOpen
                                     ? classNameFor(action) + " action-button--open"
@@ -2068,10 +2070,11 @@ export function CompactActionMenu({
         <HoverDropdown
             className="action-more-popover"
             onOpenChange={onOpenChange}
-            trigger={({ ref, onMouseEnter, isOpen }) => (
+            trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
                 <Button
                     ref={ref}
                     onMouseEnter={onMouseEnter}
+                    onPress={onPress}
                     className={isOpen ? "action-button action-button--open" : "action-button"}
                     variant="tertiary"
                     aria-label="Действия с таблицей"
