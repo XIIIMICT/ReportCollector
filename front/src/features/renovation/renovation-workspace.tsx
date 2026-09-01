@@ -73,6 +73,7 @@ import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
+import { isFromTextEditor } from "@/shared/keyboard";
 import { FormStatus } from "@/shared/ui/form-status";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
@@ -1218,6 +1219,20 @@ export function RenovationWorkspace({
         selectedRow?.__rowState !== "deleted" &&
         rowIsEmpty;
 
+    // Ctrl+Delete — the shortcut advertised on the action-bar delete button:
+    // opens the same confirmation dialog as the button press.
+    useEffect(() => {
+        if (!canDeleteRow) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.code !== "Delete" || !(event.ctrlKey || event.metaKey)) return;
+            if (isFromTextEditor(event)) return;
+            event.preventDefault();
+            setDeleteOpen(true);
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [canDeleteRow]);
+
     async function deleteSelectedRow() {
         const rowId = selection?.rowId;
         if (!rowId || isMutationPending) return;
@@ -2055,7 +2070,7 @@ export function RenovationActionBar({
     );
     const actionTipTargetRef = useRef<Element | null>(null);
     const actionTipText = (action: ActionItem) =>
-        action.shortcut ? `${action.label} (Ctrl${action.shortcut.key})` : action.label;
+        action.shortcut ? `${action.label} (Ctrl+${action.shortcut.key})` : action.label;
 
     const renderAction = (action: ActionItem) => {
         const icon = action.pending ? <Spinner size="sm" /> : action.icon;

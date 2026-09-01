@@ -95,6 +95,7 @@ import {
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
+import { isFromTextEditor } from "@/shared/keyboard";
 import { FormStatus } from "@/shared/ui/form-status";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
@@ -467,6 +468,20 @@ function SectionContent({
         [rows, selectedRowIds],
     );
     const canDelete = canManageReferences && selectedRows.length > 0;
+
+    // Ctrl+Delete — the shortcut advertised on the action-bar delete button:
+    // opens the same confirmation dialog as the button press.
+    useEffect(() => {
+        if (!canDelete) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.code !== "Delete" || !(event.ctrlKey || event.metaKey)) return;
+            if (isFromTextEditor(event)) return;
+            event.preventDefault();
+            setDeleteOpen(true);
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [canDelete]);
     const isArchive = selectedSnapshotId !== null;
 
     const collabTable = SECTION_COLLAB_TABLE[section] ?? MOVEMENT_TABLE;
@@ -1889,7 +1904,7 @@ function ActionBar({
     );
     const actionTipTargetRef = useRef<Element | null>(null);
     const actionTipText = (action: ActionItem) =>
-        action.shortcut ? `${action.label} (Ctrl${action.shortcut.key})` : action.label;
+        action.shortcut ? `${action.label} (Ctrl+${action.shortcut.key})` : action.label;
     if (isSm) {
         return (
             <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">

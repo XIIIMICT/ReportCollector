@@ -31,6 +31,7 @@ import { isValidEmail } from "@/shared/email";
 import { getEditableKeys, type ColumnDescriptor, type GridRow } from "@/shared/grid/grid-config";
 import { RawMaterialsGrid, type RawMaterialsGridHandle } from "@/shared/grid/raw-materials-grid";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
+import { isFromTextEditor } from "@/shared/keyboard";
 
 const R_ASSETS_TABLE = "r_assets";
 const R_REFERENCE_VALUES_TABLE = "renovation_reference_values";
@@ -342,6 +343,20 @@ export function RenovationDictionarySection({
         [gridRows, selectedRowIds],
     );
     const canDelete = dictSection !== RENOVATION_USERS_SECTION && selectedRows.length > 0;
+
+    // Ctrl+Delete — the shortcut advertised on the action-bar delete button:
+    // opens the same confirmation dialog as the button press.
+    useEffect(() => {
+        if (!canDelete) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.code !== "Delete" || !(event.ctrlKey || event.metaKey)) return;
+            if (isFromTextEditor(event)) return;
+            event.preventDefault();
+            setDeleteOpen(true);
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [canDelete]);
 
     const readOnly = isMutationPending || (collabEnabled && room.status === "offline");
 
