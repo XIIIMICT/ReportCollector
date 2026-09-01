@@ -903,7 +903,7 @@ function RawMaterialsGridInner(
             const description = [...reasons.entries()]
                 .map(
                     ([reason, titles]) =>
-                        `${titles.map((title) => `В«${title}В»`).join(", ")}: ${reason}`,
+                        `${titles.map((title) => `«${title}»`).join(", ")}: ${reason}`,
                 )
                 .join("; ");
             onPasteSkipped?.(description);
