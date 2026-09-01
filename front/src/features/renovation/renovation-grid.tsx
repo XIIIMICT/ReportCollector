@@ -1347,7 +1347,14 @@ function RenovationGridInner(
         updates: CellUpdate[];
     } {
         const updates: CellUpdate[] = [];
-        if ("data" in detail) {
+        // Same revo-grid 4.27 shape check as grid-edit.ts extractEdits: plain
+        // single-cell edits carry `data` (a source snapshot array) too, so the
+        // range branch must key off the keyed-patch + no-prop shape.
+        const isRangeSave =
+            "data" in detail &&
+            !Array.isArray((detail as { data?: unknown }).data) &&
+            (detail as { prop?: unknown }).prop === undefined;
+        if (isRangeSave) {
             const models = (detail as { models?: RenovationGridRow[] }).models ?? [];
             for (const [rowIndex, patch] of Object.entries(
                 detail.data as Record<string, Record<string, unknown>>,

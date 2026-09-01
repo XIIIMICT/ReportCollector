@@ -918,7 +918,11 @@ function RawMaterialsGridInner(
             rowValuesRef.current,
         );
         const releaseKeys: string[] = [];
-        if ("data" in event.detail) {
+        const isRangeSave =
+            "data" in event.detail &&
+            !Array.isArray((event.detail as { data?: unknown }).data) &&
+            (event.detail as { prop?: unknown }).prop === undefined;
+        if (isRangeSave) {
             const models = (event.detail as { models?: GridRow[] }).models ?? [];
             for (const [rowIndex, patch] of Object.entries(
                 event.detail.data as Record<string, Record<string, unknown>>,

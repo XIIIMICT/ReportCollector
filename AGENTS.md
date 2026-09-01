@@ -41,6 +41,7 @@ Corporate raw-material planning system («Сырьё»): Excel-like **«Движ
 11. **Presence vs lease:** lease (TTL 20s, renew 10s) — the user is editing; presence (TTL 25s, heartbeat 15s) — the user is "online", including a completed selection. Idle >2 min or hidden tab → leases released, heartbeat stops; on return — re-join via ping.
 12. **Archive «Движение» version — read-only**: no editing and no presence.
 13. **«Пользователи» dictionary:** an admin adds a person — they appear in all projects (in others `is_active=false`); the first successful Keycloak login fills in the data (FIO overwritten from Keycloak) and activates where `is_active=true`.
+14. **revo-grid 4.27 `afteredit` carries `data` on plain single-cell edits too** — the whole source snapshot as an ARRAY. A range save (our `rangeeditapply` path) carries a keyed patch object + `models` instead. `extractEdits` (both grids) must tell them apart by shape (`data` is a keyed object AND there is no `prop` = range save), not by `data` presence — otherwise every cell edit silently produces no updates: the grid shows the new value locally, but nothing reaches the server.
 
 ## Working rules
 

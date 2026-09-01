@@ -16,7 +16,15 @@ export function extractEdits(
     previousValues: ReadonlyMap<string, Readonly<Record<string, unknown>>> = new Map(),
 ): ExtractedEdits {
     const placeholderPatch: Record<string, unknown> = {};
-    if ("data" in detail) {
+    // revo-grid 4.27 attaches a `data` key to plain single-cell edits too —
+    // the whole source snapshot as an ARRAY. A range save (our rangeeditapply
+    // path) carries a keyed patch object plus the full row models, and has no
+    // `prop`; without this check every cell edit silently produced no updates.
+    const isRangeSave =
+        "data" in detail &&
+        !Array.isArray((detail as { data?: unknown }).data) &&
+        (detail as { prop?: unknown }).prop === undefined;
+    if (isRangeSave) {
         const updates: CellUpdate[] = [];
         const models = (detail as { models?: GridRow[] }).models ?? [];
         for (const [rowIndex, patch] of Object.entries(
