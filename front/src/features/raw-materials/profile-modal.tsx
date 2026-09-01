@@ -30,6 +30,7 @@ import {
     type CurrentUser,
     type ThemePreference,
 } from "@/shared/api/report-collector";
+import { useAsyncData } from "@/shared/hooks/use-async-data";
 
 type ProfileModalProps = {
     isOpen: boolean;
@@ -59,6 +60,19 @@ export function ProfileModal({ isOpen, user, onOpenChange, onProfileSaved }: Pro
     const [error, setError] = useState<string | null>(null);
     const [confirmation, setConfirmation] = useState<Confirmation>(null);
     const [isPending, setIsPending] = useState(false);
+    // Passwords are managed in Keycloak when it is enabled: the change fields
+    // make no sense there (same rule that hides the users grid's «Сбросить
+    // пароль» column).
+    const { data: authConfig } = useAsyncData<{ keycloakEnabled: boolean } | null>(
+        () =>
+            fetch("/api/auth/config")
+                .then((response) => (response.ok ? response.json() : null))
+                .catch(() => null),
+        [],
+    );
+    // Config unknown (fetch not settled or failed) → keep the fields visible:
+    // behave exactly like before the Keycloak check existed.
+    const keycloakEnabled = authConfig?.keycloakEnabled === true;
 
     useEffect(() => {
         if (isOpen) {
@@ -147,20 +161,24 @@ export function ProfileModal({ isOpen, user, onOpenChange, onProfileSaved }: Pro
                                     <InputGroup.Input autoComplete="username" />
                                 </InputGroup>
                             </TextField>
-                            <PasswordField
-                                label="Новый пароль"
-                                value={newPassword}
-                                autoComplete="new-password"
-                                isDisabled={isPending}
-                                onChange={setNewPassword}
-                            />
-                            <PasswordField
-                                label="Повторить новый пароль"
-                                value={repeatPassword}
-                                autoComplete="new-password"
-                                isDisabled={isPending}
-                                onChange={setRepeatPassword}
-                            />
+                            {!keycloakEnabled ? (
+                                <>
+                                    <PasswordField
+                                        label="Новый пароль"
+                                        value={newPassword}
+                                        autoComplete="new-password"
+                                        isDisabled={isPending}
+                                        onChange={setNewPassword}
+                                    />
+                                    <PasswordField
+                                        label="Повторить новый пароль"
+                                        value={repeatPassword}
+                                        autoComplete="new-password"
+                                        isDisabled={isPending}
+                                        onChange={setRepeatPassword}
+                                    />
+                                </>
+                            ) : null}
                             {error ? (
                                 <div className="form-error" role="alert">
                                     {error}
