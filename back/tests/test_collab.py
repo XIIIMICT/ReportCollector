@@ -808,3 +808,67 @@ async def test_created_user_undo_deactivates_redo_restores(client, db_session) -
     row = next(candidate for candidate in rows if candidate["id"] == created_id)
     assert row["isActive"] is True
     assert row["assetNames"] == ["СНХЗ"]
+
+
+async def test_created_basis_undo_after_manual_delete_is_noop(client) -> None:
+    """Create -> delete manually -> undo: the stale __created action is a no-op, not an error."""
+    created = await client.post(
+        "/api/raw-materials/delivery-bases",
+        params={"session_id": TEST_SESSION_ID},
+        headers=signed_identity_headers(**admin_headers()),
+        json={"name": "Базис под ручное удаление"},
+    )
+    assert created.status_code == 201
+    created_id = created.json()["id"]
+
+    deleted = await client.delete(
+        f"/api/raw-materials/delivery-bases/{created_id}",
+        headers=signed_identity_headers(**admin_headers()),
+    )
+    assert deleted.status_code == 204
+
+    undone = await _post_undo(client, section="deliveryBases", report_month=None)
+    assert undone["applied"] is True
+    assert undone["field"] == "__created"
+
+    rows = (
+        await client.get("/api/raw-materials/delivery-bases", headers=signed_identity_headers(**admin_headers()))
+    ).json()
+    assert all(row["id"] != created_id for row in rows)
+
+
+async def test_created_basis_undo_conflicts_when_used_then_skips(client) -> None:
+    """Undoing a create whose record is already referenced is a skippable conflict, not a 500."""
+    created = await client.post(
+        "/api/raw-materials/delivery-bases",
+        params={"session_id": TEST_SESSION_ID},
+        headers=signed_identity_headers(**admin_headers()),
+        json={"name": "Используемый базис"},
+    )
+    assert created.status_code == 201
+    created_id = created.json()["id"]
+    created_name = created.json()["name"]
+
+    prices = (await client.get("/api/raw-materials/prices", headers=signed_identity_headers(**admin_headers()))).json()
+    await client.patch(
+        "/api/raw-materials/prices",
+        params={"session_id": TEST_SESSION_ID},
+        headers=signed_identity_headers(**admin_headers()),
+        json={"updates": [{"rowId": prices[0]["id"], "field": "deliveryBasisName", "value": created_name}]},
+    )
+
+    undone = await _post_undo(client, section="deliveryBases", report_month=None)
+    assert undone["applied"] is False
+    assert undone["reason"] == "conflict"
+    assert undone["conflicts"][0]["field"] == "__created"
+    conflict_action_id = undone["conflicts"][0]["actionId"]
+
+    skipped = await _post_undo(client, section="deliveryBases", report_month=None, skip_action_id=conflict_action_id)
+    assert skipped["applied"] is False
+    assert skipped["reason"] == "empty"
+
+    # The used basis is still there.
+    rows = (
+        await client.get("/api/raw-materials/delivery-bases", headers=signed_identity_headers(**admin_headers()))
+    ).json()
+    assert any(row["id"] == created_id for row in rows)

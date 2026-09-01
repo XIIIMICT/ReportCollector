@@ -158,23 +158,41 @@ async def _switch_entry(
         is_renovation = target_table in RENOVATION_TABLES or (
             target_table == "app_users" and str(action.get("section", "")).startswith("renovation")
         )
-        if is_renovation:
-            await apply_renovation_cell_value(
-                session,
-                target_table=target_table,
-                row_id=row_id,
-                field=field,
-                value=value,
-                user=user,
-            )
-        else:
-            await apply_cell_value(
-                session,
-                target_table=target_table,
-                row_id=row_id,
-                field=field,
-                value=value,
-                user=user,
+        try:
+            if is_renovation:
+                await apply_renovation_cell_value(
+                    session,
+                    target_table=target_table,
+                    row_id=row_id,
+                    field=field,
+                    value=value,
+                    user=user,
+                )
+            else:
+                await apply_cell_value(
+                    session,
+                    target_table=target_table,
+                    row_id=row_id,
+                    field=field,
+                    value=value,
+                    user=user,
+                )
+        except ValueError as error:
+            # Business rules can reject the reverse apply even when the
+            # conflict/lease checks passed (e.g. undoing a create whose record
+            # is now referenced elsewhere). Surface it as a skippable conflict
+            # instead of failing the request; drop any partial session state.
+            await session.rollback()
+            return UndoOutcome(
+                applied=False,
+                reason="conflict",
+                conflict=UndoConflict(
+                    row_id=row_id,
+                    field=field,
+                    user_name=str(error),
+                    action_id=action_id,
+                    reason="conflict",
+                ),
             )
         revision = await store.bump_cell_state(
             key,

@@ -800,7 +800,12 @@ function SectionContent({
                 const description =
                     conflict.reason === "locked"
                         ? `Ячейку сейчас редактирует ${owner}. Нажмите ещё раз, чтобы пропустить действие.`
-                        : `Данные изменил ${owner}. Нажмите ещё раз, чтобы пропустить это действие.`;
+                        : conflict.field === "__created"
+                          ? // A business rule rejected reverting the creation
+                            // (e.g. the record is now referenced elsewhere) —
+                            // the message is the backend's own explanation.
+                            `${owner} Нажмите ещё раз, чтобы пропустить действие.`
+                          : `Данные изменил ${owner}. Нажмите ещё раз, чтобы пропустить это действие.`;
                 toast.warning("Действие не выполнено", { description });
                 return;
             }

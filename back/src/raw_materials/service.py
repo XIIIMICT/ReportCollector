@@ -814,6 +814,10 @@ async def _apply_created_record(
     with the «Активен» flag instead), so their undo deactivates the project
     link and clears the asset list, and their redo restores role, activity
     and assets.
+
+    Stale states are no-ops, not errors: undo of a record that was already
+    deleted manually does nothing, and redo of a record that already exists
+    again does nothing (the end state matches either way).
     """
     if target_table == User.__tablename__:
         project_id = (
@@ -826,7 +830,7 @@ async def _apply_created_record(
         ).one_or_none()
         if snapshot is None:
             if link is None:
-                raise _DICT_REF_USER_NOT_FOUND
+                return
             link.is_active = False
             link.updated_at = datetime.now(UTC)
             session.add(link)
@@ -835,6 +839,9 @@ async def _apply_created_record(
             return
         if not isinstance(snapshot, dict):
             raise _DICT_CREATED_SNAPSHOT_INVALID
+        user_row = await session.get(User, row_id)
+        if user_row is not None and user_row.is_deleted:
+            raise _DICT_REF_USER_NOT_FOUND
         if link is None:
             now = datetime.now(UTC)
             link = UserRole(
@@ -856,12 +863,18 @@ async def _apply_created_record(
         return
     if snapshot is None:
         if target_table == RawMaterialAsset.__tablename__:
+            if await session.get(RawMaterialAsset, row_id) is None:
+                return
             await delete_asset(session, asset_id=row_id)
             return
         if target_table == DeliveryBasis.__tablename__:
+            if await session.get(DeliveryBasis, row_id) is None:
+                return
             await delete_delivery_basis(session, basis_id=row_id)
             return
         if target_table == RawMaterial.__tablename__:
+            if await session.get(RawMaterial, row_id) is None:
+                return
             await delete_raw_material(session, raw_material_id=row_id)
             return
         message = f"Неизвестная таблица «{target_table}»."
@@ -872,12 +885,18 @@ async def _apply_created_record(
     updated_by = user.name or user.email or ""
     name = snapshot.get("name")
     if target_table == RawMaterialAsset.__tablename__:
+        if await session.get(RawMaterialAsset, row_id) is not None:
+            return
         session.add(RawMaterialAsset(id=row_id, name=str(name), created_at=now, updated_at=now, updated_by=updated_by))
         return
     if target_table == DeliveryBasis.__tablename__:
+        if await session.get(DeliveryBasis, row_id) is not None:
+            return
         session.add(DeliveryBasis(id=row_id, name=str(name), created_at=now, updated_at=now, updated_by=updated_by))
         return
     if target_table == RawMaterial.__tablename__:
+        if await session.get(RawMaterial, row_id) is not None:
+            return
         raw_material = RawMaterial(id=row_id, name=str(name), created_at=now, updated_at=now, updated_by=updated_by)
         session.add(raw_material)
         await session.flush()
