@@ -1410,14 +1410,6 @@ export function RenovationWorkspace({
         [room],
     );
 
-    useEffect(() => {
-        setClipboardState({
-            canPaste: selection !== null,
-            onCopy: () => void gridRef.current?.copySelection(),
-            onPaste: () => void gridRef.current?.pasteIntoSelection(),
-        });
-    }, [selection]);
-
     const setFullscreenMode = useCallback(
         async (next: boolean) => {
             if (isFullscreenPending || next === isFullscreen) return;

@@ -1218,17 +1218,23 @@ function RenovationGridInner(
         };
     }
 
-    function cellAllowed(field: RenovationField, row: RenovationGridRow): string | null {
-        // null — allowed; a string is the skip reason.
-        if (readOnly) return "таблица открыта только для просмотра";
-        if (field.isCalculated) return "расчётное поле";
-        if (field.isReadOnly) return "поле доступно только для чтения";
-        if (!editableFieldKeys.has(field.dbName)) return "поле недоступно для редактирования";
-        if (row.__rowState === "deleted") return "строка удалена";
-        if (userAssetIds && !userAssetIds.has(row.__assetId))
-            return "нет доступа к строке этого актива";
-        return null;
-    }
+    // Stable identity: the selection effect below calls this while computing
+    // the paste-button state — an inline function would re-run that effect
+    // (and re-render the workspace) on every render.
+    const cellAllowed = useCallback(
+        (field: RenovationField, row: RenovationGridRow): string | null => {
+            // null — allowed; a string is the skip reason.
+            if (readOnly) return "таблица открыта только для просмотра";
+            if (field.isCalculated) return "расчётное поле";
+            if (field.isReadOnly) return "поле доступно только для чтения";
+            if (!editableFieldKeys.has(field.dbName)) return "поле недоступно для редактирования";
+            if (row.__rowState === "deleted") return "строка удалена";
+            if (userAssetIds && !userAssetIds.has(row.__assetId))
+                return "нет доступа к строке этого актива";
+            return null;
+        },
+        [editableFieldKeys, readOnly, userAssetIds],
+    );
 
     function beforeEditStart(event: CustomEvent<BeforeSaveDataDetails>) {
         const field = fieldByDbName.get(String(event.detail.prop));
@@ -1687,7 +1693,31 @@ function RenovationGridInner(
 
     useEffect(() => {
         selectionRangeRef.current = selectionRange;
-        onClipboardStateChange({ canPaste: selectionRange !== null && !readOnly });
+        // The paste button mirrors the raw-materials grid: enabled only when
+        // the selection contains at least one editable, non-busy target cell.
+        // beforeRangeEdit still re-checks and skips busy cells at paste time.
+        const canPasteInto = (): boolean => {
+            if (!selectionRange || readOnly) return false;
+            for (
+                let y = selectionRange.y;
+                y <= Math.min(selectionRange.y1, displaySource.length - 1);
+                y += 1
+            ) {
+                const row = displaySource[y];
+                if (!row) continue;
+                for (let x = selectionRange.x; x <= selectionRange.x1; x += 1) {
+                    const column = columns[x] as ColumnRegular | undefined;
+                    if (!column || column.prop === undefined) continue;
+                    const field = fieldByDbName.get(String(column.prop));
+                    if (!field || cellAllowed(field, row)) continue;
+                    const key = canonicalRenovationKey(row.__id, field.dbName);
+                    if (remoteLocks.has(key) || remotePresence.has(key)) continue;
+                    return true;
+                }
+            }
+            return false;
+        };
+        onClipboardStateChange({ canPaste: canPasteInto() });
         if (selectedRowIds.length > 0) {
             // Row-number selection wins over the cell range (row clicks clear
             // the range): report the rows for row-level actions like delete.
@@ -1751,11 +1781,15 @@ function RenovationGridInner(
             rowId: firstRow?.__id ?? null,
         });
     }, [
+        cellAllowed,
         columns,
         displaySource,
+        fieldByDbName,
         onClipboardStateChange,
         onSelectionChange,
         readOnly,
+        remoteLocks,
+        remotePresence,
         selectedRowIdSet,
         selectedRowIds,
         selectionRange,
