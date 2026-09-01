@@ -830,13 +830,22 @@ function RenovationGridInner(
                 const anchor = rowSelectionAnchorRef.current ?? rowIndex;
                 const start = Math.min(anchor, rowIndex);
                 const end = Math.max(anchor, rowIndex);
-                clearGridSelection();
-                setSelectedRowIds(
-                    displaySource
-                        .slice(start, end + 1)
-                        .map((row) => row.__id)
-                        .filter(Boolean),
-                );
+                // Row indexes are screen coordinates: under sorting they map
+                // through the visible source, not the source array (same
+                // landmine as paste/copy).
+                void (async () => {
+                    const grid = gridRef.current;
+                    const visible = grid
+                        ? ((await grid.getVisibleSource("rgRow")) as RenovationGridRow[])
+                        : [];
+                    clearGridSelection();
+                    setSelectedRowIds(
+                        visible
+                            .slice(start, end + 1)
+                            .map((row) => row.__id)
+                            .filter(Boolean),
+                    );
+                })();
                 return;
             }
             if (modifiers) {
@@ -856,7 +865,7 @@ function RenovationGridInner(
             clearGridSelection();
             setSelectedRowIds([id]);
         },
-        [clearGridSelection, displaySource, selectedRowIdSet],
+        [clearGridSelection, selectedRowIdSet],
     );
 
     const rowHeaders = useMemo<RowHeaders>(

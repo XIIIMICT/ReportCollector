@@ -521,8 +521,11 @@ function RawMaterialsGridInner(
     // range remains.
     const selectAllCells = useCallback(async () => {
         if (rows.length === 0 || flatColumns.length === 0) return;
-        let lastDataIndex = rows.length - 1;
-        while (lastDataIndex >= 0 && rows[lastDataIndex]?.isPlaceholder) {
+        // Selection coordinates are screen indexes: derive the range from the
+        // visible source (sorting/filtering applied), not the original rows.
+        const visible = await getVisibleRows();
+        let lastDataIndex = visible.length - 1;
+        while (lastDataIndex >= 0 && visible[lastDataIndex]?.isPlaceholder) {
             lastDataIndex -= 1;
         }
         if (lastDataIndex < 0) return;
@@ -532,7 +535,14 @@ function RawMaterialsGridInner(
         updateSelectionRange({ x: 0, y: 0, x1: end.x, y1: end.y });
         setSelectedRowIds([]);
         rowSelectionAnchorRef.current = null;
-    }, [applyGridRange, flatColumns.length, rows, setSelectedRowIds, updateSelectionRange]);
+    }, [
+        applyGridRange,
+        flatColumns.length,
+        getVisibleRows,
+        rows,
+        setSelectedRowIds,
+        updateSelectionRange,
+    ]);
 
     const handleRowNumberClick = useCallback(
         (event: MouseEvent, rowIndex: number, id: string) => {
@@ -548,13 +558,19 @@ function RawMaterialsGridInner(
                 const anchor = rowSelectionAnchorRef.current ?? rowIndex;
                 const start = Math.min(anchor, rowIndex);
                 const end = Math.max(anchor, rowIndex);
-                clearGridSelection();
-                setSelectedRowIds(
-                    rows
-                        .slice(start, end + 1)
-                        .map((row) => row.id)
-                        .filter(Boolean),
-                );
+                // Row indexes are screen coordinates: under sorting/filtering
+                // they map through the visible source, not the original rows
+                // (same landmine as paste/copy).
+                void (async () => {
+                    const visible = await getVisibleRows();
+                    clearGridSelection();
+                    setSelectedRowIds(
+                        visible
+                            .slice(start, end + 1)
+                            .map((row) => row.id)
+                            .filter(Boolean),
+                    );
+                })();
                 return;
             }
             if (modifiers) {
@@ -574,7 +590,7 @@ function RawMaterialsGridInner(
             clearGridSelection();
             setSelectedRowIds([id]);
         },
-        [clearGridSelection, rows, selectedRowIdSet],
+        [clearGridSelection, getVisibleRows, selectedRowIdSet],
     );
 
     const rowHeaders = useMemo<RowHeaders>(
