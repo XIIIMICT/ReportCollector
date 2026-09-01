@@ -1599,10 +1599,14 @@ function RenovationGridInner(
             void copySelection();
         };
         const handlePaste = (event: ClipboardEvent) => {
-            if (!isGridTarget(event, grid)) return;
             // isFromTextEditor sees through the shadow DOM (revo-grid's built-in
             // cell editors), so pasting into an open editor stays native.
             if (isFromTextEditor(event)) return;
+            const grid = gridRef.current;
+            if (!grid) return;
+            // Same as the raw grid: a cell click can leave the focus on body,
+            // so accept the paste while this grid holds an active selection.
+            if (!isGridTarget(event, grid) && selectionRangeRef.current === null) return;
             const text = event.clipboardData?.getData("text/plain");
             if (text == null || text === "") return;
             event.preventDefault();
@@ -1682,7 +1686,11 @@ function RenovationGridInner(
             // navigator.clipboard.readText().
             if (event.code !== "KeyC" && event.code !== "KeyA") return;
             const grid = gridRef.current;
-            if (!grid || !isGridTarget(event, grid)) return;
+            if (!grid) return;
+            // A cell click can leave the focus on body (focuscell →
+            // re-render → blur), so a live selection routes the shortcut to
+            // the grid even without grid focus.
+            if (!isGridTarget(event, grid) && selectionRangeRef.current === null) return;
             if (isFromTextEditor(event)) return;
             if (event.code === "KeyA") {
                 // Select-all is disabled on the plan: the full form holds

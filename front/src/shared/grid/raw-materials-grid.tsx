@@ -25,6 +25,7 @@ import {
 } from "react";
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
+import { isFromTextEditor } from "@/shared/keyboard";
 
 import {
     buildGridColumns,
@@ -1338,20 +1339,14 @@ function RawMaterialsGridInner(
             rowSelectionAnchorRef.current = null;
         };
         const handlePaste = (event: ClipboardEvent) => {
+            if (isFromTextEditor(event)) return;
             const grid = gridRef.current;
             if (!grid) return;
-            if (!isGridTarget(event, grid)) return;
-            const isEditable = (element: Element | null) =>
-                !!element &&
-                (element.tagName === "INPUT" ||
-                    element.tagName === "TEXTAREA" ||
-                    (element as HTMLElement).isContentEditable);
-            if (
-                isEditable(document.activeElement) ||
-                isEditable(grid.shadowRoot?.activeElement ?? null)
-            ) {
-                return;
-            }
+            // The paste belongs to this grid when it happens inside it, or
+            // when the grid has an active selection: selecting a cell can
+            // leave the focus on body (focuscell → re-render → blur), and a
+            // plain isGridTarget check on the event target would lose it.
+            if (!isGridTarget(event, grid) && selectionRangeRef.current === null) return;
             const text = event.clipboardData?.getData("text/plain");
             if (text == null || text === "") return;
             event.preventDefault();
@@ -1428,7 +1423,7 @@ function RawMaterialsGridInner(
 
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape" && !document.fullscreenElement) {
-                if (isEditableTarget(document.activeElement)) return;
+                if (isFromTextEditor(event) || isEditableTarget(document.activeElement)) return;
                 // Same path as the row-selection reset: clears the range,
                 // repaints the overlay and drops revo-grid's stale focus restore.
                 clearGridSelection();
@@ -1444,9 +1439,13 @@ function RawMaterialsGridInner(
             // clipboard-read confirmation prompt Chrome shows for
             // navigator.clipboard.readText().
             if (event.code !== "KeyC" && event.code !== "KeyX" && event.code !== "KeyA") return;
-            if (isEditableTarget(document.activeElement)) return;
+            if (isFromTextEditor(event)) return;
             const grid = gridRef.current;
-            if (!grid || !isGridTarget(event, grid)) return;
+            if (!grid) return;
+            // A cell click can leave the focus on body (focuscell →
+            // re-render → blur), so a live selection routes the shortcut to
+            // the grid even without grid focus.
+            if (!isGridTarget(event, grid) && selectionRangeRef.current === null) return;
             event.preventDefault();
             if (event.code === "KeyA") {
                 // Listen in the capture phase to intercept Ctrl+A before revo-grid's
