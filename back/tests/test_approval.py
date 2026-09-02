@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from uuid import UUID
 
+import pytest
 from conftest import signed_identity_headers
 from httpx import AsyncClient
-from sqlmodel import col, select
+from sqlmodel import col, delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.raw_materials.models import (
@@ -81,6 +82,12 @@ async def _fix(client: AsyncClient, report_month: date) -> tuple[int, dict]:
     return response.status_code, response.json()
 
 
+@pytest.fixture
+def current_month() -> date:
+    """Keep preview-fix tests independent of the wall clock."""
+    return datetime.now().astimezone().date().replace(day=1)
+
+
 async def test_fix_requires_admin(client: AsyncClient) -> None:
     response = await client.post(
         "/api/raw-materials/movement/fix",
@@ -107,17 +114,22 @@ async def test_fix_creates_snapshot(
     client: AsyncClient,
     db_session: AsyncSession,
     store,
+    current_month: date,
 ) -> None:
-    await _ensure_rows(db_session, date(2026, 8, 1))
-    await _fill_month(db_session, date(2026, 8, 1))
+    await db_session.exec(delete(MaterialMovement))
+    await db_session.exec(delete(MovementPeriod))
+    db_session.add(MovementPeriod(report_month=current_month))
+    await _ensure_rows(db_session, current_month)
+    await _fill_month(db_session, current_month)
     # A preliminary fix doesn't clear the undo stacks: the month stays open
     # for editing, so its history remains useful.
-    await store.push_actions("any-user", "any-session", "materialMovement/2026-08-01", [{"id": 1, "undone": False}])
-    status, body = await _fix(client, date(2026, 8, 1))
+    scope = f"materialMovement/{current_month.isoformat()}"
+    await store.push_actions("any-user", "any-session", scope, [{"id": 1, "undone": False}])
+    status, body = await _fix(client, current_month)
     assert status == 200
-    assert body["reportMonth"] == "2026-08-01"
+    assert body["reportMonth"] == current_month.isoformat()
     assert body["isFinal"] is False
-    assert len(await store.list_actions("any-user", "any-session", "materialMovement/2026-08-01")) == 1
+    assert len(await store.list_actions("any-user", "any-session", scope)) == 1
     snapshot_id = UUID(body["id"])
 
     snapshots = (await db_session.exec(select(ReportSnapshot))).all()
@@ -139,7 +151,7 @@ async def test_fix_creates_snapshot(
     meta = await client.get(
         "/api/raw-materials/movement/meta",
         headers=ADMIN_HEADERS,
-        params={"report_month": "2026-08-01"},
+        params={"report_month": current_month.isoformat()},
     )
     meta_body = meta.json()
     assert meta_body["isComplete"] is True
@@ -161,16 +173,20 @@ async def test_fix_creates_snapshot(
 async def test_fix_preview_overwrites_and_keeps_history_link(
     client: AsyncClient,
     db_session: AsyncSession,
+    current_month: date,
 ) -> None:
-    await _ensure_rows(db_session, date(2026, 8, 1))
-    await _fill_month(db_session, date(2026, 8, 1))
-    _, first = await _fix(client, date(2026, 8, 1))
+    await db_session.exec(delete(MaterialMovement))
+    await db_session.exec(delete(MovementPeriod))
+    db_session.add(MovementPeriod(report_month=current_month))
+    await _ensure_rows(db_session, current_month)
+    await _fill_month(db_session, current_month)
+    _, first = await _fix(client, current_month)
     rows = (
-        await db_session.exec(select(MaterialMovement).where(col(MaterialMovement.report_month) == date(2026, 8, 1)))
+        await db_session.exec(select(MaterialMovement).where(col(MaterialMovement.report_month) == current_month))
     ).all()
     rows[0].delivery_fact_tons = 75.0
     await db_session.flush()
-    status, second = await _fix(client, date(2026, 8, 1))
+    status, second = await _fix(client, current_month)
     assert status == 200
     assert second["id"] != first["id"]
 

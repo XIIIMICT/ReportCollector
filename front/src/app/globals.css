@@ -992,6 +992,8 @@ html {
 /* The external horizontal scrollbar's height is reserved only when it's
    actually shown (no overflow — no strip, no dead gap under the last row). */
 .revo-grid-shell:not(.revo-grid-shell--pinned):not(.revo-grid-shell--no-hscroll)
+    .revo-grid-vertical-scroller,
+.renovation-grid-shell.revo-grid-shell--pinned:not(.revo-grid-shell--no-hscroll)
     .revo-grid-vertical-scroller {
     padding-bottom: 17px;
 }
@@ -1037,6 +1039,28 @@ html {
     overflow-x: auto;
     overflow-y: hidden;
     background: var(--surface);
+    color-scheme: light;
+    scrollbar-color: var(--scrollbar) var(--surface);
+    scrollbar-width: auto;
+}
+
+.dark .revo-grid-external-scrollbar {
+    color-scheme: dark;
+}
+
+.revo-grid-external-scrollbar::-webkit-scrollbar {
+    height: 17px;
+}
+
+.revo-grid-external-scrollbar::-webkit-scrollbar-track {
+    background: var(--surface);
+}
+
+.revo-grid-external-scrollbar::-webkit-scrollbar-thumb {
+    min-width: 32px;
+    background: var(--scrollbar);
+    border: 3px solid var(--surface);
+    border-radius: 999px;
 }
 
 .revo-grid-shell--no-hscroll .revo-grid-external-scrollbar {
@@ -1432,29 +1456,12 @@ html {
     min-height: 0 !important;
 }
 
-/* Pinned mode keeps revo-grid's own scrollbars. The horizontal strip sizes
-   itself only when the system reports a real scrollbar size
-   (getScrollbarSize): with Chrome's overlay scrollbars (the default since
-   121) the size is 0, the strip collapses and AutohideScrollPlugin shows it
-   for a second after each scroll — the «Ремонт» grid must show the bottom
-   scrollbar always, like the «Сырьё» grids' external strip. The shell marks
-   revo-grid-shell--no-hscroll (from hasHorizontalOverflow) exactly when
-   there is no horizontal overflow, so pin the strip height only then (no
-   dead strip when everything fits). Styling ::-webkit-scrollbar switches
-   that element from overlay to classic always-visible scrollbars. */
+/* The external strip is used in pinned mode too. Chrome's overlay scrollbar
+   makes revo-grid report a native scrollbar size of zero and autohides its
+   internal strip, so leave the internal horizontal host without a scrollbar. */
 .revo-grid-shell--pinned .renovation-grid revogr-scroll-virtual.horizontal {
-    height: 17px !important;
-    min-height: 17px !important;
-}
-.revo-grid-shell--pinned .renovation-grid revogr-scroll-virtual.horizontal::-webkit-scrollbar {
-    height: 17px;
-}
-.revo-grid-shell--pinned.revo-grid-shell--no-hscroll
-    .renovation-grid
-    revogr-scroll-virtual.horizontal {
     height: 0 !important;
     min-height: 0 !important;
-    visibility: hidden;
 }
 
 .dark .renovation-grid {

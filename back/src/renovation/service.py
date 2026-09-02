@@ -8,12 +8,15 @@ renovation_reference_values ids and transported over the API as display
 labels (the same pattern as «deliveryBasisName» in the «Цены» form).
 """
 
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import func
+from sqlalchemy import ARRAY, Text, func, literal_column
+from sqlalchemy import cast as sql_cast
+from sqlalchemy import select as sa_select
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -309,6 +312,118 @@ async def read_plan(
         rows=[_plan_row_read(row, asset, label_map) for row, asset in rows if asset.id in asset_ids],
         baselineBoundary=baseline_boundary,
     )
+
+
+@dataclass(slots=True)
+class RenovationPlanExportData:
+    """Plan metadata and ORM rows prepared for the streaming XLSX writer."""
+
+    baseline_generation: int
+    updated_at: datetime
+    rows: list[tuple[int, str, str, dict[str, object]]]
+    reference_labels: dict[UUID, str]
+
+
+async def read_plan_export_data(
+    session: AsyncSession,
+    assets: list[RAsset],
+    *,
+    plan_id: UUID | None = None,
+    state: RPlanState = RPlanState.WORKING,
+    row_ids: list[UUID] | None = None,
+) -> RenovationPlanExportData:
+    """Read plan rows directly for XLSX export without a 94k-row Pydantic copy."""
+    if plan_id is not None:
+        plan = await session.get(RenovationPlan, plan_id)
+        if plan is None:
+            raise _ERR_PLAN_NOT_FOUND
+    else:
+        plan = await _plan_by_state(session, state)
+        if plan is None:
+            message = f"Нет плана в состоянии «{state.value}»."
+            raise RenovationPlanNotFoundError(message)
+
+    sparse_values = func.jsonb_strip_nulls(
+        func.to_jsonb(literal_column("renovation_plan_rows"))
+        - sql_cast(
+            [
+                "id",
+                "plan_id",
+                "asset_id",
+                "position",
+                "baseline_generation",
+                "revision",
+                "created_at",
+                "updated_at",
+                "updated_by",
+            ],
+            ARRAY(Text),
+        )
+    )
+    query = (
+        sa_select(
+            col(RenovationPlanRow.id),
+            col(RenovationPlanRow.position),
+            col(RAsset.name),
+            col(RAsset.repair_code),
+            sparse_values,
+        )
+        .join(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
+        .where(
+            col(RenovationPlanRow.plan_id) == plan.id,
+            col(RenovationPlanRow.asset_id).in_([asset.id for asset in assets]),
+        )
+        .order_by(col(RenovationPlanRow.position))
+    )
+    if row_ids is not None:
+        query = query.where(col(RenovationPlanRow.id).in_(row_ids))
+    db_rows_with_ids = list((await session.exec(query)).all())  # ty: ignore[no-matching-overload]
+    if row_ids is not None:
+        by_id = {
+            row_id: (position, asset_name, repair_code, values)
+            for row_id, position, asset_name, repair_code, values in db_rows_with_ids
+        }
+        db_rows = [by_id[row_id] for row_id in row_ids if row_id in by_id]
+    else:
+        db_rows = [
+            (position, asset_name, repair_code, values)
+            for _, position, asset_name, repair_code, values in db_rows_with_ids
+        ]
+    label_map = await _reference_labels(session)
+    for _, _, repair_code, values in db_rows:
+        if not values.get("col_003"):
+            values["col_003"] = _sparse_row_renovation_id(values, repair_code, label_map)
+    return RenovationPlanExportData(
+        baseline_generation=plan.baseline_generation,
+        updated_at=plan.updated_at,
+        rows=db_rows,
+        reference_labels=label_map,
+    )
+
+
+def _sparse_row_renovation_id(
+    values: dict[str, object],
+    asset_repair_code: str,
+    label_map: dict[UUID, str],
+) -> str | None:
+    """Compute a missing renovation ID from a sparse export row."""
+    work_category_id = values.get("col_017")
+    work_type_id = values.get("col_018")
+    defect = values.get("col_023")
+    result = calculate_renovation_id(
+        RenovationIdInput(
+            existing_id=None,
+            start_date=str(values.get("col_024") or "") or None,
+            asset_repair_code=asset_repair_code,
+            direction_code=str(values.get("col_189") or "") or None,
+            bpof_section=str(values.get("col_016") or "") or None,
+            work_category=label_map.get(UUID(str(work_category_id))) if work_category_id else None,
+            defect_number=f"{Decimal(str(defect)):.0f}" if defect is not None else None,
+            technology_position=str(values.get("col_011") or "") or None,
+            work_type_label=label_map.get(UUID(str(work_type_id))) if work_type_id else None,
+        )
+    )
+    return result.value
 
 
 async def read_plan_rows(
@@ -1547,12 +1662,11 @@ async def delete_renovation_catalog_option(
     option = await session.get(RenovationReferenceValue, option_id)
     if option is None or option.catalog.value != catalog:
         raise _DICT_OPTION_NOT_FOUND
-    for meta in field_metas():
-        if meta.catalog != catalog:
-            continue
-        used = (
-            await session.exec(select(RenovationPlanRow).where(getattr(RenovationPlanRow, meta.db_name) == option_id))
-        ).first()
+    reference_fields = [getattr(RenovationPlanRow, meta.db_name) for meta in field_metas() if meta.catalog == catalog]
+    for field in reference_fields:
+        # Fetch one scalar instead of materializing a 224-column plan row. A
+        # per-reference-column index makes this independent of plan size.
+        used = (await session.exec(select(1).where(field == option_id).limit(1))).first()
         if used is not None:
             raise _DICT_OPTION_USED
     snapshot = {

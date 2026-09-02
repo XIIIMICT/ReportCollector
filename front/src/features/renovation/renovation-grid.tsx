@@ -1075,6 +1075,11 @@ function RenovationGridInner(
         const ROW_H = 36;
         let attempts = 0;
         const apply = () => {
+            // Don't fight a pending structural edge jump: on a fresh tail load
+            // topRowRef starts at 0 and blindly restoring "previous top row"
+            // forces scrollTop back to the top, un-homing the tail. The jump
+            // effect owns the scroll until it settles.
+            if (settlingScrollRef.current) return;
             const el = headerPinned
                 ? (gridRef.current?.querySelector(
                       "revogr-scroll-virtual.vertical",
@@ -1950,8 +1955,7 @@ function RenovationGridInner(
 
     // Wheel over the horizontal scrollbar strip scrolls it horizontally
     // (native Chrome behavior scrolls the vertical axis instead). The strip is
-    // a real DOM element: revo-grid's virtual horizontal scrollbar in pinned
-    // mode and the external one in unpinned mode. Native listener — React's
+    // a real DOM element in both pinned and unpinned modes. Native listener — React's
     // onWheel is passive and can't preventDefault.
     useEffect(() => {
         const shell = shellRef.current;
@@ -1960,11 +1964,8 @@ function RenovationGridInner(
             if (event.deltaY === 0 && event.deltaX === 0) return;
             const target = event.target as Node | null;
             if (!target) return;
-            const internal = gridRef.current?.querySelector("revogr-scroll-virtual.horizontal");
             const external = horizontalScrollRef.current;
-            const strip =
-                (internal?.contains(target) ? internal : null) ??
-                (external?.contains(target) ? external : null);
+            const strip = external?.contains(target) ? external : null;
             if (!strip) return;
             if (strip.scrollWidth <= strip.clientWidth) return;
             event.preventDefault();
@@ -2120,11 +2121,9 @@ function RenovationGridInner(
                             if (body) {
                                 body.style.transform = `translateX(${-event.detail.coordinate}px)`;
                             }
-                            if (!headerPinned) {
-                                const scrollbar = horizontalScrollRef.current;
-                                if (scrollbar && scrollbar.scrollLeft !== event.detail.coordinate) {
-                                    scrollbar.scrollLeft = event.detail.coordinate;
-                                }
+                            const scrollbar = horizontalScrollRef.current;
+                            if (scrollbar && scrollbar.scrollLeft !== event.detail.coordinate) {
+                                scrollbar.scrollLeft = event.detail.coordinate;
                             }
                         }
                     }}
@@ -2143,21 +2142,19 @@ function RenovationGridInner(
                     onBeforerange={(event) => updateSelectionRange(event.detail.newRange)}
                 />
             </div>
-            {!headerPinned ? (
-                <div
-                    ref={horizontalScrollRef}
-                    className="revo-grid-external-scrollbar"
-                    style={{ display: hasHorizontalOverflow ? undefined : "none" }}
-                    aria-label="Горизонтальная прокрутка таблицы"
-                    onScroll={(event) => {
-                        void gridRef.current?.scrollToCoordinate({
-                            x: event.currentTarget.scrollLeft,
-                        });
-                    }}
-                >
-                    <div style={{ width: horizontalContentWidth }} />
-                </div>
-            ) : null}
+            <div
+                ref={horizontalScrollRef}
+                className="revo-grid-external-scrollbar"
+                style={{ display: hasHorizontalOverflow ? undefined : "none" }}
+                aria-label="Горизонтальная прокрутка таблицы"
+                onScroll={(event) => {
+                    void gridRef.current?.scrollToCoordinate({
+                        x: event.currentTarget.scrollLeft,
+                    });
+                }}
+            >
+                <div style={{ width: horizontalContentWidth }} />
+            </div>
         </div>
     );
 }

@@ -91,7 +91,10 @@ async def test_worker_sees_only_bound_assets(client, db_session) -> None:
         "subject": "worker-sub",
         "email_verified": "true",
     }
-    await client.get("/api/me", headers=signed_identity_headers(**headers))
+    await client.post(
+        "/api/me/projects/raw_materials/request-access",
+        headers=signed_identity_headers(**headers),
+    )
     user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)
@@ -122,7 +125,10 @@ async def test_inactive_user_has_no_form_access(client, db_session) -> None:
         "subject": "inactive-sub",
         "email_verified": "true",
     }
-    await client.get("/api/me", headers=signed_identity_headers(**headers))
+    await client.post(
+        "/api/me/projects/raw_materials/request-access",
+        headers=signed_identity_headers(**headers),
+    )
     user = (await db_session.exec(select(User).where(col(User.email) == "inactive@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await db_session.commit()
@@ -186,7 +192,10 @@ async def test_worker_cannot_read_dictionaries(client, db_session) -> None:
         "subject": "worker-sub",
         "email_verified": "true",
     }
-    await client.get("/api/me", headers=signed_identity_headers(**headers))
+    await client.post(
+        "/api/me/projects/raw_materials/request-access",
+        headers=signed_identity_headers(**headers),
+    )
     user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)
@@ -662,7 +671,10 @@ async def test_worker_cannot_write_dictionaries(client, db_session) -> None:
         "subject": "worker-write-sub",
         "email_verified": "true",
     }
-    await client.get("/api/me", headers=signed_identity_headers(**headers))
+    await client.post(
+        "/api/me/projects/raw_materials/request-access",
+        headers=signed_identity_headers(**headers),
+    )
     user = (await db_session.exec(select(User).where(col(User.email) == "worker-write@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)

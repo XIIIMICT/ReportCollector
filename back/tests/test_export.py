@@ -216,7 +216,10 @@ async def test_export_prices_reference_validation(client) -> None:
 
 async def test_export_asset_column_restricted_for_single_asset(client, db_session) -> None:
     headers = worker_headers()
-    await client.get("/api/me", headers=signed_identity_headers(**headers))
+    await client.post(
+        "/api/me/projects/raw_materials/request-access",
+        headers=signed_identity_headers(**headers),
+    )
     user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)
@@ -251,7 +254,10 @@ async def test_export_asset_column_restricted_for_single_asset(client, db_sessio
 
 async def test_export_dictionary_section_requires_admin(client, db_session) -> None:
     headers = worker_headers()
-    await client.get("/api/me", headers=signed_identity_headers(**headers))
+    await client.post(
+        "/api/me/projects/raw_materials/request-access",
+        headers=signed_identity_headers(**headers),
+    )
     user = (await db_session.exec(select(User).where(col(User.email) == "worker@example.ru"))).one()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)

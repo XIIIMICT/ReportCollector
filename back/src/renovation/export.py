@@ -9,11 +9,18 @@ Reference fields are written as display labels, numbers keep their
 decimal count, dates as DD.MM.YYYY, booleans as Да/Нет.
 """
 
-from datetime import datetime
-from io import BytesIO
-from typing import TYPE_CHECKING
+from collections.abc import Iterator
+from datetime import date, datetime
+from io import BytesIO, UnsupportedOperation
+from queue import Queue
+from threading import Thread
+from typing import IO, TYPE_CHECKING
+from uuid import UUID
+from xml.sax.saxutils import escape
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
+from openpyxl.cell import Cell, WriteOnlyCell
 from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import range_boundaries
@@ -22,17 +29,15 @@ from openpyxl.worksheet.worksheet import Worksheet
 from src.renovation.form_schema import RenovationFieldMeta, field_metas, header_rows
 
 if TYPE_CHECKING:
-    from src.renovation.schemas import RenovationPlanRead
+    from src.renovation.service import RenovationPlanExportData
 
 # The headerCells excelRange rows are the template's (6..16); the export
 # starts the header at row 1, so every range shifts up by this amount.
 HEADER_ROW_SHIFT = 5
 NUMBER_FORMAT_DEFAULT = "General"
-DATE_FORMAT = "DD.MM.YYYY"
 
 _HEADER_FONT = Font(bold=True)
 _HEADER_ALIGNMENT = Alignment(horizontal="center", vertical="center", wrap_text=True)
-_DATA_ALIGNMENT = Alignment(horizontal="left", vertical="center", wrap_text=True)
 _THIN_BORDER = Border(
     left=Side(style="thin"),
     right=Side(style="thin"),
@@ -41,95 +46,208 @@ _THIN_BORDER = Border(
 )
 
 
-def render_renovation_workbook(plan: RenovationPlanRead) -> bytes:
-    """Build the renovation plan workbook and return its bytes (no disk write)."""
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = "Ремонт"
-    _write_header(worksheet)
-    fields = field_metas()
-    for index, meta in enumerate(fields):
-        worksheet.column_dimensions[get_column_letter(index + 2)].width = _column_width(meta.cell_type)
-    worksheet.column_dimensions["A"].width = 6.0
-    for row_index, row in enumerate(plan.rows):
-        excel_row = len(header_rows()) + row_index + 1
-        number_cell = worksheet.cell(row=excel_row, column=1)
-        # «№» is the stable plan position (1-based) — the same number the
-        # grid's row header shows.
-        number_cell.value = row.position
-        number_cell.alignment = Alignment(horizontal="center", vertical="center")
-        number_cell.border = _THIN_BORDER
-        for index, meta in enumerate(fields):
-            value = row.renovationId if meta.db_name == "col_003" else row.values.get(meta.db_name)
-            _write_field_cell(worksheet, excel_row, index + 2, value, meta)
-    worksheet.freeze_panes = "C12"
+def render_renovation_workbook(plan: RenovationPlanExportData) -> bytes:
+    """Build the large renovation workbook directly as streaming OOXML."""
     buffer = BytesIO()
-    workbook.save(buffer)
+    with ZipFile(buffer, "w", compression=ZIP_DEFLATED, compresslevel=1) as archive:
+        archive.writestr("[Content_Types].xml", _CONTENT_TYPES_XML)
+        archive.writestr("_rels/.rels", _ROOT_RELS_XML)
+        archive.writestr("xl/workbook.xml", _WORKBOOK_XML)
+        archive.writestr("xl/_rels/workbook.xml.rels", _WORKBOOK_RELS_XML)
+        archive.writestr("xl/styles.xml", _STYLES_XML)
+        with archive.open("xl/worksheets/sheet1.xml", "w") as worksheet:
+            _write_plan_sheet_xml(worksheet, plan)
     return buffer.getvalue()
+
+
+def stream_renovation_workbook(plan: RenovationPlanExportData) -> Iterator[bytes]:
+    """Yield the XLSX while it is generated so proxies receive an early byte."""
+    queue: Queue[bytes | BaseException | None] = Queue(maxsize=8)
+
+    def build() -> None:
+        try:
+            sink = _QueueWriter(queue)
+            with ZipFile(sink, "w", compression=ZIP_DEFLATED, compresslevel=1) as archive:  # ty: ignore[no-matching-overload]
+                archive.writestr("[Content_Types].xml", _CONTENT_TYPES_XML)
+                archive.writestr("_rels/.rels", _ROOT_RELS_XML)
+                archive.writestr("xl/workbook.xml", _WORKBOOK_XML)
+                archive.writestr("xl/_rels/workbook.xml.rels", _WORKBOOK_RELS_XML)
+                archive.writestr("xl/styles.xml", _STYLES_XML)
+                with archive.open("xl/worksheets/sheet1.xml", "w") as worksheet:
+                    _write_plan_sheet_xml(worksheet, plan)
+        except BaseException as error:  # noqa: BLE001
+            queue.put(error)
+        finally:
+            queue.put(None)
+
+    Thread(target=build, name="renovation-xlsx", daemon=True).start()
+    while True:
+        chunk = queue.get()
+        if chunk is None:
+            break
+        if isinstance(chunk, BaseException):
+            raise chunk
+        yield chunk
+
+
+class _QueueWriter:
+    """Minimal non-seekable binary stream accepted by zipfile's data-descriptor mode."""
+
+    def __init__(self, queue: Queue[bytes | BaseException | None]) -> None:
+        self.queue = queue
+        self.offset = 0
+
+    def write(self, data: bytes) -> int:
+        if data:
+            self.queue.put(data)
+            self.offset += len(data)
+        return len(data)
+
+    def tell(self) -> int:
+        return self.offset
+
+    def seek(self, *_args: object) -> int:
+        raise UnsupportedOperation
+
+    def flush(self) -> None:
+        pass
+
+
+def _write_plan_sheet_xml(worksheet: IO[bytes], plan: RenovationPlanExportData) -> None:
+    """Write sheet1.xml incrementally so memory stays bounded for 94k rows."""
+    fields = field_metas()
+    fields_by_name = {meta.db_name: (column, meta) for column, meta in enumerate(fields, start=2)}
+    worksheet.write(_SHEET_XML_PREFIX)
+    worksheet.write(_column_widths_xml(fields).encode())
+    worksheet.write(b"<sheetData>")
+    for row_number, cells in enumerate(_header_matrix(), start=1):
+        xml = [f'<row r="{row_number}" ht="30" customHeight="1">']
+        for column, value in enumerate(cells, start=1):
+            if value is not None:
+                xml.append(_text_cell_xml(row_number, column, value, style=1))
+        xml.append("</row>")
+        worksheet.write("".join(xml).encode())
+    for position, asset_name, _, row_values in plan.rows:
+        row_number = len(header_rows()) + position
+        xml = [
+            f'<row r="{row_number}">',
+            _number_cell_xml(row_number, 1, position),
+            _text_cell_xml(row_number, 2, asset_name),
+        ]
+        cells: list[tuple[int, str]] = []
+        for db_name, value in row_values.items():
+            field = fields_by_name.get(db_name)
+            if field is None or value is None:
+                continue
+            column, meta = field
+            export_value = value
+            if meta.cell_type == "reference":
+                display_value = plan.reference_labels.get(UUID(str(value)))
+                if display_value is None:
+                    continue
+                export_value = display_value
+            cells.append((column, _data_cell_xml(row_number, column, export_value, meta)))
+        xml.extend(cell_xml for _, cell_xml in sorted(cells))
+        xml.append("</row>")
+        worksheet.write("".join(xml).encode())
+    worksheet.write(b"</sheetData>")
+    worksheet.write(_merged_ranges_xml().encode())
+    worksheet.write(b"</worksheet>")
+
+
+def _header_matrix() -> list[list[str | None]]:
+    rows = header_rows()
+    matrix: list[list[str | None]] = [[None for _ in range(len(field_metas()) + 1)] for _ in rows]
+    matrix[0][0] = "№"
+    for _, cells in rows:
+        for cell in cells:
+            start_column, start_row, _, _ = _shifted_range(cell.excel_range)
+            matrix[start_row - 1][start_column - 1] = cell.text
+    return matrix
+
+
+def _merged_ranges_xml() -> str:
+    ranges = ["A1:A11"]
+    for _, cells in header_rows():
+        for cell in cells:
+            start_column, start_row, end_column, end_row = _shifted_range(cell.excel_range)
+            if start_row != end_row or start_column != end_column:
+                ranges.append(f"{get_column_letter(start_column)}{start_row}:{get_column_letter(end_column)}{end_row}")
+    refs = "".join(f'<mergeCell ref="{cell_range}"/>' for cell_range in ranges)
+    return f'<mergeCells count="{len(ranges)}">{refs}</mergeCells>'
+
+
+def _column_widths_xml(fields: tuple[RenovationFieldMeta, ...]) -> str:
+    columns = ['<col min="1" max="1" width="6" customWidth="1"/>']
+    for index, meta in enumerate(fields, start=2):
+        columns.append(f'<col min="{index}" max="{index}" width="{_column_width(meta.cell_type)}" customWidth="1"/>')
+    return f"<cols>{''.join(columns)}</cols>"
+
+
+def _data_cell_xml(row: int, column: int, value: object, meta: RenovationFieldMeta) -> str:
+    if meta.cell_type == "boolean":
+        return _text_cell_xml(row, column, "Да" if value else "Нет")
+    if meta.cell_type == "date":
+        parsed = value if isinstance(value, date) else date.fromisoformat(str(value))
+        serial = (parsed - date(1899, 12, 30)).days
+        return _number_cell_xml(row, column, serial, style=2)
+    if meta.cell_type == "number":
+        return _number_cell_xml(row, column, value, style=3 if meta.decimals else 0)
+    return _text_cell_xml(row, column, str(value))
+
+
+def _text_cell_xml(row: int, column: int, value: str, *, style: int = 0) -> str:
+    ref = f"{get_column_letter(column)}{row}"
+    style_attr = f' s="{style}"' if style else ""
+    return f'<c r="{ref}" t="inlineStr"{style_attr}><is><t>{escape(value)}</t></is></c>'
+
+
+def _number_cell_xml(row: int, column: int, value: object, *, style: int = 0) -> str:
+    ref = f"{get_column_letter(column)}{row}"
+    style_attr = f' s="{style}"' if style else ""
+    return f'<c r="{ref}"{style_attr}><v>{value}</v></c>'
 
 
 def _write_header(worksheet: Worksheet) -> None:
     """Render the merged 11-row header (levels 0..10) on rows 1..11."""
-    for level, cells in header_rows():
+    rows = header_rows()
+    matrix: list[list[Cell | None]] = [[None for _ in range(len(field_metas()) + 1)] for _ in rows]
+    for level, cells in rows:
         for cell in cells:
             start_column, start_row, end_column, end_row = _shifted_range(cell.excel_range)
             if start_row != end_row or start_column != end_column:
-                worksheet.merge_cells(
-                    start_row=start_row,
-                    start_column=start_column,
-                    end_row=end_row,
-                    end_column=end_column,
+                worksheet.merged_cells.add(
+                    f"{get_column_letter(start_column)}{start_row}:{get_column_letter(end_column)}{end_row}"
                 )
             for row in range(start_row, end_row + 1):
                 for column in range(start_column, end_column + 1):
-                    styled = worksheet.cell(row=row, column=column)
+                    styled = WriteOnlyCell(worksheet)
                     styled.font = _HEADER_FONT
                     styled.alignment = _HEADER_ALIGNMENT
                     styled.border = _THIN_BORDER
-            worksheet.cell(row=start_row, column=start_column).value = cell.text
+                    matrix[row - 1][column - 1] = styled
+            top_left = matrix[start_row - 1][start_column - 1]
+            if top_left is not None:
+                top_left.value = cell.text
         worksheet.row_dimensions[level + 1].height = 30.0
-    worksheet.merge_cells("A1:A11")
-    for row in range(1, len(header_rows()) + 1):
-        number_header = worksheet.cell(row=row, column=1)
+    worksheet.merged_cells.add("A1:A11")
+    for row in range(len(rows)):
+        number_header = WriteOnlyCell(worksheet)
         number_header.font = _HEADER_FONT
         number_header.alignment = _HEADER_ALIGNMENT
         number_header.border = _THIN_BORDER
-    worksheet["A1"] = "№"
+        matrix[row][0] = number_header
+    number_top = matrix[0][0]
+    if number_top is not None:
+        number_top.value = "№"
+    for row in matrix:
+        worksheet.append(row)
 
 
 def _shifted_range(excel_range: str) -> tuple[int, int, int, int]:
     """Return (start_column, start_row, end_column, end_row) shifted to row 1."""
     min_column, min_row, max_column, max_row = range_boundaries(excel_range)
     return min_column, min_row - HEADER_ROW_SHIFT, max_column, max_row - HEADER_ROW_SHIFT
-
-
-def _write_field_cell(
-    worksheet: Worksheet,
-    excel_row: int,
-    column: int,
-    value: object,
-    meta: RenovationFieldMeta,
-) -> None:
-    """Write one form-field value with its type's number/date format and borders."""
-    cell = worksheet.cell(row=excel_row, column=column)
-    cell.border = _THIN_BORDER
-    cell.alignment = _DATA_ALIGNMENT
-    if value is None:
-        return
-    if meta.cell_type == "boolean":
-        cell.value = "Да" if value else "Нет"
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        return
-    if meta.cell_type == "date":
-        cell.value = value
-        cell.number_format = DATE_FORMAT
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-        return
-    if meta.cell_type == "number":
-        cell.value = float(value) if isinstance(value, int | float) else value
-        cell.number_format = f"0.{'0' * meta.decimals}" if meta.decimals else NUMBER_FORMAT_DEFAULT
-        return
-    cell.value = str(value)
 
 
 def _column_width(cell_type: str) -> float:
@@ -142,6 +260,20 @@ def _column_width(cell_type: str) -> float:
     if cell_type == "reference":
         return 22.0
     return 34.0
+
+
+_CONTENT_TYPES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>"""
+_ROOT_RELS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"""
+_WORKBOOK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Ремонт" sheetId="1" r:id="rId1"/></sheets></workbook>"""
+_WORKBOOK_RELS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"""
+_STYLES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="DD.MM.YYYY"/><numFmt numFmtId="165" formatCode="0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="2"><border/><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>"""
+_SHEET_XML_PREFIX = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="11" topLeftCell="C12" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>"""
 
 
 # ─── Dictionary exports (assets, catalog options, users) ────────────────

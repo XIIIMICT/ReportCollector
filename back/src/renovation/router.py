@@ -2,10 +2,12 @@
 
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Annotated
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlmodel import col, select
@@ -25,12 +27,12 @@ from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, Undo
 from src.collab.store import get_collab_store
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.database import get_session
-from src.downloads import attachment_response
+from src.downloads import XLSX_MEDIA_TYPE, attachment_response
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.export import (
     ExportValidationError,
-    render_renovation_workbook,
     render_workbook,
+    stream_renovation_workbook,
     validate_export_request,
 )
 from src.renovation.models import RAsset, RProjectRole
@@ -63,6 +65,7 @@ from src.renovation.service import (
     NoRenovationAccessError,
     RenovationDictionaryError,
     RenovationPermissionError,
+    RenovationPlanExportData,
     RenovationPlanNotFoundError,
     RenovationPlanStateError,
     add_plan_row,
@@ -76,6 +79,7 @@ from src.renovation.service import (
     read_meta,
     read_plan,
     read_plan_diff,
+    read_plan_export_data,
     read_plan_rows,
     read_plan_versions,
     read_renovation_asset_rows,
@@ -322,7 +326,7 @@ async def export_renovation_plan(
 ) -> Response:
     """Excel export of a plan version (default — the working plan)."""
     try:
-        plan = await read_plan(session, access.assets, plan_id=plan_id, state=RPlanState.WORKING)
+        plan = await read_plan_export_data(session, access.assets, plan_id=plan_id, state=RPlanState.WORKING)
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     return await _plan_export_response(plan)
@@ -336,20 +340,27 @@ async def post_export_renovation_plan(
 ) -> Response:
     """Excel export of a plan version: all rows or only the visible ones."""
     try:
-        plan = await read_plan(session, access.assets, plan_id=payload.planId, state=RPlanState.WORKING)
+        plan = await read_plan_export_data(
+            session,
+            access.assets,
+            plan_id=payload.planId,
+            state=RPlanState.WORKING,
+            row_ids=payload.rowIds,
+        )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    if payload.rowIds is not None:
-        by_id = {row.id: row for row in plan.rows}
-        plan.rows = [by_id[row_id] for row_id in payload.rowIds if row_id in by_id]
     return await _plan_export_response(plan)
 
 
-async def _plan_export_response(plan: RenovationPlanRead) -> Response:
-    """Render a plan version off the event loop and wrap it into a download response."""
-    content = await run_in_threadpool(render_renovation_workbook, plan)
-    filename = f"remont_plan_v{plan.baselineGeneration}_{plan.updatedAt:%Y-%m-%d}.xlsx"
-    return attachment_response(content, filename=filename)
+async def _plan_export_response(plan: RenovationPlanExportData) -> StreamingResponse:
+    """Stream a plan workbook so nginx receives data before its read timeout."""
+    filename = f"remont_plan_v{plan.baseline_generation}_{plan.updated_at:%Y-%m-%d}.xlsx"
+    quoted = quote(filename)
+    return StreamingResponse(
+        stream_renovation_workbook(plan),
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"},
+    )
 
 
 @router.post("/plan/submit", response_model=RenovationPlanVersionRead)

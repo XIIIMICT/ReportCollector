@@ -104,6 +104,11 @@ class RenovationPlanRow(SQLModel, table=True):
     __table_args__ = (
         Index("uq_renovation_plan_rows_position", "plan_id", "position", unique=True),
         Index("ix_renovation_plan_rows_asset", "plan_id", "asset_id", "position"),
+        Index("ix_renovation_plan_rows_col_015", "col_015"),
+        Index("ix_renovation_plan_rows_col_017", "col_017"),
+        Index("ix_renovation_plan_rows_col_018", "col_018"),
+        Index("ix_renovation_plan_rows_col_019", "col_019"),
+        Index("ix_renovation_plan_rows_col_020", "col_020"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)

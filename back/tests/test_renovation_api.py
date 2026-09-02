@@ -453,14 +453,14 @@ async def test_approver_reads_but_cannot_edit(client: AsyncClient, db_session: A
     assert denied.status_code == 403
 
 
-async def test_patch_rejected_when_no_working_plan(
+async def test_admin_can_refine_pending_plan(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
     await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
     row = await _row_by_asset_code(db_session, "bsk", working=False)
     status, _ = await _patch(client, [{"rowId": str(row.id), "field": "col_028", "value": 15}])
-    assert status == 404
+    assert status == 200
 
 
 async def test_read_archived_plan_by_id(client: AsyncClient) -> None:
