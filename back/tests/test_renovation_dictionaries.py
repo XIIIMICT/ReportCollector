@@ -449,6 +449,9 @@ async def test_dictionary_export_assets(client: AsyncClient) -> None:
 
 
 async def test_dictionary_export_users_with_asset_dropdown(client: AsyncClient) -> None:
+    # A realistic user-grid export: the role/block enums and the last-login
+    # datetime columns were rejected earlier («скрытый или недоступный столбец»)
+    # because the backend allow-list missed them.
     response = await client.post(
         "/api/renovation/dictionary/export",
         headers=ADMIN_HEADERS,
@@ -458,18 +461,26 @@ async def test_dictionary_export_users_with_asset_dropdown(client: AsyncClient) 
             "fileName": "пользователи.xlsx",
             "columns": [
                 {"key": "email", "headerPath": ["Email"], "width": 20},
+                {"key": "fullname", "headerPath": ["ФИО"], "width": 28},
+                {"key": "role", "headerPath": ["Роль"], "width": 20},
+                {"key": "block", "headerPath": ["Блок"], "width": 18},
                 {"key": "assetNames", "headerPath": ["Активы"], "width": 20},
+                {"key": "isActive", "headerPath": ["Доступ к проекту"], "width": 14},
+                {"key": "lastAuthenticatedAt", "headerPath": ["Время последнего входа"], "width": 22},
             ],
             "rowIds": None,
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     workbook = load_workbook(BytesIO(response.content), read_only=True)
     assert "Пользователи" in workbook.sheetnames
     assert "Списки" in workbook.sheetnames
     sheet = workbook["Пользователи"]
     assert sheet.cell(row=1, column=1).value == "Email"
-    assert sheet.cell(row=1, column=2).value == "Активы"
+    assert sheet.cell(row=1, column=3).value == "Роль"
+    # One data row carries a non-empty role.
+    roles = {sheet.cell(row=index, column=3).value for index in range(2, sheet.max_row + 1)}
+    assert any(roles)
 
 
 async def test_dictionary_export_catalog(client: AsyncClient) -> None:

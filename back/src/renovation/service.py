@@ -316,10 +316,17 @@ async def read_plan(
 
 @dataclass(slots=True)
 class RenovationPlanExportData:
-    """Plan metadata and ORM rows prepared for the streaming XLSX writer."""
+    """
+    Plan metadata and ORM rows prepared for the streaming XLSX writer.
+
+    state selects the export file-name suffix; stamp is the timestamp shown in the
+    file name — plan.updated_at (submit/approve moment) for a pending/archived
+    version, the latest row edit (max row.updated_at) for the working one.
+    """
 
     baseline_generation: int
-    updated_at: datetime
+    state: RPlanState
+    stamp: datetime
     rows: list[tuple[int, str, str, dict[str, object]]]
     reference_labels: dict[UUID, str]
 
@@ -395,10 +402,38 @@ async def read_plan_export_data(
             values["col_003"] = _sparse_row_renovation_id(values, repair_code, label_map)
     return RenovationPlanExportData(
         baseline_generation=plan.baseline_generation,
-        updated_at=plan.updated_at,
+        state=plan.state,
+        stamp=await _plan_export_stamp(session, plan, assets),
         rows=db_rows,
         reference_labels=label_map,
     )
+
+
+async def _plan_export_stamp(
+    session: AsyncSession,
+    plan: RenovationPlan,
+    assets: list[RAsset],
+) -> datetime:
+    """
+    Timestamp for the exported plan file name.
+
+    A working plan carries no frozen archive timestamp, so its name should read
+    the moment of the table's last edit: the max row.updated_at within the
+    caller's asset scope (falling back to the plan stamp when a row was never
+    touched). Pending/archived plans were frozen when submitted/approved, so
+    their own updated_at is that moment.
+    """
+    if plan.state != RPlanState.WORKING:
+        return plan.updated_at
+    latest = (
+        await session.exec(
+            sa_select(func.max(col(RenovationPlanRow.updated_at))).where(
+                col(RenovationPlanRow.plan_id) == plan.id,
+                col(RenovationPlanRow.asset_id).in_([asset.id for asset in assets]),
+            )
+        )
+    ).one_or_none()
+    return latest[0] if latest else plan.updated_at
 
 
 def _sparse_row_renovation_id(

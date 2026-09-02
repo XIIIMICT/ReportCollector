@@ -297,7 +297,18 @@ SECTION_SHEET_NAMES: dict[str, str] = {
 ALLOWED_KEYS: dict[str, frozenset[str]] = {
     "renovationAssets": frozenset({"repairCode", "name", "createdAt", "updatedAt", "updatedBy"}),
     "renovationUsers": frozenset(
-        {"email", "fullname", "isAdmin", "assetNames", "isActive", "createdAt", "updatedAt", "updatedBy"}
+        {
+            "email",
+            "fullname",
+            "role",
+            "block",
+            "assetNames",
+            "isActive",
+            "lastAuthenticatedAt",
+            "createdAt",
+            "updatedAt",
+            "updatedBy",
+        }
     ),
 }
 

@@ -5,6 +5,7 @@ from io import BytesIO
 from uuid import UUID
 
 from conftest import signed_identity_headers
+from httpx import AsyncClient
 from openpyxl import load_workbook
 from sqlmodel import col, select
 
@@ -301,6 +302,34 @@ async def test_export_service_columns(client) -> None:
     assert sheet.cell(row=1, column=4).value == "Автор последней редакции"
     assert isinstance(sheet.cell(row=2, column=2).value, datetime)
     assert sheet.cell(row=2, column=2).number_format == "DD.MM.YYYY HH:MM:SS"
+
+
+async def test_export_users_accepts_last_authenticated(client: AsyncClient) -> None:
+    """The «Пользователи» dictionary export passes on-screen columns.
+
+    The grid shows the «Время последнего входа» column (lastAuthenticatedAt),
+    which used to be rejected as a hidden column — exports of the users table
+    were impossible.
+    """
+    response = await client.post(
+        "/api/raw-materials/export",
+        json={
+            "section": "users",
+            "columns": [
+                {"key": "email", "headerPath": ["Email"], "width": 22},
+                {"key": "fullname", "headerPath": ["ФИО"], "width": 28},
+                {"key": "isAdmin", "headerPath": ["Админ"], "width": 8},
+                {"key": "assetNames", "headerPath": ["Активы"], "width": 20},
+                {"key": "isActive", "headerPath": ["Доступ к проекту"], "width": 14},
+                {"key": "lastAuthenticatedAt", "headerPath": ["Время последнего входа"], "width": 22},
+            ],
+            "fileName": "пользователи.xlsx",
+        },
+        headers=signed_identity_headers(**admin_headers()),
+    )
+    assert response.status_code == 200, response.text
+    workbook = load_workbook(BytesIO(response.content), read_only=True)
+    assert workbook.sheetnames[0] == "Пользователи"
 
 
 async def test_export_validation_errors(client) -> None:

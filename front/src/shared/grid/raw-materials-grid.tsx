@@ -459,6 +459,27 @@ function RawMaterialsGridInner(
                 for (let index = 0; index < visible.length; index++) {
                     if (selectedRowIds.has(visible[index].id)) rowIndexes.push(index);
                 }
+                const coveredIndexes = rowIndexes.length
+                    ? rowIndexes
+                    : selectionRange
+                      ? Array.from(
+                            {
+                                length:
+                                    Math.min(selectionRange.y1, visible.length - 1) -
+                                    selectionRange.y +
+                                    1,
+                            },
+                            (_, offset) => selectionRange.y + offset,
+                        ).filter((index) => index >= 0 && index < visible.length)
+                      : [];
+                // A focus on the trailing «добавить запись» placeholder row is not
+                // a real selection: it carries no persistence keys and never blocks
+                // others, so it must not appear in the footer status or in presence.
+                const anyDataRow = coveredIndexes.some((index) => !visible[index]?.isPlaceholder);
+                if (coveredIndexes.length > 0 && !anyDataRow) {
+                    onSelectionChange?.({ label: null, cellKeys: [] });
+                    return;
+                }
                 const label = rowIndexes.length
                     ? rowIndexes[0] === rowIndexes[rowIndexes.length - 1]
                         ? `строка ${rowIndexes[0] + 1}`

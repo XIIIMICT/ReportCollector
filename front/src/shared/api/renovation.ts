@@ -237,10 +237,23 @@ export async function exportRenovationPlan(
         throw new ReportCollectorApiError(detail, response.status);
     }
     const disposition = response.headers.get("Content-Disposition") ?? "";
-    const match = /filename="?([^";]+)"?/.exec(disposition);
+    // Prefer the RFC 5987 UTF-8 form — the plan name is Cyrillic and the bare
+    // `filename` carries only a percent-encoded copy the browser would save raw.
+    const star = /filename\*\s*=UTF-8''([^;]+)/i.exec(disposition);
+    const plain = /filename="?([^";]+)"?/.exec(disposition);
+    let fileName = "";
+    if (star?.[1]) {
+        try {
+            fileName = decodeURIComponent(star[1]);
+        } catch {
+            fileName = star[1];
+        }
+    } else if (plain?.[1]) {
+        fileName = plain[1];
+    }
     return {
         blob: await response.blob(),
-        fileName: match?.[1] ?? `remont_plan_v${params.planId ?? "working"}.xlsx`,
+        fileName: fileName || "Пообъектовый план — рабочая версия.xlsx",
     };
 }
 

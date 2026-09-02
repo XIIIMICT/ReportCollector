@@ -77,7 +77,17 @@ ALLOWED_KEYS: dict[SectionId, frozenset[str]] = {
     "assets": frozenset({"name", "createdAt", "updatedAt", "updatedBy"}),
     "deliveryBases": frozenset({"name", "createdAt", "updatedAt", "updatedBy"}),
     "users": frozenset(
-        {"email", "fullname", "isAdmin", "assetNames", "isActive", "createdAt", "updatedAt", "updatedBy"}
+        {
+            "email",
+            "fullname",
+            "isAdmin",
+            "assetNames",
+            "isActive",
+            "lastAuthenticatedAt",
+            "createdAt",
+            "updatedAt",
+            "updatedBy",
+        }
     ),
 }
 

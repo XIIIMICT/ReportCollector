@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from io import BytesIO
+from urllib.parse import unquote
 from uuid import uuid4
 
 from conftest import signed_identity_headers
@@ -25,6 +27,15 @@ RENOVATION_SCOPE = "renovationPlan/"
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _disposition_filename(disposition: str) -> str:
+    """Decode the RFC 5987 UTF-8 file name a browser would save."""
+    match = re.search(r"filename\*\s*=UTF-8''([^;]+)", disposition)
+    if match:
+        return unquote(match.group(1))
+    plain = re.search(r'filename="?([^";]+)"?', disposition)
+    return unquote(plain.group(1)) if plain else ""
 
 
 async def _row_by_asset_code(
@@ -634,7 +645,10 @@ async def test_export_working_plan_renders_merged_header(client: AsyncClient) ->
     assert response.status_code == 200
     assert "spreadsheetml" in response.headers["content-type"]
     assert response.content[:2] == b"PK"
-    assert "remont_plan" in response.headers["content-disposition"]
+    disposition = response.headers["content-disposition"]
+    filename = _disposition_filename(disposition)
+    assert filename.startswith("Пообъектовый план — рабочая версия (")
+    assert filename.endswith(".xlsx")
 
     worksheet = load_workbook(BytesIO(response.content)).active
     assert worksheet["A1"].value == "№"
@@ -659,6 +673,48 @@ async def test_export_archived_plan_by_id(client: AsyncClient) -> None:
     )
     assert response.status_code == 200
     assert response.content[:2] == b"PK"
+    assert _disposition_filename(response.headers["content-disposition"]).startswith(
+        "Пообъектовый план — утверждённая версия ("
+    )
+
+
+async def test_export_pending_plan_filename_suffix(client: AsyncClient) -> None:
+    """A pending version exports under the «на согласовании» suffix."""
+    pending_id = (await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)).json()["id"]
+    response = await client.get(
+        "/api/renovation/plan/export",
+        headers=ADMIN_HEADERS,
+        params={"plan_id": pending_id},
+    )
+    assert response.status_code == 200
+    assert _disposition_filename(response.headers["content-disposition"]).startswith(
+        "Пообъектовый план — версия на согласовании ("
+    )
+
+
+async def test_export_working_filename_stamps_last_edit(client: AsyncClient, db_session: AsyncSession) -> None:
+    """The working-plan export stamps the latest table edit (max row.updated_at).
+
+    Aging the plan version stamp backwards must not age the export name — it
+    keeps reading the most recent row edit (< 5s), not the plan.updated_at.
+    """
+    plan = (
+        await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))
+    ).first()
+    assert plan is not None
+    plan.updated_at = datetime(2020, 1, 1, 0, 0, tzinfo=UTC)
+    db_session.add(plan)
+    await db_session.commit()
+
+    response = await client.get("/api/renovation/plan/export", headers=ADMIN_HEADERS)
+    filename = _disposition_filename(response.headers["content-disposition"])
+    assert filename.startswith("Пообъектовый план — рабочая версия (")
+    match = re.search(r"\((\d{2}\.\d{2}\.\d{4}, \d{2}\.\d{2}\.\d{2})\)\.xlsx", filename)
+    assert match is not None
+    stamp = match.group(1)
+    # The seed rows were edited just now, so the stamp year is current — not 2020.
+    assert f"{datetime.now(UTC):%Y}," in stamp
+    assert "2020," not in stamp
 
 
 async def test_export_visible_rows_only(client: AsyncClient) -> None:

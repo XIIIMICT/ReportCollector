@@ -354,13 +354,31 @@ async def post_export_renovation_plan(
 
 async def _plan_export_response(plan: RenovationPlanExportData) -> StreamingResponse:
     """Stream a plan workbook so nginx receives data before its read timeout."""
-    filename = f"remont_plan_v{plan.baseline_generation}_{plan.updated_at:%Y-%m-%d}.xlsx"
+    filename = _plan_export_filename(plan)
     quoted = quote(filename)
     return StreamingResponse(
         stream_renovation_workbook(plan),
         media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"},
     )
+
+
+def _plan_export_filename(plan: RenovationPlanExportData) -> str:
+    """
+    «Наименование — <версия> (дд.мм.гггг, чч:мм:сс).xlsx», как остальные формы.
+
+    The timestamp is the export stamp resolved by the service: the submit/approve
+    moment for a pending/archived version and the max row.updated_at (last edit)
+    for the working one.
+    """
+    suffix = {
+        RPlanState.WORKING: "рабочая версия",
+        RPlanState.PENDING_APPROVAL: "версия на согласовании",
+        RPlanState.ARCHIVED: "утверждённая версия",
+    }.get(plan.state, "версия")
+    stamp = plan.stamp.astimezone()
+    timestamp = stamp.strftime("%d.%m.%Y, %H.%M.%S")
+    return f"Пообъектовый план — {suffix} ({timestamp}).xlsx"
 
 
 @router.post("/plan/submit", response_model=RenovationPlanVersionRead)
