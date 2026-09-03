@@ -625,6 +625,22 @@ async def test_add_row_for_single_asset_worker_autofills_asset(client: AsyncClie
     assert own.json()["assetId"] == str(vos.id)
 
 
+async def test_assign_asset_to_draft_row(client: AsyncClient, db_session: AsyncSession) -> None:
+    """An asset-less draft can be pointed at an asset by an admin."""
+    asset = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()
+    draft = (await client.post("/api/renovation/plan/rows", headers=ADMIN_HEADERS)).json()
+    assert draft["assetId"] is None
+
+    assigned = await client.patch(
+        f"/api/renovation/plan/rows/{draft['id']}",
+        headers=ADMIN_HEADERS,
+        json={"assetId": str(asset.id)},
+    )
+    assert assigned.status_code == 200
+    assert assigned.json()["assetCode"] == "vos"
+    assert assigned.json()["assetName"] == asset.name
+
+
 async def test_delete_row_removes_working_row(client: AsyncClient, db_session: AsyncSession) -> None:
     added = await client.post(
         "/api/renovation/plan/rows",

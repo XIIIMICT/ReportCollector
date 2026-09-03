@@ -114,6 +114,7 @@ _ERR_ADD_PERMISSION = RenovationPermissionError(
 )
 _ERR_DELETE_BASELINE_ROW = RenovationPlanStateError("Нельзя удалить строку утверждённой базовой линии.")
 _ERR_DELETE_APPROVER = RenovationPermissionError("Утверждающий не удаляет строки плана.")
+_ERR_ROW_HAS_ASSET = RenovationPlanStateError("У строки уже указан актив.")
 _ERR_DELETE_NOT_EMPTY = RenovationPlanStateError("Строку с заполненными данными удалить нельзя — очистите её сначала.")
 _ERR_DIFF_ARCHIVED_ONLY = RenovationPlanStateError("Сравнение доступно только для архивных версий.")
 
@@ -630,6 +631,55 @@ async def add_plan_row(
         updated_at=now,
         updated_by=updated_by,
     )
+    session.add(row)
+    await session.commit()
+    await session.refresh(row)
+    label_map = await _reference_labels(session)
+    return _plan_row_read(row, asset, label_map)
+
+
+async def assign_plan_row_asset(
+    session: AsyncSession,
+    *,
+    user: User,
+    roles: list[RProjectRole],
+    block: RBlock | None,
+    assets: list[RAsset],
+    row_id: UUID,
+    asset_id: UUID,
+) -> RenovationPlanRowRead:
+    """
+    Set the asset of an asset-less draft row.
+
+    Only a row that currently has no asset can be pointed at an asset (a row is
+    created once and its asset was fixed at creation for the legacy cases). The
+    caller must be able to add/edit the row: an admin, or a representative of
+    block Ташпаева; the target asset must be within the caller's asset scope. A
+    pending plan is only editable by an admin.
+    """
+    plan = await _plan_by_state(session, RPlanState.WORKING)
+    if plan is None:
+        plan = await _plan_by_state(session, RPlanState.PENDING_APPROVAL)
+    if plan is None:
+        raise _ERR_NO_WORKING_PLAN
+    is_admin = RProjectRole.ADMIN in roles
+    if plan.state == RPlanState.PENDING_APPROVAL and not is_admin:
+        raise _ERR_EDIT_PENDING
+    if RProjectRole.APPROVER in roles:
+        raise _ERR_ADD_PERMISSION
+    if not (is_admin or block == RBlock.TASHPAEV):
+        raise _ERR_ADD_PERMISSION
+    asset = next((candidate for candidate in assets if candidate.id == asset_id), None)
+    if asset is None:
+        raise _asset_access()
+    row = await session.get(RenovationPlanRow, row_id)
+    if row is None or row.plan_id != plan.id:
+        raise _CELL_PLAN_ROW_NOT_FOUND
+    if row.asset_id is not None:
+        raise _ERR_ROW_HAS_ASSET
+    row.asset_id = asset.id
+    row.updated_at = datetime.now(UTC)
+    row.updated_by = user.name or user.email or ""
     session.add(row)
     await session.commit()
     await session.refresh(row)

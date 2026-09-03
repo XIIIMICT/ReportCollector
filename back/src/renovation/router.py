@@ -53,6 +53,7 @@ from src.renovation.schemas import (
     RenovationPlanRowRead,
     RenovationPlanRowsRead,
     RenovationPlanVersionRead,
+    RenovationRowAssignRequest,
     RenovationUpdateRead,
     RenovationUpdateRequest,
     RenovationUserCreateRequest,
@@ -69,6 +70,7 @@ from src.renovation.service import (
     RenovationPlanStateError,
     add_plan_row,
     approve_plan,
+    assign_plan_row_asset,
     create_renovation_asset,
     create_renovation_catalog_option,
     create_renovation_user,
@@ -278,6 +280,34 @@ async def post_renovation_row(
         )
     except RenovationPermissionError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+    except RenovationPlanNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await _publish_rows_changed(access)
+    return row
+
+
+@router.patch("/plan/rows/{row_id}", response_model=RenovationPlanRowRead)
+async def patch_renovation_row_asset(
+    row_id: UUID,
+    request: RenovationRowAssignRequest,
+    session: SessionDependency,
+    access: AccessDependency,
+) -> RenovationPlanRowRead:
+    """Point an asset-less draft row at an asset (asset assignment)."""
+    try:
+        row = await assign_plan_row_asset(
+            session,
+            user=access.user,
+            roles=access.roles,
+            block=access.block,
+            assets=access.assets,
+            row_id=row_id,
+            asset_id=request.assetId,
+        )
+    except RenovationPermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+    except RenovationPlanStateError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     await _publish_rows_changed(access)

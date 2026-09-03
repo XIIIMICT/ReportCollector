@@ -166,6 +166,12 @@ class RenovationRowAddRequest(BaseModel):
     assetId: UUID
 
 
+class RenovationRowAssignRequest(BaseModel):
+    """Point an asset-less draft row at an asset."""
+
+    assetId: UUID
+
+
 class RenovationDiffCellRead(BaseModel):
     """A cell of an archived version that differs from the previous version."""
 
