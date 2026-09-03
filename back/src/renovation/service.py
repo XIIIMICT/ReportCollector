@@ -466,6 +466,7 @@ def _sparse_row_renovation_id(
             bpof_section=str(values.get("col_016") or "") or None,
             work_category=label_map.get(UUID(str(work_category_id))) if work_category_id else None,
             defect_number=f"{Decimal(str(defect)):.0f}" if defect is not None else None,
+            correction_text=str(values.get("col_218") or "") or None,
             technology_position=str(values.get("col_011") or "") or None,
             work_type_label=label_map.get(UUID(str(work_type_id))) if work_type_id else None,
         )
@@ -904,6 +905,7 @@ def _renovation_id_input(row: RenovationPlanRow, asset: RAsset, label_map: dict[
         bpof_section=row.col_016,
         work_category=label_map.get(row.col_017) if row.col_017 is not None else None,
         defect_number=f"{row.col_023:.0f}" if row.col_023 is not None else None,
+        correction_text=row.col_218,
         technology_position=row.col_011,
         work_type_label=label_map.get(row.col_018) if row.col_018 is not None else None,
     )

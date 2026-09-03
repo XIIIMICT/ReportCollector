@@ -23,6 +23,7 @@ IMPROVEMENT_CATEGORY_LABEL = "проект улучшения"
 IMPROVEMENT_CATEGORY_VALUE_ID = "work_category_007"
 
 PROJECT_CODE_FIELD = "код проекта"
+CORRECTION_FIELD = "корректировка (col_218)"
 TECHNOLOGY_POSITION_FIELD = "технологическая позиция (col_011)"
 WORK_TYPE_FIELD = "отображаемое значение вида работ (col_018)"
 
@@ -130,6 +131,9 @@ class RenovationIdInput:
     project_code: str | None = None
     # col_023, представленный текстом, чтобы ведущие нули не терялись.
     defect_number: str | None = None
+    # col_218: свободная строка, которой идентифицируется работа, когда номер
+    # дефектной ведомости (col_023) отсутствует.
+    correction_text: str | None = None
     # Необязательный двухзначный номер повторной типовой ДВ.
     typical_defect_suffix: str | None = None
     # col_011.
@@ -161,7 +165,8 @@ def calculate_renovation_id(input_: RenovationIdInput) -> RenovationIdResult:
     Уже присвоенный непустой идентификатор всегда побеждает, даже если
     остальные входы отсутствуют или невалидны. Для нового идентификатора
     приоритет кода объекта: проект улучшения, семизначная ДВ, затем
-    составное значение «технологическая позиция/вид работ/месяц».
+    «корректировка» (col_218); при отсутствии и ДВ, и корректировки объектная
+    часть оставляется пустой (`<NULL>`).
     Отсутствующий обязательный компонент подставляется как `<NULL>`.
     """
     if input_.existing_id and input_.existing_id.strip():
@@ -202,24 +207,14 @@ def calculate_renovation_id(input_: RenovationIdInput) -> RenovationIdResult:
     else:
         if typical_suffix is not None:
             raise _suffix_without_defect_number()
-        technology_position = _optional_trimmed(input_.technology_position)
-        work_type = _optional_trimmed(input_.work_type_label)
-        if technology_position is not None:
-            _validate_object_component(technology_position, TECHNOLOGY_POSITION_FIELD)
-        if work_type is not None:
-            _validate_object_component(work_type, WORK_TYPE_FIELD)
-        if technology_position is None:
-            missing.append("technology_position")
-        if work_type is None:
-            missing.append("work_type_label")
-        month = _russian_month_name(start_date.month) if start_date is not None else None
-        if month is None:
-            missing.append("start_date")
-        object_code = (
-            f"{technology_position if technology_position is not None else MISSING_COMPONENT}"
-            f"*{_abbreviate_work_type(work_type) if work_type is not None else MISSING_COMPONENT}"
-            f"*{month if month is not None else MISSING_COMPONENT}"
-        )
+        correction = _optional_trimmed(input_.correction_text)
+        if correction is not None:
+            _validate_object_component(correction, CORRECTION_FIELD)
+            object_code = correction
+        else:
+            # Без ДВ и без корректировки объект кода просто пуст — никакая
+            # сборка из техпозиции/вида/месяца на это место не подставляется.
+            object_code = MISSING_COMPONENT
         suffix = "00"
 
     value = (

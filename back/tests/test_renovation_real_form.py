@@ -102,13 +102,12 @@ def test_real_form_id_materializes_documented_sample(form: dict) -> None:
 
 
 def test_real_form_id_uses_null_placeholders_when_components_missing(form: dict) -> None:
+    # Без корректировки и без ДВ объектная часть кода остаётся пустой.
     result = calculate_renovation_id(RenovationIdInput(start_date="2027-01-01"))
-    assert result.value == "2027_<NULL>_<NULL>_<NULL>*<NULL>*Январь_00"
+    assert result.value == "2027_<NULL>_<NULL>_<NULL>_00"
     assert result.missing_components == (
         "asset_repair_code",
         "direction_code",
-        "technology_position",
-        "work_type_label",
     )
 
 

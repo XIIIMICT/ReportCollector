@@ -3,6 +3,7 @@
 import pytest
 
 from src.renovation.renovation_id import (
+    CORRECTION_FIELD,
     PROJECT_CODE_FIELD,
     RenovationIdError,
     RenovationIdInput,
@@ -45,9 +46,12 @@ def test_appends_a_two_digit_standard_statement_suffix() -> None:
     assert result.value == "2027_BSKR_1.1.1._1382467_02"
 
 
-def test_builds_the_documented_fallback_identifier_with_a_russian_month() -> None:
-    result = calculate_renovation_id(base_input(start_date="2027-02-15"))
-    assert result.value == "2027_BSKR_1.1.1._ID39TLA*ТР*Февраль_00"
+def test_without_defect_uses_correction_or_null_as_object_code() -> None:
+    # Без ДВ и корректировки объектная часть кода пуста (`<NULL>`); сборка из
+    # техпозиции/вида/месяца в этой ветке не выполняется.
+    result = calculate_renovation_id(base_input())
+    assert result.value == "2027_BSKR_1.1.1._<NULL>_00"
+    assert result.missing_components == ()
 
 
 def test_improvement_project_uses_project_code_before_defect_statement() -> None:
@@ -147,17 +151,19 @@ def test_rejects_a_standard_statement_suffix_without_a_defect_number() -> None:
         calculate_renovation_id(base_input(typical_defect_suffix="01"))
 
 
-def test_allows_reserved_separators_but_rejects_control_characters() -> None:
-    # `_` and `*` are legitimate in free-text object components (real data:
-    # «ЛабСтолВПУ_210») and only compose a whole string that is never parsed
-    # back — so they must not be rejected.
-    result = calculate_renovation_id(base_input(technology_position="ID_39"))
-    assert "*Январь_00" in result.value
-    assert "ID_39*" in result.value
+def test_allows_reserved_separators_in_correction_but_rejects_control_characters() -> None:
+    # `_` и `*` допустимы в свободной «корректировке» и никогда не парсятся назад.
+    result = calculate_renovation_id(base_input(correction_text="корр_И-1"))
+    assert "_корр_И-1_00" in result.value
 
-    result = calculate_renovation_id(base_input(work_type_label="ТР*КР"))
-    assert "ТР*КР*" in result.value
+    result = calculate_renovation_id(base_input(correction_text="ТР*К"))
+    assert "_ТР*К_00" in result.value
 
+    with pytest.raises(RenovationIdError) as error:
+        calculate_renovation_id(base_input(correction_text="стро\nка"))
+    assert f"{CORRECTION_FIELD} содержит управляющий символ или перевод строки" in str(error.value)
+
+    # проект улучшения продолжает проверяться собственным сообщением
     with pytest.raises(RenovationIdError) as error:
         calculate_renovation_id(base_input(bpof_section="Проекты улучшения", project_code="10.2\n44.7"))
     assert f"{PROJECT_CODE_FIELD} содержит управляющий символ или перевод строки" in str(error.value)
@@ -169,41 +175,38 @@ def test_rejects_empty_project_code_segments() -> None:
             calculate_renovation_id(base_input(work_category="Проект улучшения", project_code=project_code))
 
 
-def test_missing_fallback_components_render_as_null_placeholders() -> None:
+def test_missing_object_leaves_the_object_part_empty_instead_of_marking_extra_fields() -> None:
+    # Ни ДВ, ни корректировки — объектная часть просто пустая; несоставные
+    # поля (техпозиция/вид) в отсутствии при этом не подсвечиваются.
     result = calculate_renovation_id(
         RenovationIdInput(
             start_date="2027-01-01",
             asset_repair_code="BSKR",
             direction_code="1.1.1.",
-            technology_position="ID39TLA",
         )
     )
-    assert result.value == "2027_BSKR_1.1.1._ID39TLA*<NULL>*Январь_00"
-    assert result.missing_components == ("work_type_label",)
+    assert result.value == "2027_BSKR_1.1.1._<NULL>_00"
+    assert result.missing_components == ()
 
 
 def test_every_missing_required_component_is_listed_deterministically() -> None:
     result = calculate_renovation_id(RenovationIdInput())
-    assert result.value == "<NULL>_<NULL>_<NULL>_<NULL>*<NULL>*<NULL>_00"
+    assert result.value == "<NULL>_<NULL>_<NULL>_<NULL>_00"
     assert result.missing_components == (
         "start_date",
         "asset_repair_code",
         "direction_code",
-        "technology_position",
-        "work_type_label",
     )
 
 
-def test_missing_start_date_substitutes_null_for_year_and_month() -> None:
+def test_missing_start_date_substitutes_null_for_year() -> None:
     result = calculate_renovation_id(
         RenovationIdInput(
             asset_repair_code="BSKR",
             direction_code="1.1.1.",
-            technology_position="ID39TLA",
-            work_type_label="ТР",
         )
     )
-    assert result.value == "<NULL>_BSKR_1.1.1._ID39TLA*ТР*<NULL>_00"
+    assert result.value == "<NULL>_BSKR_1.1.1._<NULL>_00"
     assert result.missing_components == ("start_date",)
 
 
@@ -231,3 +234,31 @@ def test_empty_components_are_treated_as_missing() -> None:
         )
     )
     assert result.value == "2027_BSKR_1.1.1._1382467_00"
+
+
+def test_uses_correction_as_object_code_when_defect_is_absent() -> None:
+    result = calculate_renovation_id(base_input(correction_text="Кор-И101"))
+    assert result.value == "2027_BSKR_1.1.1._Кор-И101_00"
+    assert result.missing_components == ()
+
+
+def test_defect_statement_still_wins_over_correction() -> None:
+    result = calculate_renovation_id(base_input(defect_number="1382467", correction_text="Кор-И101"))
+    assert result.value == "2027_BSKR_1.1.1._1382467_00"
+
+
+def test_improvement_project_still_wins_over_correction() -> None:
+    result = calculate_renovation_id(
+        base_input(
+            work_category="Проект улучшения",
+            project_code="10.2.44.7",
+            correction_text="Произвольная правка",
+        )
+    )
+    assert result.value == "2027_BSKR_1.1.1._10.2.44.7_00"
+
+
+def test_whitespace_correction_is_treated_as_absent() -> None:
+    result = calculate_renovation_id(base_input(correction_text="   "))
+    assert result.value == "2027_BSKR_1.1.1._<NULL>_00"
+    assert result.missing_components == ()

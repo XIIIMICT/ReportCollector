@@ -135,7 +135,7 @@ Year_LegalEntityCode_DirectionCode_RepairObjectCode_AdditionalNumbering
 Examples:
 
 - `2027_BSKR_1.1.1._1382467_01`
-- `2027_BSKR_1.1.1._ID39TLA*ТР*Февраль_00`
+- `2027_BSKR_1.1.1._Кор-И101_00`
 - `2027_BSKR_1.1.1._10.2.44.7_00`
 
 Rules:
@@ -144,28 +144,13 @@ Rules:
 - Year comes from the work start date.
 - Legal entity code is an official four-letter code, not a guessed transliteration plus `R`.
 - Direction code has a form such as `1.1.1.` (including the trailing dot after normalization).
-- Repair object precedence is: improvement project code; otherwise a seven-digit defect statement number; otherwise technological position + abbreviated work type + Russian start month.
+- Repair-object precedence is: improvement project code; otherwise a seven-digit defect statement number; otherwise — when no defect statement is present — the free-text «корректировка» (col_218); if neither a defect statement nor a correction is given, the repair-object component is empty (`<NULL>`). The former «technological position + abbreviated work type + Russian month» composite is no longer generated.
 - Additional numbering defaults to `00`; an explicit suffix must be two digits.
 - A missing required component is rendered in the composite ID as the literal `<NULL>` in that component's place (e.g. `2027_BSKR_<NULL>_1382467_00`) — never a placeholder in the missing source cell itself. The composed field (col_003) always carries a string; `missing_components` in the result keeps the list for data-quality follow-up.
 
 Official legal entity codes currently captured in the legacy configuration are `BSKR`, `BSZR`, `KSZR`, `TIAF`, `SNHZ`, `KUCH`, `VOZR`, `MFKR`, `MDRU`, `SXRU`, `DGOK`, `MINU`, `ASHK`, `HIMR`, `NHDR`, `SNAB`, and `NHRS`.
 
-Known work-type abbreviations include:
-
-| Work type | Code |
-|---|---|
-| Cleaning | `ЧИСТ` |
-| Testing | `ИСП` |
-| Verification | `ПОВ` |
-| Calibration | `КЛБ` |
-| Measurements | `ИЗМ` |
-| Corrective work | `КОРР` |
-| Actual-condition work | `ФТС` |
-| Auxiliary work | `ВР` |
-| Repair personnel equipment | `ОРП` |
-| Expert examination | `ЭПБ` |
-| Diagnostic surveys | `ДО` |
-| Inspections | `ИНСП` |
+Known work-type abbreviations and the «technology position + work type + month» object-code rule above are **legacy**: the port used them only for the former no-defect composite, which is no longer generated (see Rules). They are kept only in `renovation_id.py` as dormant helpers for reference.
 
 Port the rule as a pure, heavily tested Python domain function. The legacy behavior and edge-case tests are in [`renovation_id.rs`](../../ReportCollector-Renovation/src-tauri/src/renovation_id.rs).
 
@@ -176,6 +161,15 @@ The real XLSB contains textual `Функциональное направлен�
 The last nine aggregate rows also lack both a defect statement number and a technological position, so the repair-object component needs a separate service/object-code rule. Future improvement-project rows require an authoritative project-code source. Repeated defect statements require an explicit source for the two-digit additional number; otherwise `00` remains the default.
 
 Do not hide these gaps by guessing. Keep the missing component as the literal `<NULL>` inside the composed ID until an approved mapping or rule exists (RESOLVED 2026-08-19: `<NULL>` in the composite field, not `NULL`, not `<УГАДАЙТЕ>`), and keep incomplete IDs queryable for data-quality follow-up.
+
+### Update 2026-09-03: correction column and object-code rule
+
+`renovation-form.json` gained a nullable free-text field **`col_218` «Корректировка (при отсутствии дефектной ведомости)»**, inserted immediately after `col_023` (№ дефектной ведомости); migration **0015** adds `renovation_plan_rows.col_218` (nullable `TEXT`). Behaviour:
+
+- A defect-statement number (`col_023`) still takes precedence — a correction entered alongside it does not change the code.
+- Only when **no** defect statement is present does the correction, if given, become the repair-object component verbatim; with neither a defect statement nor a correction the repair-object component is empty (`<NULL>`).
+- The former «technological position + abbreviated work type + Russian month» composite is **no longer generated**; the work-type abbreviation helpers remain only as dormant legacy reference.
+- `col_218` is seeded as `NULL` (nullable), so no data migration is required beyond the additive column.
 
 ## Grid and UX behavior worth retaining
 
