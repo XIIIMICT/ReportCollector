@@ -53,7 +53,6 @@ from src.renovation.schemas import (
     RenovationPlanRowRead,
     RenovationPlanRowsRead,
     RenovationPlanVersionRead,
-    RenovationRowAddRequest,
     RenovationUpdateRead,
     RenovationUpdateRequest,
     RenovationUserCreateRequest,
@@ -265,17 +264,17 @@ async def patch_renovation_plan(
 
 @router.post("/plan/rows", response_model=RenovationPlanRowRead)
 async def post_renovation_row(
-    request: RenovationRowAddRequest,
     session: SessionDependency,
     access: AccessDependency,
 ) -> RenovationPlanRowRead:
-    """Append a new working-plan row (any project user; the asset is required)."""
+    """Append an empty plan row (instant; asset pre-filled for single-asset workers)."""
     try:
         row = await add_plan_row(
             session,
             user=access.user,
+            roles=access.roles,
+            block=access.block,
             assets=access.assets,
-            asset_id=request.assetId,
         )
     except RenovationPermissionError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error

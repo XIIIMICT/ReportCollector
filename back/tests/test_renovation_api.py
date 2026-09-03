@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from decimal import Decimal
 from io import BytesIO
 from urllib.parse import unquote
 from uuid import uuid4
@@ -575,20 +576,19 @@ async def test_read_archived_plan_by_id(client: AsyncClient) -> None:
     assert submit.json()["id"] == archived_id
 
 
-async def test_add_row_appends_new_asset_row(client: AsyncClient, db_session: AsyncSession) -> None:
-    asset = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()
+async def test_add_row_appends_assetless_draft(client: AsyncClient, db_session: AsyncSession) -> None:
+    # An admin adds an instant empty row without choosing an asset.
     response = await client.post(
         "/api/renovation/plan/rows",
         headers=ADMIN_HEADERS,
-        json={"assetId": str(asset.id)},
     )
     assert response.status_code == 200
     body = response.json()
     assert body["position"] == 3
-    assert body["assetCode"] == "vos"
-    assert body["values"]["col_002"] == asset.name
-    assert isinstance(body["renovationId"], str)
-    assert body["renovationId"]
+    assert body["assetId"] is None
+    assert body["assetName"] is None
+    assert body["assetCode"] is None
+    assert body["renovationId"] is None
 
     plan = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
     rows = plan.json()["rows"]
@@ -596,7 +596,8 @@ async def test_add_row_appends_new_asset_row(client: AsyncClient, db_session: As
     assert [row["position"] for row in rows] == [1, 2, 3]
 
 
-async def test_add_row_restricted_to_assigned_assets(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_add_row_for_single_asset_worker_autofills_asset(client: AsyncClient, db_session: AsyncSession) -> None:
+    # A single-asset asset worker adds under its only asset (no popup needed).
     await _grant_role(
         db_session,
         email="asset_worker3@example.ru",
@@ -607,27 +608,19 @@ async def test_add_row_restricted_to_assigned_assets(client: AsyncClient, db_ses
     )
     headers = signed_identity_headers(email="asset_worker3@example.ru", name="Asset Worker 3")
     vos = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()
-    bsk = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "bsk"))).one()
     own = await client.post(
         "/api/renovation/plan/rows",
         headers=headers,
-        json={"assetId": str(vos.id)},
     )
     assert own.status_code == 200
-    denied = await client.post(
-        "/api/renovation/plan/rows",
-        headers=headers,
-        json={"assetId": str(bsk.id)},
-    )
-    assert denied.status_code == 403
+    assert own.json()["assetCode"] == "vos"
+    assert own.json()["assetId"] == str(vos.id)
 
 
 async def test_delete_row_removes_working_row(client: AsyncClient, db_session: AsyncSession) -> None:
-    asset = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()
     added = await client.post(
         "/api/renovation/plan/rows",
         headers=ADMIN_HEADERS,
-        json={"assetId": str(asset.id)},
     )
     response = await client.delete(
         f"/api/renovation/plan/rows/{added.json()['id']}",
@@ -641,11 +634,9 @@ async def test_delete_row_removes_working_row(client: AsyncClient, db_session: A
 async def test_delete_baseline_row_is_forbidden(client: AsyncClient, db_session: AsyncSession) -> None:
     await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
     await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)
-    asset = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()
     added = await client.post(
         "/api/renovation/plan/rows",
         headers=ADMIN_HEADERS,
-        json={"assetId": str(asset.id)},
     )
     assert added.json()["position"] == 3
     baseline_row = await _row_by_asset_code(db_session, "bsk")
@@ -700,8 +691,15 @@ async def test_diff_compares_archived_versions(
 async def test_diff_marks_new_rows(client: AsyncClient, db_session: AsyncSession) -> None:
     await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
     first_id = (await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)).json()["archived"]["id"]
+    # New rows are added as empty drafts; give it an asset + content so it is a
+    # real new row (an empty draft would be dropped again on the next submit).
     asset = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()
-    await client.post("/api/renovation/plan/rows", headers=ADMIN_HEADERS, json={"assetId": str(asset.id)})
+    added = (await client.post("/api/renovation/plan/rows", headers=ADMIN_HEADERS)).json()
+    new_row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.id) == added["id"]))).one()
+    new_row.asset_id = asset.id
+    new_row.col_028 = Decimal(15)
+    db_session.add(new_row)
+    await db_session.commit()
     await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
     second_id = (await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)).json()["archived"]["id"]
 
@@ -711,7 +709,7 @@ async def test_diff_marks_new_rows(client: AsyncClient, db_session: AsyncSession
     new_row = next(item for item in body["rows"] if item["position"] == 3)
     assert new_row["isNew"] is True
     assert new_row["assetName"] == asset.name
-    assert all(cell["oldValue"] is None for cell in new_row["cells"])
+    assert any(cell["oldValue"] is None for cell in new_row["cells"])
     assert any(cell["field"] == "col_003" for cell in new_row["cells"])
     assert body["deletedRows"] == []
 

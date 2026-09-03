@@ -109,6 +109,9 @@ _ERR_SUBMIT_PERMISSION = RenovationPermissionError(
 )
 _ERR_APPROVE_PERMISSION = RenovationPermissionError("Утвердить план может утверждающий.")
 _ERR_EDIT_PENDING = RenovationPermissionError("Версию на согласовании редактировать может только администратор.")
+_ERR_ADD_PERMISSION = RenovationPermissionError(
+    "Добавлять строки может администратор или работник/владелец блока Ташпаева."
+)
 _ERR_DELETE_BASELINE_ROW = RenovationPlanStateError("Нельзя удалить строку утверждённой базовой линии.")
 _ERR_DELETE_APPROVER = RenovationPermissionError("Утверждающий не удаляет строки плана.")
 _ERR_DELETE_NOT_EMPTY = RenovationPlanStateError("Строку с заполненными данными удалить нельзя — очистите её сначала.")
@@ -582,16 +585,34 @@ async def add_plan_row(
     session: AsyncSession,
     *,
     user: User,
+    roles: list[RProjectRole],
+    block: RBlock | None,
     assets: list[RAsset],
-    asset_id: UUID,
 ) -> RenovationPlanRowRead:
-    """Append a new row to the working plan (any project user; the asset is required)."""
+    """
+    Append a new (empty) row to the current plan.
+
+    The target is the working plan when it exists, otherwise the pending
+    («на согласовании») one. Adding is an edit: a pending version can only be
+    appended to by an admin; for the working plan admins and the representatives
+    of block Ташпаева (its block owner and its asset workers) may add. The row
+    is inserted empty; its asset is pre-filled only for an asset worker with
+    exactly one asset. Everyone else adds an asset-less draft (removed on submit
+    if never assigned a row/asset).
+    """
     plan = await _plan_by_state(session, RPlanState.WORKING)
     if plan is None:
+        plan = await _plan_by_state(session, RPlanState.PENDING_APPROVAL)
+    if plan is None:
         raise _ERR_NO_WORKING_PLAN
-    asset = next((candidate for candidate in assets if candidate.id == asset_id), None)
-    if asset is None:
-        raise _asset_access()
+    is_admin = RProjectRole.ADMIN in roles
+    if plan.state == RPlanState.PENDING_APPROVAL and not is_admin:
+        raise _ERR_EDIT_PENDING
+    if RProjectRole.APPROVER in roles:
+        raise _ERR_ADD_PERMISSION
+    if not (is_admin or block == RBlock.TASHPAEV):
+        raise _ERR_ADD_PERMISSION
+    asset: RAsset | None = assets[0] if RProjectRole.ASSET_WORKER in roles and len(assets) == 1 else None
     max_position = (
         await session.exec(
             select(func.max(col(RenovationPlanRow.position))).where(col(RenovationPlanRow.plan_id) == plan.id)
@@ -601,7 +622,7 @@ async def add_plan_row(
     updated_by = user.name or user.email or ""
     row = RenovationPlanRow(
         plan_id=plan.id,
-        asset_id=asset.id,
+        asset_id=asset.id if asset is not None else None,
         position=int(max_position) + 1 if max_position is not None else 1,
         baseline_generation=plan.baseline_generation,
         revision=0,
@@ -628,9 +649,10 @@ async def delete_plan_row(
 
     Delete is allowed for anyone who can reach the row (administrators, block
     owners, asset workers on their own assets) — but NOT the approver — and only
-    while the row holds no data: just the mandatory asset plus the technical
+    while the row holds no data: just its asset plus the technical
     (created/updated) columns. A row with any filled editable field can only be
-    cleared and then deleted.
+    cleared and then deleted. A version under review is only deletable by an
+    admin; an asset-less draft is also only deletable by an admin.
     """
     plan = await _plan_by_state(session, RPlanState.WORKING)
     if plan is None:
@@ -639,10 +661,16 @@ async def delete_plan_row(
         raise _ERR_NO_WORKING_PLAN
     if RProjectRole.APPROVER in roles:
         raise _ERR_DELETE_APPROVER
+    is_admin = RProjectRole.ADMIN in roles
+    if plan.state == RPlanState.PENDING_APPROVAL and not is_admin:
+        raise _ERR_EDIT_PENDING
     row = await session.get(RenovationPlanRow, row_id)
     if row is None or row.plan_id != plan.id:
         raise _CELL_PLAN_ROW_NOT_FOUND
-    if row.asset_id not in [asset.id for asset in assets]:
+    if row.asset_id is None:
+        if not is_admin:
+            raise _asset_access()
+    elif row.asset_id not in [asset.id for asset in assets]:
         raise _asset_access()
     boundary = await _baseline_boundary(session)
     if boundary is not None and row.position <= boundary:
