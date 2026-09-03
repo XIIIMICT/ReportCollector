@@ -108,6 +108,7 @@ _ERR_SUBMIT_PERMISSION = RenovationPermissionError(
     "Отправить план на согласование может администратор или владелец блока."
 )
 _ERR_APPROVE_PERMISSION = RenovationPermissionError("Утвердить план может утверждающий.")
+_ERR_EDIT_PENDING = RenovationPermissionError("Версию на согласовании редактировать может только администратор.")
 _ERR_DELETE_BASELINE_ROW = RenovationPlanStateError("Нельзя удалить строку утверждённой базовой линии.")
 _ERR_DELETE_APPROVER = RenovationPermissionError("Утверждающий не удаляет строки плана.")
 _ERR_DELETE_NOT_EMPTY = RenovationPlanStateError("Строку с заполненными данными удалить нельзя — очистите её сначала.")
@@ -853,6 +854,9 @@ async def update_plan_cells(
     assets_by_id = {asset.id: asset for asset in assets}
     is_admin = RProjectRole.ADMIN in roles
     is_approver = RProjectRole.APPROVER in roles
+    # A version under review is frozen for everyone except the admins.
+    if plan.state == RPlanState.PENDING_APPROVAL and not is_admin:
+        raise _ERR_EDIT_PENDING
     label_map = await _reference_labels(session)
     rows: dict[UUID, RenovationPlanRow] = {}
 

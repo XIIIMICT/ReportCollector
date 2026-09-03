@@ -505,6 +505,35 @@ async def test_admin_can_refine_pending_plan(
     assert status == 200
 
 
+async def test_only_admin_edits_pending_plan(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """A version under review is editable only by an admin."""
+    await _grant_role(
+        db_session,
+        email="asset_worker_pend@example.ru",
+        name="Asset Worker Pend",
+        role=RProjectRole.ASSET_WORKER,
+        block=RBlock.TASHPAEV,
+        asset_codes=["bsk"],
+    )
+    worker_headers = signed_identity_headers(
+        email="asset_worker_pend@example.ru",
+        name="Asset Worker Pend",
+    )
+    await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
+    row = await _row_by_asset_code(db_session, "bsk", working=False)
+
+    denied = await client.patch(
+        "/api/renovation/plan",
+        headers=worker_headers,
+        params={"session_id": TEST_SESSION_ID},
+        json={"updates": [{"rowId": str(row.id), "field": "col_028", "value": 1}]},
+    )
+    assert denied.status_code == 403
+
+
 async def test_read_archived_plan_by_id(client: AsyncClient) -> None:
     submit = await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
     approve = await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)
