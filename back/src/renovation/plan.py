@@ -353,3 +353,6 @@ class RenovationPlanRow(SQLModel, table=True):
     col_215: bool | None = Field(default=None, sa_column=Column(Boolean(), nullable=True))
     col_216: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
     col_217: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    # «Корректировка (при отсутствии дефектной ведомости)» — free-text input
+    # accepted when no defect-введомости number (col_023) is present.
+    col_218: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))

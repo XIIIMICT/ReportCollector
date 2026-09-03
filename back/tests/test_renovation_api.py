@@ -105,7 +105,7 @@ async def test_meta_lists_form_fields_and_catalogs(client: AsyncClient) -> None:
     response = await client.get("/api/renovation/meta", headers=ADMIN_HEADERS)
     assert response.status_code == 200
     body = response.json()
-    assert len(body["fields"]) == 216
+    assert len(body["fields"]) == 217
     assert len(body["catalogs"]) == 5
     assert {asset["code"] for asset in body["assets"]} >= {"bsk", "vos"}
     col_003 = next(field for field in body["fields"] if field["dbName"] == "col_003")
@@ -118,7 +118,7 @@ async def test_meta_lists_form_fields_and_catalogs(client: AsyncClient) -> None:
     assert labels["work_category"] == "Категория работ"
     assert len(body["headerRows"]) == 11
     assert {row["level"] for row in body["headerRows"]} == set(range(11))
-    assert len(body["headerCells"]) == 346
+    assert len(body["headerCells"]) == 347
     header_cell = body["headerCells"][0]
     assert {"id", "text", "startPosition", "colSpan", "rowSpan", "level", "excelRange"} <= set(header_cell)
 
@@ -761,13 +761,13 @@ async def test_export_working_plan_renders_merged_header(client: AsyncClient) ->
     worksheet = load_workbook(BytesIO(response.content)).active
     assert worksheet["A1"].value == "№"
     assert any(str(r) == "A1:A11" for r in worksheet.merged_cells.ranges)
-    assert any(str(r) == "D1:AE1" for r in worksheet.merged_cells.ranges)
+    assert any(str(r) == "D1:AF1" for r in worksheet.merged_cells.ranges)
     assert worksheet["B2"].value == "Предприятие"
     assert worksheet.freeze_panes == "C12"
     assert worksheet["A12"].value == 1
     assert worksheet["B12"].value == "АО «БСК»"
     assert worksheet["C12"].value == "2027_BSKR_1.1.1._1382467_00"
-    assert worksheet.max_column == 217
+    assert worksheet.max_column == 218
     assert worksheet.max_row == 13
 
 
