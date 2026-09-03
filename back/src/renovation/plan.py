@@ -113,7 +113,10 @@ class RenovationPlanRow(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     plan_id: UUID = Field(foreign_key="renovation_plans.id", ondelete="CASCADE")
-    asset_id: UUID = Field(foreign_key="r_assets.id", ondelete="RESTRICT")
+    # Nullable: rows may be added as empty drafts before their asset is chosen
+    # (see add_plan_row); asset-less rows carry no renovation id and are removed
+    # again on submit if still empty.
+    asset_id: UUID | None = Field(None, foreign_key="r_assets.id", ondelete="RESTRICT")
     position: int = Field(sa_column=Column(BigInteger, nullable=False))
     baseline_generation: int = Field(default=0, sa_column=Column(Integer, nullable=False, server_default="0"))
     revision: int = Field(default=0, sa_column=Column(Integer, nullable=False, server_default="0"))

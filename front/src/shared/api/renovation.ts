@@ -82,10 +82,10 @@ export type RenovationPlanVersion = {
 
 export type RenovationPlanRow = {
     id: string;
-    assetId: string;
-    assetCode: string;
-    assetName: string;
-    assetRepairCode: string;
+    assetId: string | null;
+    assetCode: string | null;
+    assetName: string | null;
+    assetRepairCode: string | null;
     position: number;
     revision: number;
     updatedAt: string;

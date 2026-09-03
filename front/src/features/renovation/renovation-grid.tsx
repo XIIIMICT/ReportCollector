@@ -100,7 +100,7 @@ export type RenovationGridRow = {
     /** Canonical row id (UUID). */
     __id: string;
     __position: number;
-    __assetId: string;
+    __assetId: string | null;
     __assetName: string;
     __renovationId: string | null;
     /** Diff state: "deleted" rows are ghosts from the previous archived plan. */
@@ -604,7 +604,8 @@ function RenovationGridInner(
             if (field.isCalculated || field.isReadOnly) return false;
             if (!editableFieldKeys.has(field.dbName)) return false;
             if (row.__rowState === "deleted") return false;
-            if (userAssetIds && !userAssetIds.has(row.__assetId)) return false;
+            if (userAssetIds && (row.__assetId == null || !userAssetIds.has(row.__assetId)))
+                return false;
             return !remoteLocks.has(canonicalRenovationKey(row.__id, field.dbName));
         },
         [editableFieldKeys, readOnly, remoteLocks, userAssetIds],
@@ -1235,7 +1236,7 @@ function RenovationGridInner(
             if (field.isReadOnly) return "поле доступно только для чтения";
             if (!editableFieldKeys.has(field.dbName)) return "поле недоступно для редактирования";
             if (row.__rowState === "deleted") return "строка удалена";
-            if (userAssetIds && !userAssetIds.has(row.__assetId))
+            if (userAssetIds && (row.__assetId == null || !userAssetIds.has(row.__assetId)))
                 return "нет доступа к строке этого актива";
             return null;
         },

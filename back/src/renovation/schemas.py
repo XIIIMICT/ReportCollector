@@ -119,10 +119,10 @@ class RenovationPlanRowRead(BaseModel):
     """A plan row: flat typed values plus the computed renovation ID."""
 
     id: UUID
-    assetId: UUID
-    assetCode: str
-    assetName: str
-    assetRepairCode: str
+    assetId: UUID | None = None
+    assetCode: str | None = None
+    assetName: str | None = None
+    assetRepairCode: str | None = None
     position: int
     revision: int
     updatedAt: datetime

@@ -143,6 +143,32 @@ async def test_read_plan_returns_rows_with_labels_and_ids(
     assert by_asset["vos"]["renovationId"] == "2027_VOZR_1.1.1._2247000_00"
 
 
+async def test_read_empty_assetless_draft_row(client: AsyncClient, db_session: AsyncSession) -> None:
+    """An asset-less draft row is readable by an admin as an empty row."""
+    plan = (await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()
+    row = RenovationPlanRow(
+        plan_id=plan.id,
+        asset_id=None,
+        position=100,
+        baseline_generation=plan.baseline_generation,
+        revision=0,
+        created_at=_now(),
+        updated_at=_now(),
+        updated_by="test",
+    )
+    db_session.add(row)
+    await db_session.commit()
+
+    full = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
+    assert full.status_code == 200
+    draft = next(r for r in full.json()["rows"] if r["position"] == 100)
+    assert draft["assetId"] is None
+    assert draft["assetName"] is None
+    assert draft["assetCode"] is None
+    assert draft["values"]["col_002"] == ""
+    assert draft["renovationId"] is None
+
+
 async def test_read_plan_rows_windows_with_total(client: AsyncClient) -> None:
     response = await client.get(
         "/api/renovation/plan/rows",

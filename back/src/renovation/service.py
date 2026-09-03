@@ -305,7 +305,7 @@ async def read_plan(
     rows = (
         await session.exec(
             select(RenovationPlanRow, RAsset)
-            .join(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
+            .outerjoin(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
             .where(col(RenovationPlanRow.plan_id) == plan.id)
             .order_by(col(RenovationPlanRow.position))
         )
@@ -317,7 +317,7 @@ async def read_plan(
         baselineGeneration=plan.baseline_generation,
         updatedAt=plan.updated_at,
         updatedBy=plan.updated_by,
-        rows=[_plan_row_read(row, asset, label_map) for row, asset in rows if asset.id in asset_ids],
+        rows=[_plan_row_read(row, asset, label_map) for row, asset in rows if asset is None or asset.id in asset_ids],
         baselineBoundary=baseline_boundary,
     )
 
@@ -496,18 +496,17 @@ async def read_plan_rows(
         asset_ids = [asset.id for asset in assets if asset.name == asset_name]
     label_map = await _reference_labels(session)
 
+    # Show the caller's asset rows plus the not-yet-assigned empty drafts.
+    row_condition = col(RenovationPlanRow.plan_id) == plan.id
+    if asset_name is not None:
+        row_condition = row_condition & col(RenovationPlanRow.asset_id).in_(asset_ids)
+    else:
+        row_condition = row_condition & (
+            col(RenovationPlanRow.asset_id).in_(asset_ids) | col(RenovationPlanRow.asset_id).is_(None)
+        )
     # The asset filter must be applied in SQL so offset/limit count only the
     # rows the caller may see — not the full plan.
-    total = (
-        await session.exec(
-            select(func.count())
-            .select_from(RenovationPlanRow)
-            .where(
-                col(RenovationPlanRow.plan_id) == plan.id,
-                col(RenovationPlanRow.asset_id).in_(asset_ids),
-            )
-        )
-    ).one()
+    total = (await session.exec(select(func.count()).select_from(RenovationPlanRow).where(row_condition))).one()
     # The unfiltered total (for the «всего» counter) — the whole plan, ignoring
     # the asset filter.
     total_all: int | None = None
@@ -520,11 +519,8 @@ async def read_plan_rows(
     rows = (
         await session.exec(
             select(RenovationPlanRow, RAsset)
-            .join(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
-            .where(
-                col(RenovationPlanRow.plan_id) == plan.id,
-                col(RenovationPlanRow.asset_id).in_(asset_ids),
-            )
+            .outerjoin(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
+            .where(row_condition)
             .order_by(col(RenovationPlanRow.position))
             .offset(offset)
             .limit(limit)
@@ -764,11 +760,16 @@ async def _baseline_boundary(session: AsyncSession) -> int | None:
     return int(max_position) if max_position is not None else None
 
 
-def _plan_row_read(row: RenovationPlanRow, asset: RAsset, label_map: dict[UUID, str]) -> RenovationPlanRowRead:
+def _plan_row_read(
+    row: RenovationPlanRow,
+    asset: RAsset | None,
+    label_map: dict[UUID, str],
+) -> RenovationPlanRowRead:
     values: dict[str, str | float | bool | date | None] = {}
     for meta in field_metas():
         if meta.db_name in _VIRTUAL_FIELDS:
-            values[meta.db_name] = asset.name
+            # The synthetic «Предприятие» column is blank until an asset is chosen.
+            values[meta.db_name] = asset.name if asset is not None else ""
             continue
         value = getattr(row, meta.db_name)
         if value is None:
@@ -786,10 +787,10 @@ def _plan_row_read(row: RenovationPlanRow, asset: RAsset, label_map: dict[UUID, 
     renovation_id, missing = _row_renovation_id(row, asset, label_map)
     return RenovationPlanRowRead(
         id=row.id,
-        assetId=asset.id,
-        assetCode=asset.code,
-        assetName=asset.name,
-        assetRepairCode=asset.repair_code,
+        assetId=asset.id if asset is not None else None,
+        assetCode=asset.code if asset is not None else None,
+        assetName=asset.name if asset is not None else None,
+        assetRepairCode=asset.repair_code if asset is not None else None,
         position=row.position,
         revision=row.revision,
         updatedAt=row.updated_at,
@@ -802,12 +803,15 @@ def _plan_row_read(row: RenovationPlanRow, asset: RAsset, label_map: dict[UUID, 
 
 def _row_renovation_id(
     row: RenovationPlanRow,
-    asset: RAsset,
+    asset: RAsset | None,
     label_map: dict[UUID, str],
 ) -> tuple[str | None, tuple[str, ...]]:
     """Return the stored renovation ID; if empty — recompute it for UI highlighting."""
     if row.col_003:
         return row.col_003, ()
+    if asset is None:
+        # An empty (asset-less) draft cannot form a renovation id.
+        return None, ()
     result = calculate_renovation_id(_renovation_id_input(row, asset, label_map))
     return result.value, result.missing_components
 
