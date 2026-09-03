@@ -623,6 +623,46 @@ async def activate_project_user(session: AsyncSession, user_id: UUID, project_ke
     await session.commit()
 
 
+async def set_project_role_active(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    project_id: UUID,
+    active: bool,
+) -> None:
+    """
+    Align a user's project access with the desired state without committing.
+
+    Unlike activate_project_user this covers the negative side too (deactivating
+    an existing but empty project link) and leaves transaction ownership to the
+    caller, so it can be called inside a larger edit. A missing link (a project
+    the user was never routed through) is created with the asset_worker role and
+    the requested active state — otherwise the user would have a renovation
+    membership nowhere visible to cross-project provisioning.
+    """
+    existing = (
+        await session.exec(
+            select(UserRole).where(
+                UserRole.user_id == user_id,
+                UserRole.project_id == project_id,
+            )
+        )
+    ).one_or_none()
+    if existing is None:
+        session.add(
+            UserRole(
+                user_id=user_id,
+                project_id=project_id,
+                role=ProjectRole.ASSET_WORKER,
+                is_active=active,
+            )
+        )
+        return
+    if existing.is_active != active:
+        existing.is_active = active
+        session.add(existing)
+
+
 async def grant_project_assets(
     session: AsyncSession,
     user_id: UUID,

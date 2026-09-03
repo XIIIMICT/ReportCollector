@@ -123,16 +123,22 @@ function placeholderPayload(
     const fullname = placeholderText(draft.fullname);
     const role = placeholderText(draft.role);
     const block = placeholderText(draft.block);
-    const central = role === "admin" || role === "approver";
     const assetNames = Array.isArray(draft.assetNames) ? draft.assetNames : [];
+    // Only an asset worker gets an explicit asset grant; a block owner (whose
+    // representatives Ташпаев/Бородийчук/Бабаева) implicitly covers all assets,
+    // so it only needs its responsibility block, not assets.
+    const isWorker = role === "asset_worker";
+    const needsBlock = role === "block_owner" || role === "asset_worker";
+    const central = role === "admin" || role === "approver";
     if (!email || !fullname || !role) return null;
-    if (!central && (!block || assetNames.length === 0)) return null;
+    if (needsBlock && !block) return null;
+    if (isWorker && assetNames.length === 0) return null;
     return {
         email,
         fullname,
         role,
         block: central ? null : block,
-        assetNames: central ? [] : assetNames,
+        assetNames: isWorker ? assetNames : [],
     };
 }
 

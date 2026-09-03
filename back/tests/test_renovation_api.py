@@ -309,6 +309,37 @@ async def test_block_owner_edits_only_own_block(
     assert owner_id
 
 
+async def test_block_owner_sees_all_assets_without_grants(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """A block owner needs no per-asset grant: it implicitly covers all assets.
+
+    Regression: block owners (Ташпаев/Bородийчук/Бабаева) were grouped with
+    asset_workers in access resolution, so with no r_user_assets rows they saw
+    an empty plan and the admin was wrongly forced to grant them assets.
+    """
+    await _grant_role(
+        db_session,
+        email="block_owner_noassets@example.ru",
+        name="Block Owner (no assets)",
+        role=RProjectRole.BLOCK_OWNER,
+        block=RBlock.TASHPAEV,
+        asset_codes=[],
+    )
+    headers = signed_identity_headers(
+        email="block_owner_noassets@example.ru",
+        name="Block Owner (no assets)",
+    )
+    plan = await client.get("/api/renovation/plan/rows", headers=headers)
+    assert plan.status_code == 200
+    body = plan.json()
+    # The block owner sees every seeded asset's rows even without an asset grant.
+    assert body["total"] > 0
+    codes = {row["assetCode"] for row in body["rows"]}
+    assert {"bsk", "vos"} <= codes
+
+
 async def test_asset_worker_edits_only_own_asset(
     client: AsyncClient,
     db_session: AsyncSession,

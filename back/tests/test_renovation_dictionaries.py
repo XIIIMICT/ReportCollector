@@ -376,6 +376,30 @@ async def test_users_create_read_patch(
     assert "petrov@example.ru" in emails
 
 
+async def test_user_create_block_owner_requires_no_assets(client: AsyncClient) -> None:
+    """A block owner only needs its responsibility block, not asset grants.
+
+    Block owners (Ташпаев/Bородийчук/Бабаева) implicitly see all assets — the
+    UI must not force the admin to grant them assets.
+    """
+    response = await client.post(
+        "/api/renovation/dictionary/users",
+        headers=ADMIN_HEADERS,
+        json={
+            "email": "tashpaiev@example.ru",
+            "fullname": "Ташпаев",
+            "role": "block_owner",
+            "block": "tashpaev",
+            "assetNames": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert created["role"] == "block_owner"
+    assert created["block"] == "tashpaev"
+    assert created["assetNames"] == []
+
+
 async def test_user_create_block_required_for_worker(client: AsyncClient) -> None:
     response = await client.post(
         "/api/renovation/dictionary/users",

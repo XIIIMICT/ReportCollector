@@ -184,7 +184,7 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
         text("fullname", "ФИО", 250),
         optionSelect("role", "Роль", 200, [
             { value: "admin", label: "Администратор" },
-            { value: "approver", label: "Согласующий" },
+            { value: "approver", label: "Утверждающий" },
             { value: "block_owner", label: "Ответственный за блок" },
             { value: "asset_worker", label: "Работник по активу" },
         ]),

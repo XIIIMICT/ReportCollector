@@ -22,7 +22,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.emails import is_valid_email, normalize_email
 from src.auth.models import Project, User
-from src.auth.service import CurrentUserIdentity, get_user_by_identity, sync_project_memberships
+from src.auth.service import (
+    CurrentUserIdentity,
+    get_user_by_identity,
+    set_project_role_active,
+    sync_project_memberships,
+)
 from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE
 from src.collab.store import get_collab_store
@@ -148,10 +153,12 @@ async def resolve_renovation_access(
     """
     Return (user, roles, available assets, responsibility block).
 
-    Admin and approver see all assets; block_owner/asset_worker only the
-    assets assigned in r_user_assets. The block comes from the user's
-    r_user_roles link (empty for central roles). Raises
-    NoRenovationAccessError if the user has no active role in the project.
+    Admin, approver and block owners (Ташпаев/Bородийчук/Бабаева) always see
+    all assets (a block owner is responsible for a whole block, not a subset of
+    assets); only an asset worker is limited to the assets assigned in
+    r_user_assets. The block comes from the user's r_user_roles link (empty for
+    central roles). Raises NoRenovationAccessError if the user has no active
+    role in the project.
     """
     user = await get_user_by_identity(session, identity)
     if user is None or user.is_deleted:
@@ -174,7 +181,7 @@ async def resolve_renovation_access(
     roles = [link.role for link in links]
     block = links[0].block
 
-    if RProjectRole.ADMIN in roles or RProjectRole.APPROVER in roles:
+    if any(role in (RProjectRole.ADMIN, RProjectRole.APPROVER, RProjectRole.BLOCK_OWNER) for role in roles):
         assets = (await session.exec(select(RAsset).order_by(RAsset.name))).all()
     else:
         assets = (
@@ -1232,6 +1239,8 @@ async def _apply_renovation_user_cell(
         link.role = new_role
         if new_role in (RProjectRole.ADMIN, RProjectRole.APPROVER):
             link.block = None
+        if new_role != RProjectRole.ASSET_WORKER:
+            # Central roles and block owners implicitly see all assets — clear grants.
             await replace_renovation_user_assets(session, project_id, user_row.id, [])
     elif field == "block":
         if link is None:
@@ -1258,6 +1267,15 @@ async def _apply_renovation_user_cell(
         link.updated_at = now
         link.updated_by = updated_by
         session.add(link)
+        # Undo/redo of an activation must mirror onto the cross-project auth link
+        # (see update_renovation_user); otherwise a Ctrl+Z (undo) would hand the
+        # user access they don't have, or revoke access they keep in the UI.
+        await set_project_role_active(
+            session,
+            user_id=row_id,
+            project_id=project_id,
+            active=link.is_active,
+        )
 
 
 async def _renovation_project_id_required(session: AsyncSession) -> UUID:
@@ -1396,6 +1414,7 @@ _DICT_ASSET_CODE_EXISTS = RenovationDictionaryError("Актив с таким р
 _DICT_OPTION_LABEL_EMPTY = RenovationDictionaryError("Название значения не может быть пустым.")
 _DICT_USER_INVALID_EMAIL = RenovationDictionaryError("Некорректный email.")
 _DICT_BLOCK_REQUIRED = RenovationDictionaryError("Для этой роли укажите блок ответственности")
+_DICT_ASSET_REQUIRED = RenovationDictionaryError("Работнику по активу укажите хотя бы один актив.")
 _UNSET = object()
 """Sentinel: an optional parameter that was not provided by the caller."""
 _ERR_NO_RENOVATION_PROJECT = RenovationPlanNotFoundError("Проект «Ремонт» не найден.")
@@ -1800,11 +1819,15 @@ async def create_renovation_user(
     link (r_user_roles) is created with the chosen role, and the user is
     provisioned into all projects through sync_project_memberships (the
     same cross-project visibility as the «Сырьё» users dictionary).
-    Admin/approver roles implicitly see all assets — no links are stored.
+    Admin, approver and block owners implicitly see all assets — no per-asset
+    links are stored; only an asset worker carries an asset grant list.
     """
-    if role in (RProjectRole.BLOCK_OWNER, RProjectRole.ASSET_WORKER) and block is None:
+    needs_block = role in (RProjectRole.BLOCK_OWNER, RProjectRole.ASSET_WORKER)
+    implicit_all_assets = role in (RProjectRole.ADMIN, RProjectRole.APPROVER, RProjectRole.BLOCK_OWNER)
+    if needs_block and block is None:
         raise _DICT_BLOCK_REQUIRED
-    central = role in (RProjectRole.ADMIN, RProjectRole.APPROVER)
+    if role == RProjectRole.ASSET_WORKER and not asset_names:
+        raise _DICT_ASSET_REQUIRED
     email = normalize_email(email)
     if not is_valid_email(email):
         raise _DICT_USER_INVALID_EMAIL
@@ -1836,14 +1859,19 @@ async def create_renovation_user(
             user_id=user.id,
             project_id=project_id,
             role=role,
-            block=None if central else block,
+            block=None if not needs_block else block,
             is_active=True,
             created_at=now,
             updated_at=now,
             updated_by=updated_by,
         )
     )
-    await replace_renovation_user_assets(session, project_id, user.id, [] if central else asset_names)
+    await replace_renovation_user_assets(
+        session,
+        project_id,
+        user.id,
+        asset_names if not implicit_all_assets else [],
+    )
     await sync_project_memberships(session, user.id)
     await session.commit()
     return user
@@ -1894,23 +1922,39 @@ async def update_renovation_user(
         link.role = new_role
     if block_provided:
         link.block = new_block
-    new_central = new_role in (RProjectRole.ADMIN, RProjectRole.APPROVER)
-    if role_changed and new_central:
+    # Central admins/approvers drop their block; a block owner keeps theirs
+    # (block_owner is a block role too). Only an asset worker carries per-asset
+    # grants — admin/approver/block_owner implicitly see all assets, so stored
+    # r_user_assets links are cleared for them.
+    central_no_block = new_role in (RProjectRole.ADMIN, RProjectRole.APPROVER)
+    implicit_all_assets = new_role in (RProjectRole.ADMIN, RProjectRole.APPROVER, RProjectRole.BLOCK_OWNER)
+    if role_changed and central_no_block:
         link.block = None
-    if asset_names is not None or role_changed:
-        await replace_renovation_user_assets(
-            session,
-            project_id,
-            user.id,
-            asset_names if asset_names is not None else ([] if new_central else None),
-        )
-    new_asset_names = asset_names if asset_names is not None else ([] if role_changed else old_asset_names)
+    if implicit_all_assets:
+        await replace_renovation_user_assets(session, project_id, user.id, [])
+        role_asset_names: list[str] = []
+    else:
+        if role_changed and asset_names is None:
+            raise _DICT_ASSET_REQUIRED
+        if asset_names is not None:
+            await replace_renovation_user_assets(session, project_id, user.id, asset_names or None)
+        role_asset_names = asset_names if asset_names is not None else old_asset_names
+    new_asset_names = role_asset_names if role_changed else old_asset_names
     now = datetime.now(UTC)
     link.updated_at = now
     link.updated_by = updated_by
     user.updated_at = now
     session.add(user)
     session.add(link)
+    # Keep the cross-project auth link in step with the renovation membership,
+    # so the user can actually enter the project (the root redirect and /api/me
+    # are gated on the auth UserRole, not the r_user_roles dictionary row).
+    await set_project_role_active(
+        session,
+        user_id=user.id,
+        project_id=project_id,
+        active=link.is_active,
+    )
     await session.commit()
     applied: list[AppliedCell] = []
     if new_fullname != old_fullname:

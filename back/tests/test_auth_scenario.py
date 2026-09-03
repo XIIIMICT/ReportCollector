@@ -196,3 +196,67 @@ async def test_deleted_user_is_blocked(client, db_session) -> None:
 
     response = await client.get("/api/me", headers=signed_identity_headers(**AUTH_HEADERS))
     assert response.status_code == 403
+
+
+async def test_renovation_grant_makes_project_usable(client, db_session) -> None:
+    """Enabling a renovation dictionary user unlocks the renovation workspace.
+
+    The reported bug: a «Сырьё» member opened the renovation URL (inactive links
+    were created), the admin then granted them access in the renovation
+    «Пользователи» dictionary — but only the r_user_roles row changed. Access to
+    /api/me is gated on the cross-project auth UserRole link, which stayed
+    inactive, so the user kept only «Сырьё» and the root URL redirected there.
+    """
+    admin_headers = signed_identity_headers(
+        email="admin@example.ru",
+        preferred_username="admin",
+        subject="admin-sub",
+        email_verified="true",
+    )
+
+    # 1. The user is already an active «Сырьё» member.
+    await client.post(
+        "/api/me/projects/raw_materials/request-access",
+        headers=signed_identity_headers(**AUTH_HEADERS),
+    )
+    user = (await db_session.exec(select(User).where(col(User.email) == NEW_USER_EMAIL))).one()
+    await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
+    await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)
+
+    # 2. The same user opens the renovation URL -> renovation links are inactive.
+    open_resp = await client.post(
+        "/api/me/projects/renovation/request-access",
+        headers=signed_identity_headers(**AUTH_HEADERS),
+    )
+    assert open_resp.status_code == 200
+    assert open_resp.json()["hasAccess"] is False
+
+    before = (await client.get("/api/me", headers=signed_identity_headers(**AUTH_HEADERS))).json()
+    assert {project["key"] for project in before["access"]} == {RAW_MATERIALS_PROJECT_KEY}
+
+    # 3. The admin grants renovation access through the dictionary row.
+    patch = await client.patch(
+        f"/api/renovation/dictionary/users/{user.id}",
+        headers=admin_headers,
+        params={"session_id": "grant-test"},
+        json={"role": "asset_worker", "block": "tashpaev", "isActive": True},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["isActive"] is True
+
+    # 4. The user now has usable renovation access (and kept «Сырьё»).
+    after = (await client.get("/api/me", headers=signed_identity_headers(**AUTH_HEADERS))).json()
+    keys = {project["key"] for project in after["access"]}
+    assert RENOVATION_PROJECT_KEY in keys
+    assert RAW_MATERIALS_PROJECT_KEY in keys
+
+    # 5. Revoking it removes renovation from the usable access again.
+    revoke = await client.patch(
+        f"/api/renovation/dictionary/users/{user.id}",
+        headers=admin_headers,
+        params={"session_id": "revoke-test"},
+        json={"isActive": False},
+    )
+    assert revoke.status_code == 200
+    revoked = (await client.get("/api/me", headers=signed_identity_headers(**AUTH_HEADERS))).json()
+    assert {project["key"] for project in revoked["access"]} == {RAW_MATERIALS_PROJECT_KEY}
