@@ -561,6 +561,14 @@ async def test_only_admin_edits_pending_plan(
     assert denied.status_code == 403
 
 
+async def test_submit_drops_empty_draft_rows(client: AsyncClient, db_session: AsyncSession) -> None:
+    """Rows with no content (or only an asset) are removed when submitting."""
+    await client.post("/api/renovation/plan/rows", headers=ADMIN_HEADERS)
+    submitted = await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
+    assert submitted.status_code == 200
+    assert submitted.json()["rowCount"] == 2
+
+
 async def test_read_archived_plan_by_id(client: AsyncClient) -> None:
     submit = await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
     approve = await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)

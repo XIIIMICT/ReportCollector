@@ -1331,6 +1331,14 @@ async def submit_plan(session: AsyncSession, *, user: User, roles: list[RProject
     if plan is None:
         raise _ERR_NO_WORKING_PLAN
     now = datetime.now(UTC)
+    # Empty drafts (rows added «in the moment») that still hold no data — even if
+    # only their asset is picked — are dropped before the version is frozen.
+    draft_cols = editable_fields()
+    plans_rows = (await session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.plan_id) == plan.id))).all()
+    for row in plans_rows:
+        if any(getattr(row, field) not in (None, "") for field in draft_cols):
+            continue
+        await session.delete(row)
     plan.state = RPlanState.PENDING_APPROVAL
     plan.updated_at = now
     plan.updated_by = user.name or user.email or ""
