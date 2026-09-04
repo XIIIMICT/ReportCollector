@@ -153,6 +153,10 @@ export async function getMovementMeta(reportMonth: string): Promise<MovementMeta
     );
 }
 
+export async function getMovementVersions(): Promise<MovementSnapshot[]> {
+    return requestJson("/api/raw-materials/movement/versions");
+}
+
 export async function fixMovement(reportMonth: string): Promise<MovementSnapshot> {
     return requestWrite("/api/raw-materials/movement/fix", "POST", { reportMonth });
 }

@@ -124,6 +124,17 @@ async def read_meta(session: AsyncSession, assets: list[RawMaterialAsset]) -> Ra
     )
 
 
+async def read_movement_versions(session: AsyncSession) -> list[ReportSnapshot]:
+    """
+    All movement snapshots across every report month (final/preliminary).
+
+    Feeds the global «Версия…» picker shown on the first movement tab: one item
+    per month that was ever fixed — closed months render as final, an open month
+    currently preview-fixed renders as its preliminary snapshot. Newest month on top.
+    """
+    return list((await session.exec(select(ReportSnapshot).order_by(col(ReportSnapshot.report_month).desc()))).all())
+
+
 async def read_movement_rows(
     session: AsyncSession,
     report_month: date,

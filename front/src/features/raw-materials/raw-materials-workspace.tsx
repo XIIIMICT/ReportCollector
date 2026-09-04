@@ -37,6 +37,7 @@ import {
     getDeliveryBasisList,
     getMovementMeta,
     getMovementSnapshot,
+    getMovementVersions,
     getRawMaterialsList,
     getRawMaterialsMeta,
     getRawMaterialsMovement,
@@ -370,11 +371,7 @@ function SectionContent({
     }, [reportMonth, section]);
 
     const [reloadKey, setReloadKey] = useState(0);
-    const {
-        data: rows,
-        error,
-        loading: rowsLoading,
-    } = useAsyncData<
+    const { data: rows, error } = useAsyncData<
         MovementRow[] | PriceRow[] | RawMaterialRow[] | AssetRow[] | DeliveryBasisRow[] | UserRow[]
     >(loader, [loader, reloadKey]);
 
@@ -391,6 +388,12 @@ function SectionContent({
     const { data: movementMeta } = useAsyncData<MovementMeta | null>(
         () => (isMovement ? getMovementMeta(reportMonth as string) : Promise.resolve(null)),
         [isMovement, reportMonth, reloadKey],
+    );
+    // All report-month snapshots (final & preliminary across months) for the
+    // global «Версия…» picker — independent of which open month is focused.
+    const { data: movementVersions } = useAsyncData<MovementSnapshot[] | null>(
+        () => (isMovement ? getMovementVersions().catch(() => null) : Promise.resolve(null)),
+        [isMovement, reloadKey],
     );
 
     // Pinned (sticky) header is the default view; the grid uses its own
@@ -983,7 +986,7 @@ function SectionContent({
 
     useEffect(() => {
         onArchiveState({
-            items: isMovement ? (movementMeta?.snapshots ?? []).map(formatSnapshotItem) : [],
+            items: isMovement ? (movementVersions ?? []).map(formatSnapshotItem) : [],
             selectedKey: isMovement ? selectedSnapshotId : null,
             onSelect: (snapshotId) => {
                 if (snapshotId === null) {
@@ -997,7 +1000,7 @@ function SectionContent({
         formatSnapshotItem,
         isMovement,
         loadSnapshotView,
-        movementMeta,
+        movementVersions,
         onArchiveState,
         selectWorkingVersion,
         selectedSnapshotId,
@@ -1013,7 +1016,11 @@ function SectionContent({
         );
     }
 
-    if (rows === null || rowsLoading) {
+    // Initial load only — the skeleton replaces the grid until the first rows
+    // arrive. A later background refresh (e.g. after a cell PATCH) keeps the
+    // grid mounted: unmounting it here would reset the scroll to the top on
+    // every edit.
+    if (rows === null) {
         return (
             <div className="grid-viewport" aria-busy>
                 <div className="grid-empty">
@@ -1455,13 +1462,15 @@ export function RawMaterialsWorkspace({
     const assets = toAssetOptions(meta.assets);
     const deliveryBases = toReferenceOptions(meta.deliveryBases);
 
-    // «Рабочая версия» / version picker — moved into the toolbar (raw and
-    // renovation show it for «Движение» / plan when an archive exists). It
-    // stays mounted across tab switches so its collapse/expand can animate
-    // (width + opacity transition); `--hidden` drops it from the tab order
-    // when the current section has no versions to pick from.
+    // «Рабочая версия» / version picker — shown only on the very FIRST tab
+    // (the earliest movement period). It lists «Рабочая версия» on top and the
+    // report-month snapshots beneath (final & preliminary months alike), like
+    // the renovation picker.
+    const isFirstTab = tabs.length > 0 && selectedTab?.id === tabs[0].id;
     const showVersionPicker =
-        selectedTab.section === "materialMovement" && archiveState.items.length > 0;
+        selectedTab?.section === "materialMovement" &&
+        isFirstTab &&
+        (archiveState.items.length > 0 || archiveState.selectedKey !== null);
     const versionPicker = (
         <div
             className={

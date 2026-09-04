@@ -81,6 +81,7 @@ from src.raw_materials.service import (
     read_delivery_basis_rows,
     read_meta,
     read_movement_rows,
+    read_movement_versions,
     read_price_rows,
     read_raw_material_rows,
     read_snapshot_export_rows,
@@ -204,6 +205,28 @@ async def get_movement_meta(
             for snapshot in snapshots
         ],
     )
+
+
+@router.get("/movement/versions", response_model=list[MovementSnapshotRead])
+async def get_movement_versions(
+    session: SessionDependency,
+    _assets: AccessDependency,
+) -> list[MovementSnapshotRead]:
+    """
+    All report-month snapshots (final/preliminary), newest report month first.
+
+    Feeds the archive «Версия…» picker on the first movement tab.
+    """
+    return [
+        MovementSnapshotRead(
+            id=snapshot.id,
+            reportMonth=snapshot.report_month,
+            fixedAt=snapshot.fixed_at,
+            fixedByFullname=snapshot.fixed_by_fullname,
+            isFinal=snapshot.is_final,
+        )
+        for snapshot in await read_movement_versions(session)
+    ]
 
 
 @router.post("/movement/fix", response_model=MovementSnapshotRead)
