@@ -103,11 +103,13 @@ async def test_fix_rejects_non_first_month(client: AsyncClient) -> None:
     assert "первый" in body["detail"]
 
 
-async def test_fix_rejects_incomplete_month(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_fix_allows_incomplete_month(client: AsyncClient, db_session: AsyncSession) -> None:
+    """A (past) month can be fixed even when not every cell is filled."""
     status, body = await _fix(client, date(2026, 8, 1))
-    assert status == 409
-    assert "незаполненных строк" in body["detail"]
-    assert "3 из 4" in body["detail"]
+    assert status == 200
+    assert body["isFinal"] is True
+    snapshots = (await db_session.exec(select(ReportSnapshot))).all()
+    assert len(snapshots) == 1
 
 
 async def test_fix_creates_snapshot(
@@ -287,14 +289,15 @@ async def test_snapshot_view_not_found(client: AsyncClient) -> None:
     assert response.status_code == 404
 
 
-async def test_movement_meta_reports_incomplete_before_fix(client: AsyncClient) -> None:
+async def test_movement_meta_before_fix(client: AsyncClient) -> None:
+    """Before fixing, `isComplete` (rows present) is true but nothing is final."""
     meta = await client.get(
         "/api/raw-materials/movement/meta",
         headers=ADMIN_HEADERS,
         params={"report_month": "2026-08-01"},
     )
     body = meta.json()
-    assert body["isComplete"] is False
+    assert body["isComplete"] is True
     assert body["isFinal"] is False
     assert body["snapshots"] == []
 

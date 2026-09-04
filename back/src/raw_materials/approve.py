@@ -2,8 +2,9 @@
 Fixing the «Движение» form for a report month.
 
 Behavior mirrors ReportCollector-RawMaterials (fix_report_for_instance):
-- only the first open month can be fixed, only when all rows are filled
-  and cells aren't being edited by other users;
+- only the first open month can be fixed, and cells must not be being edited
+  by other users; there is no longer a requirement that every cell be filled
+  — a month may be fixed as-is;
 - the preliminary version is overwritten, the final one is immutable;
 - a final fix closes the period and opens the next month;
 - a final fix clears the undo/redo history and cell states of the fixed
@@ -12,7 +13,6 @@ Behavior mirrors ReportCollector-RawMaterials (fix_report_for_instance):
 
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
-from uuid import UUID
 
 from sqlmodel import col, select
 
@@ -46,7 +46,7 @@ COMPLETENESS_FIELDS = (
     "balance_in_transit_tons",
     "balance_end_tons",
 )
-"""«Движение» fields required for fixing (without deviation_reason and storage_standard_tons, which live in prices)."""
+"""«Движение» fields once required for fixing (now no longer mandatory)."""
 
 
 class ApprovalError(Exception):
@@ -60,21 +60,6 @@ ERR_NOT_FIRST_MONTH = "Зафиксировать можно только пер
 ERR_NO_ROWS = "Нет строк движения за отчётный месяц."
 ERR_LEASED = "Фиксация временно недоступна: другой пользователь сейчас редактирует ячейку ({name})."
 ERR_NEXT_MONTH = "Не удалось открыть следующий отчётный месяц: нет открытых периодов."
-
-
-def _movement_row_complete(row: MaterialMovement, price: RawMaterialPrice | None) -> bool:
-    if price is None or price.business_plan_quantity_tons is None:
-        return False
-    if price.storage_standard_tons is None:
-        return False
-    if not (row.deviation_reason or "").strip():
-        return False
-    return all(getattr(row, field) is not None for field in COMPLETENESS_FIELDS)
-
-
-def _month_rows_complete(rows: list[MaterialMovement], prices: dict[UUID, RawMaterialPrice]) -> int:
-    """Count of unfilled month rows (0 — the month is ready to fix)."""
-    return sum(1 for row in rows if not _movement_row_complete(row, prices.get(row.asset_raw_material_id)))
 
 
 def _next_month(report_month: date) -> date:
@@ -112,13 +97,6 @@ async def fix_report(
     if not rows:
         raise ApprovalError(ERR_NO_ROWS)
     prices = {price.asset_raw_material_id: price for price in (await session.exec(select(RawMaterialPrice))).all()}
-    incomplete = _month_rows_complete(rows, prices)
-    if incomplete:
-        message = (
-            f"Фиксация невозможна: незаполненных строк — {incomplete} из {len(rows)}. "
-            "Заполните все поля движения сырья."
-        )
-        raise ApprovalError(message)
 
     lease_keys = [
         lease_key(f"{MOVEMENT_TABLE}/{row.id}/{field}", project=RAW_MATERIALS_PROJECT_KEY)
@@ -228,12 +206,16 @@ async def fix_report(
 
 
 async def read_movement_meta(session: AsyncSession, *, report_month: date) -> tuple[bool, bool, list[ReportSnapshot]]:
-    """Month status: completeness, finality of the last snapshot, and the version archive."""
+    """
+    Report status, snapshot finality and the version archive for a month.
+
+    A month is always fixable once it has movement rows — cell completeness is
+    no longer a precondition (the `isComplete` flag now just means "rows exist").
+    """
     rows = list(
         (await session.exec(select(MaterialMovement).where(col(MaterialMovement.report_month) == report_month))).all()
     )
-    prices = {price.asset_raw_material_id: price for price in (await session.exec(select(RawMaterialPrice))).all()}
-    is_complete = bool(rows) and _month_rows_complete(rows, prices) == 0
+    is_complete = bool(rows)
     snapshots = list(
         (
             await session.exec(
