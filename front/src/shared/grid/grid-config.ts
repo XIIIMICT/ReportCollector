@@ -124,7 +124,13 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
         number("balanceInTransitTons", "В пути, т", 120, ["Остатки"]),
         number("balanceEndTons", "На конец периода, т", 160, ["Остатки"]),
         // The storage standard is filled in the «Цены» form and projected here as read-only.
-        { ...fixed("storageStandardTons", "Норматив хранения, т", 170), kind: "number" },
+        // It is not an exportable «Движение» column (the server refuses a hidden
+        // column); export it from «Цены», where it is authored.
+        {
+            ...fixed("storageStandardTons", "Норматив хранения, т", 170),
+            kind: "number",
+            exportable: false,
+        },
         text("deviationReason", "Причина отклонения", 260),
     ],
     rawMaterialPrices: [
