@@ -2,23 +2,25 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, AsyncGenerator
+from urllib.parse import urlparse
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from src.auth.models import User
-    from src.collab.store import MemoryStore
 
 # Env vars must be set before the first src.* import, because src.database
 # caches settings at module level.
@@ -35,11 +37,18 @@ os.environ.setdefault("POSTGRES_SCHEMA", "rc")
 os.environ.setdefault("BACKEND_CORS_ORIGINS", '["http://localhost:5000","http://127.0.0.1:5000"]')
 os.environ.setdefault("TEST_DATABASE_URL", "postgresql+asyncpg://postgres:strong_password@localhost:5432/dwh")
 os.environ.setdefault("TEST_SCHEMA", "rc_test")
-os.environ.setdefault("VALKEY_URL", "")
+COLLAB_BACKEND = os.environ.get("TEST_COLLAB_BACKEND", "memory")
+if COLLAB_BACKEND not in {"memory", "valkey"}:
+    message = "TEST_COLLAB_BACKEND must be memory or valkey"
+    raise pytest.UsageError(message)
+os.environ["VALKEY_URL"] = os.environ.get("TEST_VALKEY_URL", "") if COLLAB_BACKEND == "valkey" else ""
 
 TEST_DATABASE_URL = os.environ["TEST_DATABASE_URL"]
 TEST_SCHEMA = os.environ["TEST_SCHEMA"]
 BACKEND_DIR = Path(__file__).resolve().parents[1]
+if not TEST_SCHEMA.startswith("rc_test") or not TEST_SCHEMA.replace("_", "").isalnum():
+    message = "TEST_SCHEMA must be a dedicated rc_test* schema"
+    raise pytest.UsageError(message)
 
 
 @pytest.fixture(scope="session")
@@ -287,7 +296,10 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
     async with test_engine.begin() as conn:
         await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
         await conn.execute(text(f'CREATE SCHEMA "{TEST_SCHEMA}"'))
-        await conn.run_sync(SQLModel.metadata.create_all)
+        config = Config(str(BACKEND_DIR / "alembic.ini"))
+        config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+        config.attributes["connection"] = conn.sync_connection
+        await conn.run_sync(lambda _: command.upgrade(config, "head"))
     session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         await _seed_session(session)
@@ -302,7 +314,22 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
     from src.main import app
 
     async def override_get_session() -> AsyncIterator[AsyncSession]:
-        yield db_session
+        try:
+            yield db_session
+            await db_session.commit()
+            from sqlmodel import col, select
+
+            from src.collab.models import OutboxEvent
+            from src.collab.store import get_collab_store
+
+            events = (await db_session.exec(select(OutboxEvent).order_by(col(OutboxEvent.id)))).all()
+            for event in events:
+                await get_collab_store().publish(event.room, event.payload)
+                await db_session.delete(event)
+            await db_session.commit()
+        except BaseException:
+            await db_session.rollback()
+            raise
 
     app.dependency_overrides[get_session] = override_get_session
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -311,13 +338,60 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
 
 
 @pytest.fixture
-async def store() -> MemoryStore:
-    """Collaboration store (in-memory in tests)."""
-    from src.collab.store import MemoryStore, get_collab_store
+async def store(isolated_store, db_session):
+    """Inspect durable history while using the real configured lease transport."""
+    from src.collab.persistence import JournalStore
 
+    return JournalStore(db_session)
+
+
+@pytest.fixture(autouse=True)
+async def isolated_store():
+    """Reset only an explicitly opted-in disposable Valkey DB, never the app DB."""
+    from redis.asyncio import Redis
+
+    from src.collab.store import ValkeyStore, get_collab_store
+    from src.collab.ws import get_room_manager
+
+    get_collab_store.cache_clear()
+    get_room_manager.cache_clear()
+    if COLLAB_BACKEND == "valkey":
+        url = os.environ["VALKEY_URL"]
+        if urlparse(url).path != "/15" or os.environ.get("TEST_VALKEY_RESET") != "1":
+            pytest.fail("Real-store suite requires disposable TEST_VALKEY_URL ending in /15 and TEST_VALKEY_RESET=1")
     instance = get_collab_store()
-    assert isinstance(instance, MemoryStore)
-    return instance
+    cleanup = Redis.from_url(os.environ["VALKEY_URL"]) if isinstance(instance, ValkeyStore) else None
+    if cleanup is not None:
+        await cleanup.flushdb()
+    try:
+        yield instance
+    finally:
+        if cleanup is not None:
+            await cleanup.flushdb()
+            await cleanup.aclose()
+        await instance.close()
+        get_collab_store.cache_clear()
+        get_room_manager.cache_clear()
+
+
+@pytest.fixture
+def presence_expiry():
+    """Read expiration without changing store behavior."""
+    from redis.asyncio import Redis
+
+    from src.collab.store import MemoryStore, room_presence_key
+
+    async def read(instance, room: str, user_id: str) -> float | None:
+        from src.collab.store import get_collab_store
+
+        instance = get_collab_store()
+        if isinstance(instance, MemoryStore):
+            return await instance.presence_expires_at(room, user_id)
+        async with Redis.from_url(os.environ["VALKEY_URL"]) as connection:
+            raw = await connection.hget(room_presence_key(room), user_id)
+            return json.loads(raw)["expiresAt"] if raw else None
+
+    return read
 
 
 def signed_identity_headers(

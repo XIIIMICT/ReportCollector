@@ -17,8 +17,8 @@ from src.auth.router import read_signed_identity
 from src.auth.service import CurrentUserIdentity, get_user_by_identity
 from src.collab.events import publish_cell_changed
 from src.collab.journal import AppliedCell, record_cell_updates
+from src.collab.persistence import JournalStore
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
-from src.collab.store import get_collab_store
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.database import get_session
 from src.downloads import attachment_response
@@ -97,7 +97,7 @@ from src.raw_materials.service import (
 
 router = APIRouter(prefix="/raw-materials", tags=["raw-materials"])
 
-SessionDependency = Annotated[AsyncSession, Depends(get_session)]
+SessionDependency = Annotated[AsyncSession, Depends(get_session, scope="function")]
 IdentityDependency = Annotated[CurrentUserIdentity, Depends(read_signed_identity)]
 
 
@@ -242,7 +242,7 @@ async def post_movement_fix(
             session,
             user=user,
             report_month=request.reportMonth,
-            store=get_collab_store(),
+            store=JournalStore(session),
         )
     except ApprovalError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
@@ -270,6 +270,7 @@ async def get_movement_snapshot(
             await session.exec(
                 select(SnapshotMaterialMovement)
                 .where(col(SnapshotMaterialMovement.snapshot_id) == snapshot_id)
+                .where(col(SnapshotMaterialMovement.source_asset_id).in_([asset.id for asset in _assets]))
                 .order_by(
                     SnapshotMaterialMovement.raw_material_name,
                     SnapshotMaterialMovement.asset_name,
@@ -413,7 +414,7 @@ async def _export_rows(
     """Rows for export: movement for the period, prices, or a dictionary."""
     if request.section == "materialMovement":
         if request.snapshotId is not None:
-            snapshot, rows = await read_snapshot_export_rows(session, request.snapshotId)
+            snapshot, rows = await read_snapshot_export_rows(session, request.snapshotId, assets)
             if snapshot is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -462,7 +463,7 @@ async def patch_movement_rows(
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     await publish_cell_changed(
-        get_collab_store(),
+        JournalStore(session),
         project_key=RAW_MATERIALS_PROJECT_KEY,
         section="materialMovement",
         report_month=request.reportMonth.isoformat(),
@@ -492,7 +493,7 @@ async def patch_price_rows(
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     await publish_cell_changed(
-        get_collab_store(),
+        JournalStore(session),
         project_key=RAW_MATERIALS_PROJECT_KEY,
         section="rawMaterialPrices",
         report_month=None,
@@ -506,6 +507,7 @@ async def patch_price_rows(
 
 @router.get("/undo-state", response_model=UndoStateRead)
 async def undo_state_cells(
+    session: SessionDependency,
     user: UserDependency,
     _assets: AccessDependency,
     session_id: str,
@@ -514,7 +516,7 @@ async def undo_state_cells(
 ) -> UndoStateRead:
     """Undo/redo availability from the user's session action stack on the current form."""
     scope = f"{section}/{report_month or ''}"
-    can_undo, can_redo = await get_collab_store().undo_state(str(user.id), session_id, scope)
+    can_undo, can_redo = await JournalStore(session).undo_state(str(user.id), session_id, scope)
     return UndoStateRead(canUndo=can_undo > 0, canRedo=can_redo > 0)
 
 
@@ -539,12 +541,13 @@ async def undo_cells(
     outcome = await undo_last_edit(
         session,
         user=user,
-        store=get_collab_store(),
+        store=JournalStore(session),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
         scope=scope,
         session_id=session_id,
         skip_action_id=request.skipActionId if request is not None else None,
     )
-    return await _undo_response(outcome, user)
+    return await _undo_response(session, outcome, user)
 
 
 @router.post("/redo", response_model=UndoResponse)
@@ -562,15 +565,16 @@ async def redo_cells(
     outcome = await redo_last_undo(
         session,
         user=user,
-        store=get_collab_store(),
+        store=JournalStore(session),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
         scope=scope,
         session_id=session_id,
         skip_action_id=request.skipActionId if request is not None else None,
     )
-    return await _undo_response(outcome, user)
+    return await _undo_response(session, outcome, user)
 
 
-async def _undo_response(outcome: UndoOutcome, user: User) -> UndoResponse:
+async def _undo_response(session: AsyncSession, outcome: UndoOutcome, user: User) -> UndoResponse:
     if not outcome.applied:
         conflict = outcome.conflict
         return UndoResponse(
@@ -594,7 +598,7 @@ async def _undo_response(outcome: UndoOutcome, user: User) -> UndoResponse:
     if not cells:
         return UndoResponse(applied=True, reason="applied", section=outcome.section, reportMonth=outcome.report_month)
     await publish_cell_changed(
-        get_collab_store(),
+        JournalStore(session),
         project_key=outcome.project_key,
         section=outcome.section,
         report_month=outcome.report_month.isoformat() if outcome.report_month is not None else None,
@@ -630,7 +634,7 @@ async def post_raw_material(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     if session_id:
         await record_cell_updates(
-            get_collab_store(),
+            JournalStore(session),
             user_id=user.id,
             user_name=user.name or "",
             project_key=RAW_MATERIALS_PROJECT_KEY,
@@ -675,18 +679,8 @@ async def patch_raw_material(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    await publish_cell_changed(
-        get_collab_store(),
-        project_key=RAW_MATERIALS_PROJECT_KEY,
-        section="rawMaterials",
-        report_month=None,
-        user_id=user.id,
-        user_name=user.name or "",
-        user_email=user.email or "",
-        cells=applied,
-    )
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=user.id,
         user_name=user.name or "",
         project_key=RAW_MATERIALS_PROJECT_KEY,
@@ -694,6 +688,16 @@ async def patch_raw_material(
         report_month=None,
         session_id=session_id,
         applied=applied,
+    )
+    await publish_cell_changed(
+        JournalStore(session),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="rawMaterials",
+        report_month=None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=applied,
     )
     return (await read_raw_material_rows(session, raw_material_id=raw_material_id))[0]
 
@@ -724,7 +728,7 @@ async def post_asset(
     created = await create_asset(session, name=request.name, user=user)
     if session_id:
         await record_cell_updates(
-            get_collab_store(),
+            JournalStore(session),
             user_id=user.id,
             user_name=user.name or "",
             project_key=RAW_MATERIALS_PROJECT_KEY,
@@ -758,18 +762,8 @@ async def patch_asset(
         updated, applied = await update_asset(session, asset_id=asset_id, name=request.name, user=user)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    await publish_cell_changed(
-        get_collab_store(),
-        project_key=RAW_MATERIALS_PROJECT_KEY,
-        section="assets",
-        report_month=None,
-        user_id=user.id,
-        user_name=user.name or "",
-        user_email=user.email or "",
-        cells=applied,
-    )
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=user.id,
         user_name=user.name or "",
         project_key=RAW_MATERIALS_PROJECT_KEY,
@@ -777,6 +771,16 @@ async def patch_asset(
         report_month=None,
         session_id=session_id,
         applied=applied,
+    )
+    await publish_cell_changed(
+        JournalStore(session),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="assets",
+        report_month=None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=applied,
     )
     return (await read_asset_rows([updated]))[0]
 
@@ -807,7 +811,7 @@ async def post_delivery_basis(
     created = await create_delivery_basis(session, name=request.name, user=user)
     if session_id:
         await record_cell_updates(
-            get_collab_store(),
+            JournalStore(session),
             user_id=user.id,
             user_name=user.name or "",
             project_key=RAW_MATERIALS_PROJECT_KEY,
@@ -841,18 +845,8 @@ async def patch_delivery_basis(
         updated, applied = await update_delivery_basis(session, basis_id=basis_id, name=request.name, user=user)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    await publish_cell_changed(
-        get_collab_store(),
-        project_key=RAW_MATERIALS_PROJECT_KEY,
-        section="deliveryBases",
-        report_month=None,
-        user_id=user.id,
-        user_name=user.name or "",
-        user_email=user.email or "",
-        cells=applied,
-    )
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=user.id,
         user_name=user.name or "",
         project_key=RAW_MATERIALS_PROJECT_KEY,
@@ -860,6 +854,16 @@ async def patch_delivery_basis(
         report_month=None,
         session_id=session_id,
         applied=applied,
+    )
+    await publish_cell_changed(
+        JournalStore(session),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="deliveryBases",
+        report_month=None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=applied,
     )
     return (await read_delivery_basis_rows(session, delivery_basis_id=updated.id))[0]
 
@@ -906,7 +910,7 @@ async def post_user(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     if session_id:
         await record_cell_updates(
-            get_collab_store(),
+            JournalStore(session),
             user_id=user.id,
             user_name=user.name or "",
             project_key=RAW_MATERIALS_PROJECT_KEY,
@@ -960,18 +964,8 @@ async def patch_user(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    await publish_cell_changed(
-        get_collab_store(),
-        project_key=RAW_MATERIALS_PROJECT_KEY,
-        section="users",
-        report_month=None,
-        user_id=user.id,
-        user_name=user.name or "",
-        user_email=user.email or "",
-        cells=applied,
-    )
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=user.id,
         user_name=user.name or "",
         project_key=RAW_MATERIALS_PROJECT_KEY,
@@ -979,6 +973,16 @@ async def patch_user(
         report_month=None,
         session_id=session_id,
         applied=applied,
+    )
+    await publish_cell_changed(
+        JournalStore(session),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section="users",
+        report_month=None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=applied,
     )
     return (await read_user_rows(session, user_id=user_id))[0]
 

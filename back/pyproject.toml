@@ -35,6 +35,7 @@ pythonpath = ["."]
 
 [tool.coverage.run]
 source = ["src"]
+relative_files = true
 omit = ["src/scripts/*"]
 
 [tool.coverage.report]
@@ -81,7 +82,6 @@ ignore = [
     "ARG001",  # Фикстуры-зависимости могут не использоваться
     "B007",  # Переменные распаковки кортежей не используются
     "D213",  # Докстринги тестов сохраняют стиль
-    "F821",  # signed_identity_headers и фикстуры доступны из conftest
     "PERF102",  # Включения по values() в тестах не оптимизируются
     "PLC0415",  # Импорты в тестах допустимы
     "S101",  # В тестах используется assert

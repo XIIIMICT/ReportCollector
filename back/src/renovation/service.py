@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import ARRAY, Text, func, literal_column
+from sqlalchemy import ARRAY, Text, and_, delete, func, insert, literal, literal_column
 from sqlalchemy import cast as sql_cast
 from sqlalchemy import select as sa_select
 from sqlmodel import col, select
@@ -29,9 +29,10 @@ from src.auth.service import (
     sync_project_memberships,
 )
 from src.collab.journal import AppliedCell, record_cell_updates
+from src.collab.locking import lock_project, lock_rows, project_write
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE
-from src.collab.store import get_collab_store
-from src.raw_materials.service import CellValidationError, coerce_number, coerce_text
+from src.collab.persistence import JournalStore
+from src.raw_materials.service import CellValidationError, check_edit_leases, coerce_number, coerce_text
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.form_schema import (
     RenovationFieldMeta,
@@ -311,6 +312,10 @@ async def read_plan(
             select(RenovationPlanRow, RAsset)
             .outerjoin(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
             .where(col(RenovationPlanRow.plan_id) == plan.id)
+            .where(
+                col(RenovationPlanRow.asset_id).in_(asset_ids)
+                | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
+            )
             .order_by(col(RenovationPlanRow.position))
         )
     ).all()
@@ -321,7 +326,7 @@ async def read_plan(
         baselineGeneration=plan.baseline_generation,
         updatedAt=plan.updated_at,
         updatedBy=plan.updated_by,
-        rows=[_plan_row_read(row, asset, label_map) for row, asset in rows if asset is None or asset.id in asset_ids],
+        rows=[_plan_row_read(row, asset, label_map) for row, asset in rows],
         baselineBoundary=baseline_boundary,
     )
 
@@ -507,7 +512,8 @@ async def read_plan_rows(
         row_condition = row_condition & col(RenovationPlanRow.asset_id).in_(asset_ids)
     else:
         row_condition = row_condition & (
-            col(RenovationPlanRow.asset_id).in_(asset_ids) | col(RenovationPlanRow.asset_id).is_(None)
+            col(RenovationPlanRow.asset_id).in_(asset_ids)
+            | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
         )
     # The asset filter must be applied in SQL so offset/limit count only the
     # rows the caller may see — not the full plan.
@@ -518,7 +524,13 @@ async def read_plan_rows(
     if len(asset_ids) != len(assets):
         total_all = (
             await session.exec(
-                select(func.count()).select_from(RenovationPlanRow).where(col(RenovationPlanRow.plan_id) == plan.id)
+                select(func.count())
+                .select_from(RenovationPlanRow)
+                .where(
+                    col(RenovationPlanRow.plan_id) == plan.id,
+                    col(RenovationPlanRow.asset_id).in_([asset.id for asset in assets])
+                    | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(assets))),
+                )
             )
         ).one()
     rows = (
@@ -583,6 +595,7 @@ async def read_plan_versions(session: AsyncSession) -> list[RenovationPlanVersio
     ]
 
 
+@project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def add_plan_row(
     session: AsyncSession,
     *,
@@ -633,12 +646,13 @@ async def add_plan_row(
         updated_by=updated_by,
     )
     session.add(row)
-    await session.commit()
+    await session.flush()
     await session.refresh(row)
     label_map = await _reference_labels(session)
     return _plan_row_read(row, asset, label_map)
 
 
+@project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def assign_plan_row_asset(
     session: AsyncSession,
     *,
@@ -682,12 +696,13 @@ async def assign_plan_row_asset(
     row.updated_at = datetime.now(UTC)
     row.updated_by = user.name or user.email or ""
     session.add(row)
-    await session.commit()
+    await session.flush()
     await session.refresh(row)
     label_map = await _reference_labels(session)
     return _plan_row_read(row, asset, label_map)
 
 
+@project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def delete_plan_row(
     session: AsyncSession,
     *,
@@ -730,10 +745,10 @@ async def delete_plan_row(
     if any(getattr(row, field) not in (None, "") for field in editable_fields()):
         raise _ERR_DELETE_NOT_EMPTY
     await session.delete(row)
-    await session.commit()
+    await session.flush()
 
 
-async def read_plan_diff(session: AsyncSession, *, plan_id: UUID) -> RenovationDiffRead:
+async def read_plan_diff(session: AsyncSession, *, plan_id: UUID, assets: list[RAsset]) -> RenovationDiffRead:
     """Cell diff of an archived version vs the previous archived version."""
     plan = await session.get(RenovationPlan, plan_id)
     if plan is None:
@@ -744,8 +759,8 @@ async def read_plan_diff(session: AsyncSession, *, plan_id: UUID) -> RenovationD
     if previous is None:
         return RenovationDiffRead(planId=plan.id, comparedToPlanId=None)
     label_map = await _reference_labels(session)
-    target = await _rows_by_position(session, plan.id)
-    before = await _rows_by_position(session, previous.id)
+    target = await _rows_by_position(session, plan.id, assets)
+    before = await _rows_by_position(session, previous.id, assets)
     diff_rows: list[RenovationDiffRowRead] = []
     for position, (row, asset) in target.items():
         prev = before.get(position)
@@ -794,12 +809,14 @@ async def read_plan_diff(session: AsyncSession, *, plan_id: UUID) -> RenovationD
 async def _rows_by_position(
     session: AsyncSession,
     plan_id: UUID,
+    assets: list[RAsset],
 ) -> dict[int, tuple[RenovationPlanRow, RAsset]]:
     rows = (
         await session.exec(
             select(RenovationPlanRow, RAsset)
             .join(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
             .where(col(RenovationPlanRow.plan_id) == plan_id)
+            .where(col(RenovationPlanRow.asset_id).in_([asset.id for asset in assets]))
             .order_by(col(RenovationPlanRow.position))
         )
     ).all()
@@ -911,6 +928,7 @@ def _renovation_id_input(row: RenovationPlanRow, asset: RAsset, label_map: dict[
     )
 
 
+@project_write(RENOVATION_PROJECT_KEY)
 async def update_plan_cells(
     session: AsyncSession,
     *,
@@ -942,19 +960,30 @@ async def update_plan_cells(
     if plan.state == RPlanState.PENDING_APPROVAL and not is_admin:
         raise _ERR_EDIT_PENDING
     label_map = await _reference_labels(session)
-    rows: dict[UUID, RenovationPlanRow] = {}
+    await lock_rows(session, [f"undo/{user.id}/{session_id}/renovationPlan/"])
+    await lock_rows(session, [f"{RENOVATION_PLAN_ROWS_TABLE}/{update.rowId}" for update in updates])
+    await check_edit_leases(
+        updates, user=user, session_id=session_id, table=RENOVATION_PLAN_ROWS_TABLE, project=RENOVATION_PROJECT_KEY
+    )
+    rows = {
+        row.id: row
+        for row in (
+            await session.exec(
+                select(RenovationPlanRow)
+                .where(col(RenovationPlanRow.id).in_([update.rowId for update in updates]))
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+    }
 
     applied: list[AppliedCell] = []
-    touched: list[RenovationPlanRow] = []
+    touched: dict[UUID, RenovationPlanRow] = {}
     for update in updates:
         if update.rowId is None or not update.field:
             raise _CELL_MISSING_ROW_OR_FIELD
         row = rows.get(update.rowId)
-        if row is None:
-            row = await session.get(RenovationPlanRow, update.rowId)
-            if row is None or row.plan_id != plan.id:
-                raise _CELL_PLAN_ROW_NOT_FOUND
-            rows[update.rowId] = row
+        if row is None or row.plan_id != plan.id:
+            raise _CELL_PLAN_ROW_NOT_FOUND
         if not is_admin and not is_approver and row.asset_id not in asset_ids:
             raise _asset_access()
         field = update.field
@@ -985,12 +1014,12 @@ async def update_plan_cells(
                 new_value=new_value,
             )
         )
-        if row not in touched:
-            touched.append(row)
+        touched[row.id] = row
 
     calculated: list[RenovationCalculatedCellRead] = []
     renovation_ids: list[RenovationIdRead] = []
-    for row in touched:
+    for row in touched.values():
+        row.revision += 1
         asset = assets_by_id.get(row.asset_id)
         if asset is None:
             continue
@@ -1018,7 +1047,7 @@ async def update_plan_cells(
         )
 
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=user.id,
         user_name=user.name or "",
         project_key=RENOVATION_PROJECT_KEY,
@@ -1027,7 +1056,7 @@ async def update_plan_cells(
         session_id=session_id,
         applied=applied,
     )
-    await session.commit()
+    await session.flush()
     return applied, calculated, renovation_ids
 
 
@@ -1377,6 +1406,7 @@ async def _renovation_project_id_required(session: AsyncSession) -> UUID:
 
 async def submit_plan(session: AsyncSession, *, user: User, roles: list[RProjectRole]) -> RenovationPlan:
     """Send the working plan for approval (admin or a block owner)."""
+    await lock_project(session, RENOVATION_PROJECT_KEY, exclusive=True)
     if RProjectRole.ADMIN not in roles and RProjectRole.BLOCK_OWNER not in roles:
         raise _ERR_SUBMIT_PERMISSION
     plan = await _plan_by_state(session, RPlanState.WORKING)
@@ -1386,16 +1416,16 @@ async def submit_plan(session: AsyncSession, *, user: User, roles: list[RProject
     # Empty drafts (rows added «in the moment») that still hold no data — even if
     # only their asset is picked — are dropped before the version is frozen.
     draft_cols = editable_fields()
-    plans_rows = (await session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.plan_id) == plan.id))).all()
-    for row in plans_rows:
-        if any(getattr(row, field) not in (None, "") for field in draft_cols):
-            continue
-        await session.delete(row)
+    empty_columns = []
+    for field in draft_cols:
+        column = getattr(RenovationPlanRow, field)
+        empty_columns.append((column.is_(None) | (column == "")) if isinstance(column.type, Text) else column.is_(None))
+    await session.exec(delete(RenovationPlanRow).where(col(RenovationPlanRow.plan_id) == plan.id, and_(*empty_columns)))
     plan.state = RPlanState.PENDING_APPROVAL
     plan.updated_at = now
     plan.updated_by = user.name or user.email or ""
     session.add(plan)
-    await session.commit()
+    await session.flush()
     await session.refresh(plan)
     return plan
 
@@ -1415,6 +1445,7 @@ async def approve_plan(
     """
     if RProjectRole.ADMIN not in roles and RProjectRole.APPROVER not in roles:
         raise _ERR_APPROVE_PERMISSION
+    await lock_project(session, RENOVATION_PROJECT_KEY, exclusive=True)
     plan = await _plan_by_state(session, RPlanState.PENDING_APPROVAL)
     if plan is None:
         raise _ERR_NO_PENDING_PLAN
@@ -1436,30 +1467,27 @@ async def approve_plan(
     )
     session.add(working)
     await session.flush()
-    rows = (
-        await session.exec(
-            select(RenovationPlanRow)
-            .where(col(RenovationPlanRow.plan_id) == plan.id)
-            .order_by(col(RenovationPlanRow.position))
+    # Copy inside PostgreSQL: no 94k-row ORM graph or millions of Python assignments.
+    table = RenovationPlanRow.metadata.tables["renovation_plan_rows"]
+    overrides = {
+        "id": func.gen_random_uuid(),
+        "plan_id": literal(working.id),
+        "baseline_generation": literal(working.baseline_generation),
+        "revision": literal(0),
+        "created_at": literal(now),
+        "updated_at": literal(now),
+        "updated_by": literal(updated_by),
+    }
+    columns = list(table.columns)
+    await session.exec(
+        insert(table).from_select(
+            [column.name for column in columns],
+            sa_select(*(overrides.get(column.name, column) for column in columns)).where(table.c.plan_id == plan.id),
+            include_defaults=False,
         )
-    ).all()
-    for source in rows:
-        copy = RenovationPlanRow(
-            plan_id=working.id,
-            asset_id=source.asset_id,
-            position=source.position,
-            baseline_generation=working.baseline_generation,
-            revision=0,
-            created_at=now,
-            updated_at=now,
-            updated_by=updated_by,
-        )
-        for meta in field_metas():
-            if meta.db_name in _VIRTUAL_FIELDS:
-                continue
-            setattr(copy, meta.db_name, getattr(source, meta.db_name))
-        session.add(copy)
-    await session.commit()
+    )
+    await JournalStore(session).clear_undo_state_for_scope("renovationPlan/")
+    await session.flush()
     await session.refresh(plan)
     await session.refresh(working)
     return plan, working
@@ -1554,6 +1582,7 @@ async def _ensure_asset_unique(
         raise _DICT_ASSET_CODE_EXISTS
 
 
+@project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def create_renovation_asset(
     session: AsyncSession,
     *,
@@ -1576,12 +1605,13 @@ async def create_renovation_asset(
         updated_by=updated_by,
     )
     session.add(asset)
-    await session.commit()
+    await session.flush()
     await session.refresh(asset)
     row = (await read_renovation_asset_rows(session, asset_id=asset.id))[0]
     return asset, row
 
 
+@project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def update_renovation_asset(
     session: AsyncSession,
     *,
@@ -1611,7 +1641,7 @@ async def update_renovation_asset(
     asset.updated_at = datetime.now(UTC)
     asset.updated_by = user.name or user.email or ""
     session.add(asset)
-    await session.commit()
+    await session.flush()
     applied: list[AppliedCell] = []
     if asset.name != old_name:
         applied.append(
@@ -1636,6 +1666,7 @@ async def update_renovation_asset(
     return asset, applied
 
 
+@project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def delete_renovation_asset(
     session: AsyncSession,
     *,
@@ -1665,7 +1696,7 @@ async def delete_renovation_asset(
         "userLinks": links,
     }
     await session.delete(asset)
-    await session.commit()
+    await session.flush()
     return [
         AppliedCell(
             target_table=RAsset.__tablename__,
@@ -1724,6 +1755,7 @@ async def _ensure_option_label_free(
         raise RenovationDictionaryError(message)
 
 
+@project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def create_renovation_catalog_option(
     session: AsyncSession,
     *,
@@ -1754,12 +1786,13 @@ async def create_renovation_catalog_option(
         updated_by=user.name or user.email or "",
     )
     session.add(option)
-    await session.commit()
+    await session.flush()
     await session.refresh(option)
     row = (await read_renovation_catalog_rows(session, catalog=catalog, option_id=option.id))[0]
     return option, row
 
 
+@project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def update_renovation_catalog_option(
     session: AsyncSession,
     *,
@@ -1782,7 +1815,7 @@ async def update_renovation_catalog_option(
     option.updated_at = datetime.now(UTC)
     option.updated_by = user.name or user.email or ""
     session.add(option)
-    await session.commit()
+    await session.flush()
     applied: list[AppliedCell] = []
     if option.label != old_label:
         applied.append(
@@ -1797,6 +1830,7 @@ async def update_renovation_catalog_option(
     return option, applied
 
 
+@project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def delete_renovation_catalog_option(
     session: AsyncSession,
     *,
@@ -1827,7 +1861,7 @@ async def delete_renovation_catalog_option(
         "payload": option.payload,
     }
     await session.delete(option)
-    await session.commit()
+    await session.flush()
     return [
         AppliedCell(
             target_table=RenovationReferenceValue.__tablename__,
@@ -1898,6 +1932,7 @@ async def read_renovation_user_rows(
     return rows
 
 
+@project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def create_renovation_user(
     session: AsyncSession,
     *,
@@ -1969,10 +2004,11 @@ async def create_renovation_user(
         asset_names if not implicit_all_assets else [],
     )
     await sync_project_memberships(session, user.id)
-    await session.commit()
+    await session.flush()
     return user
 
 
+@project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def update_renovation_user(
     session: AsyncSession,
     *,
@@ -2051,7 +2087,7 @@ async def update_renovation_user(
         project_id=project_id,
         active=link.is_active,
     )
-    await session.commit()
+    await session.flush()
     applied: list[AppliedCell] = []
     if new_fullname != old_fullname:
         applied.append(

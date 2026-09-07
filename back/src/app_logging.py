@@ -1,9 +1,25 @@
 import json
 import logging
+import re
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+
+class CredentialQueryFilter(logging.Filter):
+    """Keep one-time WebSocket tickets out of Uvicorn access/handshake logs."""
+
+    pattern = re.compile(r"([?&](?:ticket|access_token|token)=)[^&\s\"']+", re.IGNORECASE)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = self.pattern.sub(r"\1[REDACTED]", record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                self.pattern.sub(r"\1[REDACTED]", value) if isinstance(value, str) else value for value in record.args
+            )
+        return True
 
 
 class JsonFormatter(logging.Formatter):
@@ -20,6 +36,7 @@ class JsonFormatter(logging.Formatter):
         # All extra fields passed via extra={}
         for field_name in (
             "event",
+            "request_id",
             "duration_ms",
             "error",
             "error_type",
@@ -63,11 +80,17 @@ class JsonFormatter(logging.Formatter):
             if value is not None:
                 payload[field_name] = value
 
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
 def configure_application_logging(log_file: str) -> None:
     """Configure the single JSON application log in the given file."""
+    for name in ("uvicorn.access", "uvicorn.error"):
+        transport_logger = logging.getLogger(name)
+        if not any(isinstance(item, CredentialQueryFilter) for item in transport_logger.filters):
+            transport_logger.addFilter(CredentialQueryFilter())
     logger = logging.getLogger("reportcollector")
     if logger.handlers:
         return

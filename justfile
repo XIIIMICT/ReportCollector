@@ -53,7 +53,7 @@ seed-renovation:
 # migrate — применяет миграции к существующей схеме.
 # POSTGRES_HOST берётся из .env (для сервера — реальный адрес БД, не localhost).
 migrate:
-    uv run --directory back alembic upgrade head
+    uv run --directory back -m migrations.upgrade
 
 # revision — генерирует черновик новой миграции от моделей.
 revision message:
@@ -77,7 +77,8 @@ typecheck:
 # Требует запущенный postgres (just db-standalone) — тесты используют TEST_DATABASE_URL.
 test:
     uv run --directory back pytest
+    bun run --cwd front test
 
 # Требует запущенный стек (just prod) и сидированную БД.
 e2e:
-    bun run --cwd front test:e2e
+    bun run --cwd front test:e2e --project=smoke

@@ -1,11 +1,11 @@
 """
-Server-side per-user undo/redo stack (Valkey, scoped per form).
+Server-side transactional undo/redo stack (PostgreSQL, scoped per session/form).
 
 The last active action is undone; redo replays undone actions in their
 original order (the oldest undone one first — the reverse of the undo
 sequence). An action is a batch of cell edits made in one PATCH.
 Application only happens if, after the action, none of its cells was
-changed by another user (rc:cellstate lastUserId/lastActionId) and none
+changed by another user (collab_cell_states lastUserId/lastActionId) and none
 is leased by another (lease). A cell the current user changed last
 themselves is never a conflict — undoing one's own consecutive edits
 works.
@@ -16,19 +16,31 @@ from datetime import date
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
+from sqlmodel import col, select
+
+from src.auth.models import Project, UserRole
 from src.collab.journal import AppliedCell
+from src.collab.locking import lock_project, lock_rows
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE, canonical_key
 from src.collab.store import lease_key
+from src.raw_materials.models import (
+    AssetRawMaterial,
+    MaterialMovement,
+    MovementPeriod,
+    RawMaterialPrice,
+    RawMaterialUserAsset,
+)
 from src.raw_materials.service import apply_cell_value
-from src.renovation.models import RAsset
-from src.renovation.plan import RenovationReferenceValue
+from src.renovation.form_schema import field_meta
+from src.renovation.models import RAsset, RProjectRole, RUserAsset, RUserRole
+from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
 from src.renovation.service import apply_renovation_cell_value
 
 if TYPE_CHECKING:
     from sqlmodel.ext.asyncio.session import AsyncSession
 
     from src.auth.models import User
-    from src.collab.store import CollabStore
+    from src.collab.persistence import JournalStore
 
 RENOVATION_TABLES = frozenset(
     {
@@ -81,10 +93,11 @@ async def undo_last_edit(
     session: AsyncSession,
     *,
     user: User,
-    store: CollabStore,
+    store: JournalStore,
     scope: str,
     session_id: str,
     skip_action_id: int | None = None,
+    project_key: str | None = None,
 ) -> UndoOutcome:
     """
     Undoes the user's last action (a PATCH batch) on the session's form scope.
@@ -94,7 +107,16 @@ async def undo_last_edit(
     skipped after a conflict (second undo press): it's excluded from the
     search and the next available action below is looked up.
     """
+    project_key = project_key or ("renovation" if scope.startswith("renovation") else "raw_materials")
+    await lock_project(
+        session,
+        project_key,
+        exclusive=scope.split("/", maxsplit=1)[0] not in {"renovationPlan", "materialMovement", "rawMaterialPrices"},
+    )
+    await lock_rows(session, [f"undo/{user.id}/{session_id}/{scope}"])
     action = await store.next_action(str(user.id), session_id, scope, undone=False, after_action_id=skip_action_id)
+    if action is not None and action["project"] != project_key:
+        return UndoOutcome(applied=False, reason="empty")
     if action is None:
         return UndoOutcome(applied=False, reason="empty")
     return await _switch_entry(
@@ -106,10 +128,11 @@ async def redo_last_undo(
     session: AsyncSession,
     *,
     user: User,
-    store: CollabStore,
+    store: JournalStore,
     scope: str,
     session_id: str,
     skip_action_id: int | None = None,
+    project_key: str | None = None,
 ) -> UndoOutcome:
     """
     Return the user's oldest undone action on the session's form scope.
@@ -119,7 +142,16 @@ async def redo_last_undo(
     explicitly skipped after a conflict (second redo press): it's excluded
     from the search and the next available action above is looked up.
     """
+    project_key = project_key or ("renovation" if scope.startswith("renovation") else "raw_materials")
+    await lock_project(
+        session,
+        project_key,
+        exclusive=scope.split("/", maxsplit=1)[0] not in {"renovationPlan", "materialMovement", "rawMaterialPrices"},
+    )
+    await lock_rows(session, [f"undo/{user.id}/{session_id}/{scope}"])
     action = await store.next_action(str(user.id), session_id, scope, undone=True, after_action_id=skip_action_id)
+    if action is not None and action["project"] != project_key:
+        return UndoOutcome(applied=False, reason="empty")
     if action is None:
         return UndoOutcome(applied=False, reason="empty")
     return await _switch_entry(
@@ -131,7 +163,7 @@ async def _switch_entry(
     session: AsyncSession,
     *,
     user: User,
-    store: CollabStore,
+    store: JournalStore,
     scope: str,
     session_id: str,
     action: dict,
@@ -140,11 +172,24 @@ async def _switch_entry(
     cells = _action_cells(action)
     project_key = action["project"]
     action_id = int(action["id"])
+    await lock_rows(session, [f"{cell['targetTable']}/{cell['rowId']}" for cell in cells])
+    if not await _authorize_action(session, user, action, cells):
+        return UndoOutcome(
+            applied=False,
+            reason="conflict",
+            conflict=UndoConflict(
+                row_id=UUID(cells[0]["rowId"]),
+                field=cells[0]["field"],
+                user_name="Нет права изменять эту версию или ячейку.",
+                action_id=action_id,
+                reason="conflict",
+            ),
+        )
     # The whole batch is atomic: if any cell conflicts or is leased by
     # someone else, nothing is applied.
     for cell in cells:
         key = canonical_key(cell["targetTable"], UUID(cell["rowId"]), cell["field"])
-        conflict = await _check_conflict(store, cell, action_id, key, project_key, user)
+        conflict = await _check_conflict(store, cell, action_id, key, project_key, user, session_id)
         if conflict is not None:
             return UndoOutcome(applied=False, reason=conflict.reason, conflict=conflict)
 
@@ -212,7 +257,7 @@ async def _switch_entry(
             )
         )
     await store.mark_action_undone(str(user.id), session_id, scope, action_id, undone=not redo)
-    await session.commit()
+    await session.flush()
     return UndoOutcome(
         applied=True,
         reason="applied",
@@ -235,12 +280,13 @@ def _parse_month(raw: str | None) -> date | None:
 
 
 async def _check_conflict(
-    store: CollabStore,
+    store: JournalStore,
     cell: dict,
     action_id: int,
     key: str,
     project_key: str,
     user: User,
+    session_id: str,
 ) -> UndoConflict | None:
     state = await store.get_cell_state(key)
     if state is not None:
@@ -255,7 +301,9 @@ async def _check_conflict(
                 reason="conflict",
             )
     owner = await store.get_lease(lease_key(key, project=project_key))
-    if owner is not None and str(owner.get("userId")) != str(user.id):
+    if owner is not None and (
+        str(owner.get("userId")) != str(user.id) or owner.get("sessionId", session_id) != session_id
+    ):
         return UndoConflict(
             row_id=UUID(cell["rowId"]),
             field=cell["field"],
@@ -264,3 +312,69 @@ async def _check_conflict(
             reason="locked",
         )
     return None
+
+
+async def _authorize_action(session: AsyncSession, user: User, action: dict, cells: list[dict]) -> bool:
+    """Undo is a write, so current role/asset/block/version restrictions apply."""
+    if user.is_deleted:
+        return False
+    renovation = action["project"] == "renovation"
+    role_model = RUserRole if renovation else UserRole
+    link = (
+        await session.exec(
+            select(role_model)
+            .join(Project, col(Project.id) == col(role_model.project_id))
+            .where(
+                col(role_model.user_id) == user.id,
+                col(Project.key) == action["project"],
+                col(role_model.is_active).is_(True),
+            )
+            .execution_options(populate_existing=True)
+        )
+    ).first()
+    if link is None:
+        return False
+    admin = link.role.value == "admin"
+    for cell in cells:
+        table = cell["targetTable"]
+        row_id = UUID(cell["rowId"])
+        if renovation and table == "renovation_plan_rows":
+            row = await session.get(RenovationPlanRow, row_id, populate_existing=True)
+            if row is None:
+                return False
+            plan = await session.get(RenovationPlan, row.plan_id, populate_existing=True)
+            if (
+                plan is None
+                or plan.state == RPlanState.ARCHIVED
+                or (plan.state == RPlanState.PENDING_APPROVAL and not admin)
+            ):
+                return False
+            meta = field_meta(cell["field"])
+            if meta is None or meta.is_calculated or meta.is_read_only:
+                return False
+            if not admin:
+                if not isinstance(link, RUserRole):
+                    return False
+                if (
+                    link.role == RProjectRole.APPROVER
+                    or link.block is None
+                    or meta.responsibility_block != link.block.value
+                ):
+                    return False
+                if link.role == RProjectRole.ASSET_WORKER:
+                    grant = await session.get(RUserAsset, (user.id, link.project_id, row.asset_id))
+                    if grant is None:
+                        return False
+        elif not renovation and table in {"rm_material_movements", "rm_raw_material_prices"}:
+            model = MaterialMovement if table == "rm_material_movements" else RawMaterialPrice
+            row = await session.get(model, row_id, populate_existing=True)
+            if row is None:
+                return False
+            if isinstance(row, MaterialMovement) and await session.get(MovementPeriod, row.report_month) is None:
+                return False
+            arm = await session.get(AssetRawMaterial, row.asset_raw_material_id)
+            if arm is None or (not admin and await session.get(RawMaterialUserAsset, (user.id, arm.asset_id)) is None):
+                return False
+        elif not admin:
+            return False
+    return True

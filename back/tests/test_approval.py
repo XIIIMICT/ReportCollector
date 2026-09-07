@@ -273,7 +273,7 @@ async def test_fix_blocked_by_lease(client: AsyncClient, db_session: AsyncSessio
     from src.collab.store import lease_key
 
     await store.acquire_lease(
-        lease_key(f"rm_material_movements/{row.id}/balance_on_site_tons", project=RAW_MATERIALS_PROJECT_KEY),
+        lease_key(f"rm_material_movements/{row.id}/balanceOnSiteTons", project=RAW_MATERIALS_PROJECT_KEY),
         {"userId": "someone", "name": "Иванов"},
     )
     status, body = await _fix(client, date(2026, 8, 1))

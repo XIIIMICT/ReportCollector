@@ -10,10 +10,11 @@
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from src.collab.store import CollabStore, now_iso
+from src.collab.store import now_iso
 
 if TYPE_CHECKING:
     from src.collab.journal import AppliedCell
+    from src.collab.persistence import JournalStore
 
 
 def room_key(project_key: str, section: str, report_month: str | None = None) -> str:
@@ -21,7 +22,7 @@ def room_key(project_key: str, section: str, report_month: str | None = None) ->
 
 
 async def publish_cell_changed(
-    store: CollabStore,
+    store: JournalStore,
     *,
     project_key: str,
     section: str,
@@ -53,7 +54,7 @@ async def publish_cell_changed(
 
 
 async def publish_rows_changed(
-    store: CollabStore,
+    store: JournalStore,
     *,
     project_key: str,
     section: str,

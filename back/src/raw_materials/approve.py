@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from sqlmodel import col, select
 
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
+from src.collab.locking import lock_project
 from src.collab.models import MOVEMENT_TABLE
 from src.collab.store import lease_key
 from src.raw_materials.models import (
@@ -29,12 +30,13 @@ from src.raw_materials.models import (
     ReportSnapshot,
     SnapshotMaterialMovement,
 )
+from src.raw_materials.service import MOVEMENT_CELL_FIELDS
 
 if TYPE_CHECKING:
     from sqlmodel.ext.asyncio.session import AsyncSession
 
     from src.auth.models import User
-    from src.collab.store import CollabStore
+    from src.collab.persistence import JournalStore
 
 COMPLETENESS_FIELDS = (
     "demand_plan_tons",
@@ -73,9 +75,10 @@ async def fix_report(
     *,
     user: User,
     report_month: date,
-    store: CollabStore,
+    store: JournalStore,
 ) -> ReportSnapshot:
     """Fix «Движение» for the month: creates a snapshot, opens the next month on final."""
+    await lock_project(session, RAW_MATERIALS_PROJECT_KEY, exclusive=True)
     if report_month.day != 1:
         raise ApprovalError(ERR_FIRST_DAY)
     existing = (
@@ -101,7 +104,7 @@ async def fix_report(
     lease_keys = [
         lease_key(f"{MOVEMENT_TABLE}/{row.id}/{field}", project=RAW_MATERIALS_PROJECT_KEY)
         for row in rows
-        for field in (*COMPLETENESS_FIELDS, "deviation_reason")
+        for field in MOVEMENT_CELL_FIELDS
     ]
     lease_owner = await store.any_active_lease(lease_keys)
     if lease_owner is not None:
@@ -200,7 +203,7 @@ async def fix_report(
         # reach the archived snapshot.
         await store.clear_undo_state_for_scope(f"materialMovement/{report_month.isoformat()}")
         await store.clear_cell_states_for_table(MOVEMENT_TABLE)
-    await session.commit()
+    await session.flush()
     await session.refresh(snapshot)
     return snapshot
 

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from collections import defaultdict
@@ -6,15 +7,20 @@ from collections.abc import (
     Awaitable,
     Callable,
 )
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from uuid import uuid4
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from .api import api_router
 from .app_logging import configure_application_logging, log_error, log_event, log_warning, monotonic_ms
+from .collab.outbox import run_outbox
 from .collab.store import get_collab_store
 from .config import get_settings
+from .database import async_session_factory
 
 settings = get_settings()
 configure_application_logging(settings.log_file)
@@ -31,9 +37,14 @@ _RATE_LIMIT_MAX_AUTH = 20  # max auth requests per window
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     log_event(LOGGER, "application_started", "Приложение ReportCollector запущено.")
 
-    yield
-
-    await get_collab_store().close()
+    dispatcher = asyncio.create_task(run_outbox())
+    try:
+        yield
+    finally:
+        dispatcher.cancel()
+        with suppress(asyncio.CancelledError):
+            await dispatcher
+        await get_collab_store().close()
     log_event(LOGGER, "application_stopped", "Приложение ReportCollector остановлено.")
 
 
@@ -79,13 +90,21 @@ async def log_request(
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
     start = monotonic_ms()
-    response = await call_next(request)
+    request_id = str(uuid4())
+    try:
+        response = await call_next(request)
+    except Exception:
+        LOGGER.exception(
+            "Request failed", extra={"request_id": request_id, "path": request.url.path, "method": request.method}
+        )
+        raise
+    response.headers["X-Request-ID"] = request_id
     duration_ms = round(monotonic_ms() - start, 1)
     status = response.status_code
     path = request.url.path
 
     # Skip frequent healthcheck requests — they spam the log
-    if path == "/health":
+    if path in {"/health", "/ready"}:
         return response
 
     if status >= 500:
@@ -97,6 +116,7 @@ async def log_request(
             path=path,
             status_code=status,
             duration_ms=duration_ms,
+            request_id=request_id,
         )
     elif status >= 400:
         log_warning(
@@ -107,6 +127,7 @@ async def log_request(
             path=path,
             status_code=status,
             duration_ms=duration_ms,
+            request_id=request_id,
         )
     elif status < 400:
         log_event(
@@ -117,6 +138,7 @@ async def log_request(
             path=path,
             status_code=status,
             duration_ms=duration_ms,
+            request_id=request_id,
         )
     return response
 
@@ -124,3 +146,17 @@ async def log_request(
 @app.get("/health")
 async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/ready")
+async def readiness() -> JSONResponse:
+    """Readiness checks dependencies without exposing connection details."""
+    try:
+        async with asyncio.timeout(3):
+            async with async_session_factory() as session:
+                # Also reject an instance started before its required migration.
+                await (await session.connection()).execute(text("SELECT id FROM collab_outbox LIMIT 0"))
+            await get_collab_store().room_members("readiness")
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+    return JSONResponse({"status": "ok"})

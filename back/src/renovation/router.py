@@ -23,8 +23,8 @@ from src.auth.service import CurrentUserIdentity
 from src.collab.events import publish_cell_changed, publish_rows_changed
 from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE
+from src.collab.persistence import JournalStore
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
-from src.collab.store import get_collab_store
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.database import get_session
 from src.downloads import XLSX_MEDIA_TYPE, attachment_response
@@ -96,7 +96,7 @@ from src.renovation.service import (
 
 router = APIRouter(prefix="/renovation", tags=["renovation"])
 
-SessionDependency = Annotated[AsyncSession, Depends(get_session)]
+SessionDependency = Annotated[AsyncSession, Depends(get_session, scope="function")]
 IdentityDependency = Annotated[CurrentUserIdentity, Depends(read_signed_identity)]
 
 RENOVATION_SECTION = "renovationPlan"
@@ -252,7 +252,7 @@ async def patch_renovation_plan(
         for cell in calculated
     )
     await publish_cell_changed(
-        get_collab_store(),
+        JournalStore(session),
         project_key=RENOVATION_PROJECT_KEY,
         section=RENOVATION_SECTION,
         report_month=None,
@@ -282,7 +282,7 @@ async def post_renovation_row(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    await _publish_rows_changed(access)
+    await _publish_rows_changed(session, access)
     return row
 
 
@@ -310,7 +310,7 @@ async def patch_renovation_row_asset(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    await _publish_rows_changed(access)
+    await _publish_rows_changed(session, access)
     return row
 
 
@@ -329,7 +329,7 @@ async def delete_renovation_row(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except RenovationPlanStateError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
-    await _publish_rows_changed(access)
+    await _publish_rows_changed(session, access)
 
 
 @router.get("/plan/diff", response_model=RenovationDiffRead)
@@ -340,7 +340,7 @@ async def get_renovation_diff(
 ) -> RenovationDiffRead:
     """Cell diff of an archived version vs the previous archived version."""
     try:
-        return await read_plan_diff(session, plan_id=plan_id)
+        return await read_plan_diff(session, plan_id=plan_id, assets=_access.assets)
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except RenovationPlanStateError as error:
@@ -422,7 +422,7 @@ async def post_renovation_submit(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    await _publish_rows_changed(access)
+    await _publish_rows_changed(session, access)
     return await _version_read(session, plan)
 
 
@@ -438,7 +438,7 @@ async def post_renovation_approve(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    await _publish_rows_changed(access)
+    await _publish_rows_changed(session, access)
     return RenovationApproveRead(
         archived=await _version_read(session, archived),
         working=await _version_read(session, working),
@@ -483,7 +483,7 @@ async def post_renovation_asset(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     if session_id:
         await record_cell_updates(
-            get_collab_store(),
+            JournalStore(session),
             user_id=access.user.id,
             user_name=access.user.name or "",
             project_key=RENOVATION_PROJECT_KEY,
@@ -528,18 +528,8 @@ async def patch_renovation_asset(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    await publish_cell_changed(
-        get_collab_store(),
-        project_key=RENOVATION_PROJECT_KEY,
-        section=RENOVATION_ASSETS_SECTION,
-        report_month=None,
-        user_id=access.user.id,
-        user_name=access.user.name or "",
-        user_email=access.user.email or "",
-        cells=applied,
-    )
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=access.user.id,
         user_name=access.user.name or "",
         project_key=RENOVATION_PROJECT_KEY,
@@ -547,6 +537,16 @@ async def patch_renovation_asset(
         report_month=None,
         session_id=session_id,
         applied=applied,
+    )
+    await publish_cell_changed(
+        JournalStore(session),
+        project_key=RENOVATION_PROJECT_KEY,
+        section=RENOVATION_ASSETS_SECTION,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+        cells=applied,
     )
     return (await read_renovation_asset_rows(session, asset_id=updated.id))[0]
 
@@ -566,7 +566,7 @@ async def delete_renovation_asset_endpoint(
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=access.user.id,
         user_name=access.user.name or "",
         project_key=RENOVATION_PROJECT_KEY,
@@ -611,7 +611,7 @@ async def post_renovation_catalog_option(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     if session_id:
         await record_cell_updates(
-            get_collab_store(),
+            JournalStore(session),
             user_id=access.user.id,
             user_name=access.user.name or "",
             project_key=RENOVATION_PROJECT_KEY,
@@ -663,18 +663,8 @@ async def patch_renovation_catalog_option(
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     section = _catalog_section(catalog)
-    await publish_cell_changed(
-        get_collab_store(),
-        project_key=RENOVATION_PROJECT_KEY,
-        section=section,
-        report_month=None,
-        user_id=access.user.id,
-        user_name=access.user.name or "",
-        user_email=access.user.email or "",
-        cells=applied,
-    )
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=access.user.id,
         user_name=access.user.name or "",
         project_key=RENOVATION_PROJECT_KEY,
@@ -682,6 +672,16 @@ async def patch_renovation_catalog_option(
         report_month=None,
         session_id=session_id,
         applied=applied,
+    )
+    await publish_cell_changed(
+        JournalStore(session),
+        project_key=RENOVATION_PROJECT_KEY,
+        section=section,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+        cells=applied,
     )
     return (await read_renovation_catalog_rows(session, catalog=catalog, option_id=updated.id))[0]
 
@@ -702,7 +702,7 @@ async def delete_renovation_catalog_option_endpoint(
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=access.user.id,
         user_name=access.user.name or "",
         project_key=RENOVATION_PROJECT_KEY,
@@ -776,18 +776,8 @@ async def patch_renovation_user(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    await publish_cell_changed(
-        get_collab_store(),
-        project_key=RENOVATION_PROJECT_KEY,
-        section=RENOVATION_USERS_SECTION,
-        report_month=None,
-        user_id=access.user.id,
-        user_name=access.user.name or "",
-        user_email=access.user.email or "",
-        cells=applied,
-    )
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=access.user.id,
         user_name=access.user.name or "",
         project_key=RENOVATION_PROJECT_KEY,
@@ -795,6 +785,16 @@ async def patch_renovation_user(
         report_month=None,
         session_id=session_id,
         applied=applied,
+    )
+    await publish_cell_changed(
+        JournalStore(session),
+        project_key=RENOVATION_PROJECT_KEY,
+        section=RENOVATION_USERS_SECTION,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+        cells=applied,
     )
     return (await read_renovation_user_rows(session, user_id=user_id))[0]
 
@@ -842,9 +842,9 @@ async def _renovation_project_id_or_error(session: AsyncSession) -> UUID:
     return project_id
 
 
-async def _publish_rows_changed(access: RenovationAccess) -> None:
+async def _publish_rows_changed(session: AsyncSession, access: RenovationAccess) -> None:
     await publish_rows_changed(
-        get_collab_store(),
+        JournalStore(session),
         project_key=RENOVATION_PROJECT_KEY,
         section=RENOVATION_SECTION,
         report_month=None,
@@ -874,6 +874,7 @@ async def _version_read(session: AsyncSession, plan: RenovationPlan) -> Renovati
 
 @router.get("/undo-state", response_model=UndoStateRead)
 async def undo_state_cells(
+    session: SessionDependency,
     access: AccessDependency,
     session_id: str,
     section: str = RENOVATION_SECTION,
@@ -881,7 +882,7 @@ async def undo_state_cells(
 ) -> UndoStateRead:
     """Undo/redo availability from the user's session action stack on the plan."""
     scope = f"{section}/{report_month or ''}"
-    can_undo, can_redo = await get_collab_store().undo_state(str(access.user.id), session_id, scope)
+    can_undo, can_redo = await JournalStore(session).undo_state(str(access.user.id), session_id, scope)
     return UndoStateRead(canUndo=can_undo > 0, canRedo=can_redo > 0)
 
 
@@ -899,12 +900,13 @@ async def undo_cells(
     outcome = await undo_last_edit(
         session,
         user=access.user,
-        store=get_collab_store(),
+        store=JournalStore(session),
+        project_key=RENOVATION_PROJECT_KEY,
         scope=scope,
         session_id=session_id,
         skip_action_id=request.skipActionId if request is not None else None,
     )
-    return await _undo_response(outcome, access)
+    return await _undo_response(session, outcome, access)
 
 
 @router.post("/redo", response_model=UndoResponse)
@@ -921,15 +923,16 @@ async def redo_cells(
     outcome = await redo_last_undo(
         session,
         user=access.user,
-        store=get_collab_store(),
+        store=JournalStore(session),
+        project_key=RENOVATION_PROJECT_KEY,
         scope=scope,
         session_id=session_id,
         skip_action_id=request.skipActionId if request is not None else None,
     )
-    return await _undo_response(outcome, access)
+    return await _undo_response(session, outcome, access)
 
 
-async def _undo_response(outcome: UndoOutcome, access: RenovationAccess) -> UndoResponse:
+async def _undo_response(session: AsyncSession, outcome: UndoOutcome, access: RenovationAccess) -> UndoResponse:
     if not outcome.applied:
         conflict = outcome.conflict
         return UndoResponse(
@@ -950,10 +953,13 @@ async def _undo_response(outcome: UndoOutcome, access: RenovationAccess) -> Undo
             ),
         )
     cells = outcome.applied_cells
+    if outcome.section == RENOVATION_SECTION:
+        # Undo recalculates dependent fields as well as the edited field.
+        await _publish_rows_changed(session, access)
     if not cells:
         return UndoResponse(applied=True, reason="applied", section=outcome.section, reportMonth=outcome.report_month)
     await publish_cell_changed(
-        get_collab_store(),
+        JournalStore(session),
         project_key=outcome.project_key,
         section=outcome.section,
         report_month=outcome.report_month.isoformat() if outcome.report_month is not None else None,

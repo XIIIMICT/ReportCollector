@@ -106,6 +106,56 @@ end
 return #keep
 """
 
+# A room key TTL only bounds garbage collection. Each member must expire
+# independently: an active user's heartbeat must not keep idle users online.
+_PRESENCE_SCRIPT = """
+local clock = redis.call('TIME')
+local now = tonumber(clock[1]) + tonumber(clock[2]) / 1000000
+local action = ARGV[1]
+local ttl = tonumber(ARGV[3])
+if action == 'leave' then
+    local raw = redis.call('HGET', KEYS[1], ARGV[2])
+    if not raw then return 0 end
+    local member = cjson.decode(raw)
+    if member.payload and member.payload.clientId == ARGV[4] then
+        return redis.call('HDEL', KEYS[1], ARGV[2])
+    end
+    return 0
+end
+if action == 'join' then
+    redis.call('HSET', KEYS[1], ARGV[2], cjson.encode({
+        payload = cjson.decode(ARGV[4]), expiresAt = now + ttl
+    }))
+    redis.call('EXPIRE', KEYS[1], ttl)
+    return 1
+end
+if action == 'refresh' then
+    local raw = redis.call('HGET', KEYS[1], ARGV[2])
+    if not raw then return 0 end
+    local member = cjson.decode(raw)
+    if not member.expiresAt or member.expiresAt <= now then
+        redis.call('HDEL', KEYS[1], ARGV[2])
+        return 0
+    end
+    member.expiresAt = now + ttl
+    redis.call('HSET', KEYS[1], ARGV[2], cjson.encode(member))
+    redis.call('EXPIRE', KEYS[1], ttl)
+    return 1
+end
+local members = redis.call('HGETALL', KEYS[1])
+local result = {}
+for i = 1, #members, 2 do
+    local member = cjson.decode(members[i + 1])
+    if member.expiresAt and member.expiresAt > now then
+        table.insert(result, members[i])
+        table.insert(result, cjson.encode(member.payload))
+    else
+        redis.call('HDEL', KEYS[1], members[i])
+    end
+end
+return result
+"""
+
 
 class ValkeyStore:
     """
@@ -151,6 +201,11 @@ class ValkeyStore:
         raw = await self._redis.get(key)
         return _decode(raw) if raw else None
 
+    async def get_leases(self, keys: list[str]) -> list[dict | None]:
+        if not keys:
+            return []
+        return [_decode(raw) if raw else None for raw in await self._redis.mget(keys)]
+
     async def any_active_lease(self, keys: list[str]) -> dict | None:
         """Owner of the first busy cell among the given ones (None — all free)."""
         if not keys:
@@ -171,7 +226,7 @@ class ValkeyStore:
         """Prepends actions to the session's form stack (front elements are the freshest)."""
         key = undo_stack_key(user_id, session_id, scope)
         pipe = self._redis.pipeline(transaction=True)
-        pipe.lpush(key, *[_encode(action) for action in actions])
+        pipe.lpush(key, *[_encode(action) for action in reversed(actions)])
         pipe.ltrim(key, 0, UNDO_LIMIT - 1)
         await pipe.execute()
 
@@ -197,6 +252,7 @@ class ValkeyStore:
         key = undo_stack_key(user_id, session_id, scope)
         if undone:
             items = await self._redis.lrange(key, -UNDO_SCAN_LIMIT, -1)
+            items.reverse()
         else:
             items = await self._redis.lrange(key, 0, UNDO_SCAN_LIMIT - 1)
         for action in map(_decode, items):
@@ -276,16 +332,22 @@ class ValkeyStore:
 
     async def get_cell_state(self, cell_key: str) -> dict | None:
         raw = await self._redis.hgetall(cell_state_key(cell_key))
-        return raw or None
+        if raw:
+            return {**raw, "revision": int(raw["revision"])}
+        return None
 
     # ─── Room presence ───────────────────────────────────────────────────────
 
     async def room_join(self, room: str, user_id: str, payload: dict) -> None:
-        await self._redis.hset(room_presence_key(room), user_id, _encode(payload))
-        await self._redis.expire(room_presence_key(room), PRESENCE_TTL_SECONDS)
+        await self._redis.eval(
+            _PRESENCE_SCRIPT, 1, room_presence_key(room), "join", user_id, PRESENCE_TTL_SECONDS, _encode(payload)
+        )
 
-    async def room_leave(self, room: str, user_id: str) -> None:
-        await self._redis.hdel(room_presence_key(room), user_id)
+    async def room_leave(self, room: str, user_id: str, *, client_id: str | None = None) -> None:
+        if client_id is None:
+            await self._redis.hdel(room_presence_key(room), user_id)
+        else:
+            await self._redis.eval(_PRESENCE_SCRIPT, 1, room_presence_key(room), "leave", user_id, 0, client_id)
 
     async def refresh_presence(self, room: str, user_id: str) -> bool:
         """
@@ -294,26 +356,28 @@ class ValkeyStore:
         False — the member is no longer in the room (presence expired while
         they were idle): the caller may re-add them to the room.
         """
-        key = room_presence_key(room)
-        if await self._redis.hget(key, user_id) is None:
-            return False
-        await self._redis.expire(key, PRESENCE_TTL_SECONDS)
-        return True
+        return bool(
+            await self._redis.eval(
+                _PRESENCE_SCRIPT, 1, room_presence_key(room), "refresh", user_id, PRESENCE_TTL_SECONDS
+            )
+        )
 
     async def room_members(self, room: str) -> dict[str, dict]:
-        raw = await self._redis.hgetall(room_presence_key(room))
-        return {_as_str(user_id): _decode(value) for user_id, value in raw.items()}
+        raw = await self._redis.eval(_PRESENCE_SCRIPT, 1, room_presence_key(room), "members", "", PRESENCE_TTL_SECONDS)
+        return {_as_str(raw[index]): _decode(raw[index + 1]) for index in range(0, len(raw), 2)}
 
     # ─── Event fan-out ───────────────────────────────────────────────────────
 
     async def publish(self, room: str, message: dict) -> None:
         await self._redis.publish(room_channel(room), _encode(message))
 
-    async def subscribe(self, room: str) -> AsyncIterator[dict]:
+    async def subscribe(self, room: str, *, ready: asyncio.Event | None = None) -> AsyncIterator[dict]:
         pubsub = self._redis.pubsub()
         await pubsub.subscribe(room_channel(room))
         try:
             async for message in pubsub.listen():
+                if message.get("type") == "subscribe" and ready is not None:
+                    ready.set()
                 if message.get("type") != "message":
                     continue
                 yield _decode(message["data"])
@@ -368,6 +432,9 @@ class MemoryStore:
             if current is None or current[1] <= time.monotonic():
                 return None
             return current[0]
+
+    async def get_leases(self, keys: list[str]) -> list[dict | None]:
+        return [await self.get_lease(key) for key in keys]
 
     async def any_active_lease(self, keys: list[str]) -> dict | None:
         """Owner of the first busy cell among the given ones (None — all free)."""
@@ -481,9 +548,12 @@ class MemoryStore:
             room_members = self._presence.setdefault(room, {})
             room_members[user_id] = (payload, time.monotonic() + PRESENCE_TTL_SECONDS)
 
-    async def room_leave(self, room: str, user_id: str) -> None:
+    async def room_leave(self, room: str, user_id: str, *, client_id: str | None = None) -> None:
         async with self._lock:
-            self._presence.get(room, {}).pop(user_id, None)
+            members = self._presence.get(room, {})
+            current = members.get(user_id)
+            if client_id is None or (current and current[0].get("clientId") == client_id):
+                members.pop(user_id, None)
 
     async def presence_expires_at(self, room: str, user_id: str) -> float | None:
         """Presence expiration moment of a member (for heartbeat tests)."""
@@ -513,13 +583,18 @@ class MemoryStore:
         async with self._lock:
             for subscriber in self._subscribers.get(room, set()):
                 if subscriber.full():
+                    while not subscriber.empty():
+                        subscriber.get_nowait()
+                    subscriber.put_nowait({"type": "transport:resync"})
                     continue
                 subscriber.put_nowait(message)
 
-    async def subscribe(self, room: str) -> AsyncIterator[dict]:
+    async def subscribe(self, room: str, *, ready: asyncio.Event | None = None) -> AsyncIterator[dict]:
         queue: asyncio.Queue = asyncio.Queue(maxsize=256)
         async with self._lock:
             self._subscribers.setdefault(room, set()).add(queue)
+        if ready is not None:
+            ready.set()
         try:
             while True:
                 yield await queue.get()
