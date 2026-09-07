@@ -138,14 +138,24 @@ export function encodeSession(session: AuthSession): string {
 }
 
 export function decodeSession(value: string): AuthSession | null {
-    const [payload, signature] = value.split(".");
-    if (!payload || !signature || !verifySignature(payload, signature)) {
+    const [payload, signature, extra] = value.split(".");
+    if (!payload || !signature || extra !== undefined || !verifySignature(payload, signature)) {
         return null;
     }
 
     try {
         const session = JSON.parse(decodeBase64Url(payload).toString("utf8")) as AuthSession;
-        if (session.expiresAt <= Date.now()) {
+        if (
+            !session ||
+            typeof session !== "object" ||
+            typeof session.expiresAt !== "number" ||
+            !Number.isFinite(session.expiresAt) ||
+            session.expiresAt <= Date.now() ||
+            typeof session.sub !== "string" ||
+            !session.sub ||
+            typeof session.issuer !== "string" ||
+            !session.issuer
+        ) {
             return null;
         }
 

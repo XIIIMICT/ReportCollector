@@ -1327,6 +1327,7 @@ export function RawMaterialsWorkspace({
         [meta],
     );
     const [remoteCellValues, setRemoteCellValues] = useState<Map<string, unknown>>(new Map());
+    const [collabGeneration, setCollabGeneration] = useState(0);
     const handleCellChanged = useCallback((event: CollabCellChanged) => {
         const table = SECTION_COLLAB_TABLE[event.section as SectionId];
         if (!table) return;
@@ -1357,6 +1358,10 @@ export function RawMaterialsWorkspace({
                 ? visibleAssetNames
                 : null,
         onCellChanged: handleCellChanged,
+        onReconnect: () => {
+            setRemoteCellValues(new Map());
+            setCollabGeneration((generation) => generation + 1);
+        },
         onSelectionPreempted: () => {
             setSelectionLabel(null);
             selectionPreemptRef.current();
@@ -1557,6 +1562,7 @@ export function RawMaterialsWorkspace({
                         <Card.Content className="workspace-card__content">
                             {toolbar}
                             <SectionContent
+                                key={collabGeneration}
                                 section={selectedTab.section}
                                 reportMonth={selectedTab.reportMonth}
                                 isAdmin={isAdmin}

@@ -17,4 +17,18 @@ Object.defineProperties(globalThis, {
     },
     matchMedia: { configurable: true, value: domWindow.matchMedia.bind(domWindow), writable: true },
     MutationObserver: { configurable: true, value: domWindow.MutationObserver, writable: true },
+    Element: { configurable: true, value: domWindow.Element, writable: true },
+    Node: { configurable: true, value: domWindow.Node, writable: true },
+    SVGElement: { configurable: true, value: domWindow.SVGElement, writable: true },
+    ResizeObserver: { configurable: true, value: domWindow.ResizeObserver, writable: true },
+    requestAnimationFrame: {
+        configurable: true,
+        value: domWindow.requestAnimationFrame.bind(domWindow),
+        writable: true,
+    },
+    cancelAnimationFrame: {
+        configurable: true,
+        value: domWindow.cancelAnimationFrame.bind(domWindow),
+        writable: true,
+    },
 });

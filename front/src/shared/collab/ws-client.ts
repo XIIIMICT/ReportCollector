@@ -35,6 +35,8 @@ export type CollabRowsChanged = {
 };
 
 export type CollabHandlers = {
+    /** The connection was restored; refetch authoritative data after the gap. */
+    onReconnect?: () => void;
     onHello?: (me: CollabUser, members: CollabMember[]) => void;
     onMembers?: (members: CollabMember[]) => void;
     onCellLocked?: (key: string, user: CollabUser) => void;
@@ -132,6 +134,7 @@ export class CollabWsClient {
     private away = false;
     private lastSelection: Record<string, unknown> | null = null;
     private meUserId: string | null = null;
+    private receivedHello = false;
     private readonly activityDetach: Array<() => void> = [];
 
     constructor(
@@ -179,6 +182,7 @@ export class CollabWsClient {
                 throw new Error(`Тикет не получен: ${response.status}.`);
             }
             const payload = (await response.json()) as { ticket: string; wsUrl?: string };
+            if (this.closed) return;
             const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
             const query = new URLSearchParams({
                 project: this.room.projectKey,
@@ -215,8 +219,11 @@ export class CollabWsClient {
         } catch {
             return;
         }
+        if (!message || typeof message !== "object") return;
         switch (message.type) {
             case "hello":
+                if (this.receivedHello) this.handlers.onReconnect?.();
+                this.receivedHello = true;
                 this.meUserId = (message.user as CollabUser | undefined)?.userId ?? null;
                 this.handlers.onHello?.(message.user as CollabUser, toMembers(message.members));
                 break;
@@ -230,6 +237,7 @@ export class CollabWsClient {
                     : null;
                 if (
                     mine &&
+                    mine.sessionId !== this.sessionId &&
                     this.lastSelection !== null &&
                     !sameSelection(this.lastSelection, mine.selection)
                 ) {

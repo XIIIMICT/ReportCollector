@@ -127,4 +127,23 @@ describe("extractEdits (range paste)", () => {
         );
         expect(result.updates).toEqual([{ rowId: "row-1", field: "quantity", value: "7" }]);
     });
+
+    test("single-cell afteredit with a source snapshot still produces an update", () => {
+        const model = row("row-1");
+        const result = extractEdits(
+            { model, prop: "quantity", val: "7", data: [model, row("row-2")] },
+            new Set(["quantity"]),
+            descriptorByKey,
+        );
+        expect(result.updates).toEqual([{ rowId: "row-1", field: "quantity", value: "7" }]);
+    });
+
+    test("range patches use the supplied visible row order", () => {
+        const result = extractEdits(
+            { data: { 0: { quantity: "42" } }, models: [row("row-2"), row("row-1")] },
+            new Set(["quantity"]),
+            descriptorByKey,
+        );
+        expect(result.updates).toEqual([{ rowId: "row-2", field: "quantity", value: "42" }]);
+    });
 });

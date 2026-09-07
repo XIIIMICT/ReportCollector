@@ -1,30 +1,20 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const APP_ORIGIN = "http://127.0.0.1:5000";
-const KEYCLOAK_AUTH = /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/;
+import { loginAsLocalUser } from "./helpers/auth";
 
-/** Open the «На форме» tooltip: park the mouse above the bar, then move to the
-    dot center (a single move, so the pointer enters the tiny trigger). */
-async function hoverCollabBar(page: Page) {
-    const trigger = page.locator(".form-status");
-    await expect(trigger).toBeVisible({ timeout: 15000 });
-    const box = await trigger.boundingBox();
-    if (!box) throw new Error("form-status trigger has no bounding box");
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 80);
-    await page.waitForTimeout(150);
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-}
+const APP_ORIGIN = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5000";
 
-async function loginAs(page: Page, username: string, password: string) {
+async function loginAs(page: Page, username: string, _password: string) {
     // Deep-link into the raw-materials project: the scenario is about the
     // asset-scoped presence on its «Движение» form. The Keycloak callback
     // lands on the preferred project, so navigate again after the login.
-    await page.goto(APP_ORIGIN + "/raw-materials", { waitUntil: "domcontentloaded" });
-    await page.waitForURL(KEYCLOAK_AUTH, { timeout: 20000 });
-    await page.locator("#username").fill(username);
-    await page.locator("#password").fill(password);
-    await page.locator('button[type="submit"]').click();
-    await page.waitForURL(new RegExp(APP_ORIGIN.replace(".", "\\.")), { timeout: 20000 });
+    const emails: Record<string, string> = {
+        evtushenko: "evtushenko.sn@ruschem.ru",
+        smirnov: "smirnov.iv@ruschem.ru",
+        petrov: "petrov.da@ruschem.ru",
+        lebedeva: "lebedeva.ol@ruschem.ru",
+    };
+    await loginAsLocalUser(page, { email: emails[username], password: "TestPassword123" });
     await page.goto(APP_ORIGIN + "/raw-materials", { waitUntil: "domcontentloaded" });
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 30000 });
 }
@@ -94,50 +84,19 @@ test.describe("collab: совместное редактирование", () =>
         await loginAs(pageB, "smirnov", "smirnov");
         await loginAs(pageC, "evtushenko", "TestPassword123");
 
-        // At lg the «На форме: …» line is visible inline next to the dot (last
-        // names only); full FIO and ranges live in the Tooltip opened on hover.
-        // locator.hover() can miss the small trigger, so aim with an explicit
-        // mouse.move instead.
-        await expect(pageA.locator(".form-status__presence b")).toHaveText("На форме:", {
-            timeout: 15000,
-        });
-        await expect(pageA.locator(".form-status__presence")).toContainText("вы");
-        // Presence heartbeats re-render the bar and can close a just-opened
-        // tooltip: re-hover until it renders, then read its text once.
-        const readTooltip = async (page: Page): Promise<string> => {
-            await hoverCollabBar(page);
-            await page.waitForTimeout(700);
-            const tooltip = page.locator(".form-status-tooltip");
-            return (await tooltip.count()) > 0 ? ((await tooltip.textContent()) ?? "") : "";
-        };
-
-        // Лебедева (только ВОС) на «Движении» видит администратора (Евтушенко)
-        // и себя — но не Смирнова (СНХЗ).
-        let tooltipA = "";
-        for (let attempt = 0; attempt < 10 && !tooltipA.includes("Евтушенко"); attempt += 1) {
-            tooltipA = await readTooltip(pageA);
-        }
-        expect(tooltipA).toContain("Евтушенко");
-        expect(tooltipA).toContain("Лебедева");
-        expect(tooltipA).not.toContain("Смирнов");
-
-        // Смирнов (СНХЗ) видит Евтушенко и себя — но не Лебедеву (ВОС).
-        let tooltipB = "";
-        for (let attempt = 0; attempt < 10 && !tooltipB.includes("Евтушенко"); attempt += 1) {
-            tooltipB = await readTooltip(pageB);
-        }
-        expect(tooltipB).toContain("Евтушенко");
-        expect(tooltipB).toContain("Смирнов");
-        expect(tooltipB).not.toContain("Лебедева");
-
-        // Администратор видит всех.
-        let tooltipC = "";
-        for (let attempt = 0; attempt < 10 && !tooltipC.includes("Смирнов"); attempt += 1) {
-            tooltipC = await readTooltip(pageC);
-        }
-        expect(tooltipC).toContain("Евтушенко");
-        expect(tooltipC).toContain("Смирнов");
-        expect(tooltipC).toContain("Лебедева");
+        // Assert the actual presence list, independent of tooltip hover timing.
+        const presenceA = pageA.locator(".form-status__presence");
+        const presenceB = pageB.locator(".form-status__presence");
+        const presenceC = pageC.locator(".form-status__presence");
+        await expect(presenceC).toContainText("Смирнов");
+        await expect(presenceC).toContainText("Лебедева");
+        await expect(presenceA).toContainText("Евтушенко");
+        await expect(presenceB).toContainText("Евтушенко");
+        await expect(presenceA).not.toContainText("Смирнов");
+        await expect(presenceB).not.toContainText("Лебедева");
+        await expect(presenceA).toContainText("вы");
+        await expect(presenceB).toContainText("вы");
+        await expect(presenceC).toContainText("вы");
 
         await ctxA.close();
         await ctxB.close();
@@ -223,12 +182,13 @@ test.describe("collab: совместное редактирование", () =>
         await loginAs(pageA, "smirnov", "smirnov");
         await loginAs(pageB, "smirnov", "smirnov");
 
-        const cellA = () => pageA.locator("revogr-data .rgCell:not(.report-row-header)").first();
-        const cellB = (index: number) =>
-            pageB.locator("revogr-data .rgCell:not(.report-row-header)").nth(index);
+        await expect(pageA.locator(".form-status__dot--online")).toBeVisible();
+        await expect(pageB.locator(".form-status__dot--online")).toBeVisible();
+        const cellA = await gridCellByProp(pageA, "demandPlanTons", 0);
+        const cellB = await gridCellByProp(pageB, "demandPlanTons", 1);
 
         // 1. Вкладка A выделяет ячейку — в её футере появляется «Выделено».
-        await cellA().click();
+        await cellA.click();
         await expect(pageA.locator(".form-status__selection")).toContainText("Выделено:", {
             timeout: 15000,
         });
@@ -236,14 +196,14 @@ test.describe("collab: совместное редактирование", () =>
         // 2. Вкладка B выделяет другую ячейку: выделение переходит к B,
         //    у A локальное выделение сбрасывается — строка «Выделено» скрывается
         //    (блок «На форме» при этом остаётся).
-        await cellB(1).click();
+        await cellB.click();
         await expect(pageB.locator(".form-status__selection")).toContainText("Выделено:", {
             timeout: 15000,
         });
         await expect(pageA.locator(".form-status__selection")).toHaveCount(0, { timeout: 15000 });
 
         // 3. Обратно: A выделяет — сбрасывается у B.
-        await pageA.locator("revogr-data .rgCell:not(.report-row-header)").nth(2).click();
+        await cellA.click();
         await expect(pageA.locator(".form-status__selection")).toContainText("Выделено:", {
             timeout: 15000,
         });
