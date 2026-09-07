@@ -11,7 +11,7 @@ Browser ── https://<host> ──► nginx (outside Docker, on prod)
                               (HTTPS + WSS terminated in nginx)
 front ── BACKEND_INTERNAL_URL ──► back (/api/*, server-side, signed headers)
 back  ── Postgres (asyncpg, schema from POSTGRES_SCHEMA)
-     ── Valkey/Redis (leases, presence, undo stacks, pub/sub; VALKEY_URL empty → in-memory)
+     ── Valkey/Redis (leases, presence, pub/sub; VALKEY_URL empty → in-memory)
      ── Loki ← Alloy (logs; Grafana for viewing)
 Keycloak ── OIDC (login; local container or corporate)
 ```
@@ -45,8 +45,10 @@ Optional/derived:
 - `NEXT_PUBLIC_URL` — **alias of `AUTH_APP_ORIGIN`**, derived automatically in compose, don't set manually.
 - `COLLAB_WS_PUBLIC_URL` — empty = the browser connects to its own origin (`/api/ws/` via nginx); set only for a separate WS host (dev without nginx: `ws://127.0.0.1:8000`).
 - `AUTH_SESSION_MAX_AGE_SECONDS` — session lifetime, default 43200 (12h), **independent of the short Keycloak ID-token TTL** (otherwise "not authorized").
+- Session cookies require a valid HMAC, exactly two token segments, nonempty subject/issuer and a finite unexpired numeric timestamp; malformed signed payloads are rejected too.
 - `AUTH_SEED_ADMIN_EMAIL` + `AUTH_SEED_ADMIN_PASSWORD` — seed admin (password = hash for local login; the email activates on first Keycloak login).
-- Docker build: SSL verification when downloading dependencies is disabled unconditionally (`UV_INSECURE_HOST` / `NODE_TLS_REJECT_UNAUTHORIZED=0`) — for servers behind a corporate proxy.
+- Corporate-proxy compatibility is retained: backend dependency downloads allow insecure `pypi.org`/`files.pythonhosted.org`; frontend Bun build/dev stages use `NODE_TLS_REJECT_UNAUTHORIZED=0`. This is an explicit certificate-verification exception, not a security best practice. It is not inherited by the Node production runtime. Prefer a trusted corporate CA when available; do not remove the existing workaround without testing downloads behind the proxy.
+- Database migrations run from the release checkout on the host/CI with uv, not inside runtime images. See `docs/WORKFLOW.md` for the one-time guarded adoption of `0001_baseline` by existing installations.
 
 ## Data model (project «Сырьё», key `raw_materials`)
 
@@ -61,7 +63,7 @@ Domain — `back/src/raw_materials/models.py` (prefix `rm_`):
 - `rm_raw_material_prices` — «Цены» cells (unique by `asset_raw_material_id`); `business_plan_*` — business plan 2026 + service `business_plan_updated_at/by`.
 - `rm_report_snapshots` + `rm_snapshot_material_movements` — archive of fixed «Движение» versions (immutable value copies, no FKs to working tables; one snapshot per month: preliminary overwritten, final immutable).
 
-**Canonical cell key** (`back/src/collab/models.py::canonical_key`) — `{table}/{row_id}/{field}` (e.g. `rm_material_movements/{uuid}/demand_plan_tons`); it's also the lease/presence key (`rc:lease:{project}:{key}`, `rc:cellstate:{key}`).
+**Canonical cell key** (`back/src/collab/models.py::canonical_key`) — `{table}/{row_id}/{field}` (e.g. `rm_material_movements/{uuid}/demandPlanTons`); it's also the lease/presence key (`rc:lease:{project}:{key}`, PostgreSQL `collab_cell_states.key`).
 
 ### Form semantics
 
@@ -92,7 +94,7 @@ Project URLs — `/raw-materials`, `/renovation`, `/kppk` (root redirects to the
   - Fixing: `POST /movement/fix` (admin) — see "Landmines" in AGENTS.md.
   - `POST /export` — Excel (openpyxl): whole/visible selection, for «Движение» — archive versions.
 - `ws`: `WS /ws/raw-materials` — collaboration (see `docs/COLLAB.md`).
-- Service: `GET /health` (healthcheck), rate-limit and log middlewares in `back/src/main.py`.
+- Service: `GET /health` (process liveness), `GET /ready` (PostgreSQL/Valkey readiness, including the required outbox migration), rate-limit and log middlewares in `back/src/main.py`. HTTP responses carry `X-Request-ID`, also recorded in structured request logs. Uvicorn access/handshake logs redact credential query parameters (`ticket`, `access_token`, `token`); the external reverse proxy must apply its own redaction policy.
 
 Errors: `CellValidationError` → 422, `DictionaryReferenceError` → 409, `ValueError` (not found) → 404, no access → 403. Clear Russian `detail` messages — the front shows them via `readApiDetail` (`front/src/shared/api/raw-materials.ts`).
 
@@ -103,3 +105,9 @@ Errors: `CellValidationError` → 422, `DictionaryReferenceError` → 409, `Valu
 ## Deployment (prod)
 
 nginx is **not in Docker**, config `/etc/nginx/conf.d/reportcollector.conf`: `location /` → front `127.0.0.1:5000`; `location /api/ws/` → back `127.0.0.1:8000` with `Upgrade`/`Connection "Upgrade"` and large timeouts (`proxy_read_timeout 86400s`). HTTPS/WSS terminated by nginx (cert in SAN). Prod address: `https://m2v-form-1.h2-group.ru`. Details and WS diagnostics — `docs/COLLAB.md`, "Deployment and diagnostics" section.
+
+## Transactional collaboration
+
+PostgreSQL stores business data, `collab_edit_stacks`, `collab_cell_states` and `collab_outbox` in one transaction. The outbox retries Valkey publication after commit. SQL sessions are request-scoped, not WebSocket-scoped; HTTP mutation dependencies commit before response delivery. See `COLLAB.md` for locks and recovery behavior.
+
+Renovation approval copies the plan with PostgreSQL INSERT SELECT rather than constructing all rows in Python. Submission deletes empty draft rows with SQL predicates. Cell edits batch-load affected rows and serialize updates of the same row to preserve derived calculations. No load-test latency or capacity certification is implied; the planning target is 50 concurrent users across projects.

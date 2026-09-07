@@ -2,6 +2,8 @@
 
 ## Environment
 
+Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 for the production frontend runtime.
+
 1. Copy the config: `cp .env.example .env` (root — single source). To run the front on the host additionally `cp .env.example front/.env.local`.
 2. Dependencies: `just deps` (`uv sync --directory back` + `bun install --cwd front`).
 3. DB and services: `just db` (postgres+valkey), Keycloak if needed — `just keycloak`.
@@ -26,7 +28,8 @@ Aggregators: `just lint`, `just typecheck`, `just test`, `just e2e`.
 
 - `ruff` with rule `ALL` and explicit exclusions (see `back/pyproject.toml`; Cyrillic `RUF001-003` allowed, docstrings optional, camelCase schema fields `N815` allowed).
 - `ty check` — static type checker (not mypy!). Type errors are a red flag.
-- `pytest`: `asyncio_mode=auto`, `filterwarnings=error`. **Postgres required**: `back/tests/conftest.py` sets defaults (`postgres/strong_password@localhost:5432/dwh`, schema `rc_test` recreated per test; `VALKEY_URL=""` → MemoryStore for collab). Env can be overridden (`TEST_DATABASE_URL`, `TEST_SCHEMA`).
+- `pytest`: `asyncio_mode=auto`, `filterwarnings=error`. **Postgres required**: defaults are `postgres/strong_password@localhost:5432/dwh`; a dedicated `rc_test*` schema is recreated through `alembic upgrade head` per test, not `metadata.create_all`. Override `TEST_DATABASE_URL`/`TEST_SCHEMA` for an isolated instance. Production schemas are rejected by the fixture.
+- `TEST_COLLAB_BACKEND=memory` is the local default. For the complete suite on real Valkey, set `TEST_COLLAB_BACKEND=valkey`, `TEST_VALKEY_URL=redis://127.0.0.1:16379/15`, and `TEST_VALKEY_RESET=1`. **DB 15 is flushed before/after each test**: use only the disposable CI Valkey instance, never a shared/dev/production server. The explicit opt-in and `/15` guard prevent accidental use of the application's DB 0. Do not run both store modes concurrently against the same test schema or Valkey database.
 - Test files: `back/tests/` (`test_collab.py`, `test_raw_materials.py`, `test_approval.py`, `test_local_login.py`, `test_auth_scenario.py`, `test_export.py`, `test_config.py`). Fixtures `client` (HTTP, ASGI), `db_session` (clean seed), `signed_identity_headers` — in conftest.
 - Test emails — `@example.ru` (validators reject `.local`/`example.com`).
 
@@ -48,8 +51,44 @@ Tailwind 4 is a hard dependency of HeroUI — `@heroui/styles` is built on it (`
 
 ### e2e (Playwright)
 
-- Requires a running stack (`just prod` or `just dev`) + seed; `E2E_BASE_URL` (default `http://localhost:5000`), `KEYCLOAK_ENABLED=false` (local login — e2e use it). Specs: `front/e2e/` (`auth.spec.ts`, `raw-materials-ui.spec.ts`, `clipboard.spec.ts`, `collab.spec.ts`, `health.spec.ts`, …).
-- **Do not run without the stack** — false failures. The helper probe stand (`front/e2e/probe/`) is removed after debugging.
+Select the authentication environment explicitly: `bun run --cwd front test:e2e --project=smoke` uses local login; `--project=keycloak` runs the existing Keycloak scenarios against a seeded local Keycloak stack on ports 5000/8080. The smoke helper honors `E2E_BASE_URL`. Missing local login is a failure, never a silent skip. Probe files are excluded from discovery and Git.
+
+Both projects require a running stack and seed. `just e2e` selects smoke; its default origin is `http://127.0.0.1:5000`. The smoke project also includes clipboard and collaboration regression tests: login/logout, rejected passwords, anonymous redirects, both workspaces, persisted price/renovation edits, disabled Ctrl+A on renovation, undo/redo, sorted Excel paste, Russian-layout copy, reference validation, two-user lease denial/update propagation, asset-scoped presence and multi-tab selection. Do not run either project against an unprepared stack.
+
+### GitHub Actions
+
+`.github/workflows/ci.yaml` is the single CI entry point (PRs to main/dev, pushes to main/dev, manual runs and reusable release checks). Configure **CI required** as the required branch-protection check. There are no workflow path filters that could leave that check pending.
+
+- Backend: locked dependencies, Ruff lint/format, ty and the **entire pytest suite in a memory/valkey matrix**, with PostgreSQL 18 and Valkey 8. Each matrix job owns its disposable services. XML/JUnit and raw coverage data are uploaded separately. A required coverage job merges both runs and enforces 80% combined statement/branch coverage; neither individual transport run exercises the other implementation. Dedicated cross-connection tests additionally exercise server TTL, pub/sub and lease ownership. Missing Valkey is a CI failure, not a fallback to MemoryStore.
+- Frontend: Bun 1.4, generated Next route types, TypeScript, oxlint, oxfmt and Bun tests with LCOV. Next type generation is required before typecheck in a fresh checkout.
+- Configuration: actionlint with ShellCheck plus semantic Compose validation (including custom `!override` tags).
+- Production: build each image once, load it, migrate PostgreSQL from the host with uv, insert the small seed using `--data-only` (no schema creation), start the same images with two backend workers and run Chromium regressions. The image contains no local Excel workbook. `infra/compose.ci.yaml` never loads the developer's `.env` or log directories; localhost ports are 15000/18000 for front/back and 15432/16379 for PostgreSQL/Valkey. Browsers connect directly to the backend WS port.
+- All jobs have timeouts; reports and container logs are retained for seven days. The stack is removed even on failure.
+- Release tags `vMAJOR.MINOR.PATCH` invoke the same CI on the tagged commit, then publish the tested image archive to GHCR (version and full commit SHA tags). Images are not rebuilt after tests. No automatic server deployment or mutable `latest` tag is performed.
+
+Local reproduction: build with `docker compose -f infra/compose.ci.yaml build`, start `postgres valkey` with `up -d --wait`. For the host migration set `DATABASE_URL=postgresql+asyncpg://postgres:ci_password@127.0.0.1:15432/rc_ci`, `POSTGRES_SCHEMA=rc`, `AUTH_SECRET=ci-only-secret-at-least-32-characters-long`, then run `uv run --directory back python -m alembic upgrade head`. Insert data with `docker compose -f infra/compose.ci.yaml run --rm --no-deps back python -m src.scripts.seed_database --data-only` and start `up -d --no-build --wait back front`. Set `E2E_BASE_URL=http://127.0.0.1:15000` and run the smoke project. Cleanup only this isolated project with `docker compose -f infra/compose.ci.yaml down --volumes`.
+
+Keycloak-specific profile/hover suites and large-workbook performance checks remain explicit local checks; they are not represented as passing PR checks. Corporate SSO, external nginx/TLS and deployment rollback require a separate staging environment. Unit/component tests cover API errors/contracts, signed sessions, WebSocket lifecycle/protocol, grid edit mapping, export and real HeroUI tab selection; they do not imply exhaustive UI coverage.
+
+### New database versus existing database
+
+The 2026-09-07 consolidation replaces the fifteen historical revisions with the frozen `0001_baseline`. This was explicitly authorized for installations already at the old head. Do not edit this applied baseline again: future changes require new revisions.
+
+- **New empty database:** `uv run --directory back python -m alembic upgrade head` creates the schema and all tables transactionally. No bootstrap command is needed.
+- **Existing database at `0015_plan_row_col_218`:** take and verify a backup, stop application writes and pin this transition release. Run `just migrate` (equivalent to `uv run --directory back python -m migrations.upgrade`). The wrapper locks the version table, validates the legacy schema through `migrations.adopt_baseline`, stamps `0001_baseline`, and upgrades to head in the same transaction. A failure rolls back both the marker and DDL. Unknown/older revisions and schema drift fail closed; investigate rather than stamping blindly. Business data and legacy `rm_cell_state`/`rm_edit_log` tables are preserved. Use this pinned transition release: its baseline comparison excludes only the new collaboration tables. Direct `alembic upgrade head` cannot resolve the removed legacy revision; use the wrapper for this transition.
+- **Already adopted database:** use `just migrate` normally. Never run baseline downgrade on a populated database: it drops application tables. Restore the backup and previous release for rollback of the transition.
+
+Migrations and Alembic configuration are **not copied into runtime Docker images**. Run them on the host/CI with uv and the same release checkout before starting application containers. Tests cover an empty upgrade/downgrade roundtrip, all-column business-data snapshots before/after adoption, rollback of completed DDL/sequences/defaults/revision markers, and refusal of revision/schema/enum drift. These fixtures reproduce the known legacy schema variants; they are not a restored production backup. Production adoption itself remains an operator action; CI does not connect to production.
+
+### Transactional journal upgrade
+
+After baseline adoption, run `alembic upgrade head` from this checkout to apply `0002_transactional_journal`. Stop all old application workers first: this is not a mixed-version rolling upgrade. Back up PostgreSQL before the maintenance window, apply migrations on the host, start the new images, and verify `/ready` and a save/undo/reconnect smoke test. Do not run `seed --reset` on an existing installation.
+
+Business rows are preserved. Existing temporary Valkey undo stacks are not imported; users start fresh history. New history lives in PostgreSQL, is capped at 500 actions per session/form and expires after 24 hours of inactivity. Downgrading the new migration removes its history/revision/outbox tables (including pending notifications), not business data; do not downgrade while workers are running.
+
+`0003_reference_created_default` preserves the `DEFAULT now()` on `renovation_reference_values.created_at` originally introduced by legacy `0008`. The old `create_all` path and frozen baseline omitted this default. Adoption accepts these two known variants only; arbitrary timestamp defaults still fail validation. `just migrate` converges both variants to `now()` without changing existing timestamps. Already-adopted installations also receive this correction through the new revision; applied baseline/journal migrations are unchanged. Downgrading 0003 removes only the default, restoring the frozen 0002 schema; it does not change timestamp values. An upgrade failure rolls back both adoption and this DDL.
+
+Local login semantics and corporate proxy download exceptions are intentionally unchanged. Capacity/load tests are out of scope for this change; the target of 50 concurrent users is not a measured service-level guarantee.
 
 ## Pre-commit (prek)
 
