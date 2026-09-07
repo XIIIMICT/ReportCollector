@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate GitHub Actions
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
       - name: Validate Compose
@@ -80,7 +80,7 @@ jobs:
           --health-cmd "valkey-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           python-version: "3.14"
@@ -92,7 +92,7 @@ jobs:
       - run: uv run --no-sync ty check
       - name: Test API, migrations and Valkey
         run: uv run --no-sync pytest -q --cov=src --cov-branch --cov-report=term --cov-report=xml:coverage.xml --junitxml=test-results.xml --durations=10
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: backend-reports-${{ matrix.store }}
@@ -111,13 +111,13 @@ jobs:
       run:
         working-directory: back
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           python-version: "3.14"
           enable-cache: true
           cache-dependency-glob: back/uv.lock
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: backend-reports-*
           path: back/store-reports
@@ -127,7 +127,7 @@ jobs:
           uv run --no-sync coverage combine store-reports/backend-reports-memory/coverage-data store-reports/backend-reports-valkey/coverage-data
           uv run --no-sync coverage report --fail-under=80
           uv run --no-sync coverage xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: backend-coverage-combined
@@ -142,11 +142,11 @@ jobs:
       run:
         working-directory: front
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "26"
       - run: bun install --frozen-lockfile
@@ -155,7 +155,7 @@ jobs:
       - run: bun run lint:check
       - run: bun run format:check
       - run: bun test --coverage --coverage-reporter=lcov
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: frontend-coverage
@@ -170,21 +170,21 @@ jobs:
     env:
       E2E_BASE_URL: http://127.0.0.1:15000
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "26"
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           python-version: "3.14"
           enable-cache: true
           cache-dependency-glob: back/uv.lock
       - name: Build backend
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./back
           target: prod
@@ -193,7 +193,7 @@ jobs:
           cache-from: type=gha,scope=back
           cache-to: type=gha,mode=max,scope=back
       - name: Build frontend
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./front
           target: prod
@@ -223,7 +223,7 @@ jobs:
       - name: Export tested release images
         if: startsWith(github.ref, 'refs/tags/v')
         run: docker save -o production-images.tar rc-back:ci rc-front:ci
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           name: production-images
@@ -233,7 +233,7 @@ jobs:
       - name: Collect container logs
         if: always()
         run: docker compose -f infra/compose.ci.yaml logs --no-color > container-logs.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: browser-and-container-reports
