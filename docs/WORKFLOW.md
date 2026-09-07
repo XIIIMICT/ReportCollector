@@ -70,6 +70,14 @@ Local reproduction: build with `docker compose -f infra/compose.ci.yaml build`, 
 
 Keycloak-specific profile/hover suites and large-workbook performance checks remain explicit local checks; they are not represented as passing PR checks. Corporate SSO, external nginx/TLS and deployment rollback require a separate staging environment. Unit/component tests cover API errors/contracts, signed sessions, WebSocket lifecycle/protocol, grid edit mapping, export and real HeroUI tab selection; they do not imply exhaustive UI coverage.
 
+### CodeQL security analysis
+
+`.github/workflows/codeql.yaml` is a separate advanced-setup security workflow for JavaScript/TypeScript, Python and GitHub Actions. It runs on pushes and PRs to `main`/`dev`, manual dispatch, and weekly on the default branch. Scheduled runs and the manual-dispatch UI require the workflow on the default branch. There are no path filters, so Python-only changes and dependency changes are analyzed too.
+
+All three languages use `build-mode: none`: no Bun/uv dependency installation, Next build, database, Valkey, Keycloak or production secrets are needed. GitHub-hosted Ubuntu 24.04 supports CodeQL Action v4. Each language has its own analysis category and a 20-minute timeout; newer runs cancel obsolete runs on the same ref.
+
+Code scanning must be enabled in repository settings; private repositories require GitHub Code Security availability. Use advanced setup for this workflow, not a simultaneous default-setup configuration. Findings are uploaded to Security / Code scanning. These checks are separate from `CI required`: configure a code-scanning ruleset or the language checks in branch protection if they must block merges. A successful analysis means the scan completed, not that no alerts exist. GitHub permissions, licensing and actual extraction results must be verified in the first hosted run.
+
 ### New database versus existing database
 
 The 2026-09-07 consolidation replaces the fifteen historical revisions with the frozen `0001_baseline`. This was explicitly authorized for installations already at the old head. Do not edit this applied baseline again: future changes require new revisions.
