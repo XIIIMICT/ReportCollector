@@ -1,0 +1,259 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  config:
+    name: Workflow and Compose validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate GitHub Actions
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
+      - name: Validate Compose
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: rc_ci
+          POSTGRES_SCHEMA: rc
+          AUTH_SECRET: ci-only-secret-at-least-32-characters-long
+        run: |
+          cp .env.example .env
+          docker compose --profile prod --profile dev --profile standalone config --quiet
+          docker compose -f infra/compose.ci.yaml config --quiet
+
+  back:
+    name: Backend (${{ matrix.store }})
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [memory, valkey]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: back
+    env:
+      AUTH_SECRET: ci-only-secret-at-least-32-characters-long
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: strong_password
+      POSTGRES_DB: dwh
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_SCHEMA: rc_test
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:strong_password@localhost:5432/dwh
+      TEST_SCHEMA: rc_test
+      VALKEY_URL: ""
+      TEST_VALKEY_URL: redis://127.0.0.1:6379/15
+      TEST_COLLAB_BACKEND: ${{ matrix.store }}
+      TEST_VALKEY_RESET: "1"
+      COVERAGE_FILE: coverage-data
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: strong_password
+          POSTGRES_DB: dwh
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dwh"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: back/uv.lock
+      - run: uv sync --locked
+      - run: uv run --no-sync ruff check
+      - run: uv run --no-sync ruff format --check
+      - run: uv run --no-sync ty check
+      - name: Test API, migrations and Valkey
+        run: uv run --no-sync pytest -q --cov=src --cov-branch --cov-report=term --cov-report=xml:coverage.xml --junitxml=test-results.xml --durations=10
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-reports-${{ matrix.store }}
+          path: |
+            back/coverage.xml
+            back/test-results.xml
+            back/coverage-data
+          retention-days: 7
+
+  coverage:
+    name: Combined backend coverage
+    needs: back
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: back
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: back/uv.lock
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: backend-reports-*
+          path: back/store-reports
+      - run: uv sync --locked
+      - name: Require coverage across both transport implementations
+        run: |
+          uv run --no-sync coverage combine store-reports/backend-reports-memory/coverage-data store-reports/backend-reports-valkey/coverage-data
+          uv run --no-sync coverage report --fail-under=80
+          uv run --no-sync coverage xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage-combined
+          path: back/coverage.xml
+          retention-days: 7
+
+  front:
+    name: Frontend quality and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: front
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+      - run: bun install --frozen-lockfile
+      - run: bunx --no-install next typegen
+      - run: bun run typecheck
+      - run: bun run lint:check
+      - run: bun run format:check
+      - run: bun test --coverage --coverage-reporter=lcov
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: front/coverage
+          retention-days: 7
+
+  production:
+    name: Production images and browser smoke
+    needs: config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      E2E_BASE_URL: http://127.0.0.1:15000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26"
+      - uses: docker/setup-buildx-action@v3
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: back/uv.lock
+      - name: Build backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./back
+          target: prod
+          load: true
+          tags: rc-back:ci
+          cache-from: type=gha,scope=back
+          cache-to: type=gha,mode=max,scope=back
+      - name: Build frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./front
+          target: prod
+          load: true
+          tags: rc-front:ci
+          cache-from: type=gha,scope=front
+          cache-to: type=gha,mode=max,scope=front
+      - name: Initialize isolated database
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:ci_password@127.0.0.1:15432/rc_ci
+          POSTGRES_SCHEMA: rc
+          AUTH_SECRET: ci-only-secret-at-least-32-characters-long
+        run: |
+          docker compose -f infra/compose.ci.yaml up -d --wait --wait-timeout 120 postgres valkey
+          uv sync --directory back --locked --no-dev
+          uv run --directory back --no-sync python -m migrations.upgrade
+          docker compose -f infra/compose.ci.yaml run --rm --no-deps back python -m src.scripts.seed_database --data-only
+      - name: Start tested production images
+        run: docker compose -f infra/compose.ci.yaml up -d --no-build --wait --wait-timeout 120 back front
+      - name: Install browser
+        working-directory: front
+        run: |
+          bun install --frozen-lockfile
+          bunx --no-install playwright install --with-deps chromium
+      - name: Browser smoke
+        run: bun run --cwd front test:e2e --project=smoke
+      - name: Export tested release images
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: docker save -o production-images.tar rc-back:ci rc-front:ci
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: production-images
+          path: production-images.tar
+          retention-days: 1
+          compression-level: 0
+      - name: Collect container logs
+        if: always()
+        run: docker compose -f infra/compose.ci.yaml logs --no-color > container-logs.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-and-container-reports
+          path: |
+            front/playwright-report
+            front/test-results
+            container-logs.txt
+          retention-days: 7
+      - name: Stop isolated stack
+        if: always()
+        run: docker compose -f infra/compose.ci.yaml down --volumes --remove-orphans
+
+  required:
+    name: CI required
+    if: always()
+    needs: [config, back, coverage, front, production]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - name: Require every check to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'all(.[]; .result == "success")' <<< "$RESULTS"

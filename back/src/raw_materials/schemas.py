@@ -160,7 +160,7 @@ class CellUpdate(BaseModel):
     """Single form/dictionary cell edit (rowId — the row id)."""
 
     rowId: UUID
-    field: str
+    field: str = Field(min_length=1, max_length=64)
     value: str | float | bool | list[str] | None
 
 
@@ -168,13 +168,13 @@ class MovementUpdateRequest(BaseModel):
     """Batch of «Движение» cell edits for the report month."""
 
     reportMonth: date
-    updates: list[CellUpdate]
+    updates: list[CellUpdate] = Field(min_length=1, max_length=10000)
 
 
 class PriceUpdateRequest(BaseModel):
     """Batch of «Цены» cell edits."""
 
-    updates: list[CellUpdate]
+    updates: list[CellUpdate] = Field(min_length=1, max_length=10000)
 
 
 class MovementSnapshotRead(BaseModel):

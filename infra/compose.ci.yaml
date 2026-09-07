@@ -1,0 +1,75 @@
+# Isolated integration stack. Never includes the developer's .env or volumes.
+name: reportcollector-ci
+x-back-env: &back-env
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: ci_password
+  POSTGRES_DB: rc_ci
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_SCHEMA: rc
+  AUTH_SECRET: ci-only-secret-at-least-32-characters-long
+  AUTH_SEED_ADMIN_EMAIL: evtushenko.sn@ruschem.ru
+  AUTH_SEED_ADMIN_PASSWORD: TestPassword123
+  KEYCLOAK_ENABLED: "false"
+  VALKEY_URL: redis://valkey:6379/0
+  BACKEND_CORS_ORIGINS: '["http://127.0.0.1:15000"]'
+services:
+  postgres:
+    image: postgres:18-alpine
+    ports: ["127.0.0.1:15432:5432"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ci_password
+      POSTGRES_DB: rc_ci
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d rc_ci"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  valkey:
+    image: valkey/valkey:8-alpine
+    ports: ["127.0.0.1:16379:6379"]
+    healthcheck:
+      test: [CMD, valkey-cli, ping]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  back:
+    image: rc-back:ci
+    # Exercise Valkey fan-out between independent application workers.
+    command: [uvicorn, src.main:app, --host, "0.0.0.0", --port, "8000", --workers, "2"]
+    build:
+      context: ../back
+      target: prod
+    environment: *back-env
+    ports: ["127.0.0.1:18000:8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  front:
+    image: rc-front:ci
+    build:
+      context: ../front
+      target: prod
+    environment:
+      AUTH_SECRET: ci-only-secret-at-least-32-characters-long
+      KEYCLOAK_ENABLED: "false"
+      AUTH_APP_ORIGIN: http://127.0.0.1:15000
+      BACKEND_INTERNAL_URL: http://back:8000
+      COLLAB_WS_PUBLIC_URL: ws://127.0.0.1:18000
+    ports: ["127.0.0.1:15000:5000"]
+    depends_on:
+      back:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:5000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

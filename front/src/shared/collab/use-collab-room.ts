@@ -43,6 +43,7 @@ export function useCollabRoom({
     onCellChanged,
     onRowsChanged,
     onSelectionPreempted,
+    onReconnect,
 }: {
     projectKey: string;
     section: string;
@@ -55,9 +56,11 @@ export function useCollabRoom({
     onRowsChanged?: (event: CollabRowsChanged) => void;
     /** Another tab of the same account took over the user's selection. */
     onSelectionPreempted?: () => void;
+    onReconnect?: () => void;
 }): CollabRoom {
     const clientRef = useRef<CollabWsClient | null>(null);
-    const handlersRef = useRef({ onCellChanged, onRowsChanged, onSelectionPreempted });
+    const handlersRef = useRef({ onCellChanged, onRowsChanged, onSelectionPreempted, onReconnect });
+    handlersRef.current.onReconnect = onReconnect;
     handlersRef.current.onCellChanged = onCellChanged;
     handlersRef.current.onRowsChanged = onRowsChanged;
     handlersRef.current.onSelectionPreempted = onSelectionPreempted;
@@ -96,6 +99,7 @@ export function useCollabRoom({
                     setMe(me);
                     setMembers(filterMembers(roomMembers));
                 },
+                onReconnect: () => handlersRef.current.onReconnect?.(),
                 onMembers: (roomMembers) => setMembers(filterMembers(roomMembers)),
                 onCellLocked: (key, user) => {
                     if (user.sessionId === mySessionIdRef.current) return;

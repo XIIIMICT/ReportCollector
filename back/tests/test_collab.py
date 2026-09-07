@@ -22,6 +22,7 @@ from src.auth.models import Project, ProjectRole, User
 from src.auth.service import (
     InvalidIdentityError,
     activate_project_user,
+    grant_project_assets,
     grant_project_role,
     verify_identity_ticket,
 )
@@ -168,6 +169,7 @@ async def _make_project_user(db_session, *, email: str, name: str, sub: str) -> 
     await db_session.flush()
     await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ASSET_WORKER)
     await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)
+    await grant_project_assets(db_session, user.id, ["СНХЗ"])
     await db_session.commit()
     return user
 
@@ -651,26 +653,15 @@ async def test_ws_project_isolation(client, db_session, store) -> None:
 
     fake = FakeWebSocket(project="kppk")
     task = await _run_collab_ws(db_session, fake)
-    await _wait_until(lambda: any(message.get("type") == "hello" for message in fake.sent))
-
-    hello = next(message for message in fake.sent if message["type"] == "hello")
-    assert hello["room"].startswith("rm:kppk:")
-
-    fake.incoming.append({"type": "lease:acquire", "cells": [cell]})
-    await _wait_until(lambda: any(message.get("type") == "lease:granted" for message in fake.sent))
-    granted = next(message for message in fake.sent if message["type"] == "lease:granted")
-    assert cell in granted["cells"]
-
-    members_kppk = await store.room_members("rm:kppk:materialMovement:2026-08-01")
-    members_rm = await store.room_members("rm:raw_materials:materialMovement:2026-08-01")
-    assert len(members_kppk) == 1
-    assert len(members_rm) == 0
-
-    fake.disconnect = True
     await task
+    # A raw-materials resolver cannot authorize a client-selected project,
+    # even if the account separately has a role there.
+    assert fake.closed_code == 4403
+    assert not fake.accepted
+    assert await store.room_members("rm:kppk:materialMovement:2026-08-01") == {}
 
 
-async def test_ws_ping_refreshes_presence(db_session, store) -> None:
+async def test_ws_ping_refreshes_presence(db_session, store, presence_expiry) -> None:
     """Heartbeat renews presence: the member doesn't vanish from the room."""
     room = "rm:raw_materials:materialMovement:2026-08-01"
     fake = FakeWebSocket(project="raw_materials")
@@ -679,12 +670,12 @@ async def test_ws_ping_refreshes_presence(db_session, store) -> None:
 
     hello = next(message for message in fake.sent if message["type"] == "hello")
     user_id = hello["user"]["userId"]
-    before = await store.presence_expires_at(room, user_id)
+    before = await presence_expiry(store, room, user_id)
     assert before is not None
 
     fake.incoming.append({"type": "ping"})
     await _wait_until(lambda: any(message.get("type") == "pong" for message in fake.sent))
-    after = await store.presence_expires_at(room, user_id)
+    after = await presence_expiry(store, room, user_id)
     assert after is not None
     assert after > before
 

@@ -902,13 +902,17 @@ RENOVATION_TABLES: tuple[str, ...] = (
 )
 
 
-async def run(reset: bool = False, renovation_only: bool = False) -> None:
+async def run(reset: bool = False, renovation_only: bool = False, data_only: bool = False) -> None:
     settings = get_settings()
+    if data_only and (reset or renovation_only):
+        message = "--data-only нельзя совмещать с --reset или --renovation."
+        raise ValueError(message)
     async with async_engine.begin() as conn:
         if reset:
             await conn.execute(text(f'DROP SCHEMA IF EXISTS "{settings.postgres_schema}" CASCADE'))
-        await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{settings.postgres_schema}"'))
-        await conn.run_sync(SQLModel.metadata.create_all)
+        if not data_only:
+            await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{settings.postgres_schema}"'))
+            await conn.run_sync(SQLModel.metadata.create_all)
         if renovation_only and not reset:
             # Re-seed only the renovation data: wipe its tables (not app_users)
             # and let seed_renovation rebuild them.
@@ -948,13 +952,14 @@ async def run(reset: bool = False, renovation_only: bool = False) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Создание схемы и сидирование базовых данных ReportCollector.")
     parser.add_argument("--reset", action="store_true", help="Пересоздать схему перед сидированием")
+    parser.add_argument("--data-only", action="store_true", help="Только данные: схема должна быть создана миграциями")
     parser.add_argument(
         "--renovation",
         action="store_true",
         help="Перезатереть только таблицы реновации (без drop schema и без app_users) и пересидировать их",
     )
     args = parser.parse_args()
-    asyncio.run(run(reset=args.reset, renovation_only=args.renovation))
+    asyncio.run(run(reset=args.reset, renovation_only=args.renovation, data_only=args.data_only))
 
 
 if __name__ == "__main__":

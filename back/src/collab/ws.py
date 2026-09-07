@@ -36,7 +36,9 @@ from src.auth.service import (
     verify_identity_ticket,
     verify_signed_identity,
 )
+from src.collab.access import RoomAccess, RoomAccessDeniedError
 from src.collab.events import room_key
+from src.collab.locking import lock_project, lock_rows
 from src.collab.store import CollabStore, get_collab_store, lease_key
 from src.config import get_settings
 from src.database import get_session
@@ -81,8 +83,8 @@ class RoomManager:
     Local per-connection room subscriptions + pub/sub event relay.
 
     Each connection gets a bounded queue and a dedicated writer task: a slow
-    client (full queue) drops events without blocking other room members
-    (head-of-line blocking).
+    client (full queue) reconnects and refetches authoritative state instead
+    of silently losing individual events.
     """
 
     def __init__(self, store: CollabStore) -> None:
@@ -91,56 +93,96 @@ class RoomManager:
         self._queues: dict[str, dict[WebSocket, asyncio.Queue]] = {}
         self._writers: dict[str, dict[WebSocket, asyncio.Task]] = {}
         self._relay_tasks: dict[str, asyncio.Task] = {}
+        self._access: dict[WebSocket, RoomAccess] = {}
+        self._ready: dict[str, asyncio.Event] = {}
 
-    async def join(self, room: str, websocket: WebSocket, member: dict) -> None:
+    async def join(self, room: str, websocket: WebSocket, member: dict, access: RoomAccess | None = None) -> None:
         members = self._members.setdefault(room, {})
         if not members:
+            self._ready[room] = asyncio.Event()
             self._relay_tasks[room] = asyncio.create_task(self._relay(room))
         queue: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_SIZE)
+        if access is not None:
+            self._access[websocket] = access
         self._queues.setdefault(room, {})[websocket] = queue
         self._writers.setdefault(room, {})[websocket] = asyncio.create_task(self._writer(websocket, queue))
         members[websocket] = member
+        await asyncio.wait_for(self._ready[room].wait(), timeout=10)
+        if self._relay_tasks[room].done():
+            error = "Room subscription failed"
+            raise RedisError(error)
 
     async def leave(self, room: str, websocket: WebSocket) -> None:
         members = self._members.get(room)
         if members is None:
             return
         members.pop(websocket, None)
+        self._access.pop(websocket, None)
         writer = self._writers.get(room, {}).pop(websocket, None)
         if writer is not None:
             writer.cancel()
+            with suppress(asyncio.CancelledError):
+                await writer
         self._queues.get(room, {}).pop(websocket, None)
         if not members:
             task = self._relay_tasks.pop(room, None)
             if task is not None:
                 task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
             self._members.pop(room, None)
             self._queues.pop(room, None)
             self._writers.pop(room, None)
+            self._ready.pop(room, None)
 
     async def _relay(self, room: str) -> None:
         try:
-            async for message in self._store.subscribe(room):
+            async for message in self._store.subscribe(room, ready=self._ready[room]):
+                if message.get("type") == "transport:resync":
+                    break
                 queues = self._queues.get(room)
                 if not queues:
                     continue
-                for queue in list(queues.values()):
+                for websocket, queue in list(queues.items()):
                     if queue.full():
+                        await self._close(websocket, 1013)
                         continue
                     with suppress(asyncio.QueueFull):
                         queue.put_nowait(message)
         except asyncio.CancelledError:
             return
+        except Exception:
+            logger.exception("Collaboration relay failed; clients must reconnect and resynchronize")
+        # Exhaustion is also a lost subscription, not a healthy connection.
+        for websocket in list(self._queues.get(room, {})):
+            await self._close(websocket, 1013)
+        ready = self._ready.get(room)
+        if ready is not None:
+            ready.set()
 
     @staticmethod
-    async def _writer(websocket: WebSocket, queue: asyncio.Queue) -> None:
+    async def _close(websocket: WebSocket, code: int) -> None:
+        with suppress(RuntimeError, WebSocketDisconnect):
+            await websocket.close(code=code)
+
+    async def _writer(self, websocket: WebSocket, queue: asyncio.Queue) -> None:
         try:
             while True:
-                message = await queue.get()
-                with suppress(RuntimeError, WebSocketDisconnect):
+                messages = [await queue.get()]
+                while not queue.empty() and len(messages) < _QUEUE_SIZE:
+                    messages.append(queue.get_nowait())
+                access = self._access.get(websocket)
+                if access is not None:
+                    messages = await access.filter_messages(messages)
+                for message in messages:
                     await websocket.send_json(message)
         except asyncio.CancelledError:
             return
+        except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError:
+            await self._close(websocket, 4403)
+        except Exception:
+            logger.exception("Collaboration writer failed; closing connection")
+            await self._close(websocket, 1013)
 
 
 @lru_cache(maxsize=1)
@@ -222,9 +264,23 @@ async def _serve_room(
         )
         await websocket.close(code=4401)
         return
+    section = websocket.query_params.get("section") or default_section
+    report_month = websocket.query_params.get("reportMonth") or None
+    project_key = websocket.query_params.get("project") or default_project
+    if project_key != default_project:
+        await websocket.close(code=4403)
+        return
     try:
-        user, roles, assets, block = await resolve_access(session, identity)
-    except NoRawMaterialsAccessError, NoRenovationAccessError:
+        access = RoomAccess(
+            lambda: AsyncSession(session.bind, expire_on_commit=False),
+            identity,
+            resolve_access,
+            project_key,
+            section,
+            report_month,
+        )
+        user, roles, assets, block = await access.resolve(session)
+    except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError:
         log_warning(
             logger,
             "collab.ws_access_rejected",
@@ -233,6 +289,10 @@ async def _serve_room(
         )
         await websocket.close(code=4403)
         return
+    finally:
+        # A dependency lives for the entire socket. Release its read transaction
+        # now; subsequent checks use independent, short-lived sessions.
+        await session.close()
 
     origin = websocket.headers.get("origin")
     allowed_origins = get_settings().backend_cors_origins or []
@@ -247,9 +307,6 @@ async def _serve_room(
         await websocket.close(code=4403)
         return
 
-    section = websocket.query_params.get("section") or default_section
-    report_month = websocket.query_params.get("reportMonth") or None
-    project_key = websocket.query_params.get("project") or default_project
     client_id = websocket.query_params.get("clientId") or user.email or str(user.id)
     room = room_key(project_key, section, report_month)
 
@@ -259,6 +316,7 @@ async def _serve_room(
         "name": user.name or "",
         "email": user.email or "",
         "sessionId": session_id,
+        "clientId": client_id,
         "assets": [asset.name for asset in assets],
         # Raw role value («admin»/«asset_worker»/...): the client decides
         # whether to show the role or the asset list.
@@ -270,23 +328,37 @@ async def _serve_room(
     manager = get_room_manager()
     owned_leases: set[str] = set()
 
-    await websocket.accept()
-    await store.room_join(room, str(user.id), owner)
-    await manager.join(room, websocket, owner)
-    # Undo/redo history lives in the user's stack and survives reconnects
-    # (form switches); a page reload starts a new session stack. A final
-    # month fix clears the stacks of the fixed table only.
-    members = await store.room_members(room)
-    await websocket.send_json({"type": "hello", "room": room, "user": owner, "members": members, "clientId": client_id})
-    await store.publish(room, {"type": "presence:update", "members": members})
-    log_event(
-        logger,
-        "collab.ws_connect",
-        "WebSocket подключён.",
-        user_email=user.email or "",
-        project_key=project_key,
-        room=room,
-    )
+    try:
+        await websocket.accept()
+        try:
+            await store.room_join(room, str(user.id), owner)
+            await manager.join(room, websocket, owner, access)
+        except RedisError, TimeoutError:
+            await manager.leave(room, websocket)
+            with suppress(RuntimeError, WebSocketDisconnect):
+                await websocket.close(code=1013)
+            return
+        # Undo/redo history lives in the user's stack and survives reconnects
+        # (form switches); a page reload starts a new session stack. A final
+        # month fix clears the stacks of the fixed table only.
+        members = await store.room_members(room)
+        hello = {"type": "hello", "room": room, "user": owner, "members": members, "clientId": client_id}
+        for message in await access.filter_messages([hello]):
+            await websocket.send_json(message)
+        await store.publish(room, {"type": "presence:update", "members": members})
+        log_event(
+            logger,
+            "collab.ws_connect",
+            "WebSocket подключён.",
+            user_email=user.email or "",
+            project_key=project_key,
+            room=room,
+        )
+
+    except BaseException:
+        with suppress(RedisError):
+            await _cleanup_connection(store, manager, room, project_key, websocket, owner, owned_leases)
+        raise
 
     try:
         while True:
@@ -306,7 +378,11 @@ async def _serve_room(
                     project_key=project_key,
                     owner=owner,
                     owned_leases=owned_leases,
+                    access=access,
                 )
+            except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError:
+                await websocket.close(code=4403)
+                break
             except ValidationError as error:
                 await websocket.send_json({"type": "error", "message": f"Некорректное сообщение: {error.errors()}"})
             except RedisError:
@@ -314,7 +390,8 @@ async def _serve_room(
                     {"type": "error", "message": "Хранилище совместного редактирования временно недоступно."}
                 )
     finally:
-        await _cleanup_connection(store, manager, room, project_key, websocket, owner, owned_leases)
+        with suppress(RedisError):
+            await _cleanup_connection(store, manager, room, project_key, websocket, owner, owned_leases)
         log_event(
             logger,
             "collab.ws_disconnect",
@@ -334,16 +411,60 @@ async def _handle_message(
     project_key: str,
     owner: dict,
     owned_leases: set[str],
+    access: RoomAccess | None = None,
 ) -> None:
     message_type = message.get("type")
+    if access is not None:
+        async with access.session_factory() as check_session:
+            if message_type in {"lease:acquire", "lease:renew"}:
+                await lock_project(check_session, project_key)
+            current_access = await access.resolve(check_session)
+            if message_type in {"lease:acquire", "lease:renew"}:
+                parsed = LeaseMessage.model_validate(message)
+                requested = parsed.cells[:_MAX_LEASE_CELLS]
+                await lock_rows(check_session, [key.rsplit("/", 1)[0] for key in requested])
+                allowed = await access.cells(check_session, current_access, requested, write=True)
+                if any(key not in allowed for key in requested):
+                    await websocket.send_json({"type": "error", "message": "Нет доступа к выбранным ячейкам."})
+                    return
+                # Keep the shared lifecycle/row locks until Valkey acquisition
+                # finishes; a finalization cannot slip between check and lease.
+                await _handle_message(
+                    message,
+                    websocket=websocket,
+                    store=store,
+                    room=room,
+                    project_key=project_key,
+                    owner=owner,
+                    owned_leases=owned_leases,
+                )
+                return
+            if message_type == "presence":
+                parsed_presence = PresenceMessage.model_validate(message)
+                selection = parsed_presence.selection
+                if selection is not None:
+                    keys = selection.get("cellKeys")
+                    if (
+                        not isinstance(keys, list)
+                        or len(keys) > _MAX_OWNED_LEASES
+                        or not all(isinstance(key, str) for key in keys)
+                    ):
+                        await websocket.send_json({"type": "error", "message": "Некорректное выделение."})
+                        return
+                    allowed = await access.cells(check_session, current_access, keys, write=False)
+                    if any(key not in allowed for key in keys):
+                        await websocket.send_json({"type": "error", "message": "Нет доступа к выбранным ячейкам."})
+                        return
     if message_type == "ping":
         refreshed = await store.refresh_presence(room, str(owner["userId"]))
         if not refreshed:
             # Presence expired while the member was idle (walked away, tab
             # hidden): they're back — online again.
             await store.room_join(room, str(owner["userId"]), owner)
-            members = await store.room_members(room)
-            await store.publish(room, {"type": "presence:update", "members": members})
+        # Reconcile missed pub/sub snapshots and prune members whose own TTL
+        # expired, even when this member's heartbeat only renewed its entry.
+        members = await store.room_members(room)
+        await store.publish(room, {"type": "presence:update", "members": members})
         await websocket.send_json({"type": "pong"})
         return
     if message_type == "presence":
@@ -406,10 +527,11 @@ async def _cleanup_connection(
     owner: dict,
     owned_leases: set[str],
 ) -> None:
+    # Always cancel local tasks, including when Valkey is unavailable.
+    await manager.leave(room, websocket)
     for cell_key in list(owned_leases):
         await store.release_lease(lease_key(cell_key, project=project_key), owner)
         await store.publish(room, {"type": "cell:unlocked", "key": cell_key, "user": owner})
-    await store.room_leave(room, str(owner["userId"]))
+    await store.room_leave(room, str(owner["userId"]), client_id=owner.get("clientId"))
     members = await store.room_members(room)
     await store.publish(room, {"type": "presence:update", "members": members})
-    await manager.leave(room, websocket)

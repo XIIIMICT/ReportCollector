@@ -799,6 +799,7 @@ export function RenovationWorkspace({
         visibleAssets: visibleAssetNames,
         onCellChanged: handleCellChanged,
         onRowsChanged: refresh,
+        onReconnect: refresh,
         onSelectionPreempted: () => {
             suppressSelectionSendRef.current = true;
             gridRef.current?.clearSelection();

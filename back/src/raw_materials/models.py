@@ -30,10 +30,7 @@ class RawMaterialUserAsset(SQLModel, table=True):
     """Asset-worker link to the assets of the «Сырьё» project."""
 
     __tablename__ = "rm_user_assets"
-    __table_args__ = (
-        UniqueConstraint("user_id", "asset_id"),
-        Index("ix_rm_user_assets_asset_id", "asset_id"),
-    )
+    __table_args__ = (Index("ix_rm_user_assets_asset_id", "asset_id"),)
 
     user_id: UUID = Field(primary_key=True, foreign_key="app_users.id", ondelete="CASCADE")
     asset_id: UUID = Field(primary_key=True, foreign_key="rm_assets.id", ondelete="CASCADE")

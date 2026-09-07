@@ -5,7 +5,6 @@ ARG PORT=5000
 ENV NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
     PORT=${PORT} \
-    # Установка зависимостей не проверяет сертификаты (сервер за корпоративным прокси).
     NODE_TLS_REJECT_UNAUTHORIZED=0
 WORKDIR /app
 

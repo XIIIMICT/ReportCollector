@@ -1699,10 +1699,6 @@ function RenovationGridInner(
             if (event.code !== "KeyC" && event.code !== "KeyA") return;
             const grid = gridRef.current;
             if (!grid) return;
-            // A cell click can leave the focus on body (focuscell →
-            // re-render → blur), so a live selection routes the shortcut to
-            // the grid even without grid focus.
-            if (!isGridTarget(event, grid) && selectionRangeRef.current === null) return;
             if (isFromTextEditor(event)) return;
             if (event.code === "KeyA") {
                 // Select-all is disabled on the plan: the full form holds
@@ -1714,6 +1710,10 @@ function RenovationGridInner(
                 event.stopImmediatePropagation();
                 return;
             }
+            // Copy still needs a grid target or a tracked selection. Select-all
+            // above must also be swallowed after programmatic focus, which can
+            // leave body active before React observes the grid's new range.
+            if (!isGridTarget(event, grid) && selectionRangeRef.current === null) return;
             event.preventDefault();
             void copySelection();
         };

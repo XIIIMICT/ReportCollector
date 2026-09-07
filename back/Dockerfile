@@ -30,7 +30,7 @@ COPY --chown=appuser:appgroup --from=deps /app/.venv/ ./.venv/
 USER appuser
 
 FROM pre-prod AS dev
-ENTRYPOINT ["sh", "-c", "exec uvicorn src.main:app --reload --host 0.0.0.0 --port \"$BACKEND_PORT\""]
+CMD ["sh", "-c", "exec uvicorn src.main:app --reload --host 0.0.0.0 --port \"$BACKEND_PORT\""]
 
 FROM pre-prod AS prod
-ENTRYPOINT ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port \"$BACKEND_PORT\""]
+CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port \"$BACKEND_PORT\""]

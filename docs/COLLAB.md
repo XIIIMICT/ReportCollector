@@ -8,7 +8,7 @@ Frontend: `front/src/shared/collab/` (`ws-client.ts` — connection/heartbeat/id
 `WS /api/ws/raw-materials?project=raw_materials&section=<section>&reportMonth=<month|empty>&clientId=&sessionId=&ticket=`
 
 - Room: `rm:{project}:{section}:{reportMonth}` — «Цены» without a month, «Движение» per month. Edits and presence of different rooms don't intersect.
-- Auth: signed headers `X-ReportCollector-*`; the browser doesn't send them — instead the query parameter `ticket` (one-shot signature). Three rejection reasons: invalid identity (4401), no project access (4403), unexpected Origin (4403) — all logged (`collab.ws_identity_rejected`, `collab.ws_access_rejected`, `collab.ws_origin_rejected`), search the logs by these tags.
+- Auth: signed headers `X-ReportCollector-*`; the browser doesn't send them — instead the query parameter `ticket` (short-lived signed identity). Three rejection reasons: invalid identity (4401), no project access (4403), unexpected Origin (4403) — all logged (`collab.ws_identity_rejected`, `collab.ws_access_rejected`, `collab.ws_origin_rejected`), search the logs by these tags.
 - Origin is checked against `BACKEND_CORS_ORIGINS` (see the slash landmine in AGENTS.md).
 - Per-connection outbound queue (256) + a dedicated writer task: a slow client doesn't block the room (head-of-line blocking).
 
@@ -43,6 +43,8 @@ REST edits publish `cell:changed` into the room via `publish_cell_changed` (`bac
 | Room presence | 25s | heartbeat (`ping`) every 15s |
 | Idle detection | 2 min without mouse/keyboard/focus **or** `document.hidden` | leases released immediately (`lease:release`), heartbeat/renew stop; on activity — heartbeat resumes, selection re-sent, server re-joins via `ping` |
 
+Valkey presence stores a server-clock expiration per member, updated atomically by Lua. The room hash TTL is only garbage collection; another user's heartbeat cannot retain an idle member. Each ping broadcasts a current member snapshot, pruning expired members and reconciling missed pub/sub updates. Disconnect removes presence only if the entry still belongs to that `clientId`, so a delayed old connection cannot erase a newer tab's presence. During the upgrade from plain hash payloads, old ephemeral presence entries are discarded and rejoined on the next ping. Restart all application workers together for this format transition (no mixed-version rolling deployment).
+
 Result: walked away (tab open) → after ~2 min leases are released, "online" fades ~25s later. Returned — online again. A "forever" lease is impossible (previously the client renewed endlessly).
 
 Both stores (`ValkeyStore`, `MemoryStore`) implement one interface; the choice depends on `VALKEY_URL` (empty = memory). Lua scripts guarantee owner checks for renew/release.
@@ -56,23 +58,23 @@ Both stores (`ValkeyStore`, `MemoryStore`) implement one interface; the choice d
 
 On connection loss the client drops its whole remote-lease map (`useCollabRoom` clears `lockedCells` whenever the status leaves "online"): `cell:unlocked` events fired during the gap never arrive after a reconnect, and without the reset, released cells would stay blocked in the UI until a reload. Server leases expire by TTL in 20s; live `cell:locked`/`cell:unlocked` events and the fresh `hello` rebuild the map after reconnect.
 
-The client maintains `ownedLeases` (Set) and **must remove keys on release** — otherwise it hits the 1000 limit and leases stop being granted.
+The client maintains `ownedLeases` (Set) and **must remove keys on release** — otherwise it hits the 1000 limit and leases stop being granted. A delayed presence echo from the same `sessionId` cannot preempt a newer local selection; selection takeover belongs to another browser session.
 
 ## Undo/redo (server-side stack)
 
-- Stack is per user **per browser session and form**: `rc:undo:{user_id}:{session_id}:{section}/{reportMonth}` — «Цены» history doesn't undo «Движение», August doesn't undo September. Survives form switches **within one page load**, but a reload gets a fresh `session_id` and starts with an empty history (stale stacks are never referenced again; the client re-reads `/undo-state` on form change).
-- An action is one PATCH batch — a single request that updates several cells is journaled as one action with a `cells` list (each cell: rowId, field, old/new value, revision; the action carries actionId, targetTable, section, reportMonth) and is undone/redone as a whole. Stack limit 500, lookup — last 200. Actions in the old single-cell format are still readable (legacy fallback).
+- Stack is stored in PostgreSQL `collab_edit_stacks`, per user **per browser session and form**: `(user_id, session_id, section/reportMonth)` — «Цены» history doesn't undo «Движение», August doesn't undo September. Survives form switches **within one page load**, but a reload gets a fresh `session_id` and starts with an empty history (stale stacks expire after 24 hours without edits/undo and are periodically deleted; the client re-reads `/undo-state` on form change).
+- An action is one PATCH batch — a single request that updates several cells is journaled as one action with a `cells` list (each cell: rowId, field, old/new value, revision; the action carries actionId, targetTable, section, reportMonth) and is undone/redone as a whole. Stack limit 500; lookup covers the full retained stack. Actions in the old single-cell format are still readable (legacy fallback).
 - **Record creation is undoable too:** both projects' dictionary create endpoints (raw-materials dictionaries; renovation
   assets and catalogs) journal an «__created» pseudo-cell (new value = the record snapshot; they accept the same `session_id` query parameter as the PATCHes). Undo removes the created record with the same rules as a manual delete — for users, who are never deleted, it deactivates the project link («Активен» = off, assets cleared); redo restores the record from the snapshot with the original id.
   Renovation project users are not journaled yet (their role/block model makes the
   inverse non-trivial).
-- **Edit→undo race:** the PATCH that commits a cell edit journals the action asynchronously. A Ctrl+Z fired immediately after Enter can reach `/undo` before the journal push — the server would answer `reason=empty` and the edit would stay. The frontend guards this: `runUndo`/`runRedo` in `raw-materials-workspace.tsx` first await the in-flight commit promise (`pendingCommitRef`), so undo is only sent after the edit landed on the server.
+- **Edit→undo ordering:** data and history now commit atomically. The frontend still waits for its pending PATCH before sending undo: `runUndo`/`runRedo` in `raw-materials-workspace.tsx` first await the in-flight commit promise (`pendingCommitRef`), so undo is only sent after the edit landed on the server.
 - **Counter re-sync:** `GET /undo-state` reports only presence (`canUndo`/`canRedo`), so after an applied action — and after `reason=empty` (drift) — the client re-reads it instead of local ±1 arithmetic; a locally decremented counter used to kill the undo/redo buttons after a single press even when the server stack still had actions.
-- New edits **clear the redo branch** (Lua `_CLEAR_REDO_SCRIPT`).
+- New edits **clear the redo branch** in the same PostgreSQL transaction.
 - **Redo order:** undo removes the freshest action first (4, 3, 2, 1); redo replays undone actions in their **original order** (oldest undone first — 1, 2, 3, 4, the reverse of the undo sequence). `next_action` scans the stack front-first for undo and back-first for redo; the `skipActionId` rule flips accordingly (undo skips `id >= after`, redo skips `id <= after`).
 - Applying undo/redo goes through the same `apply_cell_value` + `bump_cell_state` (revisions, `lastActionId`) and publishes `cell:changed`.
 - Conflicts: if a cell was changed by someone else after the action (`lastActionId` mismatch **and** `lastUserId` is not the undo author — one's own consecutive edits don't block undoing them) or is leased by another — the action is rejected with `reason=conflict/locked`; a second undo press passes `skipActionId` to skip the blocked one. A batch action is atomic: if any cell conflicts, nothing is applied.
-- **Month fixing clears all undo stacks and cell states** (`clear_all_undo_state`) — the snapshot becomes the single point of reference.
+- Final month fixing clears history for the fixed movement scope. Renovation approval clears `renovationPlan/` history. Undo independently rechecks current roles/assets/blocks and version state, so a retained stale action cannot modify an archive.
 
 ## Deployment and WS diagnostics
 
@@ -86,4 +88,17 @@ The client maintains `ownedLeases` (Set) and **must remove keys on release** —
 
 ## Tests
 
-`back/tests/test_collab.py` — protocol, leases/presence (MemoryStore, `presence_expires_at` for heartbeat), undo scope per session and form, idle-return via ping. `front/e2e/collab.spec.ts` — two-user e2e (only with a running stack).
+`back/tests/test_collab.py` runs against both MemoryStore and real Valkey in CI: protocol, leases/presence, undo scope per session/form and idle-return via ping. `test_store_contract.py` checks concurrent acquisition, atomic numeric revisions, bulk stack order and oldest-first redo on both stores; `test_valkey.py` verifies independent connections and server TTL/pubsub. `front/e2e/collab.spec.ts` runs two-user/multi-tab regressions with local login on the isolated production-image stack. Frontend unit tests cover ticket/session forwarding, lease denial/release, selection preemption and disconnect during ticket fetch (no late socket creation); malformed messages are ignored.
+
+## Transaction and delivery guarantees
+
+- Business writes, undo/redo, cell revisions and outgoing notifications share a PostgreSQL transaction. Services flush, while the function-scoped HTTP dependency commits before sending the response; direct service callers must commit explicitly.
+- Valkey remains responsible for expiring leases, presence and pub/sub. Its old journal API is retained only for transport compatibility tests, not used as application history.
+- PostgreSQL advisory locks coordinate workers: edits and lease acquisition take a shared project gate and ordered row locks; dictionary mutations and lifecycle transitions take an exclusive project gate. Lease ownership includes browser session. A closed movement period rejects direct PATCH.
+- `collab_outbox` delivers committed notifications at least once, in id order among committed records, with retry after Valkey failures. A publish failure does not turn an already saved edit into an HTTP failure. Duplicate notifications are possible. Per-recipient filtering suppresses older cell revisions and rechecks current row access before delivery.
+- A room must match the endpoint project and a known section. Dictionary rooms require admin rights; KPPK has no implemented collaboration endpoint yet. An asset worker with zero grants sees zero rows. Central renovation roles see all assets; write permissions still depend on role/block/state.
+- Access checks use short-lived SQL sessions, never one connection for the WebSocket lifetime. The subscription is ready before hello. Subscription failure, writer failure or queue overflow closes the socket; reconnect refetches authoritative rows/meta on both forms. No silent dropping of an individual client's queued edits.
+- Snapshot reads/exports and renovation archive comparisons apply asset restrictions. Full-plan reads and window counters filter assets in SQL. Workers without grants cannot see unassigned drafts either. Selection and lease payloads are filtered, not only cell-change payloads.
+- Raw-material batch edits accept at most 10,000 cells; renovation retains its existing 500-cell limit. Repeated keys within one request form one undo change from the first old value to the last new value.
+
+Regression coverage: `test_backend_guarantees.py` exercises rollback, outbox retry, empty asset grants, central roles, closed periods, same-user/other-session leases, archive undo, permission revocation, duplicate-cell batches, history expiry, readiness and concurrent row recalculation. `test_access_ws.py` covers cross-project/asset rejection, revoked access, relay failure, queue overflow and connection release; it is not a throughput benchmark.

@@ -15,7 +15,7 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
@@ -25,6 +25,7 @@ from src.collab import models as collab_models  # noqa: F401
 from src.config import get_settings
 from src.raw_materials import models as raw_materials_models  # noqa: F401
 from src.renovation import models as renovation_models  # noqa: F401
+from src.renovation import plan as renovation_plan  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
@@ -75,13 +76,22 @@ async def run_async_migrations() -> None:
             }
         },
     )
-    async with connectable.connect() as connection:
+    async with connectable.begin() as connection:
+        if not settings.postgres_schema:
+            message = "Не задана схема базы данных."
+            raise ValueError(message)
+        schema = connection.dialect.identifier_preparer.quote_schema(settings.postgres_schema)
+        await connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
         await connection.run_sync(do_run_migrations)
     await connectable.dispose()
 
 
 def run_migrations_online() -> None:
-    asyncio.run(run_async_migrations())
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        do_run_migrations(connection)
+    else:
+        asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():

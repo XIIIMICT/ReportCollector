@@ -1,29 +1,91 @@
 import { expect, test } from "@playwright/test";
 
-async function loginAsEvtushenko(page: import("@playwright/test").Page) {
-    await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
-    await page.waitForURL(
-        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
-        { timeout: 20000 },
+import { loginAsLocalUser } from "./helpers/auth";
+
+const APP_ORIGIN = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5000";
+
+test("sorted Excel paste updates the visible row and preserves its neighbor", async ({
+    page,
+    context,
+}) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: APP_ORIGIN });
+    await loginAsEvtushenko(page);
+    const loaded = page.waitForResponse(
+        (response) =>
+            response.url().includes("/api/raw-materials/prices") &&
+            response.request().method() === "GET",
     );
-    await page.locator("#username").fill("evtushenko");
-    await page.locator("#password").fill("TestPassword123");
-    await page.locator('button[type="submit"]').click();
-    await page.waitForURL(/127\.0\.0\.1:5000/, { timeout: 20000 });
-    // The workspace defaults to «Ремонт»; these specs run on «Сырьё» forms.
-    await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
-    const switcher = page.locator(".brand__edition--button");
-    await expect(switcher).toBeVisible();
-    await switcher.click();
-    await page
-        .locator("[data-slot=dropdown-menu] [data-slot=menu-item]", { hasText: "Сырьё" })
-        .click();
+    await page.getByRole("tab", { name: "Цены" }).click();
+    expect((await loaded).ok()).toBe(true);
+    const originalFirst = await page.evaluate(async () =>
+        String((await document.querySelector("revo-grid")!.getVisibleSource("rgRow"))[0].id),
+    );
+    await page.evaluate(async () => {
+        await document
+            .querySelector("revo-grid")!
+            .updateColumnSorting({ prop: "rawMaterialName" }, "desc", false);
+    });
+    await expect
+        .poll(() =>
+            page.evaluate(async () =>
+                String(
+                    (await document.querySelector("revo-grid")!.getVisibleSource("rgRow"))[0].id,
+                ),
+            ),
+        )
+        .not.toBe(originalFirst);
+    const ids = await page.evaluate(async () =>
+        (await document.querySelector("revo-grid")!.getVisibleSource("rgRow"))
+            .slice(0, 2)
+            .map((row) => String(row.id)),
+    );
+    const beforeResponse = await page.request.get("/api/raw-materials/prices");
+    expect(beforeResponse.ok()).toBe(true);
+    const before = (await beforeResponse.json()) as {
+        id: string;
+        businessPlanQuantityTons: number | null;
+    }[];
+    const value =
+        before.find((row) => row.id === ids[0])!.businessPlanQuantityTons === 6543 ? 6544 : 6543;
+    const cell = page
+        .locator("revogr-data .rgRow")
+        .filter({ has: page.locator(".rgCell:nth-child(8)") })
+        .first()
+        .locator(".rgCell")
+        .nth(4);
+    await cell.click();
+    await page.evaluate((text) => navigator.clipboard.writeText(text), `${value}\r\n`);
+    const saved = page.waitForResponse(
+        (response) =>
+            response.url().includes("/api/raw-materials/prices") &&
+            response.request().method() === "PATCH",
+    );
+    await page.keyboard.press("Control+V");
+    const response = await saved;
+    expect(response.ok()).toBe(true);
+    const body = response.request().postDataJSON() as { updates: { rowId: string }[] };
+    expect(body.updates.map((update) => update.rowId)).toEqual([ids[0]]);
+    const after = (await (
+        await page.request.get("/api/raw-materials/prices")
+    ).json()) as typeof before;
+    expect(after.find((row) => row.id === ids[0])!.businessPlanQuantityTons).toBe(value);
+    expect(after.find((row) => row.id === ids[1])!.businessPlanQuantityTons).toBe(
+        before.find((row) => row.id === ids[1])!.businessPlanQuantityTons,
+    );
+});
+
+async function loginAsEvtushenko(page: import("@playwright/test").Page) {
+    await loginAsLocalUser(page, {
+        email: "evtushenko.sn@ruschem.ru",
+        password: "TestPassword123",
+    });
+    await page.goto("/raw-materials");
     await expect(page.getByRole("tab", { name: "Цены" })).toBeVisible({ timeout: 20000 });
 }
 
 test("clipboard: keyboard copy and paste applies values to cells", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-        origin: "http://127.0.0.1:5000",
+        origin: APP_ORIGIN,
     });
     await loginAsEvtushenko(page);
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
@@ -66,7 +128,7 @@ test("clipboard: Ctrl+C works with Russian keyboard layout", async ({ page, cont
     // В русской раскладке event.key — «с»/«м», поэтому обработчики должны
     // опираться на event.code (физическую клавишу), а не на event.key.
     await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-        origin: "http://127.0.0.1:5000",
+        origin: APP_ORIGIN,
     });
     await loginAsEvtushenko(page);
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
@@ -74,6 +136,9 @@ test("clipboard: Ctrl+C works with Russian keyboard layout", async ({ page, cont
     const firstCell = page.locator("revogr-data .rgCell:not(.report-row-header)").first();
     await firstCell.click();
     await page.waitForTimeout(300);
+    const expected = (await firstCell.innerText()).trim();
+    expect(expected).not.toBe("");
+    await page.evaluate(() => navigator.clipboard.writeText(""));
 
     // Синтетическое нажатие Ctrl+C «в русской раскладке» (key = «с», code = KeyC).
     await page.evaluate(() => {
@@ -91,7 +156,7 @@ test("clipboard: Ctrl+C works with Russian keyboard layout", async ({ page, cont
 
     await expect
         .poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5000 })
-        .not.toBe("");
+        .toContain(expected);
 });
 
 test("clipboard: reference fields paste validates values and rejects unknown", async ({
@@ -99,7 +164,7 @@ test("clipboard: reference fields paste validates values and rejects unknown", a
     context,
 }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-        origin: "http://127.0.0.1:5000",
+        origin: APP_ORIGIN,
     });
     await loginAsEvtushenko(page);
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
@@ -150,7 +215,8 @@ test("clipboard: reference fields paste validates values and rejects unknown", a
             });
         });
     });
-    if (target >= 0) {
+    expect(target, "Seed must contain a compatible material").toBeGreaterThanOrEqual(0);
+    {
         const cell = dataRows.nth(target).locator(".rgCell").nth(1);
         await expect(cell).toBeVisible();
         await cell.click();
@@ -182,7 +248,7 @@ test("clipboard: reference fields paste validates values and rejects unknown", a
 
 test("clipboard: toolbar copy/paste buttons apply values", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-        origin: "http://127.0.0.1:5000",
+        origin: APP_ORIGIN,
     });
     await loginAsEvtushenko(page);
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });

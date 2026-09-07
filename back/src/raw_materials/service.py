@@ -5,8 +5,9 @@ Queries mirror the Tauri app logic (domain.rs): «Движение» and «Це�
 form rows sorted by raw-material name and asset.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
-from typing import cast
+from typing import Protocol, cast
 from uuid import UUID
 
 from sqlalchemy import func
@@ -22,8 +23,10 @@ from src.auth.models import Project, ProjectRole, User, UserRole
 from src.auth.schemas import AssetAccessRead
 from src.auth.service import CurrentUserIdentity, get_user_by_identity, sync_project_memberships
 from src.collab.journal import AppliedCell, record_cell_updates
+from src.collab.locking import lock_project, lock_rows, project_write
 from src.collab.models import MOVEMENT_TABLE, PRICE_TABLE
-from src.collab.store import get_collab_store
+from src.collab.persistence import JournalStore
+from src.collab.store import get_collab_store, lease_key
 from src.config import get_settings
 from src.raw_materials.models import (
     AssetRawMaterial,
@@ -157,9 +160,7 @@ async def read_movement_rows(
         .where(col(MaterialMovement.report_month) == report_month)
         .order_by(RawMaterial.name, RawMaterialAsset.name, col(AssetRawMaterial.id)),
     )
-    if assets:
-        asset_ids = [asset.id for asset in assets]
-        query = query.where(col(RawMaterialAsset.id).in_(asset_ids))
+    query = query.where(col(RawMaterialAsset.id).in_([asset.id for asset in assets]))
 
     rows = []
     for movement, arm, asset, raw_material, price in (await session.exec(query)).all():
@@ -197,6 +198,7 @@ async def read_movement_rows(
 async def read_snapshot_export_rows(
     session: AsyncSession,
     snapshot_id: UUID,
+    assets: list[RawMaterialAsset],
 ) -> tuple[MovementSnapshotRead | None, list[MovementRowRead]]:
     """Archive «Движение» version rows as MovementRowRead for export."""
     snapshot = await session.get(ReportSnapshot, snapshot_id)
@@ -206,6 +208,7 @@ async def read_snapshot_export_rows(
         await session.exec(
             select(SnapshotMaterialMovement)
             .where(col(SnapshotMaterialMovement.snapshot_id) == snapshot_id)
+            .where(col(SnapshotMaterialMovement.source_asset_id).in_([asset.id for asset in assets]))
             .order_by(
                 SnapshotMaterialMovement.raw_material_name,
                 SnapshotMaterialMovement.asset_name,
@@ -265,9 +268,7 @@ async def read_price_rows(
         .join(DeliveryBasis, col(DeliveryBasis.id) == col(RawMaterialPrice.delivery_basis_id), isouter=True)
         .order_by(RawMaterial.name, RawMaterialAsset.name, col(AssetRawMaterial.id)),
     )
-    if assets:
-        asset_ids = [asset.id for asset in assets]
-        query = query.where(col(RawMaterialAsset.id).in_(asset_ids))
+    query = query.where(col(RawMaterialAsset.id).in_([asset.id for asset in assets]))
 
     rows = []
     for price, arm, asset, raw_material, basis in (await session.exec(query)).all():
@@ -511,6 +512,7 @@ class CellValidationError(ValueError):
 _DICT_CREATED_SNAPSHOT_INVALID = CellValidationError("Некорректный снимок записи.")
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY)
 async def update_movement_cells(
     session: AsyncSession,
     *,
@@ -521,6 +523,15 @@ async def update_movement_cells(
     session_id: str,
 ) -> list[AppliedCell]:
     """Apply «Движение» form cell edits and write the journal (same transaction)."""
+    await lock_project(session, RAW_MATERIALS_PROJECT_KEY)
+    await lock_rows(session, [f"undo/{user.id}/{session_id}/materialMovement/{report_month}"])
+    await lock_rows(session, [f"{MOVEMENT_TABLE}/{update.rowId}" for update in updates])
+    if await session.get(MovementPeriod, report_month) is None:
+        message = "Отчётный месяц закрыт для редактирования."
+        raise CellValidationError(message)
+    await check_edit_leases(
+        updates, user=user, session_id=session_id, table=MOVEMENT_TABLE, project=RAW_MATERIALS_PROJECT_KEY
+    )
     asset_ids = [asset.id for asset in assets]
     applied: list[AppliedCell] = []
     # Batch-load rows, links and prices up front: one query per table instead
@@ -529,7 +540,11 @@ async def update_movement_cells(
     movements = {
         movement.id: movement
         for movement in (
-            await session.exec(select(MaterialMovement).where(col(MaterialMovement.id).in_(row_ids)))
+            await session.exec(
+                select(MaterialMovement)
+                .where(col(MaterialMovement.id).in_(row_ids))
+                .execution_options(populate_existing=True)
+            )
         ).all()
     }
     arms = await _arms_by_id(session, {movement.asset_raw_material_id for movement in movements.values()})
@@ -548,7 +563,7 @@ async def update_movement_cells(
         if movement is None or movement.report_month != report_month:
             raise _CELL_MOVEMENT_NOT_FOUND
         arm = arms.get(movement.asset_raw_material_id)
-        if asset_ids and (arm is None or arm.asset_id not in asset_ids):
+        if arm is None or arm.asset_id not in asset_ids:
             raise _CELL_MOVEMENT_NO_ACCESS
         if field in MOVEMENT_CELL_FIELDS:
             column = MOVEMENT_CELL_FIELDS[field]
@@ -590,7 +605,7 @@ async def update_movement_cells(
             )
         )
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=user.id,
         user_name=user.name or "",
         project_key=RAW_MATERIALS_PROJECT_KEY,
@@ -599,10 +614,11 @@ async def update_movement_cells(
         session_id=session_id,
         applied=applied,
     )
-    await session.commit()
+    await session.flush()
     return applied
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY)
 async def update_price_cells(
     session: AsyncSession,
     *,
@@ -612,6 +628,12 @@ async def update_price_cells(
     session_id: str,
 ) -> list[AppliedCell]:
     """Apply «Цены» form cell edits and write the journal (same transaction)."""
+    await lock_project(session, RAW_MATERIALS_PROJECT_KEY)
+    await lock_rows(session, [f"undo/{user.id}/{session_id}/rawMaterialPrices/"])
+    await lock_rows(session, [f"{PRICE_TABLE}/{update.rowId}" for update in updates])
+    await check_edit_leases(
+        updates, user=user, session_id=session_id, table=PRICE_TABLE, project=RAW_MATERIALS_PROJECT_KEY
+    )
     asset_ids = [asset.id for asset in assets]
     applied: list[AppliedCell] = []
     # Batch-load prices and links up front (one query per table); the basis
@@ -619,7 +641,13 @@ async def update_price_cells(
     row_ids = [update.rowId for update in updates if update.rowId is not None]
     prices = {
         price.id: price
-        for price in (await session.exec(select(RawMaterialPrice).where(col(RawMaterialPrice.id).in_(row_ids)))).all()
+        for price in (
+            await session.exec(
+                select(RawMaterialPrice)
+                .where(col(RawMaterialPrice.id).in_(row_ids))
+                .execution_options(populate_existing=True)
+            )
+        ).all()
     }
     arms = await _arms_by_id(session, {price.asset_raw_material_id for price in prices.values()})
     basis_names = {basis.id: basis.name for basis in (await session.exec(select(DeliveryBasis))).all()}
@@ -634,7 +662,7 @@ async def update_price_cells(
         if price is None:
             raise _CELL_PRICE_NOT_FOUND
         arm = arms.get(price.asset_raw_material_id)
-        if asset_ids and (arm is None or arm.asset_id not in asset_ids):
+        if arm is None or arm.asset_id not in asset_ids:
             raise _CELL_PRICE_NO_ACCESS
         if field == "deliveryBasisName":
             old_value = basis_names.get(price.delivery_basis_id)
@@ -666,7 +694,7 @@ async def update_price_cells(
             )
         )
     await record_cell_updates(
-        get_collab_store(),
+        JournalStore(session),
         user_id=user.id,
         user_name=user.name or "",
         project_key=RAW_MATERIALS_PROJECT_KEY,
@@ -675,8 +703,26 @@ async def update_price_cells(
         session_id=session_id,
         applied=applied,
     )
-    await session.commit()
+    await session.flush()
     return applied
+
+
+class EditableCell(Protocol):
+    rowId: UUID
+    field: str
+
+
+async def check_edit_leases(
+    updates: Sequence[EditableCell], *, user: User, session_id: str, table: str, project: str
+) -> None:
+    """Reject another session's active lease, including direct HTTP writes."""
+    keys = [lease_key(f"{table}/{update.rowId}/{update.field}", project=project) for update in updates]
+    for owner in await get_collab_store().get_leases(keys):
+        if owner is not None and (
+            owner.get("userId") != str(user.id) or owner.get("sessionId", session_id) != session_id
+        ):
+            message = "Ячейка редактируется в другой сессии. Повторите после освобождения."
+            raise CellValidationError(message)
 
 
 async def apply_cell_value(
@@ -846,7 +892,7 @@ async def _apply_created_record(
             link.updated_at = datetime.now(UTC)
             session.add(link)
             await replace_user_assets(session, row_id, [])
-            await session.commit()
+            await session.flush()
             return
         if not isinstance(snapshot, dict):
             raise _DICT_CREATED_SNAPSHOT_INVALID
@@ -870,7 +916,7 @@ async def _apply_created_record(
         session.add(link)
         asset_names = snapshot.get("assetNames")
         await replace_user_assets(session, row_id, asset_names if isinstance(asset_names, list) else [])
-        await session.commit()
+        await session.flush()
         return
     if snapshot is None:
         if target_table == RawMaterialAsset.__tablename__:
@@ -1059,6 +1105,7 @@ _DICT_REF_USER_DELETE_FORBIDDEN = DictionaryReferenceError(
 _DICT_REF_USER_BAD_EMAIL = DictionaryReferenceError("Некорректный email.")
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def create_raw_material(
     session: AsyncSession,
     *,
@@ -1075,7 +1122,7 @@ async def create_raw_material(
     session.add(raw_material)
     await session.flush()
     await replace_asset_links(session, raw_material.id, asset_ids)
-    await session.commit()
+    await session.flush()
     return raw_material
 
 
@@ -1120,6 +1167,7 @@ async def _user_asset_names(session: AsyncSession, user_id: UUID) -> list[str]:
     return list(rows)
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def update_raw_material(
     session: AsyncSession,
     *,
@@ -1143,7 +1191,7 @@ async def update_raw_material(
     raw_material.updated_at = datetime.now(UTC)
     raw_material.updated_by = user.name or user.email or ""
     session.add(raw_material)
-    await session.commit()
+    await session.flush()
     if new_name != old_name:
         applied.append(
             AppliedCell(
@@ -1167,6 +1215,7 @@ async def update_raw_material(
     return raw_material, applied
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def delete_raw_material(session: AsyncSession, *, raw_material_id: UUID) -> None:
     raw_material = await session.get(RawMaterial, raw_material_id)
     if raw_material is None:
@@ -1181,9 +1230,10 @@ async def delete_raw_material(session: AsyncSession, *, raw_material_id: UUID) -
         await _delete_arm_rows(session, link.id)
         await session.delete(link)
     await session.delete(raw_material)
-    await session.commit()
+    await session.flush()
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def create_asset(session: AsyncSession, *, name: str, user: User) -> RawMaterialAsset:
     asset = RawMaterialAsset(
         name=name.strip(),
@@ -1192,10 +1242,11 @@ async def create_asset(session: AsyncSession, *, name: str, user: User) -> RawMa
         updated_by=user.name or user.email or "",
     )
     session.add(asset)
-    await session.commit()
+    await session.flush()
     return asset
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def update_asset(
     session: AsyncSession,
     *,
@@ -1213,7 +1264,7 @@ async def update_asset(
     asset.updated_at = datetime.now(UTC)
     asset.updated_by = user.name or user.email or ""
     session.add(asset)
-    await session.commit()
+    await session.flush()
     applied: list[AppliedCell] = []
     if new_name != old_name:
         applied.append(
@@ -1228,6 +1279,7 @@ async def update_asset(
     return asset, applied
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def delete_asset(session: AsyncSession, *, asset_id: UUID) -> None:
     asset = await session.get(RawMaterialAsset, asset_id)
     if asset is None:
@@ -1246,7 +1298,7 @@ async def delete_asset(session: AsyncSession, *, asset_id: UUID) -> None:
         await session.delete(link)
     await session.delete(asset)
     try:
-        await session.commit()
+        await session.flush()
     except IntegrityError as error:
         # A reference slipped in between the reference check and the commit
         # (a race) — surface a clean 409, never a 500.
@@ -1254,6 +1306,7 @@ async def delete_asset(session: AsyncSession, *, asset_id: UUID) -> None:
         raise _DICT_REF_ASSET_USED from error
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def create_delivery_basis(session: AsyncSession, *, name: str, user: User) -> DeliveryBasis:
     basis = DeliveryBasis(
         name=name.strip(),
@@ -1262,10 +1315,11 @@ async def create_delivery_basis(session: AsyncSession, *, name: str, user: User)
         updated_by=user.name or user.email or "",
     )
     session.add(basis)
-    await session.commit()
+    await session.flush()
     return basis
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def update_delivery_basis(
     session: AsyncSession,
     *,
@@ -1283,7 +1337,7 @@ async def update_delivery_basis(
     basis.updated_at = datetime.now(UTC)
     basis.updated_by = user.name or user.email or ""
     session.add(basis)
-    await session.commit()
+    await session.flush()
     applied: list[AppliedCell] = []
     if new_name != old_name:
         applied.append(
@@ -1298,6 +1352,7 @@ async def update_delivery_basis(
     return basis, applied
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def delete_delivery_basis(session: AsyncSession, *, basis_id: UUID) -> None:
     basis = await session.get(DeliveryBasis, basis_id)
     if basis is None:
@@ -1309,7 +1364,7 @@ async def delete_delivery_basis(session: AsyncSession, *, basis_id: UUID) -> Non
         raise _DICT_REF_BASIS_USED
     await session.delete(basis)
     try:
-        await session.commit()
+        await session.flush()
     except IntegrityError as error:
         # A reference slipped in between the check and the commit (a race), or a
         # table we don't pre-check references the basis — surface a clean 409,
@@ -1318,6 +1373,7 @@ async def delete_delivery_basis(session: AsyncSession, *, basis_id: UUID) -> Non
         raise _DICT_REF_BASIS_USED from error
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def create_project_user(
     session: AsyncSession,
     *,
@@ -1381,10 +1437,11 @@ async def create_project_user(
     # Provisioning into all other projects: new links are inactive with the
     # asset-worker role; existing links are left untouched.
     await sync_project_memberships(session, user.id)
-    await session.commit()
+    await session.flush()
     return user
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def update_project_user(
     session: AsyncSession,
     *,
@@ -1452,7 +1509,7 @@ async def update_project_user(
     user.updated_at = datetime.now(UTC)
     session.add(user)
     session.add(link)
-    await session.commit()
+    await session.flush()
     applied: list[AppliedCell] = []
     if new_email != old_email:
         applied.append(
@@ -1507,6 +1564,7 @@ async def update_project_user(
     return user, applied
 
 
+@project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
 async def delete_project_user(
     session: AsyncSession,  # noqa: ARG001 — call contract
     *,
