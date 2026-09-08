@@ -18,7 +18,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, TypedDict
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from openpyxl import load_workbook
 from sqlalchemy import text
@@ -28,6 +28,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY, RAW_MATERIALS_PROJECT_NAME
 from src.auth.models import Project, ProjectRole, User, UserRole
 from src.auth.passwords import hash_password
+from src.auth.service import sync_project_memberships
 from src.config import get_settings
 from src.database import async_engine, async_session_factory
 from src.raw_materials.models import (
@@ -583,6 +584,17 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
             )
         await session.flush()
 
+        # Cross-project memberships come from the same single source as the
+        # runtime user dictionary (create_renovation_user → sync_project_memberships):
+        # a renovation-only user is linked to the renovation project only (raw
+        # materials/kppk are skipped when an RUserRole exists), while the seed
+        # admin (activate_admin) is made present and admin in every project.
+        await sync_project_memberships(
+            session,
+            ren_user_row.id,
+            activate_admin=(email == SEED_ADMIN_EMAIL),
+        )
+
         # Block owners and approvers have implicit access to all assets
         # in their scope — no per-asset grants needed.
         ren_asset_codes = list(ren_user["assets"])
@@ -726,53 +738,71 @@ async def seed(session: AsyncSession) -> None:
 
     projects = await seed_renovation(session)
 
-    # «Активы» dictionary
-    assets: dict[str, RawMaterialAsset] = {}
+    # The «Сырьё» dictionaries are idempotent like the renovation side: an
+    # existing row (by its natural key) is reused, never recreated, so re-running
+    # the seed against a schema that already holds data doesn't hit the UNIQUE
+    # constraints. Rows are iterated in the declared order so the deterministic
+    # values below (movement balance, prices) keep the same per-link assignment
+    # whether the rows pre-existed or were just created.
+    assets = {a.name: a for a in (await session.exec(select(RawMaterialAsset))).all()}
     for name in ASSET_NAMES:
-        asset = RawMaterialAsset(name=name, created_at=now, updated_at=now)
-        session.add(asset)
-        assets[name] = asset
-    await session.flush()
+        if name not in assets:
+            asset = RawMaterialAsset(name=name, created_at=now, updated_at=now)
+            session.add(asset)
+            await session.flush()
+            assets[name] = asset
 
-    # «Базисы поставки» dictionary
-    bases: dict[str, DeliveryBasis] = {}
+    bases = {b.name: b for b in (await session.exec(select(DeliveryBasis))).all()}
     for name in DELIVERY_BASIS_NAMES:
-        basis = DeliveryBasis(name=name, created_at=now, updated_at=now)
-        session.add(basis)
-        bases[name] = basis
-    await session.flush()
+        if name not in bases:
+            basis = DeliveryBasis(name=name, created_at=now, updated_at=now)
+            session.add(basis)
+            await session.flush()
+            bases[name] = basis
 
-    # «Сырьевые позиции» dictionary + asset-raw-material links
-    materials: dict[str, RawMaterial] = {}
+    materials = {m.name: m for m in (await session.exec(select(RawMaterial))).all()}
     for name in RAW_MATERIAL_NAMES:
-        material = RawMaterial(name=name, created_at=now, updated_at=now)
-        session.add(material)
-        materials[name] = material
-    await session.flush()
+        if name not in materials:
+            material = RawMaterial(name=name, created_at=now, updated_at=now)
+            session.add(material)
+            await session.flush()
+            materials[name] = material
 
+    existing_arms: dict[tuple[UUID, UUID], AssetRawMaterial] = {
+        (arm.asset_id, arm.raw_material_id): arm for arm in (await session.exec(select(AssetRawMaterial))).all()
+    }
     arms: list[AssetRawMaterial] = []
     for material_name, asset_names in RAW_MATERIAL_ASSETS:
         for asset_name in asset_names:
-            arm = AssetRawMaterial(
-                id=uuid4(),
-                asset_id=assets[asset_name].id,
-                raw_material_id=materials[material_name].id,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(arm)
+            asset_id = assets[asset_name].id
+            material_id = materials[material_name].id
+            arm = existing_arms.get((asset_id, material_id))
+            if arm is None:
+                arm = AssetRawMaterial(
+                    asset_id=asset_id,
+                    raw_material_id=material_id,
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(arm)
+                await session.flush()
             arms.append(arm)
-    await session.flush()
 
     # Movement periods + «Движение» rows for each link in each period.
+    existing_periods = {period.report_month for period in (await session.exec(select(MovementPeriod))).all()}
     for report_month in MOVEMENT_PERIODS:
-        session.add(MovementPeriod(report_month=report_month, created_at=now))
-    await session.flush()
+        if report_month not in existing_periods:
+            session.add(MovementPeriod(report_month=report_month))
+            await session.flush()
+    existing_movements = {
+        (mov.asset_raw_material_id, mov.report_month) for mov in (await session.exec(select(MaterialMovement))).all()
+    }
     for report_month in MOVEMENT_PERIODS:
         for arm_index, arm in enumerate(arms):
+            if (arm.id, report_month) in existing_movements:
+                continue
             session.add(
                 MaterialMovement(
-                    id=uuid4(),
                     asset_raw_material_id=arm.id,
                     report_month=report_month,
                     created_at=now,
@@ -783,10 +813,14 @@ async def seed(session: AsyncSession) -> None:
     await session.flush()
 
     # «Цены» rows: one per asset-raw-material link.
+    existing_price_arms = {
+        price.asset_raw_material_id for price in (await session.exec(select(RawMaterialPrice))).all()
+    }
     for arm_index, arm in enumerate(arms):
+        if arm.id in existing_price_arms:
+            continue
         session.add(
             RawMaterialPrice(
-                id=uuid4(),
                 asset_raw_material_id=arm.id,
                 delivery_basis_id=bases[DEFAULT_DELIVERY_BASIS].id,
                 business_plan_quantity_tons=_price_business_plan_tons(arm_index),
@@ -812,23 +846,11 @@ async def seed(session: AsyncSession) -> None:
         await session.flush()
     if seed_password:
         user.password_hash = hash_password(seed_password)
-
-    for project in projects.values():
-        link = (
-            await session.exec(select(UserRole).where(UserRole.user_id == user.id, UserRole.project_id == project.id))
-        ).one_or_none()
-        if link is None:
-            session.add(
-                UserRole(
-                    user_id=user.id,
-                    project_id=project.id,
-                    role=ProjectRole.ADMIN,
-                    is_active=True,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
-    await session.flush()
+    # The seed admin is present and admin in every project. Single mechanism:
+    # sync_project_memberships(activate_admin=True) — the same function the
+    # renovation seed already uses, so the admin's cross-project links are never
+    # hand-written in two places. (Idempotent when the renovation seed ran first.)
+    await sync_project_memberships(session, user.id, activate_admin=True)
 
     # Extra users: a second admin and asset workers.
     for extra in SEED_EXTRA_USERS:
