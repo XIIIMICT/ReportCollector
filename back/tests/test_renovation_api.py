@@ -625,11 +625,14 @@ async def test_add_row_for_single_asset_worker_autofills_asset(client: AsyncClie
     assert own.json()["assetId"] == str(vos.id)
 
 
-async def test_add_row_denied_for_block_owner_and_approver(
+async def test_add_row_is_limited_to_admin_and_tech_block_workers(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """Only admins and asset workers may add rows; block owners and approvers may not."""
+    """Only an admin or a tech-block asset worker may add rows.
+
+    Block owners, approvers and other directorates' workers are denied.
+    """
     await _grant_role(
         db_session,
         email="block_owner_noadd@example.ru",
@@ -646,16 +649,37 @@ async def test_add_row_denied_for_block_owner_and_approver(
         block=None,
         asset_codes=[],
     )
-    owner = await client.post(
-        "/api/renovation/plan/rows",
-        headers=signed_identity_headers(email="block_owner_noadd@example.ru", name="Block Owner (no add)"),
+    await _grant_role(
+        db_session,
+        email="ksir_worker_noadd@example.ru",
+        name="KSIR worker (no add)",
+        role=RProjectRole.ASSET_WORKER,
+        block=RBlock.KSIR,
+        asset_codes=["vos"],
     )
-    assert owner.status_code == 403
-    approver = await client.post(
-        "/api/renovation/plan/rows",
-        headers=signed_identity_headers(email="approver_noadd@example.ru", name="Approver (no add)"),
+    await _grant_role(
+        db_session,
+        email="tech_worker_canadd@example.ru",
+        name="Tech worker (add)",
+        role=RProjectRole.ASSET_WORKER,
+        block=RBlock.TECH,
+        asset_codes=["vos"],
     )
-    assert approver.status_code == 403
+    for email, name in (
+        ("block_owner_noadd@example.ru", "Block Owner (no add)"),
+        ("approver_noadd@example.ru", "Approver (no add)"),
+        ("ksir_worker_noadd@example.ru", "KSIR worker (no add)"),
+    ):
+        denied = await client.post(
+            "/api/renovation/plan/rows",
+            headers=signed_identity_headers(email=email, name=name),
+        )
+        assert denied.status_code == 403, email
+    allowed = await client.post(
+        "/api/renovation/plan/rows",
+        headers=signed_identity_headers(email="tech_worker_canadd@example.ru", name="Tech worker (add)"),
+    )
+    assert allowed.status_code == 200
 
 
 async def test_assign_asset_to_draft_row(client: AsyncClient, db_session: AsyncSession) -> None:

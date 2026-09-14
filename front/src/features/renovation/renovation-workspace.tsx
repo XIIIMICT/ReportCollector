@@ -651,6 +651,8 @@ export function RenovationWorkspace({
         renovationRoles.includes("admin");
     const isApprover = renovationRoles.includes("approver") || roles.includes("approver");
     const isBlockOwner = renovationRoles.includes("block_owner") || roles.includes("block_owner");
+    const isAssetWorker =
+        renovationRoles.includes("asset_worker") || roles.includes("asset_worker");
     // The admin role is stripped of both the submit and the approve actions —
     // they belong to the block_owner / approver roles, so an admin sees neither
     // button (they manage access, not the plan workflow).
@@ -1560,7 +1562,6 @@ export function RenovationWorkspace({
     // Filters (plan only) — between the version picker and the right controls.
     // Filter by asset (plan only). Asset workers see only their own assets and
     // the filter is hidden when they answer for a single asset.
-    const isAssetWorker = roles.includes("asset_worker");
     const accessibleAssetOptions =
         isAssetWorker && userAssetIds
             ? meta.assets
@@ -1736,6 +1737,10 @@ export function RenovationWorkspace({
     // actions are removed (not merely disabled) for that role: no add/delete,
     // no undo/redo, no paste. Copy stays — reading the selection is harmless.
     const canEditRows = !isApprover;
+    // Only an admin or an asset worker of the Техническая дирекция (tech) block
+    // may add rows — other blocks' workers and block owners cannot (server-side
+    // the same rule); the add button is hidden for everyone else.
+    const canAddRows = isAdmin || (isAssetWorker && userBlock === "tech");
     const planClipboardActions = isApprover
         ? clipboardActions.filter((action) => action.id !== "paste")
         : clipboardActions;
@@ -1764,7 +1769,7 @@ export function RenovationWorkspace({
                 },
             ],
         } satisfies ActionItem,
-        ...(!isArchive && canEditRows
+        ...(!isArchive && canAddRows
             ? [
                   {
                       id: "add",
@@ -1777,6 +1782,10 @@ export function RenovationWorkspace({
                       disabled: readOnly || isFullscreenPending,
                       group: "row" as const,
                   } satisfies ActionItem,
+              ]
+            : []),
+        ...(!isArchive && canEditRows
+            ? [
                   {
                       id: "delete",
                       label: "Удалить строку",
