@@ -275,7 +275,6 @@ async def post_renovation_row(
             session,
             user=access.user,
             roles=access.roles,
-            block=access.block,
             assets=access.assets,
         )
     except RenovationPermissionError as error:

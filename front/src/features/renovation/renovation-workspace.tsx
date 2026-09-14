@@ -1069,7 +1069,8 @@ export function RenovationWorkspace({
     }, [applyUndoResult, collabSection, pendingSkip]);
 
     useEffect(() => {
-        if (!collabEnabled) return;
+        // An approver cannot edit the plan — no undo/redo shortcuts either.
+        if (!collabEnabled || isApprover) return;
         const onKeyDown = (event: KeyboardEvent) => {
             if (!(event.ctrlKey || event.metaKey)) return;
             // event.code — the physical key: works in any layout
@@ -1093,18 +1094,18 @@ export function RenovationWorkspace({
         };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-    }, [collabEnabled, runRedo, runUndo]);
+    }, [collabEnabled, isApprover, runRedo, runUndo]);
 
     useEffect(() => {
         setUndoState({
-            enabled: collabEnabled && !isArchive,
+            enabled: collabEnabled && !isArchive && !isApprover,
             offline: collabEnabled && room.status !== "online",
             canUndo: undoCount > 0,
             canRedo: redoCount > 0,
             onUndo: runUndo,
             onRedo: runRedo,
         });
-    }, [collabEnabled, isArchive, redoCount, room.status, runRedo, runUndo, undoCount]);
+    }, [collabEnabled, isApprover, isArchive, redoCount, room.status, runRedo, runUndo, undoCount]);
 
     // Stable identity: `commit` feeds the grid's `columns` memo, which the
     // selection effect depends on — an inline function would re-trigger the
@@ -1336,7 +1337,11 @@ export function RenovationWorkspace({
                 id: version.id,
                 // Main label is the state only ("Версия на согласовании" etc.);
                 // the description carries the date+time, like the «Сырьё» picker.
-                name: `Версия ${VERSION_STATE_LABELS[version.state]}`,
+                // The archived state reads as a noun phrase («Утверждённая версия»).
+                name:
+                    version.state === "archived"
+                        ? "Утверждённая версия"
+                        : `Версия ${VERSION_STATE_LABELS[version.state]}`,
                 description: formatVersionStamp(version.createdAt),
             }));
     }, [approveVersions, versions]);
@@ -1727,9 +1732,17 @@ export function RenovationWorkspace({
         } satisfies ActionItem,
     ];
 
+    // An approver cannot edit the table at all, so the row-editing and history
+    // actions are removed (not merely disabled) for that role: no add/delete,
+    // no undo/redo, no paste. Copy stays — reading the selection is harmless.
+    const canEditRows = !isApprover;
+    const planClipboardActions = isApprover
+        ? clipboardActions.filter((action) => action.id !== "paste")
+        : clipboardActions;
+
     const actions: ActionItem[] = [
-        ...clipboardActions,
-        ...undoRedoActions,
+        ...planClipboardActions,
+        ...(canEditRows ? undoRedoActions : []),
         {
             id: "export",
             label: "Скачать в Excel",
@@ -1751,7 +1764,7 @@ export function RenovationWorkspace({
                 },
             ],
         } satisfies ActionItem,
-        ...(!isArchive
+        ...(!isArchive && canEditRows
             ? [
                   {
                       id: "add",
@@ -1891,6 +1904,7 @@ export function RenovationWorkspace({
                                                 blockFilter={blockFilter}
                                                 baselineBoundary={planWindow.baselineBoundary}
                                                 readOnly={readOnly}
+                                                canEdit={canEditRows}
                                                 editableFieldKeys={editableFieldKeys}
                                                 userAssetIds={userAssetIds}
                                                 remoteLocks={remoteLocks}

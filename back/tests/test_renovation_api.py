@@ -625,6 +625,39 @@ async def test_add_row_for_single_asset_worker_autofills_asset(client: AsyncClie
     assert own.json()["assetId"] == str(vos.id)
 
 
+async def test_add_row_denied_for_block_owner_and_approver(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Only admins and asset workers may add rows; block owners and approvers may not."""
+    await _grant_role(
+        db_session,
+        email="block_owner_noadd@example.ru",
+        name="Block Owner (no add)",
+        role=RProjectRole.BLOCK_OWNER,
+        block=RBlock.TECH,
+        asset_codes=[],
+    )
+    await _grant_role(
+        db_session,
+        email="approver_noadd@example.ru",
+        name="Approver (no add)",
+        role=RProjectRole.APPROVER,
+        block=None,
+        asset_codes=[],
+    )
+    owner = await client.post(
+        "/api/renovation/plan/rows",
+        headers=signed_identity_headers(email="block_owner_noadd@example.ru", name="Block Owner (no add)"),
+    )
+    assert owner.status_code == 403
+    approver = await client.post(
+        "/api/renovation/plan/rows",
+        headers=signed_identity_headers(email="approver_noadd@example.ru", name="Approver (no add)"),
+    )
+    assert approver.status_code == 403
+
+
 async def test_assign_asset_to_draft_row(client: AsyncClient, db_session: AsyncSession) -> None:
     """An asset-less draft can be pointed at an asset by an admin."""
     asset = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()

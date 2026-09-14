@@ -120,6 +120,8 @@ export type RenovationGridProps = {
     blockFilter: string | null;
     baselineBoundary: number | null;
     readOnly: boolean;
+    /** The current role may edit the plan at all (an approver cannot). */
+    canEdit: boolean;
     editableFieldKeys: Set<string>;
     /** Rows of these assets are editable; null — every row (admin/approver). */
     userAssetIds: Set<string> | null;
@@ -284,6 +286,7 @@ function RenovationGridInner(
         blockFilter,
         baselineBoundary,
         readOnly,
+        canEdit,
         editableFieldKeys,
         userAssetIds,
         remoteLocks,
@@ -1604,6 +1607,9 @@ function RenovationGridInner(
             void copySelection();
         };
         const handlePaste = (event: ClipboardEvent) => {
+            // The current role cannot edit the plan (e.g. the approver): leave
+            // the event alone so nothing is inserted.
+            if (!canEdit) return;
             // isFromTextEditor sees through the shadow DOM (revo-grid's built-in
             // cell editors), so pasting into an open editor stays native.
             if (isFromTextEditor(event)) return;
@@ -1663,7 +1669,7 @@ function RenovationGridInner(
             grid.removeEventListener("focuscell", handleFocusCell);
             grid.removeEventListener("canceledit", handleCancelEdit);
         };
-    }, [copySelection, onReleaseLease, pasteIntoSelection, updateSelectionRange]);
+    }, [canEdit, copySelection, onReleaseLease, pasteIntoSelection, updateSelectionRange]);
 
     // Keyboard shortcuts (event.code — works in any keyboard layout).
     useEffect(() => {
@@ -1726,7 +1732,7 @@ function RenovationGridInner(
         // the selection contains at least one editable, non-busy target cell.
         // beforeRangeEdit still re-checks and skips busy cells at paste time.
         const canPasteInto = (): boolean => {
-            if (!selectionRange || readOnly) return false;
+            if (!canEdit || !selectionRange || readOnly) return false;
             for (
                 let y = selectionRange.y;
                 y <= Math.min(selectionRange.y1, displaySource.length - 1);
@@ -1810,6 +1816,7 @@ function RenovationGridInner(
             rowId: firstRow?.__id ?? null,
         });
     }, [
+        canEdit,
         cellAllowed,
         columns,
         displaySource,

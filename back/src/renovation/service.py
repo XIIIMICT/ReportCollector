@@ -110,9 +110,7 @@ _ERR_SUBMIT_PERMISSION = RenovationPermissionError(
 )
 _ERR_APPROVE_PERMISSION = RenovationPermissionError("Утвердить план может утверждающий.")
 _ERR_EDIT_PENDING = RenovationPermissionError("Версию на согласовании редактировать может только администратор.")
-_ERR_ADD_PERMISSION = RenovationPermissionError(
-    "Добавлять строки может администратор или работник/владелец Технической дирекции."
-)
+_ERR_ADD_PERMISSION = RenovationPermissionError("Добавлять строки может администратор или работник по активу.")
 _ERR_DELETE_BASELINE_ROW = RenovationPlanStateError("Нельзя удалить строку утверждённой базовой линии.")
 _ERR_DELETE_APPROVER = RenovationPermissionError("Утверждающий не удаляет строки плана.")
 _ERR_ROW_HAS_ASSET = RenovationPlanStateError("У строки уже указан актив.")
@@ -601,7 +599,6 @@ async def add_plan_row(
     *,
     user: User,
     roles: list[RProjectRole],
-    block: RBlock | None,
     assets: list[RAsset],
 ) -> RenovationPlanRowRead:
     """
@@ -609,9 +606,9 @@ async def add_plan_row(
 
     The target is the working plan when it exists, otherwise the pending
     («на согласовании») one. Adding is an edit: a pending version can only be
-    appended to by an admin; for the working plan admins and the representatives
-    of the Техническая дирекция responsibility block (its block owner and its
-    asset workers) may add. The row
+    appended to by an admin; for the working plan only administrators and asset
+    workers (workers of a responsibility block on their assets) may add — block
+    owners and approvers cannot. The row
     is inserted empty; its asset is pre-filled only for an asset worker with
     exactly one asset. Everyone else adds an asset-less draft (removed on submit
     if never assigned a row/asset).
@@ -624,9 +621,7 @@ async def add_plan_row(
     is_admin = RProjectRole.ADMIN in roles
     if plan.state == RPlanState.PENDING_APPROVAL and not is_admin:
         raise _ERR_EDIT_PENDING
-    if RProjectRole.APPROVER in roles:
-        raise _ERR_ADD_PERMISSION
-    if not (is_admin or block == RBlock.TECH):
+    if not (is_admin or RProjectRole.ASSET_WORKER in roles):
         raise _ERR_ADD_PERMISSION
     asset: RAsset | None = assets[0] if RProjectRole.ASSET_WORKER in roles and len(assets) == 1 else None
     max_position = (
