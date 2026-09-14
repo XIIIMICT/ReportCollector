@@ -344,7 +344,7 @@ async def test_users_create_read_patch(
             "email": "petrov@example.ru",
             "fullname": "Петров Пётр",
             "role": "asset_worker",
-            "block": "tashpaev",
+            "block": "tech",
             "assetNames": [R_ASSETS[0][2]],
         },
     )
@@ -352,7 +352,7 @@ async def test_users_create_read_patch(
     created = response.json()
     assert created["email"] == "petrov@example.ru"
     assert created["role"] == "asset_worker"
-    assert created["block"] == "tashpaev"
+    assert created["block"] == "tech"
     assert created["isActive"] is True
     assert created["assetNames"] == [R_ASSETS[0][2]]
 
@@ -379,7 +379,7 @@ async def test_users_create_read_patch(
 async def test_user_create_block_owner_requires_no_assets(client: AsyncClient) -> None:
     """A block owner only needs its responsibility block, not asset grants.
 
-    Block owners (Ташпаев/Bородийчук/Бабаева) implicitly see all assets — the
+    Block owners (Техническая дирекция/Дирекция КСиР/Дирекция МТО) implicitly see all assets — the
     UI must not force the admin to grant them assets.
     """
     response = await client.post(
@@ -387,16 +387,16 @@ async def test_user_create_block_owner_requires_no_assets(client: AsyncClient) -
         headers=ADMIN_HEADERS,
         json={
             "email": "tashpaiev@example.ru",
-            "fullname": "Ташпаев",
+            "fullname": "Технический",
             "role": "block_owner",
-            "block": "tashpaev",
+            "block": "tech",
             "assetNames": [],
         },
     )
     assert response.status_code == 201, response.text
     created = response.json()
     assert created["role"] == "block_owner"
-    assert created["block"] == "tashpaev"
+    assert created["block"] == "tech"
     assert created["assetNames"] == []
 
 

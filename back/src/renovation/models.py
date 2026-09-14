@@ -22,12 +22,16 @@ class RBlock(StrEnum):
     """
     Responsibility block of the renovation plan (Excel columns grouped by owner).
 
-    Required for block_owner/asset_worker roles; empty for admin/approver.
+    The three blocks map to company directorates (the legacy surname-based names
+    were replaced): tech = Техническая дирекция, ksir = Дирекция КСиР (капитальное
+    строительство и ремонт), mto = Дирекция МТО (материально-техническое
+    обеспечение). Required for block_owner/asset_worker roles; empty for
+    admin/approver.
     """
 
-    TASHPAEV = "tashpaev"
-    BORODIICHUK = "borodiichuk"
-    BABAEVA = "babaeva"
+    TECH = "tech"
+    KSIR = "ksir"
+    MTO = "mto"
 
 
 class RAsset(SQLModel, table=True):

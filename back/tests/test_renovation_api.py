@@ -312,7 +312,7 @@ async def test_block_owner_edits_only_own_block(
         email="block_owner@example.ru",
         name="Block Owner",
         role=RProjectRole.BLOCK_OWNER,
-        block=RBlock.BABAEVA,
+        block=RBlock.MTO,
         asset_codes=["bsk"],
     )
     headers = signed_identity_headers(email="block_owner@example.ru", name="Block Owner")
@@ -342,7 +342,7 @@ async def test_block_owner_sees_all_assets_without_grants(
 ) -> None:
     """A block owner needs no per-asset grant: it implicitly covers all assets.
 
-    Regression: block owners (Ташпаев/Bородийчук/Бабаева) were grouped with
+    Regression: block owners (Техническая дирекция/Дирекция КСиР/Дирекция МТО) were grouped with
     asset_workers in access resolution, so with no r_user_assets rows they saw
     an empty plan and the admin was wrongly forced to grant them assets.
     """
@@ -351,7 +351,7 @@ async def test_block_owner_sees_all_assets_without_grants(
         email="block_owner_noassets@example.ru",
         name="Block Owner (no assets)",
         role=RProjectRole.BLOCK_OWNER,
-        block=RBlock.TASHPAEV,
+        block=RBlock.TECH,
         asset_codes=[],
     )
     headers = signed_identity_headers(
@@ -376,7 +376,7 @@ async def test_asset_worker_edits_only_own_asset(
         email="asset_worker@example.ru",
         name="Asset Worker",
         role=RProjectRole.ASSET_WORKER,
-        block=RBlock.TASHPAEV,
+        block=RBlock.TECH,
         asset_codes=["vos"],
     )
     headers = signed_identity_headers(email="asset_worker@example.ru", name="Asset Worker")
@@ -491,7 +491,7 @@ async def test_approve_requires_admin_or_approver(client: AsyncClient, db_sessio
         email="block_owner2@example.ru",
         name="Block Owner 2",
         role=RProjectRole.BLOCK_OWNER,
-        block=RBlock.BORODIICHUK,
+        block=RBlock.KSIR,
         asset_codes=["bsk"],
     )
     headers = signed_identity_headers(email="block_owner2@example.ru", name="Block Owner 2")
@@ -542,7 +542,7 @@ async def test_only_admin_edits_pending_plan(
         email="asset_worker_pend@example.ru",
         name="Asset Worker Pend",
         role=RProjectRole.ASSET_WORKER,
-        block=RBlock.TASHPAEV,
+        block=RBlock.TECH,
         asset_codes=["bsk"],
     )
     worker_headers = signed_identity_headers(
@@ -611,7 +611,7 @@ async def test_add_row_for_single_asset_worker_autofills_asset(client: AsyncClie
         email="asset_worker3@example.ru",
         name="Asset Worker 3",
         role=RProjectRole.ASSET_WORKER,
-        block=RBlock.TASHPAEV,
+        block=RBlock.TECH,
         asset_codes=["vos"],
     )
     headers = signed_identity_headers(email="asset_worker3@example.ru", name="Asset Worker 3")

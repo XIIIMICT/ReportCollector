@@ -68,7 +68,7 @@ async def test_renovation_worker_without_assets_cannot_read_even_unassigned_draf
     row.asset_id = None
     link = (await db_session.exec(select(RUserRole))).one()
     link.role = RProjectRole.ASSET_WORKER
-    link.block = RBlock.TASHPAEV
+    link.block = RBlock.TECH
     await db_session.commit()
     for path in ["/api/renovation/plan", "/api/renovation/plan/rows"]:
         response = await client.get(path, headers=HEADERS)
@@ -80,7 +80,7 @@ async def test_renovation_worker_without_assets_cannot_read_even_unassigned_draf
 async def test_central_roles_see_all_assets_without_assignments(client, db_session, role):
     link = (await db_session.exec(select(RUserRole))).one()
     link.role = role
-    link.block = RBlock.TASHPAEV if role == RProjectRole.BLOCK_OWNER else None
+    link.block = RBlock.TECH if role == RProjectRole.BLOCK_OWNER else None
     await db_session.commit()
     response = await client.get("/api/renovation/plan/rows", headers=HEADERS)
     assert response.status_code == 200

@@ -194,10 +194,10 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
             { value: "block_owner", label: "Ответственный за блок" },
             { value: "asset_worker", label: "Работник по активу" },
         ]),
-        optionSelect("block", "Блок", 160, [
-            { value: "tashpaev", label: "Ташпаев" },
-            { value: "borodiichuk", label: "Бородийчук" },
-            { value: "babaeva", label: "Бабаева" },
+        optionSelect("block", "Дирекция", 200, [
+            { value: "tech", label: "Техническая дирекция" },
+            { value: "ksir", label: "Дирекция КСиР" },
+            { value: "mto", label: "Дирекция МТО" },
         ]),
         { key: "assetNames", label: "Активы", width: 200, kind: "assetsMulti" },
         { key: "isActive", label: "Доступ к проекту", width: 120, kind: "boolean" },

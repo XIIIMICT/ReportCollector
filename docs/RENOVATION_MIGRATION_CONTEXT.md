@@ -1,3 +1,6 @@
+
+> _Terminology update (blocks):_ the three responsibility blocks were renamed from people's surnames to directorates — `tashpaev`→`tech` (Техническая дирекция), `borodiichuk`→`ksir` (Дирекция КСиР), `babaeva`→`mto` (Дирекция МТО). Where the text below says «Tashpaev / Borodiychuk / Babaeva», read it as the corresponding directorate. The seed block-owner/worker placeholders were likewise relabelled and are to be replaced by real employees.
+
 # Renovation Project Migration Context
 
 ## Purpose

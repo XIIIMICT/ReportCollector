@@ -146,15 +146,15 @@ const VERSION_STATE_LABELS: Record<string, string> = {
 /**
  * Canonical display names of the responsibility blocks — the same strings in
  * the plan's column-header overlay and in the «Все блоки» filter dropdown.
- * The values are the backend RBlock keys (tashpaev, borodiichuk, babaeva).
+ * The values are the backend RBlock keys (tech, ksir, mto).
  */
 const BLOCK_LABELS: Record<string, string> = {
-    tashpaev: "1) Блок Ташпаева",
-    borodiichuk: "2) Блок Бородийчука",
-    babaeva: "3) Блок Бабаевой",
+    tech: "1) Техническая дирекция",
+    ksir: "2) Дирекция КСиР",
+    mto: "3) Дирекция МТО",
 };
 /** Preferred dropdown order (after «Все блоки»). */
-const BLOCK_ORDER = ["tashpaev", "borodiichuk", "babaeva"];
+const BLOCK_ORDER = ["tech", "ksir", "mto"];
 
 export function RenovationWorkspace({
     currentUser,

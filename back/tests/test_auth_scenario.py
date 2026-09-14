@@ -239,7 +239,7 @@ async def test_renovation_grant_makes_project_usable(client, db_session) -> None
         f"/api/renovation/dictionary/users/{user.id}",
         headers=admin_headers,
         params={"session_id": "grant-test"},
-        json={"role": "asset_worker", "block": "tashpaev", "isActive": True},
+        json={"role": "asset_worker", "block": "tech", "isActive": True},
     )
     assert patch.status_code == 200
     assert patch.json()["isActive"] is True

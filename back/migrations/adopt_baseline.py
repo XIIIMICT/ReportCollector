@@ -82,6 +82,12 @@ def adopt(connection: Connection) -> None:
         raise ValueError(message)
     # Alembic does not detect enum label or primary-key changes automatically.
     enums = {item["name"]: item["labels"] for item in cast("PGInspector", inspector).get_enums()}
+    # The responsibility-block enum (`r_block`) is renamed from people's surnames
+    # to directorates by migration 0004_block_codes. Adopting a legacy-0015 DB
+    # (which still carries the surname labels) must not be refused here — the
+    # migration that follows adopt converges it to the model's labels.
+    block_legacy = {"tashpaev", "borodiichuk", "babaeva"}
+    block_new = {"tech", "ksir", "mto"}
     for table in SQLModel.metadata.sorted_tables:
         if table.name in {"collab_edit_stacks", "collab_cell_states", "collab_outbox"}:
             continue
@@ -90,8 +96,20 @@ def adopt(connection: Connection) -> None:
             message = f"Схема отличается: первичный ключ {table.name}."
             raise ValueError(message)
         for column in table.columns:
-            if isinstance(column.type, Enum) and enums.get(column.type.name) != column.type.enums:
-                message = f"Схема отличается: значения enum {column.type.name}."
+            if not isinstance(column.type, Enum):
+                continue
+            if column.type.name != "r_block":
+                if enums.get(column.type.name) != column.type.enums:
+                    message = f"Схема отличается: значения enum {column.type.name}."
+                    raise ValueError(message)
+                continue
+            # Allow the known in-flight rename (legacy labels → directorates);
+            # any other label difference on r_block is still a schema drift.
+            live = set(enums.get("r_block") or ())
+            if live == block_legacy and set(column.type.enums) == block_new:
+                continue
+            if enums.get("r_block") != column.type.enums:
+                message = "Схема отличается: значения enum r_block."
                 raise ValueError(message)
     config.attributes["connection"] = connection
     command.stamp(config, BASELINE, purge=True)

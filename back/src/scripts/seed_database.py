@@ -223,10 +223,10 @@ class SeedRenovationUser(TypedDict):
     assets: list[str]
 
 
-# Renovation users: central roles span all assets; asset workers follow the
-# legacy pattern td-<asset>/opof-<asset>/umto-<asset>@ruschem.ru and see only
-# their own asset. The three department prefixes map to the responsibility
-# blocks: td → tashpaev, opof → borodiichuk, umto → babaeva.
+# Renovation users. Central roles span all assets; asset workers follow the
+# legacy pattern <directorate>-<asset>@ruschem.ru and see only their own asset.
+# The demo accounts below are placeholders: block owners/asset workers are named
+# by their directorate (tech / ksir / mto) until real employees are provisioned.
 RENOVATION_ASSET_WORKER_ASSETS = ["vos", "snhz", "bsk"]
 RENOVATION_USERS: list[SeedRenovationUser] = [
     {
@@ -252,50 +252,50 @@ RENOVATION_USERS: list[SeedRenovationUser] = [
         "assets": [],
     },
     {
-        "email": "tashpaev@ruschem.ru",
-        "name": "Ташпаев Алексей Анатольевич",
+        "email": "tech@ruschem.ru",
+        "name": "Техническая дирекция",
         "role": RProjectRole.BLOCK_OWNER,
-        "block": RBlock.TASHPAEV,
+        "block": RBlock.TECH,
         "assets": [],
     },
     {
-        "email": "borodiichuk.av@ruschem.ru",
-        "name": "Бородийчук Алексей Викторович",
+        "email": "ksir@ruschem.ru",
+        "name": "Дирекция КСиР",
         "role": RProjectRole.BLOCK_OWNER,
-        "block": RBlock.BORODIICHUK,
+        "block": RBlock.KSIR,
         "assets": [],
     },
     {
-        "email": "babaeva.ir@ruschem.ru",
-        "name": "Бабаева Ирена Рэмовна",
+        "email": "mto@ruschem.ru",
+        "name": "Дирекция МТО",
         "role": RProjectRole.BLOCK_OWNER,
-        "block": RBlock.BABAEVA,
+        "block": RBlock.MTO,
         "assets": [],
     },
 ]
-# Asset workers: td → tashpaev, opof → borodiichuk, umto → babaeva blocks.
+# Asset workers: one per directorate and asset (<directorate>-<asset>).
 for _asset_code in RENOVATION_ASSET_WORKER_ASSETS:
     RENOVATION_USERS.extend(
         [
             {
-                "email": f"td-{_asset_code}@ruschem.ru",
-                "name": f"Технический департамент ({_asset_code.upper()})",
+                "email": f"tech-{_asset_code}@ruschem.ru",
+                "name": f"Техническая дирекция ({_asset_code.upper()})",
                 "role": RProjectRole.ASSET_WORKER,
-                "block": RBlock.TASHPAEV,
+                "block": RBlock.TECH,
                 "assets": [_asset_code],
             },
             {
-                "email": f"opof-{_asset_code}@ruschem.ru",
-                "name": f"Производственно-финансовый отдел ({_asset_code.upper()})",
+                "email": f"ksir-{_asset_code}@ruschem.ru",
+                "name": f"Дирекция КСиР ({_asset_code.upper()})",
                 "role": RProjectRole.ASSET_WORKER,
-                "block": RBlock.BORODIICHUK,
+                "block": RBlock.KSIR,
                 "assets": [_asset_code],
             },
             {
-                "email": f"umto-{_asset_code}@ruschem.ru",
-                "name": f"Управление МТО ({_asset_code.upper()})",
+                "email": f"mto-{_asset_code}@ruschem.ru",
+                "name": f"Дирекция МТО ({_asset_code.upper()})",
                 "role": RProjectRole.ASSET_WORKER,
-                "block": RBlock.BABAEVA,
+                "block": RBlock.MTO,
                 "assets": [_asset_code],
             },
         ]

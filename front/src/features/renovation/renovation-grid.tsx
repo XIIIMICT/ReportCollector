@@ -79,9 +79,9 @@ const LAZY_EDGE_PX = LAZY_EDGE_ROWS * 36;
 
 /** Canonical responsibility-block labels — must match the «Все блоки» filter. */
 const BLOCK_HEADER_LABELS: Record<string, string> = {
-    tashpaev: "1) Блок Ташпаева",
-    borodiichuk: "2) Блок Бородийчука",
-    babaeva: "3) Блок Бабаевой",
+    tech: "1) Техническая дирекция",
+    ksir: "2) Дирекция КСиР",
+    mto: "3) Дирекция МТО",
 };
 
 /** Service columns revealed by the corner menu («Показать служебные столбцы»). */
@@ -536,9 +536,8 @@ function RenovationGridInner(
             if (width === 0) continue;
             const topLevel = coveredByTopRow.has(cell.startPosition) ? cell.level : 0;
             const top = topLevel * HEADER_LEVEL_HEIGHT;
-            // The level-0 responsibility-block group headers carry Excel text
-            // («Блок Ташпаев А.А. (раздел 1)»); show the same canonical label
-            // as the «Все блоки» filter instead.
+            // Level-0 directorate group headers carry a short label in the form
+            // data; show the same canonical name as the «Все блоки» filter.
             let text = cell.text.trim();
             if (cell.level === 0 && text.startsWith("Блок ")) {
                 for (

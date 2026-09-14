@@ -124,9 +124,9 @@ function placeholderPayload(
     const role = placeholderText(draft.role);
     const block = placeholderText(draft.block);
     const assetNames = Array.isArray(draft.assetNames) ? draft.assetNames : [];
-    // Only an asset worker gets an explicit asset grant; a block owner (whose
-    // representatives Ташпаев/Бородийчук/Бабаева) implicitly covers all assets,
-    // so it only needs its responsibility block, not assets.
+    // Only an asset worker gets an explicit asset grant; a block owner (a
+    // directorate — Техническая дирекция/Дирекция КСиР/Дирекция МТО) implicitly
+    // covers all assets, so it only needs its responsibility block, not assets.
     const isWorker = role === "asset_worker";
     const needsBlock = role === "block_owner" || role === "asset_worker";
     const central = role === "admin" || role === "approver";

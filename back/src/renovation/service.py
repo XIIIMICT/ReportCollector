@@ -111,7 +111,7 @@ _ERR_SUBMIT_PERMISSION = RenovationPermissionError(
 _ERR_APPROVE_PERMISSION = RenovationPermissionError("Утвердить план может утверждающий.")
 _ERR_EDIT_PENDING = RenovationPermissionError("Версию на согласовании редактировать может только администратор.")
 _ERR_ADD_PERMISSION = RenovationPermissionError(
-    "Добавлять строки может администратор или работник/владелец блока Ташпаева."
+    "Добавлять строки может администратор или работник/владелец Технической дирекции."
 )
 _ERR_DELETE_BASELINE_ROW = RenovationPlanStateError("Нельзя удалить строку утверждённой базовой линии.")
 _ERR_DELETE_APPROVER = RenovationPermissionError("Утверждающий не удаляет строки плана.")
@@ -159,7 +159,7 @@ async def resolve_renovation_access(
     """
     Return (user, roles, available assets, responsibility block).
 
-    Admin, approver and block owners (Ташпаев/Bородийчук/Бабаева) always see
+    Admin, approver and block owners (Техническая дирекция/Дирекция КСиР/Дирекция МТО) always see
     all assets (a block owner is responsible for a whole block, not a subset of
     assets); only an asset worker is limited to the assets assigned in
     r_user_assets. The block comes from the user's r_user_roles link (empty for
@@ -610,7 +610,8 @@ async def add_plan_row(
     The target is the working plan when it exists, otherwise the pending
     («на согласовании») one. Adding is an edit: a pending version can only be
     appended to by an admin; for the working plan admins and the representatives
-    of block Ташпаева (its block owner and its asset workers) may add. The row
+    of the Техническая дирекция responsibility block (its block owner and its
+    asset workers) may add. The row
     is inserted empty; its asset is pre-filled only for an asset worker with
     exactly one asset. Everyone else adds an asset-less draft (removed on submit
     if never assigned a row/asset).
@@ -625,7 +626,7 @@ async def add_plan_row(
         raise _ERR_EDIT_PENDING
     if RProjectRole.APPROVER in roles:
         raise _ERR_ADD_PERMISSION
-    if not (is_admin or block == RBlock.TASHPAEV):
+    if not (is_admin or block == RBlock.TECH):
         raise _ERR_ADD_PERMISSION
     asset: RAsset | None = assets[0] if RProjectRole.ASSET_WORKER in roles and len(assets) == 1 else None
     max_position = (
@@ -669,7 +670,7 @@ async def assign_plan_row_asset(
     Only a row that currently has no asset can be pointed at an asset (a row is
     created once and its asset was fixed at creation for the legacy cases). The
     caller must be able to add/edit the row: an admin, or a representative of
-    block Ташпаева; the target asset must be within the caller's asset scope. A
+    block Технической дирекции; the target asset must be within the caller's asset scope. A
     pending plan is only editable by an admin.
     """
     plan = await _plan_by_state(session, RPlanState.WORKING)
@@ -682,7 +683,7 @@ async def assign_plan_row_asset(
         raise _ERR_EDIT_PENDING
     if RProjectRole.APPROVER in roles:
         raise _ERR_ADD_PERMISSION
-    if not (is_admin or block == RBlock.TASHPAEV):
+    if not (is_admin or block == RBlock.TECH):
         raise _ERR_ADD_PERMISSION
     asset = next((candidate for candidate in assets if candidate.id == asset_id), None)
     if asset is None:
@@ -996,7 +997,7 @@ async def update_plan_cells(
             if is_approver:
                 raise _approver_read_only(field)
             if block is None or meta.responsibility_block != block.value:
-                raise _block_access(field, block if block is not None else RBlock.TASHPAEV)
+                raise _block_access(field, block if block is not None else RBlock.TECH)
         old_value = _row_value_label(row, meta, label_map)
         new_value, db_value = await _coerce_cell(session, meta, update.value)
         if db_value == getattr(row, field):

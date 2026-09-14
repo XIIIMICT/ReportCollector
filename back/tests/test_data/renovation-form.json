@@ -876,7 +876,7 @@
   "headerCells": [
     {
       "id": "header_d6_ae6",
-      "text": "1) Блок Ташпаева",
+      "text": "1) Техническая дирекция",
       "startPosition": 2,
       "colSpan": 28,
       "rowSpan": 1,
@@ -885,7 +885,7 @@
     },
     {
       "id": "header_af6_gs6",
-      "text": "2) Блок Бородийчука",
+      "text": "2) Дирекция КСиР",
       "startPosition": 30,
       "colSpan": 170,
       "rowSpan": 1,
@@ -894,7 +894,7 @@
     },
     {
       "id": "header_gt6_hh6",
-      "text": "3) Блок Бабаевой",
+      "text": "3) Дирекция МТО",
       "startPosition": 200,
       "colSpan": 15,
       "rowSpan": 1,
@@ -4050,7 +4050,7 @@
       "position": 3,
       "label": "Наименование производства",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Наименование производства"
       ],
       "cellType": "text",
@@ -4065,7 +4065,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4075,7 +4075,7 @@
       "position": 4,
       "label": "Цех",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Цех"
       ],
       "cellType": "text",
@@ -4090,7 +4090,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4100,7 +4100,7 @@
       "position": 5,
       "label": "Отделение/установка",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Отделение/установка"
       ],
       "cellType": "text",
@@ -4115,7 +4115,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4125,7 +4125,7 @@
       "position": 6,
       "label": "Класс оборудования",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Класс оборудования"
       ],
       "cellType": "text",
@@ -4140,7 +4140,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4150,7 +4150,7 @@
       "position": 7,
       "label": "Вид (категория) оборудования",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Вид (категория) оборудования"
       ],
       "cellType": "text",
@@ -4165,7 +4165,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4175,7 +4175,7 @@
       "position": 8,
       "label": "Наименование ЕО",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Наименование ЕО"
       ],
       "cellType": "text",
@@ -4190,7 +4190,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4200,7 +4200,7 @@
       "position": 9,
       "label": "Название технического места",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Название технического места"
       ],
       "cellType": "text",
@@ -4215,7 +4215,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4225,7 +4225,7 @@
       "position": 10,
       "label": "Технологическая позиция ",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Технологическая позиция "
       ],
       "cellType": "text",
@@ -4240,7 +4240,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4250,7 +4250,7 @@
       "position": 11,
       "label": "Инвентарный\r\n№",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Инвентарный\r\n№"
       ],
       "cellType": "text",
@@ -4265,7 +4265,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4275,7 +4275,7 @@
       "position": 12,
       "label": "Функциональное направление",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Функциональное направление"
       ],
       "cellType": "text",
@@ -4290,7 +4290,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4300,7 +4300,7 @@
       "position": 13,
       "label": "Влияние на производство",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Влияние на производство"
       ],
       "cellType": "text",
@@ -4315,7 +4315,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4325,7 +4325,7 @@
       "position": 14,
       "label": "Группа критичности оборудования",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Группа критичности оборудования"
       ],
       "cellType": "reference",
@@ -4345,7 +4345,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4355,7 +4355,7 @@
       "position": 15,
       "label": "Раздел БПОФ",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Раздел БПОФ"
       ],
       "cellType": "text",
@@ -4378,7 +4378,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4388,7 +4388,7 @@
       "position": 16,
       "label": "Категория работ",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Категория работ"
       ],
       "cellType": "reference",
@@ -4408,7 +4408,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4418,7 +4418,7 @@
       "position": 17,
       "label": "Вид работ",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Вид работ"
       ],
       "cellType": "reference",
@@ -4438,7 +4438,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4448,7 +4448,7 @@
       "position": 18,
       "label": "Отнесение затрат\r\n(OPEX/CAPEX)",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Отнесение затрат\r\n(OPEX/CAPEX)"
       ],
       "cellType": "reference",
@@ -4468,7 +4468,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4478,7 +4478,7 @@
       "position": 19,
       "label": "Способ выполнения",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Способ выполнения"
       ],
       "cellType": "reference",
@@ -4498,7 +4498,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4508,7 +4508,7 @@
       "position": 20,
       "label": "Наименование Исполнителя работ",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Наименование Исполнителя работ"
       ],
       "cellType": "text",
@@ -4523,7 +4523,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4533,7 +4533,7 @@
       "position": 21,
       "label": "Содержание работ",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Содержание работ"
       ],
       "cellType": "text",
@@ -4548,7 +4548,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4558,7 +4558,7 @@
       "position": 22,
       "label": "Дефектная ведомость/ВОР\r\n№ (в случаях когда инв.№ распространяется на отделение или установку, или блок из нескольких единиц оборудования)",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Дефектная ведомость/ВОР\r\n№ (в случаях когда инв.№ распространяется на отделение или установку, или блок из нескольких единиц оборудования)"
       ],
       "cellType": "number",
@@ -4573,7 +4573,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4583,7 +4583,7 @@
       "position": 23,
       "label": "Дата начала работ",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Дата начала работ"
       ],
       "cellType": "date",
@@ -4602,7 +4602,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4612,7 +4612,7 @@
       "position": 24,
       "label": "Дата окончания работ",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Дата окончания работ"
       ],
       "cellType": "date",
@@ -4633,7 +4633,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4643,7 +4643,7 @@
       "position": 25,
       "label": "Продолжительность, дни",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Продолжительность, дни"
       ],
       "cellType": "number",
@@ -4666,7 +4666,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": true
     },
     {
@@ -4676,7 +4676,7 @@
       "position": 26,
       "label": "Трудозатраты чел.час",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Трудозатраты чел.час"
       ],
       "cellType": "number",
@@ -4700,7 +4700,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4710,7 +4710,7 @@
       "position": 27,
       "label": "Работа, \r\nруб. без ндс",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Работа, \r\nруб. без ндс"
       ],
       "cellType": "number",
@@ -4734,7 +4734,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4744,7 +4744,7 @@
       "position": 28,
       "label": "МТР Заказчика, \r\nруб. без НДС",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "МТР Заказчика, \r\nруб. без НДС"
       ],
       "cellType": "number",
@@ -4768,7 +4768,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4778,7 +4778,7 @@
       "position": 29,
       "label": "МТР Подрядчик, \r\nруб. без НДС",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "МТР Подрядчик, \r\nруб. без НДС"
       ],
       "cellType": "number",
@@ -4802,7 +4802,7 @@
           }
         ]
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": false
     },
     {
@@ -4812,7 +4812,7 @@
       "position": 30,
       "label": "Стоимость итого, руб. без НДС",
       "categories": [
-        "Блок Ташпаев А.А. (раздел 1)",
+        "Техническая дирекция",
         "Стоимость итого, руб. без НДС"
       ],
       "cellType": "number",
@@ -4827,7 +4827,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "tashpaev",
+      "responsibilityBlock": "tech",
       "isReadOnly": true
     },
     {
@@ -4837,7 +4837,7 @@
       "position": 31,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "Всего"
@@ -4854,7 +4854,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -4864,7 +4864,7 @@
       "position": 32,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в том числе",
@@ -4882,7 +4882,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -4892,7 +4892,7 @@
       "position": 33,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в том числе",
@@ -4910,7 +4910,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -4920,7 +4920,7 @@
       "position": 34,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -4939,7 +4939,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -4949,7 +4949,7 @@
       "position": 35,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -4969,7 +4969,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -4979,7 +4979,7 @@
       "position": 36,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -4999,7 +4999,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5009,7 +5009,7 @@
       "position": 37,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5030,7 +5030,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5040,7 +5040,7 @@
       "position": 38,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5062,7 +5062,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5072,7 +5072,7 @@
       "position": 39,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5094,7 +5094,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5104,7 +5104,7 @@
       "position": 40,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5125,7 +5125,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5135,7 +5135,7 @@
       "position": 41,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5157,7 +5157,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5167,7 +5167,7 @@
       "position": 42,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5189,7 +5189,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5199,7 +5199,7 @@
       "position": 43,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5220,7 +5220,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5230,7 +5230,7 @@
       "position": 44,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5252,7 +5252,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5262,7 +5262,7 @@
       "position": 45,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5284,7 +5284,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5294,7 +5294,7 @@
       "position": 46,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5313,7 +5313,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5323,7 +5323,7 @@
       "position": 47,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5343,7 +5343,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5353,7 +5353,7 @@
       "position": 48,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5373,7 +5373,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5383,7 +5383,7 @@
       "position": 49,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5404,7 +5404,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5414,7 +5414,7 @@
       "position": 50,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5436,7 +5436,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5446,7 +5446,7 @@
       "position": 51,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5468,7 +5468,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5478,7 +5478,7 @@
       "position": 52,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5499,7 +5499,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5509,7 +5509,7 @@
       "position": 53,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5531,7 +5531,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5541,7 +5541,7 @@
       "position": 54,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5563,7 +5563,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5573,7 +5573,7 @@
       "position": 55,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5594,7 +5594,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5604,7 +5604,7 @@
       "position": 56,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5626,7 +5626,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5636,7 +5636,7 @@
       "position": 57,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5658,7 +5658,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5668,7 +5668,7 @@
       "position": 58,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5687,7 +5687,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5697,7 +5697,7 @@
       "position": 59,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5717,7 +5717,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5727,7 +5727,7 @@
       "position": 60,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5747,7 +5747,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5757,7 +5757,7 @@
       "position": 61,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5778,7 +5778,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5788,7 +5788,7 @@
       "position": 62,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5810,7 +5810,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5820,7 +5820,7 @@
       "position": 63,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5842,7 +5842,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5852,7 +5852,7 @@
       "position": 64,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5873,7 +5873,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5883,7 +5883,7 @@
       "position": 65,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5905,7 +5905,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5915,7 +5915,7 @@
       "position": 66,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5937,7 +5937,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5947,7 +5947,7 @@
       "position": 67,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -5968,7 +5968,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -5978,7 +5978,7 @@
       "position": 68,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6000,7 +6000,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6010,7 +6010,7 @@
       "position": 69,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6032,7 +6032,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6042,7 +6042,7 @@
       "position": 70,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6061,7 +6061,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6071,7 +6071,7 @@
       "position": 71,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6091,7 +6091,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6101,7 +6101,7 @@
       "position": 72,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6121,7 +6121,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6131,7 +6131,7 @@
       "position": 73,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6152,7 +6152,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6162,7 +6162,7 @@
       "position": 74,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6184,7 +6184,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6194,7 +6194,7 @@
       "position": 75,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6216,7 +6216,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6226,7 +6226,7 @@
       "position": 76,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6247,7 +6247,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6257,7 +6257,7 @@
       "position": 77,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6279,7 +6279,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6289,7 +6289,7 @@
       "position": 78,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6311,7 +6311,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6321,7 +6321,7 @@
       "position": 79,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6342,7 +6342,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6352,7 +6352,7 @@
       "position": 80,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6374,7 +6374,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6384,7 +6384,7 @@
       "position": 81,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "План с учетом предлагаемой корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6406,7 +6406,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6416,7 +6416,7 @@
       "position": 82,
       "label": "Ед. изм.",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Физические объемы работ ",
         "Ед. изм."
@@ -6433,7 +6433,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -6443,7 +6443,7 @@
       "position": 83,
       "label": "Количество",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Физические объемы работ ",
         "Количество"
@@ -6460,7 +6460,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -6470,7 +6470,7 @@
       "position": 84,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "Всего"
@@ -6487,7 +6487,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6497,7 +6497,7 @@
       "position": 85,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в том числе",
@@ -6515,7 +6515,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6525,7 +6525,7 @@
       "position": 86,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в том числе",
@@ -6543,7 +6543,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6553,7 +6553,7 @@
       "position": 87,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6572,7 +6572,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6582,7 +6582,7 @@
       "position": 88,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6602,7 +6602,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6612,7 +6612,7 @@
       "position": 89,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6632,7 +6632,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6642,7 +6642,7 @@
       "position": 90,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6663,7 +6663,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6673,7 +6673,7 @@
       "position": 91,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6700,7 +6700,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -6710,7 +6710,7 @@
       "position": 92,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6737,7 +6737,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -6747,7 +6747,7 @@
       "position": 93,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6768,7 +6768,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6778,7 +6778,7 @@
       "position": 94,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6805,7 +6805,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -6815,7 +6815,7 @@
       "position": 95,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6842,7 +6842,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -6852,7 +6852,7 @@
       "position": 96,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6873,7 +6873,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6883,7 +6883,7 @@
       "position": 97,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6910,7 +6910,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -6920,7 +6920,7 @@
       "position": 98,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6947,7 +6947,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -6957,7 +6957,7 @@
       "position": 99,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -6976,7 +6976,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -6986,7 +6986,7 @@
       "position": 100,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7006,7 +7006,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7016,7 +7016,7 @@
       "position": 101,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7036,7 +7036,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7046,7 +7046,7 @@
       "position": 102,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7067,7 +7067,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7077,7 +7077,7 @@
       "position": 103,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7104,7 +7104,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7114,7 +7114,7 @@
       "position": 104,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7141,7 +7141,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7151,7 +7151,7 @@
       "position": 105,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7172,7 +7172,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7182,7 +7182,7 @@
       "position": 106,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7209,7 +7209,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7219,7 +7219,7 @@
       "position": 107,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7246,7 +7246,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7256,7 +7256,7 @@
       "position": 108,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7277,7 +7277,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7287,7 +7287,7 @@
       "position": 109,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7314,7 +7314,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7324,7 +7324,7 @@
       "position": 110,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7351,7 +7351,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7361,7 +7361,7 @@
       "position": 111,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7380,7 +7380,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7390,7 +7390,7 @@
       "position": 112,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7410,7 +7410,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7420,7 +7420,7 @@
       "position": 113,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7440,7 +7440,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7450,7 +7450,7 @@
       "position": 114,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7471,7 +7471,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7481,7 +7481,7 @@
       "position": 115,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7508,7 +7508,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7518,7 +7518,7 @@
       "position": 116,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7545,7 +7545,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7555,7 +7555,7 @@
       "position": 117,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7576,7 +7576,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7586,7 +7586,7 @@
       "position": 118,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7613,7 +7613,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7623,7 +7623,7 @@
       "position": 119,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7650,7 +7650,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7660,7 +7660,7 @@
       "position": 120,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7681,7 +7681,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7691,7 +7691,7 @@
       "position": 121,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7718,7 +7718,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7728,7 +7728,7 @@
       "position": 122,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7755,7 +7755,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7765,7 +7765,7 @@
       "position": 123,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7784,7 +7784,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7794,7 +7794,7 @@
       "position": 124,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7814,7 +7814,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7824,7 +7824,7 @@
       "position": 125,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7844,7 +7844,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7854,7 +7854,7 @@
       "position": 126,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7875,7 +7875,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7885,7 +7885,7 @@
       "position": 127,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7912,7 +7912,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7922,7 +7922,7 @@
       "position": 128,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7949,7 +7949,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -7959,7 +7959,7 @@
       "position": 129,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -7980,7 +7980,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -7990,7 +7990,7 @@
       "position": 130,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8017,7 +8017,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8027,7 +8027,7 @@
       "position": 131,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8054,7 +8054,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8064,7 +8064,7 @@
       "position": 132,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8085,7 +8085,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8095,7 +8095,7 @@
       "position": 133,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8122,7 +8122,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8132,7 +8132,7 @@
       "position": 134,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Стоимость работ, (+/-) тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8159,7 +8159,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8169,7 +8169,7 @@
       "position": 135,
       "label": "Вид корректировки",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Вид корректировки"
       ],
@@ -8185,7 +8185,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8195,7 +8195,7 @@
       "position": 136,
       "label": "Причина (обосновывающий документ)",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Корректировка",
         "Причина (обосновывающий документ)"
       ],
@@ -8211,7 +8211,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8221,7 +8221,7 @@
       "position": 137,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "Всего"
@@ -8238,7 +8238,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8248,7 +8248,7 @@
       "position": 138,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в том числе",
@@ -8266,7 +8266,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8276,7 +8276,7 @@
       "position": 139,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в том числе",
@@ -8294,7 +8294,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8304,7 +8304,7 @@
       "position": 140,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8323,7 +8323,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8333,7 +8333,7 @@
       "position": 141,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8353,7 +8353,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8363,7 +8363,7 @@
       "position": 142,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8383,7 +8383,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8393,7 +8393,7 @@
       "position": 143,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8414,7 +8414,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8424,7 +8424,7 @@
       "position": 144,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8455,7 +8455,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8465,7 +8465,7 @@
       "position": 145,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8496,7 +8496,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8506,7 +8506,7 @@
       "position": 146,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8527,7 +8527,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8537,7 +8537,7 @@
       "position": 147,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8568,7 +8568,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8578,7 +8578,7 @@
       "position": 148,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8609,7 +8609,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8619,7 +8619,7 @@
       "position": 149,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8640,7 +8640,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8650,7 +8650,7 @@
       "position": 150,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8681,7 +8681,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8691,7 +8691,7 @@
       "position": 151,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8722,7 +8722,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8732,7 +8732,7 @@
       "position": 152,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8751,7 +8751,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8761,7 +8761,7 @@
       "position": 153,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8781,7 +8781,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8791,7 +8791,7 @@
       "position": 154,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8811,7 +8811,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8821,7 +8821,7 @@
       "position": 155,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8842,7 +8842,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8852,7 +8852,7 @@
       "position": 156,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8883,7 +8883,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8893,7 +8893,7 @@
       "position": 157,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8924,7 +8924,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -8934,7 +8934,7 @@
       "position": 158,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8955,7 +8955,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -8965,7 +8965,7 @@
       "position": 159,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -8996,7 +8996,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9006,7 +9006,7 @@
       "position": 160,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9037,7 +9037,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9047,7 +9047,7 @@
       "position": 161,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9068,7 +9068,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9078,7 +9078,7 @@
       "position": 162,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9109,7 +9109,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9119,7 +9119,7 @@
       "position": 163,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9150,7 +9150,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9160,7 +9160,7 @@
       "position": 164,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9179,7 +9179,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9189,7 +9189,7 @@
       "position": 165,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9209,7 +9209,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9219,7 +9219,7 @@
       "position": 166,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9239,7 +9239,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9249,7 +9249,7 @@
       "position": 167,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9270,7 +9270,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9280,7 +9280,7 @@
       "position": 168,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9311,7 +9311,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9321,7 +9321,7 @@
       "position": 169,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9352,7 +9352,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9362,7 +9362,7 @@
       "position": 170,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9383,7 +9383,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9393,7 +9393,7 @@
       "position": 171,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9424,7 +9424,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9434,7 +9434,7 @@
       "position": 172,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9465,7 +9465,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9475,7 +9475,7 @@
       "position": 173,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9496,7 +9496,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9506,7 +9506,7 @@
       "position": 174,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9537,7 +9537,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9547,7 +9547,7 @@
       "position": 175,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9578,7 +9578,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9588,7 +9588,7 @@
       "position": 176,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9607,7 +9607,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9617,7 +9617,7 @@
       "position": 177,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9637,7 +9637,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9647,7 +9647,7 @@
       "position": 178,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9667,7 +9667,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9677,7 +9677,7 @@
       "position": 179,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9698,7 +9698,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9708,7 +9708,7 @@
       "position": 180,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9739,7 +9739,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9749,7 +9749,7 @@
       "position": 181,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9780,7 +9780,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9790,7 +9790,7 @@
       "position": 182,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9811,7 +9811,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9821,7 +9821,7 @@
       "position": 183,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9852,7 +9852,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9862,7 +9862,7 @@
       "position": 184,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9893,7 +9893,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9903,7 +9903,7 @@
       "position": 185,
       "label": "Всего",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9924,7 +9924,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": true
     },
     {
@@ -9934,7 +9934,7 @@
       "position": 186,
       "label": "СМР",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -9965,7 +9965,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -9975,7 +9975,7 @@
       "position": 187,
       "label": "МТР Заказчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Первоначальный план до корректировки",
         "Стоимость всего, тыс. руб. без НДС",
         "в т.ч. по кварталам",
@@ -10006,7 +10006,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10016,7 +10016,7 @@
       "position": 188,
       "label": "Код направления деятельности (согласно критериев лотирования)",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Код направления деятельности (согласно критериев лотирования)"
       ],
       "cellType": "text",
@@ -10031,7 +10031,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10041,7 +10041,7 @@
       "position": 189,
       "label": "Код закупки (генподряд)",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор генерального подряда",
         "Код закупки (генподряд)"
       ],
@@ -10057,7 +10057,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10067,7 +10067,7 @@
       "position": 190,
       "label": "Дата",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор генерального подряда",
         "Дата"
       ],
@@ -10083,7 +10083,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10093,7 +10093,7 @@
       "position": 191,
       "label": "Номер",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор генерального подряда",
         "Номер"
       ],
@@ -10109,7 +10109,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10119,7 +10119,7 @@
       "position": 192,
       "label": "Цена работы по договору тыс. руб. без НДС",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор генерального подряда",
         "Цена работы по договору тыс. руб. без НДС"
       ],
@@ -10144,7 +10144,7 @@
           }
         ]
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10154,7 +10154,7 @@
       "position": 193,
       "label": "Наименование контрагента",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор генерального подряда",
         "Наименование контрагента"
       ],
@@ -10170,7 +10170,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10180,7 +10180,7 @@
       "position": 194,
       "label": "Статус предквалификации контрагента",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор генерального подряда",
         "Статус предквалификации контрагента"
       ],
@@ -10196,7 +10196,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10206,7 +10206,7 @@
       "position": 195,
       "label": "Необходимость привлечения субподрядчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор генерального подряда",
         "Необходимость привлечения субподрядчика"
       ],
@@ -10222,7 +10222,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10232,7 +10232,7 @@
       "position": 196,
       "label": "Описание проблематики",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор генерального подряда",
         "Описание проблематики"
       ],
@@ -10248,7 +10248,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10258,7 +10258,7 @@
       "position": 197,
       "label": "Дата",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор субподряда",
         "Дата"
       ],
@@ -10274,7 +10274,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10284,7 +10284,7 @@
       "position": 198,
       "label": "Номер",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор субподряда",
         "Номер"
       ],
@@ -10300,7 +10300,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10310,7 +10310,7 @@
       "position": 199,
       "label": "Наименование субподрядчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор субподряда",
         "Наименование субподрядчика"
       ],
@@ -10326,7 +10326,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10336,7 +10336,7 @@
       "position": 200,
       "label": "Статус предквалификации субподрядчика",
       "categories": [
-        "Блок Бородийчук А.В.  (раздел 2)",
+        "Дирекция КСиР",
         "Договор субподряда",
         "Статус предквалификации субподрядчика"
       ],
@@ -10352,7 +10352,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "borodiichuk",
+      "responsibilityBlock": "ksir",
       "isReadOnly": false
     },
     {
@@ -10362,7 +10362,7 @@
       "position": 201,
       "label": "Наличие МТР в работах/ремонтах (Да/Нет)\r\n",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Наличие МТР в работах/ремонтах (Да/Нет)\r\n"
       ],
       "cellType": "boolean",
@@ -10385,7 +10385,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10395,7 +10395,7 @@
       "position": 202,
       "label": "Необходимая дата поставки МТР",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Необходимая дата поставки МТР"
       ],
       "cellType": "date",
@@ -10410,7 +10410,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": true
     },
     {
@@ -10420,7 +10420,7 @@
       "position": 203,
       "label": "Стоимость МТР",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Стоимость МТР"
       ],
       "cellType": "number",
@@ -10444,7 +10444,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": true
     },
     {
@@ -10454,7 +10454,7 @@
       "position": 204,
       "label": "МТР \r\nЦентрализованная поставка, \r\nтыс. руб. без НДС",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "в том числе",
         "МТР \r\nЦентрализованная поставка, \r\nтыс. руб. без НДС"
       ],
@@ -10479,7 +10479,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10489,7 +10489,7 @@
       "position": 205,
       "label": "МТР \r\nПрямая поставка, \r\nтыс. руб. без НДС",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "в том числе",
         "МТР \r\nПрямая поставка, \r\nтыс. руб. без НДС"
       ],
@@ -10514,7 +10514,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10524,7 +10524,7 @@
       "position": 206,
       "label": "МТР\r\nпоставка  Подрядчика, \r\nтыс. руб. без НДС",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "в том числе",
         "МТР\r\nпоставка  Подрядчика, \r\nтыс. руб. без НДС"
       ],
@@ -10549,7 +10549,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10559,7 +10559,7 @@
       "position": 207,
       "label": "Централизованная поставка ",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Статус готовности МТР к проведению ремонта (%)",
         "Контрактация оборудования и МТР ",
         "Централизованная поставка "
@@ -10584,7 +10584,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10594,7 +10594,7 @@
       "position": 208,
       "label": "Прямая \r\nпоставка",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Статус готовности МТР к проведению ремонта (%)",
         "Контрактация оборудования и МТР ",
         "Прямая \r\nпоставка"
@@ -10619,7 +10619,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10629,7 +10629,7 @@
       "position": 209,
       "label": "Централизованная поставка ",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Статус готовности МТР к проведению ремонта (%)",
         "Поставка оборудования и МТР",
         "Централизованная поставка "
@@ -10654,7 +10654,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10664,7 +10664,7 @@
       "position": 210,
       "label": "Прямая \r\nпоставка",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Статус готовности МТР к проведению ремонта (%)",
         "Поставка оборудования и МТР",
         "Прямая \r\nпоставка"
@@ -10689,7 +10689,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10699,7 +10699,7 @@
       "position": 211,
       "label": "Признак кртичности\r\n(да / нет)",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Статус готовности МТР к проведению ремонта (%)",
         "Признак кртичности\r\n(да / нет)"
       ],
@@ -10723,7 +10723,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10733,7 +10733,7 @@
       "position": 212,
       "label": "Описание проблематики",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Статус готовности МТР к проведению ремонта (%)",
         "Описание проблематики"
       ],
@@ -10749,7 +10749,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10759,7 +10759,7 @@
       "position": 213,
       "label": "Поставка оборудования и МТР Подрядчика",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Статус готовности МТР к проведению ремонта (%)",
         "Поставка оборудования и МТР Подрядчика"
       ],
@@ -10783,7 +10783,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10793,7 +10793,7 @@
       "position": 214,
       "label": "Признак кртичности\r\n(да / нет)",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Статус готовности МТР к проведению ремонта (%)",
         "Признак кртичности\r\n(да / нет)"
       ],
@@ -10817,7 +10817,7 @@
           }
         ]
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
@@ -10827,7 +10827,7 @@
       "position": 215,
       "label": "Описание проблематики",
       "categories": [
-        "Блок Бабаева И.Р. (раздел 3)",
+        "Дирекция МТО",
         "Статус готовности МТР к проведению ремонта (%)",
         "Описание проблематики"
       ],
@@ -10843,7 +10843,7 @@
         "allowNull": true,
         "rules": []
       },
-      "responsibilityBlock": "babaeva",
+      "responsibilityBlock": "mto",
       "isReadOnly": false
     },
     {
