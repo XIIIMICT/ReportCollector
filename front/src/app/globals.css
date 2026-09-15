@@ -1214,8 +1214,8 @@ html {
 /* RevoGrid ships the filter funnel with an enter-only transition (it is
    declared under `:hover`), so the funnel snaps out when the pointer leaves.
    Declare it on the base state so the fade-out animates too, and animate the
-   label's `margin-right` — without it the centered header text jumps the
-   instant the funnel is revealed, which reads as a glitch next to the fade. */
+   label's offset — without it the centered header text jumps the instant the
+   funnel is revealed, which reads as a glitch next to the fade. */
 .raw-materials-grid revogr-header .rgHeaderCell .rv-filter {
     transition:
         opacity 267ms cubic-bezier(0.4, 0, 0.2, 1),
@@ -1224,41 +1224,104 @@ html {
 }
 
 .raw-materials-grid revogr-header .rgHeaderCell .header-content {
-    transition: margin-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .raw-materials-grid revogr-header .rgHeaderCell .rv-filter,
-    .raw-materials-grid revogr-header .rgHeaderCell .header-content {
-        transition: none;
-    }
+    transition:
+        margin-left 267ms cubic-bezier(0.4, 0, 0.2, 1),
+        margin-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .raw-materials-grid:not(.raw-materials-grid--user-sorted) revogr-header .sort-indicator {
     display: none !important;
 }
 
-/* The sort arrow sits at the RIGHT edge of the header cell by default
-   (`.header-controls` is absolutely positioned at `right: 1px`). Put it on
-   the left edge instead, ahead of the label: anchor the controls to the left
-   and let the label keep its centered layout. The arrow is first in the
-   controls row, so the filter funnel — when a column has one — follows it. */
-.raw-materials-grid revogr-header .rgHeaderCell .header-controls {
-    right: auto;
-    left: 1px;
+/* The sort arrow and the filter funnel live in one `.header-controls` flex row
+   (`[.sort-indicator, .filter-button-wrapper]`). RevoGrid anchors that row to the
+   cell's RIGHT edge while a column is unsorted, but switches it to `static` on a
+   sorted column. Because the label (`.header-content`) is absolutely positioned,
+   the now-static row becomes the only in-flow flex item and the whole cell's
+   `display: flex` puts it at the LEFT — both the arrow and the funnel drift
+   there. Re-anchor the row to fill the cell and separate the two ends
+   (`space-between`: arrow left, funnel right). The funnel is the wrapper
+   (`.filter-button-wrapper`), NOT the inner `.rv-filter` button, so target the
+   row's ends rather than the button.
+
+   Scope it to ACTUALLY sorted cells (`.asc`/`.desc`): RevoGrid renders a
+   `.sort-indicator` in EVERY sortable column (with a `sort-off` icon), so a plain
+   match would move every header once the grid is user-sorted. The arrow stays in
+   the flow (it must occupy the left end for `space-between`) and fades in via
+   `opacity`, staying in step with the label's `margin-left`. Painted with
+   `--muted` — the color the funnel resolves to (it uses the grid-local
+   `--revo-grid-filter-panel-icon`, not defined on the renovation/dictionary
+   grids). */
+.raw-materials-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls,
+.renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls {
+    /* The row's left edge is where the arrow lands (it is the first child), so
+       this is also the arrow's offset from the cell's left edge. */
+    position: absolute;
+    top: 0;
+    right: 1px;
+    bottom: 1px;
+    left: 6px;
+    width: auto;
     min-width: 0;
+    margin-inline-end: 0;
+    justify-content: space-between;
 }
 
-.raw-materials-grid revogr-header .rgHeaderCell.asc .header-controls,
-.raw-materials-grid revogr-header .rgHeaderCell.desc .header-controls {
-    /* Sorted cells flow the controls inline before the label (static flex
-       child) — keep the arrow on the left there too. */
+.raw-materials-grid revogr-header .rgHeaderCell .header-controls .sort-indicator,
+.renovation-grid revogr-header .rgHeaderCell .header-controls .sort-indicator {
     order: -1;
-    margin-inline: 0 1px;
+    display: inline-flex;
+    align-items: center;
+    /* Present but hidden until the column is sorted — the arrow fades in place
+       (no `display`/layout switch), so it stays in step with `margin-left`. */
+    opacity: 0;
+    color: var(--muted);
+    transition: opacity 267ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.raw-materials-grid revogr-header .rgHeaderCell .header-controls .sort-indicator {
-    order: -1;
+.raw-materials-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls .sort-indicator,
+.renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls .sort-indicator {
+    opacity: 1;
+}
+
+.raw-materials-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content,
+.renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content {
+    margin-left: 24px;
+}
+
+/* Keep the label's centering basis IDENTICAL in both sort states: RevoGrid
+   flips `.header-content` from `position: absolute; inset: 0` (unsorted) to
+   `position: relative; flex: 1 1 0` (sorted), which happens instantly while
+   `margin-left` eases — the label would jump to the flex-centered spot and only
+   then slide (the "jerk"). Pin the sorted state to the absolute model so only
+   `margin-left` ever moves. */
+.raw-materials-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content,
+.renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content {
+    position: absolute;
+    inset: 0;
+    flex: none;
+}
+
+/* Sorted cell with a filter funnel: RevoGrid reserves the funnel's width via
+   `margin-right: 24px` only for `:not(.asc):not(.desc)` (on hover/focus, or when
+   a filter is pinned). Mirror BOTH triggers here — otherwise the funnel overlaps
+   the label on a sorted column and, unlike an unsorted one, the text does not
+   make room, which breaks the centering symmetry. */
+.raw-materials-grid
+    revogr-header
+    .rgHeaderCell:is(.asc, .desc):is(:hover, :focus-within, :has(.rv-filter.active))
+    .header-content {
+    margin-right: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .raw-materials-grid revogr-header .rgHeaderCell .rv-filter,
+    .raw-materials-grid revogr-header .rgHeaderCell .header-content,
+    .renovation-grid revogr-header .rgHeaderCell .header-content,
+    .raw-materials-grid revogr-header .rgHeaderCell .header-controls .sort-indicator,
+    .renovation-grid revogr-header .rgHeaderCell .header-controls .sort-indicator {
+        transition: none;
+    }
 }
 
 .raw-materials-grid revogr-header .header-rgRow,
