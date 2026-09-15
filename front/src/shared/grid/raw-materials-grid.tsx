@@ -683,8 +683,6 @@ function RawMaterialsGridInner(
             row.isDeleted ||
             descriptor.fixed ||
             descriptor.kind === "calculated" ||
-            (descriptor.placeholderOnly && !row.isPlaceholder) ||
-            (descriptor.placeholderReadOnly && row.isPlaceholder) ||
             (keycloakEnabled &&
                 section === "users" &&
                 !row.isPlaceholder &&

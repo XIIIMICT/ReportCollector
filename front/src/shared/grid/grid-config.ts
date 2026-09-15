@@ -59,8 +59,8 @@ export type ColumnDescriptor = {
     fixed?: boolean;
     adminOnly?: boolean;
     exportable?: boolean;
-    placeholderOnly?: boolean;
-    placeholderReadOnly?: boolean;
+    /** Read-only in every row (e.g. an email that is only set at creation). */
+    readOnly?: boolean;
 };
 
 export type GridColumnContext = {
@@ -160,7 +160,6 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
             label: "Доступ к проекту",
             width: 120,
             kind: "boolean",
-            placeholderReadOnly: true,
         },
         {
             key: "lastAuthenticatedAt",
@@ -176,7 +175,6 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
             width: 190,
             kind: "boolean",
             exportable: false,
-            placeholderReadOnly: true,
         },
     ],
     // Renovation dictionaries. The five reference catalogs are dynamic
@@ -185,8 +183,9 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     renovationAssets: [text("name", "Наименование", 380), text("repairCode", "Ремонтный код", 170)],
     renovationUsers: [
         // The email identifies the user and cannot be changed after creation
-        // (no email in the PATCH schema) — editable in the placeholder row only.
-        { ...text("email", "Email", 220), placeholderOnly: true },
+        // (no email in the PATCH schema) — users are created through the
+        // «Добавить пользователя» dialog, not a placeholder row.
+        { ...text("email", "Email", 220), readOnly: true },
         text("fullname", "ФИО", 250),
         optionSelect("role", "Роль", 200, [
             { value: "admin", label: "Администратор" },
@@ -280,6 +279,7 @@ export function getEditableKeys(
             .filter(
                 (column) =>
                     !column.fixed &&
+                    !column.readOnly &&
                     column.kind !== "calculated" &&
                     !(
                         !isAdmin &&
@@ -513,8 +513,7 @@ function isCellReadOnly(
             section === "rawMaterialPrices" &&
             descriptor.key === "deliveryBasisName") ||
         Boolean(row.isDeleted) ||
-        (descriptor.placeholderOnly === true && !row.isPlaceholder) ||
-        (descriptor.placeholderReadOnly === true && Boolean(row.isPlaceholder)) ||
+        descriptor.readOnly === true ||
         (descriptor.key === "resetPassword" && row.resetPassword === true)
     );
 }

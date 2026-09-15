@@ -604,6 +604,12 @@ export function RenovationWorkspace({
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
     }>({ resetColumnWidths: () => {}, resetFiltersSorting: () => {} });
+    // The users dictionary creates records through a modal (role-dependent
+    // fields) — the section delegates the action up like delete/export.
+    const [dictUserCreateState, setDictUserCreateState] = useState<{
+        canCreate: boolean;
+        onCreate: () => void;
+    }>({ canCreate: false, onCreate: () => {} });
     // Display toggles for the active grid (rendered in the view strip). The
     // Header pinning defaults on everywhere (plan and dictionaries).
     const [planHeaderPinned, setPlanHeaderPinned] = useState(true);
@@ -1849,6 +1855,17 @@ export function RenovationWorkspace({
                 },
             ],
         } satisfies ActionItem,
+        ...(dictUserCreateState.canCreate
+            ? [
+                  {
+                      id: "create-user",
+                      label: "Добавить пользователя",
+                      icon: <Plus />,
+                      onPress: dictUserCreateState.onCreate,
+                      disabled: isFullscreenPending,
+                  } satisfies ActionItem,
+              ]
+            : []),
         ...(dictDeleteState.canDelete
             ? [
                   {
@@ -1979,6 +1996,7 @@ export function RenovationWorkspace({
                                         onDeleteState={setDictDeleteState}
                                         onExportState={setDictExportState}
                                         onResetState={setDictResetState}
+                                        onUserCreateState={setDictUserCreateState}
                                         headerPinned={dictHeaderPinned}
                                         showServiceColumns={dictServiceColumns}
                                         onClipboardStateChange={handleDictClipboardState}

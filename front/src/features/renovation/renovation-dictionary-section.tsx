@@ -32,6 +32,11 @@ import { getEditableKeys, type ColumnDescriptor, type GridRow } from "@/shared/g
 import { RawMaterialsGrid, type RawMaterialsGridHandle } from "@/shared/grid/raw-materials-grid";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { isFromTextEditor } from "@/shared/keyboard";
+import {
+    AddRecordModal,
+    type AddRecordField,
+    type AddRecordValues,
+} from "@/shared/ui/add-record-modal";
 
 const R_ASSETS_TABLE = "r_assets";
 const R_REFERENCE_VALUES_TABLE = "renovation_reference_values";
@@ -76,17 +81,42 @@ function toAssetOptions(assets: RenovationAsset[]): Array<{ id: string; name: st
 }
 
 function initialPlaceholderDraft(section: DictionarySection): Record<string, unknown> {
-    if (section === RENOVATION_USERS_SECTION) {
-        return {
-            email: "",
-            fullname: "",
-            role: "asset_worker",
-            block: "",
-            assetNames: [],
-            isActive: true,
-        };
-    }
+    // The users dictionary has no placeholder row — it creates through the
+    // «Добавить пользователя» dialog; this only feeds assets and catalogs.
+    if (section === RENOVATION_USERS_SECTION) return {};
     return { name: "", repairCode: "" };
+}
+
+const RENOVATION_ROLE_OPTIONS = [
+    { id: "admin", name: "Администратор" },
+    { id: "approver", name: "Утверждающий" },
+    { id: "block_owner", name: "Ответственный за блок" },
+    { id: "asset_worker", name: "Работник по активу" },
+];
+
+const RENOVATION_BLOCK_OPTIONS = [
+    { id: "tech", name: "1) Техническая дирекция" },
+    { id: "ksir", name: "2) Дирекция КСиР" },
+    { id: "mto", name: "3) Дирекция МТО" },
+];
+
+const RENOVATION_USER_DEFAULTS: Record<string, unknown> = {
+    email: "",
+    fullname: "",
+    role: "asset_worker",
+    block: "",
+    assetNames: [],
+};
+
+/** A role-dependent flag: only the roles that need the responsibility block. */
+function roleNeedsBlock(values: AddRecordValues): boolean {
+    const role = String(values.role ?? "");
+    return role === "block_owner" || role === "asset_worker";
+}
+
+/** Only an asset worker gets an explicit asset grant — everyone else covers all. */
+function roleNeedsAssets(values: AddRecordValues): boolean {
+    return String(values.role ?? "") === "asset_worker";
 }
 
 function placeholderRow(section: DictionarySection, draft: Record<string, unknown>): GridRow {
@@ -119,27 +149,7 @@ function placeholderPayload(
         const label = placeholderText(draft.label);
         return label ? { label } : null;
     }
-    const email = placeholderText(draft.email).toLowerCase();
-    const fullname = placeholderText(draft.fullname);
-    const role = placeholderText(draft.role);
-    const block = placeholderText(draft.block);
-    const assetNames = Array.isArray(draft.assetNames) ? draft.assetNames : [];
-    // Only an asset worker gets an explicit asset grant; a block owner (a
-    // directorate — Техническая дирекция/Дирекция КСиР/Дирекция МТО) implicitly
-    // covers all assets, so it only needs its responsibility block, not assets.
-    const isWorker = role === "asset_worker";
-    const needsBlock = role === "block_owner" || role === "asset_worker";
-    const central = role === "admin" || role === "approver";
-    if (!email || !fullname || !role) return null;
-    if (needsBlock && !block) return null;
-    if (isWorker && assetNames.length === 0) return null;
-    return {
-        email,
-        fullname,
-        role,
-        block: central ? null : block,
-        assetNames: isWorker ? assetNames : [],
-    };
+    return null;
 }
 
 function recordLabel(row: Record<string, unknown> | undefined): string | null {
@@ -188,6 +198,7 @@ export function RenovationDictionarySection({
     onDeleteState,
     onExportState,
     onResetState,
+    onUserCreateState,
     headerPinned,
     showServiceColumns,
     onClipboardStateChange,
@@ -209,6 +220,8 @@ export function RenovationDictionarySection({
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
     }) => void;
+    /** Registers the «Добавить пользователя» action of the users dictionary. */
+    onUserCreateState: (state: { canCreate: boolean; onCreate: () => void }) => void;
     /** Controlled display toggles (rendered in the workspace view strip). */
     headerPinned: boolean;
     showServiceColumns: boolean;
@@ -225,6 +238,9 @@ export function RenovationDictionarySection({
     const [reloadKey, setReloadKey] = useState(0);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    // Users are created through a modal (role-dependent fields), other
+    // dictionaries still create through the trailing placeholder row.
+    const [userCreateOpen, setUserCreateOpen] = useState(false);
     const [exportPending, setExportPending] = useState(false);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const pendingCommitRef = useRef<Promise<boolean> | null>(null);
@@ -281,6 +297,7 @@ export function RenovationDictionarySection({
         const next = initialPlaceholderDraft(dictSection);
         placeholderDraftRef.current = next;
         setPlaceholderDraft(next);
+        setUserCreateOpen(false);
         setSelectedRowIds([]);
         setDeleteOpen(false);
     }, [dictSection]);
@@ -322,7 +339,7 @@ export function RenovationDictionarySection({
             }
             return gridRow;
         });
-        if (collabEnabled) {
+        if (collabEnabled && dictSection !== RENOVATION_USERS_SECTION) {
             base.push(placeholderRow(dictSection, placeholderDraftRef.current));
         }
         return base;
@@ -469,15 +486,6 @@ export function RenovationDictionarySection({
         placeholderCreatePendingRef.current = true;
         setIsMutationPending(true);
         try {
-            if (
-                dictSection === RENOVATION_USERS_SECTION &&
-                !isValidEmail(String(payload.email ?? ""))
-            ) {
-                toast.danger("Некорректный email", {
-                    description: "Проверьте формат адреса электронной почты.",
-                });
-                return;
-            }
             if (dictSection === RENOVATION_ASSETS_SECTION) {
                 await createRenovationAsset(String(payload.name), String(payload.repairCode));
                 onAssetsChanged();
@@ -501,17 +509,61 @@ export function RenovationDictionarySection({
             // The create is journaled server-side as an undoable action:
             // notify the workspace so Ctrl+Z is offered right away.
             onUndoHistoryChanged();
-            const next = initialPlaceholderDraft(dictSection);
-            placeholderDraftRef.current = next;
-            setPlaceholderDraft(next);
+            if (dictSection !== RENOVATION_USERS_SECTION) {
+                const next = initialPlaceholderDraft(dictSection);
+                placeholderDraftRef.current = next;
+                setPlaceholderDraft(next);
+            }
             toast.success("Запись добавлена");
         } catch (reason) {
             toast.danger("Не удалось добавить запись", { description: errorMessage(reason) });
+            // The modal (users) keeps itself open and shows the message; the
+            // placeholder row swallows it like before this function existed.
+            if (dictSection === RENOVATION_USERS_SECTION) throw reason;
         } finally {
             placeholderCreatePendingRef.current = false;
             setIsMutationPending(false);
         }
     }
+
+    async function createUserFromModal(values: AddRecordValues) {
+        await createRecord({
+            email: String(values.email ?? "")
+                .trim()
+                .toLowerCase(),
+            fullname: String(values.fullname ?? "").trim(),
+            role: String(values.role ?? "asset_worker"),
+            block: roleNeedsBlock(values) ? String(values.block ?? "") : "",
+            assetNames: roleNeedsAssets(values)
+                ? (Array.isArray(values.assetNames) ? values.assetNames : []).map(String)
+                : [],
+        });
+        setUserCreateOpen(false);
+    }
+
+    // Validation mirroring the server rules: email, full name, a block for the
+    // block owner/asset worker and at least one asset for an asset worker.
+    function validateUser(values: AddRecordValues): string | null {
+        if (!isValidEmail(String(values.email ?? ""))) {
+            return "Проверьте формат адреса электронной почты.";
+        }
+        if (!String(values.fullname ?? "").trim()) return "Укажите ФИО.";
+        if (!String(values.role ?? "")) return "Выберите роль.";
+        if (roleNeedsBlock(values) && !String(values.block ?? "")) {
+            return "Выберите дирекцию.";
+        }
+        if (roleNeedsAssets(values)) {
+            const assetNames = Array.isArray(values.assetNames) ? values.assetNames : [];
+            if (assetNames.length === 0) return "Выберите хотя бы один актив.";
+        }
+        return null;
+    }
+
+    const userFieldVisible = useCallback((field: AddRecordField, values: AddRecordValues) => {
+        if (field.key === "block") return roleNeedsBlock(values);
+        if (field.key === "assetNames") return roleNeedsAssets(values);
+        return true;
+    }, []);
 
     // Stable identity for the grid's `onPlaceholderCommit` (a `columns` memo
     // dep): an inline/recreated function would rebuild columns on every render,
@@ -593,6 +645,15 @@ export function RenovationDictionarySection({
         });
     }, [onResetState]);
 
+    // The users dictionary creates records through the modal, so the button is
+    // delegated up like delete/export (stable identity — it feeds a footer
+    // prop; a fresh object each render would rebuild the footer).
+    const canCreateUser = dictSection === RENOVATION_USERS_SECTION;
+    const openUserCreate = useCallback(() => setUserCreateOpen(true), []);
+    useEffect(() => {
+        onUserCreateState({ canCreate: canCreateUser, onCreate: openUserCreate });
+    }, [canCreateUser, onUserCreateState, openUserCreate]);
+
     const handleClipboardState = useCallback(
         (state: { canPaste: boolean }) => {
             onClipboardStateChange({
@@ -671,6 +732,19 @@ export function RenovationDictionarySection({
                 onOpenChange={setDeleteOpen}
                 onConfirm={() => void deleteRecords()}
             />
+            {dictSection === RENOVATION_USERS_SECTION ? (
+                <AddRecordModal
+                    isOpen={userCreateOpen}
+                    title="Добавить пользователя"
+                    defaults={RENOVATION_USER_DEFAULTS}
+                    fields={renovationUserFields(assetOptions)}
+                    isPending={isMutationPending}
+                    isVisible={userFieldVisible}
+                    validate={validateUser}
+                    onSubmit={createUserFromModal}
+                    onOpenChange={setUserCreateOpen}
+                />
+            ) : null}
         </>
     );
 }
@@ -678,4 +752,30 @@ export function RenovationDictionarySection({
 function catalogDescriptors(catalogId: string | null): ColumnDescriptor[] | undefined {
     if (catalogId === null) return undefined;
     return [{ key: "label", label: "Значение", width: 380, kind: "text" }];
+}
+
+function renovationUserFields(assets: Array<{ id: string; name: string }>): AddRecordField[] {
+    return [
+        { kind: "text", key: "email", label: "Email", autoComplete: "off" },
+        { kind: "text", key: "fullname", label: "ФИО" },
+        {
+            kind: "select",
+            key: "role",
+            label: "Роль",
+            options: RENOVATION_ROLE_OPTIONS,
+        },
+        {
+            kind: "select",
+            key: "block",
+            label: "Дирекция",
+            options: RENOVATION_BLOCK_OPTIONS,
+        },
+        {
+            kind: "multi",
+            key: "assetNames",
+            label: "Активы",
+            placeholder: "Выберите активы",
+            options: assets.map(({ id, name }) => ({ id, name })),
+        },
+    ];
 }

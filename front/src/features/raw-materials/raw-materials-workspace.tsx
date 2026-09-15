@@ -21,6 +21,7 @@ import {
     Download,
     MoreHoriz,
     PasteClipboard,
+    Plus,
     Redo,
     Trash,
     Undo,
@@ -97,6 +98,11 @@ import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { isFromTextEditor } from "@/shared/keyboard";
+import {
+    AddRecordModal,
+    type AddRecordField,
+    type AddRecordValues,
+} from "@/shared/ui/add-record-modal";
 import { FormStatus } from "@/shared/ui/form-status";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
@@ -153,20 +159,42 @@ function toAssetOptions(assets: RawMaterialsMeta["assets"]): ReferenceOption[] {
     return assets.map((asset) => ({ id: asset.id, name: asset.name }));
 }
 
+/** Fields of the «Добавить пользователя» dialog of the «Сырьё» project. */
+const RAW_USER_DEFAULTS: AddRecordValues = {
+    email: "",
+    fullname: "",
+    isAdmin: false,
+    assetNames: [],
+};
+
+function rawUserFields(assets: ReferenceOption[]): AddRecordField[] {
+    return [
+        {
+            kind: "text",
+            key: "email",
+            label: "Email",
+            autoComplete: "off",
+        },
+        { kind: "text", key: "fullname", label: "ФИО" },
+        {
+            kind: "boolean",
+            key: "isAdmin",
+            label: "Администратор проекта",
+        },
+        {
+            kind: "multi",
+            key: "assetNames",
+            label: "Активы",
+            placeholder: "Выберите активы",
+            options: assets.map(({ id, name }) => ({ id, name })),
+        },
+    ];
+}
+
 const PLACEHOLDER_ID_PREFIX = "new";
 
 function initialPlaceholderDraft(section: SectionId): CreateDictionaryPayload {
     if (section === "rawMaterials") return { name: "", assetNames: [] };
-    if (section === "users") {
-        return {
-            email: "",
-            fullname: "",
-            isAdmin: false,
-            assetNames: [],
-            isActive: true,
-            resetPassword: true,
-        };
-    }
     return { name: "" };
 }
 
@@ -205,20 +233,6 @@ function placeholderPayload(
             .map((assetName) => assetIdsByName.get(assetName.toLocaleLowerCase("ru-RU")))
             .filter((id): id is string => Boolean(id));
         return { name, assetIds };
-    }
-    if (section === "users") {
-        // Email is lowercased: addresses are case-insensitive.
-        const email = placeholderText(draft.email).toLowerCase();
-        const fullname = placeholderText(draft.fullname);
-        const isAdmin = draft.isAdmin === true;
-        const assetNames = Array.isArray(draft.assetNames) ? draft.assetNames : [];
-        if (!email || !fullname || (!isAdmin && assetNames.length === 0)) return null;
-        return {
-            email,
-            fullname,
-            isAdmin,
-            assetNames: isAdmin ? [] : assetNames,
-        };
     }
     return null;
 }
@@ -291,6 +305,11 @@ export type ClipboardActions = {
     onPaste: () => void;
 };
 
+export type UserCreateState = {
+    canCreate: boolean;
+    onCreate: () => void;
+};
+
 function SectionContent({
     section,
     reportMonth,
@@ -304,6 +323,7 @@ function SectionContent({
     onDeleteState,
     onExportState,
     onResetState,
+    onUserCreateState,
     headerPinned,
     showServiceColumns,
     onUndoState,
@@ -332,6 +352,8 @@ function SectionContent({
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
     }) => void;
+    /** Registers the «Добавить пользователя» action of the users section. */
+    onUserCreateState: (state: UserCreateState) => void;
     /** Controlled display toggles (rendered in the workspace view strip). */
     headerPinned: boolean;
     showServiceColumns: boolean;
@@ -402,6 +424,9 @@ function SectionContent({
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [approveOpen, setApproveOpen] = useState(false);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+    // Users are created through a modal (the fields are role-dependent), other
+    // dictionaries still create through the trailing placeholder row.
+    const [userCreateOpen, setUserCreateOpen] = useState(false);
     const [placeholderDraft, setPlaceholderDraft] = useState<CreateDictionaryPayload>(() =>
         initialPlaceholderDraft(section),
     );
@@ -434,6 +459,7 @@ function SectionContent({
         const next = initialPlaceholderDraft(section);
         placeholderDraftRef.current = next;
         setPlaceholderDraft(next);
+        setUserCreateOpen(false);
         setSelectedRowIds([]);
         setDeleteOpen(false);
         setApproveOpen(false);
@@ -465,6 +491,8 @@ function SectionContent({
     }, [collabEnabled, reportMonth, section]);
 
     const canManageReferences = isAdmin && !MAIN_SECTIONS.has(section);
+    // Users are created via the modal instead of the trailing placeholder row.
+    const showPlaceholderRow = canManageReferences && section !== "users";
     const showAssetColumn = isAdmin || assets.length > 1;
     const selectedRows = useMemo(
         () => (rows ?? []).filter((row) => selectedRowIds.includes(row.id)),
@@ -564,6 +592,15 @@ function SectionContent({
         });
     }, [onResetState]);
 
+    // The users section creates records through the modal, so the action-bar
+    // button is delegated up like delete/export (stable identity — it feeds a
+    // footer prop; a fresh object each render would rebuild the footer).
+    const canCreateUser = canManageReferences && section === "users";
+    const openUserCreate = useCallback(() => setUserCreateOpen(true), []);
+    useEffect(() => {
+        onUserCreateState({ canCreate: canCreateUser, onCreate: openUserCreate });
+    }, [canCreateUser, onUserCreateState, openUserCreate]);
+
     const gridRows = useMemo(() => {
         const base = (rows ?? []).map((row) => {
             const gridRow = toGridRow(row);
@@ -577,9 +614,8 @@ function SectionContent({
             }
             return gridRow;
         });
-        return canManageReferences ? [...base, placeholderRow(section, placeholderDraft)] : base;
+        return showPlaceholderRow ? [...base, placeholderRow(section, placeholderDraft)] : base;
     }, [
-        canManageReferences,
         collabEnabled,
         collabTable,
         editableFieldKeys,
@@ -587,6 +623,7 @@ function SectionContent({
         remoteCellValues,
         rows,
         section,
+        showPlaceholderRow,
     ]);
 
     const archiveRows = useMemo<GridRow[]>(() => {
@@ -660,12 +697,6 @@ function SectionContent({
         placeholderCreatePendingRef.current = true;
         setIsMutationPending(true);
         try {
-            if (section === "users" && !isValidEmail(String(payload.email ?? ""))) {
-                toast.danger("Некорректный email", {
-                    description: "Проверьте формат адреса электронной почты.",
-                });
-                return;
-            }
             await createDictionaryRecord(section, payload);
             refresh();
             // The create is journaled server-side as an undoable action:
@@ -676,12 +707,17 @@ function SectionContent({
                     setRedoCount(state.canRedo ? 1 : 0);
                 })
                 .catch(() => {});
-            const next = initialPlaceholderDraft(section);
-            placeholderDraftRef.current = next;
-            setPlaceholderDraft(next);
+            if (section !== "users") {
+                const next = initialPlaceholderDraft(section);
+                placeholderDraftRef.current = next;
+                setPlaceholderDraft(next);
+            }
             toast.success("Запись добавлена");
         } catch (reason) {
             toast.danger("Не удалось добавить запись", { description: errorMessage(reason) });
+            // The modal (users) keeps itself open and shows the message; the
+            // placeholder row swallows it like before this function existed.
+            if (section === "users") throw reason;
         } finally {
             placeholderCreatePendingRef.current = false;
             setIsMutationPending(false);
@@ -701,6 +737,37 @@ function SectionContent({
         // so no source rollback is needed.
         if (payload) await createRecord(payload);
         return true;
+    }
+
+    async function createUserFromModal(values: AddRecordValues) {
+        const isAdminUser = values.isAdmin === true;
+        const assetNames = Array.isArray(values.assetNames)
+            ? (values.assetNames as unknown[]).map(String)
+            : [];
+        await createRecord({
+            email: String(values.email ?? "")
+                .trim()
+                .toLowerCase(),
+            fullname: String(values.fullname ?? "").trim(),
+            isAdmin: isAdminUser,
+            // An admin implicitly covers every asset — no explicit grant.
+            assetNames: isAdminUser ? [] : assetNames,
+        });
+        setUserCreateOpen(false);
+    }
+
+    // Validation mirroring the server rules: email format, full name, and for
+    // a non-admin at least one asset (an admin implicitly covers every asset).
+    function validateUser(values: AddRecordValues): string | null {
+        if (!isValidEmail(String(values.email ?? ""))) {
+            return "Проверьте формат адреса электронной почты.";
+        }
+        if (!String(values.fullname ?? "").trim()) return "Укажите ФИО.";
+        if (values.isAdmin !== true) {
+            const assetNames = Array.isArray(values.assetNames) ? values.assetNames : [];
+            if (assetNames.length === 0) return "Выберите хотя бы один актив или дайте админа.";
+        }
+        return null;
     }
 
     async function deleteRecords() {
@@ -1109,6 +1176,18 @@ function SectionContent({
                 onOpenChange={setApproveOpen}
                 onConfirm={() => void runApprove()}
             />
+            {section === "users" ? (
+                <AddRecordModal
+                    isOpen={userCreateOpen}
+                    title="Добавить пользователя"
+                    defaults={RAW_USER_DEFAULTS}
+                    fields={rawUserFields(assets)}
+                    isPending={isMutationPending}
+                    validate={validateUser}
+                    onSubmit={createUserFromModal}
+                    onOpenChange={setUserCreateOpen}
+                />
+            ) : null}
         </>
     );
 }
@@ -1118,6 +1197,7 @@ const WORKING_VERSION_ID = "__working";
 function SectionFooter({
     section,
     canDelete,
+    canCreateUser,
     undoState,
     approveState,
     clipboardState,
@@ -1125,11 +1205,14 @@ function SectionFooter({
     exportPending,
     onExport,
     onDelete,
+    onCreateUser,
     onCopy,
     onPaste,
 }: {
     section: SectionId;
     canDelete: boolean;
+    /** «Пользователи» is created through the modal, so the action is shown. */
+    canCreateUser: boolean;
     undoState: UndoState;
     approveState: ApproveState;
     clipboardState: { canPaste: boolean };
@@ -1137,6 +1220,7 @@ function SectionFooter({
     exportPending: boolean;
     onExport: (scope: "all" | "visible") => void;
     onDelete: () => void;
+    onCreateUser: () => void;
     onCopy: () => void;
     onPaste: () => void;
 }) {
@@ -1145,6 +1229,7 @@ function SectionFooter({
             <ActionBar
                 section={section}
                 canDelete={canDelete}
+                canCreateUser={canCreateUser}
                 undoState={undoState}
                 approveState={approveState}
                 isArchive={false}
@@ -1153,6 +1238,7 @@ function SectionFooter({
                 exportPending={exportPending}
                 onExport={onExport}
                 onDelete={onDelete}
+                onCreateUser={onCreateUser}
                 onCopy={onCopy}
                 onPaste={onPaste}
             />
@@ -1229,6 +1315,10 @@ export function RawMaterialsWorkspace({
         selectedKey: null,
         onSelect: () => {},
     });
+    const [userCreateState, setUserCreateState] = useState<UserCreateState>({
+        canCreate: false,
+        onCreate: () => {},
+    });
     const [internalProjectKey, setInternalProjectKey] = useState<string>(
         currentUser.access?.some((project) => project.key === RAW_MATERIALS_PROJECT_KEY)
             ? RAW_MATERIALS_PROJECT_KEY
@@ -1252,6 +1342,11 @@ export function RawMaterialsWorkspace({
     const handleApproveState = useCallback((state: ApproveState) => setApproveState(state), []);
 
     const handleArchiveState = useCallback((state: ArchiveState) => setArchiveState(state), []);
+
+    const handleUserCreateState = useCallback(
+        (state: UserCreateState) => setUserCreateState(state),
+        [],
+    );
 
     const handleFixed = useCallback(() => {
         setMetaReloadKey((key) => key + 1);
@@ -1540,6 +1635,7 @@ export function RawMaterialsWorkspace({
             <SectionFooter
                 section={selectedTab.section}
                 canDelete={deleteState.canDelete}
+                canCreateUser={userCreateState.canCreate}
                 undoState={undoState}
                 approveState={approveState}
                 clipboardState={clipboardState}
@@ -1547,6 +1643,7 @@ export function RawMaterialsWorkspace({
                 exportPending={exportState.pending}
                 onExport={(scope) => void exportState.onExport(scope)}
                 onDelete={deleteState.onDelete}
+                onCreateUser={userCreateState.onCreate}
                 onCopy={clipboardState.onCopy}
                 onPaste={clipboardState.onPaste}
             />
@@ -1575,6 +1672,7 @@ export function RawMaterialsWorkspace({
                                 onDeleteState={handleDeleteState}
                                 onExportState={handleExportState}
                                 onResetState={setGridResetState}
+                                onUserCreateState={handleUserCreateState}
                                 headerPinned={headerPinned}
                                 showServiceColumns={showServiceColumns}
                                 onUndoState={handleUndoState}
@@ -1803,6 +1901,7 @@ export function groupActionItems(items: ActionItem[]): ActionItem[][] {
 function ActionBar({
     section,
     canDelete,
+    canCreateUser,
     undoState,
     approveState,
     isArchive,
@@ -1811,11 +1910,13 @@ function ActionBar({
     exportPending,
     onExport,
     onDelete,
+    onCreateUser,
     onCopy,
     onPaste,
 }: {
     section: SectionId;
     canDelete: boolean;
+    canCreateUser: boolean;
     undoState: UndoState;
     approveState: ApproveState;
     isArchive: boolean;
@@ -1824,6 +1925,7 @@ function ActionBar({
     exportPending: boolean;
     onExport: (scope: "all" | "visible") => void;
     onDelete: () => void;
+    onCreateUser: () => void;
     onCopy: () => void;
     onPaste: () => void;
 }) {
@@ -1902,6 +2004,17 @@ function ActionBar({
                       variant: "danger",
                       disabled: !canDelete || isFullscreenPending,
                       shortcut: { key: "Del", aria: "Control+Delete" },
+                  } satisfies ActionItem,
+              ]
+            : []),
+        ...(canCreateUser
+            ? [
+                  {
+                      id: "create-user",
+                      label: "Добавить пользователя",
+                      icon: <Plus />,
+                      onPress: onCreateUser,
+                      disabled: isFullscreenPending,
                   } satisfies ActionItem,
               ]
             : []),
