@@ -770,6 +770,13 @@ function SectionContent({
         return null;
     }
 
+    // An admin covers every asset implicitly, so the asset picker is hidden —
+    // the same rule the server applies (an admin's creation drops the grants).
+    function rawUserFieldVisible(field: AddRecordField, values: AddRecordValues): boolean {
+        if (field.key === "assetNames") return values.isAdmin !== true;
+        return true;
+    }
+
     async function deleteRecords() {
         if (!canDelete || !isDictionarySection(section)) return;
         setIsMutationPending(true);
@@ -1183,6 +1190,7 @@ function SectionContent({
                     defaults={RAW_USER_DEFAULTS}
                     fields={rawUserFields(assets)}
                     isPending={isMutationPending}
+                    isVisible={rawUserFieldVisible}
                     validate={validateUser}
                     onSubmit={createUserFromModal}
                     onOpenChange={setUserCreateOpen}

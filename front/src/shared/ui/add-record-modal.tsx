@@ -3,7 +3,6 @@
 import {
     Autocomplete,
     Button,
-    Checkbox,
     EmptyState,
     InputGroup,
     Label,
@@ -12,6 +11,7 @@ import {
     SearchField,
     Select,
     Spinner,
+    Switch,
     TextField,
     useFilter,
 } from "@heroui/react";
@@ -188,18 +188,18 @@ function FieldControl({
 }) {
     if (field.kind === "boolean") {
         return (
-            <Checkbox
+            <Switch
                 isSelected={value === true}
                 isDisabled={isDisabled}
                 onChange={(selected: boolean) => onChange(selected)}
             >
-                <Checkbox.Content>
-                    <Checkbox.Control>
-                        <Checkbox.Indicator />
-                    </Checkbox.Control>
+                <Switch.Content>
+                    <Switch.Control>
+                        <Switch.Thumb />
+                    </Switch.Control>
                     {field.label}
-                </Checkbox.Content>
-            </Checkbox>
+                </Switch.Content>
+            </Switch>
         );
     }
 

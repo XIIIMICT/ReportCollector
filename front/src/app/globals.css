@@ -1211,8 +1211,54 @@ html {
     white-space: normal;
 }
 
+/* RevoGrid ships the filter funnel with an enter-only transition (it is
+   declared under `:hover`), so the funnel snaps out when the pointer leaves.
+   Declare it on the base state so the fade-out animates too, and animate the
+   label's `margin-right` — without it the centered header text jumps the
+   instant the funnel is revealed, which reads as a glitch next to the fade. */
+.raw-materials-grid revogr-header .rgHeaderCell .rv-filter {
+    transition:
+        opacity 267ms cubic-bezier(0.4, 0, 0.2, 1),
+        width 267ms cubic-bezier(0.4, 0, 0.2, 1),
+        transform 178ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.raw-materials-grid revogr-header .rgHeaderCell .header-content {
+    transition: margin-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .raw-materials-grid revogr-header .rgHeaderCell .rv-filter,
+    .raw-materials-grid revogr-header .rgHeaderCell .header-content {
+        transition: none;
+    }
+}
+
 .raw-materials-grid:not(.raw-materials-grid--user-sorted) revogr-header .sort-indicator {
     display: none !important;
+}
+
+/* The sort arrow sits at the RIGHT edge of the header cell by default
+   (`.header-controls` is absolutely positioned at `right: 1px`). Put it on
+   the left edge instead, ahead of the label: anchor the controls to the left
+   and let the label keep its centered layout. The arrow is first in the
+   controls row, so the filter funnel — when a column has one — follows it. */
+.raw-materials-grid revogr-header .rgHeaderCell .header-controls {
+    right: auto;
+    left: 1px;
+    min-width: 0;
+}
+
+.raw-materials-grid revogr-header .rgHeaderCell.asc .header-controls,
+.raw-materials-grid revogr-header .rgHeaderCell.desc .header-controls {
+    /* Sorted cells flow the controls inline before the label (static flex
+       child) — keep the arrow on the left there too. */
+    order: -1;
+    margin-inline: 0 1px;
+}
+
+.raw-materials-grid revogr-header .rgHeaderCell .header-controls .sort-indicator {
+    order: -1;
 }
 
 .raw-materials-grid revogr-header .header-rgRow,
