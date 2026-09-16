@@ -21,6 +21,60 @@ from src.database import async_engine
 BASELINE = "0001_baseline"
 LEGACY_HEAD = "0015_plan_row_col_218"
 
+# Revision files of the retired historical chain, deleted when the consolidated
+# baseline landed. A checkout that once had them keeps them as untracked files
+# (`git pull` never removes them, and the new chain reuses some numbers), which
+# makes Alembic see several heads — `command.upgrade(config, "head")` then fails
+# with "Multiple head revisions". The wrapper prunes exactly these names before
+# reading the versions directory.
+_LEGACY_REVISION_FILES = frozenset(
+    {
+        "0001_collab.py",
+        "0002_project_key.py",
+        "0003_snapshot_tables.py",
+        "0004_theme_enum.py",
+        "0005_plural_table_names.py",
+        "0006_renovation_roles.py",
+        "0007_renovation_plans.py",
+        "0008_renovation_dictionary_audit.py",
+        "0009_renovation_asset_unique.py",
+        "0010_move_storage_to_prices.py",
+        "0011_renovation_reference_payload.py",
+        "0012_option_label_unique.py",
+        "0013_renovation_reference_indexes.py",
+        "0014_plan_row_asset_nullable.py",
+        "0015_plan_row_col_218.py",
+    }
+)
+
+
+def prune_legacy_revision_files(directory: Path) -> list[str]:
+    """
+    Remove retired revision files so only the current chain defines the heads.
+
+    Returns the pruned file names (for logging/diagnostics). Only the known
+    historical names are touched — a genuinely unexpected extra revision is left
+    in place so it still surfaces as a conflict rather than being silently
+    dropped.
+    """
+    versions = directory / "versions"
+    if not versions.is_dir():
+        return []
+    pruned: list[str] = []
+    for candidate in versions.iterdir():
+        if candidate.is_file() and candidate.name in _LEGACY_REVISION_FILES:
+            candidate.unlink()
+            pruned.append(candidate.name)
+    if pruned:
+        # Stale bytecode would still be importable; drop the cache too.
+        cache = versions / "__pycache__"
+        if cache.is_dir():
+            for compiled in cache.iterdir():
+                if compiled.is_file() and compiled.stem.split(".")[0] + ".py" in _LEGACY_REVISION_FILES:
+                    compiled.unlink()
+    return pruned
+
+
 # Legacy-only column the models dropped: `renovation_reference_values.metadata`.
 # It is nullable and unused; the guard tolerates it so old installations adopt.
 _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
@@ -144,6 +198,10 @@ def _describe_diffs(diffs: list[tuple]) -> str:
 def adopt(connection: Connection) -> None:
     """Only the known previous head and a matching schema can be adopted."""
     directory = Path(__file__).resolve().parent
+    # A checkout that once carried the retired chain keeps its revision files;
+    # prune them so the baseline lookup (and the upgrade that follows) sees a
+    # single head instead of failing with "Multiple head revisions".
+    prune_legacy_revision_files(directory)
     config = Config(str(directory.parent / "alembic.ini"))
     config.set_main_option("script_location", str(directory))
     if ScriptDirectory.from_config(config).get_revision(BASELINE) is None:

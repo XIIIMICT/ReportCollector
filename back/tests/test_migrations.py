@@ -222,6 +222,46 @@ async def test_adopt_still_refuses_a_genuine_index_mismatch(db_session, test_eng
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
+async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) -> None:
+    """
+    Upgrade despite leftover files from the retired historical chain.
+
+    A checkout updated in place keeps the deleted revisions as untracked files;
+    because the new chain reuses some numbers, Alembic then sees several heads and
+    "upgrade head" fails. The wrapper prunes exactly the known legacy names.
+    """
+    from conftest import BACKEND_DIR
+
+    await db_session.close()
+    versions = BACKEND_DIR / "migrations" / "versions"
+    stale = [versions / name for name in ("0001_collab.py", "0003_snapshot_tables.py", "0015_plan_row_col_218.py")]
+    for path in stale:
+        path.write_text(
+            '"""stale retired revision."""\n\n'
+            f'revision = "stale_{path.stem}"\n'
+            "down_revision = None\n"
+            "branch_labels = None\n"
+            "depends_on = None\n\n\n"
+            "def upgrade() -> None: ...\n\n\n"
+            "def downgrade() -> None: ...\n",
+            encoding="utf-8",
+        )
+    try:
+        async with test_engine.begin() as conn:
+            config = config_for(conn.sync_connection)
+            # Legacy pre-state: the schema is at the baseline, the marker at 0015.
+            await conn.run_sync(lambda _: command.downgrade(config, BASELINE))
+            await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
+            await conn.run_sync(upgrade)
+            assert (
+                await conn.execute(text("SELECT version_num FROM alembic_version"))
+            ).scalar_one() == "0004_block_codes"
+        assert all(not path.exists() for path in stale)
+    finally:
+        for path in stale:
+            path.unlink(missing_ok=True)
+
+
 async def test_upgrade_fresh_schema(test_engine) -> None:
     from conftest import TEST_SCHEMA
 

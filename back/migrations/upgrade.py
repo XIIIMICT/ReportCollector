@@ -8,7 +8,7 @@ from alembic.config import Config
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection
 
-from migrations.adopt_baseline import LEGACY_HEAD, adopt
+from migrations.adopt_baseline import LEGACY_HEAD, adopt, prune_legacy_revision_files
 from src.config import get_settings
 from src.database import async_engine
 
@@ -16,6 +16,10 @@ from src.database import async_engine
 def upgrade(connection: Connection) -> None:
     """Adopt only the known old head; let Alembic reject other unknown revisions."""
     directory = Path(__file__).resolve().parent
+    # Prune the retired chain's revision files before anything reads the versions
+    # directory: a checkout updated in place keeps them as untracked leftovers and
+    # Alembic would see several heads.
+    prune_legacy_revision_files(directory)
     config = Config(str(directory.parent / "alembic.ini"))
     config.set_main_option("script_location", str(directory))
     config.attributes["connection"] = connection
