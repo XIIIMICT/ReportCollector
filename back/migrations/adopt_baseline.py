@@ -28,24 +28,6 @@ _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
 }
 
 
-def _index_identity(index: Index) -> tuple[str, tuple[str, ...], bool]:
-    """
-    Table, sorted column names and uniqueness — an index's real identity.
-
-    Legacy installations created some indexes through SQLModel's implicit
-    `index=True` naming (derived from the MODEL class: `ix_rm_asset_raw_material_…`)
-    while the frozen baseline and current models declare explicit table-based
-    names (`ix_rm_asset_raw_materials_…`). Both address the same columns with the
-    same uniqueness, so comparing identities lets the guard treat such a
-    `remove_index`/`add_index` pair as a pure rename.
-    """
-    return (
-        index.table.name,  # ty: ignore[unresolved-attribute]
-        tuple(sorted(column.name for column in index.columns)),
-        bool(index.unique),
-    )
-
-
 def compare_adoption_default(
     _context: MigrationContext,
     inspected_column: Column,
@@ -71,28 +53,59 @@ def _index_diffs(diff: tuple) -> bool:
     return isinstance(diff, tuple) and len(diff) >= 2 and diff[0] in ("remove_index", "add_index")
 
 
-def _drop_equivalent_index_renames(diffs: list[tuple]) -> list[tuple]:
-    """
-    Remove `remove_index`/`add_index` pairs that only differ by name.
+def _columns_of(index: Index) -> tuple[str, ...]:
+    return tuple(sorted(column.name for column in index.columns))
 
-    A legacy DB carries the class-derived index name and the metadata carries the
-    canonical one, so Alembic reports the pair as a removal plus an addition. When
-    both address the same table, columns and uniqueness, the pair is a pure rename
-    — safe to ignore for adoption. Unpaired entries (a genuine missing/extra
-    index) are kept so real drift is still refused.
+
+def _drop_equivalent_index_changes(diffs: list[tuple]) -> list[tuple]:
     """
-    add_by_identity: dict[tuple[str, tuple[str, ...], bool], list[int]] = {}
+    Drop equivalent index changes, keeping only genuine drift.
+
+    Two legacy-only shapes are tolerated:
+
+    - a pure rename — SQLModel named the index after the model class
+      (`ix_rm_asset_raw_material_…`) while the models declare the table-based name;
+    - a unique INDEX vs a unique CONSTRAINT plus a non-unique index on the same
+      column (`r_assets.code`): both enforce the same uniqueness, so the
+      structural difference is irrelevant to adoption.
+
+    Anything unpaired or with a different column set stays in the list, so genuine
+    drift (a lost index, a changed column set) is still refused.
+    """
+    adds_by_columns: dict[tuple[str, tuple[str, ...]], list[int]] = {}
     for position, diff in enumerate(diffs):
         if _index_diffs(diff) and diff[0] == "add_index":
-            add_by_identity.setdefault(_index_identity(diff[1]), []).append(position)
+            adds_by_columns.setdefault((diff[1].table.name, _columns_of(diff[1])), []).append(position)
+
     consumed: set[int] = set()
+    matched_adds: set[int] = set()
     for position, diff in enumerate(diffs):
         if not _index_diffs(diff) or diff[0] != "remove_index":
             continue
-        candidates = add_by_identity.get(_index_identity(diff[1]))
+        candidates = adds_by_columns.get((diff[1].table.name, _columns_of(diff[1])))
         if candidates:
+            # An index add is only ever paired once; remember both sides so the
+            # match set stays stable for the constraint check below.
+            add_position = candidates[0]
             consumed.add(position)
-            consumed.add(candidates.pop(0))
+            consumed.add(add_position)
+            matched_adds.add(add_position)
+
+    for position, diff in enumerate(diffs):
+        if position in consumed:
+            continue
+        if isinstance(diff, tuple) and diff and diff[0] == "remove_constraint":
+            # A dropped unique constraint whose column also gained a unique index
+            # (the `code` case): the index add on the same (table, columns) was
+            # matched above, so the constraint is the same guarantee in another
+            # form.
+            constraint = diff[1]
+            columns = tuple(sorted(column.name for column in constraint.columns))
+            if any(
+                add_position in matched_adds
+                for add_position in adds_by_columns.get((constraint.table.name, columns), [])
+            ):
+                consumed.add(position)
     return [diff for position, diff in enumerate(diffs) if position not in consumed]
 
 
@@ -119,6 +132,10 @@ def _describe_diffs(diffs: list[tuple]) -> str:
             lines.append(f"{kind} {table}.{name}")
         elif kind in ("remove_table", "add_table"):
             lines.append(f"{kind} {diff[1].name}")
+        elif kind == "remove_constraint":
+            constraint = diff[1]
+            columns = ", ".join(column.name for column in constraint.columns)
+            lines.append(f"{kind} {constraint.table.name}({columns})")
         else:
             lines.append(str(kind))
     return "; ".join(lines)
@@ -161,7 +178,7 @@ def adopt(connection: Connection) -> None:
     )
     # A legacy DB names some indexes after the model class instead of the table;
     # treat those pure renames as equivalent, then keep only the genuine drift.
-    remaining = _drop_equivalent_index_renames(diffs)
+    remaining = _drop_equivalent_index_changes(diffs)
     remaining = [diff for diff in remaining if not _is_legacy_equivalent(diff)]
     if remaining:
         # Print only the object names: a full `!r` of hundreds of reflected

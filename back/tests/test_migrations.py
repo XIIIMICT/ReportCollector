@@ -192,6 +192,25 @@ async def test_adopt_accepts_legacy_index_names_and_dropped_column(db_session, t
         ).scalar_one() == "metadata"
 
 
+async def test_adopt_accepts_unique_constraint_plus_plain_index(db_session, test_engine) -> None:
+    """
+    Adopt when uniqueness is enforced by a constraint plus a plain index.
+
+    A legacy DB enforces `r_assets.code` uniqueness with a UNIQUE CONSTRAINT and a
+    NON-unique index; the models declare one unique index. Adoption must see the
+    same guarantee and accept the difference.
+    """
+    await db_session.close()
+    async with test_engine.begin() as conn:
+        await conn.execute(text("DROP INDEX ix_r_assets_code"))
+        await conn.execute(text("ALTER TABLE r_assets DROP CONSTRAINT IF EXISTS r_assets_code_key"))
+        await conn.execute(text("ALTER TABLE r_assets ADD CONSTRAINT r_assets_code_key UNIQUE (code)"))
+        await conn.execute(text("CREATE INDEX ix_r_assets_code ON r_assets (code)"))
+        await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
+        await conn.run_sync(adopt)
+        assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == BASELINE
+
+
 async def test_adopt_still_refuses_a_genuine_index_mismatch(db_session, test_engine) -> None:
     """An index removed without an equivalent replacement is real drift."""
     await db_session.close()
