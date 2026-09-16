@@ -9,7 +9,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import Column, Enum, inspect, text
+from sqlalchemy import Column, Enum, Index, inspect, text
 from sqlalchemy.dialects.postgresql.base import PGInspector
 from sqlalchemy.engine import Connection
 from sqlmodel import SQLModel
@@ -20,6 +20,30 @@ from src.database import async_engine
 
 BASELINE = "0001_baseline"
 LEGACY_HEAD = "0015_plan_row_col_218"
+
+# Legacy-only column the models dropped: `renovation_reference_values.metadata`.
+# It is nullable and unused; the guard tolerates it so old installations adopt.
+_LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
+    "renovation_reference_values": {"metadata"},
+}
+
+
+def _index_identity(index: Index) -> tuple[str, tuple[str, ...], bool]:
+    """
+    Table, sorted column names and uniqueness — an index's real identity.
+
+    Legacy installations created some indexes through SQLModel's implicit
+    `index=True` naming (derived from the MODEL class: `ix_rm_asset_raw_material_…`)
+    while the frozen baseline and current models declare explicit table-based
+    names (`ix_rm_asset_raw_materials_…`). Both address the same columns with the
+    same uniqueness, so comparing identities lets the guard treat such a
+    `remove_index`/`add_index` pair as a pure rename.
+    """
+    return (
+        index.table.name,  # ty: ignore[unresolved-attribute]
+        tuple(sorted(column.name for column in index.columns)),
+        bool(index.unique),
+    )
 
 
 def compare_adoption_default(
@@ -40,6 +64,64 @@ def compare_adoption_default(
     ):
         return False
     return None
+
+
+def _index_diffs(diff: tuple) -> bool:
+    """Detect an index add/remove diff (its kind is a plain string)."""
+    return isinstance(diff, tuple) and len(diff) >= 2 and diff[0] in ("remove_index", "add_index")
+
+
+def _drop_equivalent_index_renames(diffs: list[tuple]) -> list[tuple]:
+    """
+    Remove `remove_index`/`add_index` pairs that only differ by name.
+
+    A legacy DB carries the class-derived index name and the metadata carries the
+    canonical one, so Alembic reports the pair as a removal plus an addition. When
+    both address the same table, columns and uniqueness, the pair is a pure rename
+    — safe to ignore for adoption. Unpaired entries (a genuine missing/extra
+    index) are kept so real drift is still refused.
+    """
+    add_by_identity: dict[tuple[str, tuple[str, ...], bool], list[int]] = {}
+    for position, diff in enumerate(diffs):
+        if _index_diffs(diff) and diff[0] == "add_index":
+            add_by_identity.setdefault(_index_identity(diff[1]), []).append(position)
+    consumed: set[int] = set()
+    for position, diff in enumerate(diffs):
+        if not _index_diffs(diff) or diff[0] != "remove_index":
+            continue
+        candidates = add_by_identity.get(_index_identity(diff[1]))
+        if candidates:
+            consumed.add(position)
+            consumed.add(candidates.pop(0))
+    return [diff for position, diff in enumerate(diffs) if position not in consumed]
+
+
+def _is_legacy_equivalent(diff: tuple) -> bool:
+    """Match a single known legacy-only difference (a dropped column)."""
+    if isinstance(diff, tuple) and len(diff) >= 4 and diff[0] == "remove_column":
+        _schema, table, column = diff[1], diff[2], diff[3]
+        return table in _LEGACY_EXTRA_COLUMNS and column.name in _LEGACY_EXTRA_COLUMNS[table]
+    return False
+
+
+def _describe_diffs(diffs: list[tuple]) -> str:
+    """Render a compact, readable summary of the remaining schema differences."""
+    lines: list[str] = []
+    for diff in diffs:
+        kind = diff[0] if isinstance(diff, tuple) and diff else type(diff).__name__
+        if kind in ("remove_index", "add_index"):
+            index = diff[1]
+            columns = ", ".join(column.name for column in index.columns)
+            lines.append(f"{kind} {index.table.name}({columns}) [{index.name}]")
+        elif kind in ("remove_column", "add_column"):
+            _schema, table, column = diff[1], diff[2], diff[3]
+            name = column.name if column is not None else "?"
+            lines.append(f"{kind} {table}.{name}")
+        elif kind in ("remove_table", "add_table"):
+            lines.append(f"{kind} {diff[1].name}")
+        else:
+            lines.append(str(kind))
+    return "; ".join(lines)
 
 
 def adopt(connection: Connection) -> None:
@@ -77,8 +159,14 @@ def adopt(connection: Connection) -> None:
         ),
         SQLModel.metadata,
     )
-    if diffs:
-        message = f"Схема отличается от актуальных моделей; переход отменён: {diffs!r}"
+    # A legacy DB names some indexes after the model class instead of the table;
+    # treat those pure renames as equivalent, then keep only the genuine drift.
+    remaining = _drop_equivalent_index_renames(diffs)
+    remaining = [diff for diff in remaining if not _is_legacy_equivalent(diff)]
+    if remaining:
+        # Print only the object names: a full `!r` of hundreds of reflected
+        # tables is unreadable and hides the actual drift.
+        message = f"Схема отличается от актуальных моделей; переход отменён: {_describe_diffs(remaining)}"
         raise ValueError(message)
     # Alembic does not detect enum label or primary-key changes automatically.
     enums = {item["name"]: item["labels"] for item in cast("PGInspector", inspector).get_enums()}

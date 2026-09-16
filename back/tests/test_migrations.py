@@ -149,6 +149,60 @@ async def test_adopt_rejects_unexpected_reference_timestamp_default(db_session, 
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
+async def test_adopt_accepts_legacy_index_names_and_dropped_column(db_session, test_engine) -> None:
+    """
+    Adopt despite the legacy class-derived index names and the dropped column.
+
+    A legacy 0015 install named some indexes after the model class and kept a
+    `renovation_reference_values.metadata` column the models dropped. Adoption
+    must treat those as equivalent instead of refusing.
+    """
+    await db_session.close()
+    async with test_engine.begin() as conn:
+        # Reproduce the legacy naming: rename the canonical indexes to the
+        # class-derived ones and re-add the extra column.
+        await conn.execute(text("ALTER INDEX ix_app_users_email RENAME TO ix_app_user_email"))
+        await conn.execute(text("ALTER INDEX ix_projects_key RENAME TO ix_project_key"))
+        await conn.execute(
+            text(
+                "ALTER INDEX ix_rm_asset_raw_materials_raw_material_id RENAME TO ix_rm_asset_raw_material_raw_material_id"
+            )
+        )
+        await conn.execute(
+            text("ALTER INDEX ix_rm_material_movements_report_month RENAME TO ix_rm_material_movement_report_month")
+        )
+        await conn.execute(text("ALTER INDEX ix_rm_report_snapshots_fixed_at RENAME TO ix_rm_report_snapshot_fixed_at"))
+        await conn.execute(
+            text("ALTER INDEX ix_rm_report_snapshots_report_month RENAME TO ix_rm_report_snapshot_report_month")
+        )
+        await conn.execute(text("ALTER INDEX ix_rm_user_assets_asset_id RENAME TO ix_rm_user_asset_asset_id"))
+        await conn.execute(text("ALTER TABLE renovation_reference_values ADD COLUMN metadata TEXT"))
+        await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
+        await conn.run_sync(adopt)
+        assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == BASELINE
+        # The legacy column is preserved, not dropped by adoption.
+        assert (
+            await conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = 'renovation_reference_values' "
+                    "AND column_name = 'metadata'"
+                )
+            )
+        ).scalar_one() == "metadata"
+
+
+async def test_adopt_still_refuses_a_genuine_index_mismatch(db_session, test_engine) -> None:
+    """An index removed without an equivalent replacement is real drift."""
+    await db_session.close()
+    async with test_engine.begin() as conn:
+        await conn.execute(text("DROP INDEX ix_app_users_email"))
+        await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
+        with pytest.raises(ValueError, match="Схема отличается"):
+            await conn.run_sync(adopt)
+        assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
+
+
 async def test_upgrade_fresh_schema(test_engine) -> None:
     from conftest import TEST_SCHEMA
 
