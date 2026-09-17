@@ -363,7 +363,15 @@ class RenovationExportViewRequest(BaseModel):
 
 
 class RenovationPlanExportRequest(BaseModel):
-    """Excel export of a plan version: all rows or only the visible ones."""
+    """
+    Excel export of a plan version: all rows or only the visible ones.
+
+    `rowIds` exports an exact set; when it is null, `asset` narrows the rows to
+    one asset and `block` narrows the exported columns to one responsibility
+    block — the server-side equivalent of the grid's «видимая» filter.
+    """
 
     planId: UUID | None = None
     rowIds: list[UUID] | None = None
+    asset: str | None = None
+    block: RBlock | None = None

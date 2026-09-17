@@ -215,13 +215,25 @@ export async function getRenovationDiff(planId: string): Promise<RenovationDiff>
     return requestJson(`/api/renovation/plan/diff?plan_id=${encodeURIComponent(planId)}`);
 }
 
+export type RenovationPlanExportParams = {
+    planId?: string;
+    rowIds?: string[] | null;
+    asset?: string | null;
+    block?: string | null;
+};
+
 export async function exportRenovationPlan(
-    params: { planId?: string; rowIds?: string[] | null } = {},
+    params: RenovationPlanExportParams = {},
 ): Promise<RenovationPlanExport> {
     const response = await fetch("/api/renovation/plan/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId: params.planId ?? null, rowIds: params.rowIds ?? null }),
+        body: JSON.stringify({
+            planId: params.planId ?? null,
+            rowIds: params.rowIds ?? null,
+            asset: params.asset ?? null,
+            block: params.block ?? null,
+        }),
         cache: "no-store",
     });
     if (!response.ok) {

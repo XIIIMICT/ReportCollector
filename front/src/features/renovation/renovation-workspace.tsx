@@ -1160,14 +1160,13 @@ export function RenovationWorkspace({
             if (exportPending) return;
             setExportPending(true);
             try {
-                let rowIds: string[] | null = null;
-                if (scope === "visible") {
-                    // The rows currently on screen (filtered/sorted page view).
-                    rowIds = (await gridRef.current?.getVisibleRowIds()) ?? null;
-                }
+                // «Видимая» — the whole plan filtered server-side by the active
+                // asset and block, not just the window currently rendered.
+                const visible = scope === "visible";
                 const { blob, fileName } = await exportRenovationPlan({
                     planId: viewPlanId ?? undefined,
-                    rowIds,
+                    asset: visible ? assetFilter : null,
+                    block: visible ? blockFilter : null,
                 });
                 downloadBlob(blob, fileName);
                 toast.success("Файл выгружен", { description: fileName });
@@ -1177,7 +1176,7 @@ export function RenovationWorkspace({
                 setExportPending(false);
             }
         },
-        [exportPending, viewPlanId],
+        [exportPending, viewPlanId, assetFilter, blockFilter],
     );
 
     const handleStripExport = useCallback(

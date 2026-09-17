@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from io import BytesIO
 from urllib.parse import unquote
 from uuid import uuid4
+from zipfile import ZipFile
 
 from conftest import signed_identity_headers
 from httpx import AsyncClient
@@ -898,3 +899,72 @@ async def test_export_visible_rows_only(client: AsyncClient) -> None:
     worksheet = load_workbook(BytesIO(response.content)).active
     # Header rows + exactly the one requested plan row.
     assert worksheet.max_row == 12
+
+
+async def test_export_recalculates_derived_columns(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """A derived column («Продолжительность, дни» = col_026) is recomputed for export.
+
+    col_026 has no stored value until an edit recalcs the row; the export must
+    derive it from col_025 - col_024 (else the column is blank on the sheet).
+    """
+    row = await _row_by_asset_code(db_session, "bsk")
+    row.col_024 = date(2027, 1, 10)
+    row.col_025 = date(2027, 1, 25)
+    row.col_026 = None
+    db_session.add(row)
+    await db_session.commit()
+
+    response = await client.get("/api/renovation/plan/export", headers=ADMIN_HEADERS)
+    assert response.status_code == 200
+    worksheet = load_workbook(BytesIO(response.content)).active
+    # col_026 lands on column AA (27); col_024/col_025 on Y/Z (25/26).
+    assert worksheet["Y12"].value.date() == date(2027, 1, 10)
+    assert worksheet["Z12"].value.date() == date(2027, 1, 25)
+    assert worksheet["AA12"].value == 15
+
+
+async def test_export_block_filters_columns(client: AsyncClient) -> None:
+    """A block filter keeps only that block's columns (plus the always-visible)."""
+    response = await client.post(
+        "/api/renovation/plan/export",
+        headers=ADMIN_HEADERS,
+        json={"planId": None, "block": "mto"},
+    )
+    assert response.status_code == 200
+    worksheet = load_workbook(BytesIO(response.content)).active
+    # mto fields + col_002 + col_003 + col_217, plus the row-number column.
+    assert worksheet.max_column == 1 + 15 + 3
+    assert worksheet.max_column < 218
+
+
+async def test_export_visible_filters_asset_and_block(client: AsyncClient) -> None:
+    """The server-side «видимая» filter applies asset and block, not rowIds."""
+    response = await client.post(
+        "/api/renovation/plan/export",
+        headers=ADMIN_HEADERS,
+        json={"planId": None, "asset": "АО «БСК»", "block": "tech"},
+    )
+    assert response.status_code == 200
+    worksheet = load_workbook(BytesIO(response.content)).active
+    assert worksheet["B12"].value == "АО «БСК»"
+    # Only the asset's rows: the seed has rows for other assets, all dropped.
+    assets = {worksheet.cell(row=row, column=2).value for row in range(12, worksheet.max_row + 1)}
+    assert assets == {"АО «БСК»"}
+
+
+async def test_export_header_borders_on_every_merged_cell(client: AsyncClient) -> None:
+    """Every cell of a merged header range carries the bordered style, not just the anchor.
+
+    Otherwise Excel draws the frame only around the top-left cell and the grid
+    looks underdrawn down and right. openpyxl does not expose a border for
+    non-anchor merged cells, so this checks the sheet XML style id directly.
+    """
+    response = await client.get("/api/renovation/plan/export", headers=ADMIN_HEADERS)
+    sheet = ZipFile(BytesIO(response.content)).read("xl/worksheets/sheet1.xml").decode()
+    # D1:AF1 is merged; D1 holds the text, every other cell must carry `s="1"`.
+    styled = {ref: f'<c r="{ref}" s="1"' for ref in ("D1", "E1", "AF1", "AA5", "HJ11")}
+    for ref, marker in styled.items():
+        assert re.search(rf'<c r="{ref}"[^>]* s="1"', sheet), ref

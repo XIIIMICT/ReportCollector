@@ -346,6 +346,8 @@ class RenovationPlanExportData:
     stamp: datetime
     rows: list[tuple[int, str, str, dict[str, object]]]
     reference_labels: dict[UUID, str]
+    # Responsibility block whose columns the export keeps (None — every column).
+    block: RBlock | None = None
 
 
 async def read_plan_export_data(
@@ -355,8 +357,15 @@ async def read_plan_export_data(
     plan_id: UUID | None = None,
     state: RPlanState = RPlanState.WORKING,
     row_ids: list[UUID] | None = None,
+    asset_name: str | None = None,
+    block: RBlock | None = None,
 ) -> RenovationPlanExportData:
-    """Read plan rows directly for XLSX export without a 94k-row Pydantic copy."""
+    """
+    Read plan rows directly for XLSX export without a 94k-row Pydantic copy.
+
+    `asset_name` narrows the rows to one asset; `block` narrows the exported
+    columns to one responsibility block (the server-side "visible" filter).
+    """
     if plan_id is not None:
         plan = await session.get(RenovationPlan, plan_id)
         if plan is None:
@@ -366,6 +375,10 @@ async def read_plan_export_data(
         if plan is None:
             message = f"Нет плана в состоянии «{state.value}»."
             raise RenovationPlanNotFoundError(message)
+
+    permitted_asset_ids = [asset.id for asset in assets]
+    if asset_name is not None:
+        permitted_asset_ids = [asset.id for asset in assets if asset.name == asset_name]
 
     sparse_values = func.jsonb_strip_nulls(
         func.to_jsonb(literal_column("renovation_plan_rows"))
@@ -395,7 +408,9 @@ async def read_plan_export_data(
         .join(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
         .where(
             col(RenovationPlanRow.plan_id) == plan.id,
-            col(RenovationPlanRow.asset_id).in_([asset.id for asset in assets]),
+            # The asset filter is applied in SQL so the whole filtered set is
+            # exported — not just the fragment currently on screen.
+            col(RenovationPlanRow.asset_id).in_(permitted_asset_ids),
         )
         .order_by(col(RenovationPlanRow.position))
     )
@@ -404,17 +419,22 @@ async def read_plan_export_data(
     db_rows_with_ids = list((await session.exec(query)).all())  # ty: ignore[no-matching-overload]
     if row_ids is not None:
         by_id = {
-            row_id: (position, asset_name, repair_code, values)
-            for row_id, position, asset_name, repair_code, values in db_rows_with_ids
+            row_id: (position, asset_name_, repair_code, values)
+            for row_id, position, asset_name_, repair_code, values in db_rows_with_ids
         }
         db_rows = [by_id[row_id] for row_id in row_ids if row_id in by_id]
     else:
         db_rows = [
-            (position, asset_name, repair_code, values)
-            for _, position, asset_name, repair_code, values in db_rows_with_ids
+            (position, asset_name_, repair_code, values)
+            for _, position, asset_name_, repair_code, values in db_rows_with_ids
         ]
     label_map = await _reference_labels(session)
+    engine = formula_engine()
     for _, _, repair_code, values in db_rows:
+        # Recompute formula fields so derived columns (dates, durations, sums)
+        # are exported with fresh values even when the stored cell is NULL
+        # (recalc happens on edit; adopted/imported rows may never have run it).
+        engine.materialize(values)
         if not values.get("col_003"):
             values["col_003"] = _sparse_row_renovation_id(values, repair_code, label_map)
     return RenovationPlanExportData(
@@ -423,6 +443,7 @@ async def read_plan_export_data(
         stamp=await _plan_export_stamp(session, plan, assets),
         rows=db_rows,
         reference_labels=label_map,
+        block=block,
     )
 
 

@@ -113,17 +113,55 @@ class _QueueWriter:
         pass
 
 
+_ALWAYS_VISIBLE_FIELDS = frozenset({"col_003", "col_217"})
+_ASSET_FIELD = "col_002"
+
+
+def _export_fields(block: object) -> tuple[RenovationFieldMeta, ...]:
+    """
+    Form fields the export keeps for a block filter (mirrors the grid).
+
+    `col_002` stays as the asset column (its header labels the asset, its data
+    comes from the joined asset name); `col_003` and `col_217` also stay visible
+    for every block. A block keeps only its own fields plus those.
+    """
+    fields = list(field_metas())
+    if block is None:
+        return tuple(fields)
+    block_value = getattr(block, "value", block)
+    return tuple(
+        meta
+        for meta in fields
+        if meta.db_name == _ASSET_FIELD
+        or meta.db_name in _ALWAYS_VISIBLE_FIELDS
+        or meta.responsibility_block == block_value
+    )
+
+
+def _column_offset(meta: RenovationFieldMeta) -> int:
+    """Original 1-based Excel column of a field in the legacy layout."""
+    # `position` is the 1-based field index (col_002 = 1); the legacy template
+    # maps it to Excel column B (2), with column A as the synthetic row number.
+    return meta.position + 1
+
+
 def _write_plan_sheet_xml(worksheet: IO[bytes], plan: RenovationPlanExportData) -> None:
     """Write sheet1.xml incrementally so memory stays bounded for 94k rows."""
-    fields = field_metas()
-    fields_by_name = {meta.db_name: (column, meta) for column, meta in enumerate(fields, start=2)}
+    fields = _export_fields(plan.block)
+    column_by_field = {meta.db_name: 2 + index for index, meta in enumerate(fields)}
     worksheet.write(_SHEET_XML_PREFIX)
     worksheet.write(_column_widths_xml(fields).encode())
     worksheet.write(b"<sheetData>")
-    for row_number, cells in enumerate(_header_matrix(), start=1):
+    for row_number, values in enumerate(_header_matrix(fields, column_by_field), start=1):
         xml = [f'<row r="{row_number}" ht="30" customHeight="1">']
-        for column, value in enumerate(cells, start=1):
-            if value is not None:
+        for column, value in enumerate(values, start=1):
+            # A merged header range is expressed by a top-left <c> plus the
+            # <mergeCells> entry; every other cell of the range still needs the
+            # bordered style, or Excel draws the frame only around the top-left
+            # cell and the grid looks underdrawn down and right.
+            if value is None:
+                xml.append(_styled_cell_xml(row_number, column, style=1))
+            else:
                 xml.append(_text_cell_xml(row_number, column, value, style=1))
         xml.append("</row>")
         worksheet.write("".join(xml).encode())
@@ -134,52 +172,95 @@ def _write_plan_sheet_xml(worksheet: IO[bytes], plan: RenovationPlanExportData) 
             _number_cell_xml(row_number, 1, position),
             _text_cell_xml(row_number, 2, asset_name),
         ]
-        cells: list[tuple[int, str]] = []
-        for db_name, value in row_values.items():
-            field = fields_by_name.get(db_name)
-            if field is None or value is None:
+        # Every kept field gets a cell — empty ones included — so a reader sees
+        # the full column set even when a value (often a derived field whose
+        # inputs are blank) is missing. col_002 is the asset column, written above.
+        for meta in fields:
+            if meta.db_name == _ASSET_FIELD:
                 continue
-            column, meta = field
-            export_value = value
+            value = row_values.get(meta.db_name)
+            if value is None:
+                continue
             if meta.cell_type == "reference":
                 display_value = plan.reference_labels.get(UUID(str(value)))
                 if display_value is None:
                     continue
-                export_value = display_value
-            cells.append((column, _data_cell_xml(row_number, column, export_value, meta)))
-        xml.extend(cell_xml for _, cell_xml in sorted(cells))
+                value = display_value
+            xml.append(_data_cell_xml(row_number, column_by_field[meta.db_name], value, meta))
         xml.append("</row>")
         worksheet.write("".join(xml).encode())
     worksheet.write(b"</sheetData>")
-    worksheet.write(_merged_ranges_xml().encode())
+    worksheet.write(_merged_ranges_xml(fields, column_by_field).encode())
     worksheet.write(b"</worksheet>")
 
 
-def _header_matrix() -> list[list[str | None]]:
+def _clip_columns(
+    start_column: int,
+    end_column: int,
+    position_by_column: dict[int, int],
+) -> tuple[int, int] | None:
+    """
+    Map an original column span onto the exported layout, or None if dropped.
+
+    `position_by_column` maps the original 1-based field column (col_003 → 3) to
+    the exported 1-based column; a span survives only while it covers a kept
+    column, and is clipped to the first and last kept column it contains.
+    """
+    kept = [
+        position_by_column[column] for column in range(start_column, end_column + 1) if column in position_by_column
+    ]
+    if not kept:
+        return None
+    return min(kept), max(kept)
+
+
+def _header_matrix(
+    fields: tuple[RenovationFieldMeta, ...],
+    column_by_field: dict[str, int],
+) -> list[list[str | None]]:
     rows = header_rows()
-    matrix: list[list[str | None]] = [[None for _ in range(len(field_metas()) + 1)] for _ in rows]
+    position_by_column = {_column_offset(meta): column_by_field[meta.db_name] for meta in fields}
+    width = len(fields) + 1
+    matrix: list[list[str | None]] = [[None for _ in range(width)] for _ in rows]
     matrix[0][0] = "№"
     for _, cells in rows:
         for cell in cells:
-            start_column, start_row, _, _ = _shifted_range(cell.excel_range)
-            matrix[start_row - 1][start_column - 1] = cell.text
+            start_column, start_row, end_column, _ = _shifted_range(cell.excel_range)
+            clipped = _clip_columns(start_column, end_column, position_by_column)
+            if clipped is None:
+                continue
+            first_column, _ = clipped
+            matrix[start_row - 1][first_column - 1] = cell.text
     return matrix
 
 
-def _merged_ranges_xml() -> str:
+def _merged_ranges_xml(
+    fields: tuple[RenovationFieldMeta, ...],
+    column_by_field: dict[str, int],
+) -> str:
     ranges = ["A1:A11"]
+    position_by_column = {_column_offset(meta): column_by_field[meta.db_name] for meta in fields}
     for _, cells in header_rows():
         for cell in cells:
             start_column, start_row, end_column, end_row = _shifted_range(cell.excel_range)
-            if start_row != end_row or start_column != end_column:
-                ranges.append(f"{get_column_letter(start_column)}{start_row}:{get_column_letter(end_column)}{end_row}")
+            clipped = _clip_columns(start_column, end_column, position_by_column)
+            if clipped is None:
+                continue
+            first_column, last_column = clipped
+            if start_row != end_row or first_column != last_column:
+                ranges.append(f"{get_column_letter(first_column)}{start_row}:{get_column_letter(last_column)}{end_row}")
     refs = "".join(f'<mergeCell ref="{cell_range}"/>' for cell_range in ranges)
     return f'<mergeCells count="{len(ranges)}">{refs}</mergeCells>'
 
 
 def _column_widths_xml(fields: tuple[RenovationFieldMeta, ...]) -> str:
-    columns = ['<col min="1" max="1" width="6" customWidth="1"/>']
-    for index, meta in enumerate(fields, start=2):
+    # Column 1 is the synthetic row number, column 2 the asset name; the form
+    # fields start at column 3.
+    columns = [
+        '<col min="1" max="1" width="6" customWidth="1"/>',
+        '<col min="2" max="2" width="34" customWidth="1"/>',
+    ]
+    for index, meta in enumerate(fields, start=3):
         columns.append(f'<col min="{index}" max="{index}" width="{_column_width(meta.cell_type)}" customWidth="1"/>')
     return f"<cols>{''.join(columns)}</cols>"
 
@@ -200,6 +281,13 @@ def _text_cell_xml(row: int, column: int, value: str, *, style: int = 0) -> str:
     ref = f"{get_column_letter(column)}{row}"
     style_attr = f' s="{style}"' if style else ""
     return f'<c r="{ref}" t="inlineStr"{style_attr}><is><t>{escape(value)}</t></is></c>'
+
+
+def _styled_cell_xml(row: int, column: int, *, style: int = 0) -> str:
+    """Build an empty styled cell, carrying the header border in merge cells."""
+    ref = f"{get_column_letter(column)}{row}"
+    style_attr = f' s="{style}"' if style else ""
+    return f'<c r="{ref}"{style_attr}/>'
 
 
 def _number_cell_xml(row: int, column: int, value: object, *, style: int = 0) -> str:

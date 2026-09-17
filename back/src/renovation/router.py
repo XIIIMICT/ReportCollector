@@ -367,7 +367,7 @@ async def post_export_renovation_plan(
     access: AccessDependency,
     payload: RenovationPlanExportRequest,
 ) -> Response:
-    """Excel export of a plan version: all rows or only the visible ones."""
+    """Excel export of a plan version: all rows, an exact set, or the filtered view."""
     try:
         plan = await read_plan_export_data(
             session,
@@ -375,6 +375,8 @@ async def post_export_renovation_plan(
             plan_id=payload.planId,
             state=RPlanState.WORKING,
             row_ids=payload.rowIds,
+            asset_name=payload.asset,
+            block=payload.block,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
