@@ -73,7 +73,7 @@ import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { isFromTextEditor } from "@/shared/keyboard";
-import { ActionHint } from "@/shared/ui/action-hint";
+import { ActionHint, parseShortcut } from "@/shared/ui/action-hint";
 import { FormStatus } from "@/shared/ui/form-status";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
@@ -2178,19 +2178,20 @@ export function RenovationActionBar({
             : action.variant === "primary"
               ? "action-button action-button--primary"
               : "action-button";
-    // Floating tooltip: shows the label (+ kbd) over every inline action button,
-    // including the ones grouped in a ButtonGroup (whose children can't be
-    // wrapped in a per-button Tooltip).
-    const [actionTip, setActionTip] = useState<{ text: string; left: number; top: number } | null>(
-        null,
-    );
+    // Floating hint: shows the label plus a Kbd with the shortcut over every
+    // inline action button, including the ones grouped in a ButtonGroup (whose
+    // children can't be wrapped in a per-button Tooltip).
+    const [actionTip, setActionTip] = useState<{
+        label: string;
+        keyLabel: string;
+        modifiers: Array<"ctrl" | "shift" | "alt" | "meta">;
+        left: number;
+        top: number;
+    } | null>(null);
     const actionTipTargetRef = useRef<Element | null>(null);
-    const actionTipText = (action: ActionItem) =>
-        action.shortcut ? `${action.label} (Ctrl+${action.shortcut.key})` : action.label;
 
     const renderAction = (action: ActionItem) => {
         const icon = action.pending ? <Spinner size="sm" /> : action.icon;
-        const tip = actionTipText(action);
         if (action.menu) {
             return (
                 <HoverDropdown
@@ -2209,7 +2210,8 @@ export function RenovationActionBar({
                             variant={action.variant ?? "tertiary"}
                             isDisabled={action.disabled}
                             aria-label={action.label}
-                            data-action-tooltip={tip}
+                            data-action-tooltip={action.label}
+                            data-action-shortcut={action.shortcut?.aria}
                         >
                             <span className="action-button__icon">{icon}</span>
                             <span className="action-button__label">{action.label}</span>
@@ -2245,7 +2247,8 @@ export function RenovationActionBar({
                 isDisabled={action.disabled}
                 aria-label={action.label}
                 aria-keyshortcuts={action.shortcut?.aria}
-                data-action-tooltip={tip}
+                data-action-tooltip={action.label}
+                data-action-shortcut={action.shortcut?.aria}
                 onPress={action.onPress}
             >
                 <span className="action-button__icon">{icon}</span>
@@ -2274,8 +2277,12 @@ export function RenovationActionBar({
                     return;
                 }
                 const rect = target.getBoundingClientRect();
+                const shortcut = target.getAttribute("data-action-shortcut");
+                const parsed = shortcut ? parseShortcut(shortcut) : null;
                 setActionTip({
-                    text: target.getAttribute("data-action-tooltip") ?? "",
+                    label: target.getAttribute("data-action-tooltip") ?? "",
+                    keyLabel: parsed?.keyLabel ?? "",
+                    modifiers: parsed?.modifiers ?? [],
                     left: rect.left + rect.width / 2,
                     top: rect.top,
                 });
@@ -2300,7 +2307,8 @@ export function RenovationActionBar({
                                 isDisabled={action.disabled}
                                 aria-label={action.label}
                                 aria-keyshortcuts={action.shortcut?.aria}
-                                data-action-tooltip={actionTipText(action)}
+                                data-action-tooltip={action.label}
+                                data-action-shortcut={action.shortcut?.aria}
                                 onPress={action.onPress}
                             >
                                 <span className="action-button__icon">{action.icon}</span>
@@ -2315,7 +2323,13 @@ export function RenovationActionBar({
                 ),
             )}
             {actionTip !== null ? (
-                <ActionHint left={actionTip.left} top={actionTip.top} text={actionTip.text} />
+                <ActionHint
+                    left={actionTip.left}
+                    top={actionTip.top}
+                    label={actionTip.label}
+                    keyLabel={actionTip.keyLabel}
+                    modifiers={actionTip.modifiers}
+                />
             ) : null}
         </div>
     );

@@ -97,7 +97,7 @@ import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { isFromTextEditor } from "@/shared/keyboard";
-import { ActionHint } from "@/shared/ui/action-hint";
+import { ActionHint, parseShortcut } from "@/shared/ui/action-hint";
 import {
     AddRecordModal,
     type AddRecordField,
@@ -2066,15 +2066,17 @@ function ActionBar({
     const isSm = useMediaQuery("(max-width: 40rem)");
     const isMd = useMediaQuery("(max-width: 48rem)");
     const collapseFixAtMd = isMd && !isSm;
-    // Floating tooltip showing the label (+ kbd) over every inline action
-    // button, including the ones grouped in a ButtonGroup (whose children can't
-    // be wrapped in a per-button Tooltip).
-    const [actionTip, setActionTip] = useState<{ text: string; left: number; top: number } | null>(
-        null,
-    );
+    // Floating hint showing the label plus a Kbd with the shortcut over every
+    // inline action button, including the ones grouped in a ButtonGroup (whose
+    // children can't be wrapped in a per-button Tooltip).
+    const [actionTip, setActionTip] = useState<{
+        label: string;
+        keyLabel: string;
+        modifiers: Array<"ctrl" | "shift" | "alt" | "meta">;
+        left: number;
+        top: number;
+    } | null>(null);
     const actionTipTargetRef = useRef<Element | null>(null);
-    const actionTipText = (action: ActionItem) =>
-        action.shortcut ? `${action.label} (Ctrl+${action.shortcut.key})` : action.label;
     if (isSm) {
         return (
             <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
@@ -2110,7 +2112,8 @@ function ActionBar({
                             variant={action.variant ?? "tertiary"}
                             isDisabled={action.disabled}
                             aria-label={action.label}
-                            data-action-tooltip={actionTipText(action)}
+                            data-action-tooltip={action.label}
+                            data-action-shortcut={action.shortcut?.aria}
                         >
                             <span className="action-button__icon">{icon}</span>
                             <span className="action-button__label">{action.label}</span>
@@ -2146,7 +2149,8 @@ function ActionBar({
                 isDisabled={action.disabled}
                 aria-label={action.label}
                 aria-keyshortcuts={action.shortcut?.aria}
-                data-action-tooltip={actionTipText(action)}
+                data-action-tooltip={action.label}
+                data-action-shortcut={action.shortcut?.aria}
                 onPress={action.onPress}
             >
                 <span className="action-button__icon">{icon}</span>
@@ -2169,8 +2173,12 @@ function ActionBar({
                     return;
                 }
                 const rect = target.getBoundingClientRect();
+                const shortcut = target.getAttribute("data-action-shortcut");
+                const parsed = shortcut ? parseShortcut(shortcut) : null;
                 setActionTip({
-                    text: target.getAttribute("data-action-tooltip") ?? "",
+                    label: target.getAttribute("data-action-tooltip") ?? "",
+                    keyLabel: parsed?.keyLabel ?? "",
+                    modifiers: parsed?.modifiers ?? [],
                     left: rect.left + rect.width / 2,
                     top: rect.top,
                 });
@@ -2195,7 +2203,8 @@ function ActionBar({
                                 isDisabled={action.disabled}
                                 aria-label={action.label}
                                 aria-keyshortcuts={action.shortcut?.aria}
-                                data-action-tooltip={actionTipText(action)}
+                                data-action-tooltip={action.label}
+                                data-action-shortcut={action.shortcut?.aria}
                                 onPress={action.onPress}
                             >
                                 <span className="action-button__icon">{action.icon}</span>
@@ -2210,7 +2219,13 @@ function ActionBar({
                 ),
             )}
             {actionTip !== null ? (
-                <ActionHint left={actionTip.left} top={actionTip.top} text={actionTip.text} />
+                <ActionHint
+                    left={actionTip.left}
+                    top={actionTip.top}
+                    label={actionTip.label}
+                    keyLabel={actionTip.keyLabel}
+                    modifiers={actionTip.modifiers}
+                />
             ) : null}
         </div>
     );

@@ -91,14 +91,17 @@ test("action-bar kbd hint appears in the viewport without a page scrollbar", asy
         clientHeight: document.documentElement.clientHeight,
     }));
 
-    const copy = page.locator('.action-bar [data-action-tooltip^="Копировать"]').first();
+    const copy = page.locator('.action-bar [data-action-tooltip="Копировать"]').first();
     const box = await copy.boundingBox();
     expect(box).not.toBeNull();
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
 
     const hint = page.locator(".action-bar__hint");
     await expect(hint).toBeVisible({ timeout: 3000 });
-    await expect(hint).toHaveText(/Копировать/);
+    await expect(hint).toContainText("Копировать");
+    // The shortcut is a real Kbd component (modifier glyph + key), not text.
+    await expect(hint.locator(".kbd__abbr").first()).toBeAttached();
+    await expect(hint.locator(".kbd__content").first()).toHaveText("C");
     // Portaled to <body> (escapes the footer's containing block) and fixed.
     expect(await hint.evaluate((el) => el.parentElement?.tagName)).toBe("BODY");
     expect(await hint.evaluate((el) => getComputedStyle(el).position)).toBe("fixed");
