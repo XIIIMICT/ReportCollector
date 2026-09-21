@@ -34,7 +34,7 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="ru" className="h-full antialiased" suppressHydrationWarning>
-            <body className="bg-background text-foreground h-full overflow-hidden font-sans">
+            <body className="bg-background text-foreground h-full font-sans">
                 <Providers>{children}</Providers>
             </body>
         </html>

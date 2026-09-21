@@ -139,12 +139,16 @@ html {
 /* The app is a fixed shell (`.app-shell` = 100dvh) that scrolls internally.
    HeroUI portals overlays (tooltips, popovers) into `document.body` as
    absolutely-positioned boxes; with `body { min-height: 100% }` a box anchored
-   near the footer grows the document and a stray page scrollbar appears. Pin
-   the document to the viewport so a portal can never scroll the page. */
-html,
-body {
+   near the footer grew the document and a stray page scrollbar appeared. Clip
+   the document root instead: `html` owns the no-scroll, while `body` stays
+   `overflow: visible` so the owned-by-body portal is not cut off. */
+html {
     height: 100%;
     overflow: hidden;
+}
+
+body {
+    height: 100%;
 }
 
 /* ─── Рабочее пространство «Сырьё» ───────────────────────── */

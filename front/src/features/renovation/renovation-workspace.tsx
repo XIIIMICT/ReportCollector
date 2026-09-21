@@ -543,6 +543,36 @@ export function RenovationWorkspace({
         [applyWindowChunk, assetFilter, viewPlanId],
     );
 
+    // A drag to the absolute top asks for the rows *above the current window*
+    // in ONE request (up to a full window) instead of walking chunk by chunk —
+    // sequential 300-row loads cost many round-trips and a long wait. The grid
+    // then pins the viewport to the freshly loaded rows (`revealTop`).
+    const jumpToTop = useCallback(async () => {
+        const base = planWindowRef.current;
+        if (!base || base.complete || base.start <= 0) return;
+        const generation = windowGenerationRef.current;
+        const start = Math.max(0, base.start - WINDOW_MAX_ROWS);
+        try {
+            const page = await getRenovationPlanRows(
+                start,
+                base.start - start,
+                viewPlanId ?? undefined,
+                assetFilter,
+            );
+            if (generation !== windowGenerationRef.current) return;
+            applyWindowChunk(
+                page.rows,
+                start,
+                "top",
+                page.total,
+                page.baselineBoundary ?? null,
+                page.id,
+            );
+        } catch {
+            // The next edge approach retries.
+        }
+    }, [applyWindowChunk, assetFilter, viewPlanId]);
+
     const handleNearBottom = useCallback(() => {
         if (loadingBottomRef.current) return;
         const base = planWindowRef.current;
@@ -560,15 +590,23 @@ export function RenovationWorkspace({
             const base = planWindowRef.current;
             if (!base || base.complete) return;
             if (base.start <= 0) return;
-            // Remember intent for the prepend that follows: a drag to the absolute
-            // top must reveal the loaded rows, not compensate them away.
-            revealTopRef.current = atAbsoluteTop;
             loadingTopRef.current = true;
+            if (atAbsoluteTop) {
+                // Dragged to the very top: one request loads the whole window
+                // above, and the prepend reveals it (scrollTop 0).
+                revealTopRef.current = true;
+                void jumpToTop().finally(() => {
+                    loadingTopRef.current = false;
+                });
+                return;
+            }
+            // Approaching the top: one chunk, compensating so the viewport
+            // stays put (the regular continuous-scroll behaviour).
             void loadChunk("top").finally(() => {
                 loadingTopRef.current = false;
             });
         },
-        [loadChunk],
+        [jumpToTop, loadChunk],
     );
     const { data: diff } = useAsyncData<RenovationDiff | null>(
         () => (viewPlanId ? getRenovationDiff(viewPlanId) : Promise.resolve(null)),
@@ -2286,7 +2324,11 @@ export function RenovationActionBar({
                 >
                     <span aria-hidden="true" />
                 </Tooltip.Trigger>
-                <Tooltip.Content placement="top" className="shortcut-tooltip">
+                <Tooltip.Content
+                    placement="top"
+                    className="shortcut-tooltip"
+                    style={{ position: "fixed" }}
+                >
                     <span>{actionTip?.text ?? ""}</span>
                 </Tooltip.Content>
             </Tooltip>

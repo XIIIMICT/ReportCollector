@@ -2219,7 +2219,11 @@ function ActionBar({
                 >
                     <span aria-hidden="true" />
                 </Tooltip.Trigger>
-                <Tooltip.Content placement="top" className="shortcut-tooltip">
+                <Tooltip.Content
+                    placement="top"
+                    className="shortcut-tooltip"
+                    style={{ position: "fixed" }}
+                >
                     <span>{actionTip?.text ?? ""}</span>
                 </Tooltip.Content>
             </Tooltip>
