@@ -12,7 +12,6 @@ import {
     Skeleton,
     Spinner,
     toast,
-    Tooltip,
     Typography,
 } from "@heroui/react";
 import {
@@ -2209,24 +2208,20 @@ function ActionBar({
                     </span>
                 ),
             )}
-            <Tooltip isOpen={actionTip !== null}>
-                <Tooltip.Trigger
-                    className="remote-cell-tooltip-trigger"
-                    style={{
-                        left: actionTip?.left ?? -1000,
-                        top: actionTip?.top ?? -1000,
-                    }}
+            {actionTip !== null ? (
+                // Plain hint instead of HeroUI's Tooltip: react-aria portals and
+                // positions it `absolute` against `document.body`, which either
+                // grows the document (a stray page scrollbar) or gets clipped by
+                // the shell's overflow. This element is `position: fixed`, so it
+                // never affects layout and is never clipped.
+                <div
+                    className="shortcut-tooltip action-bar__hint"
+                    role="tooltip"
+                    style={{ left: actionTip.left, top: actionTip.top }}
                 >
-                    <span aria-hidden="true" />
-                </Tooltip.Trigger>
-                <Tooltip.Content
-                    placement="top"
-                    className="shortcut-tooltip"
-                    style={{ position: "fixed" }}
-                >
-                    <span>{actionTip?.text ?? ""}</span>
-                </Tooltip.Content>
-            </Tooltip>
+                    <span>{actionTip.text}</span>
+                </div>
+            ) : null}
         </div>
     );
 }

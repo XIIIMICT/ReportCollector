@@ -771,6 +771,25 @@ body {
     gap: 0.55rem;
 }
 
+/* The action bar's floating kbd hint. `position: fixed` keeps it out of the
+   document flow (no stray page scrollbar) and unclipped by the shell; the
+   coordinates come from the hovered button's rect (viewport-relative). */
+.action-bar__hint {
+    position: fixed;
+    z-index: 1000;
+    transform: translate(-50%, calc(-100% - 0.5rem));
+    padding: 0.3rem 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: 0.45rem;
+    background: var(--surface);
+    color: var(--foreground);
+    box-shadow: 0 0.35rem 1rem rgb(22 25 24 / 18%);
+    font-size: 0.8rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
 .action-button {
     display: inline-flex;
     min-width: 2.65rem;
