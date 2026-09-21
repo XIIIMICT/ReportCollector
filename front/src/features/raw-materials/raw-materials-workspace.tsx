@@ -115,6 +115,10 @@ type RawMaterialsWorkspaceProps = {
     /** Controlled project key (used by the report-workspace project switcher). */
     activeProjectKey?: string;
     onProjectChange?: (key: string) => void;
+    /** Tab restored from `?section=` (movement:{period} / prices / a dictionary). */
+    initialSection?: string | null;
+    /** Mirrors the active tab into the URL so a reload keeps it. */
+    onSectionChange?: (section: string | null) => void;
 };
 
 type DictionarySection = "rawMaterials" | "assets" | "deliveryBases" | "users";
@@ -1260,13 +1264,15 @@ export function RawMaterialsWorkspace({
     currentUser,
     activeProjectKey: controlledProjectKey,
     onProjectChange,
+    initialSection = null,
+    onSectionChange,
 }: RawMaterialsWorkspaceProps) {
     const [metaReloadKey, setMetaReloadKey] = useState(0);
     const { data: meta, error } = useAsyncData<RawMaterialsMeta>(
         () => getRawMaterialsMeta(),
         [metaReloadKey],
     );
-    const [selectedTabId, setSelectedTabId] = useState<string | null>(null);
+    const [selectedTabId, setSelectedTabId] = useState<string | null>(initialSection);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isFullscreenPending, setIsFullscreenPending] = useState(false);
     const [gridStats, setGridStats] = useState<GridViewStats | null>(null);
@@ -1417,10 +1423,22 @@ export function RawMaterialsWorkspace({
     }, [isAdmin, meta]);
 
     useEffect(() => {
-        if (selectedTabId === null && tabs.length > 0) {
+        if (tabs.length === 0) return;
+        // No selection yet, or a stale `?section=` that this project has no tab
+        // for (e.g. an archived movement period) — fall back to the first tab.
+        if (selectedTabId === null || !tabs.some((tab) => tab.id === selectedTabId)) {
             setSelectedTabId(tabs[0].id);
+            onSectionChange?.(tabs[0].id);
         }
-    }, [selectedTabId, tabs]);
+    }, [selectedTabId, tabs, onSectionChange]);
+
+    // Browser back/forward changes `?section=` without remounting this
+    // component (the `key` only tracks the project), so follow the prop.
+    useEffect(() => {
+        if (initialSection && tabs.some((tab) => tab.id === initialSection)) {
+            setSelectedTabId(initialSection);
+        }
+    }, [initialSection, tabs]);
 
     const selectedTab = tabs.find((tab) => tab.id === selectedTabId) ?? tabs[0] ?? null;
 
@@ -1616,7 +1634,10 @@ export function RawMaterialsWorkspace({
                 <SectionTabs
                     tabs={tabs}
                     value={selectedTab.id}
-                    onChange={(tab) => setSelectedTabId(tab.id)}
+                    onChange={(tab) => {
+                        setSelectedTabId(tab.id);
+                        onSectionChange?.(tab.id);
+                    }}
                 />
             </div>
             <ViewStrip

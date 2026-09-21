@@ -12,8 +12,15 @@ import { projectKeyFromSlug } from "@/shared/projects";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProjectPage({ params }: { params: Promise<{ project: string }> }) {
+export default async function ProjectPage({
+    params,
+    searchParams,
+}: {
+    params: Promise<{ project: string }>;
+    searchParams: Promise<{ section?: string }>;
+}) {
     const { project: slug } = await params;
+    const { section } = await searchParams;
     const projectKey = projectKeyFromSlug(slug);
     if (projectKey === null) {
         notFound();
@@ -63,5 +70,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ projec
         );
     }
 
-    return <ReportWorkspace key={projectKey} currentUser={currentUser} projectKey={projectKey} />;
+    return (
+        <ReportWorkspace
+            key={projectKey}
+            currentUser={currentUser}
+            projectKey={projectKey}
+            initialSection={section ?? null}
+        />
+    );
 }

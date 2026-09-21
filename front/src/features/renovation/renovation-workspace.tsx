@@ -94,6 +94,10 @@ export type RenovationWorkspaceProps = {
     currentUser: CurrentUser;
     activeProjectKey: string;
     onProjectChange: (key: string) => void;
+    /** Form restored from `?section=` (plan / assets / a catalog id / users). */
+    initialSection?: string | null;
+    /** Mirrors the active form into the URL so a reload keeps it. */
+    onSectionChange?: (section: string | null) => void;
 };
 
 const WORKING_VERSION_ID = "__working";
@@ -160,6 +164,8 @@ export function RenovationWorkspace({
     currentUser,
     activeProjectKey,
     onProjectChange,
+    initialSection = null,
+    onSectionChange,
 }: RenovationWorkspaceProps) {
     const [metaReloadKey, setMetaReloadKey] = useState(0);
     const [reloadKey, setReloadKey] = useState(0);
@@ -173,8 +179,9 @@ export function RenovationWorkspace({
     const [panelsHovered, setPanelsHovered] = useState(false);
     const fullscreenPanelsOpen = toolbarControlOpen || panelsHovered;
     // Active section (plan vs dictionary) — declared early because the
-    // plan-window reset effect keys off it.
-    const [activeSection, setActiveSection] = useState<string>("plan");
+    // plan-window reset effect keys off it. A section restored from the URL is
+    // validated against the available sections by the guard effect below.
+    const [activeSection, setActiveSection] = useState<string>(initialSection ?? "plan");
     const isPlanSection = activeSection === "plan";
     const { data: meta, error } = useAsyncData<RenovationMeta | null>(
         () => getRenovationMeta().catch(() => null),
@@ -724,8 +731,17 @@ export function RenovationWorkspace({
     useEffect(() => {
         if (sections.length > 0 && !sections.some((section) => section.id === activeSection)) {
             setActiveSection("plan");
+            onSectionChange?.("plan");
         }
-    }, [activeSection, sections]);
+    }, [activeSection, sections, onSectionChange]);
+
+    // Browser back/forward changes `?section=` without remounting this
+    // component (the `key` only tracks the project), so follow the prop.
+    useEffect(() => {
+        if (initialSection && sections.some((section) => section.id === initialSection)) {
+            setActiveSection(initialSection);
+        }
+    }, [initialSection, sections]);
 
     // Stable item list for the section Autocomplete — a fresh array reference
     // on every render makes HeroUI's controlled Autocomplete re-sync in an
@@ -743,9 +759,10 @@ export function RenovationWorkspace({
             const next = key && sections.some((section) => section.id === key) ? String(key) : null;
             if (next && next !== activeSection) {
                 setActiveSection(next);
+                onSectionChange?.(next);
             }
         },
-        [activeSection, sections],
+        [activeSection, sections, onSectionChange],
     );
 
     // The collab room joins the active section: the plan (renovationPlan) or
