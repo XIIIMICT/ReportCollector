@@ -97,6 +97,7 @@ import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { isFromTextEditor } from "@/shared/keyboard";
+import { ActionHint } from "@/shared/ui/action-hint";
 import {
     AddRecordModal,
     type AddRecordField,
@@ -2209,18 +2210,7 @@ function ActionBar({
                 ),
             )}
             {actionTip !== null ? (
-                // Plain hint instead of HeroUI's Tooltip: react-aria portals and
-                // positions it `absolute` against `document.body`, which either
-                // grows the document (a stray page scrollbar) or gets clipped by
-                // the shell's overflow. This element is `position: fixed`, so it
-                // never affects layout and is never clipped.
-                <div
-                    className="shortcut-tooltip action-bar__hint"
-                    role="tooltip"
-                    style={{ left: actionTip.left, top: actionTip.top }}
-                >
-                    <span>{actionTip.text}</span>
-                </div>
+                <ActionHint left={actionTip.left} top={actionTip.top} text={actionTip.text} />
             ) : null}
         </div>
     );

@@ -73,3 +73,52 @@ test("version autocomplete: hover opens, stays open moving within, closes after 
     await page.mouse.move(5, 5);
     await expect(trigger).toHaveAttribute("aria-expanded", "false", { timeout: 6000 });
 });
+
+test("action-bar kbd hint appears in the viewport without a page scrollbar", async ({ page }) => {
+    // Regression: the hint must not be positioned against the footer (whose
+    // `contain: paint` makes it the containing block for `fixed` children, so
+    // an in-place fixed hint rendered off-screen), and it must not grow the
+    // document (the old react-aria tooltip portaled an `absolute` box into the
+    // body, flashing a stray page scrollbar).
+    await login(page);
+    await switchToRenovation(page);
+    await page.waitForTimeout(1000);
+
+    const before = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+        scrollHeight: document.documentElement.scrollHeight,
+        clientHeight: document.documentElement.clientHeight,
+    }));
+
+    const copy = page.locator('.action-bar [data-action-tooltip^="Копировать"]').first();
+    const box = await copy.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+
+    const hint = page.locator(".action-bar__hint");
+    await expect(hint).toBeVisible({ timeout: 3000 });
+    await expect(hint).toHaveText(/Копировать/);
+    // Portaled to <body> (escapes the footer's containing block) and fixed.
+    expect(await hint.evaluate((el) => el.parentElement?.tagName)).toBe("BODY");
+    expect(await hint.evaluate((el) => getComputedStyle(el).position)).toBe("fixed");
+
+    const viewport = page.viewportSize()!;
+    const hintBox = await hint.boundingBox();
+    expect(hintBox).not.toBeNull();
+    expect(hintBox!.x).toBeGreaterThanOrEqual(0);
+    expect(hintBox!.y).toBeGreaterThanOrEqual(0);
+    expect(hintBox!.x + hintBox!.width).toBeLessThanOrEqual(viewport.width);
+    expect(hintBox!.y + hintBox!.height).toBeLessThanOrEqual(viewport.height);
+
+    // No scrollbar appears while the hint is open.
+    const after = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+        scrollHeight: document.documentElement.scrollHeight,
+        clientHeight: document.documentElement.clientHeight,
+    }));
+    expect(after.scrollWidth).toBeLessThanOrEqual(after.clientWidth);
+    expect(after.scrollHeight).toBeLessThanOrEqual(after.clientHeight);
+    expect(after).toEqual(before);
+});
