@@ -207,12 +207,18 @@ export function RenovationWorkspace({
     const [scrollCompensation, setScrollCompensation] = useState<{
         deltaRows: number;
         token: number;
+        /** Land at the very top instead of shifting by `deltaRows`. */
+        revealTop?: boolean;
     } | null>(null);
     const windowGenerationRef = useRef(0);
     const planWindowRef = useRef<PlanWindow | null>(null);
     const loadingBottomRef = useRef(false);
     const loadingTopRef = useRef(false);
     const compensationTokenRef = useRef(0);
+    // Set when the user dragged the scrollbar to the absolute top: the next
+    // prepend then reveals the newly loaded rows (scrollTop 0) rather than
+    // compensating, so a drag to the top lands on the first chunk.
+    const revealTopRef = useRef(false);
     // After a structural load the grid jumps to this edge of the loaded data:
     // the working plan anchors at its TAIL (rows are appended at the end), the
     // archive reads top-down.
@@ -444,12 +450,16 @@ export function RenovationWorkspace({
             ) as RenovationPlanRow[];
             let newStart = start + first;
             let deltaRows = 0;
+            // A prepend triggered by an absolute-top drag reveals the freshly
+            // loaded rows instead of holding the viewport still.
+            const revealTop = direction === "top" && revealTopRef.current;
+            revealTopRef.current = false;
             if (rows.length > WINDOW_MAX_ROWS) {
                 if (direction === "top") {
                     // Prepend: rows above the viewport grew — shift the scroll
                     // down by the same height; the overflow is trimmed from
                     // the far (bottom) side, which needs no compensation.
-                    deltaRows = chunk.length;
+                    deltaRows = revealTop ? 0 : chunk.length;
                     rows = rows.slice(0, WINDOW_MAX_ROWS);
                 } else {
                     const evict = rows.length - WINDOW_MAX_ROWS;
@@ -470,9 +480,13 @@ export function RenovationWorkspace({
                 complete: false,
             };
             planWindowRef.current = next;
-            if (deltaRows !== 0) {
+            if (deltaRows !== 0 || revealTop) {
                 compensationTokenRef.current += 1;
-                setScrollCompensation({ deltaRows, token: compensationTokenRef.current });
+                setScrollCompensation({
+                    deltaRows,
+                    token: compensationTokenRef.current,
+                    revealTop,
+                });
             }
             setPlanWindow(next);
         },
@@ -540,16 +554,22 @@ export function RenovationWorkspace({
         });
     }, [loadChunk]);
 
-    const handleNearTop = useCallback(() => {
-        if (loadingTopRef.current) return;
-        const base = planWindowRef.current;
-        if (!base || base.complete) return;
-        if (base.start <= 0) return;
-        loadingTopRef.current = true;
-        void loadChunk("top").finally(() => {
-            loadingTopRef.current = false;
-        });
-    }, [loadChunk]);
+    const handleNearTop = useCallback(
+        (atAbsoluteTop: boolean) => {
+            if (loadingTopRef.current) return;
+            const base = planWindowRef.current;
+            if (!base || base.complete) return;
+            if (base.start <= 0) return;
+            // Remember intent for the prepend that follows: a drag to the absolute
+            // top must reveal the loaded rows, not compensate them away.
+            revealTopRef.current = atAbsoluteTop;
+            loadingTopRef.current = true;
+            void loadChunk("top").finally(() => {
+                loadingTopRef.current = false;
+            });
+        },
+        [loadChunk],
+    );
     const { data: diff } = useAsyncData<RenovationDiff | null>(
         () => (viewPlanId ? getRenovationDiff(viewPlanId) : Promise.resolve(null)),
         [metaReloadKey, reloadKey, viewPlanId],
