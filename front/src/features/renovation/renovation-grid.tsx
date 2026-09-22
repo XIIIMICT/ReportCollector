@@ -153,10 +153,10 @@ export type RenovationGridProps = {
     hasMoreTop?: boolean;
     hasMoreBottom?: boolean;
     /** The user scrolled within LAZY_EDGE_ROWS of the window edge. */
-    onNearTop?: (atAbsoluteTop: boolean) => void;
+    onNearTop?: () => void;
     onNearBottom?: () => void;
     /** Shift the vertical scroll after a window slide (evicted/prepended rows). */
-    scrollCompensation?: { deltaRows: number; token: number; revealTop?: boolean } | null;
+    scrollCompensation?: { deltaRows: number; token: number } | null;
     /** The full plan size — the loaded window is only a slice of it. */
     totalRowsOverride?: number | null;
     /** Whole-plan row count (unfiltered) — the «всего» counter; null → same as totalRowsOverride. */
@@ -999,11 +999,7 @@ function RenovationGridInner(
                 onNearBottom?.();
             }
             if (hasMoreTop && el.scrollTop < LAZY_EDGE_PX) {
-                // `atAbsoluteTop` — the user dragged the scrollbar to the very
-                // top (not just within the lazy edge): after a prepend they
-                // want to land on the first rows, not be pushed back down by
-                // the scroll compensation.
-                onNearTop?.(el.scrollTop <= 1);
+                onNearTop?.();
             }
         };
         const onScroll = () => check();
@@ -1030,13 +1026,10 @@ function RenovationGridInner(
     // After a window slide (rows prepended or evicted from the top) the scroll
     // position must move by the same height, or the viewport jumps. The
     // virtual spacer resizes asynchronously (stencil) — apply on the next
-    // frame and retry while the value is being clamped. `revealTop` is the
-    // exception: the user dragged to the very top, so pin the scroller to 0 to
-    // show the freshly loaded first rows.
+    // frame and retry while the value is being clamped.
     useEffect(() => {
-        if (!scrollCompensation) return;
-        if (!scrollCompensation.revealTop && scrollCompensation.deltaRows === 0) return;
-        const delta = scrollCompensation.revealTop ? 0 : scrollCompensation.deltaRows * 36;
+        if (!scrollCompensation || scrollCompensation.deltaRows === 0) return;
+        const delta = scrollCompensation.deltaRows * 36;
         let attempts = 0;
         const apply = () => {
             const el =
@@ -1047,12 +1040,9 @@ function RenovationGridInner(
                       ) as HTMLElement | null)
                     : verticalScrollRef.current);
             if (!el) return;
-            const target = scrollCompensation.revealTop ? 0 : el.scrollTop + delta;
-            el.scrollTop = target;
-            // The virtual spacer may not have resized yet — retry until the
-            // value sticks (revealTop can afford a couple more frames).
-            const limit = scrollCompensation.revealTop ? 6 : 3;
-            if (el.scrollTop !== target && attempts < limit) {
+            const before = el.scrollTop;
+            el.scrollTop = before + delta;
+            if (el.scrollTop !== before + delta && attempts < 3) {
                 attempts += 1;
                 requestAnimationFrame(apply);
             }

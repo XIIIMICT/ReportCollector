@@ -207,18 +207,12 @@ export function RenovationWorkspace({
     const [scrollCompensation, setScrollCompensation] = useState<{
         deltaRows: number;
         token: number;
-        /** Land at the very top instead of shifting by `deltaRows`. */
-        revealTop?: boolean;
     } | null>(null);
     const windowGenerationRef = useRef(0);
     const planWindowRef = useRef<PlanWindow | null>(null);
     const loadingBottomRef = useRef(false);
     const loadingTopRef = useRef(false);
     const compensationTokenRef = useRef(0);
-    // Set when the user dragged the scrollbar to the absolute top: the next
-    // prepend then reveals the newly loaded rows (scrollTop 0) rather than
-    // compensating, so a drag to the top lands on the first chunk.
-    const revealTopRef = useRef(false);
     // After a structural load the grid jumps to this edge of the loaded data:
     // the working plan anchors at its TAIL (rows are appended at the end), the
     // archive reads top-down.
@@ -450,16 +444,12 @@ export function RenovationWorkspace({
             ) as RenovationPlanRow[];
             let newStart = start + first;
             let deltaRows = 0;
-            // A prepend triggered by an absolute-top drag reveals the freshly
-            // loaded rows instead of holding the viewport still.
-            const revealTop = direction === "top" && revealTopRef.current;
-            revealTopRef.current = false;
             if (rows.length > WINDOW_MAX_ROWS) {
                 if (direction === "top") {
                     // Prepend: rows above the viewport grew — shift the scroll
                     // down by the same height; the overflow is trimmed from
                     // the far (bottom) side, which needs no compensation.
-                    deltaRows = revealTop ? 0 : chunk.length;
+                    deltaRows = chunk.length;
                     rows = rows.slice(0, WINDOW_MAX_ROWS);
                 } else {
                     const evict = rows.length - WINDOW_MAX_ROWS;
@@ -480,13 +470,9 @@ export function RenovationWorkspace({
                 complete: false,
             };
             planWindowRef.current = next;
-            if (deltaRows !== 0 || revealTop) {
+            if (deltaRows !== 0) {
                 compensationTokenRef.current += 1;
-                setScrollCompensation({
-                    deltaRows,
-                    token: compensationTokenRef.current,
-                    revealTop,
-                });
+                setScrollCompensation({ deltaRows, token: compensationTokenRef.current });
             }
             setPlanWindow(next);
         },
@@ -543,36 +529,6 @@ export function RenovationWorkspace({
         [applyWindowChunk, assetFilter, viewPlanId],
     );
 
-    // A drag to the absolute top asks for the rows *above the current window*
-    // in ONE request (up to a full window) instead of walking chunk by chunk —
-    // sequential 300-row loads cost many round-trips and a long wait. The grid
-    // then pins the viewport to the freshly loaded rows (`revealTop`).
-    const jumpToTop = useCallback(async () => {
-        const base = planWindowRef.current;
-        if (!base || base.complete || base.start <= 0) return;
-        const generation = windowGenerationRef.current;
-        const start = Math.max(0, base.start - WINDOW_MAX_ROWS);
-        try {
-            const page = await getRenovationPlanRows(
-                start,
-                base.start - start,
-                viewPlanId ?? undefined,
-                assetFilter,
-            );
-            if (generation !== windowGenerationRef.current) return;
-            applyWindowChunk(
-                page.rows,
-                start,
-                "top",
-                page.total,
-                page.baselineBoundary ?? null,
-                page.id,
-            );
-        } catch {
-            // The next edge approach retries.
-        }
-    }, [applyWindowChunk, assetFilter, viewPlanId]);
-
     const handleNearBottom = useCallback(() => {
         if (loadingBottomRef.current) return;
         const base = planWindowRef.current;
@@ -584,30 +540,16 @@ export function RenovationWorkspace({
         });
     }, [loadChunk]);
 
-    const handleNearTop = useCallback(
-        (atAbsoluteTop: boolean) => {
-            if (loadingTopRef.current) return;
-            const base = planWindowRef.current;
-            if (!base || base.complete) return;
-            if (base.start <= 0) return;
-            loadingTopRef.current = true;
-            if (atAbsoluteTop) {
-                // Dragged to the very top: one request loads the whole window
-                // above, and the prepend reveals it (scrollTop 0).
-                revealTopRef.current = true;
-                void jumpToTop().finally(() => {
-                    loadingTopRef.current = false;
-                });
-                return;
-            }
-            // Approaching the top: one chunk, compensating so the viewport
-            // stays put (the regular continuous-scroll behaviour).
-            void loadChunk("top").finally(() => {
-                loadingTopRef.current = false;
-            });
-        },
-        [jumpToTop, loadChunk],
-    );
+    const handleNearTop = useCallback(() => {
+        if (loadingTopRef.current) return;
+        const base = planWindowRef.current;
+        if (!base || base.complete) return;
+        if (base.start <= 0) return;
+        loadingTopRef.current = true;
+        void loadChunk("top").finally(() => {
+            loadingTopRef.current = false;
+        });
+    }, [loadChunk]);
     const { data: diff } = useAsyncData<RenovationDiff | null>(
         () => (viewPlanId ? getRenovationDiff(viewPlanId) : Promise.resolve(null)),
         [metaReloadKey, reloadKey, viewPlanId],
@@ -1840,11 +1782,13 @@ export function RenovationWorkspace({
                 {
                     id: "all",
                     label: "Скачать всю таблицу",
+                    icon: <Download aria-hidden="true" />,
                     onPress: () => void handleStripExport("all"),
                 },
                 {
                     id: "visible",
                     label: "Скачать видимую таблицу",
+                    icon: <Download aria-hidden="true" />,
                     onPress: () => void handleStripExport("visible"),
                 },
             ],
@@ -2190,6 +2134,14 @@ export function RenovationActionBar({
     } | null>(null);
     const actionTipTargetRef = useRef<Element | null>(null);
 
+    // The floating hint carries the label plus a Kbd with the shortcut, so it
+    // only makes sense for actions that have a shortcut (a plain button like
+    // «Добавить строку» shows nothing).
+    const hintData = (action: ActionItem) =>
+        action.shortcut
+            ? { "data-action-tooltip": action.label, "data-action-shortcut": action.shortcut.aria }
+            : {};
+
     const renderAction = (action: ActionItem) => {
         const icon = action.pending ? <Spinner size="sm" /> : action.icon;
         if (action.menu) {
@@ -2210,8 +2162,7 @@ export function RenovationActionBar({
                             variant={action.variant ?? "tertiary"}
                             isDisabled={action.disabled}
                             aria-label={action.label}
-                            data-action-tooltip={action.label}
-                            data-action-shortcut={action.shortcut?.aria}
+                            {...hintData(action)}
                         >
                             <span className="action-button__icon">{icon}</span>
                             <span className="action-button__label">{action.label}</span>
@@ -2247,8 +2198,7 @@ export function RenovationActionBar({
                 isDisabled={action.disabled}
                 aria-label={action.label}
                 aria-keyshortcuts={action.shortcut?.aria}
-                data-action-tooltip={action.label}
-                data-action-shortcut={action.shortcut?.aria}
+                {...hintData(action)}
                 onPress={action.onPress}
             >
                 <span className="action-button__icon">{icon}</span>
@@ -2307,8 +2257,7 @@ export function RenovationActionBar({
                                 isDisabled={action.disabled}
                                 aria-label={action.label}
                                 aria-keyshortcuts={action.shortcut?.aria}
-                                data-action-tooltip={action.label}
-                                data-action-shortcut={action.shortcut?.aria}
+                                {...hintData(action)}
                                 onPress={action.onPress}
                             >
                                 <span className="action-button__icon">{action.icon}</span>

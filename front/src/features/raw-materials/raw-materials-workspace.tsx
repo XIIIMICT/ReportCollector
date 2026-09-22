@@ -1907,8 +1907,10 @@ export type ActionItem = {
     /**
      * A trigger with a dropdown (e.g. download with «всю таблицу» /
      * «видимую таблицу» sub-actions) instead of a one-shot button.
+     * `icon` renders only in the compact «Действия» menu — the desktop
+     * dropdown keeps the plain labels (the trigger already shows its icon).
      */
-    menu?: Array<{ id: string; label: string; onPress: () => void }>;
+    menu?: Array<{ id: string; label: string; icon?: ReactNode; onPress: () => void }>;
     /** Show a spinner in place of the icon while a background job runs. */
     pending?: boolean;
 };
@@ -2015,10 +2017,16 @@ function ActionBar({
             pending: exportPending,
             group: "download",
             menu: [
-                { id: "all", label: "Скачать всю таблицу", onPress: () => onExport("all") },
+                {
+                    id: "all",
+                    label: "Скачать всю таблицу",
+                    icon: <Download aria-hidden="true" />,
+                    onPress: () => onExport("all"),
+                },
                 {
                     id: "visible",
                     label: "Скачать видимую таблицу",
+                    icon: <Download aria-hidden="true" />,
                     onPress: () => onExport("visible"),
                 },
             ],
@@ -2077,6 +2085,12 @@ function ActionBar({
         top: number;
     } | null>(null);
     const actionTipTargetRef = useRef<Element | null>(null);
+    // The floating hint carries the label plus a Kbd with the shortcut, so it
+    // only makes sense for actions that have a shortcut.
+    const hintData = (action: ActionItem) =>
+        action.shortcut
+            ? { "data-action-tooltip": action.label, "data-action-shortcut": action.shortcut.aria }
+            : {};
     if (isSm) {
         return (
             <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
@@ -2112,8 +2126,7 @@ function ActionBar({
                             variant={action.variant ?? "tertiary"}
                             isDisabled={action.disabled}
                             aria-label={action.label}
-                            data-action-tooltip={action.label}
-                            data-action-shortcut={action.shortcut?.aria}
+                            {...hintData(action)}
                         >
                             <span className="action-button__icon">{icon}</span>
                             <span className="action-button__label">{action.label}</span>
@@ -2149,8 +2162,7 @@ function ActionBar({
                 isDisabled={action.disabled}
                 aria-label={action.label}
                 aria-keyshortcuts={action.shortcut?.aria}
-                data-action-tooltip={action.label}
-                data-action-shortcut={action.shortcut?.aria}
+                {...hintData(action)}
                 onPress={action.onPress}
             >
                 <span className="action-button__icon">{icon}</span>
@@ -2203,8 +2215,7 @@ function ActionBar({
                                 isDisabled={action.disabled}
                                 aria-label={action.label}
                                 aria-keyshortcuts={action.shortcut?.aria}
-                                data-action-tooltip={action.label}
-                                data-action-shortcut={action.shortcut?.aria}
+                                {...hintData(action)}
                                 onPress={action.onPress}
                             >
                                 <span className="action-button__icon">{action.icon}</span>
@@ -2298,6 +2309,9 @@ export function CompactActionMenu({
                                       id={`${item.id}:${sub.id}`}
                                       textValue={sub.label}
                                   >
+                                      {sub.icon ? (
+                                          <span className="action-more-menu__icon">{sub.icon}</span>
+                                      ) : null}
                                       <Label>{sub.label}</Label>
                                   </Dropdown.Item>
                               ))
