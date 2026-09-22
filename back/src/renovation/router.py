@@ -1,5 +1,6 @@
 """«Ремонт» project API: reading/editing the renovation plan, plan lifecycle, undo/redo."""
 
+import json
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import quote
@@ -45,6 +46,7 @@ from src.renovation.schemas import (
     RenovationCatalogOptionCreateRequest,
     RenovationCatalogOptionRowRead,
     RenovationCatalogOptionUpdateRequest,
+    RenovationColumnFilter,
     RenovationDiffRead,
     RenovationExportViewRequest,
     RenovationFacetsRead,
@@ -189,8 +191,14 @@ async def get_renovation_plan_rows(
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=10000)] = 1000,
     asset: Annotated[str | None, Query()] = None,
+    filters: Annotated[str | None, Query()] = None,
 ) -> RenovationPlanRowsRead:
-    """Return a window of renovation plan rows plus the total (lazy loading)."""
+    """
+    Return a window of renovation plan rows plus the total (lazy loading).
+
+    `filters` is a JSON array of `{column, values, includeNulls}` (the header
+    filters) — combined with AND and applied in SQL so the window is correct.
+    """
     try:
         return await read_plan_rows(
             session,
@@ -200,9 +208,27 @@ async def get_renovation_plan_rows(
             offset=offset,
             limit=limit,
             asset_name=asset,
+            filters=parse_column_filters(filters),
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except CellValidationError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+
+
+def parse_column_filters(raw: str | None) -> list[RenovationColumnFilter]:
+    """Parse the `filters` query param (JSON array); empty/invalid → no filters."""
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        message = "Некорректный параметр фильтров."
+        raise CellValidationError(message) from error
+    if not isinstance(payload, list):
+        message = "Некорректный параметр фильтров."
+        raise CellValidationError(message)
+    return [RenovationColumnFilter.model_validate(item) for item in payload]
 
 
 @router.get("/plans", response_model=list[RenovationPlanVersionRead])

@@ -10,13 +10,15 @@ labels (the same pattern as «deliveryBasisName» in the «Цены» form).
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import ARRAY, Text, and_, delete, func, insert, literal, literal_column
+from sqlalchemy import ARRAY, Text, and_, delete, func, insert, literal, literal_column, or_
 from sqlalchemy import cast as sql_cast
+from sqlalchemy import false as sa_false
 from sqlalchemy import select as sa_select
+from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -61,6 +63,7 @@ from src.renovation.schemas import (
     RenovationCatalogOptionRead,
     RenovationCatalogOptionRowRead,
     RenovationCatalogRead,
+    RenovationColumnFilter,
     RenovationDeletedRowRead,
     RenovationDiffCellRead,
     RenovationDiffRead,
@@ -505,6 +508,68 @@ def _sparse_row_renovation_id(
     return result.value
 
 
+def _column_filter_condition(
+    column_filter: RenovationColumnFilter,
+    label_map: dict[UUID, str],
+) -> ColumnElement[bool]:
+    """
+    Build the SQL condition for one header filter (a column facet selection).
+
+    Display values map back to raw columns: reference labels → their ids; the
+    synthetic asset column → rows whose asset name is among the kept names;
+    booleans → Да/Нет; numbers → Decimals. `includeNulls` adds the empty bucket
+    (NULL or empty string). An empty condition already covers "all kept" — the
+    client omits a filter whose every value is kept.
+    """
+    column = column_filter.column
+    value_conditions: list[ColumnElement[bool]] = []
+    if column == _ASSET_COLUMN_PROP:
+        if column_filter.values:
+            value_conditions.append(
+                col(RenovationPlanRow.asset_id).in_(
+                    sa_select(col(RAsset.id)).where(col(RAsset.name).in_(column_filter.values))
+                )
+            )
+    else:
+        meta = field_meta(column)
+        if meta is None or meta.db_name in _VIRTUAL_FIELDS:
+            message = f"Неизвестный столбец «{column}»."
+            raise CellValidationError(message)
+        raw = getattr(RenovationPlanRow, column)
+        if meta.cell_type == "reference":
+            kept = set(column_filter.values)
+            ids = [value_id for value_id, label in label_map.items() if label in kept]
+            if ids:
+                value_conditions.append(raw.in_(ids))
+        elif meta.cell_type == "boolean":
+            if column_filter.values:
+                value_conditions.append(raw.in_([value == "Да" for value in column_filter.values]))
+        elif meta.cell_type == "number":
+            numbers = [_facet_number(value) for value in column_filter.values]
+            if numbers:
+                value_conditions.append(raw.in_(numbers))
+        elif column_filter.values:
+            # Text and date columns are stored as strings the facet echoes back
+            # verbatim, so an exact IN match is enough.
+            value_conditions.append(raw.in_(column_filter.values))
+        if column_filter.includeNulls:
+            # An empty string is the same bucket as NULL (the facet collapses
+            # both), so keep both here.
+            value_conditions.append(raw.is_(None) | (raw == ""))
+    if value_conditions:
+        return or_(*value_conditions)
+    # A filter that keeps nothing must match no row, never the whole table.
+    return sa_false()
+
+
+def _facet_number(value: str) -> Decimal | None:
+    """Parse a facet display number back to a Decimal (None when not numeric)."""
+    try:
+        return Decimal(value.replace(",", "."))
+    except InvalidOperation, ValueError:
+        return None
+
+
 async def read_plan_rows(
     session: AsyncSession,
     assets: list[RAsset],
@@ -514,6 +579,7 @@ async def read_plan_rows(
     offset: int = 0,
     limit: int = 1000,
     asset_name: str | None = None,
+    filters: list[RenovationColumnFilter] | None = None,
 ) -> RenovationPlanRowsRead:
     """Return a window of plan rows plus the total row count (lazy loading)."""
     if plan_id is not None:
@@ -541,6 +607,9 @@ async def read_plan_rows(
             col(RenovationPlanRow.asset_id).in_(asset_ids)
             | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
         )
+    # Header filters (AND), applied in SQL so offset/limit count only matches.
+    for column_filter in filters or []:
+        row_condition = row_condition & _column_filter_condition(column_filter, label_map)
     # The asset filter must be applied in SQL so offset/limit count only the
     # rows the caller may see — not the full plan.
     total = (await session.exec(select(func.count()).select_from(RenovationPlanRow).where(row_condition))).one()

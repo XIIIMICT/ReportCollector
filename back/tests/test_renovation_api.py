@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -208,6 +209,90 @@ async def test_read_plan_facets_unknown_column(client: AsyncClient) -> None:
         "/api/renovation/plan/facets",
         headers=ADMIN_HEADERS,
         params={"column": "no_such_col"},
+    )
+    assert response.status_code == 422
+
+
+async def test_plan_rows_filter_by_text_value(client: AsyncClient) -> None:
+    """A text column filter keeps only matching rows (server-side, whole plan)."""
+    filters = json.dumps([{"column": "col_011", "values": ["Шкаф ПЛК"], "includeNulls": False}])
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100, "filters": filters},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert [row["assetCode"] for row in body["rows"]] == ["bsk"]
+
+
+async def test_plan_rows_filter_by_reference_label(client: AsyncClient) -> None:
+    """A reference filter maps the display label back to its value id."""
+    # «Остановочный капитальный ремонт» is shared by both seeded rows.
+    filters = json.dumps([{"column": "col_017", "values": ["Остановочный капитальный ремонт"]}])
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100, "filters": filters},
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+
+
+async def test_plan_rows_filters_combine_with_and(client: AsyncClient) -> None:
+    """Two column filters combine with AND: only the row matching both remains."""
+    filters = json.dumps(
+        [
+            {"column": "col_017", "values": ["Остановочный капитальный ремонт"]},
+            {"column": "col_011", "values": ["Насос НК"]},
+        ]
+    )
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100, "filters": filters},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert [row["assetCode"] for row in body["rows"]] == ["vos"]
+
+
+async def test_plan_rows_filter_empties_keeps_only_nulls(client: AsyncClient) -> None:
+    """A values-empty `includeNulls` filter keeps only the empty bucket."""
+    # col_016 is «Ремонтный бюджет» on both seeded rows, so ask for the empty
+    # bucket only — nothing matches.
+    filters = json.dumps([{"column": "col_016", "values": [], "includeNulls": True}])
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100, "filters": filters},
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+
+
+async def test_plan_rows_filter_asset_column(client: AsyncClient) -> None:
+    """The synthetic asset column filter matches by asset name."""
+    filters = json.dumps([{"column": "__assetName", "values": ["АО «БСК»"], "includeNulls": False}])
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100, "filters": filters},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert [row["assetCode"] for row in body["rows"]] == ["bsk"]
+
+
+async def test_plan_rows_rejects_bad_filters(client: AsyncClient) -> None:
+    """A malformed filters param is a 422."""
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100, "filters": "not-json"},
     )
     assert response.status_code == 422
 

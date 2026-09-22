@@ -160,6 +160,20 @@ class RenovationPlanRowsRead(BaseModel):
     totalAll: int | None = None
 
 
+class RenovationColumnFilter(BaseModel):
+    """
+    One active header filter on a plan column.
+
+    `values` are the display strings the user kept; `includeNulls` keeps the
+    «Пустые» bucket. Columns combine with AND; a column with every value kept is
+    simply omitted by the client (no constraint).
+    """
+
+    column: str = Field(min_length=1)
+    values: list[str] = []
+    includeNulls: bool = False
+
+
 class RenovationRowAddRequest(BaseModel):
     """A new working-plan row (the asset is the only required field)."""
 
