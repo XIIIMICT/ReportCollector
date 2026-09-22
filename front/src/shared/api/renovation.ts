@@ -181,16 +181,51 @@ export async function getRenovationPlan(planId?: string): Promise<RenovationPlan
     return requestJson(`/api/renovation/plan${query}`);
 }
 
+/** One active header filter: kept display values + the «Пустые» bucket. */
+export type RenovationColumnFilter = {
+    column: string;
+    values: string[];
+    includeNulls: boolean;
+};
+
 export async function getRenovationPlanRows(
     offset: number,
     limit: number,
     planId?: string,
     asset?: string | null,
+    filters?: RenovationColumnFilter[] | null,
 ): Promise<RenovationPlanRows> {
     const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
     if (planId) params.set("plan_id", planId);
     if (asset) params.set("asset", asset);
+    if (filters && filters.length > 0) params.set("filters", JSON.stringify(filters));
     return requestJson(`/api/renovation/plan/rows?${params.toString()}`);
+}
+
+export type RenovationFacetValue = {
+    value: string | null;
+    count: number;
+};
+
+export type RenovationFacets = {
+    column: string;
+    values: RenovationFacetValue[];
+    /** Distinct non-empty values across the whole filtered plan. */
+    total: number;
+    /** Whether the column has a NULL/empty bucket (the «Пустые» option). */
+    hasNulls: boolean;
+};
+
+export async function getRenovationPlanFacets(
+    column: string,
+    params: { planId?: string; asset?: string | null; offset?: number; limit?: number } = {},
+): Promise<RenovationFacets> {
+    const query = new URLSearchParams({ column });
+    if (params.planId) query.set("plan_id", params.planId);
+    if (params.asset) query.set("asset", params.asset);
+    if (params.offset !== undefined) query.set("offset", String(params.offset));
+    if (params.limit !== undefined) query.set("limit", String(params.limit));
+    return requestJson(`/api/renovation/plan/facets?${query.toString()}`);
 }
 
 export async function getRenovationPlans(): Promise<RenovationPlanVersion[]> {

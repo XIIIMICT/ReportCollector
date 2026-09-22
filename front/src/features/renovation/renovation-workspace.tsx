@@ -59,6 +59,7 @@ import {
     submitRenovationPlan,
     undoCells,
     updateRenovationCells,
+    type RenovationColumnFilter,
     type RenovationDiff,
     type RenovationMeta,
     type RenovationPlan,
@@ -74,6 +75,7 @@ import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { isFromTextEditor } from "@/shared/keyboard";
 import { ActionHint, parseShortcut } from "@/shared/ui/action-hint";
+import { ColumnFilterPopover } from "@/shared/ui/column-filter-popover";
 import { FormStatus } from "@/shared/ui/form-status";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
@@ -171,6 +173,28 @@ export function RenovationWorkspace({
     const [reloadKey, setReloadKey] = useState(0);
     const [assetFilter, setAssetFilter] = useState<string | null>(null);
     const [blockFilter, setBlockFilter] = useState<string | null>(null);
+    // Active header filters, keyed by column prop (field dbName or the synthetic
+    // asset column). A column keeps display values + the «Пустые» bucket; all
+    // columns combine with AND (server-side).
+    const [columnFilters, setColumnFilters] = useState<Record<string, RenovationColumnFilter>>({});
+    // Flat filter list for the rows API; a column with nothing kept selects
+    // nothing, which the server treats as "no rows" (never "all").
+    const activeColumnFilters = useMemo(
+        () =>
+            Object.entries(columnFilters).map(([column, filter]) => ({
+                column,
+                values: filter.values,
+                includeNulls: filter.includeNulls,
+            })),
+        [columnFilters],
+    );
+    // The column whose header-filter popover is open (its label + anchor rect).
+    const [columnFilterTarget, setColumnFilterTarget] = useState<{
+        column: string;
+        label: string;
+        anchor: DOMRect;
+    } | null>(null);
+    const activeFilterColumns = useMemo(() => new Set(Object.keys(columnFilters)), [columnFilters]);
     // True while a toolbar autocomplete/select has an open popover — keeps the
     // fullscreen reveal panels from hiding while you interact with a dropdown.
     const [toolbarControlOpen, setToolbarControlOpen] = useState(false);
@@ -249,7 +273,13 @@ export function RenovationWorkspace({
                     // read of a ~94k-row plan is slow and fills memory. Reuse the
                     // same getRenovationPlanRows(offset, limit, planId, asset)
                     // path as the working window.
-                    const head = await getRenovationPlanRows(0, 1, viewPlanId, assetFilter);
+                    const head = await getRenovationPlanRows(
+                        0,
+                        1,
+                        viewPlanId,
+                        assetFilter,
+                        activeColumnFilters,
+                    );
                     if (cancelled || generation !== windowGenerationRef.current) return;
                     const total = head.total;
                     const start = Math.max(0, total - WINDOW_CHUNK);
@@ -258,6 +288,7 @@ export function RenovationWorkspace({
                         WINDOW_CHUNK,
                         viewPlanId,
                         assetFilter,
+                        activeColumnFilters,
                     );
                     if (cancelled || generation !== windowGenerationRef.current) return;
                     const next: PlanWindow = {
@@ -286,7 +317,13 @@ export function RenovationWorkspace({
                         setViewPlanId(nextPlanId);
                     }
                 } else {
-                    const head = await getRenovationPlanRows(0, 1, undefined, assetFilter);
+                    const head = await getRenovationPlanRows(
+                        0,
+                        1,
+                        undefined,
+                        assetFilter,
+                        activeColumnFilters,
+                    );
                     if (cancelled || generation !== windowGenerationRef.current) return;
                     const total = head.total;
                     const start = Math.max(0, total - WINDOW_CHUNK);
@@ -297,6 +334,7 @@ export function RenovationWorkspace({
                             WINDOW_CHUNK,
                             undefined,
                             assetFilter,
+                            activeColumnFilters,
                         );
                         if (cancelled || generation !== windowGenerationRef.current) return;
                         const next: PlanWindow = {
@@ -316,6 +354,7 @@ export function RenovationWorkspace({
                             WINDOW_CHUNK,
                             undefined,
                             assetFilter,
+                            activeColumnFilters,
                         );
                         if (cancelled || generation !== windowGenerationRef.current) return;
                         const next: PlanWindow = {
@@ -342,7 +381,7 @@ export function RenovationWorkspace({
         return () => {
             cancelled = true;
         };
-    }, [meta, viewPlanId, assetFilter, isPlanSection]);
+    }, [meta, viewPlanId, assetFilter, activeColumnFilters, isPlanSection]);
 
     // In-place reload (refresh()): re-read the current window, keep the anchor.
     // The working and the pending («на согласовании») views re-read their own
@@ -378,6 +417,7 @@ export function RenovationWorkspace({
                         limit,
                         viewPlanId ?? undefined,
                         assetFilter,
+                        activeColumnFilters,
                     );
                     if (!cancelled && generation === windowGenerationRef.current) {
                         const prev = planWindowRef.current;
@@ -400,7 +440,7 @@ export function RenovationWorkspace({
         return () => {
             cancelled = true;
         };
-    }, [reloadKey, assetFilter, viewPlanId]);
+    }, [reloadKey, assetFilter, viewPlanId, activeColumnFilters]);
 
     /** Merge a fetched chunk into the window; evict the far side when it overflows. */
     const applyWindowChunk = useCallback(
@@ -493,6 +533,7 @@ export function RenovationWorkspace({
                         WINDOW_CHUNK,
                         viewPlanId ?? undefined,
                         assetFilter,
+                        activeColumnFilters,
                     );
                     if (generation !== windowGenerationRef.current) return;
                     applyWindowChunk(
@@ -511,6 +552,7 @@ export function RenovationWorkspace({
                         base.start - chunkStart,
                         viewPlanId ?? undefined,
                         assetFilter,
+                        activeColumnFilters,
                     );
                     if (generation !== windowGenerationRef.current) return;
                     applyWindowChunk(
@@ -526,7 +568,7 @@ export function RenovationWorkspace({
                 // Chunk fetch failed — the next edge approach retries.
             }
         },
-        [applyWindowChunk, assetFilter, viewPlanId],
+        [applyWindowChunk, assetFilter, viewPlanId, activeColumnFilters],
     );
 
     const handleNearBottom = useCallback(() => {
@@ -1213,6 +1255,9 @@ export function RenovationWorkspace({
                 else {
                     setAssetFilter(null);
                     setBlockFilter(null);
+                    // Header filters live in the query, so clear them too —
+                    // otherwise the reset looks like it did nothing.
+                    setColumnFilters({});
                 }
                 return;
             }
@@ -1989,6 +2034,17 @@ export function RenovationWorkspace({
                                                 scrollToEdge={scrollToEdge}
                                                 totalRowsOverride={planWindow.total}
                                                 totalAllRowsOverride={planWindow.totalAll}
+                                                activeFilterColumns={activeFilterColumns}
+                                                onOpenColumnFilter={(column, anchor) =>
+                                                    setColumnFilterTarget({
+                                                        column,
+                                                        label:
+                                                            meta.fields.find(
+                                                                (field) => field.dbName === column,
+                                                            )?.label ?? column,
+                                                        anchor,
+                                                    })
+                                                }
                                             />
                                             {displayRows.length === 0 ? (
                                                 <div className="grid-empty">
@@ -2099,6 +2155,25 @@ export function RenovationWorkspace({
                 onOpenChange={setProfileOpen}
                 onProfileSaved={setUser}
             />
+            {columnFilterTarget ? (
+                <ColumnFilterPopover
+                    column={columnFilterTarget.column}
+                    columnLabel={columnFilterTarget.label}
+                    anchor={columnFilterTarget.anchor}
+                    planId={viewPlanId ?? undefined}
+                    asset={assetFilter}
+                    initial={columnFilters[columnFilterTarget.column] ?? null}
+                    onApply={(filter) =>
+                        setColumnFilters((current) => {
+                            const next = { ...current };
+                            if (filter === null) delete next[columnFilterTarget.column];
+                            else next[columnFilterTarget.column] = filter;
+                            return next;
+                        })
+                    }
+                    onClose={() => setColumnFilterTarget(null)}
+                />
+            ) : null}
         </main>
     );
 }

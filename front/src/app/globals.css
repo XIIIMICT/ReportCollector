@@ -2087,3 +2087,125 @@ body {
         display: none;
     }
 }
+
+/* ─── Header column filter ─────────────────────────────────── */
+
+/* The filter funnel on a leaf header cell: dimmed by default, highlighted when
+   the column has an active filter. */
+.renovation-grid__filter-button {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    display: inline-grid;
+    width: 16px;
+    height: 16px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    opacity: 0.55;
+    transition:
+        opacity 120ms ease,
+        color 120ms ease,
+        background-color 120ms ease;
+}
+
+.renovation-grid__filter-button svg {
+    width: 12px;
+    height: 12px;
+}
+
+.renovation-grid__filter-button:hover,
+.renovation-grid__filter-button:focus-visible {
+    opacity: 1;
+    background: var(--cell-border);
+}
+
+.renovation-grid__filter-button.is-active {
+    color: var(--foreground);
+    opacity: 1;
+}
+
+.column-filter {
+    z-index: 1000;
+    display: flex;
+    max-height: 320px;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface);
+    box-shadow: 0 0.6rem 1.8rem rgb(22 25 24 / 18%);
+}
+
+.column-filter__list {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.column-filter__row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.35rem;
+    border-radius: 0.3rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.column-filter__row:hover {
+    background: var(--cell-border);
+}
+
+.column-filter__row input {
+    margin: 0;
+}
+
+.column-filter__label {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.column-filter__count {
+    color: var(--muted);
+    font-size: 0.75rem;
+}
+
+.column-filter__empty {
+    padding: 0.6rem 0.35rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+
+.column-filter__actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.column-filter__reset,
+.column-filter__apply {
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
+    background: transparent;
+    color: var(--foreground);
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.column-filter__apply {
+    border-color: transparent;
+    background: var(--foreground);
+    color: var(--background);
+}

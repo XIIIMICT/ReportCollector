@@ -13,6 +13,7 @@ import {
     type RowHeaders,
     type VNode,
 } from "@revolist/react-datagrid";
+import { Filter } from "iconoir-react";
 import {
     forwardRef,
     useCallback,
@@ -163,6 +164,10 @@ export type RenovationGridProps = {
     totalAllRowsOverride?: number | null;
     /** After a structural window load, jump to this edge of the loaded data. */
     scrollToEdge?: { edge: "top" | "bottom"; token: number } | null;
+    /** Columns with an active header filter (leaf header shows the active marker). */
+    activeFilterColumns?: ReadonlySet<string>;
+    /** Open the column-filter popover for a leaf header (anchor = its rect). */
+    onOpenColumnFilter?: (column: string, anchor: DOMRect) => void;
 };
 
 export type RenovationGridHandle = {
@@ -312,6 +317,8 @@ function RenovationGridInner(
         totalRowsOverride = null,
         totalAllRowsOverride = null,
         scrollToEdge,
+        activeFilterColumns,
+        onOpenColumnFilter,
     }: RenovationGridProps,
     forwardedRef: Ref<RenovationGridHandle>,
 ) {
@@ -523,6 +530,8 @@ function RenovationGridInner(
             height: number;
             /** The cell is in the header's top row — it draws the table's top line. */
             isTop: boolean;
+            /** Leaf header of a filterable column (its dbName) — a filter button. */
+            filterColumn?: string;
         }> = [];
         for (const cell of headerCells) {
             const startIndex = visibleIndexByPosition.get(cell.startPosition + 1);
@@ -563,6 +572,9 @@ function RenovationGridInner(
                 width,
                 height: (cell.rowSpan + cell.level - topLevel) * HEADER_LEVEL_HEIGHT,
                 isTop: top === 0,
+                // A single-field leaf header filters that column. Multi-field
+                // group headers have no single column to filter.
+                filterColumn: cell.colSpan === 1 ? visibleFields[startIndex].dbName : undefined,
             });
         }
         cells.sort((a, b) => a.top - b.top || a.left - b.left);
@@ -2009,6 +2021,36 @@ function RenovationGridInner(
                         }}
                     >
                         {cell.text}
+                        {cell.filterColumn && onOpenColumnFilter ? (
+                            <button
+                                type="button"
+                                className={
+                                    activeFilterColumns?.has(cell.filterColumn)
+                                        ? "renovation-grid__filter-button is-active"
+                                        : "renovation-grid__filter-button"
+                                }
+                                aria-label={`Фильтр: ${cell.text}`}
+                                aria-pressed={activeFilterColumns?.has(cell.filterColumn) ?? false}
+                                onPointerDown={(event) => {
+                                    // Keep the resize handle and the grid from
+                                    // treating this as a header drag/click.
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                }}
+                                onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onOpenColumnFilter(
+                                        cell.filterColumn as string,
+                                        (
+                                            event.currentTarget.parentElement ?? event.currentTarget
+                                        ).getBoundingClientRect(),
+                                    );
+                                }}
+                            >
+                                <Filter aria-hidden="true" />
+                            </button>
+                        ) : null}
                     </div>
                 ))}
                 {handles.map((handle) => (
