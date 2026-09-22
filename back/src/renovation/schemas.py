@@ -172,6 +172,25 @@ class RenovationRowAssignRequest(BaseModel):
     assetId: UUID
 
 
+class RenovationFacetValueRead(BaseModel):
+    """One distinct display value of a plan column (a filter option)."""
+
+    # `None` is the «Пустые» bucket (NULL / empty string collapse to it).
+    value: str | None = None
+    count: int
+
+
+class RenovationFacetsRead(BaseModel):
+    """Distinct values of one plan column, sorted, for the header filter."""
+
+    column: str
+    values: list[RenovationFacetValueRead]
+    # Distinct values in total (across the whole filtered plan, not just this window).
+    total: int
+    # Whether the column has any NULL/empty value (the «Пустые» option exists).
+    hasNulls: bool
+
+
 class RenovationDiffCellRead(BaseModel):
     """A cell of an archived version that differs from the previous version."""
 

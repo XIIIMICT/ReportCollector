@@ -47,6 +47,7 @@ from src.renovation.schemas import (
     RenovationCatalogOptionUpdateRequest,
     RenovationDiffRead,
     RenovationExportViewRequest,
+    RenovationFacetsRead,
     RenovationMetaRead,
     RenovationPlanExportRequest,
     RenovationPlanRead,
@@ -81,6 +82,7 @@ from src.renovation.service import (
     read_plan,
     read_plan_diff,
     read_plan_export_data,
+    read_plan_facets,
     read_plan_rows,
     read_plan_versions,
     read_renovation_asset_rows,
@@ -210,6 +212,35 @@ async def get_renovation_plans(
 ) -> list[RenovationPlanVersionRead]:
     """All renovation plan versions (newest first) with row counts."""
     return await read_plan_versions(session)
+
+
+@router.get("/plan/facets", response_model=RenovationFacetsRead)
+async def get_renovation_plan_facets(
+    session: SessionDependency,
+    access: AccessDependency,
+    column: Annotated[str, Query(min_length=1)],
+    plan_id: Annotated[UUID | None, Query()] = None,
+    state: Annotated[RPlanState | None, Query()] = None,
+    asset: Annotated[str | None, Query()] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+) -> RenovationFacetsRead:
+    """Distinct display values of one plan column (the header-filter options)."""
+    try:
+        return await read_plan_facets(
+            session,
+            access.assets,
+            column=column,
+            plan_id=plan_id,
+            state=state if state is not None else RPlanState.WORKING,
+            asset_name=asset,
+            offset=offset,
+            limit=limit,
+        )
+    except RenovationPlanNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except CellValidationError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
 
 
 @router.patch("/plan", response_model=RenovationUpdateRead)

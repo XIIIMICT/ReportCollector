@@ -145,6 +145,73 @@ async def test_read_plan_returns_rows_with_labels_and_ids(
     assert by_asset["vos"]["renovationId"] == "2027_VOZR_1.1.1._2247000_00"
 
 
+async def test_read_plan_facets_sorted_distinct(client: AsyncClient) -> None:
+    """Facets return distinct display values sorted alphabetically, scoped like rows."""
+    response = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_011"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["column"] == "col_011"
+    # The seed has two rows: «Насос НК» and «Шкаф ПЛК», both filled.
+    assert body["total"] == 2
+    assert [item["value"] for item in body["values"]] == ["Насос НК", "Шкаф ПЛК"]
+    assert [item["count"] for item in body["values"]] == [1, 1]
+    assert body["hasNulls"] is False
+
+
+async def test_read_plan_facets_shared_value(client: AsyncClient) -> None:
+    """A column shared by both seeded rows counts twice under one distinct value."""
+    response = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_189"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["values"] == [{"value": "1.1.1.", "count": 2}]
+    assert body["hasNulls"] is False
+
+
+async def test_read_plan_facets_asset_column(client: AsyncClient) -> None:
+    """The synthetic asset column facets by the joined asset name."""
+    response = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "__assetName"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert [item["value"] for item in body["values"]] == ["АО «БСК»", "АО «Волжский Оргсинтез»"]
+
+
+async def test_read_plan_facets_with_offsets(client: AsyncClient) -> None:
+    """The distinct-value window is lazy: offset/limit page over the sorted list."""
+    response = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_011", "offset": 1, "limit": 1},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 2
+    assert [item["value"] for item in body["values"]] == ["Шкаф ПЛК"]
+
+
+async def test_read_plan_facets_unknown_column(client: AsyncClient) -> None:
+    """Garbage column rejected with 422."""
+    response = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "no_such_col"},
+    )
+    assert response.status_code == 422
+
+
 async def test_read_empty_assetless_draft_row(client: AsyncClient, db_session: AsyncSession) -> None:
     """An asset-less draft row is readable by an admin as an empty row."""
     plan = (await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()

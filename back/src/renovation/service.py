@@ -65,6 +65,8 @@ from src.renovation.schemas import (
     RenovationDiffCellRead,
     RenovationDiffRead,
     RenovationDiffRowRead,
+    RenovationFacetsRead,
+    RenovationFacetValueRead,
     RenovationFieldRead,
     RenovationHeaderCellRead,
     RenovationHeaderRowRead,
@@ -98,6 +100,9 @@ class RenovationPlanStateError(ValueError):
 # col_002 (asset) has no row column: the asset comes from the row's
 # asset_id (a virtual field; read-only).
 _VIRTUAL_FIELDS = frozenset({"col_002"})
+# The synthetic «Предприятие» column prop the grid uses for the asset name
+# (there is no matching row column — it is joined from r_assets).
+_ASSET_COLUMN_PROP = "__assetName"
 
 _CELL_MISSING_ROW_OR_FIELD = ValueError("Ячейка не содержит идентификатор строки или поля.")
 _CELL_PLAN_ROW_NOT_FOUND = ValueError("Строка плана не найдена.")
@@ -576,6 +581,120 @@ async def read_plan_rows(
         baselineBoundary=baseline_boundary,
         totalAll=total_all,
     )
+
+
+async def read_plan_facets(
+    session: AsyncSession,
+    assets: list[RAsset],
+    *,
+    column: str,
+    plan_id: UUID | None = None,
+    state: RPlanState = RPlanState.WORKING,
+    asset_name: str | None = None,
+    offset: int = 0,
+    limit: int = 200,
+) -> RenovationFacetsRead:
+    """
+    Distinct display values of one plan column (the header-filter options).
+
+    Mirrors `read_plan_rows` scope: the caller's assets, optionally narrowed to
+    one asset. Values are the same strings the grid shows (references resolved
+    to labels, dates ISO, numbers rendered by the client). NULL and empty string
+    collapse into one «Пустые» bucket, reported via `hasNulls` and excluded from
+    the sorted window; `total` counts the distinct non-empty values across the
+    whole filtered plan, so the window (offset/limit) can be lazy-loaded.
+    """
+    is_asset_column = column == _ASSET_COLUMN_PROP
+    meta: RenovationFieldMeta | None = None
+    if not is_asset_column:
+        resolved = field_meta(column)
+        if resolved is None or resolved.db_name in _VIRTUAL_FIELDS:
+            message = f"Неизвестный столбец «{column}»."
+            raise CellValidationError(message)
+        meta = resolved
+
+    if plan_id is not None:
+        plan = await session.get(RenovationPlan, plan_id)
+        if plan is None:
+            raise _ERR_PLAN_NOT_FOUND
+    else:
+        plan = await _plan_by_state(session, state)
+        if plan is None:
+            error = RenovationPlanNotFoundError(f"Нет плана в состоянии «{state.value}».")
+            raise error
+
+    asset_ids = [asset.id for asset in assets]
+    if asset_name is not None:
+        asset_ids = [asset.id for asset in assets if asset.name == asset_name]
+
+    label_map = await _reference_labels(session)
+    row_condition = col(RenovationPlanRow.plan_id) == plan.id
+    if asset_name is not None:
+        row_condition = row_condition & col(RenovationPlanRow.asset_id).in_(asset_ids)
+    else:
+        row_condition = row_condition & (
+            col(RenovationPlanRow.asset_id).in_(asset_ids)
+            | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
+        )
+
+    # Group in SQL by the raw column; references/asset need the joined tables or
+    # the label map. Booleans and numbers are stringified in Python afterwards.
+    if is_asset_column:
+        group_column = col(RAsset.name)
+        base = (
+            sa_select(group_column, func.count())
+            .select_from(RenovationPlanRow)
+            .outerjoin(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
+        )
+    else:
+        group_column = getattr(RenovationPlanRow, column)
+        base = sa_select(group_column, func.count()).select_from(RenovationPlanRow)
+    grouped = (await session.exec(base.where(row_condition).group_by(group_column))).all()
+
+    counts: dict[str, int] = {}
+    has_nulls = False
+    for raw_value, count in grouped:
+        display = _facet_display(raw_value, meta, label_map)
+        if display is None:
+            has_nulls = True
+        else:
+            counts[display] = counts.get(display, 0) + int(count)
+
+    ordered = sorted(counts.items(), key=lambda item: (item[0].casefold(), item[0]))
+    window = ordered[offset : offset + limit]
+    return RenovationFacetsRead(
+        column=column,
+        values=[RenovationFacetValueRead(value=value, count=count) for value, count in window],
+        total=len(ordered),
+        hasNulls=has_nulls,
+    )
+
+
+def _facet_display(
+    raw_value: object,
+    meta: RenovationFieldMeta | None,
+    label_map: dict[UUID, str],
+) -> str | None:
+    """Display string of a grouped facet value; None for the «Пустые» bucket."""
+    if raw_value is None:
+        return None
+    if meta is None:
+        # The synthetic asset column: the grouped value is already the name.
+        text = str(raw_value)
+        return text or None
+    if meta.cell_type == "reference":
+        label = label_map.get(cast("UUID", raw_value))
+        return label or None
+    if meta.cell_type == "boolean":
+        return "Да" if raw_value else "Нет"
+    if meta.cell_type == "number":
+        parsed = float(raw_value) if isinstance(raw_value, Decimal) else raw_value
+        return f"{parsed:g}"
+    if meta.cell_type == "date":
+        rendered = raw_value.isoformat() if isinstance(raw_value, date) else str(raw_value)
+        return rendered or None
+    text = str(raw_value)
+    return text or None
 
 
 async def read_plan_versions(session: AsyncSession) -> list[RenovationPlanVersionRead]:
