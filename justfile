@@ -46,9 +46,14 @@ seed:
     uv run --directory back -m src.scripts.seed_database --reset
 
 # seed-renovation — перезатирает только таблицы реновации (без drop schema и без
-# app_users) и пересидирует их из «Пообъектного плана».
+# app_users) и пересидирует их из «РБ ПОФ»-файлов.
 seed-renovation:
     uv run --directory back -m src.scripts.seed_database --renovation
+
+# seed-renovation-plan — переимпортирует только рабочий план реновации
+# (активы, справочники и пользователи сохраняются).
+seed-renovation-plan:
+    uv run --directory back -m src.scripts.seed_database --renovation-plan
 
 # migrate — применяет миграции к существующей схеме.
 # POSTGRES_HOST берётся из .env (для сервера — реальный адрес БД, не localhost).
