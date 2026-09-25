@@ -195,6 +195,13 @@ export function RenovationWorkspace({
         anchor: DOMRect;
     } | null>(null);
     const activeFilterColumns = useMemo(() => new Set(Object.keys(columnFilters)), [columnFilters]);
+    const applyColumnFilter = (column: string) => (filter: RenovationColumnFilter | null) =>
+        setColumnFilters((current) => {
+            const next = { ...current };
+            if (filter === null) delete next[column];
+            else next[column] = filter;
+            return next;
+        });
     // True while a toolbar autocomplete/select has an open popover — keeps the
     // fullscreen reveal panels from hiding while you interact with a dropdown.
     const [toolbarControlOpen, setToolbarControlOpen] = useState(false);
@@ -1629,27 +1636,9 @@ export function RenovationWorkspace({
     // Filters (plan only) — between the version picker and the right controls.
     // Filter by asset (plan only). Asset workers see only their own assets and
     // the filter is hidden when they answer for a single asset.
-    const accessibleAssetOptions =
-        isAssetWorker && userAssetIds
-            ? meta.assets
-                  .filter((asset) => userAssetIds.has(asset.id))
-                  .map((asset) => ({ id: asset.name, name: asset.name }))
-            : meta.assets.map((asset) => ({ id: asset.name, name: asset.name }));
-    const planFilters =
-        isPlanSection && accessibleAssetOptions.length > 1 ? (
-            <div className="plan-filters__asset">
-                <SearchAutocomplete
-                    placeholder="Все активы"
-                    compactLabel="Актив"
-                    onOpenChange={setToolbarControlOpen}
-                    items={[{ id: "__all", name: "Все активы" }, ...accessibleAssetOptions]}
-                    selectedKey={assetFilter ?? "__all"}
-                    onSelectionChange={(key) =>
-                        setAssetFilter(key && key !== "__all" ? String(key) : null)
-                    }
-                />
-            </div>
-        ) : null;
+    // The asset filter moved onto the «Предприятие» column header (a normal
+    // header filter), so the toolbar no longer carries an asset autocomplete.
+    const planFilters = null;
 
     // «Рабочая версия» / version picker — moved into the toolbar. It stays
     // mounted across section switches so its collapse/expand can animate
@@ -2163,14 +2152,7 @@ export function RenovationWorkspace({
                     planId={viewPlanId ?? undefined}
                     asset={assetFilter}
                     initial={columnFilters[columnFilterTarget.column] ?? null}
-                    onApply={(filter) =>
-                        setColumnFilters((current) => {
-                            const next = { ...current };
-                            if (filter === null) delete next[columnFilterTarget.column];
-                            else next[columnFilterTarget.column] = filter;
-                            return next;
-                        })
-                    }
+                    onApply={applyColumnFilter(columnFilterTarget.column)}
                     onClose={() => setColumnFilterTarget(null)}
                 />
             ) : null}

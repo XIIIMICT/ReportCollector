@@ -586,6 +586,7 @@ function RenovationGridInner(
             width: assetWidth,
             height: HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT,
             isTop: true,
+            filterColumn: ASSET_COLUMN_PROP,
         });
         if (showServiceColumns) {
             for (const column of SERVICE_COLUMNS) {

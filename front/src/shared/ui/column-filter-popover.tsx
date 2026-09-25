@@ -14,13 +14,14 @@ const FACET_PAGE = 200;
 /**
  * The plan header column filter, built on HeroUI's multi-select Autocomplete.
  *
- * The list has «Выбрать все» pinned on top (a master toggle: it stays checked
- * while some values are unchecked, and unchecking it clears every value —
- * re-checking restores them), then «Пустые» (the NULL/empty bucket), then the
- * column's distinct values alphabetically, lazy-loaded from `/plan/facets`.
- * Whatever is kept becomes one `RenovationColumnFilter`; filters across columns
- * combine with AND (server-side). The owner applies the selection when the
- * popover closes.
+ * Default state is «everything»: every value plus the «Пустые» bucket (when the
+ * column has NULLs), i.e. no constraint. The list has «Выбрать все» pinned on
+ * top — a master toggle that stays checked while some values are unchecked,
+ * clears every value when unchecked itself and restores them when re-checked —
+ * then «Пустые», then the column's distinct values alphabetically (lazy-loaded
+ * from `/plan/facets`). Whatever is kept becomes one `RenovationColumnFilter`;
+ * filters across columns combine with AND (server-side). The owner applies the
+ * selection when the popover closes.
  */
 export function ColumnFilterPopover({
     column,
@@ -44,12 +45,11 @@ export function ColumnFilterPopover({
     const [values, setValues] = useState<string[]>([]);
     const [hasNulls, setHasNulls] = useState(false);
     const [query, setQuery] = useState("");
-    // The kept value set is the source of truth; the master flag only paints
-    // «Выбрать все» (it stays checked while individual values are removed).
     const [allActive, setAllActive] = useState(true);
-    const [kept, setKept] = useState<Set<string>>(() => new Set(initial?.values ?? []));
-    const [includeNulls, setIncludeNulls] = useState(initial?.includeNulls ?? false);
-    // A filter with no prior selection keeps everything once the values load.
+    // «Пустые» is on by default so the default state really is "everything".
+    const [kept, setKept] = useState<Set<string>>(new Set(initial?.values ?? []));
+    const [includeNulls, setIncludeNulls] = useState(initial?.includeNulls ?? true);
+    // No prior filter (or one that already keeps everything) starts as "all".
     const keepAllOnLoad = useRef(initial === null);
     const { contains } = useFilter({ sensitivity: "base" });
 
@@ -76,8 +76,6 @@ export function ColumnFilterPopover({
         };
     }, [column, planId, asset]);
 
-    // The controlled selection (sentinel keys + kept values). «Выбрать все» is
-    // present whenever its flag is on, regardless of the individual values.
     const selectedKeys = useMemo(() => {
         const keys: Key[] = [];
         if (allActive) keys.push(ALL_KEY);
@@ -91,11 +89,10 @@ export function ColumnFilterPopover({
         const hadAll = selectedKeys.includes(ALL_KEY);
         const hasAll = next.has(ALL_KEY);
         if (hasAll !== hadAll) {
-            // The master toggle was clicked: select all or clear all values.
+            // The master toggle was clicked: select all values or clear them.
             setAllActive(hasAll);
             setKept(hasAll ? new Set(values) : new Set());
         } else {
-            // Individual value toggled — «Выбрать все» keeps its state.
             const nextKept = new Set<string>();
             for (const key of next) {
                 const text = String(key);
@@ -109,12 +106,13 @@ export function ColumnFilterPopover({
     const filteredValues = query ? values.filter((value) => contains(value, query)) : values;
 
     const applied = useMemo(() => {
-        // `kept` is the source of truth for values; `allActive` only paints the
-        // master checkbox. Every value kept + no nulls = no constraint.
         const keptValues = values.filter((value) => kept.has(value));
-        if (keptValues.length === values.length && !includeNulls) return null;
+        // Everything kept (values + the null bucket, or the column has no
+        // nulls) means no constraint at all.
+        const keepsEverything = keptValues.length === values.length && (includeNulls || !hasNulls);
+        if (keepsEverything) return null;
         return { column, values: keptValues, includeNulls } satisfies RenovationColumnFilter;
-    }, [column, includeNulls, kept, values]);
+    }, [column, hasNulls, includeNulls, kept, values]);
 
     const close = () => {
         onApply(applied);
