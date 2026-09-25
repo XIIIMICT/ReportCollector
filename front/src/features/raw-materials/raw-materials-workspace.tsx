@@ -106,6 +106,7 @@ import {
 import { FormStatus } from "@/shared/ui/form-status";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
+import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { ViewStrip } from "@/shared/ui/view-strip";
 
 import { ProfileModal } from "./profile-modal";
@@ -1220,6 +1221,7 @@ function SectionFooter({
     onCreateUser,
     onCopy,
     onPaste,
+    onDropdownOpenChange,
 }: {
     section: SectionId;
     canDelete: boolean;
@@ -1235,6 +1237,8 @@ function SectionFooter({
     onCreateUser: () => void;
     onCopy: () => void;
     onPaste: () => void;
+    /** Holds the fullscreen panels open while an action menu is expanded. */
+    onDropdownOpenChange?: (open: boolean) => void;
 }) {
     return (
         <div className="table-footer">
@@ -1253,6 +1257,7 @@ function SectionFooter({
                 onCreateUser={onCreateUser}
                 onCopy={onCopy}
                 onPaste={onPaste}
+                onDropdownOpenChange={onDropdownOpenChange}
             />
         </div>
     );
@@ -1273,8 +1278,13 @@ export function RawMaterialsWorkspace({
         [metaReloadKey],
     );
     const [selectedTabId, setSelectedTabId] = useState<string | null>(initialSection);
-    const [isFullscreen, setIsFullscreen] = useState(false);
-    const [isFullscreenPending, setIsFullscreenPending] = useState(false);
+    const {
+        isFullscreen,
+        isFullscreenPending,
+        setFullscreenMode,
+        setToolbarControlOpen,
+        revealClass,
+    } = useFullscreenPanels();
     const [gridStats, setGridStats] = useState<GridViewStats | null>(null);
     // Completed cell/row selection of the current user, in the same format as
     // in the «На форме» tooltip (e.g. «Потребность / План, т», строки 3–5).
@@ -1499,37 +1509,6 @@ export function RawMaterialsWorkspace({
         setSelectionLabel(null);
     }, [selectedTabId]);
 
-    const setFullscreenMode = useCallback(
-        async (next: boolean) => {
-            if (isFullscreenPending || next === isFullscreen) return;
-            setIsFullscreenPending(true);
-            try {
-                if (next && !document.fullscreenElement) {
-                    await document.documentElement.requestFullscreen();
-                } else if (!next && document.fullscreenElement) {
-                    await document.exitFullscreen();
-                }
-                setIsFullscreen(next);
-            } catch {
-                setIsFullscreen(!next);
-            } finally {
-                setIsFullscreenPending(false);
-            }
-        },
-        [isFullscreen, isFullscreenPending],
-    );
-
-    useEffect(() => {
-        if (!isFullscreen) return;
-        const onFullscreenChange = () => {
-            if (!document.fullscreenElement) {
-                setIsFullscreen(false);
-            }
-        };
-        document.addEventListener("fullscreenchange", onFullscreenChange);
-        return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
-    }, [isFullscreen]);
-
     if (error) {
         return (
             <div className="app-shell">
@@ -1610,6 +1589,7 @@ export function RawMaterialsWorkspace({
                 placeholder="Выберите версию"
                 compactLabel="Версия"
                 isDisabled={!showVersionPicker}
+                onOpenChange={setToolbarControlOpen}
                 items={[
                     {
                         id: WORKING_VERSION_ID,
@@ -1652,6 +1632,7 @@ export function RawMaterialsWorkspace({
                 isFullscreen={isFullscreen}
                 isFullscreenPending={isFullscreenPending}
                 onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
+                onDropdownOpenChange={setToolbarControlOpen}
             />
         </div>
     );
@@ -1675,6 +1656,7 @@ export function RawMaterialsWorkspace({
                 onCreateUser={userCreateState.onCreate}
                 onCopy={clipboardState.onCopy}
                 onPaste={clipboardState.onPaste}
+                onDropdownOpenChange={setToolbarControlOpen}
             />
         </div>
     );
@@ -1721,13 +1703,13 @@ export function RawMaterialsWorkspace({
 
             {isFullscreen && !isFullscreenPending ? (
                 <>
-                    <div className="fullscreen-reveal fullscreen-reveal--top">
+                    <div className={revealClass("top")}>
                         <div className="fullscreen-panel fullscreen-panel--top">
                             {header}
                             {toolbar}
                         </div>
                     </div>
-                    <div className="fullscreen-reveal fullscreen-reveal--bottom">
+                    <div className={revealClass("bottom")}>
                         <div className="fullscreen-panel fullscreen-panel--bottom">{footer}</div>
                     </div>
                 </>
@@ -1944,6 +1926,7 @@ function ActionBar({
     onCreateUser,
     onCopy,
     onPaste,
+    onDropdownOpenChange,
 }: {
     section: SectionId;
     canDelete: boolean;
@@ -1959,6 +1942,8 @@ function ActionBar({
     onCreateUser: () => void;
     onCopy: () => void;
     onPaste: () => void;
+    /** Holds the fullscreen panels open while an action menu is expanded. */
+    onDropdownOpenChange?: (open: boolean) => void;
 }) {
     const showDelete = !MAIN_SECTIONS.has(section) && section !== "users";
     const showApprove = section === "materialMovement" && !isArchive;
@@ -2094,7 +2079,7 @@ function ActionBar({
     if (isSm) {
         return (
             <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
-                <CompactActionMenu items={trailingActions} />
+                <CompactActionMenu items={trailingActions} onOpenChange={onDropdownOpenChange} />
             </div>
         );
     }
@@ -2113,6 +2098,7 @@ function ActionBar({
             return (
                 <HoverDropdown
                     className="action-more-popover"
+                    onOpenChange={onDropdownOpenChange}
                     trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
                         <Button
                             ref={ref}
