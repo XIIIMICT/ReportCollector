@@ -1,7 +1,4 @@
-import {
-    requestJson as requestJsonShared,
-    requestWrite as requestWriteShared,
-} from "@/shared/api/api-error";
+import { requestJson, requestWrite } from "@/shared/api/api-error";
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import { ReportCollectorApiError } from "@/shared/api/report-collector";
 import { getCollabSessionId } from "@/shared/collab/ws-client";
@@ -157,18 +154,6 @@ export type RenovationPlanExport = {
     blob: Blob;
     fileName: string;
 };
-
-async function requestJson<T>(path: string): Promise<T> {
-    return requestJsonShared<T>(path);
-}
-
-async function requestWrite<T>(
-    path: string,
-    method: "POST" | "PATCH" | "DELETE",
-    body?: unknown,
-): Promise<T> {
-    return requestWriteShared<T>(path, method, body);
-}
 
 export async function getRenovationMeta(): Promise<RenovationMeta> {
     return requestJson("/api/renovation/meta");

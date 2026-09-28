@@ -20,7 +20,6 @@ from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
-from openpyxl.cell import Cell, WriteOnlyCell
 from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import range_boundaries
@@ -44,20 +43,6 @@ _THIN_BORDER = Border(
     top=Side(style="thin"),
     bottom=Side(style="thin"),
 )
-
-
-def render_renovation_workbook(plan: RenovationPlanExportData) -> bytes:
-    """Build the large renovation workbook directly as streaming OOXML."""
-    buffer = BytesIO()
-    with ZipFile(buffer, "w", compression=ZIP_DEFLATED, compresslevel=1) as archive:
-        archive.writestr("[Content_Types].xml", _CONTENT_TYPES_XML)
-        archive.writestr("_rels/.rels", _ROOT_RELS_XML)
-        archive.writestr("xl/workbook.xml", _WORKBOOK_XML)
-        archive.writestr("xl/_rels/workbook.xml.rels", _WORKBOOK_RELS_XML)
-        archive.writestr("xl/styles.xml", _STYLES_XML)
-        with archive.open("xl/worksheets/sheet1.xml", "w") as worksheet:
-            _write_plan_sheet_xml(worksheet, plan)
-    return buffer.getvalue()
 
 
 def stream_renovation_workbook(plan: RenovationPlanExportData) -> Iterator[bytes]:
@@ -294,42 +279,6 @@ def _number_cell_xml(row: int, column: int, value: object, *, style: int = 0) ->
     ref = f"{get_column_letter(column)}{row}"
     style_attr = f' s="{style}"' if style else ""
     return f'<c r="{ref}"{style_attr}><v>{value}</v></c>'
-
-
-def _write_header(worksheet: Worksheet) -> None:
-    """Render the merged 11-row header (levels 0..10) on rows 1..11."""
-    rows = header_rows()
-    matrix: list[list[Cell | None]] = [[None for _ in range(len(field_metas()) + 1)] for _ in rows]
-    for level, cells in rows:
-        for cell in cells:
-            start_column, start_row, end_column, end_row = _shifted_range(cell.excel_range)
-            if start_row != end_row or start_column != end_column:
-                worksheet.merged_cells.add(
-                    f"{get_column_letter(start_column)}{start_row}:{get_column_letter(end_column)}{end_row}"
-                )
-            for row in range(start_row, end_row + 1):
-                for column in range(start_column, end_column + 1):
-                    styled = WriteOnlyCell(worksheet)
-                    styled.font = _HEADER_FONT
-                    styled.alignment = _HEADER_ALIGNMENT
-                    styled.border = _THIN_BORDER
-                    matrix[row - 1][column - 1] = styled
-            top_left = matrix[start_row - 1][start_column - 1]
-            if top_left is not None:
-                top_left.value = cell.text
-        worksheet.row_dimensions[level + 1].height = 30.0
-    worksheet.merged_cells.add("A1:A11")
-    for row in range(len(rows)):
-        number_header = WriteOnlyCell(worksheet)
-        number_header.font = _HEADER_FONT
-        number_header.alignment = _HEADER_ALIGNMENT
-        number_header.border = _THIN_BORDER
-        matrix[row][0] = number_header
-    number_top = matrix[0][0]
-    if number_top is not None:
-        number_top.value = "№"
-    for row in matrix:
-        worksheet.append(row)
 
 
 def _shifted_range(excel_range: str) -> tuple[int, int, int, int]:
