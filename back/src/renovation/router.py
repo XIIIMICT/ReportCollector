@@ -47,6 +47,7 @@ from src.renovation.schemas import (
     RenovationCatalogOptionRowRead,
     RenovationCatalogOptionUpdateRequest,
     RenovationColumnFilter,
+    RenovationDictionaryBatchRequest,
     RenovationDiffRead,
     RenovationExportViewRequest,
     RenovationFacetsRead,
@@ -856,6 +857,96 @@ async def patch_renovation_user(
         cells=applied,
     )
     return (await read_renovation_user_rows(session, user_id=user_id))[0]
+
+
+@router.patch("/dictionary")
+async def patch_renovation_dictionary_batch(
+    request: RenovationDictionaryBatchRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+) -> dict[str, int]:
+    """
+    Batch renovation dictionary edits (project admin only).
+
+    One request applies every cell and journals them as a single undo action.
+    """
+    by_row: dict[UUID, dict[str, object]] = {}
+    for update in request.updates:
+        by_row.setdefault(update.rowId, {})[update.field] = update.value
+    if request.section == "assets":
+        section_name = RENOVATION_ASSETS_SECTION
+    elif request.section == "users":
+        section_name = RENOVATION_USERS_SECTION
+    else:
+        if not request.catalog:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Не указан каталог.")
+        section_name = _catalog_section(request.catalog)
+    project_id = await _renovation_project_id_or_error(session) if request.section == "users" else None
+    applied: list[AppliedCell] = []
+    try:
+        for row_id, fields in by_row.items():
+            if request.section == "assets":
+                asset = RenovationAssetUpdateRequest.model_validate(fields)
+                _, row_applied = await update_renovation_asset(
+                    session,
+                    asset_id=row_id,
+                    name=asset.name,
+                    repair_code=asset.repairCode,
+                    user=access.user,
+                )
+            elif request.section == "users":
+                user_update = RenovationUserUpdateRequest.model_validate(fields)
+                # `block` is only applied when the client sent it (null = clear).
+                block_kwargs: dict[str, RBlock | None] = {}
+                if "block" in fields:
+                    block_kwargs["block"] = user_update.block
+                _, row_applied = await update_renovation_user(
+                    session,
+                    project_id=project_id,
+                    user_id=row_id,
+                    fullname=user_update.fullname,
+                    role=user_update.role,
+                    asset_names=user_update.assetNames,
+                    is_active=user_update.isActive,
+                    updated_by=access.user.name or access.user.email or "",
+                    **block_kwargs,
+                )
+            else:
+                option = RenovationCatalogOptionUpdateRequest.model_validate(fields)
+                _, row_applied = await update_renovation_catalog_option(
+                    session,
+                    catalog=request.catalog or "",
+                    option_id=row_id,
+                    label=option.label,
+                    user=access.user,
+                )
+            applied.extend(row_applied)
+    except RenovationDictionaryError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await record_cell_updates(
+        JournalStore(session),
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        project_key=RENOVATION_PROJECT_KEY,
+        section=section_name,
+        report_month=None,
+        session_id=session_id,
+        applied=applied,
+    )
+    await publish_cell_changed(
+        JournalStore(session),
+        project_key=RENOVATION_PROJECT_KEY,
+        section=section_name,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+        cells=applied,
+    )
+    return {"applied": len(applied)}
 
 
 @router.post("/dictionary/export")

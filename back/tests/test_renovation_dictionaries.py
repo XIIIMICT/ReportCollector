@@ -127,6 +127,52 @@ async def test_asset_undo_restores_previous_name(
     assert by_id[asset_id]["name"] == "Цех A"
 
 
+async def test_asset_batch_update_is_one_undo_action(client: AsyncClient) -> None:
+    """One batch request edits several rows and undoes as a single action."""
+    ids = []
+    for index in range(2):
+        response = await client.post(
+            "/api/renovation/dictionary/assets",
+            headers=ADMIN_HEADERS,
+            json={"name": f"Партия {index}", "repairCode": f"P{index}"},
+        )
+        ids.append(response.json()["id"])
+
+    response = await client.patch(
+        "/api/renovation/dictionary",
+        headers=ADMIN_HEADERS,
+        params={"session_id": TEST_SESSION_ID},
+        json={
+            "section": "assets",
+            "updates": [
+                {"rowId": ids[0], "field": "name", "value": "Партия A"},
+                {"rowId": ids[1], "field": "name", "value": "Партия B"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["applied"] == 2
+
+    rows = await client.get("/api/renovation/dictionary/assets", headers=ADMIN_HEADERS)
+    by_id = {row["id"]: row for row in rows.json()}
+    assert by_id[ids[0]]["name"] == "Партия A"
+    assert by_id[ids[1]]["name"] == "Партия B"
+
+    # A single undo reverts both rows.
+    response = await client.post(
+        "/api/renovation/undo",
+        headers=ADMIN_HEADERS,
+        params={"session_id": TEST_SESSION_ID},
+        json={"section": "renovationAssets"},
+    )
+    assert response.status_code == 200
+    assert response.json()["applied"] is True
+    rows = await client.get("/api/renovation/dictionary/assets", headers=ADMIN_HEADERS)
+    by_id = {row["id"]: row for row in rows.json()}
+    assert by_id[ids[0]]["name"] == "Партия 0"
+    assert by_id[ids[1]]["name"] == "Партия 1"
+
+
 async def test_asset_delete_undo_restores_then_redo_deletes(
     client: AsyncClient,
     db_session: AsyncSession,

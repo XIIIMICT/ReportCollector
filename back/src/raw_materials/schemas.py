@@ -171,6 +171,13 @@ class MovementUpdateRequest(BaseModel):
     updates: list[CellUpdate] = Field(min_length=1, max_length=10000)
 
 
+class DictionaryBatchRequest(BaseModel):
+    """Batch of dictionary edits for one section (one request, one undo action)."""
+
+    section: Literal["rawMaterials", "assets", "deliveryBases", "users"]
+    updates: list[CellUpdate] = Field(min_length=1, max_length=10000)
+
+
 class PriceUpdateRequest(BaseModel):
     """Batch of «Цены» cell edits."""
 

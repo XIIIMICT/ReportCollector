@@ -392,19 +392,10 @@ export async function createRenovationAsset(
 }
 
 export async function updateRenovationAssetCells(updates: CellUpdate[]): Promise<unknown> {
-    const sessionQuery = `?session_id=${getCollabSessionId()}`;
-    return Promise.all(
-        updates.map((update) =>
-            requestWrite(
-                `/api/renovation/dictionary/assets/${encodeURIComponent(update.rowId)}${sessionQuery}`,
-                "PATCH",
-                {
-                    ...(update.field === "name" ? { name: update.value } : {}),
-                    ...(update.field === "repairCode" ? { repairCode: update.value } : {}),
-                },
-            ),
-        ),
-    );
+    return requestWrite(`/api/renovation/dictionary?session_id=${getCollabSessionId()}`, "PATCH", {
+        section: "assets",
+        updates,
+    });
 }
 
 export async function deleteRenovationAsset(assetId: string): Promise<void> {
@@ -436,16 +427,11 @@ export async function updateRenovationCatalogOptionCells(
     catalogId: string,
     updates: CellUpdate[],
 ): Promise<unknown> {
-    const sessionQuery = `?session_id=${getCollabSessionId()}`;
-    return Promise.all(
-        updates.map((update) =>
-            requestWrite(
-                `/api/renovation/dictionary/catalogs/${encodeURIComponent(catalogId)}/options/${encodeURIComponent(update.rowId)}${sessionQuery}`,
-                "PATCH",
-                update.field === "label" ? { label: update.value } : {},
-            ),
-        ),
-    );
+    return requestWrite(`/api/renovation/dictionary?session_id=${getCollabSessionId()}`, "PATCH", {
+        section: "catalog",
+        catalog: catalogId,
+        updates,
+    });
 }
 
 export async function deleteRenovationCatalogOption(
@@ -473,22 +459,10 @@ export async function createRenovationUser(payload: {
 }
 
 export async function updateRenovationUserCells(updates: CellUpdate[]): Promise<unknown> {
-    const sessionQuery = `?session_id=${getCollabSessionId()}`;
-    return Promise.all(
-        updates.map((update) =>
-            requestWrite(
-                `/api/renovation/dictionary/users/${encodeURIComponent(update.rowId)}${sessionQuery}`,
-                "PATCH",
-                {
-                    ...(update.field === "fullname" ? { fullname: update.value } : {}),
-                    ...(update.field === "role" ? { role: update.value } : {}),
-                    ...(update.field === "block" ? { block: update.value || null } : {}),
-                    ...(update.field === "assetNames" ? { assetNames: update.value } : {}),
-                    ...(update.field === "isActive" ? { isActive: update.value } : {}),
-                },
-            ),
-        ),
-    );
+    return requestWrite(`/api/renovation/dictionary?session_id=${getCollabSessionId()}`, "PATCH", {
+        section: "users",
+        updates,
+    });
 }
 
 export type RenovationExportColumn = {

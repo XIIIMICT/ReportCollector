@@ -213,41 +213,26 @@ export async function updateDictionaryCells(
     section: "rawMaterials" | "assets" | "deliveryBases",
     updates: CellUpdate[],
 ): Promise<unknown> {
-    const endpoint =
-        section === "rawMaterials"
-            ? "raw-materials"
-            : section === "assets"
-              ? "assets"
-              : "delivery-bases";
-    const sessionQuery = `?session_id=${getCollabSessionId()}`;
-    const results = await Promise.all(
-        updates.map((update) =>
-            requestWrite(`/api/raw-materials/${endpoint}/${update.rowId}${sessionQuery}`, "PATCH", {
-                ...(update.field === "name" ? { name: update.value } : {}),
-                // The grid renames assetNames → assetIds before sending
-                // (namesToIds), so both field names are supported.
-                ...(update.field === "assetNames" || update.field === "assetIds"
-                    ? { assetIds: update.value }
-                    : {}),
-            }),
-        ),
+    // One batch request per save: the server applies every cell and journals
+    // them as a single undo action (no per-cell fan-out).
+    return requestWrite(
+        `/api/raw-materials/dictionary?session_id=${getCollabSessionId()}`,
+        "PATCH",
+        {
+            section,
+            updates,
+        },
     );
-    return results;
 }
 
 export async function updateUserCells(updates: CellUpdate[]): Promise<unknown> {
-    const sessionQuery = `?session_id=${getCollabSessionId()}`;
-    return Promise.all(
-        updates.map((update) =>
-            requestWrite(`/api/raw-materials/users/${update.rowId}${sessionQuery}`, "PATCH", {
-                ...(update.field === "email" ? { email: update.value } : {}),
-                ...(update.field === "fullname" ? { fullname: update.value } : {}),
-                ...(update.field === "isAdmin" ? { isAdmin: update.value } : {}),
-                ...(update.field === "assetNames" ? { assetNames: update.value } : {}),
-                ...(update.field === "isActive" ? { isActive: update.value } : {}),
-                ...(update.field === "resetPassword" ? { resetPassword: update.value } : {}),
-            }),
-        ),
+    return requestWrite(
+        `/api/raw-materials/dictionary?session_id=${getCollabSessionId()}`,
+        "PATCH",
+        {
+            section: "users",
+            updates,
+        },
     );
 }
 

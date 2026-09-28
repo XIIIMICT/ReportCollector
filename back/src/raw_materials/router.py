@@ -47,6 +47,7 @@ from src.raw_materials.schemas import (
     DeliveryBasisCreateRequest,
     DeliveryBasisRowRead,
     DeliveryBasisUpdateRequest,
+    DictionaryBatchRequest,
     ExportViewRequest,
     FixMovementRequest,
     MovementMetaRead,
@@ -985,6 +986,88 @@ async def patch_user(
         cells=applied,
     )
     return (await read_user_rows(session, user_id=user_id))[0]
+
+
+@router.patch("/dictionary")
+async def patch_dictionary_batch(
+    request: DictionaryBatchRequest,
+    session: SessionDependency,
+    user: UserDependency,
+    _assets: AdminDependency,
+    session_id: str,
+) -> dict[str, int]:
+    """
+    Batch dictionary edits for one section (project admin only).
+
+    One request applies every cell and journals them as a single undo action —
+    the per-row endpoints stay for the inline single-cell path.
+    """
+    by_row: dict[UUID, dict[str, object]] = {}
+    for update in request.updates:
+        by_row.setdefault(update.rowId, {})[update.field] = update.value
+    project_id = await _raw_materials_project_id(session) if request.section == "users" else None
+    applied: list[AppliedCell] = []
+    try:
+        for row_id, fields in by_row.items():
+            if request.section == "rawMaterials":
+                # The grid may send the assets under either key (the value is
+                # already a list of ids).
+                if "assetNames" in fields and "assetIds" not in fields:
+                    fields["assetIds"] = fields["assetNames"]
+                material = RawMaterialUpdateRequest.model_validate(fields)
+                _, row_applied = await update_raw_material(
+                    session,
+                    raw_material_id=row_id,
+                    name=material.name,
+                    asset_ids=material.assetIds,
+                    user=user,
+                )
+            elif request.section == "assets":
+                asset = AssetUpdateRequest.model_validate(fields)
+                _, row_applied = await update_asset(session, asset_id=row_id, name=asset.name, user=user)
+            elif request.section == "deliveryBases":
+                basis = DeliveryBasisUpdateRequest.model_validate(fields)
+                _, row_applied = await update_delivery_basis(session, basis_id=row_id, name=basis.name, user=user)
+            else:
+                user_update = UserUpdateRequest.model_validate(fields)
+                _, row_applied = await update_project_user(
+                    session,
+                    project_id=project_id,
+                    user_id=row_id,
+                    email=user_update.email,
+                    fullname=user_update.fullname,
+                    is_admin=user_update.isAdmin,
+                    asset_names=user_update.assetNames,
+                    is_active=user_update.isActive,
+                    reset_password=user_update.resetPassword,
+                    updated_by=user.name or user.email or "",
+                )
+            applied.extend(row_applied)
+    except DictionaryReferenceError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await record_cell_updates(
+        JournalStore(session),
+        user_id=user.id,
+        user_name=user.name or "",
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section=request.section,
+        report_month=None,
+        session_id=session_id,
+        applied=applied,
+    )
+    await publish_cell_changed(
+        JournalStore(session),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section=request.section,
+        report_month=None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+        cells=applied,
+    )
+    return {"applied": len(applied)}
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

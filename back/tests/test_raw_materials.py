@@ -464,6 +464,49 @@ async def test_admin_crud_asset_and_basis(client) -> None:
     assert deleted_basis.status_code == 204
 
 
+async def test_admin_batch_dictionary_is_one_undo_action(client) -> None:
+    """One batch request edits several dictionary rows and undoes as one action."""
+    headers = signed_identity_headers(**admin_headers())
+    ids = []
+    for name in ("БАЗА-A", "БАЗА-B"):
+        created = await client.post("/api/raw-materials/delivery-bases", headers=headers, json={"name": name})
+        ids.append(created.json()["id"])
+
+    response = await client.patch(
+        "/api/raw-materials/dictionary",
+        params={"session_id": TEST_SESSION_ID},
+        headers=headers,
+        json={
+            "section": "deliveryBases",
+            "updates": [
+                {"rowId": ids[0], "field": "name", "value": "БАЗА-A2"},
+                {"rowId": ids[1], "field": "name", "value": "БАЗА-B2"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["applied"] == 2
+
+    rows = (await client.get("/api/raw-materials/delivery-bases", headers=headers)).json()
+    by_id = {row["id"]: row for row in rows}
+    assert by_id[ids[0]]["name"] == "БАЗА-A2"
+    assert by_id[ids[1]]["name"] == "БАЗА-B2"
+
+    # A single undo reverts both rows.
+    undone = await client.post(
+        "/api/raw-materials/undo",
+        params={"session_id": TEST_SESSION_ID},
+        headers=headers,
+        json={"section": "deliveryBases"},
+    )
+    assert undone.status_code == 200
+    assert undone.json()["applied"] is True
+    rows = (await client.get("/api/raw-materials/delivery-bases", headers=headers)).json()
+    by_id = {row["id"]: row for row in rows}
+    assert by_id[ids[0]]["name"] == "БАЗА-A"
+    assert by_id[ids[1]]["name"] == "БАЗА-B"
+
+
 async def test_admin_crud_project_user(client) -> None:
     created = await client.post(
         "/api/raw-materials/users",

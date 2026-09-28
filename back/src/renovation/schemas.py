@@ -242,6 +242,22 @@ class CellUpdate(BaseModel):
     value: str | float | bool | None = None
 
 
+class DictionaryCellUpdate(BaseModel):
+    """Single dictionary cell edit (values may be lists, e.g. assetNames)."""
+
+    rowId: UUID
+    field: str = Field(min_length=1, max_length=64)
+    value: str | float | bool | list[str] | None = None
+
+
+class RenovationDictionaryBatchRequest(BaseModel):
+    """Batch of renovation dictionary edits (one request, one undo action)."""
+
+    section: Literal["assets", "users", "catalog"]
+    catalog: str | None = None
+    updates: list[DictionaryCellUpdate] = Field(min_length=1, max_length=10000)
+
+
 class RenovationUpdateRequest(BaseModel):
     """Batch of renovation plan cell edits (working plan only)."""
 
