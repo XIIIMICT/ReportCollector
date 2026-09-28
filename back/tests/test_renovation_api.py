@@ -1,7 +1,5 @@
 """Tests for the «Ремонт» project API: meta, plan read, cell edits, lifecycle, undo/redo."""
 
-from __future__ import annotations
-
 import json
 import re
 from datetime import UTC, date, datetime

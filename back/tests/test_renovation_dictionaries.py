@@ -1,7 +1,5 @@
 """Tests for the «Ремонт» editable dictionaries: assets, catalog options, users, export."""
 
-from __future__ import annotations
-
 from io import BytesIO
 from uuid import UUID
 

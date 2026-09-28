@@ -10,8 +10,6 @@
 компонентов возвращается в `missing_components` для UI.
 """
 
-from __future__ import annotations
-
 import unicodedata
 from dataclasses import dataclass
 from datetime import date

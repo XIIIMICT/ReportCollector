@@ -1,7 +1,5 @@
 """Rate-limiter client-key resolution and bounded-store sweep (AUD-10)."""
 
-from __future__ import annotations
-
 import time
 
 from starlette.requests import Request

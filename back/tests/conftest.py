@@ -1,7 +1,5 @@
 """Shared fixtures for ReportCollector tests."""
 
-from __future__ import annotations
-
 import json
 import os
 from datetime import UTC, date, datetime, timedelta

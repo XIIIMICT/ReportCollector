@@ -5,8 +5,6 @@
 Арифметика выполняется на float (как f64 в эталоне); даты — на date.
 """
 
-from __future__ import annotations
-
 import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
