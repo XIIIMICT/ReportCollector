@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     auth_seed_admin_email: str | None = None
     auth_seed_admin_password: str | None = None
     auth_identity_ttl: int = Field(default=60, validation_alias="AUTH_IDENTITY_TTL")
+    # Number of trusted reverse proxies in front of the app. 0 (default) means
+    # X-Forwarded-For is ignored and the rate limiter keys on the socket peer;
+    # N>0 makes it take the client from the Nth-from-right XFF entry.
+    trusted_proxy_hops: int = Field(default=0, validation_alias="TRUSTED_PROXY_HOPS")
     # Defaults to local dev origins. In the compose stack the value is derived
     # from AUTH_APP_ORIGIN (the single source of the app host); here it matters
     # only when running the backend on the host outside compose.

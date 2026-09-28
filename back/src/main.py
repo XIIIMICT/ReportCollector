@@ -1,7 +1,7 @@
 import asyncio
+import itertools
 import logging
 import time
-from collections import defaultdict
 from collections.abc import (
     AsyncIterator,
     Awaitable,
@@ -27,10 +27,48 @@ configure_application_logging(settings.log_file)
 LOGGER = logging.getLogger("reportcollector.application")
 
 # Simple in-memory rate limiter for auth endpoints
-# 20 requests per minute per IP for /api/auth/
-_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+# 20 requests per minute per client for /api/auth/.
+_rate_limit_store: dict[str, list[float]] = {}
 _RATE_LIMIT_WINDOW = 60.0  # seconds
 _RATE_LIMIT_MAX_AUTH = 20  # max auth requests per window
+# Hard cap on tracked clients: a flood of distinct keys must not grow the dict
+# without bound. Empty buckets are swept, and if the cap is still exceeded the
+# oldest buckets are dropped.
+_RATE_LIMIT_MAX_KEYS = 10_000
+_RATE_LIMIT_SWEEP_EVERY = 256
+_rate_limit_ticks = itertools.count()
+
+
+def _client_key(request: Request) -> str:
+    """
+    Identify the client for rate limiting.
+
+    By default (TRUSTED_PROXY_HOPS=0) the socket peer is used and
+    X-Forwarded-For is ignored, because a client can spoof it. Behind N trusted
+    proxies, the client is the Nth-from-right XFF entry (each proxy appends the
+    address it saw).
+    """
+    hops = settings.trusted_proxy_hops
+    if hops > 0:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            parts = [part.strip() for part in forwarded.split(",") if part.strip()]
+            if len(parts) >= hops:
+                return parts[-hops]
+    return request.client.host if request.client else "unknown"
+
+
+def _sweep_rate_limit(now: float) -> None:
+    """Drop empty/expired buckets so the store cannot grow without bound."""
+    cutoff = now - _RATE_LIMIT_WINDOW
+    for key in [key for key, stamps in _rate_limit_store.items() if not any(t > cutoff for t in stamps)]:
+        del _rate_limit_store[key]
+    # Still too many distinct clients — drop the oldest buckets (by newest stamp).
+    if len(_rate_limit_store) > _RATE_LIMIT_MAX_KEYS:
+        for key, _ in sorted(_rate_limit_store.items(), key=lambda item: max(item[1], default=0.0))[
+            : len(_rate_limit_store) - _RATE_LIMIT_MAX_KEYS
+        ]:
+            del _rate_limit_store[key]
 
 
 @asynccontextmanager
@@ -65,22 +103,21 @@ async def rate_limit_auth(
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
     if request.url.path.startswith("/api/auth/"):
-        # Use only request.client.host — not X-Forwarded-For — to avoid IP spoofing.
-        # Behind a reverse proxy (nginx) client.host is always the proxy IP — acceptable
-        # for simple per-worker-process rate limiting.
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = _client_key(request)
         now = time.monotonic()
         # No locking: asyncio is single-threaded, no concurrent access to _rate_limit_store.
-        timestamps = _rate_limit_store[client_ip]
         cutoff = now - _RATE_LIMIT_WINDOW
-        _rate_limit_store[client_ip] = [t for t in timestamps if t > cutoff]
-        if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX_AUTH:
+        timestamps = [t for t in _rate_limit_store.get(client_ip, []) if t > cutoff]
+        if len(timestamps) >= _RATE_LIMIT_MAX_AUTH:
             return Response(
                 content='{"detail":"Слишком много запросов. Попробуйте позже."}',
                 status_code=429,
                 headers={"Content-Type": "application/json", "Retry-After": "60"},
             )
-        _rate_limit_store[client_ip].append(now)
+        timestamps.append(now)
+        _rate_limit_store[client_ip] = timestamps
+        if next(_rate_limit_ticks) % _RATE_LIMIT_SWEEP_EVERY == 0:
+            _sweep_rate_limit(now)
     return await call_next(request)
 
 
