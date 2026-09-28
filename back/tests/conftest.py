@@ -402,6 +402,7 @@ def signed_identity_headers(
     given_name: str | None = None,
     family_name: str | None = None,
     email_verified: str | None = None,
+    timestamp: int | str | None = None,
 ) -> dict[str, str]:
     """Build signed identity headers the way the frontend does."""
     from hashlib import sha256
@@ -422,9 +423,9 @@ def signed_identity_headers(
     headers: dict[str, str] = {
         header: quote(value) if value is not None else "" for header, value in values.items() if value is not None
     }
-    timestamp = str(int(time()))
-    payload = "\n".join([timestamp, *(values[header] or "" for header in values)])
+    stamp = str(int(time()) if timestamp is None else timestamp)
+    payload = "\n".join([stamp, *(values[header] or "" for header in values)])
     signature = new(os.environ["AUTH_SECRET"].encode(), payload.encode(), sha256).hexdigest()
-    headers["X-ReportCollector-Identity-Timestamp"] = timestamp
+    headers["X-ReportCollector-Identity-Timestamp"] = stamp
     headers["X-ReportCollector-Identity-Signature"] = signature
     return headers

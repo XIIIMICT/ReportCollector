@@ -63,8 +63,13 @@ IDENTITY_HEADER_NAMES = (
     "X-ReportCollector-Email-Verified",
 )
 
+# WebSocket tickets are minted per connection attempt; keep them short-lived
+# regardless of the wider AUTH_IDENTITY_TTL (mirrors the frontend
+# TICKET_TTL_SECONDS in /api/collab/ticket).
+IDENTITY_TICKET_MAX_AGE = 60
 
-def verify_signed_identity(headers: Mapping[str, str]) -> CurrentUserIdentity:
+
+def verify_signed_identity(headers: Mapping[str, str], *, max_age_seconds: int | None = None) -> CurrentUserIdentity:
     """Verify the identity signature from headers (for WebSocket and the proxy)."""
     lookup = {name.casefold(): value for name, value in headers.items()}
     values = [unquote(lookup.get(name.casefold()) or "") or None for name in IDENTITY_HEADER_NAMES]
@@ -78,7 +83,8 @@ def verify_signed_identity(headers: Mapping[str, str]) -> CurrentUserIdentity:
     except (ValueError, OSError) as error:
         msg = "Некорректное время подписи."
         raise InvalidIdentityError(msg) from error
-    if abs((datetime.now(UTC) - signed_at).total_seconds()) > get_settings().auth_identity_ttl:
+    allowed_age = get_settings().auth_identity_ttl if max_age_seconds is None else max_age_seconds
+    if abs((datetime.now(UTC) - signed_at).total_seconds()) > allowed_age:
         msg = "Подпись идентичности устарела."
         raise InvalidIdentityError(msg)
     payload = "\n".join([timestamp, *(value or "" for value in values)])
@@ -123,9 +129,11 @@ def verify_identity_ticket(ticket: str) -> CurrentUserIdentity:
     Verify the WebSocket ticket: signed identity headers in the query.
 
     The browser can't set custom headers, so the frontend route handler packs
-    the signed headers into a base64url ticket {"h": {header: value, ...}}
-    with a 60-second validity window (the signature is checked by the same
-    verify_signed_identity).
+    the signed headers into a base64url ticket {"h": {header: value, ...}}.
+    The ticket is valid for a short fixed window (``IDENTITY_TICKET_MAX_AGE``),
+    independent of the wider ``AUTH_IDENTITY_TTL`` that bounds plain identity
+    headers: the browser mints a fresh ticket for every connection attempt, so
+    a long-lived one would only outlive its purpose (AUD-20).
     """
     try:
         ticket = ticket + "=" * (-len(ticket) % 4)
@@ -138,7 +146,7 @@ def verify_identity_ticket(ticket: str) -> CurrentUserIdentity:
         msg = "Некорректный тикет."
         raise InvalidIdentityError(msg)
     mapping = {str(name): str(value) for name, value in headers.items()}
-    return verify_signed_identity(mapping)
+    return verify_signed_identity(mapping, max_age_seconds=IDENTITY_TICKET_MAX_AGE)
 
 
 class BlockedUserError(Exception):

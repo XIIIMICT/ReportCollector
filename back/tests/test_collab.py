@@ -20,11 +20,13 @@ if TYPE_CHECKING:
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
 from src.auth.models import Project, ProjectRole, User
 from src.auth.service import (
+    IDENTITY_TICKET_MAX_AGE,
     InvalidIdentityError,
     activate_project_user,
     grant_project_assets,
     grant_project_role,
     verify_identity_ticket,
+    verify_signed_identity,
 )
 from src.collab.store import lease_key
 from src.collab.ws import raw_materials_ws
@@ -128,8 +130,17 @@ async def test_ws_ticket_rejects_forged_signature() -> None:
 
 
 async def test_ws_ticket_rejects_stale_timestamp() -> None:
-    headers = signed_identity_headers(**admin_headers())
-    headers["X-ReportCollector-Identity-Timestamp"] = str(int(datetime.now(UTC).timestamp()) - 300)
+    stale = int(datetime.now(UTC).timestamp()) - 300
+    headers = signed_identity_headers(**admin_headers(), timestamp=stale)
+    with pytest.raises(InvalidIdentityError):
+        verify_identity_ticket(_identity_ticket(headers))
+
+
+async def test_ws_ticket_expires_before_plain_identity_headers() -> None:
+    """AUD-20: the ticket window stays short even when AUTH_IDENTITY_TTL is wide."""
+    past_ticket_window = int(datetime.now(UTC).timestamp()) - (IDENTITY_TICKET_MAX_AGE + 5)
+    headers = signed_identity_headers(**admin_headers(), timestamp=past_ticket_window)
+    assert verify_signed_identity(headers).email == "admin@example.ru"
     with pytest.raises(InvalidIdentityError):
         verify_identity_ticket(_identity_ticket(headers))
 
