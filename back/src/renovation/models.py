@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Text, text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Text, text
 from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
 
@@ -81,6 +81,9 @@ class RUserRole(SQLModel, table=True):
     """
 
     __tablename__ = "r_user_roles"
+    # The composite primary key leads with user_id; listing a project's members
+    # filters by project_id alone, so it gets its own index.
+    __table_args__ = (Index("ix_r_user_roles_project", "project_id"),)
 
     user_id: UUID = Field(
         sa_column=Column(ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, primary_key=True)

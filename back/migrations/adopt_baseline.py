@@ -81,6 +81,12 @@ _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
     "renovation_reference_values": {"metadata"},
 }
 
+# Indexes the models declare that a legacy-0015 installation does not carry yet:
+# they are created by migrations that run AFTER the baseline during adoption
+# (0005_user_role_project_indexes), so their absence on the pre-adoption schema
+# is expected, not drift. A closed list — anything else still fails closed.
+_LEGACY_MISSING_INDEXES: frozenset[str] = frozenset({"ix_user_roles_project", "ix_r_user_roles_project"})
+
 
 def compare_adoption_default(
     _context: MigrationContext,
@@ -164,10 +170,14 @@ def _drop_equivalent_index_changes(diffs: list[tuple]) -> list[tuple]:
 
 
 def _is_legacy_equivalent(diff: tuple) -> bool:
-    """Match a single known legacy-only difference (a dropped column)."""
+    """Match a single known legacy-only difference (a dropped column or index)."""
     if isinstance(diff, tuple) and len(diff) >= 4 and diff[0] == "remove_column":
         _schema, table, column = diff[1], diff[2], diff[3]
         return table in _LEGACY_EXTRA_COLUMNS and column.name in _LEGACY_EXTRA_COLUMNS[table]
+    if isinstance(diff, tuple) and len(diff) >= 2 and diff[0] == "add_index":
+        # An index the migration chain creates after the baseline; absent on a
+        # pre-adoption legacy schema.
+        return diff[1].name in _LEGACY_MISSING_INDEXES
     return False
 
 

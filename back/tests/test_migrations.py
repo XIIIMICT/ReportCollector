@@ -121,7 +121,9 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         await conn.run_sync(upgrade)
         await conn.run_sync(upgrade)
         assert await conn.run_sync(business_snapshot) == all_business_data
-        assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == "0004_block_codes"
+        assert (
+            await conn.execute(text("SELECT version_num FROM alembic_version"))
+        ).scalar_one() == "0005_user_role_project_indexes"
         assert (await conn.execute(text("SELECT id, col_011 FROM renovation_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
         assert (
@@ -255,7 +257,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) ->
             await conn.run_sync(upgrade)
             assert (
                 await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "0004_block_codes"
+            ).scalar_one() == "0005_user_role_project_indexes"
         assert all(not path.exists() for path in stale)
     finally:
         for path in stale:
