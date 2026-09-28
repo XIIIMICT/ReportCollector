@@ -414,7 +414,13 @@ async def _handle_message(
     access: RoomAccess | None = None,
 ) -> None:
     message_type = message.get("type")
-    if access is not None:
+    # Only leases and a presence with a selection need an access check; a bare
+    # `ping` or a selection-less `presence` must not open a session and re-run
+    # access resolution on every heartbeat (AUD-09).
+    needs_access = message_type in {"lease:acquire", "lease:renew"} or (
+        message_type == "presence" and message.get("selection") is not None
+    )
+    if access is not None and needs_access:
         async with access.session_factory() as check_session:
             if message_type in {"lease:acquire", "lease:renew"}:
                 await lock_project(check_session, project_key)

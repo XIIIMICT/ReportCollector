@@ -638,22 +638,25 @@ async def read_plan_rows(
         row_condition = row_condition & _column_filter_condition(column_filter, label_map)
     # The asset filter must be applied in SQL so offset/limit count only the
     # rows the caller may see — not the full plan.
-    total = (await session.exec(select(func.count()).select_from(RenovationPlanRow).where(row_condition))).one()
-    # The unfiltered total (for the «всего» counter) — the whole plan, ignoring
-    # the asset filter.
-    total_all: int | None = None
     if len(asset_ids) != len(assets):
-        total_all = (
+        # The filtered total and the unfiltered one (for the «всего» counter,
+        # which must not shrink when a filter hides rows) come from a single
+        # round-trip via conditional aggregation.
+        full_asset_condition = (col(RenovationPlanRow.plan_id) == plan.id) & (
+            col(RenovationPlanRow.asset_id).in_([asset.id for asset in assets])
+            | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(assets)))
+        )
+        total, total_all = (
             await session.exec(
-                select(func.count())
-                .select_from(RenovationPlanRow)
-                .where(
-                    col(RenovationPlanRow.plan_id) == plan.id,
-                    col(RenovationPlanRow.asset_id).in_([asset.id for asset in assets])
-                    | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(assets))),
-                )
+                select(
+                    func.count().filter(row_condition),
+                    func.count().filter(full_asset_condition),
+                ).select_from(RenovationPlanRow)
             )
         ).one()
+    else:
+        total = (await session.exec(select(func.count()).select_from(RenovationPlanRow).where(row_condition))).one()
+        total_all = None
     rows = (
         await session.exec(
             select(RenovationPlanRow, RAsset)
