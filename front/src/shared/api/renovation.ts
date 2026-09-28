@@ -97,7 +97,8 @@ export type RenovationPlanRow = {
 
 export type RenovationPlan = {
     id: string;
-    state: "working" | "pendingApproval" | "archived";
+    /** Backend wire values (RPlanState): "pending_approval" is the pending one. */
+    state: "working" | "pending_approval" | "archived";
     baselineGeneration: number;
     updatedAt: string;
     updatedBy: string;
@@ -107,7 +108,8 @@ export type RenovationPlan = {
 
 export type RenovationPlanRows = {
     id: string;
-    state: "working" | "pendingApproval" | "archived";
+    /** Backend wire values (RPlanState): "pending_approval" is the pending one. */
+    state: "working" | "pending_approval" | "archived";
     baselineGeneration: number;
     updatedAt: string;
     updatedBy: string;

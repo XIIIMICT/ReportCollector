@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import ARRAY, Text, and_, delete, func, insert, literal, literal_column, or_
+from sqlalchemy import ARRAY, String, Text, and_, delete, func, insert, literal, literal_column, or_
 from sqlalchemy import cast as sql_cast
 from sqlalchemy import false as sa_false
 from sqlalchemy import select as sa_select
@@ -54,7 +54,13 @@ from src.renovation.plan import (
     RPlanState,
     RReferenceCatalog,
 )
-from src.renovation.renovation_id import RenovationIdInput, calculate_renovation_id
+from src.renovation.renovation_id import (
+    MISSING_COMPONENT,
+    RenovationIdError,
+    RenovationIdInput,
+    RenovationIdResult,
+    calculate_renovation_id,
+)
 from src.renovation.schemas import (
     CellUpdate,
     RenovationAssetRead,
@@ -491,7 +497,7 @@ def _sparse_row_renovation_id(
     work_category_id = values.get("col_017")
     work_type_id = values.get("col_018")
     defect = values.get("col_023")
-    result = calculate_renovation_id(
+    result = _safe_renovation_id(
         RenovationIdInput(
             existing_id=None,
             start_date=str(values.get("col_024") or "") or None,
@@ -548,14 +554,26 @@ def _column_filter_condition(
             numbers = [_facet_number(value) for value in column_filter.values]
             if numbers:
                 value_conditions.append(raw.in_(numbers))
+        elif meta.cell_type == "date":
+            # The facet renders dates as ISO strings; asyncpg cannot compare a
+            # date column to a varchar, so parse the selection back to dates.
+            dates = [parsed for value in column_filter.values if (parsed := _facet_date(value)) is not None]
+            if dates:
+                value_conditions.append(raw.in_(dates))
         elif column_filter.values:
-            # Text and date columns are stored as strings the facet echoes back
-            # verbatim, so an exact IN match is enough.
+            # Text columns are stored as strings the facet echoes back verbatim,
+            # so an exact IN match is enough.
             value_conditions.append(raw.in_(column_filter.values))
         if column_filter.includeNulls:
-            # An empty string is the same bucket as NULL (the facet collapses
-            # both), so keep both here.
-            value_conditions.append(raw.is_(None) | (raw == ""))
+            # The «Пустые» bucket always covers NULL. An empty string lands in
+            # the same bucket only for a textual column, where the facet
+            # collapses both. Comparing a uuid/date/boolean/numeric column to
+            # '' makes Postgres fail the cast and 500 the whole window, so the
+            # empty-string branch is text-only.
+            empty_bucket: ColumnElement[bool] = raw.is_(None)
+            if isinstance(raw.property.columns[0].type, String):
+                empty_bucket = empty_bucket | (raw == "")
+            value_conditions.append(empty_bucket)
     if value_conditions:
         return or_(*value_conditions)
     # A filter that keeps nothing must match no row, never the whole table.
@@ -567,6 +585,14 @@ def _facet_number(value: str) -> Decimal | None:
     try:
         return Decimal(value.replace(",", "."))
     except InvalidOperation, ValueError:
+        return None
+
+
+def _facet_date(value: str) -> date | None:
+    """Parse a facet display date back to a date (None when not ISO)."""
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
         return None
 
 
@@ -1078,17 +1104,21 @@ def _plan_row_read(
             continue
         value = getattr(row, meta.db_name)
         if value is None:
-            values[meta.db_name] = None
-        elif meta.cell_type == "reference":
-            values[meta.db_name] = label_map.get(value)
+            # Omit empty cells. The plan is ~90% empty, so the null placeholders
+            # dominate the payload: a 1000-row window measures ~4.2 MB with every
+            # key present and ~0.9 MB without. The grid renders a missing key
+            # exactly like an explicit null, so the response stays equivalent.
+            continue
+        if meta.cell_type == "reference":
+            value = label_map.get(value)
         elif meta.cell_type == "number":
-            values[meta.db_name] = float(value) if isinstance(value, Decimal) else value
-        elif meta.cell_type == "date":
-            values[meta.db_name] = value
+            value = float(value) if isinstance(value, Decimal) else value
         elif meta.cell_type == "boolean":
-            values[meta.db_name] = bool(value)
-        else:
-            values[meta.db_name] = value
+            value = bool(value)
+        if value is None:
+            # A reference id with no label resolves to nothing — still sparse.
+            continue
+        values[meta.db_name] = value
     renovation_id, missing = _row_renovation_id(row, asset, label_map)
     return RenovationPlanRowRead(
         id=row.id,
@@ -1106,6 +1136,21 @@ def _plan_row_read(
     )
 
 
+def _safe_renovation_id(input_: RenovationIdInput) -> RenovationIdResult:
+    """
+    Compute the renovation ID, tolerating invalid components.
+
+    The source spreadsheets carry values that violate the legacy rules (a
+    defect number that is not seven digits, a malformed direction code, …). A
+    bad row must not break the whole plan read: the ID falls back to the
+    `<NULL>` placeholder and is flagged via `missing_components`.
+    """
+    try:
+        return calculate_renovation_id(input_)
+    except RenovationIdError:
+        return RenovationIdResult(value=MISSING_COMPONENT, missing_components=("invalid_components",))
+
+
 def _row_renovation_id(
     row: RenovationPlanRow,
     asset: RAsset | None,
@@ -1117,7 +1162,7 @@ def _row_renovation_id(
     if asset is None:
         # An empty (asset-less) draft cannot form a renovation id.
         return None, ()
-    result = calculate_renovation_id(_renovation_id_input(row, asset, label_map))
+    result = _safe_renovation_id(_renovation_id_input(row, asset, label_map))
     return result.value, result.missing_components
 
 
@@ -1247,7 +1292,7 @@ async def update_plan_cells(
                     value=json_value,
                 )
             )
-        result = calculate_renovation_id(_renovation_id_input(row, asset, label_map))
+        result = _safe_renovation_id(_renovation_id_input(row, asset, label_map))
         if row.col_003 != result.value:
             row.col_003 = result.value
             session.add(row)
@@ -1454,7 +1499,7 @@ async def apply_renovation_cell_value(
     asset = await session.get(RAsset, row.asset_id)
     if asset is not None:
         _recalculate_row(session, row)
-        result = calculate_renovation_id(_renovation_id_input(row, asset, label_map))
+        result = _safe_renovation_id(_renovation_id_input(row, asset, label_map))
         row.col_003 = result.value
     session.add(row)
 

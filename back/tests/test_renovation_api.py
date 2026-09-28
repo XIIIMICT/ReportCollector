@@ -297,6 +297,100 @@ async def test_plan_rows_rejects_bad_filters(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+async def test_plan_rows_filter_include_nulls_on_typed_columns(client: AsyncClient) -> None:
+    """
+    `includeNulls` must never compare a typed column to ''.
+
+    The facet collapses NULL and the empty string into one «Пустые» bucket, but
+    only a textual column can hold an empty string. Comparing a uuid/date/
+    boolean/numeric column to '' makes Postgres fail the cast and 500s the whole
+    window, which is what the default (nulls-included) header filter triggers.
+    """
+    for column in ("col_023", "col_024", "col_202", "col_017"):
+        filters = json.dumps([{"column": column, "values": [], "includeNulls": True}])
+        response = await client.get(
+            "/api/renovation/plan/rows",
+            headers=ADMIN_HEADERS,
+            params={"offset": 0, "limit": 100, "filters": filters},
+        )
+        assert response.status_code == 200, (column, response.text)
+
+
+async def test_plan_rows_filter_nulls_with_kept_number_and_date_values(client: AsyncClient) -> None:
+    """Keeping a value and the empty bucket on a typed column still answers 200."""
+    cases = [
+        ({"column": "col_023", "values": ["1382467"], "includeNulls": True}, 1),
+        ({"column": "col_024", "values": ["2027-01-01"], "includeNulls": True}, 2),
+        ({"column": "col_017", "values": ["Остановочный капитальный ремонт"], "includeNulls": True}, 2),
+        # col_202 is empty on both seeded rows: only the empty bucket can match.
+        ({"column": "col_202", "values": ["Да"], "includeNulls": True}, 2),
+        ({"column": "col_202", "values": ["Да"], "includeNulls": False}, 0),
+    ]
+    for filter_, expected_total in cases:
+        response = await client.get(
+            "/api/renovation/plan/rows",
+            headers=ADMIN_HEADERS,
+            params={"offset": 0, "limit": 100, "filters": json.dumps([filter_])},
+        )
+        assert response.status_code == 200, (filter_, response.text)
+        assert response.json()["total"] == expected_total, filter_
+
+
+async def test_read_plan_rows_omits_empty_cells(client: AsyncClient) -> None:
+    """NULL cells are omitted from `values` (sparse payload); set ones survive."""
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100},
+    )
+    assert response.status_code == 200, response.text
+    row = next(entry for entry in response.json()["rows"] if entry["assetCode"] == "bsk")
+    values = row["values"]
+    # Set cells keep their transformed value.
+    assert values["col_011"] == "Шкаф ПЛК"
+    assert values["col_023"] == 1382467
+    assert values["col_024"] == "2027-01-01"
+    assert values["col_017"] == "Остановочный капитальный ремонт"
+    # The synthetic «Предприятие» column is never null — it is "" when unset.
+    assert values["col_002"] == "АО «БСК»"
+    # Empty cells are absent rather than null.
+    assert "col_012" not in values
+    assert "col_016" not in values or values["col_016"] is not None
+
+
+async def test_read_plan_rows_tolerates_invalid_renovation_id(client: AsyncClient, db_session: AsyncSession) -> None:
+    """A row with components outside the legacy ID rules must not 500 the window."""
+    row = await _row_by_asset_code(db_session, "bsk")
+    row.col_003 = None
+    row.col_023 = Decimal(101)  # not the required seven digits
+    db_session.add(row)
+    await db_session.commit()
+
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 2
+    bad = next(entry for entry in body["rows"] if entry["assetCode"] == "bsk")
+    assert bad["renovationId"] == "<NULL>"
+    assert bad["missingComponents"] == ["invalid_components"]
+
+
+async def test_export_tolerates_invalid_renovation_id(client: AsyncClient, db_session: AsyncSession) -> None:
+    """The export recomputes missing IDs too, so it must survive the same bad row."""
+    row = await _row_by_asset_code(db_session, "bsk")
+    row.col_003 = None
+    row.col_023 = Decimal(101)
+    db_session.add(row)
+    await db_session.commit()
+
+    response = await client.get("/api/renovation/plan/export", headers=ADMIN_HEADERS)
+    assert response.status_code == 200, response.text
+
+
 async def test_read_empty_assetless_draft_row(client: AsyncClient, db_session: AsyncSession) -> None:
     """An asset-less draft row is readable by an admin as an empty row."""
     plan = (await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()
