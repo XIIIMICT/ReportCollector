@@ -424,30 +424,13 @@ def movement_audit(
     movement: MaterialMovement,
     price: RawMaterialPrice,
 ) -> tuple[datetime, str]:
-    """
-    «Движение» row audit: takes the freshest edit from movement or prices.
-
-    In SQLite this is a CASE string comparison; in Postgres
-    business_plan_updated_at is TEXT (may hold the '<УГАДАЙТЕ>' stub), so
-    invalid values are treated as "not updated" and the movement audit wins.
-    """
+    """«Движение» row audit: takes the freshest edit from movement or prices."""
     candidates: list[tuple[datetime, str]] = [(movement.updated_at, movement.updated_by)]
-    plan_updated_at = parse_datetime_or_none(price.business_plan_updated_at)
-    if plan_updated_at is not None:
-        candidates.append((plan_updated_at, price.business_plan_updated_by))
-    storage_updated_at = parse_datetime_or_none(price.storage_standard_updated_at)
-    if storage_updated_at is not None:
-        candidates.append((storage_updated_at, price.storage_standard_updated_by))
+    if price.business_plan_updated_at is not None:
+        candidates.append((price.business_plan_updated_at, price.business_plan_updated_by))
+    if price.storage_standard_updated_at is not None:
+        candidates.append((price.storage_standard_updated_at, price.storage_standard_updated_by))
     return max(candidates, key=lambda c: c[0])
-
-
-def parse_datetime_or_none(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value)
-    except ValueError:
-        return None
 
 
 def calculate_deviation(plan: float | None, fact: float | None) -> float | None:
@@ -583,10 +566,10 @@ async def update_movement_cells(
                 continue
             setattr(price, column, new_value)
             if field == "businessPlanTons":
-                price.business_plan_updated_at = datetime.now(UTC).isoformat()
+                price.business_plan_updated_at = datetime.now(UTC)
                 price.business_plan_updated_by = user.name or user.email or ""
             elif field == "storageStandardTons":
-                price.storage_standard_updated_at = datetime.now(UTC).isoformat()
+                price.storage_standard_updated_at = datetime.now(UTC)
                 price.storage_standard_updated_by = user.name or user.email or ""
             session.add(price)
         else:
@@ -748,10 +731,10 @@ async def apply_cell_value(
             price = await _movement_price(session, movement)
             setattr(price, MOVEMENT_PRICE_FIELDS[field], value)
             if field == "businessPlanTons":
-                price.business_plan_updated_at = now.isoformat()
+                price.business_plan_updated_at = now
                 price.business_plan_updated_by = updated_by
             elif field == "storageStandardTons":
-                price.storage_standard_updated_at = now.isoformat()
+                price.storage_standard_updated_at = now
                 price.storage_standard_updated_by = updated_by
             session.add(price)
         elif field in MOVEMENT_CELL_FIELDS:

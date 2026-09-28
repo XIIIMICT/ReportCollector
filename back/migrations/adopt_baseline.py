@@ -9,7 +9,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import Column, Enum, Index, inspect, text
+from sqlalchemy import Column, DateTime, Enum, Index, inspect, text
 from sqlalchemy.dialects.postgresql.base import PGInspector
 from sqlalchemy.engine import Connection
 from sqlmodel import SQLModel
@@ -86,6 +86,13 @@ _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
 # (0005_user_role_project_indexes), so their absence on the pre-adoption schema
 # is expected, not drift. A closed list — anything else still fails closed.
 _LEGACY_MISSING_INDEXES: frozenset[str] = frozenset({"ix_user_roles_project", "ix_r_user_roles_project"})
+
+# Columns rewritten by a migration that runs AFTER the baseline during adoption
+# (0006_price_audit_timestamps). The pre-adoption schema still holds the legacy
+# TEXT values, so the type / nullability / default differences on these two
+# columns are expected, not drift. A closed list — anything else fails closed.
+_LEGACY_PRICE_TIMESTAMPS: frozenset[str] = frozenset({"business_plan_updated_at", "storage_standard_updated_at"})
+_LEGACY_PRICE_TIMESTAMPS_TABLE = "rm_raw_material_prices"
 
 
 def compare_adoption_default(
@@ -169,6 +176,23 @@ def _drop_equivalent_index_changes(diffs: list[tuple]) -> list[tuple]:
     return [diff for position, diff in enumerate(diffs) if position not in consumed]
 
 
+def _is_legacy_price_timestamp_change(diff: object) -> bool:
+    """One type/nullability/default change on a «Цены» audit timestamp column."""
+    if not (isinstance(diff, tuple) and len(diff) >= 6 and diff[2] == _LEGACY_PRICE_TIMESTAMPS_TABLE):
+        return False
+    if diff[3] not in _LEGACY_PRICE_TIMESTAMPS:
+        return False
+    kind = diff[0]
+    if kind == "modify_type":
+        target = diff[-1]
+        return isinstance(target, DateTime) and bool(target.timezone)
+    if kind == "modify_nullable":
+        return diff[-1] is True
+    if kind == "modify_default":
+        return diff[-1] is None
+    return False
+
+
 def _is_legacy_equivalent(diff: tuple) -> bool:
     """Match a single known legacy-only difference (a dropped column or index)."""
     if isinstance(diff, tuple) and len(diff) >= 4 and diff[0] == "remove_column":
@@ -178,13 +202,21 @@ def _is_legacy_equivalent(diff: tuple) -> bool:
         # An index the migration chain creates after the baseline; absent on a
         # pre-adoption legacy schema.
         return diff[1].name in _LEGACY_MISSING_INDEXES
-    return False
+    if isinstance(diff, list):
+        # Alembic groups the changes on one column into a nested list; tolerate
+        # it only when every change in the group is a known deferred 0006 edit.
+        return bool(diff) and all(_is_legacy_price_timestamp_change(item) for item in diff)
+    return _is_legacy_price_timestamp_change(diff)
 
 
 def _describe_diffs(diffs: list[tuple]) -> str:
     """Render a compact, readable summary of the remaining schema differences."""
     lines: list[str] = []
     for diff in diffs:
+        if isinstance(diff, list):
+            # Alembic groups several changes on one column into a nested list.
+            lines.append(_describe_diffs(diff))
+            continue
         kind = diff[0] if isinstance(diff, tuple) and diff else type(diff).__name__
         if kind in ("remove_index", "add_index"):
             index = diff[1]

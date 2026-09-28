@@ -20,20 +20,36 @@ def config_for(connection) -> Config:
     return config
 
 
+# `''` and NULL are the same "never updated" state for the «Цены» audit
+# timestamps: migration 0006 converts the legacy empty strings to NULL. The
+# snapshot normalizes both to `''` so a downgrade→upgrade round-trip compares
+# equal; the dedicated assertions below still pin the actual type change.
+_EMPTY_AS_NULL_COLUMNS: dict[str, tuple[str, ...]] = {
+    "rm_raw_material_prices": ("business_plan_updated_at", "storage_standard_updated_at"),
+}
+
+
 def business_snapshot(connection) -> dict[str, list[str]]:
     """Compare every stored business column, not just selected example fields."""
     tables = inspect(connection).get_table_names()
     quote = connection.dialect.identifier_preparer.quote
-    return {
-        table: list(
+    snapshot: dict[str, list[str]] = {}
+    for table in tables:
+        if table == "alembic_version" or table.startswith("collab_"):
+            continue
+        normalized = _EMPTY_AS_NULL_COLUMNS.get(table)
+        if normalized:
+            patch = ", ".join(f"'{name}', coalesce({quote(name)}::text, '')" for name in normalized)
+            expression = f"(to_jsonb(t) || jsonb_build_object({patch}))::text"
+        else:
+            expression = "row_to_json(t)::text"
+        snapshot[table] = list(
             connection.execute(
                 # Names come from the inspector and are dialect-quoted, never user input.
-                text(f"SELECT row_to_json(t)::text FROM {quote(table)} AS t ORDER BY row_to_json(t)::text")  # noqa: S608
+                text(f"SELECT {expression} FROM {quote(table)} AS t ORDER BY {expression}")  # noqa: S608
             ).scalars()
         )
-        for table in tables
-        if table != "alembic_version" and not table.startswith("collab_")
-    }
+    return snapshot
 
 
 async def test_baseline_roundtrip(test_engine) -> None:
@@ -123,12 +139,33 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         assert await conn.run_sync(business_snapshot) == all_business_data
         assert (
             await conn.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalar_one() == "0005_user_role_project_indexes"
+        ).scalar_one() == "0006_price_audit_timestamps"
         assert (await conn.execute(text("SELECT id, col_011 FROM renovation_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
         assert (
             await conn.execute(text("SELECT id, created_at FROM renovation_reference_values ORDER BY id"))
         ).all() == timestamps
+        # 0006: the legacy empty-string audit timestamps are real timestamptz
+        # columns now, with '' folded to NULL.
+        audit_columns = (
+            await conn.execute(
+                text(
+                    "SELECT data_type, is_nullable FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = 'rm_raw_material_prices' "
+                    "AND column_name IN ('business_plan_updated_at', 'storage_standard_updated_at') "
+                    "ORDER BY column_name"
+                )
+            )
+        ).all()
+        assert audit_columns == [("timestamp with time zone", "YES"), ("timestamp with time zone", "YES")]
+        assert (
+            await conn.execute(
+                text(
+                    "SELECT count(*) FROM rm_raw_material_prices "
+                    "WHERE business_plan_updated_at IS NOT NULL OR storage_standard_updated_at IS NOT NULL"
+                )
+            )
+        ).scalar_one() == 0
         diffs = await conn.run_sync(
             lambda c: compare_metadata(
                 MigrationContext.configure(c, opts={"compare_server_default": True}), SQLModel.metadata
@@ -224,6 +261,17 @@ async def test_adopt_still_refuses_a_genuine_index_mismatch(db_session, test_eng
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
+async def test_adopt_still_refuses_a_non_audit_column_type_change(db_session, test_engine) -> None:
+    """The deferred-0006 tolerance is a closed list: any other type change is drift."""
+    await db_session.close()
+    async with test_engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE rm_raw_material_prices ALTER COLUMN fact_2025 TYPE text"))
+        await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
+        with pytest.raises(ValueError, match="Схема отличается"):
+            await conn.run_sync(adopt)
+        assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
+
+
 async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) -> None:
     """
     Upgrade despite leftover files from the retired historical chain.
@@ -257,7 +305,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) ->
             await conn.run_sync(upgrade)
             assert (
                 await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "0005_user_role_project_indexes"
+            ).scalar_one() == "0006_price_audit_timestamps"
         assert all(not path.exists() for path in stale)
     finally:
         for path in stale:

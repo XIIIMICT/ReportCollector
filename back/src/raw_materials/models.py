@@ -148,9 +148,13 @@ class RawMaterialPrice(SQLModel, table=True):
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
-    business_plan_updated_at: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    business_plan_updated_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
     business_plan_updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
-    storage_standard_updated_at: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    storage_standard_updated_at: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
     storage_standard_updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
 
 
