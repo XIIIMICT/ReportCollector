@@ -100,9 +100,22 @@ def verify_signed_identity(headers: Mapping[str, str]) -> CurrentUserIdentity:
 
 
 def _parse_optional_bool(value: str | None) -> bool | None:
-    if value is None:
+    """
+    Parse a signed boolean claim (`email_verified`).
+
+    Only the explicit truthy/falsy spellings are accepted; anything else is an
+    error rather than a silent `False`, so a typo cannot quietly disable the
+    feature the flag guards (AUD-19).
+    """
+    if value is None or value == "":
         return None
-    return value.casefold() == "true"
+    normalized = value.strip().casefold()
+    if normalized in {"true", "1", "yes", "да"}:
+        return True
+    if normalized in {"false", "0", "no", "нет"}:
+        return False
+    msg = f"Некорректное логическое значение в подписи идентичности: {value!r}."
+    raise InvalidIdentityError(msg)
 
 
 def verify_identity_ticket(ticket: str) -> CurrentUserIdentity:
