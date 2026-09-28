@@ -1016,6 +1016,41 @@ async def test_diff_compares_archived_versions(
     assert body["deletedRows"] == []
 
 
+async def test_diff_deleted_row_carries_values(client: AsyncClient, db_session: AsyncSession) -> None:
+    """A deleted row in the diff carries its previous values (no extra plan read)."""
+    await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
+    first_id = (await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)).json()["archived"]["id"]
+
+    # Drop a row from the new working plan so the next version lacks it.
+    working = (
+        await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))
+    ).one()
+    victim = (
+        await db_session.exec(
+            select(RenovationPlanRow)
+            .where(col(RenovationPlanRow.plan_id) == working.id)
+            .order_by(col(RenovationPlanRow.position))
+        )
+    ).first()
+    assert victim is not None
+    victim_position = victim.position
+    victim_amount = victim.col_028
+    assert victim_amount is not None
+    await db_session.delete(victim)
+    await db_session.commit()
+
+    await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
+    second_id = (await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)).json()["archived"]["id"]
+
+    diff = await client.get("/api/renovation/plan/diff", headers=ADMIN_HEADERS, params={"plan_id": second_id})
+    assert diff.status_code == 200
+    body = diff.json()
+    assert body["comparedToPlanId"] == first_id
+    deleted = next(item for item in body["deletedRows"] if item["position"] == victim_position)
+    assert deleted["assetName"]
+    assert deleted["values"]["col_028"] == float(victim_amount)
+
+
 async def test_diff_marks_new_rows(client: AsyncClient, db_session: AsyncSession) -> None:
     await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
     first_id = (await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)).json()["archived"]["id"]

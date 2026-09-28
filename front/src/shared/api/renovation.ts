@@ -134,16 +134,12 @@ export type RenovationDiffRow = {
     cells: RenovationDiffCell[];
 };
 
-export type RenovationDeletedRow = {
-    position: number;
-    assetName: string;
-};
-
 export type RenovationDiff = {
     planId: string;
     comparedToPlanId: string | null;
     rows: RenovationDiffRow[];
-    deletedRows: RenovationDeletedRow[];
+    /** Full previous-version rows for the rows deleted in the target. */
+    deletedRows: RenovationPlanRow[];
 };
 
 export type RenovationUpdate = {

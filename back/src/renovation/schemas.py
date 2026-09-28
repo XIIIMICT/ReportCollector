@@ -223,20 +223,15 @@ class RenovationDiffRowRead(BaseModel):
     cells: list[RenovationDiffCellRead] = []
 
 
-class RenovationDeletedRowRead(BaseModel):
-    """A row present in the previous archived version but missing in the target."""
-
-    position: int
-    assetName: str
-
-
 class RenovationDiffRead(BaseModel):
     """Cell diff of an archived version vs the previous archived version."""
 
     planId: UUID
     comparedToPlanId: UUID | None = None
     rows: list[RenovationDiffRowRead] = []
-    deletedRows: list[RenovationDeletedRowRead] = []
+    # Full previous-version rows for the rows deleted in the target, so the
+    # client can render the deleted ghosts without a second full plan read.
+    deletedRows: list[RenovationPlanRowRead] = []
 
 
 class CellUpdate(BaseModel):

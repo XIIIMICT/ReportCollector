@@ -47,7 +47,6 @@ import {
     exportRenovationPlan,
     getRenovationDiff,
     getRenovationMeta,
-    getRenovationPlan,
     getRenovationPlanRows,
     getRenovationPlans,
     getUndoState,
@@ -62,7 +61,6 @@ import {
     type RenovationColumnFilter,
     type RenovationDiff,
     type RenovationMeta,
-    type RenovationPlan,
     type RenovationPlanRow,
     type RenovationPlanVersion,
     type RenovationUndoResult,
@@ -396,43 +394,26 @@ export function RenovationWorkspace({
         let cancelled = false;
         void (async () => {
             try {
-                if (base.complete) {
-                    const full = await getRenovationPlan(base.id);
-                    if (!cancelled && generation === windowGenerationRef.current) {
-                        const next: PlanWindow = {
-                            id: full.id,
-                            rows: full.rows,
-                            start: 0,
-                            total: full.rows.length,
-                            totalAll: full.rows.length,
-                            baselineBoundary: full.baselineBoundary ?? null,
-                            complete: true,
-                        };
-                        planWindowRef.current = next;
-                        setPlanWindow(next);
-                    }
-                } else {
-                    const limit = Math.max(base.rows.length, WINDOW_CHUNK);
-                    const page = await getRenovationPlanRows(
-                        base.start,
-                        limit,
-                        viewPlanId ?? undefined,
-                        assetFilter,
-                        activeColumnFilters,
-                    );
-                    if (!cancelled && generation === windowGenerationRef.current) {
-                        const prev = planWindowRef.current;
-                        if (!prev) return;
-                        const next: PlanWindow = {
-                            ...prev,
-                            id: page.id,
-                            rows: page.rows,
-                            total: page.total,
-                            baselineBoundary: page.baselineBoundary ?? null,
-                        };
-                        planWindowRef.current = next;
-                        setPlanWindow(next);
-                    }
+                const limit = Math.max(base.rows.length, WINDOW_CHUNK);
+                const page = await getRenovationPlanRows(
+                    base.start,
+                    limit,
+                    viewPlanId ?? undefined,
+                    assetFilter,
+                    activeColumnFilters,
+                );
+                if (!cancelled && generation === windowGenerationRef.current) {
+                    const prev = planWindowRef.current;
+                    if (!prev) return;
+                    const next: PlanWindow = {
+                        ...prev,
+                        id: page.id,
+                        rows: page.rows,
+                        total: page.total,
+                        baselineBoundary: page.baselineBoundary ?? null,
+                    };
+                    planWindowRef.current = next;
+                    setPlanWindow(next);
                 }
             } catch {
                 // Keep the current rows; the next refresh retries.
@@ -596,11 +577,6 @@ export function RenovationWorkspace({
     const { data: diff } = useAsyncData<RenovationDiff | null>(
         () => (viewPlanId ? getRenovationDiff(viewPlanId) : Promise.resolve(null)),
         [metaReloadKey, reloadKey, viewPlanId],
-    );
-    const comparedToPlanId = viewPlanId ? (diff?.comparedToPlanId ?? null) : null;
-    const { data: comparisonPlan } = useAsyncData<RenovationPlan | null>(
-        () => (comparedToPlanId ? getRenovationPlan(comparedToPlanId) : Promise.resolve(null)),
-        [comparedToPlanId, metaReloadKey, reloadKey],
     );
 
     const hasMoreTop = !!planWindow && !planWindow.complete && planWindow.start > 0;
@@ -1015,10 +991,10 @@ export function RenovationWorkspace({
                 __missingComponents: row.missingComponents,
             });
         }
-        if (comparisonPlan && diff) {
-            const deletedByPosition = new Map(diff.deletedRows.map((row) => [row.position, row]));
-            for (const row of comparisonPlan.rows) {
-                if (!deletedByPosition.has(row.position)) continue;
+        if (diff) {
+            // Deleted ghosts come from the diff itself (the previous version's
+            // rows), so no full plan read is needed to render them.
+            for (const row of diff.deletedRows) {
                 result.push({
                     ...row.values,
                     col_003: row.renovationId,
@@ -1040,7 +1016,7 @@ export function RenovationWorkspace({
         }
         result.sort((a, b) => a.__position - b.__position);
         return result;
-    }, [comparisonPlan, diff, planWindow]);
+    }, [diff, planWindow]);
 
     // Remote cell values (live edits of other users) override the local ones
     // for display — the working plan only.

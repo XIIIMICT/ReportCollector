@@ -70,7 +70,6 @@ from src.renovation.schemas import (
     RenovationCatalogOptionRowRead,
     RenovationCatalogRead,
     RenovationColumnFilter,
-    RenovationDeletedRowRead,
     RenovationDiffCellRead,
     RenovationDiffRead,
     RenovationDiffRowRead,
@@ -1031,9 +1030,7 @@ async def read_plan_diff(session: AsyncSession, *, plan_id: UUID, assets: list[R
             )
         )
     deleted = [
-        RenovationDeletedRowRead(position=position, assetName=asset.name)
-        for position, (_, asset) in before.items()
-        if position not in target
+        _plan_row_read(row, asset, label_map) for position, (row, asset) in before.items() if position not in target
     ]
     deleted.sort(key=lambda item: item.position)
     return RenovationDiffRead(
