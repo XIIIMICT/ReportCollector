@@ -174,6 +174,35 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         assert diffs == []
 
 
+async def test_upgrade_converts_price_audit_junk_to_null(db_session, test_engine) -> None:
+    """0006 must not abort on a non-datetime legacy value; it folds it to NULL."""
+    await db_session.close()
+    async with test_engine.begin() as conn:
+        config = config_for(conn.sync_connection)
+        await conn.run_sync(lambda _: command.downgrade(config, BASELINE))
+        row_id = (await conn.execute(text("SELECT id FROM rm_raw_material_prices ORDER BY id LIMIT 1"))).scalar_one()
+        await conn.execute(
+            text(
+                "UPDATE rm_raw_material_prices SET business_plan_updated_at = '<УГАДАЙТЕ>', "
+                "storage_standard_updated_at = '2026-09-28T06:12:52.123456+00:00' WHERE id = :id"
+            ),
+            {"id": row_id},
+        )
+        await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
+        await conn.run_sync(upgrade)
+        business_plan, storage_standard = (
+            await conn.execute(
+                text(
+                    "SELECT business_plan_updated_at, storage_standard_updated_at "
+                    "FROM rm_raw_material_prices WHERE id = :id"
+                ),
+                {"id": row_id},
+            )
+        ).one()
+    assert business_plan is None
+    assert storage_standard is not None
+
+
 async def test_adopt_rejects_unexpected_reference_timestamp_default(db_session, test_engine) -> None:
     await db_session.close()
     async with test_engine.begin() as conn:
