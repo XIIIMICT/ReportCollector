@@ -51,9 +51,16 @@ seed-renovation:
     uv run --directory back -m src.scripts.seed_database --renovation
 
 # seed-renovation-plan — переимпортирует только рабочий план реновации
-# (активы, справочники и пользователи сохраняются).
+# (активы, справочники и пользователи сохраняются). Расчётные поля
+# материализуются в конце импорта.
 seed-renovation-plan:
     uv run --directory back -m src.scripts.seed_database --renovation-plan
+
+# recompute-renovation-plan — разово пересчитывает и сохраняет расчётные поля
+# (и идентификаторы) рабочего плана реновации. Нужно после импорта/адопции
+# данных и после изменения формул; на PostgreSQL 14 схему менять не нужно.
+recompute-renovation-plan:
+    uv run --directory back -m src.scripts.recompute_renovation_plan
 
 # migrate — применяет миграции к существующей схеме.
 # POSTGRES_HOST берётся из .env (для сервера — реальный адрес БД, не localhost).

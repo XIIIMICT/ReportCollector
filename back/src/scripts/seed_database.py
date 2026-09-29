@@ -49,6 +49,7 @@ from src.renovation.form_schema import field_metas
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
 from src.renovation.reference_data import REFERENCE_OPTIONS
+from src.renovation.service import recompute_plan_rows
 
 # ─── Seed data (first version) ───────────────────────────────────────────
 
@@ -1067,6 +1068,10 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
                 )
             session.info["renovation_plan_rows"] = 4
         await session.flush()
+        # The importer skips calculated fields; materialize them before the plan
+        # is usable (same recompute the maintenance command runs).
+        recomputed = await recompute_plan_rows(session, plan_id=working_plan.id)
+        session.info["renovation_plan_recomputed"] = recomputed.changed
 
     return projects
 
@@ -1122,6 +1127,10 @@ async def seed_renovation_plan(session: AsyncSession) -> None:
         row.plan_id = working_plan.id
     session.add_all(result["rows"])
     await session.flush()
+    # The importer skips calculated fields, so materialize them here (the same
+    # recompute the maintenance command runs) before the plan is usable.
+    recomputed = await recompute_plan_rows(session, plan_id=working_plan.id)
+    session.info["renovation_plan_recomputed"] = recomputed.changed
     session.info["renovation_plan_rows"] = len(result["rows"])
     session.info["renovation_plan_created_options"] = result["created_options"]
     if result["skipped_enterprises"]:
@@ -1366,27 +1375,32 @@ async def run(
             await session.commit()
             plan_rows_count = session.info.get("renovation_plan_rows", 0)
             created_options = session.info.get("renovation_plan_created_options", 0)
+            recomputed = session.info.get("renovation_plan_recomputed", 0)
             print(
                 "Пересидирование плана реновации завершено: "
                 f"строк рабочего плана={plan_rows_count}, "
-                f"добавлено справочных значений «@»={created_options}."
+                f"добавлено справочных значений «@»={created_options}, "
+                f"пересчитано расчётных строк={recomputed}."
             )
             return
         if renovation_only:
             await seed_renovation(session)
             await session.commit()
             plan_rows_count = session.info.get("renovation_plan_rows", 0)
+            recomputed = session.info.get("renovation_plan_recomputed", 0)
             print(
                 "Сидирование реновации завершено: "
                 f"активы реновации={len(R_ASSETS)}, справочники реновации={len(REFERENCE_OPTIONS)}, "
                 f"пользователи реновации={len(RENOVATION_USERS)}, "
-                f"строк рабочего плана реновации={plan_rows_count}."
+                f"строк рабочего плана реновации={plan_rows_count}, "
+                f"пересчитано расчётных строк={recomputed}."
             )
             return
 
         await seed(session)
         arms_count = sum(len(assets) for _, assets in RAW_MATERIAL_ASSETS)
         plan_rows_count = session.info.get("renovation_plan_rows", 4)
+        recomputed = session.info.get("renovation_plan_recomputed", 0)
         print(
             f"Сидирование завершено: проектов={len(PROJECTS)}, активов={len(ASSET_NAMES)}, "
             f"базисов={len(DELIVERY_BASIS_NAMES)}, сырьё={len(RAW_MATERIAL_NAMES)}, "
@@ -1397,7 +1411,8 @@ async def run(
             f"пользователи реновации={len(RENOVATION_USERS)} "
             f"({', '.join(str(u['email']) for u in RENOVATION_USERS)}), "
             f"активы реновации={len(R_ASSETS)}, справочники реновации={len(REFERENCE_OPTIONS)}, "
-            f"строк рабочего плана реновации={plan_rows_count}."
+            f"строк рабочего плана реновации={plan_rows_count}, "
+            f"пересчитано расчётных строк={recomputed}."
         )
 
 

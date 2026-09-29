@@ -19,6 +19,7 @@ from src.auth.models import Project, User
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
+from src.renovation.service import recompute_plan_rows
 
 ADMIN_HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
 VIEWER_HEADERS = signed_identity_headers(email="viewer@example.ru", name="Viewer User")
@@ -1247,3 +1248,27 @@ async def test_export_header_borders_on_every_merged_cell(client: AsyncClient) -
     styled = {ref: f'<c r="{ref}" s="1"' for ref in ("D1", "E1", "AF1", "AA5", "HJ11")}
     for ref, marker in styled.items():
         assert re.search(rf'<c r="{ref}"[^>]* s="1"', sheet), ref
+
+
+async def test_recompute_plan_rows_materializes_derived_values(db_session: AsyncSession) -> None:
+    """The backfill computes and stores the formula fields and the renovation ID."""
+    plan = (await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()
+    seeded = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
+    assert seeded.col_026 is None
+    assert seeded.col_003 is None
+
+    result = await recompute_plan_rows(db_session, plan_id=plan.id)
+    await db_session.flush()
+
+    assert result.scanned == 2
+    assert result.changed == 2
+    row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
+    # col_026 = col_025 - col_024 (2027-01-31 - 2027-01-01); col_031 = 10 + 20.
+    assert row.col_026 == Decimal(30)
+    assert row.col_031 == Decimal(30)
+    assert row.col_003
+
+    # Idempotent: a second pass finds nothing to change.
+    second = await recompute_plan_rows(db_session, plan_id=plan.id)
+    assert second.scanned == 2
+    assert second.changed == 0

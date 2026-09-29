@@ -14,10 +14,11 @@ from decimal import Decimal, InvalidOperation
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import ARRAY, String, Text, and_, delete, func, insert, literal, literal_column, or_
+from sqlalchemy import ARRAY, String, Text, and_, bindparam, delete, func, insert, literal, literal_column, or_
 from sqlalchemy import cast as sql_cast
 from sqlalchemy import false as sa_false
 from sqlalchemy import select as sa_select
+from sqlalchemy import update as sa_update
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -1314,27 +1315,114 @@ async def update_plan_cells(
     return applied, calculated, renovation_ids
 
 
-def _recalculate_row(session: AsyncSession, row: RenovationPlanRow) -> dict[str, object]:
-    """Materialize formula fields into the row (in place)."""
+_CALCULATED_METAS: tuple[RenovationFieldMeta, ...] = tuple(meta for meta in field_metas() if meta.is_calculated)
+# col_003 (the renovation ID) is derived by `_renovation_id_input`, not by the
+# formula engine; `_materialize_row` leaves it to the caller.
+_FORMULA_METAS: tuple[RenovationFieldMeta, ...] = tuple(meta for meta in _CALCULATED_METAS if meta.db_name != "col_003")
+_CALCULATED_COLUMNS: tuple[str, ...] = tuple(meta.db_name for meta in _FORMULA_METAS)
+
+
+def _materialize_row(row: RenovationPlanRow) -> tuple[dict[str, object], bool]:
+    """
+    Compute the formula fields of one row without touching the row object.
+
+    Returns the calculated values (every formula field, `None` included) and
+    whether they differ from the stored ones. Callers decide how to persist.
+    """
     values: dict[str, object] = {}
     for meta in field_metas():
         if meta.is_calculated or meta.db_name in _VIRTUAL_FIELDS:
             continue
         value = getattr(row, meta.db_name)
-        if value is None:
-            continue
-        values[meta.db_name] = value
+        if value is not None:
+            values[meta.db_name] = value
     formula_engine().materialize(values)
     calculated: dict[str, object] = {}
-    for meta in field_metas():
-        if not meta.is_calculated:
-            continue
+    changed = False
+    for meta in _FORMULA_METAS:
         new_value = values.get(meta.db_name)
-        if getattr(row, meta.db_name) != new_value:
-            setattr(row, meta.db_name, new_value)
-            session.add(row)
         calculated[meta.db_name] = new_value
+        changed = changed or getattr(row, meta.db_name) != new_value
+    return calculated, changed
+
+
+def _recalculate_row(session: AsyncSession, row: RenovationPlanRow) -> dict[str, object]:
+    """Materialize formula fields into the row (in place) and register the change."""
+    calculated, changed = _materialize_row(row)
+    if changed:
+        for meta in _FORMULA_METAS:
+            setattr(row, meta.db_name, calculated[meta.db_name])
+        session.add(row)
     return calculated
+
+
+@dataclass(frozen=True, slots=True)
+class RenovationRecomputeResult:
+    """Outcome of `recompute_plan_rows` (scanned/changed row counts)."""
+
+    plan_id: UUID
+    scanned: int
+    changed: int
+
+
+async def recompute_plan_rows(
+    session: AsyncSession,
+    *,
+    plan_id: UUID | None = None,
+    batch_size: int = 1000,
+) -> RenovationRecomputeResult:
+    """
+    Materialize the calculated fields and the renovation ID of every plan row.
+
+    The importer skips calculated fields (the app is expected to recompute them)
+    and `read_plan_rows` never materializes, so imported/adopted rows carry no
+    derived values until they are edited. This recomputes and stores them; run it
+    once after importing a plan, and whenever the formula definitions change.
+
+    Rows stream by primary key (bounded memory) and are written with one batched
+    `UPDATE` per batch (a per-row ORM flush costs ~2 ms/row on a 300k-row plan).
+    The row `revision`/`updated_at` are left alone: this is a data fix, not an
+    edit, and bumping the revision would invalidate in-flight undo/redo.
+    """
+    if plan_id is None:
+        plan = await _plan_by_state(session, RPlanState.WORKING)
+        if plan is None:
+            raise _ERR_NO_WORKING_PLAN
+        plan_id = plan.id
+    label_map = await _reference_labels(session)
+    assets_by_id = {asset.id: asset for asset in (await session.exec(select(RAsset))).all()}
+    statement = (
+        sa_update(RenovationPlanRow)
+        .where(col(RenovationPlanRow.id) == bindparam("row_id"))
+        .values({name: bindparam(name) for name in (*_CALCULATED_COLUMNS, "col_003")})
+        .execution_options(synchronize_session=False)
+    )
+    connection = await session.connection()
+    scanned = 0
+    changed = 0
+    last_id: UUID | None = None
+    while True:
+        query = select(RenovationPlanRow).where(col(RenovationPlanRow.plan_id) == plan_id)
+        if last_id is not None:
+            query = query.where(col(RenovationPlanRow.id) > last_id)
+        rows = list((await session.exec(query.order_by(col(RenovationPlanRow.id)).limit(batch_size))).all())
+        if not rows:
+            break
+        parameters: list[dict[str, object]] = []
+        for row in rows:
+            calculated, row_changed = _materialize_row(row)
+            asset = assets_by_id.get(row.asset_id)
+            new_id = row.col_003
+            if asset is not None:
+                new_id = _safe_renovation_id(_renovation_id_input(row, asset, label_map)).value
+            changed += row_changed or new_id != row.col_003
+            scanned += 1
+            parameters.append({"row_id": row.id, **calculated, "col_003": new_id})
+        await connection.execute(statement, parameters)
+        last_id = rows[-1].id
+        for row in rows:
+            session.expunge(row)
+    return RenovationRecomputeResult(plan_id=plan_id, scanned=scanned, changed=changed)
 
 
 def _row_value_label(

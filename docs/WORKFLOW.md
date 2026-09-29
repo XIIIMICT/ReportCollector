@@ -104,6 +104,14 @@ Business rows are preserved. Existing temporary Valkey undo stacks are not impor
 
 Local login semantics and corporate proxy download exceptions are intentionally unchanged. Capacity/load tests are out of scope for this change; the target of 50 concurrent users is not a measured service-level guarantee.
 
+### Price audit timestamps and PostgreSQL 14
+
+`0006_price_audit_timestamps` turns `rm_raw_material_prices.business_plan_updated_at` / `storage_standard_updated_at` from `TEXT` into `timestamptz`. Production still runs PostgreSQL 14, so the migration cannot use `pg_input_is_valid` (PostgreSQL 16+): it creates a throwaway plpgsql wrapper (`rc_migration_0006_safe_timestamptz`) that folds an unparseable legacy value to `NULL` and catches only `data_exception` (never a timeout/cancel), then drops it. A new migration that needs a safe cast must stay within the PostgreSQL 14 function set.
+
+### Renovation computed fields (backfill)
+
+The renovation importer skips every calculated field (`_SKIP_FIELDS`) and `read_plan_rows` returns stored values without materializing, so imported/adopted rows have blank formula columns until each row is edited. `recompute_plan_rows` (service) fills them; it is exposed as `just recompute-renovation-plan` (`uv run --directory back -m src.scripts.recompute_renovation_plan`, optional `--plan-id`). It runs once after importing a plan and whenever the formula definitions change; on PostgreSQL 14 it needs no schema change (data only). `just seed-renovation-plan` (and the plan part of `just seed`/`just seed-renovation`) calls it at the end of the import, so a fresh seed is already consistent. It streams rows by primary key and writes one batched `UPDATE` per 1000 rows (~4 min for 306k rows; a per-row ORM flush is ~12 min), leaves `revision`/`updated_at` untouched (it is a data fix, not an edit), and does not broadcast — reload clients after running it on a live plan.
+
 ## Pre-commit (prek)
 
 Root `prek.toml` — builtin hooks (large files, merge-conflict, yaml, eof, trailing, mixed-line-ending `--fix=lf`, fix-byte-order-marker); `back/prek.toml` — ruff format, ruff check --fix, ty check, uv lock; `front/prek.toml` — bun lock, oxfmt, oxlint, bun test, tsc. Run on `git commit` (`prek install`). If pre-commit fixed something itself — recheck the diff and commit again.
