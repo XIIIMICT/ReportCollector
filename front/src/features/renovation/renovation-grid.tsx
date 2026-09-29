@@ -19,6 +19,7 @@ import {
     useCallback,
     useEffect,
     useImperativeHandle,
+    useLayoutEffect,
     useMemo,
     useRef,
     useState,
@@ -75,7 +76,7 @@ const ASSET_COLUMN_WIDTH = 220;
 const MISSING_COMPONENT = "<NULL>";
 
 /** Lazy window: start loading the next chunk this many rows before the edge. */
-const LAZY_EDGE_ROWS = 90;
+const LAZY_EDGE_ROWS = 160;
 const LAZY_EDGE_PX = LAZY_EDGE_ROWS * 36;
 
 /** Canonical responsibility-block labels — must match the «Все блоки» filter. */
@@ -985,6 +986,17 @@ function RenovationGridInner(
     // load chunks above (sliding the window and fighting the jump). It is
     // cleared once the edge jump settles (or there is no jump to perform).
     const settlingScrollRef = useRef(true);
+    // Re-runs the edge check from the compensation effect (a separate effect
+    // that cannot see the watcher's local `check`).
+    const checkRef = useRef<(() => void) | null>(null);
+    // The latest slide that still owes a scroll shift, and the token already
+    // applied. While one is pending the edge check is muted: after a load the
+    // scroll is still parked at the old offset (and the watcher re-attaches as
+    // the window prop changes), so without this the same approach loaded
+    // several chunks in a row.
+    const compensationRef = useRef(scrollCompensation);
+    compensationRef.current = scrollCompensation;
+    const appliedCompensationTokenRef = useRef(-1);
     useEffect(() => {
         if (!onNearBottom && !onNearTop) return;
         let target: HTMLElement | null = null;
@@ -1003,6 +1015,8 @@ function RenovationGridInner(
         };
         const check = () => {
             if (settlingScrollRef.current) return;
+            const pending = compensationRef.current;
+            if (pending && pending.token !== appliedCompensationTokenRef.current) return;
             const el = target;
             if (!el) return;
             // No overflow yet (the spacer is not measured, or everything fits)
@@ -1015,6 +1029,7 @@ function RenovationGridInner(
                 onNearTop?.();
             }
         };
+        checkRef.current = check;
         const onScroll = () => check();
         const attach = () => {
             if (detached) return;
@@ -1031,37 +1046,68 @@ function RenovationGridInner(
         attach();
         return () => {
             detached = true;
+            checkRef.current = null;
             if (target) target.removeEventListener("scroll", onScroll);
             observer.disconnect();
         };
     }, [hasMoreBottom, hasMoreTop, headerPinned, onNearBottom, onNearTop, displaySource]);
 
     // After a window slide (rows prepended or evicted from the top) the scroll
-    // position must move by the same height, or the viewport jumps. The
-    // virtual spacer resizes asynchronously (stencil) — apply on the next
-    // frame and retry while the value is being clamped.
-    useEffect(() => {
+    // position must move by the same height, or the viewport jumps. This is a
+    // layout effect so the shift lands before paint; the retry covers the pinned
+    // strip, whose spacer revo-grid re-measures asynchronously. Pinned mode
+    // scrolls through revo-grid (`scrollToRow`) rather than writing `scrollTop`
+    // on the strip: the direct write left the row-header strip out of sync, so
+    // the «№» column went blank until the next real scroll.
+    useLayoutEffect(() => {
         if (!scrollCompensation || scrollCompensation.deltaRows === 0) return;
-        const delta = scrollCompensation.deltaRows * 36;
+        const { deltaRows, token } = scrollCompensation;
+        const delta = deltaRows * 36;
         let attempts = 0;
+        const el = () =>
+            lazyTargetRef.current ??
+            (headerPinned
+                ? (gridRef.current?.querySelector(
+                      "revogr-scroll-virtual.vertical",
+                  ) as HTMLElement | null)
+                : verticalScrollRef.current);
+        // Release the guard once the scroll has settled (revo-grid's own scroll
+        // is async), then re-run the edge check so a genuine need still loads.
+        const settle = (remaining: number, expectedRow: number | null) => {
+            const current = el();
+            const reached =
+                current === null || expectedRow === null
+                    ? true
+                    : Math.abs(current.scrollTop / 36 - expectedRow) < 2;
+            if (reached || remaining <= 0) {
+                appliedCompensationTokenRef.current = token;
+                checkRef.current?.();
+                return;
+            }
+            requestAnimationFrame(() => settle(remaining - 1, expectedRow));
+        };
         const apply = () => {
-            const el =
-                lazyTargetRef.current ??
-                (headerPinned
-                    ? (gridRef.current?.querySelector(
-                          "revogr-scroll-virtual.vertical",
-                      ) as HTMLElement | null)
-                    : verticalScrollRef.current);
-            if (!el) return;
-            const before = el.scrollTop;
-            el.scrollTop = before + delta;
-            if (el.scrollTop !== before + delta && attempts < 3) {
+            const target = el();
+            if (!target) {
+                appliedCompensationTokenRef.current = token;
+                return;
+            }
+            if (headerPinned && gridRef.current) {
+                const targetRow = Math.max(0, Math.round(target.scrollTop / 36) + deltaRows);
+                void gridRef.current.scrollToRow(targetRow);
+                settle(4, targetRow);
+                return;
+            }
+            const before = target.scrollTop;
+            target.scrollTop = before + delta;
+            if (target.scrollTop !== before + delta && attempts < 3) {
                 attempts += 1;
                 requestAnimationFrame(apply);
+                return;
             }
+            settle(1, null);
         };
-        const frame = requestAnimationFrame(apply);
-        return () => cancelAnimationFrame(frame);
+        apply();
     }, [scrollCompensation, headerPinned]);
 
     // Toggling headerPinned swaps the scroll target (pinned → the internal

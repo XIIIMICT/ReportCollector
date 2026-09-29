@@ -465,13 +465,16 @@ export function RenovationWorkspace({
                     : []
             ) as RenovationPlanRow[];
             let newStart = start + first;
-            let deltaRows = 0;
+            // Rows prepended above the viewport shift the content down by their
+            // height. Compensate on EVERY top load, not only once the window is
+            // at WINDOW_MAX_ROWS: during the first growth (300 → 600 → 900 →
+            // 1200) the old code left the scroll where it was, so the viewport
+            // jumped a whole chunk and the «№» column appeared to renumber.
+            let deltaRows = direction === "top" ? prev.start - newStart : 0;
             if (rows.length > WINDOW_MAX_ROWS) {
                 if (direction === "top") {
-                    // Prepend: rows above the viewport grew — shift the scroll
-                    // down by the same height; the overflow is trimmed from
-                    // the far (bottom) side, which needs no compensation.
-                    deltaRows = chunk.length;
+                    // Prepend: the overflow is trimmed from the far (bottom)
+                    // side, which needs no compensation.
                     rows = rows.slice(0, WINDOW_MAX_ROWS);
                 } else {
                     const evict = rows.length - WINDOW_MAX_ROWS;
