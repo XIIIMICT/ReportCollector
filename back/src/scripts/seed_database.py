@@ -14,7 +14,8 @@ Usage:
 
 import argparse
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
@@ -660,25 +661,28 @@ def _data_sheets(path: Path) -> list[str]:
     return [sheet for sheet in sheets if sheet.strip().upper().startswith("РБ")]
 
 
-class PlanImportResult(TypedDict):
-    """What a plan import produced (for the CLI summary)."""
+@dataclass
+class PlanImportStats:
+    """Diagnostics collected while iterating the «РБ ПОФ» workbooks."""
 
-    rows: list[RenovationPlanRow]
-    skipped_enterprises: list[str]
-    unmatched_headers: list[str]
-    created_options: int
+    skipped_enterprises: list[str] = field(default_factory=list)
+    unmatched_headers: set[str] = field(default_factory=set)
 
 
-def load_renovation_plan_rows(
+def iter_renovation_plan_rows(
     asset_by_code: dict[str, UUID],
     asset_by_normalized_name: dict[str, UUID],
     references: _ReferenceResolver,
+    stats: PlanImportStats,
     *,
     directory: Path = RENOVATION_PLAN_DIR,
     limit: int | None = None,
-) -> PlanImportResult:
+) -> Iterator[RenovationPlanRow]:
     """
-    Read every «РБ ПОФ_2027_*» workbook into RenovationPlanRow objects.
+    Yield RenovationPlanRow objects from every «РБ ПОФ_2027_*» workbook.
+
+    A generator, not a list: the real plan is ~0.3M rows and materializing them
+    all at once OOM-killed the seed on a small production container (exit 137).
 
     Columns are resolved by their header text: the «Наименование ДО» code (an
     asset repair_code) picks the asset and every other header is matched against
@@ -695,11 +699,9 @@ def load_renovation_plan_rows(
         for path in directory.glob("*")
         if path.suffix.lower() in (".xlsb", ".xlsx") and not path.name.startswith("~$")
     )
-    rows: list[RenovationPlanRow] = []
-    skipped_enterprises: list[str] = []
-    unmatched_headers: set[str] = set()
     now = utc_now()
     position = 0
+    emitted = 0
     for path in files:
         for sheet in _data_sheets(path):
             row_iter = _iter_sheet_rows(path, sheet)
@@ -724,7 +726,7 @@ def load_renovation_plan_rows(
                         None,
                     )
                 if field is None:
-                    unmatched_headers.add(str(cell).strip())
+                    stats.unmatched_headers.add(str(cell).strip())
                     columns.append(None)
                 else:
                     columns.append(field)
@@ -753,7 +755,7 @@ def load_renovation_plan_rows(
                     raw_row, code_index, enterprise_index, asset_by_code, asset_by_normalized_name
                 )
                 if asset_id is None:
-                    skipped_enterprises.append(sheet)
+                    stats.skipped_enterprises.append(sheet)
                     continue
                 # The source «№ п/п» restarts in every file (and is blank on some
                 # rows), so it cannot be the plan position — assign a global,
@@ -786,31 +788,53 @@ def load_renovation_plan_rows(
                         parsed = _parse_text(cell)
                     if parsed is not None:
                         values[field] = parsed
-                rows.append(
-                    RenovationPlanRow(
-                        asset_id=asset_id,
-                        position=position,
-                        baseline_generation=1,
-                        revision=0,
-                        created_at=now,
-                        updated_at=now,
-                        updated_by=SEED_ADMIN_EMAIL,
-                        **values,
-                    )
+                yield RenovationPlanRow(
+                    asset_id=asset_id,
+                    position=position,
+                    baseline_generation=1,
+                    revision=0,
+                    created_at=now,
+                    updated_at=now,
+                    updated_by=SEED_ADMIN_EMAIL,
+                    **values,
                 )
-                if limit is not None and len(rows) >= limit:
-                    return {
-                        "rows": rows,
-                        "skipped_enterprises": skipped_enterprises,
-                        "unmatched_headers": sorted(unmatched_headers),
-                        "created_options": references.created_count,
-                    }
-    return {
-        "rows": rows,
-        "skipped_enterprises": skipped_enterprises,
-        "unmatched_headers": sorted(unmatched_headers),
-        "created_options": references.created_count,
-    }
+                emitted += 1
+                if limit is not None and emitted >= limit:
+                    return
+
+
+async def insert_renovation_plan_rows(
+    session: AsyncSession,
+    plan_id: UUID,
+    rows: Iterable[RenovationPlanRow],
+    *,
+    batch_size: int = 5000,
+) -> int:
+    """
+    Insert plan rows in batches, expunging each batch to bound memory.
+
+    The seed must not hold ~0.3M ORM rows (and SQLAlchemy's identity map) at
+    once — that is what OOM-killed it (exit 137). Each batch is flushed and
+    expunged, so peak memory stays at `batch_size` rows.
+    """
+    count = 0
+    batch: list[RenovationPlanRow] = []
+    for row in rows:
+        row.plan_id = plan_id
+        batch.append(row)
+        if len(batch) >= batch_size:
+            session.add_all(batch)
+            await session.flush()
+            for item in batch:
+                session.expunge(item)
+            batch.clear()
+        count += 1
+    if batch:
+        session.add_all(batch)
+        await session.flush()
+        for item in batch:
+            session.expunge(item)
+    return count
 
 
 def _resolve_asset(
@@ -1010,22 +1034,22 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
         plan_dir = RENOVATION_PLAN_DIR
         if plan_dir.is_dir():
             # Import every «РБ ПОФ» workbook (~0.3M rows) so the grid exercises
-            # lazy-loading and heavy data handling right after seeding.
-            result = load_renovation_plan_rows(asset_by_code, asset_by_normalized_name, references)
-            # Invented reference options must be flushed before the rows.
-            await session.flush()
-            for row in result["rows"]:
-                row.plan_id = working_plan.id
-            session.add_all(result["rows"])
-            await session.flush()
-            session.info["renovation_plan_rows"] = len(result["rows"])
-            session.info["renovation_plan_created_options"] = result["created_options"]
-            if result["skipped_enterprises"]:
-                print(f"Внимание: строки без предприятия пропущены: {sorted(set(result['skipped_enterprises']))}")
-            if result["unmatched_headers"]:
-                print(f"Внимание: незаполненные заголовки (пропущены): {result['unmatched_headers']}")
-            if result["created_options"]:
-                print(f"Внимание: добавлено {result['created_options']} справочных значений с маркером «@».")
+            # lazy-loading and heavy data handling right after seeding. Batched,
+            # so the whole plan is never held in memory (exit 137 otherwise).
+            stats = PlanImportStats()
+            rows_count = await insert_renovation_plan_rows(
+                session,
+                working_plan.id,
+                iter_renovation_plan_rows(asset_by_code, asset_by_normalized_name, references, stats),
+            )
+            session.info["renovation_plan_rows"] = rows_count
+            session.info["renovation_plan_created_options"] = references.created_count
+            if stats.skipped_enterprises:
+                print(f"Внимание: строки без предприятия пропущены: {sorted(set(stats.skipped_enterprises))}")
+            if stats.unmatched_headers:
+                print(f"Внимание: незаполненные заголовки (пропущены): {sorted(stats.unmatched_headers)}")
+            if references.created_count:
+                print(f"Внимание: добавлено {references.created_count} справочных значений с маркером «@».")
         elif RENOVATION_PLAN_XLSX.exists():
             # The legacy single-workbook format is no longer imported (it is
             # superseded by the per-enterprise «РБ ПОФ» files).
@@ -1119,26 +1143,24 @@ async def seed_renovation_plan(session: AsyncSession) -> None:
 
     references = _ReferenceResolver(session)
     await references.load()
-    result = load_renovation_plan_rows(asset_by_code, asset_by_normalized_name, references)
-    # Invented («@») reference options must exist before the rows that point at
-    # them: flush them first, then bulk-insert the plan rows.
-    await session.flush()
-    for row in result["rows"]:
-        row.plan_id = working_plan.id
-    session.add_all(result["rows"])
-    await session.flush()
+    stats = PlanImportStats()
+    rows_count = await insert_renovation_plan_rows(
+        session,
+        working_plan.id,
+        iter_renovation_plan_rows(asset_by_code, asset_by_normalized_name, references, stats),
+    )
     # The importer skips calculated fields, so materialize them here (the same
     # recompute the maintenance command runs) before the plan is usable.
     recomputed = await recompute_plan_rows(session, plan_id=working_plan.id)
     session.info["renovation_plan_recomputed"] = recomputed.changed
-    session.info["renovation_plan_rows"] = len(result["rows"])
-    session.info["renovation_plan_created_options"] = result["created_options"]
-    if result["skipped_enterprises"]:
-        print(f"Внимание: строки без предприятия пропущены: {sorted(set(result['skipped_enterprises']))}")
-    if result["unmatched_headers"]:
-        print(f"Внимание: незаполненные заголовки (пропущены): {result['unmatched_headers']}")
-    if result["created_options"]:
-        print(f"Внимание: добавлено {result['created_options']} справочных значений с маркером «@».")
+    session.info["renovation_plan_rows"] = rows_count
+    session.info["renovation_plan_created_options"] = references.created_count
+    if stats.skipped_enterprises:
+        print(f"Внимание: строки без предприятия пропущены: {sorted(set(stats.skipped_enterprises))}")
+    if stats.unmatched_headers:
+        print(f"Внимание: незаполненные заголовки (пропущены): {sorted(stats.unmatched_headers)}")
+    if references.created_count:
+        print(f"Внимание: добавлено {references.created_count} справочных значений с маркером «@».")
 
 
 async def seed(session: AsyncSession) -> None:
