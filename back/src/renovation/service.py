@@ -113,6 +113,12 @@ _VIRTUAL_FIELDS = frozenset({"col_002"})
 # (there is no matching row column — it is joined from r_assets).
 _ASSET_COLUMN_PROP = "__assetName"
 
+# The renovation ID column gets a dedicated two-bucket header filter instead of
+# a value list (see `_renovation_id_is_correct_condition`).
+_RENOVATION_ID_COLUMN = "col_003"
+_RENOVATION_ID_OK_LABEL = "Корректные"
+_RENOVATION_ID_BAD_LABEL = "Некорректные"
+
 _CELL_MISSING_ROW_OR_FIELD = ValueError("Ячейка не содержит идентификатор строки или поля.")
 _CELL_PLAN_ROW_NOT_FOUND = ValueError("Строка плана не найдена.")
 _ERR_NO_WORKING_PLAN = RenovationPlanNotFoundError("Нет рабочего плана.")
@@ -514,6 +520,20 @@ def _sparse_row_renovation_id(
     return result.value
 
 
+def _renovation_id_is_correct_condition() -> ColumnElement[bool]:
+    """
+    Rows whose stored renovation ID (`col_003`) is complete.
+
+    A row is «correct» when it has an ID and none of its components is the
+    `<NULL>` placeholder `_safe_renovation_id` substitutes for a missing input.
+    The «Идентификационный код» header filter offers exactly two buckets
+    (correct / incorrect) instead of a value list, because the IDs are unique
+    per row and a value list would be useless.
+    """
+    raw = col(RenovationPlanRow.col_003)
+    return raw.is_not(None) & (raw != "") & raw.not_like(f"%{MISSING_COMPONENT}%")
+
+
 def _column_filter_condition(
     column_filter: RenovationColumnFilter,
     label_map: dict[UUID, str],
@@ -528,6 +548,15 @@ def _column_filter_condition(
     client omits a filter whose every value is kept.
     """
     column = column_filter.column
+    if column == _RENOVATION_ID_COLUMN:
+        # The two-bucket ID filter (correct / incorrect), not a value list.
+        conditions: list[ColumnElement[bool]] = []
+        for value in column_filter.values:
+            if value == _RENOVATION_ID_OK_LABEL:
+                conditions.append(_renovation_id_is_correct_condition())
+            elif value == _RENOVATION_ID_BAD_LABEL:
+                conditions.append(~_renovation_id_is_correct_condition())
+        return or_(*conditions) if conditions else sa_false()
     value_conditions: list[ColumnElement[bool]] = []
     if column == _ASSET_COLUMN_PROP:
         if column_filter.values:
@@ -737,6 +766,26 @@ async def read_plan_facets(
 
     # Group in SQL by the raw column; references/asset need the joined tables or
     # the label map. Booleans and numbers are stringified in Python afterwards.
+    if column == _RENOVATION_ID_COLUMN:
+        # The ID filter is two fixed buckets (correct / incorrect), not a value
+        # list: every ID is unique, so a value list would be unusable.
+        correct = _renovation_id_is_correct_condition()
+        ok_count, bad_count = (
+            await session.exec(
+                sa_select(func.count().filter(correct), func.count().filter(~correct))
+                .select_from(RenovationPlanRow)
+                .where(row_condition)
+            )
+        ).one()
+        return RenovationFacetsRead(
+            column=column,
+            values=[
+                RenovationFacetValueRead(value=_RENOVATION_ID_OK_LABEL, count=int(ok_count)),
+                RenovationFacetValueRead(value=_RENOVATION_ID_BAD_LABEL, count=int(bad_count)),
+            ],
+            total=2,
+            hasNulls=False,
+        )
     if is_asset_column:
         group_column = col(RAsset.name)
         base = (
@@ -1233,6 +1282,7 @@ async def update_plan_cells(
 
     applied: list[AppliedCell] = []
     touched: dict[UUID, RenovationPlanRow] = {}
+    touched_fields: dict[UUID, set[str]] = {}
     for update in updates:
         if update.rowId is None or not update.field:
             raise _CELL_MISSING_ROW_OR_FIELD
@@ -1270,6 +1320,7 @@ async def update_plan_cells(
             )
         )
         touched[row.id] = row
+        touched_fields.setdefault(row.id, set()).add(field)
 
     calculated: list[RenovationCalculatedCellRead] = []
     renovation_ids: list[RenovationIdRead] = []
@@ -1278,7 +1329,8 @@ async def update_plan_cells(
         asset = assets_by_id.get(row.asset_id)
         if asset is None:
             continue
-        recalculated = _recalculate_row(session, row)
+        # Recompute only the dependency closure of the edited fields (AUD-28).
+        recalculated = _recalculate_row(session, row, touched_fields.get(row.id))
         for field, raw_value in recalculated.items():
             if isinstance(raw_value, Decimal):
                 json_value: str | float | bool | None = float(raw_value)
@@ -1320,38 +1372,61 @@ _CALCULATED_METAS: tuple[RenovationFieldMeta, ...] = tuple(meta for meta in fiel
 # formula engine; `_materialize_row` leaves it to the caller.
 _FORMULA_METAS: tuple[RenovationFieldMeta, ...] = tuple(meta for meta in _CALCULATED_METAS if meta.db_name != "col_003")
 _CALCULATED_COLUMNS: tuple[str, ...] = tuple(meta.db_name for meta in _FORMULA_METAS)
+# Every formula input (neither calculated nor virtual) — the full-recompute sweep.
+_INPUT_FIELD_NAMES: tuple[str, ...] = tuple(
+    meta.db_name for meta in field_metas() if not meta.is_calculated and meta.db_name not in _VIRTUAL_FIELDS
+)
 
 
-def _materialize_row(row: RenovationPlanRow) -> tuple[dict[str, object], bool]:
+def _materialize_row(row: RenovationPlanRow, only: set[str] | None = None) -> tuple[dict[str, object], bool]:
     """
     Compute the formula fields of one row without touching the row object.
 
-    Returns the calculated values (every formula field, `None` included) and
-    whether they differ from the stored ones. Callers decide how to persist.
+    `only` restricts the recompute to the dependency closure of those changed
+    fields (AUD-28); `None` recomputes every formula field (the backfill). The
+    values are keyed by field name, so a calculated dependency inside the
+    closure is produced in the same pass and one outside is read from the row.
+    Returns every calculated field (recomputed or stored) and whether any
+    recomputed one differs from the stored value.
     """
+    engine = formula_engine()
+    if only is None:
+        target_names: set[str] | None = None
+        input_names = _INPUT_FIELD_NAMES
+    else:
+        target_names = engine.affected_fields(only)
+        input_names = tuple(engine.inputs_of(target_names))
     values: dict[str, object] = {}
-    for meta in field_metas():
-        if meta.is_calculated or meta.db_name in _VIRTUAL_FIELDS:
-            continue
-        value = getattr(row, meta.db_name)
+    for name in input_names:
+        value = getattr(row, name)
         if value is not None:
-            values[meta.db_name] = value
-    formula_engine().materialize(values)
+            values[name] = value
+    if target_names is None:
+        engine.materialize(values)
+    elif target_names:
+        engine.materialize_fields(values, target_names)
     calculated: dict[str, object] = {}
     changed = False
     for meta in _FORMULA_METAS:
-        new_value = values.get(meta.db_name)
+        if target_names is None or meta.db_name in target_names:
+            new_value = values.get(meta.db_name)
+            changed = changed or getattr(row, meta.db_name) != new_value
+        else:
+            # Not part of the closure: unchanged, so the stored value stands.
+            new_value = getattr(row, meta.db_name)
         calculated[meta.db_name] = new_value
-        changed = changed or getattr(row, meta.db_name) != new_value
     return calculated, changed
 
 
-def _recalculate_row(session: AsyncSession, row: RenovationPlanRow) -> dict[str, object]:
+def _recalculate_row(
+    session: AsyncSession, row: RenovationPlanRow, changed_fields: set[str] | None = None
+) -> dict[str, object]:
     """Materialize formula fields into the row (in place) and register the change."""
-    calculated, changed = _materialize_row(row)
+    calculated, changed = _materialize_row(row, changed_fields)
     if changed:
-        for meta in _FORMULA_METAS:
-            setattr(row, meta.db_name, calculated[meta.db_name])
+        for name, value in calculated.items():
+            if getattr(row, name) != value:
+                setattr(row, name, value)
         session.add(row)
     return calculated
 

@@ -286,6 +286,12 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
                 col_189="1.1.1.",
             )
         )
+    # The production seed materializes the calculated fields after importing the
+    # plan; mirror that so the fixture rows carry the same derived values.
+    from src.renovation.service import recompute_plan_rows
+
+    await session.flush()
+    await recompute_plan_rows(session, plan_id=working.id)
 
 
 @pytest.fixture

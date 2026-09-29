@@ -189,6 +189,43 @@ async def test_read_plan_facets_asset_column(client: AsyncClient) -> None:
     assert [item["value"] for item in body["values"]] == ["АО «БСК»", "АО «Волжский Оргсинтез»"]
 
 
+async def test_renovation_id_filter_is_two_buckets(client: AsyncClient, db_session: AsyncSession) -> None:
+    """The ID column filter offers «Корректные»/«Некорректные», not a value list."""
+    # The seed backfill gives both rows a complete ID.
+    facets = await client.get("/api/renovation/plan/facets", headers=ADMIN_HEADERS, params={"column": "col_003"})
+    assert facets.status_code == 200
+    body = facets.json()
+    assert body["hasNulls"] is False
+    assert [item["value"] for item in body["values"]] == ["Корректные", "Некорректные"]
+    assert [item["count"] for item in body["values"]] == [2, 0]
+
+    async def rows_for(bucket: str) -> int:
+        filters = json.dumps([{"column": "col_003", "values": [bucket], "includeNulls": False}])
+        response = await client.get(
+            "/api/renovation/plan/rows",
+            headers=ADMIN_HEADERS,
+            params={"offset": 0, "limit": 100, "filters": filters},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["total"]
+
+    assert await rows_for("Корректные") == 2
+    assert await rows_for("Некорректные") == 0
+
+    # A `<NULL>` component (or an empty ID) makes a row incorrect.
+    row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
+    row.col_003 = "2027_BSKR_<NULL>_1382467_00"
+    await db_session.flush()
+    facets = await client.get("/api/renovation/plan/facets", headers=ADMIN_HEADERS, params={"column": "col_003"})
+    assert [item["count"] for item in facets.json()["values"]] == [1, 1]
+    assert await rows_for("Некорректные") == 1
+
+    row.col_003 = None
+    await db_session.flush()
+    facets = await client.get("/api/renovation/plan/facets", headers=ADMIN_HEADERS, params={"column": "col_003"})
+    assert [item["count"] for item in facets.json()["values"]] == [1, 1]
+
+
 async def test_read_plan_facets_with_offsets(client: AsyncClient) -> None:
     """The distinct-value window is lazy: offset/limit page over the sorted list."""
     response = await client.get(
@@ -476,6 +513,21 @@ async def test_patch_edits_recalculates_and_journals(
     admin = (await db_session.exec(select(User).where(col(User.email) == "admin@example.ru"))).one()
     can_undo, _ = await store.undo_state(str(admin.id), TEST_SESSION_ID, RENOVATION_SCOPE)
     assert can_undo == 1
+
+
+async def test_patch_recomputes_only_the_dependency_closure(client: AsyncClient, db_session: AsyncSession) -> None:
+    """AUD-28: an edit recomputes the affected formulas, not every derived column."""
+    row = await _row_by_asset_code(db_session, "bsk")
+    # col_026 (duration = col_025 - col_024) does not depend on col_028 (work cost).
+    row.col_026 = Decimal(999)
+    await db_session.flush()
+
+    status, body = await _patch(client, [{"rowId": str(row.id), "field": "col_028", "value": 15}])
+    assert status == 200
+    calculated = {cell["field"]: cell["value"] for cell in body["calculated"]}
+    assert calculated["col_031"] == 35.0
+    # The unrelated derived value is reported as stored, not recomputed.
+    assert calculated["col_026"] == 999.0
 
 
 async def test_patch_multiple_cells_in_one_request(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -1253,15 +1305,17 @@ async def test_export_header_borders_on_every_merged_cell(client: AsyncClient) -
 async def test_recompute_plan_rows_materializes_derived_values(db_session: AsyncSession) -> None:
     """The backfill computes and stores the formula fields and the renovation ID."""
     plan = (await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()
-    seeded = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
-    assert seeded.col_026 is None
-    assert seeded.col_003 is None
+    row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
+    # The seed backfilled the row; clear the derived values to exercise the backfill.
+    row.col_026 = None
+    row.col_003 = None
+    await db_session.flush()
 
     result = await recompute_plan_rows(db_session, plan_id=plan.id)
     await db_session.flush()
 
     assert result.scanned == 2
-    assert result.changed == 2
+    assert result.changed == 1
     row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
     # col_026 = col_025 - col_024 (2027-01-31 - 2027-01-01); col_031 = 10 + 20.
     assert row.col_026 == Decimal(30)

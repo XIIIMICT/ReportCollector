@@ -6,6 +6,7 @@
 """
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -199,10 +200,48 @@ class FormulaEngine:
         order = _topological_order(formulas)
         self._field_types = field_types
         self._calculated_fields = calculated_fields
+        self._calculated_set = set(calculated_fields)
+        self._formulas_by_name = {
+            field: (cell_type, expression, decimal_places)
+            for field, (cell_type, expression, decimal_places) in formulas.items()
+        }
+        dependents: dict[str, set[str]] = {}
+        for field, (_cell_type, expression, _decimal_places) in formulas.items():
+            for dependency in _collect_variables(expression):
+                dependents.setdefault(dependency, set()).add(field)
+        self._dependents = dependents
         self._formulas: list[tuple[str, str, _Expression, int | None]] = []
         for field in order:
             cell_type, expression, decimal_places = formulas[field]
             self._formulas.append((field, cell_type, expression, decimal_places))
+
+    def affected_fields(self, changed: Iterable[str]) -> set[str]:
+        """Return the calculated fields that transitively depend on `changed`."""
+        seen: set[str] = set()
+        queue = list(changed)
+        while queue:
+            name = queue.pop()
+            for dependent in self._dependents.get(name, ()):
+                if dependent not in seen:
+                    seen.add(dependent)
+                    queue.append(dependent)
+        return seen
+
+    def inputs_of(self, fields: Iterable[str]) -> set[str]:
+        """
+        Values the given calculated fields read from the row.
+
+        The union of their formula variables minus the fields themselves: a
+        calculated dependency inside `fields` is produced earlier in the same
+        pass, while one outside must come from the row's stored value.
+        """
+        target = set(fields)
+        needed: set[str] = set()
+        for field in target:
+            entry = self._formulas_by_name.get(field)
+            if entry is not None:
+                needed |= _collect_variables(entry[1])
+        return needed - target
 
     def materialize(self, values: dict[str, object]) -> None:
         """
@@ -214,19 +253,37 @@ class FormulaEngine:
         for field in self._calculated_fields:
             values.pop(field, None)
         for field, cell_type, expression, decimal_places in self._formulas:
-            evaluated = _evaluate(expression, values, self._field_types)
-            if isinstance(evaluated, _EvaluatedMissingDate):
-                continue
-            if isinstance(evaluated, _EvaluatedNumber):
-                if cell_type != NUMBER_CELL:
-                    raise _target_type_mismatch(field)
-                values[field] = Decimal(str(_round_to_places(evaluated.value, decimal_places)))
-            elif isinstance(evaluated, _EvaluatedDate):
-                if cell_type != DATE_CELL:
-                    raise _target_type_mismatch(field)
-                values[field] = evaluated.value
-            else:
+            self._materialize_field(values, field, cell_type, expression, decimal_places)
+
+    def materialize_fields(self, values: dict[str, object], fields: set[str]) -> None:
+        """Recompute only the given calculated fields (the dependency closure)."""
+        for field in fields:
+            values.pop(field, None)
+        for field, cell_type, expression, decimal_places in self._formulas:
+            if field in fields:
+                self._materialize_field(values, field, cell_type, expression, decimal_places)
+
+    def _materialize_field(
+        self,
+        values: dict[str, object],
+        field: str,
+        cell_type: str,
+        expression: _Expression,
+        decimal_places: int | None,
+    ) -> None:
+        evaluated = _evaluate(expression, values, self._field_types)
+        if isinstance(evaluated, _EvaluatedMissingDate):
+            return
+        if isinstance(evaluated, _EvaluatedNumber):
+            if cell_type != NUMBER_CELL:
                 raise _target_type_mismatch(field)
+            values[field] = Decimal(str(_round_to_places(evaluated.value, decimal_places)))
+        elif isinstance(evaluated, _EvaluatedDate):
+            if cell_type != DATE_CELL:
+                raise _target_type_mismatch(field)
+            values[field] = evaluated.value
+        else:
+            raise _target_type_mismatch(field)
 
 
 def _collect_variables(expression: _Expression) -> set[str]:
