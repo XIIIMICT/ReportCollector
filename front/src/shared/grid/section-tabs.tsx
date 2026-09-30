@@ -2,24 +2,29 @@
 
 import { Tabs } from "@heroui/react";
 
-import { MAIN_SECTIONS } from "@/shared/grid/grid-config";
 import type { SectionId } from "@/shared/grid/grid-config";
 
-export type WorkspaceTab = {
+/** Minimal shape the strip needs — the «Ремонт» form tabs have no section id. */
+export type SectionTab = {
     id: string;
-    section: SectionId;
     label: string;
+    /** Starts a new group: the strip draws a separator before this tab. */
+    separatorBefore?: boolean;
+};
+
+export type WorkspaceTab = SectionTab & {
+    section: SectionId;
     reportMonth: string | null;
 };
 
-export function SectionTabs({
+export function SectionTabs<T extends SectionTab>({
     tabs,
     value,
     onChange,
 }: {
-    tabs: WorkspaceTab[];
+    tabs: readonly T[];
     value: string;
-    onChange: (tab: WorkspaceTab) => void;
+    onChange: (tab: T) => void;
 }) {
     return (
         <Tabs
@@ -33,20 +38,13 @@ export function SectionTabs({
         >
             <Tabs.ListContainer>
                 <Tabs.List aria-label="Таблицы и справочники">
-                    {tabs.map((tab, index) => {
-                        const previous = tabs[index - 1];
-                        const isFirstReference =
-                            index > 0 &&
-                            !MAIN_SECTIONS.has(tab.section) &&
-                            MAIN_SECTIONS.has(previous.section);
-                        return (
-                            <Tabs.Tab key={tab.id} id={tab.id}>
-                                {isFirstReference ? <Tabs.Separator /> : null}
-                                {tab.label}
-                                <Tabs.Indicator />
-                            </Tabs.Tab>
-                        );
-                    })}
+                    {tabs.map((tab) => (
+                        <Tabs.Tab key={tab.id} id={tab.id}>
+                            {tab.separatorBefore ? <Tabs.Separator /> : null}
+                            {tab.label}
+                            <Tabs.Indicator />
+                        </Tabs.Tab>
+                    ))}
                 </Tabs.List>
             </Tabs.ListContainer>
         </Tabs>

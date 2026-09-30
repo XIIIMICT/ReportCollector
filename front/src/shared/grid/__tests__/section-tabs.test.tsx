@@ -23,3 +23,20 @@ test("workspace tab selection forwards the complete scope, including the month",
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
 });
+
+test("a tab marked separatorBefore starts a new group", () => {
+    const tabs: WorkspaceTab[] = [
+        { id: "movement", label: "Движение", section: "materialMovement", reportMonth: null },
+        {
+            id: "rawMaterials",
+            label: "Сырьевые позиции",
+            section: "rawMaterials",
+            reportMonth: null,
+            separatorBefore: true,
+        },
+    ];
+    const view = render(<SectionTabs tabs={tabs} value="movement" onChange={mock()} />);
+    const separators = view.container.querySelectorAll('[data-slot="tabs-separator"]');
+    expect(separators.length).toBe(1);
+    expect(separators[0].closest('[role="tab"]')?.textContent).toContain("Сырьевые позиции");
+});

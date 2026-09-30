@@ -13,7 +13,6 @@ import {
     type RowHeaders,
     type VNode,
 } from "@revolist/react-datagrid";
-import { Filter } from "iconoir-react";
 import {
     forwardRef,
     useCallback,
@@ -2067,7 +2066,7 @@ function RenovationGridInner(
                             height: cell.height,
                         }}
                     >
-                        {cell.text}
+                        <span className="renovation-grid__header-label">{cell.text}</span>
                         {cell.filterColumn && onOpenColumnFilter ? (
                             <button
                                 type="button"
@@ -2095,7 +2094,22 @@ function RenovationGridInner(
                                     );
                                 }}
                             >
-                                <Filter aria-hidden="true" />
+                                {/* RevoGrid's own funnel glyph (viewBox 0 0 64 64),
+                                    so the plan's filter buttons read like the
+                                    client-side funnels on the other grids. */}
+                                <svg
+                                    className="renovation-grid__filter-icon"
+                                    viewBox="0 0 64 64"
+                                    aria-hidden="true"
+                                    focusable="false"
+                                >
+                                    <g stroke="none" strokeWidth="1" fill="none" fillRule="evenodd">
+                                        <path
+                                            d="M43,48 L43,56 L21,56 L21,48 L43,48 Z M53,28 L53,36 L12,36 L12,28 L53,28 Z M64,8 L64,16 L0,16 L0,8 L64,8 Z"
+                                            fill="currentColor"
+                                        />
+                                    </g>
+                                </svg>
                             </button>
                         ) : null}
                     </div>

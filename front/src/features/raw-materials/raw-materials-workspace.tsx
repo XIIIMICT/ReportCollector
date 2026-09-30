@@ -1364,11 +1364,14 @@ export function RawMaterialsWorkspace({
                 reportMonth: null,
             },
             ...(isAdmin
-                ? ADMIN_SECTIONS.map((referenceSection) => ({
+                ? ADMIN_SECTIONS.map((referenceSection, index) => ({
                       id: referenceSection,
                       section: referenceSection,
                       label: SECTION_LABELS[referenceSection] ?? referenceSection,
                       reportMonth: null,
+                      // The strip separates the forms from the reference
+                      // dictionaries: a divider before the first one.
+                      separatorBefore: index === 0,
                   }))
                 : []),
         ];

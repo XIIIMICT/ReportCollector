@@ -56,6 +56,7 @@ import { canonicalCellKey, useCollabRoom } from "@/shared/collab/use-collab-room
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
+import { SectionTabs } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { isFromTextEditor } from "@/shared/keyboard";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
@@ -747,26 +748,16 @@ export function RenovationWorkspace({
         }
     }, [initialSection, sections]);
 
-    // Stable item list for the section Autocomplete — a fresh array reference
-    // on every render makes HeroUI's controlled Autocomplete re-sync in an
-    // effect (item-map rebuild), which setStates → re-renders → loop.
-    const sectionOptions = useMemo(
-        () => sections.map((section) => ({ id: section.id, name: section.label })),
+    // The same strip as «Сырьё»: the plan first, then the dictionaries after
+    // a separator (assets, catalogs, users).
+    const sectionTabItems = useMemo(
+        () =>
+            sections.map((section, index) => ({
+                id: section.id,
+                label: section.label,
+                separatorBefore: index === 1,
+            })),
         [sections],
-    );
-
-    // Guard the controlled echo: a selection with the same key must be a no-op,
-    // otherwise HeroUI's Autocomplete re-dispatches it on re-render → infinite
-    // setState. Memoized so the callback identity is stable across renders too.
-    const handleSectionChange = useCallback(
-        (key: string | null) => {
-            const next = key && sections.some((section) => section.id === key) ? String(key) : null;
-            if (next && next !== activeSection) {
-                setActiveSection(next);
-                onSectionChange?.(next);
-            }
-        },
-        [activeSection, sections, onSectionChange],
     );
 
     // The collab room joins the active section: the plan (renovationPlan) or
@@ -1452,13 +1443,6 @@ export function RenovationWorkspace({
         );
     }
 
-    // Filters (plan only) — between the version picker and the right controls.
-    // Filter by asset (plan only). Asset workers see only their own assets and
-    // the filter is hidden when they answer for a single asset.
-    // The asset filter moved onto the «Предприятие» column header (a normal
-    // header filter), so the toolbar no longer carries an asset autocomplete.
-    const planFilters = null;
-
     // «Рабочая версия» / version picker — moved into the toolbar. It stays
     // mounted across section switches so its collapse/expand can animate
     // (width + opacity transition); the `is-hidden` class hides and drops it
@@ -1504,47 +1488,62 @@ export function RenovationWorkspace({
     // Block filter (asset first, then block) — blocks are rare, so the compact
     // popover wins over a tab row in the toolbar. It is a SearchAutocomplete like
     // the asset/version/form filters: a raw HeroUI `Select` here double-opened.
-    const blockFilterSelect =
-        isPlanSection && blocks.length > 0 ? (
-            <div className="plan-filters__block">
-                <SearchAutocomplete
-                    placeholder="Все блоки"
-                    compactLabel="Блок"
-                    onOpenChange={setToolbarControlOpen}
-                    items={[
-                        { id: "__all", name: "Все блоки" },
-                        ...blocks.map((block) => ({
-                            id: block,
-                            name: BLOCK_LABELS[block] ?? block,
-                        })),
-                    ]}
-                    selectedKey={blockFilter ?? "__all"}
-                    onSelectionChange={(key) =>
-                        setBlockFilter(key && key !== "__all" ? String(key) : null)
-                    }
+    // The wrapper stays mounted and collapses like the version picker, so the
+    // toolbar settles (instead of popping) when the section changes.
+    const showBlockFilter = isPlanSection && blocks.length > 0;
+    const blockFilterSelect = (
+        <div
+            className={
+                showBlockFilter
+                    ? "plan-filters__block toolbar-collapse"
+                    : "plan-filters__block toolbar-collapse toolbar-collapse--hidden"
+            }
+            aria-hidden={showBlockFilter ? undefined : true}
+        >
+            <SearchAutocomplete
+                placeholder="Все блоки"
+                compactLabel="Блок"
+                isDisabled={!showBlockFilter}
+                onOpenChange={setToolbarControlOpen}
+                items={[
+                    { id: "__all", name: "Все блоки" },
+                    ...blocks.map((block) => ({
+                        id: block,
+                        name: BLOCK_LABELS[block] ?? block,
+                    })),
+                ]}
+                selectedKey={blockFilter ?? "__all"}
+                onSelectionChange={(key) =>
+                    setBlockFilter(key && key !== "__all" ? String(key) : null)
+                }
+            />
+        </div>
+    );
+
+    // Form tabs — the same strip as «Сырьё», right after the version and block
+    // selectors. Only a multi-section user (an admin) gets a strip; the empty
+    // wrapper still absorbs the free width so the view strip stays on the right.
+    const sectionTabsStrip = (
+        <div className="table-toolbar__controls">
+            {sectionTabItems.length > 1 ? (
+                <SectionTabs
+                    tabs={sectionTabItems}
+                    value={activeSection}
+                    onChange={(tab) => {
+                        if (tab.id === activeSection) return;
+                        setActiveSection(tab.id);
+                        onSectionChange?.(tab.id);
+                    }}
                 />
-            </div>
-        ) : null;
+            ) : null}
+        </div>
+    );
 
     const toolbar = (
         <div className="table-toolbar">
             {versionPicker}
-            <div className="table-toolbar__filters">
-                {isAdmin ? (
-                    <div className="table-toolbar__controls">
-                        <SearchAutocomplete
-                            placeholder="Форма"
-                            compactLabel="Форма"
-                            onOpenChange={setToolbarControlOpen}
-                            items={sectionOptions}
-                            selectedKey={activeSection}
-                            onSelectionChange={handleSectionChange}
-                        />
-                    </div>
-                ) : null}
-                {planFilters}
-                {blockFilterSelect}
-            </div>
+            {blockFilterSelect}
+            {sectionTabsStrip}
             <ViewStrip
                 headerPinned={isPlanSection ? planHeaderPinned : dictHeaderPinned}
                 onHeaderPinnedChange={isPlanSection ? setPlanHeaderPinned : setDictHeaderPinned}

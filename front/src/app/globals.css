@@ -380,28 +380,6 @@ body {
     overflow: hidden;
 }
 
-/* The grouped form/asset/block controls share the same tight gap as the
-   view-strip buttons («Скачать в Excel» / «Вид таблицы»). */
-.table-toolbar__filters {
-    display: flex;
-    min-width: 0;
-    flex: 1 1 auto;
-    align-items: center;
-    gap: 0.45rem;
-    overflow: hidden;
-}
-
-.table-toolbar__filters > .table-toolbar__controls {
-    flex: 0 1 auto;
-}
-
-/* Override the fixed-size `flex` the toolbar's blanket child rule applies:
-   the tab strip must be able to shrink so the right cluster always stays on
-   screen when the tabs are wide. */
-.table-toolbar > .table-toolbar__controls,
-.table-toolbar > .table-toolbar__filters {
-    flex: 1 1 auto;
-}
 .section-tabs {
     width: 100%;
     min-width: 0;
@@ -709,16 +687,14 @@ body {
     gap: 0.8rem;
 }
 
-.archive-autocomplete {
-    /* Content-sized trigger at every width: the two-line «Рабочая версия»
-       takes as much space as it needs. The opened list keeps its own width
-       (see .search-autocomplete-popover below — at least 22rem). It never
-       shrinks below its content in the expanded state; the collapse/expand
-       between sections (version picker present vs. absent) is animated. */
-    width: auto;
+/* A toolbar control shown only on some sections (the «Рабочая версия» picker,
+   the plan's «Блок» filter): it stays mounted and collapses its width — plus
+   margin and opacity — instead of popping, so the toolbar settles smoothly
+   when the section changes. */
+.archive-autocomplete,
+.toolbar-collapse {
     max-width: 22rem;
     min-width: 0;
-    flex: 0 0 auto;
     overflow: hidden;
     opacity: 1;
     pointer-events: auto;
@@ -728,7 +704,17 @@ body {
         opacity 140ms ease;
 }
 
-.archive-autocomplete--hidden {
+.archive-autocomplete {
+    /* Content-sized trigger at every width: the two-line «Рабочая версия»
+       takes as much space as it needs. The opened list keeps its own width
+       (see .search-autocomplete-popover below — at least 22rem). It never
+       shrinks below its content in the expanded state. */
+    width: auto;
+    flex: 0 0 auto;
+}
+
+.archive-autocomplete--hidden,
+.toolbar-collapse--hidden {
     max-width: 0;
     margin-right: 0;
     opacity: 0;
@@ -2090,43 +2076,83 @@ body {
 
 /* ─── Header column filter ─────────────────────────────────── */
 
-/* The filter funnel on a leaf header cell: dimmed by default, highlighted when
-   the column has an active filter. */
+/* The filter funnel on a leaf header cell. The plan draws its headers as an
+   overlay, so RevoGrid's own `.rv-filter` styles never reach this button —
+   these rules mirror them: the funnel sits at the cell's right edge, stays
+   collapsed (width 0, invisible) until the cell is hovered/focused or the
+   column has an active filter, and fades in while the label makes room. */
 .renovation-grid__filter-button {
     position: absolute;
-    right: 2px;
-    bottom: 2px;
-    display: inline-grid;
-    width: 16px;
-    height: 16px;
-    place-items: center;
+    z-index: 1;
+    top: 0;
+    right: 1px;
+    bottom: 1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 0;
     padding: 0;
     border: 0;
-    border-radius: 0.25rem;
-    background: transparent;
+    border-radius: 4px;
+    background: none;
     color: var(--muted);
     cursor: pointer;
-    opacity: 0.55;
+    opacity: 0;
     transition:
-        opacity 120ms ease,
-        color 120ms ease,
-        background-color 120ms ease;
+        opacity 267ms cubic-bezier(0.4, 0, 0.2, 1),
+        width 267ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.renovation-grid__filter-button svg {
-    width: 12px;
-    height: 12px;
+.renovation-grid__filter-icon {
+    width: 11px;
+    flex: 0 0 auto;
 }
 
-.renovation-grid__filter-button:hover,
-.renovation-grid__filter-button:focus-visible {
+.renovation-grid__header-cell:hover .renovation-grid__filter-button,
+.renovation-grid__header-cell:focus-within .renovation-grid__filter-button,
+.renovation-grid__filter-button.is-active {
+    width: 24px;
     opacity: 1;
-    background: var(--cell-border);
 }
 
 .renovation-grid__filter-button.is-active {
-    color: var(--foreground);
-    opacity: 1;
+    color: var(--accent);
+}
+
+/* The label reserves the funnel's width on hover/active — the same 24px
+   margin RevoGrid adds to its own header label. */
+.renovation-grid__header-label {
+    min-width: 0;
+    transition: margin-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.renovation-grid__header-cell:hover:has(.renovation-grid__filter-button)
+    .renovation-grid__header-label,
+.renovation-grid__header-cell:focus-within:has(.renovation-grid__filter-button)
+    .renovation-grid__header-label,
+.renovation-grid__header-cell:has(.renovation-grid__filter-button.is-active)
+    .renovation-grid__header-label {
+    margin-right: 24px;
+}
+
+/* Touch pointers have no hover: keep the funnels visible, like RevoGrid. */
+@media (hover: none), (pointer: coarse) {
+    .renovation-grid__header-cell:has(.renovation-grid__filter-button)
+        .renovation-grid__header-label {
+        margin-right: 24px;
+    }
+
+    .renovation-grid__filter-button {
+        width: 24px;
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .renovation-grid__filter-button,
+    .renovation-grid__header-label {
+        transition: none;
+    }
 }
 
 /* The Autocomplete trigger is an invisible zero-height anchor placed at the
