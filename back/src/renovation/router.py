@@ -56,6 +56,7 @@ from src.renovation.schemas import (
     RenovationPlanRead,
     RenovationPlanRowRead,
     RenovationPlanRowsRead,
+    RenovationPlanSummaryRead,
     RenovationPlanVersionRead,
     RenovationRowAssignRequest,
     RenovationUpdateRead,
@@ -87,6 +88,7 @@ from src.renovation.service import (
     read_plan_export_data,
     read_plan_facets,
     read_plan_rows,
+    read_plan_summary,
     read_plan_versions,
     read_renovation_asset_rows,
     read_renovation_catalog_rows,
@@ -220,6 +222,41 @@ async def get_renovation_plan_rows(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except CellValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+
+
+@router.get("/plan/summary", response_model=RenovationPlanSummaryRead)
+async def get_renovation_plan_summary(
+    session: SessionDependency,
+    access: AccessDependency,
+    plan_id: Annotated[UUID | None, Query()] = None,
+    state: Annotated[RPlanState | None, Query()] = None,
+    asset: Annotated[str | None, Query()] = None,
+    filters: Annotated[str | None, Query()] = None,
+    position_from: Annotated[int | None, Query(ge=1)] = None,
+    position_to: Annotated[int | None, Query(ge=1)] = None,
+) -> RenovationPlanSummaryRead:
+    """
+    Sum every numeric plan field over the same scope as `GET /plan/rows`.
+
+    Powers the pinned summary row: the totals follow the asset, header and
+    row-number filters, so they match the rows currently shown.
+    """
+    try:
+        values = await read_plan_summary(
+            session,
+            access.assets,
+            plan_id=plan_id,
+            state=state if state is not None else RPlanState.WORKING,
+            asset_name=asset,
+            filters=parse_column_filters(filters),
+            position_from=position_from,
+            position_to=position_to,
+        )
+    except RenovationPlanNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except CellValidationError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+    return RenovationPlanSummaryRead(values=values)
 
 
 def parse_column_filters(raw: str | None) -> list[RenovationColumnFilter]:

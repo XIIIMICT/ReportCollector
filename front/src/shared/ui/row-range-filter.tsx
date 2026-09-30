@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, FieldError, Label, NumberField, Popover } from "@heroui/react";
+import { FieldError, NumberField, Popover } from "@heroui/react";
 import { useState } from "react";
 
 export type RowRange = { from: number | null; to: number | null };
@@ -60,9 +60,9 @@ export function RowRangeFilter({
                                 onChange={setFrom}
                                 minValue={1}
                                 isInvalid={invalid}
+                                variant="secondary"
                                 aria-label="От"
                             >
-                                <Label>От</Label>
                                 <NumberField.Group>
                                     <NumberField.Input placeholder="От" />
                                 </NumberField.Group>
@@ -73,26 +73,14 @@ export function RowRangeFilter({
                                 onChange={setTo}
                                 minValue={1}
                                 isInvalid={invalid}
+                                variant="secondary"
                                 aria-label="До"
                             >
-                                <Label>До</Label>
                                 <NumberField.Group>
                                     <NumberField.Input placeholder="До" />
                                 </NumberField.Group>
                                 <FieldError>«От» не может быть больше «До».</FieldError>
                             </NumberField>
-                        </div>
-                        <div className="row-range-filter__actions">
-                            <Button
-                                variant="tertiary"
-                                size="sm"
-                                onPress={() => {
-                                    setFrom(undefined);
-                                    setTo(undefined);
-                                }}
-                            >
-                                Сбросить
-                            </Button>
                         </div>
                     </div>
                 </Popover.Dialog>

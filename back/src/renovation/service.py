@@ -528,7 +528,7 @@ def _sparse_row_renovation_id(
             direction_code=str(values.get("col_189") or "") or None,
             bpof_section=str(values.get("col_016") or "") or None,
             work_category=label_map.get(UUID(str(work_category_id))) if work_category_id else None,
-            defect_number=f"{Decimal(str(defect)):.0f}" if defect is not None else None,
+            defect_number=_defect_number_text(defect),
             correction_text=str(values.get("col_218") or "") or None,
             technology_position=str(values.get("col_011") or "") or None,
             work_type_label=label_map.get(UUID(str(work_type_id))) if work_type_id else None,
@@ -717,6 +717,37 @@ def _facet_date(value: str) -> date | None:
         return None
 
 
+def _plan_row_condition(
+    plan: RenovationPlan,
+    assets: list[RAsset],
+    *,
+    asset_name: str | None,
+    filters: list[RenovationColumnFilter] | None,
+    label_map: dict[UUID, str],
+    position_from: int | None,
+    position_to: int | None,
+) -> ColumnElement[bool]:
+    """Build the SQL scope of a plan read: visible assets plus header/position filters."""
+    asset_ids = [asset.id for asset in assets]
+    if asset_name is not None:
+        asset_ids = [asset.id for asset in assets if asset.name == asset_name]
+    condition = col(RenovationPlanRow.plan_id) == plan.id
+    if asset_name is not None:
+        condition = condition & col(RenovationPlanRow.asset_id).in_(asset_ids)
+    else:
+        condition = condition & (
+            col(RenovationPlanRow.asset_id).in_(asset_ids)
+            | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
+        )
+    for column_filter in filters or []:
+        condition = condition & _column_filter_condition(column_filter, label_map)
+    if position_from is not None:
+        condition = condition & (col(RenovationPlanRow.position) >= position_from)
+    if position_to is not None:
+        condition = condition & (col(RenovationPlanRow.position) <= position_to)
+    return condition
+
+
 async def read_plan_rows(
     session: AsyncSession,
     assets: list[RAsset],
@@ -747,24 +778,18 @@ async def read_plan_rows(
         asset_ids = [asset.id for asset in assets if asset.name == asset_name]
     label_map = await _reference_labels(session)
 
-    # Show the caller's asset rows plus the not-yet-assigned empty drafts.
-    row_condition = col(RenovationPlanRow.plan_id) == plan.id
-    if asset_name is not None:
-        row_condition = row_condition & col(RenovationPlanRow.asset_id).in_(asset_ids)
-    else:
-        row_condition = row_condition & (
-            col(RenovationPlanRow.asset_id).in_(asset_ids)
-            | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
-        )
-    # Header filters (AND), applied in SQL so offset/limit count only matches.
-    for column_filter in filters or []:
-        row_condition = row_condition & _column_filter_condition(column_filter, label_map)
-    # Row-number («№») range: an empty bound means "from the first" / "to the
-    # last"; the window, the «Найдено» counter and the export all respect it.
-    if position_from is not None:
-        row_condition = row_condition & (col(RenovationPlanRow.position) >= position_from)
-    if position_to is not None:
-        row_condition = row_condition & (col(RenovationPlanRow.position) <= position_to)
+    # Show the caller's asset rows plus the not-yet-assigned empty drafts; the
+    # header and row-number filters combine with AND, so offset/limit count only
+    # the matching rows.
+    row_condition = _plan_row_condition(
+        plan,
+        assets,
+        asset_name=asset_name,
+        filters=filters,
+        label_map=label_map,
+        position_from=position_from,
+        position_to=position_to,
+    )
     # The asset filter must be applied in SQL so offset/limit count only the
     # rows the caller may see — not the full plan.
     if len(asset_ids) != len(assets):
@@ -808,6 +833,49 @@ async def read_plan_rows(
         baselineBoundary=baseline_boundary,
         totalAll=total_all,
     )
+
+
+async def read_plan_summary(
+    session: AsyncSession,
+    assets: list[RAsset],
+    *,
+    plan_id: UUID | None = None,
+    state: RPlanState = RPlanState.WORKING,
+    asset_name: str | None = None,
+    filters: list[RenovationColumnFilter] | None = None,
+    position_from: int | None = None,
+    position_to: int | None = None,
+) -> dict[str, float]:
+    """
+    Sum every numeric field over the filtered plan (the pinned summary row).
+
+    Same scope as `read_plan_rows` (visible assets plus the header and
+    row-number filters), so the totals always match what the grid shows. Only
+    numeric fields are returned; an empty scope yields zeros.
+    """
+    if plan_id is not None:
+        plan = await session.get(RenovationPlan, plan_id)
+        if plan is None:
+            raise _ERR_PLAN_NOT_FOUND
+    else:
+        plan = await _plan_by_state(session, state)
+        if plan is None:
+            error = RenovationPlanNotFoundError(f"Нет плана в состоянии «{state.value}».")
+            raise error
+    label_map = await _reference_labels(session)
+    row_condition = _plan_row_condition(
+        plan,
+        assets,
+        asset_name=asset_name,
+        filters=filters,
+        label_map=label_map,
+        position_from=position_from,
+        position_to=position_to,
+    )
+    numeric = [meta.db_name for meta in field_metas() if meta.cell_type == "number"]
+    columns = [func.coalesce(func.sum(getattr(RenovationPlanRow, name)), 0) for name in numeric]
+    sums = (await session.exec(select(*columns).select_from(RenovationPlanRow).where(row_condition))).one()
+    return {name: float(value or 0) for name, value in zip(numeric, sums, strict=True)}
 
 
 async def read_plan_facets(
@@ -1321,6 +1389,24 @@ def _row_renovation_id(
 _RENOVATION_ID_INPUT_FIELDS = frozenset({"col_016", "col_017", "col_023", "col_024", "col_189", "col_218"})
 
 
+def _defect_number_text(value: object) -> str | None:
+    """
+    Return the 7-digit defect-statement number as text.
+
+    The source stores it as a number, so a dropped leading zero is restored
+    (`706179` → `0706179`); the legacy id expects exactly seven digits.
+    """
+    if value is None:
+        return None
+    try:
+        text = f"{Decimal(str(value)):.0f}"
+    except InvalidOperation, ValueError:
+        return str(value)
+    if text.isdigit() and len(text) < 7:
+        return text.zfill(7)
+    return text
+
+
 def _renovation_id_input(
     row: RenovationPlanRow,
     asset: RAsset,
@@ -1342,7 +1428,7 @@ def _renovation_id_input(
         direction_code=row.col_189,
         bpof_section=row.col_016,
         work_category=label_map.get(row.col_017) if row.col_017 is not None else None,
-        defect_number=f"{Decimal(str(row.col_023)):.0f}" if row.col_023 is not None else None,
+        defect_number=_defect_number_text(row.col_023),
         correction_text=row.col_218,
         technology_position=row.col_011,
         work_type_label=label_map.get(row.col_018) if row.col_018 is not None else None,

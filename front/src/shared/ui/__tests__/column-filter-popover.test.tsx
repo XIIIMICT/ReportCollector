@@ -48,7 +48,7 @@ async function openFilter(column = "col_011", firstLabel = "Насос") {
 }
 
 function master() {
-    return screen.getByRole("option", { name: "Выбрать все" });
+    return screen.getByRole("option", { name: /Выбрать все/ });
 }
 
 test("separator sits between «Пустые» and the values", async () => {

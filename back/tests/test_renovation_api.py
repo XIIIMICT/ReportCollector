@@ -245,6 +245,18 @@ async def test_edit_rebuilds_renovation_id_when_correction_replaces_defect(
     assert "1382467" not in (row.col_003 or "")
 
 
+async def test_renovation_id_pads_a_short_defect_number(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """A defect number stored as a number regains its leading zero in the id."""
+    row = await _row_by_asset_code(db_session, "bsk")
+    status, _ = await _patch(client, [{"rowId": str(row.id), "field": "col_023", "value": 706179}])
+    assert status == 200
+    await db_session.refresh(row)
+    assert "0706179" in (row.col_003 or "")
+
+
 async def test_read_plan_facets_with_offsets(client: AsyncClient) -> None:
     """The distinct-value window is lazy: offset/limit page over the sorted list."""
     response = await client.get(
@@ -295,6 +307,23 @@ async def test_plan_rows_position_range(client: AsyncClient) -> None:
     )
     assert from_two.json()["total"] == 1
     assert from_two.json()["rows"][0]["position"] == 2
+
+
+async def test_plan_summary_sums_numeric_fields(client: AsyncClient) -> None:
+    """The pinned summary sums the numeric fields of the filtered plan."""
+    response = await client.get("/api/renovation/plan/summary", headers=ADMIN_HEADERS)
+    assert response.status_code == 200
+    values = response.json()["values"]
+    # The fixture's two rows carry col_028 = 10 and 5.
+    assert values["col_028"] == 15.0
+
+    filtered = await client.get(
+        "/api/renovation/plan/summary",
+        headers=ADMIN_HEADERS,
+        params={"position_from": 1, "position_to": 1},
+    )
+    assert filtered.status_code == 200
+    assert filtered.json()["values"]["col_028"] == 10.0
 
 
 async def test_plan_rows_filter_by_text_value(client: AsyncClient) -> None:
@@ -446,7 +475,7 @@ async def test_read_plan_rows_tolerates_invalid_renovation_id(client: AsyncClien
     """A row with components outside the legacy ID rules must not 500 the window."""
     row = await _row_by_asset_code(db_session, "bsk")
     row.col_003 = None
-    row.col_023 = Decimal(101)  # not the required seven digits
+    row.col_023 = Decimal(12345678)  # more than the required seven digits
     db_session.add(row)
     await db_session.commit()
 
@@ -467,7 +496,7 @@ async def test_export_tolerates_invalid_renovation_id(client: AsyncClient, db_se
     """The export recomputes missing IDs too, so it must survive the same bad row."""
     row = await _row_by_asset_code(db_session, "bsk")
     row.col_003 = None
-    row.col_023 = Decimal(101)
+    row.col_023 = Decimal(12345678)
     db_session.add(row)
     await db_session.commit()
 

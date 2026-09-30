@@ -160,6 +160,12 @@ class RenovationPlanRowsRead(BaseModel):
     totalAll: int | None = None
 
 
+class RenovationPlanSummaryRead(BaseModel):
+    """Numeric totals of the filtered plan (the pinned summary row)."""
+
+    values: dict[str, float]
+
+
 class RenovationColumnFilter(BaseModel):
     """
     One active header filter on a plan column.

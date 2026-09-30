@@ -189,6 +189,28 @@ export async function getRenovationPlanRows(
     return requestJson(`/api/renovation/plan/rows?${params.toString()}`);
 }
 
+export async function getRenovationPlanSummary(
+    params: {
+        planId?: string;
+        asset?: string | null;
+        filters?: RenovationColumnFilter[] | null;
+        positionFrom?: number | null;
+        positionTo?: number | null;
+    } = {},
+): Promise<Record<string, number>> {
+    const query = new URLSearchParams();
+    if (params.planId) query.set("plan_id", params.planId);
+    if (params.asset) query.set("asset", params.asset);
+    if (params.filters && params.filters.length > 0)
+        query.set("filters", JSON.stringify(params.filters));
+    if (params.positionFrom != null) query.set("position_from", String(params.positionFrom));
+    if (params.positionTo != null) query.set("position_to", String(params.positionTo));
+    const data = await requestJson<{ values: Record<string, number> }>(
+        `/api/renovation/plan/summary?${query.toString()}`,
+    );
+    return data.values;
+}
+
 export type RenovationFacetValue = {
     value: string | null;
     count: number;

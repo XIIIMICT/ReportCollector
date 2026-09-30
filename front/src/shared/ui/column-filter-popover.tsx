@@ -55,6 +55,9 @@ export function ColumnFilterPopover({
 }) {
     const [values, setValues] = useState<string[]>([]);
     const [hasNulls, setHasNulls] = useState(false);
+    // Distinct value count across the whole filtered plan — shown on the
+    // master item as «Выбрать все (N)».
+    const [total, setTotal] = useState(0);
     const [query, setQuery] = useState("");
     const [allActive, setAllActive] = useState(true);
     // «Пустые» is on by default so the default state really is "everything".
@@ -74,6 +77,7 @@ export function ColumnFilterPopover({
                     .filter((value): value is string => value !== null);
                 setValues(loaded);
                 setHasNulls(facets.hasNulls);
+                setTotal(facets.total);
                 if (keepAllOnLoad.current) {
                     setKept(new Set(loaded));
                     keepAllOnLoad.current = false;
@@ -188,7 +192,7 @@ export function ColumnFilterPopover({
                     renderEmptyState={() => <EmptyState>Нет значений</EmptyState>}
                 >
                     <ListBox.Item key={ALL_KEY} id={ALL_KEY} textValue="Выбрать все">
-                        Выбрать все
+                        {total > 0 ? `Выбрать все (${total})` : "Выбрать все"}
                         <ListBox.ItemIndicator />
                     </ListBox.Item>
                     {hasNulls ? (

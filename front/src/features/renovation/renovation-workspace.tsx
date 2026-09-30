@@ -35,6 +35,7 @@ import {
     getRenovationDiff,
     getRenovationMeta,
     getRenovationPlanRows,
+    getRenovationPlanSummary,
     getRenovationPlans,
     getUndoState,
     redoCells,
@@ -101,11 +102,11 @@ const WORKING_VERSION_ID = "__working";
 // position compensated by the evicted height. Row numbering is the stored
 // position («№»), so windowing is invisible in the UI. Archived versions are
 // read-only comparisons and stay full reads.
-// 75 строк на чанк. Первым запросом читается ровно один чанк — его пользователь
+// 100 строк на чанк. Первым запросом читается ровно один чанк — его пользователь
 // видит сразу; следующим — BUFFER_CHUNKS над ним (см. useEffect ниже). Дальше
 // окно растит по краям: пока сверху/снизу от видимой области есть BUFFER_CHUNKS
 // буферных чанков, догрузки нет; окно никогда не держит больше WINDOW_MAX_ROWS.
-const WINDOW_CHUNK = 75;
+const WINDOW_CHUNK = 100;
 /** Chunk-буферов держится над и под видимой областью до начала догрузки. */
 const BUFFER_CHUNKS = 2;
 const WINDOW_MAX_ROWS = WINDOW_CHUNK * 5;
@@ -233,15 +234,12 @@ export function RenovationWorkspace({
     // anchor); switching the version or the asset filter resets it to the top.
     const [planWindow, setPlanWindow] = useState<PlanWindow | null>(null);
     const [planError, setPlanError] = useState<string | null>(null);
-    const [scrollCompensation, setScrollCompensation] = useState<{
-        deltaRows: number;
-        token: number;
-    } | null>(null);
+    // Numeric totals of the filtered plan — the pinned summary row.
+    const [summaryValues, setSummaryValues] = useState<Record<string, number> | null>(null);
     const windowGenerationRef = useRef(0);
     const planWindowRef = useRef<PlanWindow | null>(null);
     const loadingBottomRef = useRef(false);
     const loadingTopRef = useRef(false);
-    const compensationTokenRef = useRef(0);
     // After a structural load the grid jumps to this edge of the loaded data:
     // the working plan anchors at its TAIL (rows are appended at the end), the
     // archive reads top-down.
@@ -403,6 +401,32 @@ export function RenovationWorkspace({
         };
     }, [meta, viewPlanId, assetFilter, activeColumnFilters, positionFilter, isPlanSection]);
 
+    // Pinned summary row: an aggregating query over the same scope as the row
+    // window (asset + header + row-number filters), refreshed with them.
+    useEffect(() => {
+        if (!meta || !isPlanSection) {
+            setSummaryValues(null);
+            return;
+        }
+        let cancelled = false;
+        void getRenovationPlanSummary({
+            planId: viewPlanId ?? undefined,
+            asset: assetFilter,
+            filters: activeColumnFilters,
+            positionFrom: positionFilter?.from ?? null,
+            positionTo: positionFilter?.to ?? null,
+        })
+            .then((values) => {
+                if (!cancelled) setSummaryValues(values);
+            })
+            .catch(() => {
+                if (!cancelled) setSummaryValues(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [meta, viewPlanId, assetFilter, activeColumnFilters, positionFilter, isPlanSection]);
+
     // In-place reload (refresh()): re-read the current window, keep the anchor.
     // The working and the pending («на согласовании») views re-read their own
     // window (so recalced cells like the renovation ID appear in place); only a
@@ -488,24 +512,15 @@ export function RenovationWorkspace({
                     : []
             ) as RenovationPlanRow[];
             let newStart = start + first;
-            // Rows prepended above the viewport shift the content down by their
-            // height. Compensate on EVERY top load, not only once the window is
-            // at WINDOW_MAX_ROWS: during the first growth (300 → 600 → 900 →
-            // 1200) the old code left the scroll where it was, so the viewport
-            // jumped a whole chunk and the «№» column appeared to renumber.
-            let deltaRows = direction === "top" ? prev.start - newStart : 0;
             if (rows.length > WINDOW_MAX_ROWS) {
                 if (direction === "top") {
-                    // Prepend: the overflow is trimmed from the far (bottom)
-                    // side, which needs no compensation.
+                    // Prepend: trim the overflow from the far (bottom) side.
                     rows = rows.slice(0, WINDOW_MAX_ROWS);
                 } else {
+                    // Append: trim the overflow from the top.
                     const evict = rows.length - WINDOW_MAX_ROWS;
                     rows = rows.slice(evict);
                     newStart += evict;
-                    // Append overflow trims the TOP — the content above the
-                    // viewport shrank, move the scroll up accordingly.
-                    deltaRows = -evict;
                 }
             }
             const next: PlanWindow = {
@@ -518,10 +533,6 @@ export function RenovationWorkspace({
                 complete: false,
             };
             planWindowRef.current = next;
-            if (deltaRows !== 0) {
-                compensationTokenRef.current += 1;
-                setScrollCompensation({ deltaRows, token: compensationTokenRef.current });
-            }
             setPlanWindow(next);
         },
         [],
@@ -1889,10 +1900,10 @@ export function RenovationWorkspace({
                                                 hasMoreBottom={hasMoreBottom}
                                                 onNearTop={handleNearTop}
                                                 onNearBottom={handleNearBottom}
-                                                scrollCompensation={scrollCompensation}
                                                 scrollToEdge={scrollToEdge}
                                                 totalRowsOverride={planWindow.total}
                                                 totalAllRowsOverride={planWindow.totalAll}
+                                                summaryValues={summaryValues}
                                                 activeFilterColumns={activeFilterColumns}
                                                 onOpenColumnFilter={(column, anchor) =>
                                                     setColumnFilterTarget({

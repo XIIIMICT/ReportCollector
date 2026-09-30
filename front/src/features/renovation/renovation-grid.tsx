@@ -54,6 +54,9 @@ import { isFromTextEditor } from "@/shared/keyboard";
 export const RENOVATION_PLAN_ROWS_TABLE = "renovation_plan_rows";
 
 const HEADER_LEVEL_HEIGHT = 24;
+
+/** The pinned summary row's number format (thousands, at most two decimals). */
+const SUMMARY_NUMBER_FORMAT = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
 const HEADER_LEVEL_COUNT = 11;
 const ROW_HEADER_WIDTH = 52;
 const MIN_COLUMN_WIDTH = 60;
@@ -156,12 +159,12 @@ export type RenovationGridProps = {
     /** The user scrolled within LAZY_EDGE_ROWS of the window edge. */
     onNearTop?: () => void;
     onNearBottom?: () => void;
-    /** Shift the vertical scroll after a window slide (evicted/prepended rows). */
-    scrollCompensation?: { deltaRows: number; token: number } | null;
     /** The full plan size — the loaded window is only a slice of it. */
     totalRowsOverride?: number | null;
     /** Whole-plan row count (unfiltered) — the «всего» counter; null → same as totalRowsOverride. */
     totalAllRowsOverride?: number | null;
+    /** Numeric totals of the filtered plan — the pinned summary row (null hides it). */
+    summaryValues?: Record<string, number> | null;
     /** After a structural window load, jump to this edge of the loaded data. */
     scrollToEdge?: { edge: "top" | "bottom"; token: number } | null;
     /** Columns with an active header filter (leaf header shows the active marker). */
@@ -317,9 +320,9 @@ function RenovationGridInner(
         hasMoreBottom = false,
         onNearTop,
         onNearBottom,
-        scrollCompensation,
         totalRowsOverride = null,
         totalAllRowsOverride = null,
+        summaryValues = null,
         scrollToEdge,
         activeFilterColumns,
         onOpenColumnFilter,
@@ -999,9 +1002,10 @@ function RenovationGridInner(
     // scroll is still parked at the old offset (and the watcher re-attaches as
     // the window prop changes), so without this the same approach loaded
     // several chunks in a row.
-    const compensationRef = useRef(scrollCompensation);
-    compensationRef.current = scrollCompensation;
-    const appliedCompensationTokenRef = useRef(-1);
+    // True while the anchor restore is writing the scroll: the programmatic
+    // write fires a scroll event that would otherwise be read as "the user
+    // approached an edge" and load another chunk immediately.
+    const restoringScrollRef = useRef(false);
     useEffect(() => {
         if (!onNearBottom && !onNearTop) return;
         let target: HTMLElement | null = null;
@@ -1019,9 +1023,7 @@ function RenovationGridInner(
             return verticalScrollRef.current;
         };
         const check = () => {
-            if (settlingScrollRef.current) return;
-            const pending = compensationRef.current;
-            if (pending && pending.token !== appliedCompensationTokenRef.current) return;
+            if (settlingScrollRef.current || restoringScrollRef.current) return;
             const el = target;
             if (!el) return;
             // No overflow yet (the spacer is not measured, or everything fits)
@@ -1057,121 +1059,79 @@ function RenovationGridInner(
         };
     }, [hasMoreBottom, hasMoreTop, headerPinned, onNearBottom, onNearTop, displaySource]);
 
-    // After a window slide (rows prepended or evicted from the top) the scroll
-    // position must move by the same height, or the viewport jumps. This is a
-    // layout effect so the shift lands before paint; the retry covers the pinned
-    // strip, whose spacer revo-grid re-measures asynchronously. Pinned mode
-    // scrolls through revo-grid (`scrollToRow`) rather than writing `scrollTop`
-    // on the strip: the direct write left the row-header strip out of sync, so
-    // the «№» column went blank until the next real scroll.
-    //
-    // It applies on every top prepend — including the buffer chunk loaded right
-    // after the structural tail load: the prepended rows sit above the viewport,
-    // so the scroll must move down by their height to keep the tail in view.
-    // (The structural jump re-targets the bottom on each poll, so an early
-    // shift is harmless — the jump overwrites it and lands at the bottom.)
-    useLayoutEffect(() => {
-        if (!scrollCompensation || scrollCompensation.deltaRows === 0) return;
-        const { deltaRows, token } = scrollCompensation;
-        const el = () =>
-            lazyTargetRef.current ??
-            (headerPinned
+    // Preserve the user's view across any window change — a top/bottom chunk
+    // load or an eviction — and the header-pin scroller swap. The top visible
+    // row is tracked by its stable «№» position; after the new source renders
+    // the scroll is put back on that row. This is robust to revo-grid resetting
+    // `scrollTop` when the `source` array is replaced (a plain pixel delta then
+    // lands in the wrong place — the "landed a chunk higher" bug). The layout
+    // effect applies before paint; the retry covers the pinned strip, whose
+    // spacer revo-grid re-measures asynchronously.
+    const scrollTarget = useCallback(
+        () =>
+            headerPinned
                 ? (gridRef.current?.querySelector(
                       "revogr-scroll-virtual.vertical",
                   ) as HTMLElement | null)
-                : verticalScrollRef.current);
-        const delta = deltaRows * 36;
-        let attempts = 0;
-        // Release the guard once the scroll has settled (revo-grid's own scroll
-        // is async), then re-run the edge check so a genuine need still loads.
-        const settle = (remaining: number, expectedRow: number | null) => {
-            const current = el();
-            const reached =
-                current === null || expectedRow === null
-                    ? true
-                    : Math.abs(current.scrollTop / 36 - expectedRow) < 2;
-            if (reached || remaining <= 0) {
-                appliedCompensationTokenRef.current = token;
-                checkRef.current?.();
-                return;
+                : verticalScrollRef.current,
+        [headerPinned],
+    );
+    const anchorRef = useRef<{ position: number; offset: number } | null>(null);
+    useEffect(() => {
+        const update = () => {
+            const el = scrollTarget();
+            if (!el || displaySource.length === 0) return;
+            const index = Math.max(
+                0,
+                Math.min(displaySource.length - 1, Math.round(el.scrollTop / 36)),
+            );
+            const row = displaySource[index];
+            if (row) {
+                anchorRef.current = {
+                    position: row.__position,
+                    offset: el.scrollTop - index * 36,
+                };
             }
-            requestAnimationFrame(() => settle(remaining - 1, expectedRow));
+        };
+        const el = scrollTarget();
+        el?.addEventListener("scroll", update, { passive: true });
+        update();
+        return () => el?.removeEventListener("scroll", update);
+    }, [displaySource, scrollTarget]);
+    useLayoutEffect(() => {
+        // The structural edge jump owns the scroll until it settles.
+        if (settlingScrollRef.current) return;
+        const anchor = anchorRef.current;
+        if (!anchor) return;
+        const index = displaySource.findIndex((row) => row.__position === anchor.position);
+        if (index < 0) return; // the anchored row was evicted — leave the scroll
+        const target = Math.max(0, index * 36 + anchor.offset);
+        restoringScrollRef.current = true;
+        let attempts = 0;
+        const finish = () => {
+            restoringScrollRef.current = false;
+            checkRef.current?.();
         };
         const apply = () => {
-            const target = el();
-            if (!target) {
-                appliedCompensationTokenRef.current = token;
+            const el = scrollTarget();
+            if (!el || Math.abs(el.scrollTop - target) <= 1) {
+                finish();
                 return;
             }
             if (headerPinned && gridRef.current) {
-                const targetRow = Math.max(0, Math.round(target.scrollTop / 36) + deltaRows);
-                void gridRef.current.scrollToRow(targetRow);
-                settle(4, targetRow);
-                return;
+                void gridRef.current.scrollToRow(index);
+            } else {
+                el.scrollTop = target;
             }
-            const before = target.scrollTop;
-            target.scrollTop = before + delta;
-            if (target.scrollTop !== before + delta && attempts < 3) {
+            if (attempts < 8) {
                 attempts += 1;
                 requestAnimationFrame(apply);
-                return;
+            } else {
+                finish();
             }
-            settle(1, null);
         };
         apply();
-    }, [scrollCompensation, headerPinned]);
-
-    // Toggling headerPinned swaps the scroll target (pinned → the internal
-    // virtual strip, unpinned → the external scroller), which would drop the
-    // viewport to the top. Track the current top row continuously and restore it
-    // on the newly active scroller after the swap so the position is preserved.
-    const topRowRef = useRef(0);
-    useEffect(() => {
-        const update = () => {
-            const el = headerPinned
-                ? (gridRef.current?.querySelector(
-                      "revogr-scroll-virtual.vertical",
-                  ) as HTMLElement | null)
-                : verticalScrollRef.current;
-            if (el) topRowRef.current = Math.round(el.scrollTop / 36);
-        };
-        const el = headerPinned
-            ? (gridRef.current?.querySelector(
-                  "revogr-scroll-virtual.vertical",
-              ) as HTMLElement | null)
-            : verticalScrollRef.current;
-        el?.addEventListener("scroll", update, { passive: true });
-        return () => el?.removeEventListener("scroll", update);
-    }, [headerPinned]);
-
-    useEffect(() => {
-        const ROW_H = 36;
-        let attempts = 0;
-        const apply = () => {
-            // Don't fight a pending structural edge jump: on a fresh tail load
-            // topRowRef starts at 0 and blindly restoring "previous top row"
-            // forces scrollTop back to the top, un-homing the tail. The jump
-            // effect owns the scroll until it settles.
-            if (settlingScrollRef.current) return;
-            const el = headerPinned
-                ? (gridRef.current?.querySelector(
-                      "revogr-scroll-virtual.vertical",
-                  ) as HTMLElement | null)
-                : verticalScrollRef.current;
-            if (!el) {
-                if (attempts < 40) setTimeout(apply, 100);
-                return;
-            }
-            const target = Math.max(0, topRowRef.current * ROW_H);
-            if (Math.abs(el.scrollTop - target) > 1 && attempts < 30) {
-                el.scrollTop = target;
-                attempts += 1;
-                setTimeout(apply, 60);
-            }
-        };
-        const t = setTimeout(apply, 0);
-        return () => clearTimeout(t);
-    }, [headerPinned]);
+    }, [displaySource, scrollTarget, headerPinned]);
 
     // After a structural window load the workspace asks to jump to an edge:
     // the working plan anchors at its TAIL (rows are appended at the end), the
@@ -1989,6 +1949,10 @@ function RenovationGridInner(
     }, [assetWidth, displayFields, fieldWidth, geometry.offsets]);
 
     const headerHeight = HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT;
+    // The pinned summary row sits right under the header levels; its totals
+    // follow the active filters (null hides it).
+    const summaryHeight = summaryValues ? 36 : 0;
+    const overlayHeight = headerHeight + summaryHeight;
 
     // Unpinned mode (corner menu «Закрепить заголовок» off) — the same
     // scrolling model as the «Сырьё» grids: the header scrolls away with the
@@ -2053,7 +2017,7 @@ function RenovationGridInner(
     }, []);
 
     const headerOverlay = (
-        <div className="renovation-grid__header" style={{ height: headerHeight }}>
+        <div className="renovation-grid__header" style={{ height: overlayHeight }}>
             <div className="renovation-grid__corner">
                 <span className="renovation-grid__corner-label">№</span>
                 {onOpenRowFilter ? (
@@ -2101,7 +2065,7 @@ function RenovationGridInner(
                 className="renovation-grid__header-body"
                 style={{
                     width: geometry.totalWidth,
-                    height: headerHeight,
+                    height: overlayHeight,
                 }}
             >
                 {overlayCells.map((cell) => (
@@ -2167,6 +2131,26 @@ function RenovationGridInner(
                         ) : null}
                     </div>
                 ))}
+                {summaryValues
+                    ? visibleFields.map((field) => {
+                          const value = summaryValues[field.dbName];
+                          if (value === undefined) return null;
+                          return (
+                              <div
+                                  key={`summary:${field.dbName}`}
+                                  className="renovation-grid__summary-cell"
+                                  style={{
+                                      left: geometry.offsets.get(field.dbName) ?? ROW_HEADER_WIDTH,
+                                      top: headerHeight,
+                                      width: widthOf(field),
+                                      height: summaryHeight,
+                                  }}
+                              >
+                                  {SUMMARY_NUMBER_FORMAT.format(value)}
+                              </div>
+                          );
+                      })
+                    : null}
                 {handles.map((handle) => (
                     <div
                         key={handle.key}
