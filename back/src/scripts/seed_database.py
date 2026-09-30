@@ -399,6 +399,9 @@ _SOURCE_HEADER_ALIASES: dict[str, str] = {
     _normalize_header("Способ выполнения работ"): "col_020",
     _normalize_header("Инвентарный № (РЕГ.№)"): "col_012",
     _normalize_header("Исполнитель работ"): "col_021",
+    # The «РБ ПОФ» workbooks name the direction code (col_189) «Лот» — the value
+    # that forms the third segment of the work id (e.g. `1.3.1`).
+    _normalize_header("Лот"): "col_189",
 }
 # Headers matched by prefix (the defect-statement column carries a long
 # parenthetical that varies by file; only the leading phrase is stable).
@@ -526,7 +529,6 @@ _IGNORED_HEADERS: frozenset[str] = frozenset(
     for text in (
         "Год",
         "Наименование ДО",
-        "Лот",
         "Код работы",
         "Код ДВ",
         "Номер ОР",
