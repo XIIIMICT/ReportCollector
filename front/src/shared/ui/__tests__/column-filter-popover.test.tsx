@@ -76,6 +76,27 @@ test("unchecking the last option unchecks «Выбрать все»", async () =
     await waitFor(() => expect(master().getAttribute("aria-selected")).toBe("false"));
 });
 
+test("unchecking «Выбрать все» clears every option, «Пустые» included", async () => {
+    await openFilter();
+    expect(master().getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("option", { name: "Пустые" }).getAttribute("aria-selected")).toBe(
+        "true",
+    );
+
+    fireEvent.click(master());
+
+    await waitFor(() => expect(master().getAttribute("aria-selected")).toBe("false"));
+    expect(screen.getByRole("option", { name: "Пустые" }).getAttribute("aria-selected")).toBe(
+        "false",
+    );
+    expect(screen.getByRole("option", { name: "Насос" }).getAttribute("aria-selected")).toBe(
+        "false",
+    );
+    expect(screen.getByRole("option", { name: "Шкаф" }).getAttribute("aria-selected")).toBe(
+        "false",
+    );
+});
+
 test("ID column: unchecking both buckets unchecks «Выбрать все»", async () => {
     await openFilter("col_003", "Корректные");
     expect(master().getAttribute("aria-selected")).toBe("true");

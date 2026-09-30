@@ -193,12 +193,15 @@ async def get_renovation_plan_rows(
     limit: Annotated[int, Query(ge=1, le=10000)] = 1000,
     asset: Annotated[str | None, Query()] = None,
     filters: Annotated[str | None, Query()] = None,
+    position_from: Annotated[int | None, Query(ge=1)] = None,
+    position_to: Annotated[int | None, Query(ge=1)] = None,
 ) -> RenovationPlanRowsRead:
     """
     Return a window of renovation plan rows plus the total (lazy loading).
 
     `filters` is a JSON array of `{column, values, includeNulls}` (the header
     filters) — combined with AND and applied in SQL so the window is correct.
+    `position_from`/`position_to` narrow the window to a row-number («№») range.
     """
     try:
         return await read_plan_rows(
@@ -210,6 +213,8 @@ async def get_renovation_plan_rows(
             limit=limit,
             asset_name=asset,
             filters=parse_column_filters(filters),
+            position_from=position_from,
+            position_to=position_to,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
@@ -467,7 +472,7 @@ def _plan_export_filename(plan: RenovationPlanExportData) -> str:
     }.get(plan.state, "версия")
     stamp = plan.stamp.astimezone()
     timestamp = stamp.strftime("%d.%m.%Y, %H.%M.%S")
-    return f"Пообъектовый план — {suffix} ({timestamp}).xlsx"
+    return f"Пообъектный план — {suffix} ({timestamp}).xlsx"
 
 
 @router.post("/plan/submit", response_model=RenovationPlanVersionRead)
@@ -482,6 +487,8 @@ async def post_renovation_submit(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except RenovationPlanStateError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     await _publish_rows_changed(session, access)
     return await _version_read(session, plan)
 

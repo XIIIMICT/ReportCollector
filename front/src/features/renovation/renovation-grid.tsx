@@ -168,6 +168,10 @@ export type RenovationGridProps = {
     activeFilterColumns?: ReadonlySet<string>;
     /** Open the column-filter popover for a leaf header (anchor = its rect). */
     onOpenColumnFilter?: (column: string, anchor: DOMRect) => void;
+    /** Open the row-number range filter from the «№» corner (anchor = its rect). */
+    onOpenRowFilter?: (anchor: DOMRect) => void;
+    /** Whether a row-number range filter is active (corner funnel highlight). */
+    rowFilterActive?: boolean;
 };
 
 export type RenovationGridHandle = {
@@ -319,6 +323,8 @@ function RenovationGridInner(
         scrollToEdge,
         activeFilterColumns,
         onOpenColumnFilter,
+        onOpenRowFilter,
+        rowFilterActive = false,
     }: RenovationGridProps,
     forwardedRef: Ref<RenovationGridHandle>,
 ) {
@@ -1058,11 +1064,15 @@ function RenovationGridInner(
     // scrolls through revo-grid (`scrollToRow`) rather than writing `scrollTop`
     // on the strip: the direct write left the row-header strip out of sync, so
     // the «№» column went blank until the next real scroll.
+    //
+    // It applies on every top prepend — including the buffer chunk loaded right
+    // after the structural tail load: the prepended rows sit above the viewport,
+    // so the scroll must move down by their height to keep the tail in view.
+    // (The structural jump re-targets the bottom on each poll, so an early
+    // shift is harmless — the jump overwrites it and lands at the bottom.)
     useLayoutEffect(() => {
         if (!scrollCompensation || scrollCompensation.deltaRows === 0) return;
         const { deltaRows, token } = scrollCompensation;
-        const delta = deltaRows * 36;
-        let attempts = 0;
         const el = () =>
             lazyTargetRef.current ??
             (headerPinned
@@ -1070,6 +1080,8 @@ function RenovationGridInner(
                       "revogr-scroll-virtual.vertical",
                   ) as HTMLElement | null)
                 : verticalScrollRef.current);
+        const delta = deltaRows * 36;
+        let attempts = 0;
         // Release the guard once the scroll has settled (revo-grid's own scroll
         // is async), then re-run the edge check so a genuine need still loads.
         const settle = (remaining: number, expectedRow: number | null) => {
@@ -2042,7 +2054,48 @@ function RenovationGridInner(
 
     const headerOverlay = (
         <div className="renovation-grid__header" style={{ height: headerHeight }}>
-            <div className="renovation-grid__corner">№</div>
+            <div className="renovation-grid__corner">
+                <span className="renovation-grid__corner-label">№</span>
+                {onOpenRowFilter ? (
+                    <button
+                        type="button"
+                        className={
+                            rowFilterActive
+                                ? "renovation-grid__filter-button is-active"
+                                : "renovation-grid__filter-button"
+                        }
+                        aria-label="Фильтр по номеру строки"
+                        aria-pressed={rowFilterActive}
+                        onPointerDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onOpenRowFilter(
+                                (
+                                    event.currentTarget.parentElement ?? event.currentTarget
+                                ).getBoundingClientRect(),
+                            );
+                        }}
+                    >
+                        <svg
+                            className="renovation-grid__filter-icon"
+                            viewBox="0 0 64 64"
+                            aria-hidden="true"
+                            focusable="false"
+                        >
+                            <g stroke="none" strokeWidth="1" fill="none" fillRule="evenodd">
+                                <path
+                                    d="M43,48 L43,56 L21,56 L21,48 L43,48 Z M53,28 L53,36 L12,36 L12,28 L53,28 Z M64,8 L64,16 L0,16 L0,8 L64,8 Z"
+                                    fill="currentColor"
+                                />
+                            </g>
+                        </svg>
+                    </button>
+                ) : null}
+            </div>
             <div
                 ref={headerBodyRef}
                 className="renovation-grid__header-body"

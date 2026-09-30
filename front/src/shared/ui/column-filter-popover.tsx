@@ -103,27 +103,29 @@ export function ColumnFilterPopover({
         const hadAll = selectedKeys.includes(ALL_KEY);
         const hasAll = next.has(ALL_KEY);
         if (hasAll !== hadAll) {
-            // The master toggle was clicked: select all values or clear them.
+            // The master toggle: select everything (the values plus «Пустые») or
+            // clear every option, «Пустые» included — unchecking «Выбрать все»
+            // must leave nothing selected.
             setAllActive(hasAll);
             setKept(hasAll ? new Set(values) : new Set());
-        } else {
-            const nextKept = new Set<string>();
-            for (const key of next) {
-                const text = String(key);
-                if (text !== ALL_KEY && text !== NULL_KEY) nextKept.add(text);
-            }
-            setKept(nextKept);
-            // «Выбрать все» mirrors the extremes: unchecking the last kept
-            // option unchecks it, selecting everything again checks it back.
-            // In between it keeps whatever the user left (so «всё, кроме
-            // некоторых» stays checked).
-            const keepsNulls = hasNulls && next.has(NULL_KEY);
-            const keepsNothing = nextKept.size === 0 && !keepsNulls;
-            const keepsEverything =
-                values.length > 0 && nextKept.size === values.length && (keepsNulls || !hasNulls);
-            if (keepsNothing) setAllActive(false);
-            else if (keepsEverything) setAllActive(true);
+            setIncludeNulls(hasAll);
+            return;
         }
+        const nextKept = new Set<string>();
+        for (const key of next) {
+            const text = String(key);
+            if (text !== ALL_KEY && text !== NULL_KEY) nextKept.add(text);
+        }
+        setKept(nextKept);
+        // «Выбрать все» mirrors the extremes: unchecking the last kept option
+        // unchecks it, selecting everything again checks it back. In between it
+        // keeps whatever the user left (so «всё, кроме некоторых» stays checked).
+        const keepsNulls = hasNulls && next.has(NULL_KEY);
+        const keepsNothing = nextKept.size === 0 && !keepsNulls;
+        const keepsEverything =
+            values.length > 0 && nextKept.size === values.length && (keepsNulls || !hasNulls);
+        if (keepsNothing) setAllActive(false);
+        else if (keepsEverything) setAllActive(true);
         setIncludeNulls(next.has(NULL_KEY));
     };
 

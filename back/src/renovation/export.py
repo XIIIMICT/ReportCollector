@@ -131,7 +131,7 @@ def _column_offset(meta: RenovationFieldMeta) -> int:
 
 
 def _write_plan_sheet_xml(worksheet: IO[bytes], plan: RenovationPlanExportData) -> None:
-    """Write sheet1.xml incrementally so memory stays bounded for 94k rows."""
+    """Write sheet1.xml incrementally so memory stays bounded for 300k rows."""
     fields = _export_fields(plan.block)
     column_by_field = {meta.db_name: 2 + index for index, meta in enumerate(fields)}
     worksheet.write(_SHEET_XML_PREFIX)

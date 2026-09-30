@@ -177,11 +177,15 @@ export async function getRenovationPlanRows(
     planId?: string,
     asset?: string | null,
     filters?: RenovationColumnFilter[] | null,
+    positionFrom?: number | null,
+    positionTo?: number | null,
 ): Promise<RenovationPlanRows> {
     const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
     if (planId) params.set("plan_id", planId);
     if (asset) params.set("asset", asset);
     if (filters && filters.length > 0) params.set("filters", JSON.stringify(filters));
+    if (positionFrom != null) params.set("position_from", String(positionFrom));
+    if (positionTo != null) params.set("position_to", String(positionTo));
     return requestJson(`/api/renovation/plan/rows?${params.toString()}`);
 }
 
@@ -283,7 +287,7 @@ export async function exportRenovationPlan(
     }
     return {
         blob: await response.blob(),
-        fileName: fileName || "Пообъектовый план — рабочая версия.xlsx",
+        fileName: fileName || "Пообъектный план — рабочая версия.xlsx",
     };
 }
 

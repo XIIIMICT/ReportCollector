@@ -2110,6 +2110,8 @@ body {
 
 .renovation-grid__header-cell:hover .renovation-grid__filter-button,
 .renovation-grid__header-cell:focus-within .renovation-grid__filter-button,
+.renovation-grid__corner:hover .renovation-grid__filter-button,
+.renovation-grid__corner:focus-within .renovation-grid__filter-button,
 .renovation-grid__filter-button.is-active {
     width: 24px;
     opacity: 1;
@@ -2135,10 +2137,25 @@ body {
     margin-right: 24px;
 }
 
+/* The «№» corner hosts the row-number range funnel; reserve its width too. */
+.renovation-grid__corner-label {
+    min-width: 0;
+    transition: margin-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.renovation-grid__corner:hover:has(.renovation-grid__filter-button) .renovation-grid__corner-label,
+.renovation-grid__corner:focus-within:has(.renovation-grid__filter-button)
+    .renovation-grid__corner-label,
+.renovation-grid__corner:has(.renovation-grid__filter-button.is-active)
+    .renovation-grid__corner-label {
+    margin-right: 24px;
+}
+
 /* Touch pointers have no hover: keep the funnels visible, like RevoGrid. */
 @media (hover: none), (pointer: coarse) {
     .renovation-grid__header-cell:has(.renovation-grid__filter-button)
-        .renovation-grid__header-label {
+        .renovation-grid__header-label,
+    .renovation-grid__corner:has(.renovation-grid__filter-button) .renovation-grid__corner-label {
         margin-right: 24px;
     }
 
@@ -2180,7 +2197,10 @@ body {
     gap: 0.4rem;
     padding: 0.5rem;
     border: 1px solid var(--border);
-    border-radius: 0.5rem;
+    /* HeroUI's default popover radius, so the column filter matches the other
+       Autocomplete popovers (the block/version filters) instead of a tighter
+       one-off rounding. */
+    border-radius: min(32px, var(--radius-3xl));
     background: var(--surface);
     box-shadow: 0 0.6rem 1.8rem rgb(22 25 24 / 18%);
 }
@@ -2195,4 +2215,33 @@ body {
 .column-filter__separator {
     margin: 0.25rem 0;
     background: var(--border);
+}
+
+/* ─── Row-number («№») range filter ────────────────────────── */
+
+.row-range-filter__popover {
+    width: 18rem;
+}
+
+.row-range-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.25rem;
+}
+
+.row-range-filter__fields {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+}
+
+.row-range-filter__fields > span {
+    padding-bottom: 0.6rem;
+    color: var(--muted);
+}
+
+.row-range-filter__actions {
+    display: flex;
+    justify-content: flex-end;
 }

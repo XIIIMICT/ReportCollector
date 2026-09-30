@@ -11,6 +11,7 @@ import {
     Send,
     Trash,
     Undo,
+    WarningTriangle,
 } from "iconoir-react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -51,7 +52,11 @@ import {
     type RenovationPlanVersion,
     type RenovationUndoResult,
 } from "@/shared/api/renovation";
-import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector";
+import {
+    isProjectAdmin,
+    ReportCollectorApiError,
+    type CurrentUser,
+} from "@/shared/api/report-collector";
 import { canonicalCellKey, useCollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
@@ -62,6 +67,7 @@ import { isFromTextEditor } from "@/shared/keyboard";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
 import { ColumnFilterPopover } from "@/shared/ui/column-filter-popover";
 import { FormStatus } from "@/shared/ui/form-status";
+import { RowRangeFilter } from "@/shared/ui/row-range-filter";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { ViewStrip } from "@/shared/ui/view-strip";
@@ -95,8 +101,14 @@ const WORKING_VERSION_ID = "__working";
 // position compensated by the evicted height. Row numbering is the stored
 // position («№»), so windowing is invisible in the UI. Archived versions are
 // read-only comparisons and stay full reads.
-const WINDOW_CHUNK = 300;
-const WINDOW_MAX_ROWS = 1200;
+// 75 строк на чанк. Первым запросом читается ровно один чанк — его пользователь
+// видит сразу; следующим — BUFFER_CHUNKS над ним (см. useEffect ниже). Дальше
+// окно растит по краям: пока сверху/снизу от видимой области есть BUFFER_CHUNKS
+// буферных чанков, догрузки нет; окно никогда не держит больше WINDOW_MAX_ROWS.
+const WINDOW_CHUNK = 75;
+/** Chunk-буферов держится над и под видимой областью до начала догрузки. */
+const BUFFER_CHUNKS = 2;
+const WINDOW_MAX_ROWS = WINDOW_CHUNK * 5;
 
 type PlanWindow = {
     id: string;
@@ -158,6 +170,12 @@ export function RenovationWorkspace({
     const [reloadKey, setReloadKey] = useState(0);
     const [assetFilter, setAssetFilter] = useState<string | null>(null);
     const [blockFilter, setBlockFilter] = useState<string | null>(null);
+    // Row-number («№») range filter: `null` on a bound means «from the first» /
+    // «to the last». Applied server-side so the window and the counter agree.
+    const [positionFilter, setPositionFilter] = useState<{
+        from: number | null;
+        to: number | null;
+    } | null>(null);
     // Active header filters, keyed by column prop (field dbName or the synthetic
     // asset column). A column keeps display values + the «Пустые» bucket; all
     // columns combine with AND (server-side).
@@ -179,6 +197,8 @@ export function RenovationWorkspace({
         label: string;
         anchor: DOMRect;
     } | null>(null);
+    // The row-number («№») range filter popover anchor (the corner's rect).
+    const [rowFilterTarget, setRowFilterTarget] = useState<DOMRect | null>(null);
     const activeFilterColumns = useMemo(() => new Set(Object.keys(columnFilters)), [columnFilters]);
     const applyColumnFilter = (column: string) => (filter: RenovationColumnFilter | null) =>
         setColumnFilters((current) => {
@@ -233,8 +253,10 @@ export function RenovationWorkspace({
 
     // Structural reset: a new plan version or a new asset filter restarts the
     // window. The working plan anchors at its tail — the first request reads
-    // the total (one row), the second fetches the last WINDOW_CHUNK rows.
-    // Bumping the generation discards in-flight chunks.
+    // the total (one row), the second fetches the last WINDOW_CHUNK rows, so
+    // the user already sees the tail while the buffer loads; a third request
+    // then fetches BUFFER_CHUNKS more chunks ABOVE the tail in one go. Bumping
+    // the generation discards in-flight chunks.
     useEffect(() => {
         if (!meta) return;
         // The window belongs to the plan section only; on a dictionary there is
@@ -253,6 +275,9 @@ export function RenovationWorkspace({
         setPlanError(null);
         void (async () => {
             try {
+                // The planId/undefined pair must match in all three reads —
+                // they describe the same plan view.
+                const planArg = viewPlanId ?? undefined;
                 if (viewPlanId) {
                     // Archive/pending view: lazy-load a tail window too — a full
                     // read of a ~94k-row plan is slow and fills memory. Reuse the
@@ -261,9 +286,11 @@ export function RenovationWorkspace({
                     const head = await getRenovationPlanRows(
                         0,
                         1,
-                        viewPlanId,
+                        planArg,
                         assetFilter,
                         activeColumnFilters,
+                        positionFilter?.from ?? null,
+                        positionFilter?.to ?? null,
                     );
                     if (cancelled || generation !== windowGenerationRef.current) return;
                     const total = head.total;
@@ -271,9 +298,11 @@ export function RenovationWorkspace({
                     const page = await getRenovationPlanRows(
                         start,
                         WINDOW_CHUNK,
-                        viewPlanId,
+                        planArg,
                         assetFilter,
                         activeColumnFilters,
+                        positionFilter?.from ?? null,
+                        positionFilter?.to ?? null,
                     );
                     if (cancelled || generation !== windowGenerationRef.current) return;
                     const next: PlanWindow = {
@@ -305,58 +334,64 @@ export function RenovationWorkspace({
                     const head = await getRenovationPlanRows(
                         0,
                         1,
-                        undefined,
+                        planArg,
                         assetFilter,
                         activeColumnFilters,
+                        positionFilter?.from ?? null,
+                        positionFilter?.to ?? null,
                     );
                     if (cancelled || generation !== windowGenerationRef.current) return;
                     const total = head.total;
                     const start = Math.max(0, total - WINDOW_CHUNK);
-                    if (start <= 0) {
-                        // The whole plan fits into one window.
-                        const page = await getRenovationPlanRows(
-                            0,
-                            WINDOW_CHUNK,
-                            undefined,
-                            assetFilter,
-                            activeColumnFilters,
-                        );
-                        if (cancelled || generation !== windowGenerationRef.current) return;
-                        const next: PlanWindow = {
-                            id: page.id,
-                            rows: page.rows,
-                            start: 0,
-                            total: page.total,
-                            totalAll: page.totalAll ?? null,
-                            baselineBoundary: page.baselineBoundary ?? null,
-                            complete: false,
-                        };
-                        planWindowRef.current = next;
-                        setPlanWindow(next);
-                    } else {
-                        const page = await getRenovationPlanRows(
-                            start,
-                            WINDOW_CHUNK,
-                            undefined,
-                            assetFilter,
-                            activeColumnFilters,
-                        );
-                        if (cancelled || generation !== windowGenerationRef.current) return;
-                        const next: PlanWindow = {
-                            id: page.id,
-                            rows: page.rows,
-                            start,
-                            total: page.total,
-                            totalAll: page.totalAll ?? null,
-                            baselineBoundary: page.baselineBoundary ?? null,
-                            complete: false,
-                        };
-                        planWindowRef.current = next;
-                        setPlanWindow(next);
-                    }
+                    const page = await getRenovationPlanRows(
+                        start,
+                        WINDOW_CHUNK,
+                        planArg,
+                        assetFilter,
+                        activeColumnFilters,
+                        positionFilter?.from ?? null,
+                        positionFilter?.to ?? null,
+                    );
+                    if (cancelled || generation !== windowGenerationRef.current) return;
+                    const next: PlanWindow = {
+                        id: page.id,
+                        rows: page.rows,
+                        start,
+                        total: page.total,
+                        totalAll: page.totalAll ?? null,
+                        baselineBoundary: page.baselineBoundary ?? null,
+                        complete: false,
+                    };
+                    planWindowRef.current = next;
+                    setPlanWindow(next);
                     scrollToEdgeTokenRef.current += 1;
                     setScrollToEdge({ edge: "bottom", token: scrollToEdgeTokenRef.current });
                 }
+                // The tail chunk is on screen — fill the buffer above it in ONE
+                // request while the user reads. Without the generation re-check
+                // a fast filter switch could merge stale rows into a new window.
+                const base = planWindowRef.current;
+                if (!base || base.start <= 0) return;
+                if (generation !== windowGenerationRef.current || cancelled) return;
+                const bufferStart = Math.max(0, base.start - BUFFER_CHUNKS * WINDOW_CHUNK);
+                const buffered = await getRenovationPlanRows(
+                    bufferStart,
+                    base.start - bufferStart,
+                    viewPlanId ?? undefined,
+                    assetFilter,
+                    activeColumnFilters,
+                    positionFilter?.from ?? null,
+                    positionFilter?.to ?? null,
+                );
+                if (cancelled || generation !== windowGenerationRef.current) return;
+                applyWindowChunk(
+                    buffered.rows,
+                    bufferStart,
+                    "top",
+                    buffered.total,
+                    buffered.baselineBoundary ?? null,
+                    buffered.id,
+                );
             } catch (reason) {
                 if (!cancelled && generation === windowGenerationRef.current) {
                     setPlanError(errorMessage(reason));
@@ -366,7 +401,7 @@ export function RenovationWorkspace({
         return () => {
             cancelled = true;
         };
-    }, [meta, viewPlanId, assetFilter, activeColumnFilters, isPlanSection]);
+    }, [meta, viewPlanId, assetFilter, activeColumnFilters, positionFilter, isPlanSection]);
 
     // In-place reload (refresh()): re-read the current window, keep the anchor.
     // The working and the pending («на согласовании») views re-read their own
@@ -387,6 +422,8 @@ export function RenovationWorkspace({
                     viewPlanId ?? undefined,
                     assetFilter,
                     activeColumnFilters,
+                    positionFilter?.from ?? null,
+                    positionFilter?.to ?? null,
                 );
                 if (!cancelled && generation === windowGenerationRef.current) {
                     const prev = planWindowRef.current;
@@ -408,7 +445,7 @@ export function RenovationWorkspace({
         return () => {
             cancelled = true;
         };
-    }, [reloadKey, assetFilter, viewPlanId, activeColumnFilters]);
+    }, [reloadKey, assetFilter, viewPlanId, activeColumnFilters, positionFilter]);
 
     /** Merge a fetched chunk into the window; evict the far side when it overflows. */
     const applyWindowChunk = useCallback(
@@ -505,6 +542,8 @@ export function RenovationWorkspace({
                         viewPlanId ?? undefined,
                         assetFilter,
                         activeColumnFilters,
+                        positionFilter?.from ?? null,
+                        positionFilter?.to ?? null,
                     );
                     if (generation !== windowGenerationRef.current) return;
                     applyWindowChunk(
@@ -524,6 +563,8 @@ export function RenovationWorkspace({
                         viewPlanId ?? undefined,
                         assetFilter,
                         activeColumnFilters,
+                        positionFilter?.from ?? null,
+                        positionFilter?.to ?? null,
                     );
                     if (generation !== windowGenerationRef.current) return;
                     applyWindowChunk(
@@ -539,7 +580,7 @@ export function RenovationWorkspace({
                 // Chunk fetch failed — the next edge approach retries.
             }
         },
-        [applyWindowChunk, assetFilter, viewPlanId, activeColumnFilters],
+        [applyWindowChunk, assetFilter, viewPlanId, activeColumnFilters, positionFilter],
     );
 
     const handleNearBottom = useCallback(() => {
@@ -605,6 +646,9 @@ export function RenovationWorkspace({
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [submitOpen, setSubmitOpen] = useState(false);
     const [approveOpen, setApproveOpen] = useState(false);
+    // The server refused the submit because the plan's work IDs are not all
+    // correct and unique — the message is shown in an AlertDialog.
+    const [submitBlocked, setSubmitBlocked] = useState<string | null>(null);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [exportPending, setExportPending] = useState(false);
     const [undoCount, setUndoCount] = useState(0);
@@ -724,9 +768,9 @@ export function RenovationWorkspace({
     // «Сырьё» workspace. The dictionaries are admin-only.
     const sections = useMemo(() => {
         if (!meta) return [];
-        if (!isAdmin) return [{ id: "plan", label: "Пообъектовый план" }];
+        if (!isAdmin) return [{ id: "plan", label: "Пообъектный план" }];
         return [
-            { id: "plan", label: "Пообъектовый план" },
+            { id: "plan", label: "Пообъектный план" },
             { id: "assets", label: "Предприятия" },
             ...meta.catalogs.map((catalog) => ({ id: catalog.id, label: catalog.label })),
             { id: "users", label: "Пользователи" },
@@ -1133,6 +1177,7 @@ export function RenovationWorkspace({
                 else {
                     setAssetFilter(null);
                     setBlockFilter(null);
+                    setPositionFilter(null);
                     // Header filters live in the query, so clear them too —
                     // otherwise the reset looks like it did nothing.
                     setColumnFilters({});
@@ -1229,7 +1274,14 @@ export function RenovationWorkspace({
             setViewPlanId(submitted.id);
             setMetaReloadKey((key) => key + 1);
         } catch (reason) {
-            toast.danger("Не удалось отправить план", { description: errorMessage(reason) });
+            if (reason instanceof ReportCollectorApiError && reason.status === 409) {
+                // The server refuses to freeze a plan whose work IDs are not all
+                // correct and unique; surface the reason in a dialog.
+                setSubmitOpen(false);
+                setSubmitBlocked(reason.message);
+            } else {
+                toast.danger("Не удалось отправить план", { description: errorMessage(reason) });
+            }
         } finally {
             setIsMutationPending(false);
         }
@@ -1852,6 +1904,8 @@ export function RenovationWorkspace({
                                                         anchor,
                                                     })
                                                 }
+                                                onOpenRowFilter={setRowFilterTarget}
+                                                rowFilterActive={positionFilter !== null}
                                             />
                                             {displayRows.length === 0 ? (
                                                 <div className="grid-empty">
@@ -1934,6 +1988,13 @@ export function RenovationWorkspace({
                 onOpenChange={setSubmitOpen}
                 onConfirm={() => void runSubmit()}
             />
+            <SubmitBlockedDialog
+                isOpen={submitBlocked !== null}
+                message={submitBlocked ?? ""}
+                onOpenChange={(open) => {
+                    if (!open) setSubmitBlocked(null);
+                }}
+            />
             <ApprovePlanDialog
                 isOpen={approveOpen}
                 isPending={isMutationPending}
@@ -1960,6 +2021,14 @@ export function RenovationWorkspace({
                     initial={columnFilters[columnFilterTarget.column] ?? null}
                     onApply={applyColumnFilter(columnFilterTarget.column)}
                     onClose={() => setColumnFilterTarget(null)}
+                />
+            ) : null}
+            {rowFilterTarget ? (
+                <RowRangeFilter
+                    anchor={rowFilterTarget}
+                    initial={positionFilter}
+                    onApply={setPositionFilter}
+                    onClose={() => setRowFilterTarget(null)}
                 />
             ) : null}
         </main>
@@ -2072,6 +2141,41 @@ function SubmitPlanDialog({
                             <Button variant="primary" onPress={onConfirm} isDisabled={isPending}>
                                 {isPending ? <Spinner color="current" size="sm" /> : <Send />}
                                 Отправить
+                            </Button>
+                        </AlertDialog.Footer>
+                    </AlertDialog.Dialog>
+                </AlertDialog.Container>
+            </AlertDialog.Backdrop>
+        </AlertDialog>
+    );
+}
+
+function SubmitBlockedDialog({
+    isOpen,
+    message,
+    onOpenChange,
+}: {
+    isOpen: boolean;
+    message: string;
+    onOpenChange: (open: boolean) => void;
+}) {
+    return (
+        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
+            <AlertDialog.Backdrop>
+                <AlertDialog.Container>
+                    <AlertDialog.Dialog>
+                        <AlertDialog.Header>
+                            <AlertDialog.Icon status="danger">
+                                <WarningTriangle />
+                            </AlertDialog.Icon>
+                            <AlertDialog.Heading>
+                                План нельзя отправить на согласование
+                            </AlertDialog.Heading>
+                        </AlertDialog.Header>
+                        <AlertDialog.Body>{message}</AlertDialog.Body>
+                        <AlertDialog.Footer>
+                            <Button variant="primary" onPress={() => onOpenChange(false)}>
+                                Понятно
                             </Button>
                         </AlertDialog.Footer>
                     </AlertDialog.Dialog>

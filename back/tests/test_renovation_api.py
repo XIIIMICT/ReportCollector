@@ -226,6 +226,25 @@ async def test_renovation_id_filter_is_two_buckets(client: AsyncClient, db_sessi
     assert [item["count"] for item in facets.json()["values"]] == [1, 1]
 
 
+async def test_edit_rebuilds_renovation_id_when_correction_replaces_defect(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Clearing col_023 and setting col_218 rebuilds col_003 from the correction."""
+    row = await _row_by_asset_code(db_session, "bsk")
+    status, _ = await _patch(
+        client,
+        [
+            {"rowId": str(row.id), "field": "col_023", "value": None},
+            {"rowId": str(row.id), "field": "col_218", "value": "Кор-И101"},
+        ],
+    )
+    assert status == 200
+    await db_session.refresh(row)
+    assert "Кор-И101" in (row.col_003 or "")
+    assert "1382467" not in (row.col_003 or "")
+
+
 async def test_read_plan_facets_with_offsets(client: AsyncClient) -> None:
     """The distinct-value window is lazy: offset/limit page over the sorted list."""
     response = await client.get(
@@ -247,6 +266,35 @@ async def test_read_plan_facets_unknown_column(client: AsyncClient) -> None:
         params={"column": "no_such_col"},
     )
     assert response.status_code == 422
+
+
+async def test_plan_rows_position_range(client: AsyncClient) -> None:
+    """The row-number («№») range narrows the window and the total."""
+    everything = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100},
+    )
+    assert everything.json()["total"] == 2
+
+    only_first = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100, "position_from": 1, "position_to": 1},
+    )
+    assert only_first.status_code == 200
+    body = only_first.json()
+    assert body["total"] == 1
+    assert len(body["rows"]) == 1
+    assert body["rows"][0]["position"] == 1
+
+    from_two = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100, "position_from": 2},
+    )
+    assert from_two.json()["total"] == 1
+    assert from_two.json()["rows"][0]["position"] == 2
 
 
 async def test_plan_rows_filter_by_text_value(client: AsyncClient) -> None:
@@ -867,6 +915,31 @@ async def test_submit_drops_empty_draft_rows(client: AsyncClient, db_session: As
     assert submitted.json()["rowCount"] == 2
 
 
+async def test_submit_rejects_incorrect_work_ids(client: AsyncClient, db_session: AsyncSession) -> None:
+    """Submit is refused while a row's work ID is incomplete (`<NULL>`)."""
+    row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
+    row.col_003 = "2027_BSKR_<NULL>_1382467_00"
+    await db_session.flush()
+
+    response = await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
+    assert response.status_code == 409
+    assert "некорректных" in response.json()["detail"]
+    # The version stays editable — the transition did not happen.
+    assert (await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)).status_code == 200
+
+
+async def test_submit_rejects_duplicate_work_ids(client: AsyncClient, db_session: AsyncSession) -> None:
+    """Submit is refused while two rows share the same work ID."""
+    first = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
+    second = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 2))).one()
+    second.col_003 = first.col_003
+    await db_session.flush()
+
+    response = await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
+    assert response.status_code == 409
+    assert "дублирующихся" in response.json()["detail"]
+
+
 async def test_read_archived_plan_by_id(client: AsyncClient) -> None:
     submit = await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
     approve = await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)
@@ -1112,7 +1185,14 @@ async def test_diff_marks_new_rows(client: AsyncClient, db_session: AsyncSession
     new_row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.id) == added["id"]))).one()
     new_row.asset_id = asset.id
     new_row.col_028 = Decimal(15)
+    # The plan can only be submitted when every work ID is complete, so fill the
+    # components the ID is built from and materialize it, as the edit path does.
+    new_row.col_023 = Decimal(9999999)
+    new_row.col_024 = date(2027, 1, 1)
+    new_row.col_189 = "1.1.1."
     db_session.add(new_row)
+    await db_session.flush()
+    await recompute_plan_rows(db_session, plan_id=new_row.plan_id)
     await db_session.commit()
     await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
     second_id = (await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)).json()["archived"]["id"]
@@ -1145,7 +1225,7 @@ async def test_export_working_plan_renders_merged_header(client: AsyncClient) ->
     assert response.content[:2] == b"PK"
     disposition = response.headers["content-disposition"]
     filename = _disposition_filename(disposition)
-    assert filename.startswith("Пообъектовый план — рабочая версия (")
+    assert filename.startswith("Пообъектный план — рабочая версия (")
     assert filename.endswith(".xlsx")
 
     worksheet = load_workbook(BytesIO(response.content)).active
@@ -1172,7 +1252,7 @@ async def test_export_archived_plan_by_id(client: AsyncClient) -> None:
     assert response.status_code == 200
     assert response.content[:2] == b"PK"
     assert _disposition_filename(response.headers["content-disposition"]).startswith(
-        "Пообъектовый план — утверждённая версия ("
+        "Пообъектный план — утверждённая версия ("
     )
 
 
@@ -1186,7 +1266,7 @@ async def test_export_pending_plan_filename_suffix(client: AsyncClient) -> None:
     )
     assert response.status_code == 200
     assert _disposition_filename(response.headers["content-disposition"]).startswith(
-        "Пообъектовый план — версия на согласовании ("
+        "Пообъектный план — версия на согласовании ("
     )
 
 
@@ -1206,7 +1286,7 @@ async def test_export_working_filename_stamps_last_edit(client: AsyncClient, db_
 
     response = await client.get("/api/renovation/plan/export", headers=ADMIN_HEADERS)
     filename = _disposition_filename(response.headers["content-disposition"])
-    assert filename.startswith("Пообъектовый план — рабочая версия (")
+    assert filename.startswith("Пообъектный план — рабочая версия (")
     match = re.search(r"\((\d{2}\.\d{2}\.\d{4}, \d{2}\.\d{2}\.\d{2})\)\.xlsx", filename)
     assert match is not None
     stamp = match.group(1)

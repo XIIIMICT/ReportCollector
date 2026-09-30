@@ -109,6 +109,9 @@ class RenovationPlanStateError(ValueError):
 # col_002 (asset) has no row column: the asset comes from the row's
 # asset_id (a virtual field; read-only).
 _VIRTUAL_FIELDS = frozenset({"col_002"})
+
+# Rows per streamed export batch (see `_row_batches` in read_plan_export_data).
+EXPORT_BATCH_SIZE = 5000
 # The synthetic «Предприятие» column prop the grid uses for the asset name
 # (there is no matching row column — it is joined from r_assets).
 _ASSET_COLUMN_PROP = "__assetName"
@@ -354,11 +357,14 @@ async def read_plan(
 @dataclass(slots=True)
 class RenovationPlanExportData:
     """
-    Plan metadata and ORM rows prepared for the streaming XLSX writer.
+    Plan metadata and prepared rows for the streaming XLSX writer.
 
     state selects the export file-name suffix; stamp is the timestamp shown in the
     file name — plan.updated_at (submit/approve moment) for a pending/archived
     version, the latest row edit (max row.updated_at) for the working one.
+    `rows` holds the prepared rows (position, asset name, repair code, sparse
+    values); they are read in the request handler because the session is
+    finalized before the streaming response body is written.
     """
 
     baseline_generation: int
@@ -436,27 +442,38 @@ async def read_plan_export_data(
     )
     if row_ids is not None:
         query = query.where(col(RenovationPlanRow.id).in_(row_ids))
-    db_rows_with_ids = list((await session.exec(query)).all())  # ty: ignore[no-matching-overload]
-    if row_ids is not None:
-        by_id = {
-            row_id: (position, asset_name_, repair_code, values)
-            for row_id, position, asset_name_, repair_code, values in db_rows_with_ids
-        }
-        db_rows = [by_id[row_id] for row_id in row_ids if row_id in by_id]
-    else:
-        db_rows = [
-            (position, asset_name_, repair_code, values)
-            for _, position, asset_name_, repair_code, values in db_rows_with_ids
-        ]
     label_map = await _reference_labels(session)
     engine = formula_engine()
-    for _, _, repair_code, values in db_rows:
+
+    def _prepare(values: dict[str, object], repair_code: str) -> dict[str, object]:
         # Recompute formula fields so derived columns (dates, durations, sums)
         # are exported with fresh values even when the stored cell is NULL
         # (recalc happens on edit; adopted/imported rows may never have run it).
         engine.materialize(values)
         if not values.get("col_003"):
             values["col_003"] = _sparse_row_renovation_id(values, repair_code, label_map)
+        return values
+
+    if row_ids is not None:
+        # An exact-set export is small: read it fully and keep the rowIds order.
+        db_rows_with_ids = list((await session.exec(query)).all())  # ty: ignore[no-matching-overload]
+        by_id = {
+            row_id: (position, asset_name_, repair_code, _prepare(values, repair_code))
+            for row_id, position, asset_name_, repair_code, values in db_rows_with_ids
+        }
+        db_rows = [by_id[row_id] for row_id in row_ids if row_id in by_id]
+    else:
+        # Read the whole plan here, in the request handler: FastAPI finalizes the
+        # request session (commit) before the streaming response body is written,
+        # so the XLSX writer thread cannot query through it. A server-side cursor
+        # keeps the ORM identity map from holding the plan; only the prepared
+        # tuples are materialized.
+        result = await session.stream(query)
+        db_rows = []
+        async for partition in result.partitions(EXPORT_BATCH_SIZE):
+            for _row_id, position, asset_name_, repair_code, values in partition:
+                db_rows.append((position, asset_name_, repair_code, _prepare(values, repair_code)))
+        await result.close()
     return RenovationPlanExportData(
         baseline_generation=plan.baseline_generation,
         state=plan.state,
@@ -532,6 +549,81 @@ def _renovation_id_is_correct_condition() -> ColumnElement[bool]:
     """
     raw = col(RenovationPlanRow.col_003)
     return raw.is_not(None) & (raw != "") & raw.not_like(f"%{MISSING_COMPONENT}%")
+
+
+# How many offending row numbers the submit refusal lists. The counts stay
+# exact, but the «строки: …» list is capped — with hundreds of broken rows the
+# dialog text would be unreadable.
+SUBMIT_ID_ISSUE_ROW_LIMIT = 10
+
+
+def _submit_id_validation_error(
+    incorrect: int,
+    duplicates: int,
+    incorrect_rows: list[int],
+    duplicate_rows: list[int],
+) -> RenovationPlanStateError:
+    """Return a submit refusal naming the counts and the first offending rows."""
+
+    def _rows(rows: list[int]) -> str:
+        listed = ", ".join(str(position) for position in rows[:SUBMIT_ID_ISSUE_ROW_LIMIT])
+        more = len(rows) - SUBMIT_ID_ISSUE_ROW_LIMIT
+        return listed + (f" … (и ещё {more})" if more > 0 else "")
+
+    problems: list[str] = []
+    if incorrect:
+        problems.append(f"некорректных идентификационных кодов — {incorrect} (строки: {_rows(incorrect_rows)})")
+    if duplicates:
+        problems.append(f"дублирующихся идентификационных кодов — {duplicates} (строки: {_rows(duplicate_rows)})")
+    return RenovationPlanStateError(
+        "План нельзя отправить на согласование: "
+        + "; ".join(problems)
+        + ". Исправьте идентификационные коды работ и повторите отправку."
+    )
+
+
+async def _plan_id_issues(
+    session: AsyncSession,
+    plan_id: UUID,
+) -> tuple[int, int, list[int], list[int]]:
+    """
+    Collect the rows blocking submit: incorrect and duplicated work IDs.
+
+    A row is «incorrect» when its stored `col_003` is empty or still carries the
+    `<NULL>` placeholder (`_renovation_id_is_correct_condition`); a duplicate is
+    a non-empty ID shared by more than one row. Returns the exact counts plus
+    the first `SUBMIT_ID_ISSUE_ROW_LIMIT` row positions («№») of each kind —
+    `submit_plan` refuses to freeze the version while either count is non-zero.
+    """
+    correct = _renovation_id_is_correct_condition()
+    raw = col(RenovationPlanRow.col_003)
+    position = col(RenovationPlanRow.position)
+    plan_condition = col(RenovationPlanRow.plan_id) == plan_id
+    incorrect_rows = list(
+        (
+            await session.exec(
+                select(position).where(plan_condition, ~correct).order_by(position).limit(SUBMIT_ID_ISSUE_ROW_LIMIT)
+            )
+        ).all()
+    )
+    incorrect = (
+        await session.exec(select(func.count()).select_from(RenovationPlanRow).where(plan_condition, ~correct))
+    ).one()
+    duplicate_ids = (
+        select(raw).where(plan_condition, raw.is_not(None), raw != "").group_by(raw).having(func.count() > 1).subquery()
+    )
+    duplicates = (await session.exec(select(func.count()).select_from(duplicate_ids))).one()
+    duplicate_rows = list(
+        (
+            await session.exec(
+                select(position)
+                .where(plan_condition, raw.in_(sa_select(duplicate_ids)))
+                .order_by(position)
+                .limit(SUBMIT_ID_ISSUE_ROW_LIMIT)
+            )
+        ).all()
+    )
+    return int(incorrect), int(duplicates), incorrect_rows, duplicate_rows
 
 
 def _column_filter_condition(
@@ -635,6 +727,8 @@ async def read_plan_rows(
     limit: int = 1000,
     asset_name: str | None = None,
     filters: list[RenovationColumnFilter] | None = None,
+    position_from: int | None = None,
+    position_to: int | None = None,
 ) -> RenovationPlanRowsRead:
     """Return a window of plan rows plus the total row count (lazy loading)."""
     if plan_id is not None:
@@ -665,6 +759,12 @@ async def read_plan_rows(
     # Header filters (AND), applied in SQL so offset/limit count only matches.
     for column_filter in filters or []:
         row_condition = row_condition & _column_filter_condition(column_filter, label_map)
+    # Row-number («№») range: an empty bound means "from the first" / "to the
+    # last"; the window, the «Найдено» counter and the export all respect it.
+    if position_from is not None:
+        row_condition = row_condition & (col(RenovationPlanRow.position) >= position_from)
+    if position_to is not None:
+        row_condition = row_condition & (col(RenovationPlanRow.position) <= position_to)
     # The asset filter must be applied in SQL so offset/limit count only the
     # rows the caller may see — not the full plan.
     if len(asset_ids) != len(assets):
@@ -1216,16 +1316,33 @@ def _row_renovation_id(
     return result.value, result.missing_components
 
 
-def _renovation_id_input(row: RenovationPlanRow, asset: RAsset, label_map: dict[UUID, str]) -> RenovationIdInput:
-    """Row inputs for the renovation ID (legacy: project_code/suffix always None)."""
+# The cells `calculate_renovation_id` reads. Editing any of them must rebuild
+# col_003 from the row's inputs instead of keeping the stored value.
+_RENOVATION_ID_INPUT_FIELDS = frozenset({"col_016", "col_017", "col_023", "col_024", "col_189", "col_218"})
+
+
+def _renovation_id_input(
+    row: RenovationPlanRow,
+    asset: RAsset,
+    label_map: dict[UUID, str],
+    *,
+    keep_existing: bool = True,
+) -> RenovationIdInput:
+    """
+    Row inputs for the renovation ID (legacy: project_code/suffix always None).
+
+    `keep_existing` preserves an already-assigned id (the import/backfill and
+    unrelated edits); pass False when the edit changed one of the id inputs so
+    the id is rebuilt from them.
+    """
     return RenovationIdInput(
-        existing_id=row.col_003,
+        existing_id=row.col_003 if keep_existing else None,
         start_date=row.col_024.isoformat() if isinstance(row.col_024, date) else None,
         asset_repair_code=asset.repair_code,
         direction_code=row.col_189,
         bpof_section=row.col_016,
         work_category=label_map.get(row.col_017) if row.col_017 is not None else None,
-        defect_number=f"{row.col_023:.0f}" if row.col_023 is not None else None,
+        defect_number=f"{Decimal(str(row.col_023)):.0f}" if row.col_023 is not None else None,
         correction_text=row.col_218,
         technology_position=row.col_011,
         work_type_label=label_map.get(row.col_018) if row.col_018 is not None else None,
@@ -1345,7 +1462,12 @@ async def update_plan_cells(
                     value=json_value,
                 )
             )
-        result = _safe_renovation_id(_renovation_id_input(row, asset, label_map))
+        # Rebuild the id only when the edit touched one of its inputs (e.g.
+        # clearing the defect number and filling the correction); otherwise the
+        # stored id stands.
+        edited_fields = touched_fields.get(row.id) or set()
+        keep_existing = not (edited_fields & _RENOVATION_ID_INPUT_FIELDS)
+        result = _safe_renovation_id(_renovation_id_input(row, asset, label_map, keep_existing=keep_existing))
         if row.col_003 != result.value:
             row.col_003 = result.value
             session.add(row)
@@ -1838,6 +1960,11 @@ async def submit_plan(session: AsyncSession, *, user: User, roles: list[RProject
         column = getattr(RenovationPlanRow, field)
         empty_columns.append((column.is_(None) | (column == "")) if isinstance(column.type, Text) else column.is_(None))
     await session.exec(delete(RenovationPlanRow).where(col(RenovationPlanRow.plan_id) == plan.id, and_(*empty_columns)))
+    # The plan may be sent for approval only when every work ID is complete and
+    # unique; otherwise the version would freeze with unusable identifiers.
+    incorrect, duplicates, incorrect_rows, duplicate_rows = await _plan_id_issues(session, plan.id)
+    if incorrect or duplicates:
+        raise _submit_id_validation_error(incorrect, duplicates, incorrect_rows, duplicate_rows)
     plan.state = RPlanState.PENDING_APPROVAL
     plan.updated_at = now
     plan.updated_by = user.name or user.email or ""
