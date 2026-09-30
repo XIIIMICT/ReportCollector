@@ -803,6 +803,26 @@ def iter_renovation_plan_rows(
                     return
 
 
+async def _flush_plan_batch(session: AsyncSession, batch: list[RenovationPlanRow]) -> None:
+    """
+    Flush one batch of plan rows, then expunge it to bound memory.
+
+    The «@» reference options invented while reading the batch are still pending
+    here. `RenovationPlanRow` and `RenovationReferenceValue` are linked only by a
+    bare `ForeignKey` (no ORM relationship), and SQLAlchemy's unit of work does
+    not derive insert order from that — it emits the plan rows first, so Postgres
+    rejects the FK (`renovation_plan_rows_col_018_fkey`). Flush the pending
+    options explicitly before adding the rows (the pre-batching code did the same
+    once, after building the whole row list).
+    """
+    await session.flush()
+    session.add_all(batch)
+    await session.flush()
+    for item in batch:
+        session.expunge(item)
+    batch.clear()
+
+
 async def insert_renovation_plan_rows(
     session: AsyncSession,
     plan_id: UUID,
@@ -823,17 +843,10 @@ async def insert_renovation_plan_rows(
         row.plan_id = plan_id
         batch.append(row)
         if len(batch) >= batch_size:
-            session.add_all(batch)
-            await session.flush()
-            for item in batch:
-                session.expunge(item)
-            batch.clear()
+            await _flush_plan_batch(session, batch)
         count += 1
     if batch:
-        session.add_all(batch)
-        await session.flush()
-        for item in batch:
-            session.expunge(item)
+        await _flush_plan_batch(session, batch)
     return count
 
 
