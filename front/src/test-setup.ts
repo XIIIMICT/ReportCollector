@@ -9,6 +9,14 @@ Object.defineProperties(globalThis, {
     navigator: { configurable: true, value: domWindow.navigator, writable: true },
     HTMLElement: { configurable: true, value: domWindow.HTMLElement, writable: true },
     HTMLInputElement: { configurable: true, value: domWindow.HTMLInputElement, writable: true },
+    HTMLButtonElement: { configurable: true, value: domWindow.HTMLButtonElement, writable: true },
+    HTMLTextAreaElement: {
+        configurable: true,
+        value: domWindow.HTMLTextAreaElement,
+        writable: true,
+    },
+    HTMLSelectElement: { configurable: true, value: domWindow.HTMLSelectElement, writable: true },
+    HTMLAnchorElement: { configurable: true, value: domWindow.HTMLAnchorElement, writable: true },
     customElements: { configurable: true, value: domWindow.customElements, writable: true },
     getComputedStyle: {
         configurable: true,
@@ -19,6 +27,8 @@ Object.defineProperties(globalThis, {
     MutationObserver: { configurable: true, value: domWindow.MutationObserver, writable: true },
     Element: { configurable: true, value: domWindow.Element, writable: true },
     Node: { configurable: true, value: domWindow.Node, writable: true },
+    NodeFilter: { configurable: true, value: domWindow.NodeFilter, writable: true },
+    CSS: { configurable: true, value: domWindow.CSS, writable: true },
     SVGElement: { configurable: true, value: domWindow.SVGElement, writable: true },
     ResizeObserver: { configurable: true, value: domWindow.ResizeObserver, writable: true },
     requestAnimationFrame: {

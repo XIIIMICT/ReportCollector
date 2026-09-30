@@ -2164,3 +2164,9 @@ body {
     flex: 1;
     overflow-y: auto;
 }
+
+/* Divides «Выбрать все»/«Пустые» from the value list. */
+.column-filter__separator {
+    margin: 0.25rem 0;
+    background: var(--border);
+}

@@ -1,6 +1,14 @@
 "use client";
 
-import { Autocomplete, EmptyState, ListBox, SearchField, useFilter, type Key } from "@heroui/react";
+import {
+    Autocomplete,
+    EmptyState,
+    ListBox,
+    SearchField,
+    Separator,
+    useFilter,
+    type Key,
+} from "@heroui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getRenovationPlanFacets, type RenovationColumnFilter } from "@/shared/api/renovation";
@@ -18,8 +26,11 @@ const FACET_PAGE = 200;
  * column has NULLs), i.e. no constraint. The list has «Выбрать все» pinned on
  * top — a master toggle that stays checked while some values are unchecked,
  * clears every value when unchecked itself and restores them when re-checked —
- * then «Пустые», then the column's distinct values alphabetically (lazy-loaded
- * from `/plan/facets`). Whatever is kept becomes one `RenovationColumnFilter`;
+ * then «Пустые», a separator and the column's distinct values alphabetically
+ * (lazy-loaded from `/plan/facets`). The master is stateful, but when the user
+ * unchecks the last remaining option the master unchecks itself, so «nothing
+ * selected» never keeps a checked «Выбрать все». Whatever is kept becomes one
+ * `RenovationColumnFilter`;
  * filters across columns combine with AND (server-side). The owner applies the
  * selection when the popover closes.
  */
@@ -79,10 +90,13 @@ export function ColumnFilterPopover({
     const selectedKeys = useMemo(() => {
         const keys: Key[] = [];
         if (allActive) keys.push(ALL_KEY);
-        if (includeNulls) keys.push(NULL_KEY);
+        // Only advertise the null bucket when the column actually renders it:
+        // react-aria keeps keys it can't match to an item, so a stale
+        // `NULL_KEY` would linger in `onChange` and look like a kept bucket.
+        if (includeNulls && hasNulls) keys.push(NULL_KEY);
         for (const value of kept) keys.push(value);
         return keys;
-    }, [allActive, includeNulls, kept]);
+    }, [allActive, hasNulls, includeNulls, kept]);
 
     const onSelectionChange = (keys: Key[]) => {
         const next = new Set(keys);
@@ -99,6 +113,16 @@ export function ColumnFilterPopover({
                 if (text !== ALL_KEY && text !== NULL_KEY) nextKept.add(text);
             }
             setKept(nextKept);
+            // «Выбрать все» mirrors the extremes: unchecking the last kept
+            // option unchecks it, selecting everything again checks it back.
+            // In between it keeps whatever the user left (so «всё, кроме
+            // некоторых» stays checked).
+            const keepsNulls = hasNulls && next.has(NULL_KEY);
+            const keepsNothing = nextKept.size === 0 && !keepsNulls;
+            const keepsEverything =
+                values.length > 0 && nextKept.size === values.length && (keepsNulls || !hasNulls);
+            if (keepsNothing) setAllActive(false);
+            else if (keepsEverything) setAllActive(true);
         }
         setIncludeNulls(next.has(NULL_KEY));
     };
@@ -107,11 +131,18 @@ export function ColumnFilterPopover({
 
     const applied = useMemo(() => {
         const keptValues = values.filter((value) => kept.has(value));
+        // A column without a null bucket has nothing to keep there, so the
+        // state flag must not leak into the request.
+        const keepsNulls = includeNulls && hasNulls;
         // Everything kept (values + the null bucket, or the column has no
         // nulls) means no constraint at all.
-        const keepsEverything = keptValues.length === values.length && (includeNulls || !hasNulls);
+        const keepsEverything = keptValues.length === values.length && (keepsNulls || !hasNulls);
         if (keepsEverything) return null;
-        return { column, values: keptValues, includeNulls } satisfies RenovationColumnFilter;
+        return {
+            column,
+            values: keptValues,
+            includeNulls: keepsNulls,
+        } satisfies RenovationColumnFilter;
     }, [column, hasNulls, includeNulls, kept, values]);
 
     const close = () => {
@@ -163,6 +194,11 @@ export function ColumnFilterPopover({
                             Пустые
                             <ListBox.ItemIndicator />
                         </ListBox.Item>
+                    ) : null}
+                    {/* Separate the pinned options from the values; when «Пустые»
+                        is absent the separator follows «Выбрать все». */}
+                    {filteredValues.length > 0 ? (
+                        <Separator className="column-filter__separator" />
                     ) : null}
                     {filteredValues.map((value) => (
                         <ListBox.Item key={value} id={value} textValue={value}>
