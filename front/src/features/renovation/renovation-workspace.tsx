@@ -1,17 +1,6 @@
 "use client";
 
-import {
-    AlertDialog,
-    Button,
-    ButtonGroup,
-    Card,
-    Dropdown,
-    Label,
-    Skeleton,
-    Spinner,
-    toast,
-    Typography,
-} from "@heroui/react";
+import { AlertDialog, Button, Card, Skeleton, Spinner, toast, Typography } from "@heroui/react";
 import {
     CheckCircle,
     Copy,
@@ -29,11 +18,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
 import {
     AppHeader,
-    CompactActionMenu,
     DeleteRecordDialog,
     downloadBlob,
-    groupActionItems,
-    type ActionItem,
     type ArchiveItem,
     type ArchiveState,
     type ClipboardActions,
@@ -67,15 +53,14 @@ import {
 } from "@/shared/api/renovation";
 import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector";
 import { canonicalCellKey, useCollabRoom } from "@/shared/collab/use-collab-room";
+import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
-import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { isFromTextEditor } from "@/shared/keyboard";
-import { ActionHint, parseShortcut } from "@/shared/ui/action-hint";
+import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
 import { ColumnFilterPopover } from "@/shared/ui/column-filter-popover";
 import { FormStatus } from "@/shared/ui/form-status";
-import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { ViewStrip } from "@/shared/ui/view-strip";
@@ -660,14 +645,6 @@ export function RenovationWorkspace({
     // is cleared programmatically; the resulting empty presence update must be
     // swallowed (the server entry belongs to the other tab).
     const suppressSelectionSendRef = useRef(false);
-    const remoteCellInfoRef = useRef<Map<string, { name: string; label: string | null }>>(
-        new Map(),
-    );
-    const remoteCellInfoKeyRef = useRef<string>("");
-    const remoteLocksRef = useRef<Map<string, { fullname: string; email: string }>>(new Map());
-    const remoteLocksKeyRef = useRef<string>("");
-    const remotePresenceRef = useRef<Map<string, { fullname: string; email: string }>>(new Map());
-    const remotePresenceKeyRef = useRef<string>("");
     const [remoteCellValues, setRemoteCellValues] = useState<Map<string, unknown>>(new Map());
     const { setTheme } = useTheme();
 
@@ -859,85 +836,10 @@ export function RenovationWorkspace({
         },
     });
 
-    const remoteLocks = useMemo(() => {
-        const result = new Map<string, { fullname: string; email: string }>();
-        for (const [key, user] of room.lockedCells) {
-            result.set(key, { fullname: user.name || "", email: user.email || "" });
-        }
-        const key = JSON.stringify([...result.entries()]);
-        if (key === remoteLocksKeyRef.current) return remoteLocksRef.current;
-        remoteLocksKeyRef.current = key;
-        remoteLocksRef.current = result;
-        return result;
-    }, [room.lockedCells]);
-
-    // Cells selected by other members (presence): they're also protected from
-    // overwrite, same as leased ones.
-    const remotePresence = useMemo(() => {
-        const meId = room.me?.userId ?? null;
-        const result = new Map<string, { fullname: string; email: string }>();
-        for (const member of room.members) {
-            if (member.userId === meId) continue;
-            const selection = member.selection as { cellKeys?: unknown } | null | undefined;
-            const cellKeys = Array.isArray(selection?.cellKeys)
-                ? selection.cellKeys.filter((key): key is string => typeof key === "string")
-                : [];
-            for (const key of cellKeys) {
-                if (!result.has(key)) {
-                    result.set(key, { fullname: member.name || "", email: member.email || "" });
-                }
-            }
-        }
-        const key = JSON.stringify([...result.entries()]);
-        if (key === remotePresenceKeyRef.current) return remotePresenceRef.current;
-        remotePresenceKeyRef.current = key;
-        remotePresenceRef.current = result;
-        return result;
-    }, [room.me?.userId, room.members]);
-
-    // Cells where other members are: their presence ranges (canonical keys —
-    // the same for everyone regardless of the column set) plus leased cells.
-    // Needed for the yellow highlight and the FIO tooltip.
-    //
-    // The map is stabilized by content: presence heartbeats replace
-    // `room.members`/`room.lockedCells` with fresh references even when nothing
-    // changed, which — as a columns-memo dependency — rebuilt the 216-column
-    // grid on every tick and froze the drag cursor / janked scrolling.
-    const remoteCellInfo = useMemo(() => {
-        const meId = room.me?.userId ?? null;
-        const result = new Map<string, { name: string; label: string | null }>();
-        for (const member of room.members) {
-            if (member.userId === meId) continue;
-            const selection = member.selection as
-                | { label?: unknown; cellKeys?: unknown }
-                | null
-                | undefined;
-            const cellKeys = Array.isArray(selection?.cellKeys)
-                ? selection.cellKeys.filter((key): key is string => typeof key === "string")
-                : [];
-            if (cellKeys.length === 0) continue;
-            const name = member.name || member.email || "";
-            const label =
-                typeof selection?.label === "string" && selection.label ? selection.label : null;
-            for (const key of cellKeys) {
-                if (!result.has(key)) result.set(key, { name, label });
-            }
-        }
-        for (const [key, user] of room.lockedCells) {
-            if (!result.has(key)) {
-                result.set(key, { name: user.name || "", label: null });
-            }
-        }
-        // Content fingerprint: return the previous Map object when nothing
-        // changed so downstream memos keep their identity.
-        const key = JSON.stringify([...result.entries()]);
-        if (key === remoteCellInfoKeyRef.current) {
-            return remoteCellInfoRef.current;
-        }
-        remoteCellInfoKeyRef.current = key;
-        remoteCellInfoRef.current = result;
-        return result;
-    }, [room.lockedCells, room.me?.userId, room.members]);
+    // Leased / selected cells and the combined highlight marker, stabilized by
+    // content so a presence heartbeat with unchanged state does not rebuild the
+    // 216-column grid (see the hook). Shared with the «Сырьё» workspace.
+    const { remoteLocks, remotePresence, remoteCellInfo } = useRemoteCellMaps(room);
 
     const readOnly = isMutationPending || isArchive || (collabEnabled && room.status === "offline");
 
@@ -1860,7 +1762,7 @@ export function RenovationWorkspace({
                     />
                 ) : null}
             </div>
-            <RenovationActionBar
+            <ActionBar
                 items={isPlanSection ? actions : dictActions}
                 onDropdownOpenChange={setToolbarControlOpen}
             />
@@ -2062,187 +1964,6 @@ export function RenovationWorkspace({
                 />
             ) : null}
         </main>
-    );
-}
-
-export function RenovationActionBar({
-    items,
-    onDropdownOpenChange,
-}: {
-    items: ActionItem[];
-    onDropdownOpenChange?: (open: boolean) => void;
-}) {
-    // Responsive tiers (Tailwind constants): on sm (<=40rem) every action
-    // collapses into one «Действия» button; on md (<=48rem) the primary actions
-    // (submit/approve) collapse to icons; on desktop everything is expanded.
-    const isSm = useMediaQuery("(max-width: 40rem)");
-    const isMd = useMediaQuery("(max-width: 48rem)");
-    const collapsePrimaryAtMd = isMd && !isSm;
-    const classNameFor = (action: ActionItem) =>
-        collapsePrimaryAtMd && action.variant === "primary"
-            ? "action-button"
-            : action.variant === "primary"
-              ? "action-button action-button--primary"
-              : "action-button";
-    // Floating hint: shows the label plus a Kbd with the shortcut over every
-    // inline action button, including the ones grouped in a ButtonGroup (whose
-    // children can't be wrapped in a per-button Tooltip).
-    const [actionTip, setActionTip] = useState<{
-        label: string;
-        keyLabel: string;
-        modifiers: Array<"ctrl" | "shift" | "alt" | "meta">;
-        left: number;
-        top: number;
-    } | null>(null);
-    const actionTipTargetRef = useRef<Element | null>(null);
-
-    // The floating hint carries the label plus a Kbd with the shortcut, so it
-    // only makes sense for actions that have a shortcut (a plain button like
-    // «Добавить строку» shows nothing).
-    const hintData = (action: ActionItem) =>
-        action.shortcut
-            ? { "data-action-tooltip": action.label, "data-action-shortcut": action.shortcut.aria }
-            : {};
-
-    const renderAction = (action: ActionItem) => {
-        const icon = action.pending ? <Spinner size="sm" /> : action.icon;
-        if (action.menu) {
-            return (
-                <HoverDropdown
-                    className="action-more-popover"
-                    onOpenChange={onDropdownOpenChange}
-                    trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
-                        <Button
-                            ref={ref}
-                            onMouseEnter={onMouseEnter}
-                            onPress={onPress}
-                            className={
-                                isOpen
-                                    ? classNameFor(action) + " action-button--open"
-                                    : classNameFor(action)
-                            }
-                            variant={action.variant ?? "tertiary"}
-                            isDisabled={action.disabled}
-                            aria-label={action.label}
-                            {...hintData(action)}
-                        >
-                            <span className="action-button__icon">{icon}</span>
-                            <span className="action-button__label">{action.label}</span>
-                        </Button>
-                    )}
-                    content={
-                        <Dropdown.Menu
-                            aria-label={action.label}
-                            onAction={(key) => {
-                                const menuItem = action.menu?.find((m) => m.id === String(key));
-                                menuItem?.onPress();
-                            }}
-                            className="action-more-menu"
-                        >
-                            {action.menu.map((menuItem) => (
-                                <Dropdown.Item
-                                    key={menuItem.id}
-                                    id={menuItem.id}
-                                    textValue={menuItem.label}
-                                >
-                                    <Label>{menuItem.label}</Label>
-                                </Dropdown.Item>
-                            ))}
-                        </Dropdown.Menu>
-                    }
-                />
-            );
-        }
-        const button = (
-            <Button
-                className={classNameFor(action)}
-                variant={action.variant ?? "tertiary"}
-                isDisabled={action.disabled}
-                aria-label={action.label}
-                aria-keyshortcuts={action.shortcut?.aria}
-                {...hintData(action)}
-                onPress={action.onPress}
-            >
-                <span className="action-button__icon">{icon}</span>
-                <span className="action-button__label">{action.label}</span>
-            </Button>
-        );
-        return button;
-    };
-    if (isSm) {
-        return (
-            <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
-                <CompactActionMenu items={items} onOpenChange={onDropdownOpenChange} />
-            </div>
-        );
-    }
-    return (
-        <div
-            className="action-bar"
-            aria-label="Действия с таблицей"
-            onPointerMove={(event) => {
-                const target = (event.target as Element).closest?.("[data-action-tooltip]") ?? null;
-                if (target === actionTipTargetRef.current) return;
-                actionTipTargetRef.current = target;
-                if (!target) {
-                    setActionTip(null);
-                    return;
-                }
-                const rect = target.getBoundingClientRect();
-                const shortcut = target.getAttribute("data-action-shortcut");
-                const parsed = shortcut ? parseShortcut(shortcut) : null;
-                setActionTip({
-                    label: target.getAttribute("data-action-tooltip") ?? "",
-                    keyLabel: parsed?.keyLabel ?? "",
-                    modifiers: parsed?.modifiers ?? [],
-                    left: rect.left + rect.width / 2,
-                    top: rect.top,
-                });
-            }}
-            onPointerLeave={() => {
-                actionTipTargetRef.current = null;
-                setActionTip(null);
-            }}
-        >
-            {groupActionItems(items).map((chunk) =>
-                chunk.length > 1 ? (
-                    // Direct Button children only: ButtonGroup injects props
-                    // into them (`__button_group_child`), which a Fragment or
-                    // Tooltip wrapper would reject — the kbd hint is shown by the
-                    // floating tooltip above instead.
-                    <ButtonGroup key={`group-${chunk[0].id}`}>
-                        {chunk.map((action) => (
-                            <Button
-                                key={action.id}
-                                className={classNameFor(action)}
-                                variant={action.variant ?? "tertiary"}
-                                isDisabled={action.disabled}
-                                aria-label={action.label}
-                                aria-keyshortcuts={action.shortcut?.aria}
-                                {...hintData(action)}
-                                onPress={action.onPress}
-                            >
-                                <span className="action-button__icon">{action.icon}</span>
-                                <span className="action-button__label">{action.label}</span>
-                            </Button>
-                        ))}
-                    </ButtonGroup>
-                ) : (
-                    <span key={chunk[0].id} className="action-button-wrapper">
-                        {renderAction(chunk[0])}
-                    </span>
-                ),
-            )}
-            {actionTip !== null ? (
-                <ActionHint
-                    left={actionTip.left}
-                    top={actionTip.top}
-                    label={actionTip.label}
-                    keyLabel={actionTip.keyLabel}
-                    modifiers={actionTip.modifiers}
-                />
-            ) : null}
-        </div>
     );
 }
 

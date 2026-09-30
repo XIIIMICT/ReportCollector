@@ -1,0 +1,338 @@
+"use client";
+
+import { Button, ButtonGroup, Dropdown, Kbd, Label, Spinner } from "@heroui/react";
+import { MoreHoriz } from "iconoir-react";
+import { useCallback, useRef, useState, type Key, type ReactNode } from "react";
+
+import { useMediaQuery } from "@/shared/hooks/use-media-query";
+import { ActionHint, parseShortcut } from "@/shared/ui/action-hint";
+import { HoverDropdown } from "@/shared/ui/hover-dropdown";
+
+export type ActionItem = {
+    id: string;
+    label: string;
+    icon: ReactNode;
+    onPress: () => void;
+    variant?: "primary" | "secondary" | "danger";
+    disabled?: boolean;
+    shortcut?: { key: "Z" | "Y" | "C" | "V" | "Del"; aria: string };
+    /**
+     * Consecutive items sharing a group render joined in one HeroUI
+     * ButtonGroup («Отменить/Вернуть», «Копировать/Вставить»).
+     */
+    group?: "history" | "clipboard" | "row" | "download";
+    /**
+     * A trigger with a dropdown (e.g. download with «всю таблицу» /
+     * «видимую таблицу» sub-actions) instead of a one-shot button.
+     * `icon` renders only in the compact «Действия» menu — the desktop
+     * dropdown keeps the plain labels (the trigger already shows its icon).
+     */
+    menu?: Array<{ id: string; label: string; icon?: ReactNode; onPress: () => void }>;
+    /** Show a spinner in place of the icon while a background job runs. */
+    pending?: boolean;
+};
+
+/** Chunk actions into ButtonGroup runs: consecutive items with equal `group`. */
+export function groupActionItems(items: ActionItem[]): ActionItem[][] {
+    const chunks: ActionItem[][] = [];
+    for (const item of items) {
+        const last = chunks[chunks.length - 1];
+        if (last && item.group !== undefined && last[0].group === item.group) {
+            last.push(item);
+        } else {
+            chunks.push([item]);
+        }
+    }
+    return chunks;
+}
+
+/**
+ * The desktop action bar: the caller builds the ordered `ActionItem` list, this
+ * renders it with the responsive tiers (everything collapses into one
+ * «Действия» menu on sm; a primary action collapses to an icon on md) and the
+ * floating shortcut hint. Shared by both workspaces.
+ */
+export function ActionBar({
+    items,
+    onDropdownOpenChange,
+}: {
+    items: ActionItem[];
+    /** Holds the fullscreen panels open while an action menu is expanded. */
+    onDropdownOpenChange?: (open: boolean) => void;
+}) {
+    const isSm = useMediaQuery("(max-width: 40rem)");
+    const isMd = useMediaQuery("(max-width: 48rem)");
+    const collapsePrimaryAtMd = isMd && !isSm;
+    const classNameFor = (action: ActionItem) =>
+        collapsePrimaryAtMd && action.variant === "primary"
+            ? "action-button"
+            : action.variant === "primary"
+              ? "action-button action-button--primary"
+              : "action-button";
+    // Floating hint: shows the label plus a Kbd with the shortcut over every
+    // inline action button, including the ones grouped in a ButtonGroup (whose
+    // children can't be wrapped in a per-button Tooltip).
+    const [actionTip, setActionTip] = useState<{
+        label: string;
+        keyLabel: string;
+        modifiers: Array<"ctrl" | "shift" | "alt" | "meta">;
+        left: number;
+        top: number;
+    } | null>(null);
+    const actionTipTargetRef = useRef<Element | null>(null);
+
+    // The floating hint carries the label plus a Kbd with the shortcut, so it
+    // only makes sense for actions that have a shortcut (a plain button like
+    // «Добавить строку» shows nothing).
+    const hintData = (action: ActionItem) =>
+        action.shortcut
+            ? { "data-action-tooltip": action.label, "data-action-shortcut": action.shortcut.aria }
+            : {};
+
+    const renderAction = (action: ActionItem) => {
+        const icon = action.pending ? <Spinner size="sm" /> : action.icon;
+        if (action.menu) {
+            return (
+                <HoverDropdown
+                    className="action-more-popover"
+                    onOpenChange={onDropdownOpenChange}
+                    trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
+                        <Button
+                            ref={ref}
+                            onMouseEnter={onMouseEnter}
+                            onPress={onPress}
+                            className={
+                                isOpen
+                                    ? classNameFor(action) + " action-button--open"
+                                    : classNameFor(action)
+                            }
+                            variant={action.variant ?? "tertiary"}
+                            isDisabled={action.disabled}
+                            aria-label={action.label}
+                            {...hintData(action)}
+                        >
+                            <span className="action-button__icon">{icon}</span>
+                            <span className="action-button__label">{action.label}</span>
+                        </Button>
+                    )}
+                    content={
+                        <Dropdown.Menu
+                            aria-label={action.label}
+                            onAction={(key) => {
+                                const menuItem = action.menu?.find((m) => m.id === String(key));
+                                menuItem?.onPress();
+                            }}
+                            className="action-more-menu"
+                        >
+                            {action.menu.map((menuItem) => (
+                                <Dropdown.Item
+                                    key={menuItem.id}
+                                    id={menuItem.id}
+                                    textValue={menuItem.label}
+                                >
+                                    <Label>{menuItem.label}</Label>
+                                </Dropdown.Item>
+                            ))}
+                        </Dropdown.Menu>
+                    }
+                />
+            );
+        }
+        return (
+            <Button
+                className={classNameFor(action)}
+                variant={action.variant ?? "tertiary"}
+                isDisabled={action.disabled}
+                aria-label={action.label}
+                aria-keyshortcuts={action.shortcut?.aria}
+                {...hintData(action)}
+                onPress={action.onPress}
+            >
+                <span className="action-button__icon">{icon}</span>
+                <span className="action-button__label">{action.label}</span>
+            </Button>
+        );
+    };
+
+    if (isSm) {
+        return (
+            <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
+                <CompactActionMenu items={items} onOpenChange={onDropdownOpenChange} />
+            </div>
+        );
+    }
+    return (
+        <div
+            className="action-bar"
+            aria-label="Действия с таблицей"
+            onPointerMove={(event) => {
+                const target = (event.target as Element).closest?.("[data-action-tooltip]") ?? null;
+                if (target === actionTipTargetRef.current) return;
+                actionTipTargetRef.current = target;
+                if (!target) {
+                    setActionTip(null);
+                    return;
+                }
+                const rect = target.getBoundingClientRect();
+                const shortcut = target.getAttribute("data-action-shortcut");
+                const parsed = shortcut ? parseShortcut(shortcut) : null;
+                setActionTip({
+                    label: target.getAttribute("data-action-tooltip") ?? "",
+                    keyLabel: parsed?.keyLabel ?? "",
+                    modifiers: parsed?.modifiers ?? [],
+                    left: rect.left + rect.width / 2,
+                    top: rect.top,
+                });
+            }}
+            onPointerLeave={() => {
+                actionTipTargetRef.current = null;
+                setActionTip(null);
+            }}
+        >
+            {groupActionItems(items).map((chunk) =>
+                chunk.length > 1 ? (
+                    // Direct Button children only: ButtonGroup injects props
+                    // into them (`__button_group_child`), which a Fragment or
+                    // Tooltip wrapper would reject — the kbd hint is shown by the
+                    // floating tooltip above instead.
+                    <ButtonGroup key={`group-${chunk[0].id}`}>
+                        {chunk.map((action) => (
+                            <Button
+                                key={action.id}
+                                className={classNameFor(action)}
+                                variant={action.variant ?? "tertiary"}
+                                isDisabled={action.disabled}
+                                aria-label={action.label}
+                                aria-keyshortcuts={action.shortcut?.aria}
+                                {...hintData(action)}
+                                onPress={action.onPress}
+                            >
+                                <span className="action-button__icon">{action.icon}</span>
+                                <span className="action-button__label">{action.label}</span>
+                            </Button>
+                        ))}
+                    </ButtonGroup>
+                ) : (
+                    <span key={chunk[0].id} className="action-button-wrapper">
+                        {renderAction(chunk[0])}
+                    </span>
+                ),
+            )}
+            {actionTip !== null ? (
+                <ActionHint
+                    left={actionTip.left}
+                    top={actionTip.top}
+                    label={actionTip.label}
+                    keyLabel={actionTip.keyLabel}
+                    modifiers={actionTip.modifiers}
+                />
+            ) : null}
+        </div>
+    );
+}
+
+/**
+ * The compact action menu (narrow screens): a single «Действия» button whose
+ * dropdown (full-text items with icons — the same actions as the inline bar)
+ * opens on hover. See `HoverDropdown` for why closing is pointer-position
+ * based rather than mouseleave.
+ */
+export function CompactActionMenu({
+    items,
+    onOpenChange,
+}: {
+    items: ActionItem[];
+    /** Notifies the owner when the menu opens/closes (holds the fullscreen
+        panels open while the compact «Действия» menu is expanded). */
+    onOpenChange?: (open: boolean) => void;
+}) {
+    const handleAction = useCallback(
+        (key: Key) => {
+            const raw = String(key);
+            for (const item of items) {
+                if (item.menu) {
+                    const sub = item.menu.find((m) => `${item.id}:${m.id}` === raw);
+                    if (sub) {
+                        sub.onPress();
+                        return;
+                    }
+                } else if (item.id === raw) {
+                    item.onPress();
+                    return;
+                }
+            }
+        },
+        [items],
+    );
+
+    return (
+        <HoverDropdown
+            className="action-more-popover"
+            onOpenChange={onOpenChange}
+            trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
+                <Button
+                    ref={ref}
+                    onMouseEnter={onMouseEnter}
+                    onPress={onPress}
+                    className={isOpen ? "action-button action-button--open" : "action-button"}
+                    variant="tertiary"
+                    aria-label="Действия с таблицей"
+                >
+                    <span className="action-button__icon">
+                        <MoreHoriz aria-hidden="true" />
+                    </span>
+                    <span className="action-button__label">Действия</span>
+                </Button>
+            )}
+            content={
+                <Dropdown.Menu
+                    aria-label="Действия с таблицей"
+                    onAction={handleAction}
+                    className="action-more-menu"
+                >
+                    {items.flatMap((item) =>
+                        item.menu
+                            ? item.menu.map((sub) => (
+                                  <Dropdown.Item
+                                      key={`${item.id}:${sub.id}`}
+                                      id={`${item.id}:${sub.id}`}
+                                      textValue={sub.label}
+                                  >
+                                      {sub.icon ? (
+                                          <span className="action-more-menu__icon">{sub.icon}</span>
+                                      ) : null}
+                                      <Label>{sub.label}</Label>
+                                  </Dropdown.Item>
+                              ))
+                            : [
+                                  <Dropdown.Item
+                                      key={item.id}
+                                      id={item.id}
+                                      textValue={item.label}
+                                      isDisabled={item.disabled}
+                                      variant={item.variant === "danger" ? "danger" : undefined}
+                                      // HeroUI ships only a `danger` MenuItem variant; success is
+                                      // reproduced the same way — color the label slot via the
+                                      // theme's `--success` token (stock Tailwind utility, no CSS).
+                                      className={
+                                          item.variant === "primary"
+                                              ? "[&_[data-slot=label]]:text-success"
+                                              : undefined
+                                      }
+                                  >
+                                      <span className="action-more-menu__icon">{item.icon}</span>
+                                      <Label>{item.label}</Label>
+                                      {item.shortcut ? (
+                                          <Kbd className="ms-auto" slot="keyboard" variant="light">
+                                              <Kbd.Abbr keyValue="ctrl" />
+                                              <Kbd.Content>{item.shortcut.key}</Kbd.Content>
+                                          </Kbd>
+                                      ) : null}
+                                  </Dropdown.Item>,
+                              ],
+                    )}
+                </Dropdown.Menu>
+            }
+        />
+    );
+}
