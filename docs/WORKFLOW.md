@@ -15,6 +15,8 @@ About `POSTGRES_HOST`: on the server it's the real DB address (not localhost); `
 
 **Valkey in the dev stack:** `compose.yaml` overrides `VALKEY_URL=redis://valkey:6379/0` for `back-dev` (the compose service on the same network). Don't point the dev backend at `host.docker.internal` — Docker Desktop's VM loopback times out under load (`redis.exceptions.TimeoutError`) and breaks collab presence/locks. The prod profile keeps `VALKEY_URL` from `.env` (valkey may live on the host there).
 
+**Postgres in the dev stack:** `compose.yaml` likewise pins `POSTGRES_HOST=postgres` for `back-dev`. The `rc-postgres` container is on both `rc-net` and `rc-net-dev`, so the service name resolves inside the dev network, like `valkey`. The `.env` value stays `localhost`/`host.docker.internal` for **host** runs (`just back`/`just front`, seeds, tests); inside a container `localhost` is the container itself — the symptom is `/health` 200 but every DB-backed request (e.g. `GET /api/me`) returns **500** with `ConnectionRefusedError: [Errno 111]`. After changing this, recreate the container (`docker compose --profile dev up -d back-dev`).
+
 ## Quality (what we check before delivery)
 
 | Side | Lint | Format | Typecheck | Tests |

@@ -62,6 +62,12 @@ services:
     # оставляет VALKEY_URL из .env — там valkey может жить на хосте.
     environment:
       VALKEY_URL: redis://valkey:6379/0
+      # Postgres тоже стоит в compose (профиль standalone, сети net + net-dev) —
+      # в контейнере .env-значение `localhost`/`host.docker.internal` не
+      # работает (localhost — сам контейнер). Обращаемся по имени сервиса, как
+      # к valkey; хост-запуск (just back/just front) по-прежнему берёт
+      # POSTGRES_HOST из .env.
+      POSTGRES_HOST: postgres
     develop:
       watch:
         - action: sync
