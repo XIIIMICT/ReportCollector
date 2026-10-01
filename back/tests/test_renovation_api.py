@@ -309,6 +309,27 @@ async def test_plan_rows_position_range(client: AsyncClient) -> None:
     assert from_two.json()["rows"][0]["position"] == 2
 
 
+async def test_plan_rows_total_all_is_the_whole_plan(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """The «всего» counter (totalAll) is the plan's row count, filters or not."""
+    row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
+    row.col_003 = "2027_BSKR_<NULL>_1382467_00"  # incorrect — hidden by «Корректные»
+    await db_session.flush()
+
+    filters = json.dumps([{"column": "col_003", "values": ["Корректные"], "includeNulls": False}])
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100, "filters": filters},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["totalAll"] == 2
+
+
 async def test_plan_summary_sums_numeric_fields(client: AsyncClient) -> None:
     """The pinned summary sums the numeric fields of the filtered plan."""
     response = await client.get("/api/renovation/plan/summary", headers=ADMIN_HEADERS)

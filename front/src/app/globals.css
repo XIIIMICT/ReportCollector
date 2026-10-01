@@ -1552,11 +1552,19 @@ body {
 
 /* No line between the header and the pinned summary row: drop the header
    cells' bottom edge (the top edge stays for the header's own top border). */
-.raw-materials-grid--summary revogr-header .rgHeaderCell,
-.raw-materials-grid--summary revogr-header .group-rgRow .rgHeaderCell {
-    box-shadow:
-        -1px 0 0 0 var(--rg-theme-header-border) inset,
-        0 -1px 0 0 var(--rg-theme-header-border);
+/* No line between the header and the pinned summary row: drop any bottom edge
+   on the header and any top edge on the summary cells. */
+.raw-materials-grid--summary revogr-header,
+.raw-materials-grid--summary revogr-header .header-rgRow,
+.raw-materials-grid--summary revogr-header .group-rgRow,
+.raw-materials-grid--summary revogr-header .rgHeaderCell {
+    border-bottom: 0 !important;
+    box-shadow: none !important;
+}
+
+.raw-materials-grid--summary revogr-data .rgCell.raw-materials-grid__summary-cell,
+.raw-materials-grid--summary revogr-data .rgCell.raw-materials-grid__summary-cell--filled {
+    border-top: 0 !important;
 }
 
 .report-row-header__summary {

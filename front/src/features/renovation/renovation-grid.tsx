@@ -1969,9 +1969,23 @@ function RenovationGridInner(
     // The totals row is a revo-grid pinned top row (like the assets dictionary)
     // — the custom header overlay stays header-only.
     const overlayHeight = headerHeight;
-    const pinnedSummaryRow = useMemo(
+    const pinnedSummaryRow = useMemo<RenovationGridRow[] | undefined>(
         () =>
-            summaryValues ? [{ __id: SUMMARY_ROW_ID, __position: 0, ...summaryValues }] : undefined,
+            summaryValues
+                ? [
+                      {
+                          ...summaryValues,
+                          __id: SUMMARY_ROW_ID,
+                          __position: 0,
+                          __assetId: null,
+                          __assetName: "",
+                          __renovationId: null,
+                          __rowState: "unchanged",
+                          __changedFields: [],
+                          __missingComponents: [],
+                      } as RenovationGridRow,
+                  ]
+                : undefined,
         [summaryValues],
     );
 
