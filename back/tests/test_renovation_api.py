@@ -1364,7 +1364,10 @@ async def test_export_recalculates_derived_columns(
     # col_026 lands on column AA (27); col_024/col_025 on Y/Z (25/26).
     assert worksheet["Y12"].value.date() == date(2027, 1, 10)
     assert worksheet["Z12"].value.date() == date(2027, 1, 25)
-    assert worksheet["AA12"].value == 15
+    # The calculated column keeps its Excel formula, with the recomputed value cached.
+    assert worksheet["AA12"].value == "=Z12 - Y12"
+    cached = load_workbook(BytesIO(response.content), data_only=True).active
+    assert cached["AA12"].value == 15
 
 
 async def test_export_block_filters_columns(client: AsyncClient) -> None:

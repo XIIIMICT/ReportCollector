@@ -9,6 +9,7 @@ Reference fields are written as display labels, numbers keep their
 decimal count, dates as DD.MM.YYYY, booleans as Да/Нет.
 """
 
+import re
 from collections.abc import Iterator
 from datetime import date, datetime
 from io import BytesIO, UnsupportedOperation
@@ -171,7 +172,18 @@ def _write_plan_sheet_xml(worksheet: IO[bytes], plan: RenovationPlanExportData) 
                 if display_value is None:
                     continue
                 value = display_value
-            xml.append(_data_cell_xml(row_number, column_by_field[meta.db_name], value, meta))
+            column = column_by_field[meta.db_name]
+            # A calculated field keeps its Excel formula (rendered onto this
+            # sheet's cell references) so the exported workbook recalculates.
+            formula = (
+                _render_excel_formula(meta.formula, column_by_field, row_number)
+                if meta.is_calculated and meta.formula
+                else None
+            )
+            if formula is not None:
+                xml.append(_formula_cell_xml(row_number, column, formula, value, meta))
+            else:
+                xml.append(_data_cell_xml(row_number, column, value, meta))
         xml.append("</row>")
         worksheet.write("".join(xml).encode())
     worksheet.write(b"</sheetData>")
@@ -260,6 +272,52 @@ def _data_cell_xml(row: int, column: int, value: object, meta: RenovationFieldMe
     if meta.cell_type == "number":
         return _number_cell_xml(row, column, value, style=3 if meta.decimals else 0)
     return _text_cell_xml(row, column, str(value))
+
+
+_FIELD_REFERENCE = re.compile(r"col_\d+")
+
+
+def _render_excel_formula(formula: str, column_by_field: dict[str, int], row: int) -> str | None:
+    """
+    Render an engine formula onto the sheet's Excel cell references.
+
+    `col_XXX` becomes the field's exported column letter + the data row. Returns
+    None when a referenced field was dropped (a block-filtered export) — the
+    caller then falls back to the stored value.
+    """
+    missing = False
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal missing
+        column = column_by_field.get(match.group(0))
+        if column is None:
+            missing = True
+            return match.group(0)
+        return f"{get_column_letter(column)}{row}"
+
+    rendered = _FIELD_REFERENCE.sub(replace, formula)
+    return None if missing else rendered
+
+
+def _formula_cell_xml(
+    row: int,
+    column: int,
+    formula: str,
+    value: object,
+    meta: RenovationFieldMeta,
+) -> str:
+    """Build a cell carrying an Excel formula plus its cached value."""
+    ref = f"{get_column_letter(column)}{row}"
+    inner = f"<f>{escape(formula)}</f>"
+    if meta.cell_type == "date":
+        parsed = value if isinstance(value, date) else date.fromisoformat(str(value))
+        serial = (parsed - date(1899, 12, 30)).days
+        return f'<c r="{ref}" s="2">{inner}<v>{serial}</v></c>'
+    if meta.cell_type == "number":
+        style = 3 if meta.decimals else 0
+        style_attr = f' s="{style}"' if style else ""
+        return f'<c r="{ref}"{style_attr}>{inner}<v>{value}</v></c>'
+    return f'<c r="{ref}">{inner}</c>'
 
 
 def _text_cell_xml(row: int, column: int, value: str, *, style: int = 0) -> str:

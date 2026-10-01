@@ -31,6 +31,10 @@ class RenovationFieldMeta:
     position: int
     ordinal: int
     responsibility_block: str | None
+    # The engine formula (col_XXX references) and the legacy Excel formula —
+    # the export renders the former onto the sheet's cell references.
+    formula: str | None = None
+    excel_formula: str | None = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,8 @@ def field_metas() -> tuple[RenovationFieldMeta, ...]:
             position=int(field["position"]),
             ordinal=int(field["ordinal"]),
             responsibility_block=field.get("responsibilityBlock"),
+            formula=field.get("formula"),
+            excel_formula=field.get("excelFormula"),
         )
         for field in _load_form()["fields"]
     ]
