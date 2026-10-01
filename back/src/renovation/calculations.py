@@ -38,6 +38,8 @@ _PARSE_FINITE_LITERAL = "числовой литерал должен быть �
 
 _UNARY_NEGATE_LABEL = "-x"
 _UNKNOWN_VALUE_LABEL = "?"
+_COMPARE_LABEL = "="
+_DATE_LABEL = "date"
 
 
 class FormulaError(ValueError):
@@ -136,6 +138,22 @@ class _Binary(_Expression):
     operator: str
     left: _Expression
     right: _Expression
+
+
+@dataclass(frozen=True)
+class _Compare(_Expression):
+    """Equality of two expressions — evaluates to 1 (true) or 0 (false)."""
+
+    left: _Expression
+    right: _Expression
+
+
+@dataclass(frozen=True)
+class _Call(_Expression):
+    """A function call (`IF`, `AND`, `YEAR`, `MONTH`)."""
+
+    name: str
+    args: tuple[_Expression, ...]
 
 
 @dataclass(frozen=True)
@@ -293,6 +311,13 @@ def _collect_variables(expression: _Expression) -> set[str]:
         return _collect_variables(expression.inner)
     if isinstance(expression, _Binary):
         return _collect_variables(expression.left) | _collect_variables(expression.right)
+    if isinstance(expression, _Compare):
+        return _collect_variables(expression.left) | _collect_variables(expression.right)
+    if isinstance(expression, _Call):
+        result: set[str] = set()
+        for arg in expression.args:
+            result |= _collect_variables(arg)
+        return result
     return set()
 
 
@@ -345,7 +370,70 @@ def _evaluate(
         left_value = _evaluate(expression.left, values, field_types)
         right_value = _evaluate(expression.right, values, field_types)
         return _evaluate_binary(expression.operator, left_value, right_value)
+    if isinstance(expression, _Compare):
+        left_value = _evaluate(expression.left, values, field_types)
+        right_value = _evaluate(expression.right, values, field_types)
+        return _evaluate_compare(left_value, right_value)
+    if isinstance(expression, _Call):
+        return _evaluate_call(expression, values, field_types)
     raise _invalid_value_type(_UNKNOWN_VALUE_LABEL)
+
+
+def _evaluate_compare(left: _Evaluated, right: _Evaluated) -> _Evaluated:
+    if isinstance(left, _EvaluatedMissingDate) or isinstance(right, _EvaluatedMissingDate):
+        return _EvaluatedNumber(0.0)
+    if isinstance(left, _EvaluatedNumber) and isinstance(right, _EvaluatedNumber):
+        return _EvaluatedNumber(1.0 if left.value == right.value else 0.0)
+    if isinstance(left, _EvaluatedDate) and isinstance(right, _EvaluatedDate):
+        return _EvaluatedNumber(1.0 if left.value == right.value else 0.0)
+    raise _invalid_operation(_COMPARE_LABEL)
+
+
+def _call_date(
+    expression: _Expression,
+    values: dict[str, object],
+    field_types: dict[str, str],
+) -> date | None:
+    """Return the date behind a `YEAR`/`MONTH` argument (None when it is empty)."""
+    evaluated = _evaluate(expression, values, field_types)
+    if isinstance(evaluated, _EvaluatedDate):
+        return evaluated.value
+    if isinstance(evaluated, _EvaluatedMissingDate):
+        return None
+    raise _invalid_operation(_DATE_LABEL)
+
+
+def _evaluate_call(
+    call: _Call,
+    values: dict[str, object],
+    field_types: dict[str, str],
+) -> _Evaluated:
+    name = call.name.upper()
+    if name == "YEAR":
+        if len(call.args) != 1:
+            raise _invalid_operation(name)
+        parsed = _call_date(call.args[0], values, field_types)
+        return _EvaluatedMissingDate() if parsed is None else _EvaluatedNumber(float(parsed.year))
+    if name == "MONTH":
+        if len(call.args) != 1:
+            raise _invalid_operation(name)
+        parsed = _call_date(call.args[0], values, field_types)
+        return _EvaluatedMissingDate() if parsed is None else _EvaluatedNumber(float(parsed.month))
+    if name == "AND":
+        if len(call.args) < 2:
+            raise _invalid_operation(name)
+        for arg in call.args:
+            evaluated = _evaluate(arg, values, field_types)
+            if not isinstance(evaluated, _EvaluatedNumber) or evaluated.value == 0.0:
+                return _EvaluatedNumber(0.0)
+        return _EvaluatedNumber(1.0)
+    if name == "IF":
+        if len(call.args) != 3:
+            raise _invalid_operation(name)
+        condition = _evaluate(call.args[0], values, field_types)
+        truthy = isinstance(condition, _EvaluatedNumber) and condition.value != 0.0
+        return _evaluate(call.args[1] if truthy else call.args[2], values, field_types)
+    raise _invalid_operation(call.name)
 
 
 def _evaluate_variable(
@@ -467,10 +555,16 @@ class _Parser:
     def parse(self) -> _Expression:
         if not self._source.isascii():
             raise _ParserError(_PARSE_ASCII_ONLY)
-        expression = self._parse_expression()
+        expression = self._parse_comparison()
         self._skip_whitespace()
         if self._position != len(self._source):
             raise _ParserError(_PARSE_UNEXPECTED_CHAR.format(position=self._position))
+        return expression
+
+    def _parse_comparison(self) -> _Expression:
+        expression = self._parse_expression()
+        if self._consume("="):
+            return _Compare(expression, self._parse_expression())
         return expression
 
     def _parse_expression(self) -> _Expression:
@@ -518,7 +612,21 @@ class _Parser:
                 if peeked is None or not peeked.isascii() or not (peeked.isalnum() or peeked == "_"):
                     break
                 self._position += 1
-            return _Variable(self._source[start : self._position])
+            name = self._source[start : self._position]
+            self._skip_whitespace()
+            if self._peek() == "(":
+                # A function call: `IF(cond, a, b)`, `AND(...)`, `YEAR(f)`, `MONTH(f)`.
+                self._position += 1
+                args: list[_Expression] = []
+                self._skip_whitespace()
+                if self._peek() != ")":
+                    args.append(self._parse_comparison())
+                    while self._consume(","):
+                        args.append(self._parse_comparison())
+                if not self._consume(")"):
+                    raise _ParserError(_PARSE_UNCLOSED_PAREN)
+                return _Call(name, tuple(args))
+            return _Variable(name)
         if first.isascii() and (first.isdigit() or first == "."):
             return self._parse_number()
         raise _ParserError(_PARSE_EXPECTED_VALUE)
