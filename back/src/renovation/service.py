@@ -136,6 +136,7 @@ _ERR_EDIT_PENDING = RenovationPermissionError("Версию на согласо�
 _ERR_ADD_PERMISSION = RenovationPermissionError(
     "Добавлять строки может администратор или работник Технической дирекции по активу."
 )
+_ERR_ADD_ASSET = RenovationPermissionError("Нельзя добавить строку по этому активу.")
 _ERR_DELETE_BASELINE_ROW = RenovationPlanStateError("Нельзя удалить строку утверждённой базовой линии.")
 _ERR_DELETE_APPROVER = RenovationPermissionError("Утверждающий не удаляет строки плана.")
 _ERR_ROW_HAS_ASSET = RenovationPlanStateError("У строки уже указан актив.")
@@ -1058,6 +1059,7 @@ async def add_plan_row(
     roles: list[RProjectRole],
     block: RBlock | None,
     assets: list[RAsset],
+    asset_id: UUID | None = None,
 ) -> RenovationPlanRowRead:
     """
     Append a new (empty) row to the current plan.
@@ -1066,8 +1068,9 @@ async def add_plan_row(
     («на согласовании») one. Adding is an edit: a pending version can only be
     appended to by an admin; for the working plan only administrators and asset
     workers of the Техническая дирекция (tech) block — on their own assets — may
-    add. Other block workers, block owners and approvers cannot. The row
-    is inserted empty; its asset is pre-filled only for an asset worker with
+    add. Other block workers, block owners and approvers cannot. The row is
+    inserted empty; its asset comes from `asset_id` (validated against the
+    caller's assets) when given, else it is pre-filled for an asset worker with
     exactly one asset. Everyone else adds an asset-less draft (removed on submit
     if never assigned a row/asset).
     """
@@ -1082,7 +1085,13 @@ async def add_plan_row(
     may_add = is_admin or (RProjectRole.ASSET_WORKER in roles and block == RBlock.TECH)
     if not may_add:
         raise _ERR_ADD_PERMISSION
-    asset: RAsset | None = assets[0] if RProjectRole.ASSET_WORKER in roles and len(assets) == 1 else None
+    asset: RAsset | None = None
+    if asset_id is not None:
+        asset = next((candidate for candidate in assets if candidate.id == asset_id), None)
+        if asset is None:
+            raise _ERR_ADD_ASSET
+    elif RProjectRole.ASSET_WORKER in roles and len(assets) == 1:
+        asset = assets[0]
     max_position = (
         await session.exec(
             select(func.max(col(RenovationPlanRow.position))).where(col(RenovationPlanRow.plan_id) == plan.id)

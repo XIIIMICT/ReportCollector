@@ -1004,6 +1004,49 @@ async def test_add_row_appends_assetless_draft(client: AsyncClient, db_session: 
     assert [row["position"] for row in rows] == [1, 2, 3]
 
 
+async def test_add_row_uses_the_requested_asset(client: AsyncClient, db_session: AsyncSession) -> None:
+    """POST /plan/rows with an assetId pre-fills the row's asset."""
+    vos = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()
+    response = await client.post(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        json={"assetId": str(vos.id)},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["assetId"] == str(vos.id)
+    assert body["assetCode"] == "vos"
+    assert body["assetName"] == vos.name
+
+    # The new row is found by the asset filter (it belongs to the asset).
+    plan = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100, "asset": vos.name},
+    )
+    assert plan.json()["total"] == 2
+
+
+async def test_add_row_rejects_a_foreign_asset(client: AsyncClient, db_session: AsyncSession) -> None:
+    """An asset worker cannot add a row for an asset it has no access to."""
+    await _grant_role(
+        db_session,
+        email="asset_worker4@example.ru",
+        name="Asset Worker 4",
+        role=RProjectRole.ASSET_WORKER,
+        block=RBlock.TECH,
+        asset_codes=["vos"],
+    )
+    headers = signed_identity_headers(email="asset_worker4@example.ru", name="Asset Worker 4")
+    bsk = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "bsk"))).one()
+    response = await client.post(
+        "/api/renovation/plan/rows",
+        headers=headers,
+        json={"assetId": str(bsk.id)},
+    )
+    assert response.status_code == 403
+
+
 async def test_add_row_for_single_asset_worker_autofills_asset(client: AsyncClient, db_session: AsyncSession) -> None:
     # A single-asset asset worker adds under its only asset (no popup needed).
     await _grant_role(

@@ -186,6 +186,12 @@ class RenovationRowAddRequest(BaseModel):
     assetId: UUID
 
 
+class RenovationRowCreateRequest(BaseModel):
+    """Append a plan row, optionally pre-assigning an asset."""
+
+    assetId: UUID | None = None
+
+
 class RenovationRowAssignRequest(BaseModel):
     """Point an asset-less draft row at an asset."""
 
