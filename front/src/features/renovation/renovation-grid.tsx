@@ -2080,11 +2080,17 @@ function RenovationGridInner(
                 {overlayCells.map((cell) => (
                     <div
                         key={cell.id}
-                        className={
-                            cell.isTop
-                                ? "renovation-grid__header-cell renovation-grid__header-cell--top"
-                                : "renovation-grid__header-cell"
-                        }
+                        className={[
+                            "renovation-grid__header-cell",
+                            cell.isTop ? "renovation-grid__header-cell--top" : "",
+                            // A bottom-most cell sits directly above the summary
+                            // row — drop its bottom line so the two merge.
+                            summaryValues && cell.top + cell.height >= headerHeight - 0.5
+                                ? "renovation-grid__header-cell--bottom"
+                                : "",
+                        ]
+                            .filter(Boolean)
+                            .join(" ")}
                         style={{
                             left: cell.left,
                             top: cell.top,
@@ -2140,6 +2146,17 @@ function RenovationGridInner(
                         ) : null}
                     </div>
                 ))}
+                {summaryValues ? (
+                    <div
+                        className="renovation-grid__summary-cell"
+                        style={{
+                            left: ROW_HEADER_WIDTH,
+                            top: headerHeight,
+                            width: assetWidth,
+                            height: summaryHeight,
+                        }}
+                    />
+                ) : null}
                 {summaryValues
                     ? visibleFields.map((field) => {
                           const value = summaryValues[field.dbName];

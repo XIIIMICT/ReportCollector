@@ -1822,6 +1822,18 @@ body {
         0 -1px 0 var(--cell-border) inset;
 }
 
+/* A bottom-most header cell sits directly above the summary row: dropping its
+   bottom line merges the header and the summary into one block. */
+.renovation-grid__header-cell--bottom {
+    box-shadow: -1px 0 0 var(--cell-border) inset;
+}
+
+.renovation-grid__header-cell--top.renovation-grid__header-cell--bottom {
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset;
+}
+
 /* The pinned summary row under the header levels: one cell per numeric field,
    right-aligned like the data cells. */
 .renovation-grid__summary-cell {
