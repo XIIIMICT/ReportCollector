@@ -34,7 +34,7 @@ import type {
 } from "@/shared/api/renovation";
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
-import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
+import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { isFromTextEditor } from "@/shared/keyboard";
 
 /**
@@ -55,8 +55,6 @@ export const RENOVATION_PLAN_ROWS_TABLE = "renovation_plan_rows";
 
 const HEADER_LEVEL_HEIGHT = 24;
 
-/** The pinned summary row's number format (thousands, at most two decimals). */
-const SUMMARY_NUMBER_FORMAT = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
 const HEADER_LEVEL_COUNT = 11;
 const ROW_HEADER_WIDTH = 52;
 const MIN_COLUMN_WIDTH = 60;
@@ -657,12 +655,14 @@ function RenovationGridInner(
             readonly: true,
             cellProperties: ({ model }) => {
                 const row = model as RenovationGridRow;
+                const isSummary = row.__id === SUMMARY_ROW_ID;
                 return {
                     className: {
                         "report-cell": true,
                         "report-cell--readonly": true,
                         "report-cell--baseline-boundary":
                             baselineBoundary !== null && row.__position === baselineBoundary,
+                        "renovation-grid__summary-cell": isSummary,
                     },
                 };
             },
@@ -682,6 +682,7 @@ function RenovationGridInner(
                             : !editableCell(field, model as RenovationGridRow),
                     cellProperties: ({ model }) => {
                         const row = model as RenovationGridRow;
+                        const isSummary = row.__id === SUMMARY_ROW_ID;
                         const canonicalKey = canonicalRenovationKey(row.__id, field.dbName);
                         const remoteUser = remoteCellInfo.get(canonicalKey);
                         const changed =
@@ -730,6 +731,9 @@ function RenovationGridInner(
                                     !changed &&
                                     !field.isCalculated &&
                                     empty,
+                                "renovation-grid__summary-cell": isSummary,
+                                "renovation-grid__summary-cell--filled":
+                                    isSummary && typeof row[field.dbName] === "number",
                             },
                             "data-remote-lock": remoteUser
                                 ? JSON.stringify({
@@ -917,6 +921,10 @@ function RenovationGridInner(
             },
             cellTemplate: (h: HyperFunc<VNode>, { rowIndex, model }) => {
                 const row = model as RenovationGridRow;
+                // The pinned summary row shows no row number.
+                if (row.__id === SUMMARY_ROW_ID) {
+                    return h("span", { class: "report-row-header__summary" });
+                }
                 const selected = selectedRowIds.includes(row.__id);
                 return h(
                     "button",
@@ -1958,10 +1966,14 @@ function RenovationGridInner(
     }, [assetWidth, displayFields, fieldWidth, geometry.offsets]);
 
     const headerHeight = HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT;
-    // The pinned summary row sits right under the header levels; its totals
-    // follow the active filters (null hides it).
-    const summaryHeight = summaryValues ? 36 : 0;
-    const overlayHeight = headerHeight + summaryHeight;
+    // The totals row is a revo-grid pinned top row (like the assets dictionary)
+    // — the custom header overlay stays header-only.
+    const overlayHeight = headerHeight;
+    const pinnedSummaryRow = useMemo(
+        () =>
+            summaryValues ? [{ __id: SUMMARY_ROW_ID, __position: 0, ...summaryValues }] : undefined,
+        [summaryValues],
+    );
 
     // Unpinned mode (corner menu «Закрепить заголовок» off) — the same
     // scrolling model as the «Сырьё» grids: the header scrolls away with the
@@ -2146,40 +2158,6 @@ function RenovationGridInner(
                         ) : null}
                     </div>
                 ))}
-                {summaryValues ? (
-                    <div
-                        className="renovation-grid__summary-cell"
-                        style={{
-                            left: ROW_HEADER_WIDTH,
-                            top: headerHeight,
-                            width: assetWidth,
-                            height: summaryHeight,
-                        }}
-                    />
-                ) : null}
-                {summaryValues
-                    ? visibleFields.map((field) => {
-                          const value = summaryValues[field.dbName];
-                          return (
-                              <div
-                                  key={`summary:${field.dbName}`}
-                                  className={
-                                      value === undefined
-                                          ? "renovation-grid__summary-cell"
-                                          : "renovation-grid__summary-cell is-filled"
-                                  }
-                                  style={{
-                                      left: geometry.offsets.get(field.dbName) ?? ROW_HEADER_WIDTH,
-                                      top: headerHeight,
-                                      width: widthOf(field),
-                                      height: summaryHeight,
-                                  }}
-                              >
-                                  {value === undefined ? null : SUMMARY_NUMBER_FORMAT.format(value)}
-                              </div>
-                          );
-                      })
-                    : null}
                 {handles.map((handle) => (
                     <div
                         key={handle.key}
@@ -2273,6 +2251,7 @@ function RenovationGridInner(
                     className="renovation-grid"
                     columns={columns}
                     source={displaySource}
+                    pinnedTopSource={pinnedSummaryRow}
                     theme="compact"
                     range
                     useClipboard={false}

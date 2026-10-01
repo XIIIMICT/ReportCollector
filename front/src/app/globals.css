@@ -1862,34 +1862,23 @@ body {
         0 1px 0 var(--cell-border) inset;
 }
 
-/* The pinned summary row under the header levels: one cell per numeric field,
-   right-aligned like the data cells. */
-.renovation-grid__summary-cell {
-    position: absolute;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
+/* The plan's pinned totals row (a revo-grid pinned top row, like the assets
+   dictionary): one vertical (right) + one bottom border, white empty cells and
+   green numeric totals. The row header shows no number. */
+.renovation-grid revogr-data .rgCell.renovation-grid__summary-cell {
     justify-content: flex-end;
-    padding: 0 9px;
-    overflow: hidden;
-    color: var(--foreground);
-    /* Empty cells read as part of the header (white), not a grey band. */
-    background: var(--surface);
-    /* The header cell's own lines: one vertical (right edge) plus one bottom —
-       no top line, so the row merges with the header above it. */
+    background: var(--surface) !important;
     box-shadow:
         -1px 0 0 var(--cell-border) inset,
         0 -1px 0 var(--cell-border) inset;
+    color: var(--foreground);
     font-size: 11.5px;
     font-weight: 650;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    user-select: none;
+    text-align: right;
 }
 
-/* A non-empty total is tinted like the calculated columns in the main table. */
-.renovation-grid__summary-cell.is-filled {
-    background: var(--cell-calculated);
+.renovation-grid revogr-data .rgCell.renovation-grid__summary-cell--filled {
+    background: var(--cell-calculated) !important;
 }
 
 .renovation-grid__resize-handle {
