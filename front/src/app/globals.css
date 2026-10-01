@@ -1834,13 +1834,23 @@ body {
     overflow: hidden;
     color: var(--foreground);
     background: var(--surface-secondary);
-    border-top: 1px solid var(--cell-border);
-    box-shadow: -1px 0 0 var(--cell-border) inset;
+    /* All four edges on every cell, so the row reads as a bordered strip even
+       where the totals are empty. */
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
     font-size: 11.5px;
     font-weight: 650;
     text-overflow: ellipsis;
     white-space: nowrap;
     user-select: none;
+}
+
+/* A non-empty total is tinted like the calculated columns in the main table. */
+.renovation-grid__summary-cell.is-filled {
+    background: var(--cell-calculated);
 }
 
 .renovation-grid__resize-handle {

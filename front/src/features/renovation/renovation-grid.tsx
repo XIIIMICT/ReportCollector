@@ -1079,6 +1079,9 @@ function RenovationGridInner(
     const anchorRef = useRef<{ position: number; offset: number } | null>(null);
     useEffect(() => {
         const update = () => {
+            // Don't overwrite the anchor from a clamped scrollTop while the
+            // restore is still waiting for revo-grid to apply the new source.
+            if (restoringScrollRef.current) return;
             const el = scrollTarget();
             if (!el || displaySource.length === 0) return;
             const index = Math.max(
@@ -1107,27 +1110,33 @@ function RenovationGridInner(
         if (index < 0) return; // the anchored row was evicted — leave the scroll
         const target = Math.max(0, index * 36 + anchor.offset);
         restoringScrollRef.current = true;
-        let attempts = 0;
-        const finish = () => {
-            restoringScrollRef.current = false;
-            checkRef.current?.();
-        };
+        let frames = 0;
+        let stable = 0;
         const apply = () => {
             const el = scrollTarget();
-            if (!el || Math.abs(el.scrollTop - target) <= 1) {
-                finish();
+            if (!el) {
+                restoringScrollRef.current = false;
                 return;
             }
-            if (headerPinned && gridRef.current) {
-                void gridRef.current.scrollToRow(index);
+            if (Math.abs(el.scrollTop - target) <= 1) {
+                stable += 1;
             } else {
-                el.scrollTop = target;
+                stable = 0;
+                if (headerPinned && gridRef.current) {
+                    void gridRef.current.scrollToRow(index);
+                } else {
+                    el.scrollTop = target;
+                }
             }
-            if (attempts < 8) {
-                attempts += 1;
+            frames += 1;
+            // Keep re-applying for a while: revo-grid applies the new `source`
+            // asynchronously, so an early `scrollTop` write is clamped and a late
+            // reset would otherwise leave the viewport on the wrong row.
+            if (frames < 40 && stable < 6) {
                 requestAnimationFrame(apply);
             } else {
-                finish();
+                restoringScrollRef.current = false;
+                checkRef.current?.();
             }
         };
         apply();
@@ -2134,11 +2143,14 @@ function RenovationGridInner(
                 {summaryValues
                     ? visibleFields.map((field) => {
                           const value = summaryValues[field.dbName];
-                          if (value === undefined) return null;
                           return (
                               <div
                                   key={`summary:${field.dbName}`}
-                                  className="renovation-grid__summary-cell"
+                                  className={
+                                      value === undefined
+                                          ? "renovation-grid__summary-cell"
+                                          : "renovation-grid__summary-cell is-filled"
+                                  }
                                   style={{
                                       left: geometry.offsets.get(field.dbName) ?? ROW_HEADER_WIDTH,
                                       top: headerHeight,
@@ -2146,7 +2158,7 @@ function RenovationGridInner(
                                       height: summaryHeight,
                                   }}
                               >
-                                  {SUMMARY_NUMBER_FORMAT.format(value)}
+                                  {value === undefined ? null : SUMMARY_NUMBER_FORMAT.format(value)}
                               </div>
                           );
                       })

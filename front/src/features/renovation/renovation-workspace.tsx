@@ -390,6 +390,11 @@ export function RenovationWorkspace({
                     buffered.baselineBoundary ?? null,
                     buffered.id,
                 );
+                // The buffer prepend replaces the source, so the tail jump issued
+                // for the single tail chunk may have settled on the shorter window.
+                // Re-issue it so the grid lands on the last row of the full window.
+                scrollToEdgeTokenRef.current += 1;
+                setScrollToEdge({ edge: "bottom", token: scrollToEdgeTokenRef.current });
             } catch (reason) {
                 if (!cancelled && generation === windowGenerationRef.current) {
                     setPlanError(errorMessage(reason));
