@@ -2184,6 +2184,22 @@ async def read_renovation_asset_rows(
     if asset_id is not None:
         query = query.where(col(RAsset.id) == asset_id)
     rows = (await session.exec(query)).all()
+    # Computed column: the total «Стоимость итого» (col_031) of the working
+    # plan's rows per asset.
+    working_plan_id = await _plan_id_by_state(session, RPlanState.WORKING)
+    totals: dict[UUID, float] = {}
+    if working_plan_id is not None:
+        sums = (
+            await session.exec(
+                select(
+                    col(RenovationPlanRow.asset_id),
+                    func.coalesce(func.sum(col(RenovationPlanRow.col_031)), 0),
+                )
+                .where(col(RenovationPlanRow.plan_id) == working_plan_id)
+                .group_by(col(RenovationPlanRow.asset_id))
+            )
+        ).all()
+        totals = {asset_id: float(total or 0) for asset_id, total in sums if asset_id is not None}
     return [
         RenovationAssetRowRead(
             id=asset.id,
@@ -2192,6 +2208,7 @@ async def read_renovation_asset_rows(
             createdAt=asset.created_at,
             updatedAt=asset.updated_at,
             updatedBy=asset.updated_by,
+            totalCost=totals.get(asset.id, 0.0),
         )
         for asset in rows
     ]

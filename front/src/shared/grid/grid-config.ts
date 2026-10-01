@@ -180,7 +180,13 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     // Renovation dictionaries. The five reference catalogs are dynamic
     // ("renovationCatalog:{catalog_id}") — their descriptors are supplied by
     // the renovation workspace via the grid's columnDescriptors prop.
-    renovationAssets: [text("name", "Наименование", 380), text("repairCode", "Ремонтный код", 170)],
+    renovationAssets: [
+        text("name", "Наименование", 380),
+        text("repairCode", "Ремонтный код", 170),
+        // Computed on the server: the sum of «Стоимость итого» (col_031) over
+        // the working plan's rows for this asset.
+        calculated("totalCost", "Стоимость итого, руб. без НДС", 220),
+    ],
     renovationUsers: [
         // The email identifies the user and cannot be changed after creation
         // (no email in the PATCH schema) — users are created through the

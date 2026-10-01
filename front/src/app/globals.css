@@ -1833,13 +1833,12 @@ body {
     padding: 0 9px;
     overflow: hidden;
     color: var(--foreground);
-    background: var(--surface-secondary);
-    /* All four edges on every cell, so the row reads as a bordered strip even
-       where the totals are empty. */
+    /* Empty cells read as part of the header (white), not a grey band. */
+    background: var(--surface);
+    /* The header cell's own lines: one vertical (right edge) plus one bottom —
+       no top line, so the row merges with the header above it. */
     box-shadow:
         -1px 0 0 var(--cell-border) inset,
-        1px 0 0 var(--cell-border) inset,
-        0 1px 0 var(--cell-border) inset,
         0 -1px 0 var(--cell-border) inset;
     font-size: 11.5px;
     font-weight: 650;

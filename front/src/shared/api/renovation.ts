@@ -353,6 +353,8 @@ export type RenovationAssetRow = {
     createdAt: string;
     updatedAt: string;
     updatedBy: string;
+    /** Computed: sum of «Стоимость итого» (col_031) over the plan rows. */
+    totalCost: number;
 };
 
 export type RenovationCatalogOptionRow = {

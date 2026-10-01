@@ -43,6 +43,16 @@ async def test_dictionary_endpoints_require_admin(client: AsyncClient) -> None:
     assert response.status_code == 403
 
 
+async def test_asset_rows_carry_the_plan_total(client: AsyncClient) -> None:
+    """Each asset row carries the sum of «Стоимость итого» over the plan."""
+    response = await client.get("/api/renovation/dictionary/assets", headers=ADMIN_HEADERS)
+    assert response.status_code == 200
+    by_code = {row["repairCode"]: row for row in response.json()}
+    # The fixture: bsk col_031 = 10 + 20 = 30, vos = 5 + 7 = 12.
+    assert by_code["BSKR"]["totalCost"] == 30.0
+    assert by_code["VOZR"]["totalCost"] == 12.0
+
+
 async def test_assets_create_read_patch_delete(
     client: AsyncClient,
     db_session: AsyncSession,

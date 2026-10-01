@@ -310,6 +310,9 @@ class RenovationAssetRowRead(BaseModel):
     createdAt: datetime
     updatedAt: datetime
     updatedBy: str
+    # Computed: sum of «Стоимость итого, руб. без НДС» (col_031) over the
+    # working plan's rows for this asset.
+    totalCost: float = 0.0
 
 
 class RenovationCatalogOptionRowRead(BaseModel):
