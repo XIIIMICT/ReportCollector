@@ -1550,6 +1550,15 @@ body {
     background: var(--cell-calculated) !important;
 }
 
+/* No line between the header and the pinned summary row: drop the header
+   cells' bottom edge (the top edge stays for the header's own top border). */
+.raw-materials-grid--summary revogr-header .rgHeaderCell,
+.raw-materials-grid--summary revogr-header .group-rgRow .rgHeaderCell {
+    box-shadow:
+        -1px 0 0 0 var(--rg-theme-header-border) inset,
+        0 -1px 0 0 var(--rg-theme-header-border);
+}
+
 .report-row-header__summary {
     display: block;
 }

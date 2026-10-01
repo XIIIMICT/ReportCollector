@@ -1623,6 +1623,7 @@ function RawMaterialsGridInner(
                     className={[
                         "raw-materials-grid",
                         headerHeight > 44 && "raw-materials-grid--merged-header",
+                        Boolean(pinnedTopSource?.length) && "raw-materials-grid--summary",
                         userSortedSectionsRef.current.has(section) &&
                             "raw-materials-grid--user-sorted",
                     ]

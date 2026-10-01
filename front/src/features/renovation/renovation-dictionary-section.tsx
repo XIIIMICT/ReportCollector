@@ -687,7 +687,7 @@ export function RenovationDictionarySection({
             (sum, row) => sum + ((row as RenovationAssetRow).totalCost ?? 0),
             0,
         );
-        return [{ id: SUMMARY_ROW_ID, name: "Итого", repairCode: "", totalCost: total }];
+        return [{ id: SUMMARY_ROW_ID, name: "", repairCode: "", totalCost: total }];
     }, [dictSection, rows]);
     const assetOptions = useMemo(() => toAssetOptions(assets), [assets]);
     const deliveryBasisOptions = useMemo(() => [] as { id: string; name: string }[], []);
