@@ -87,6 +87,8 @@ type Props = {
     headerPinned: boolean;
     /** Controlled «Показать служебные столбцы» toggle (lives in the view strip). */
     showServiceColumns: boolean;
+    /** Pinned summary row(s) rendered above the data (revo-grid `pinnedTopSource`). */
+    pinnedTopSource?: Record<string, unknown>[];
     assets: ReferenceOption[];
     deliveryBases: ReferenceOption[];
     /** Custom column set — overrides the built-in descriptors for the section. */
@@ -250,6 +252,7 @@ function RawMaterialsGridInner(
         hasBaseline,
         headerPinned,
         showServiceColumns,
+        pinnedTopSource,
         assets,
         deliveryBases,
         columnDescriptors,
@@ -1591,6 +1594,7 @@ function RawMaterialsGridInner(
                         .join(" ")}
                     columns={columns}
                     source={rows}
+                    pinnedTopSource={pinnedTopSource}
                     theme="compact"
                     range
                     useClipboard={false}

@@ -675,6 +675,16 @@ export function RenovationDictionarySection({
     // fresh references each render rebuilds columns → RevoGrid re-emits cell
     // focus → fresh row-selection → grid's selection effect calls this setter →
     // re-render → fresh references again → infinite update-depth loop.
+    // The «Предприятия» tab gets a pinned totals row — the sum of every
+    // asset's «Стоимость итого» (the same aggregate as the plan's summary row).
+    const pinnedTopSource = useMemo(() => {
+        if (dictSection !== RENOVATION_ASSETS_SECTION) return undefined;
+        const total = (rows ?? []).reduce(
+            (sum, row) => sum + ((row as RenovationAssetRow).totalCost ?? 0),
+            0,
+        );
+        return [{ id: "__summary__", name: "Итого", repairCode: "", totalCost: total }];
+    }, [dictSection, rows]);
     const assetOptions = useMemo(() => toAssetOptions(assets), [assets]);
     const deliveryBasisOptions = useMemo(() => [] as { id: string; name: string }[], []);
     const descriptorOptions = useMemo(() => catalogDescriptors(catalogId), [catalogId]);
@@ -701,6 +711,7 @@ export function RenovationDictionarySection({
                 hasBaseline={false}
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}
+                pinnedTopSource={pinnedTopSource}
                 assets={assetOptions}
                 deliveryBases={deliveryBasisOptions}
                 columnDescriptors={descriptorOptions}
