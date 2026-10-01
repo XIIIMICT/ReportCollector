@@ -43,6 +43,9 @@ import {
 import { extractEdits, parseNumericText } from "./grid-edit";
 import { MultiAssetEditor, ReferenceEditor, SelectEditor } from "./grid-editors";
 
+/** The pinned summary row's id (revo-grid `pinnedTopSource`) — never a real record. */
+export const SUMMARY_ROW_ID = "__summary__";
+
 export type RawMaterialsGridState = {
     columns: ExportColumn[];
     rowIds: string[];
@@ -360,6 +363,34 @@ function RawMaterialsGridInner(
                 else void onCommit([{ rowId: row.id, field, value }]);
             },
         });
+        // Tag the pinned summary row's cells so CSS can draw them like the
+        // plan's summary (one vertical + one bottom border, white empty cells,
+        // a green numeric cell) and the row header can hide its number.
+        for (const column of next) {
+            const leaves = (column as ColumnGrouping).children?.length
+                ? ((column as ColumnGrouping).children as ColumnRegular[])
+                : [column as ColumnRegular];
+            for (const leaf of leaves) {
+                const base = leaf.cellProperties;
+                leaf.cellProperties = ((props: { model: unknown; prop: string }) => {
+                    const result = (base ? base(props as never) : undefined) as
+                        | { className?: Record<string, boolean> }
+                        | undefined;
+                    if ((props.model as { id?: string } | undefined)?.id !== SUMMARY_ROW_ID) {
+                        return result;
+                    }
+                    const value = (props.model as Record<string, unknown>)[props.prop];
+                    return {
+                        ...result,
+                        className: {
+                            ...result?.className,
+                            "raw-materials-grid__summary-cell": true,
+                            "raw-materials-grid__summary-cell--filled": typeof value === "number",
+                        },
+                    };
+                }) as ColumnRegular["cellProperties"];
+            }
+        }
         restoreColumnWidths(next, resizedWidthsRef.current, widthKeySection);
         return next;
     }, [
@@ -636,11 +667,16 @@ function RawMaterialsGridInner(
                     className: {
                         "report-row-header": true,
                         "report-row-header--selected": selectedRowIds.includes(row.id),
+                        "report-row-header--summary": row.id === SUMMARY_ROW_ID,
                     },
                 };
             },
             cellTemplate: (h: HyperFunc<VNode>, { rowIndex, model }) => {
                 const row = model as GridRow;
+                // The pinned summary row shows no row number.
+                if (row.id === SUMMARY_ROW_ID) {
+                    return h("span", { class: "report-row-header__summary" });
+                }
                 const selected = selectedRowIds.includes(row.id);
                 // The trailing «добавить запись» row shows «+» instead of a
                 // number — same as the renovation plan grid.

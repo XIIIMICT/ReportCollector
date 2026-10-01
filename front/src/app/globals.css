@@ -1535,6 +1535,25 @@ body {
     user-select: none;
 }
 
+/* Pinned summary row (the assets dictionary): one vertical (right) + one bottom
+   border, white empty cells and a green numeric total — like the plan's
+   summary. Its row header shows no number. */
+.raw-materials-grid revogr-data .rgCell.raw-materials-grid__summary-cell {
+    background: var(--surface) !important;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+    font-weight: 650;
+}
+
+.raw-materials-grid revogr-data .rgCell.raw-materials-grid__summary-cell--filled {
+    background: var(--cell-calculated) !important;
+}
+
+.report-row-header__summary {
+    display: block;
+}
+
 .raw-materials-grid.raw-materials-grid--merged-header
     revogr-header
     .rgHeaderCell.report-row-header--heading {

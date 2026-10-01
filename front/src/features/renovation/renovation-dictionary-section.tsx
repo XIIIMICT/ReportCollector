@@ -29,7 +29,11 @@ import {
 import { canonicalCellKey, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { isValidEmail } from "@/shared/email";
 import { getEditableKeys, type ColumnDescriptor, type GridRow } from "@/shared/grid/grid-config";
-import { RawMaterialsGrid, type RawMaterialsGridHandle } from "@/shared/grid/raw-materials-grid";
+import {
+    RawMaterialsGrid,
+    SUMMARY_ROW_ID,
+    type RawMaterialsGridHandle,
+} from "@/shared/grid/raw-materials-grid";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { isFromTextEditor } from "@/shared/keyboard";
 import {
@@ -683,7 +687,7 @@ export function RenovationDictionarySection({
             (sum, row) => sum + ((row as RenovationAssetRow).totalCost ?? 0),
             0,
         );
-        return [{ id: "__summary__", name: "Итого", repairCode: "", totalCost: total }];
+        return [{ id: SUMMARY_ROW_ID, name: "Итого", repairCode: "", totalCost: total }];
     }, [dictSection, rows]);
     const assetOptions = useMemo(() => toAssetOptions(assets), [assets]);
     const deliveryBasisOptions = useMemo(() => [] as { id: string; name: string }[], []);
