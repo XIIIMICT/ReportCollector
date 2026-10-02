@@ -34,6 +34,16 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="ru" className="h-full antialiased" suppressHydrationWarning>
+            <head>
+                <link
+                    rel="preconnect"
+                    href={process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}
+                />
+                <link
+                    rel="dns-prefetch"
+                    href={process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}
+                />
+            </head>
             <body className="bg-background text-foreground h-full font-sans">
                 <Providers>{children}</Providers>
             </body>

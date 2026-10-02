@@ -232,11 +232,11 @@ function text(key: string, label: string, width: number): ColumnDescriptor {
 }
 
 function number(key: string, label: string, width: number, path?: string[]): ColumnDescriptor {
-    return { key, label, path, width, kind: "number" };
+    return { key, label, ...(path && { path }), width, kind: "number" };
 }
 
 function calculated(key: string, label: string, width: number, path?: string[]): ColumnDescriptor {
-    return { key, label, path, width, kind: "calculated", fixed: true };
+    return { key, label, ...(path && { path }), width, kind: "calculated", fixed: true };
 }
 
 function select(
@@ -261,7 +261,10 @@ export function getVisibleDescriptors(
     section: SectionId,
     showAssetColumn: boolean,
     showServiceColumns = false,
-    options: { keycloakEnabled?: boolean; descriptors?: ColumnDescriptor[] } = {},
+    options: {
+        keycloakEnabled?: boolean | undefined;
+        descriptors?: ColumnDescriptor[] | undefined;
+    } = {},
 ): ColumnDescriptor[] {
     const source = options.descriptors ?? DESCRIPTORS[section] ?? [];
     const visible = source.filter(
@@ -383,15 +386,21 @@ export function buildGridColumns(
     let index = 0;
     while (index < descriptors.length) {
         const descriptor = descriptors[index];
+        if (!descriptor) {
+            index += 1;
+            continue;
+        }
         const parent = descriptor.path?.[0];
         if (!parent) {
-            result.push(leaves[index]);
+            const leaf = leaves[index];
+            if (leaf) result.push(leaf);
             index += 1;
             continue;
         }
         const children: ColumnRegular[] = [];
-        while (index < descriptors.length && descriptors[index].path?.[0] === parent) {
-            children.push(leaves[index]);
+        while (index < descriptors.length && descriptors[index]?.path?.[0] === parent) {
+            const leaf = leaves[index];
+            if (leaf) children.push(leaf);
             index += 1;
         }
         result.push({

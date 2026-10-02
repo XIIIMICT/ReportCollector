@@ -147,7 +147,7 @@ export function HoverDropdown({
     return (
         <Dropdown isOpen={open} onOpenChange={setOpen}>
             {triggerElement}
-            <Dropdown.Popover ref={popoverRef} className={className}>
+            <Dropdown.Popover ref={popoverRef} {...(className && { className })}>
                 {content}
             </Dropdown.Popover>
         </Dropdown>

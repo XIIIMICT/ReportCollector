@@ -681,7 +681,9 @@ export function RenovationDictionarySection({
     // re-render → fresh references again → infinite update-depth loop.
     // The «Предприятия» tab gets a pinned totals row — the sum of every
     // asset's «Стоимость итого» (the same aggregate as the plan's summary row).
-    const pinnedTopSource = useMemo(() => {
+    const pinnedTopSource = useMemo<
+        { id: string; name: string; repairCode: string; totalCost: number }[] | undefined
+    >(() => {
         if (dictSection !== RENOVATION_ASSETS_SECTION) return undefined;
         const total = (rows ?? []).reduce(
             (sum, row) => sum + ((row as RenovationAssetRow).totalCost ?? 0),
@@ -718,7 +720,7 @@ export function RenovationDictionarySection({
                 pinnedTopSource={pinnedTopSource}
                 assets={assetOptions}
                 deliveryBases={deliveryBasisOptions}
-                columnDescriptors={descriptorOptions}
+                {...(descriptorOptions && { columnDescriptors: descriptorOptions })}
                 namespace={`renovation:${dictSection}`}
                 onCommit={commit}
                 onPlaceholderCommit={commitPlaceholderPatch}

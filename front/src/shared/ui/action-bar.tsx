@@ -37,7 +37,8 @@ export function groupActionItems(items: ActionItem[]): ActionItem[][] {
     const chunks: ActionItem[][] = [];
     for (const item of items) {
         const last = chunks[chunks.length - 1];
-        if (last && item.group !== undefined && last[0].group === item.group) {
+        const lastFirst = last?.[0];
+        if (last && lastFirst && item.group !== undefined && lastFirst.group === item.group) {
             last.push(item);
         } else {
             chunks.push([item]);
@@ -58,7 +59,7 @@ export function ActionBar({
 }: {
     items: ActionItem[];
     /** Holds the fullscreen panels open while an action menu is expanded. */
-    onDropdownOpenChange?: (open: boolean) => void;
+    onDropdownOpenChange?: ((open: boolean) => void) | undefined;
 }) {
     const isSm = useMediaQuery("(max-width: 40rem)");
     const isMd = useMediaQuery("(max-width: 48rem)");
@@ -95,7 +96,7 @@ export function ActionBar({
             return (
                 <HoverDropdown
                     className="action-more-popover"
-                    onOpenChange={onDropdownOpenChange}
+                    {...(onDropdownOpenChange && { onOpenChange: onDropdownOpenChange })}
                     trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
                         <Button
                             ref={ref}
@@ -107,7 +108,7 @@ export function ActionBar({
                                     : classNameFor(action)
                             }
                             variant={action.variant ?? "tertiary"}
-                            isDisabled={action.disabled}
+                            {...(action.disabled !== undefined && { isDisabled: action.disabled })}
                             aria-label={action.label}
                             {...hintData(action)}
                         >
@@ -142,7 +143,7 @@ export function ActionBar({
             <Button
                 className={classNameFor(action)}
                 variant={action.variant ?? "tertiary"}
-                isDisabled={action.disabled}
+                {...(action.disabled !== undefined && { isDisabled: action.disabled })}
                 aria-label={action.label}
                 aria-keyshortcuts={action.shortcut?.aria}
                 {...hintData(action)}
@@ -157,7 +158,10 @@ export function ActionBar({
     if (isSm) {
         return (
             <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
-                <CompactActionMenu items={items} onOpenChange={onDropdownOpenChange} />
+                <CompactActionMenu
+                    items={items}
+                    {...(onDropdownOpenChange && { onOpenChange: onDropdownOpenChange })}
+                />
             </div>
         );
     }
@@ -189,19 +193,23 @@ export function ActionBar({
                 setActionTip(null);
             }}
         >
-            {groupActionItems(items).map((chunk) =>
-                chunk.length > 1 ? (
+            {groupActionItems(items).map((chunk) => {
+                const firstAction = chunk[0];
+                if (!firstAction) return null;
+                return chunk.length > 1 ? (
                     // Direct Button children only: ButtonGroup injects props
                     // into them (`__button_group_child`), which a Fragment or
                     // Tooltip wrapper would reject — the kbd hint is shown by the
                     // floating tooltip above instead.
-                    <ButtonGroup key={`group-${chunk[0].id}`}>
+                    <ButtonGroup key={`group-${firstAction.id}`}>
                         {chunk.map((action) => (
                             <Button
                                 key={action.id}
                                 className={classNameFor(action)}
                                 variant={action.variant ?? "tertiary"}
-                                isDisabled={action.disabled}
+                                {...(action.disabled !== undefined && {
+                                    isDisabled: action.disabled,
+                                })}
                                 aria-label={action.label}
                                 aria-keyshortcuts={action.shortcut?.aria}
                                 {...hintData(action)}
@@ -213,11 +221,11 @@ export function ActionBar({
                         ))}
                     </ButtonGroup>
                 ) : (
-                    <span key={chunk[0].id} className="action-button-wrapper">
-                        {renderAction(chunk[0])}
+                    <span key={firstAction.id} className="action-button-wrapper">
+                        {renderAction(firstAction)}
                     </span>
-                ),
-            )}
+                );
+            })}
             {actionTip !== null ? (
                 <ActionHint
                     left={actionTip.left}
@@ -268,7 +276,7 @@ export function CompactActionMenu({
     return (
         <HoverDropdown
             className="action-more-popover"
-            onOpenChange={onOpenChange}
+            {...(onOpenChange && { onOpenChange })}
             trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
                 <Button
                     ref={ref}
@@ -309,16 +317,16 @@ export function CompactActionMenu({
                                       key={item.id}
                                       id={item.id}
                                       textValue={item.label}
-                                      isDisabled={item.disabled}
-                                      variant={item.variant === "danger" ? "danger" : undefined}
+                                      {...(item.disabled !== undefined && {
+                                          isDisabled: item.disabled,
+                                      })}
+                                      {...(item.variant === "danger" && { variant: "danger" })}
                                       // HeroUI ships only a `danger` MenuItem variant; success is
                                       // reproduced the same way — color the label slot via the
                                       // theme's `--success` token (stock Tailwind utility, no CSS).
-                                      className={
-                                          item.variant === "primary"
-                                              ? "[&_[data-slot=label]]:text-success"
-                                              : undefined
-                                      }
+                                      {...(item.variant === "primary" && {
+                                          className: "[&_[data-slot=label]]:text-success",
+                                      })}
                                   >
                                       <span className="action-more-menu__icon">{item.icon}</span>
                                       <Label>{item.label}</Label>

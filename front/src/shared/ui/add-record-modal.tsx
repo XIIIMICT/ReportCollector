@@ -259,8 +259,8 @@ function FieldControl({
             <Label>{field.label}</Label>
             <InputGroup fullWidth variant="secondary">
                 <InputGroup.Input
-                    autoComplete={field.autoComplete}
-                    placeholder={field.placeholder}
+                    {...(field.autoComplete && { autoComplete: field.autoComplete })}
+                    {...(field.placeholder && { placeholder: field.placeholder })}
                 />
             </InputGroup>
         </TextField>

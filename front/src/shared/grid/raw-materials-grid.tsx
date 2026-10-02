@@ -42,6 +42,7 @@ import {
 } from "./grid-config";
 import { extractEdits, parseNumericText } from "./grid-edit";
 import { MultiAssetEditor, ReferenceEditor, SelectEditor } from "./grid-editors";
+import { serializeCellValue } from "./index";
 
 /** The pinned summary row's id (revo-grid `pinnedTopSource`) — never a real record. */
 export const SUMMARY_ROW_ID = "__summary__";
@@ -91,7 +92,7 @@ type Props = {
     /** Controlled «Показать служебные столбцы» toggle (lives in the view strip). */
     showServiceColumns: boolean;
     /** Pinned summary row(s) rendered above the data (revo-grid `pinnedTopSource`). */
-    pinnedTopSource?: Record<string, unknown>[];
+    pinnedTopSource?: Record<string, unknown>[] | undefined;
     assets: ReferenceOption[];
     deliveryBases: ReferenceOption[];
     /** Custom column set — overrides the built-in descriptors for the section. */
@@ -357,7 +358,7 @@ function RawMaterialsGridInner(
             showServiceColumns,
             remoteLocks,
             remoteCellInfo,
-            descriptors: columnDescriptors,
+            ...(columnDescriptors && { descriptors: columnDescriptors }),
             onBooleanChange: (row, field, value) => {
                 if (row.isPlaceholder) void onPlaceholderCommit({ [field]: value });
                 else void onCommit([{ rowId: row.id, field, value }]);
@@ -372,7 +373,7 @@ function RawMaterialsGridInner(
                 : [column as ColumnRegular];
             for (const leaf of leaves) {
                 const base = leaf.cellProperties;
-                leaf.cellProperties = ((props: { model: unknown; prop: string }) => {
+                const newCellProperties = ((props: { model: unknown; prop: string }) => {
                     const result = (base ? base(props as never) : undefined) as
                         | { className?: Record<string, boolean> }
                         | undefined;
@@ -389,6 +390,9 @@ function RawMaterialsGridInner(
                         },
                     };
                 }) as ColumnRegular["cellProperties"];
+                if (newCellProperties !== undefined) {
+                    leaf.cellProperties = newCellProperties;
+                }
             }
         }
         restoreColumnWidths(next, resizedWidthsRef.current, widthKeySection);
@@ -491,7 +495,8 @@ function RawMaterialsGridInner(
                 const visible = await getVisibleRows();
                 const rowIndexes: number[] = [];
                 for (let index = 0; index < visible.length; index++) {
-                    if (selectedRowIds.has(visible[index].id)) rowIndexes.push(index);
+                    const row = visible[index];
+                    if (row && selectedRowIds.has(row.id)) rowIndexes.push(index);
                 }
                 const coveredIndexes = rowIndexes.length
                     ? rowIndexes
@@ -514,16 +519,19 @@ function RawMaterialsGridInner(
                     onSelectionChange?.({ label: null, cellKeys: [] });
                     return;
                 }
-                const label = rowIndexes.length
-                    ? rowIndexes[0] === rowIndexes[rowIndexes.length - 1]
-                        ? `строка ${rowIndexes[0] + 1}`
-                        : `строки ${rowIndexes[0] + 1}–${rowIndexes[rowIndexes.length - 1] + 1}`
-                    : selectionLabelForRange(
-                          selectionRange,
-                          flatColumns,
-                          descriptorByKey,
-                          visible.length,
-                      );
+                const firstIndex = rowIndexes[0];
+                const lastIndex = rowIndexes[rowIndexes.length - 1];
+                const label =
+                    rowIndexes.length && firstIndex !== undefined && lastIndex !== undefined
+                        ? firstIndex === lastIndex
+                            ? `строка ${firstIndex + 1}`
+                            : `строки ${firstIndex + 1}–${lastIndex + 1}`
+                        : selectionLabelForRange(
+                              selectionRange,
+                              flatColumns,
+                              descriptorByKey,
+                              visible.length,
+                          );
                 const keys = rowIndexes.length
                     ? rowIndexes.flatMap((index) =>
                           selectionRowCellKeys(visible, index, index, flatColumns),
@@ -817,16 +825,6 @@ function RawMaterialsGridInner(
         }
         if (value === null || value === undefined) return { ok: true, value: null };
         return { ok: true, value: String(value).trim() };
-    }
-
-    function serializeCellValue(value: unknown): string {
-        if (value === null || value === undefined) return "";
-        if (Array.isArray(value)) return value.map(serializeCellValue).join(", ");
-        if (typeof value === "object") {
-            const named = value as { name?: unknown };
-            return named.name !== undefined ? String(named.name) : String(value);
-        }
-        return String(value);
     }
 
     function beforeEditStart(event: CustomEvent<BeforeSaveDataDetails>) {
@@ -1220,7 +1218,9 @@ function RawMaterialsGridInner(
         const data: Record<string, Record<string, unknown>> = {};
         const models: GridRow[] = [];
         for (let y = range.y; y <= Math.min(range.y1, visible.length - 1); y++) {
-            models[y] = visible[y];
+            const row = visible[y];
+            if (!row) continue;
+            models[y] = row;
             const patch: Record<string, unknown> = {};
             for (let x = range.x; x <= range.x1; x++) {
                 const column = flatColumns[x] as ColumnRegular | undefined;
@@ -1271,7 +1271,7 @@ function RawMaterialsGridInner(
             const split = text.split(/\r\n|\n|\r/).map((row) => row.split("\t"));
             while (
                 split.length > 0 &&
-                split[split.length - 1].every((cell) => cell.trim() === "")
+                split[split.length - 1]?.every((cell) => cell.trim() === "")
             ) {
                 split.pop();
             }
@@ -1279,7 +1279,10 @@ function RawMaterialsGridInner(
             let width = Math.max(...split.map((cells) => cells.length));
             while (
                 width > 0 &&
-                split.every((cells) => width - 1 >= cells.length || cells[width - 1].trim() === "")
+                split.every((cells) => {
+                    const cell = cells[width - 1];
+                    return width - 1 >= cells.length || (cell !== undefined && cell.trim() === "");
+                })
             ) {
                 width -= 1;
             }
@@ -1298,7 +1301,8 @@ function RawMaterialsGridInner(
             // (Toast), a smaller one is pasted as-is, other cells untouched.
             // Models come from the current visible source: under sorting/filtering
             // the displayed row index doesn't match the original rows index.
-            const visible = await getVisibleRows();
+            const visibleRows = await getVisibleRows();
+            const visible = visibleRows.filter((row): row is GridRow => row !== undefined);
             let toY = range.y;
             let toY1 = range.y1;
             let toX = range.x;
@@ -1313,7 +1317,9 @@ function RawMaterialsGridInner(
             const data: Record<string, Record<string, unknown>> = {};
             const models: GridRow[] = [];
             for (let y = toY; y <= toY1; y++) {
-                models[y] = visible[y];
+                const row = visible[y];
+                if (!row) continue;
+                models[y] = row;
                 const patch: Record<string, unknown> = {};
                 for (let x = toX; x <= toX1; x++) {
                     const column = flatColumns[x] as ColumnRegular | undefined;
@@ -1631,7 +1637,7 @@ function RawMaterialsGridInner(
                         .join(" ")}
                     columns={columns}
                     source={rows}
-                    pinnedTopSource={pinnedTopSource}
+                    {...(pinnedTopSource ? { pinnedTopSource } : {})}
                     theme="compact"
                     range
                     useClipboard={false}
@@ -1639,7 +1645,7 @@ function RawMaterialsGridInner(
                     rowHeaders={rowHeaders}
                     editors={editors}
                     filter={RUSSIAN_FILTER_CONFIG}
-                    sorting={sorting}
+                    {...(sorting ? { sorting } : {})}
                     hideAttribution
                     readonly={readOnly}
                     rowSize={36}

@@ -10,13 +10,13 @@ export const AUTH_RETURN_TO_COOKIE = "rc_auth_return_to";
 
 export type AuthSession = {
     expiresAt: number;
-    email?: string;
-    emailVerified?: boolean;
-    familyName?: string;
-    givenName?: string;
+    email?: string | undefined;
+    emailVerified?: boolean | undefined;
+    familyName?: string | undefined;
+    givenName?: string | undefined;
     issuer: string;
-    name?: string;
-    preferredUsername?: string;
+    name?: string | undefined;
+    preferredUsername?: string | undefined;
     sub: string;
 };
 

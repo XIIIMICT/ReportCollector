@@ -191,11 +191,11 @@ export async function getRenovationPlanRows(
 
 export async function getRenovationPlanSummary(
     params: {
-        planId?: string;
-        asset?: string | null;
-        filters?: RenovationColumnFilter[] | null;
-        positionFrom?: number | null;
-        positionTo?: number | null;
+        planId?: string | undefined;
+        asset?: string | null | undefined;
+        filters?: RenovationColumnFilter[] | null | undefined;
+        positionFrom?: number | null | undefined;
+        positionTo?: number | null | undefined;
     } = {},
 ): Promise<Record<string, number>> {
     const query = new URLSearchParams();
@@ -227,7 +227,12 @@ export type RenovationFacets = {
 
 export async function getRenovationPlanFacets(
     column: string,
-    params: { planId?: string; asset?: string | null; offset?: number; limit?: number } = {},
+    params: {
+        planId?: string | undefined;
+        asset?: string | null | undefined;
+        offset?: number | undefined;
+        limit?: number | undefined;
+    } = {},
 ): Promise<RenovationFacets> {
     const query = new URLSearchParams({ column });
     if (params.planId) query.set("plan_id", params.planId);
@@ -260,10 +265,10 @@ export async function getRenovationDiff(planId: string): Promise<RenovationDiff>
 }
 
 export type RenovationPlanExportParams = {
-    planId?: string;
-    rowIds?: string[] | null;
-    asset?: string | null;
-    block?: string | null;
+    planId?: string | undefined;
+    rowIds?: string[] | null | undefined;
+    asset?: string | null | undefined;
+    block?: string | null | undefined;
 };
 
 export async function exportRenovationPlan(

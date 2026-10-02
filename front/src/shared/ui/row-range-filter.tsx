@@ -56,7 +56,7 @@ export function RowRangeFilter({
                     <div className="row-range-filter">
                         <div className="row-range-filter__fields">
                             <NumberField
-                                value={from}
+                                {...(from !== undefined && { value: from })}
                                 onChange={setFrom}
                                 minValue={1}
                                 isInvalid={invalid}
@@ -69,7 +69,7 @@ export function RowRangeFilter({
                             </NumberField>
                             <span aria-hidden="true">—</span>
                             <NumberField
-                                value={to}
+                                {...(to !== undefined && { value: to })}
                                 onChange={setTo}
                                 minValue={1}
                                 isInvalid={invalid}

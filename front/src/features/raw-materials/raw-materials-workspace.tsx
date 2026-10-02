@@ -100,6 +100,7 @@ import {
     type AddRecordValues,
 } from "@/shared/ui/add-record-modal";
 import { FormStatus } from "@/shared/ui/form-status";
+import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
@@ -1058,59 +1059,61 @@ function SectionContent({
     return (
         <>
             <div className="grid-viewport" aria-busy={isMutationPending || snapshotPending}>
-                <RawMaterialsGrid
-                    ref={gridRef}
-                    section={section}
-                    rows={displayRows}
-                    isAdmin={isAdmin}
-                    keycloakEnabled={keycloakEnabled}
-                    showAssetColumn={isAdmin || assets.length > 1}
-                    readOnly={readOnly}
-                    hasBaseline={false}
-                    headerPinned={headerPinned}
-                    showServiceColumns={showServiceColumns}
-                    assets={assets}
-                    deliveryBases={deliveryBases}
-                    remoteLocks={remoteLocks}
-                    remotePresence={remotePresence}
-                    onLockedCellEdit={(_, ownerName) =>
-                        toast.warning("Ячейка занята", {
-                            description: `Сейчас её занимает ${ownerName}.`,
-                        })
-                    }
-                    onAcquireLease={room.acquireLeases}
-                    onReleaseLease={room.releaseLeases}
-                    onCommit={commit}
-                    onPlaceholderCommit={commitPlaceholderPatch}
-                    onCommitFailed={refresh}
-                    onSelectedRowsChange={(selection) => setSelectedRowIds(selection.ids)}
-                    onValidationError={(message) =>
-                        toast.warning("Некорректное значение", { description: message })
-                    }
-                    onPasteSkipped={(description) =>
-                        toast.warning("Вставка выполнена не полностью", { description })
-                    }
-                    onPasteTruncated={() =>
-                        toast.warning("Вставка обрезана", {
-                            description:
-                                "Вставляемый диапазон больше выделенного — значения вставлены только в выделенные ячейки.",
-                        })
-                    }
-                    onViewStatsChange={onGridStatsChange}
-                    onClipboardStateChange={handleClipboardState}
-                    remoteCellInfo={remoteCellInfo}
-                    onSelectionChange={({ label, cellKeys }) => {
-                        onSelectionLabelChange(label && label.length > 0 ? label : null);
-                        if (suppressSelectionSendRef.current) {
-                            // The clear following a preemption from another tab
-                            // of the same account is not sent — the server
-                            // entry belongs to the other tab.
-                            suppressSelectionSendRef.current = false;
-                            if (!label || label.length === 0) return;
+                <GridErrorBoundary>
+                    <RawMaterialsGrid
+                        ref={gridRef}
+                        section={section}
+                        rows={displayRows}
+                        isAdmin={isAdmin}
+                        keycloakEnabled={keycloakEnabled}
+                        showAssetColumn={isAdmin || assets.length > 1}
+                        readOnly={readOnly}
+                        hasBaseline={false}
+                        headerPinned={headerPinned}
+                        showServiceColumns={showServiceColumns}
+                        assets={assets}
+                        deliveryBases={deliveryBases}
+                        remoteLocks={remoteLocks}
+                        remotePresence={remotePresence}
+                        onLockedCellEdit={(_, ownerName) =>
+                            toast.warning("Ячейка занята", {
+                                description: `Сейчас её занимает ${ownerName}.`,
+                            })
                         }
-                        room.setSelection({ label: label ?? "", cellKeys });
-                    }}
-                />
+                        onAcquireLease={room.acquireLeases}
+                        onReleaseLease={room.releaseLeases}
+                        onCommit={commit}
+                        onPlaceholderCommit={commitPlaceholderPatch}
+                        onCommitFailed={refresh}
+                        onSelectedRowsChange={(selection) => setSelectedRowIds(selection.ids)}
+                        onValidationError={(message) =>
+                            toast.warning("Некорректное значение", { description: message })
+                        }
+                        onPasteSkipped={(description) =>
+                            toast.warning("Вставка выполнена не полностью", { description })
+                        }
+                        onPasteTruncated={() =>
+                            toast.warning("Вставка обрезана", {
+                                description:
+                                    "Вставляемый диапазон больше выделенного — значения вставлены только в выделенные ячейки.",
+                            })
+                        }
+                        onViewStatsChange={onGridStatsChange}
+                        onClipboardStateChange={handleClipboardState}
+                        remoteCellInfo={remoteCellInfo}
+                        onSelectionChange={({ label, cellKeys }) => {
+                            onSelectionLabelChange(label && label.length > 0 ? label : null);
+                            if (suppressSelectionSendRef.current) {
+                                // The clear following a preemption from another tab
+                                // of the same account is not sent — the server
+                                // entry belongs to the other tab.
+                                suppressSelectionSendRef.current = false;
+                                if (!label || label.length === 0) return;
+                            }
+                            room.setSelection({ label: label ?? "", cellKeys });
+                        }}
+                    />
+                </GridErrorBoundary>
                 {displayRows.length === 0 && !canManageReferences ? (
                     <div className="grid-empty">В этой таблице пока нет строк.</div>
                 ) : null}
@@ -1199,7 +1202,7 @@ function SectionFooter({
                 onCreateUser={onCreateUser}
                 onCopy={onCopy}
                 onPaste={onPaste}
-                onDropdownOpenChange={onDropdownOpenChange}
+                {...(onDropdownOpenChange && { onDropdownOpenChange })}
             />
         </div>
     );
@@ -1381,9 +1384,10 @@ export function RawMaterialsWorkspace({
         if (tabs.length === 0) return;
         // No selection yet, or a stale `?section=` that this project has no tab
         // for (e.g. an archived movement period) — fall back to the first tab.
-        if (selectedTabId === null || !tabs.some((tab) => tab.id === selectedTabId)) {
-            setSelectedTabId(tabs[0].id);
-            onSectionChange?.(tabs[0].id);
+        const firstTab = tabs[0];
+        if (firstTab && (selectedTabId === null || !tabs.some((tab) => tab.id === selectedTabId))) {
+            setSelectedTabId(firstTab.id);
+            onSectionChange?.(firstTab.id);
         }
     }, [selectedTabId, tabs, onSectionChange]);
 
@@ -1516,7 +1520,8 @@ export function RawMaterialsWorkspace({
     // (the earliest movement period). It lists «Рабочая версия» on top and the
     // report-month snapshots beneath (final & preliminary months alike), like
     // the renovation picker.
-    const isFirstTab = tabs.length > 0 && selectedTab?.id === tabs[0].id;
+    const firstTab = tabs[0];
+    const isFirstTab = firstTab && selectedTab?.id === firstTab.id;
     const showVersionPicker =
         selectedTab?.section === "materialMovement" &&
         isFirstTab &&

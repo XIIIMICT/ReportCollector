@@ -1,4 +1,9 @@
+import bundleAnalyzer from "@next/bundle-analyzer";
 import type { NextConfig } from "next";
+
+const withBundleAnalyzer = bundleAnalyzer({
+    enabled: process.env.ANALYZE === "true",
+});
 
 const nextConfig: NextConfig = {
     output: "standalone",
@@ -25,10 +30,14 @@ const nextConfig: NextConfig = {
                         key: "Permissions-Policy",
                         value: "camera=(), microphone=(), geolocation=()",
                     },
+                    {
+                        key: "Content-Security-Policy",
+                        value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data: blob:; font-src 'self' data:;",
+                    },
                 ],
             },
         ];
     },
 };
 
-export default nextConfig;
+export default withBundleAnalyzer(nextConfig);

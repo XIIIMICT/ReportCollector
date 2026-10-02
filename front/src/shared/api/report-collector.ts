@@ -34,8 +34,8 @@ export function isProjectAdmin(project: ProjectAccess | undefined): boolean {
 export type ThemePreference = "system" | "light" | "dark";
 
 export type UpdateProfileRequest = {
-    theme?: ThemePreference;
-    password?: string;
+    theme?: ThemePreference | undefined;
+    password?: string | undefined;
 };
 
 export async function updateProfile(body: UpdateProfileRequest): Promise<CurrentUser> {

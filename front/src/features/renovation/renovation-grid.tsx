@@ -32,6 +32,7 @@ import type {
     RenovationField,
     RenovationHeaderCell,
 } from "@/shared/api/renovation";
+import { serializeCellValue } from "@/shared/grid";
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/raw-materials-grid";
@@ -151,6 +152,8 @@ export type RenovationGridProps = {
     headerPinned: boolean;
     showServiceColumns: boolean;
     // ── Lazy window (the workspace loads chunks and evicts far rows) ─────────
+    /** Currently loading chunk at top or bottom edge (shows skeleton). */
+    loadingEdge?: "top" | "bottom" | null;
     /** More rows exist above / below the loaded window. */
     hasMoreTop?: boolean;
     hasMoreBottom?: boolean;
@@ -545,12 +548,10 @@ function RenovationGridInner(
             if (startIndex === undefined) continue;
             const endPosition = cell.startPosition + cell.colSpan + 1;
             let width = 0;
-            for (
-                let i = startIndex;
-                i < visibleFields.length && visibleFields[i].position < endPosition;
-                i += 1
-            ) {
-                width += widthOf(visibleFields[i]);
+            for (let i = startIndex; i < visibleFields.length; i += 1) {
+                const field = visibleFields[i];
+                if (!field || field.position >= endPosition) break;
+                width += widthOf(field);
             }
             if (width === 0) continue;
             const topLevel = coveredByTopRow.has(cell.startPosition) ? cell.level : 0;
@@ -559,29 +560,30 @@ function RenovationGridInner(
             // data; show the same canonical name as the «Все блоки» filter.
             let text = cell.text.trim();
             if (cell.level === 0 && text.startsWith("Блок ")) {
-                for (
-                    let i = startIndex;
-                    i < visibleFields.length && visibleFields[i].position < endPosition;
-                    i += 1
-                ) {
-                    const fieldBlock = visibleFields[i].responsibilityBlock;
+                for (let i = startIndex; i < visibleFields.length; i += 1) {
+                    const field = visibleFields[i];
+                    if (!field || field.position >= endPosition) break;
+                    const fieldBlock = field.responsibilityBlock;
                     if (fieldBlock && fieldBlock !== "read_only") {
                         text = BLOCK_HEADER_LABELS[fieldBlock] ?? text;
                         break;
                     }
                 }
             }
+            const startField = visibleFields[startIndex];
+            if (!startField) continue;
+            const filterColumn = cell.colSpan === 1 ? startField.dbName : undefined;
             cells.push({
                 id: cell.id,
                 text,
-                left: geometry.offsets.get(visibleFields[startIndex].dbName) ?? ROW_HEADER_WIDTH,
+                left: geometry.offsets.get(startField.dbName) ?? ROW_HEADER_WIDTH,
                 top,
                 width,
                 height: (cell.rowSpan + cell.level - topLevel) * HEADER_LEVEL_HEIGHT,
                 isTop: top === 0,
                 // A single-field leaf header filters that column. Multi-field
                 // group headers have no single column to filter.
-                filterColumn: cell.colSpan === 1 ? visibleFields[startIndex].dbName : undefined,
+                ...(filterColumn && { filterColumn }),
             });
         }
         cells.sort((a, b) => a.top - b.top || a.left - b.left);
@@ -1018,6 +1020,7 @@ function RenovationGridInner(
         if (!onNearBottom && !onNearTop) return;
         let target: HTMLElement | null = null;
         let detached = false;
+        let throttleTimer: number | undefined;
         const observer = new ResizeObserver(() => check());
         const getTarget = (): HTMLElement | null => {
             if (headerPinned) {
@@ -1045,7 +1048,14 @@ function RenovationGridInner(
             }
         };
         checkRef.current = check;
-        const onScroll = () => check();
+        // Throttle scroll events to ~60fps (16ms) to reduce overhead
+        const onScroll = () => {
+            if (throttleTimer !== undefined) return;
+            throttleTimer = window.setTimeout(() => {
+                throttleTimer = undefined;
+                check();
+            }, 16);
+        };
         const attach = () => {
             if (detached) return;
             const desired = getTarget();
@@ -1064,6 +1074,7 @@ function RenovationGridInner(
             checkRef.current = null;
             if (target) target.removeEventListener("scroll", onScroll);
             observer.disconnect();
+            if (throttleTimer !== undefined) window.clearTimeout(throttleTimer);
         };
     }, [hasMoreBottom, hasMoreTop, headerPinned, onNearBottom, onNearTop, displaySource]);
 
@@ -1360,7 +1371,12 @@ function RenovationGridInner(
                     delete patch[prop];
                     continue;
                 }
-                const reason = currentRow ? cellAllowed(field, currentRow) : "строка недоступна";
+                if (!currentRow) {
+                    delete patch[prop];
+                    skipped.set(field.label, "строка недоступна");
+                    continue;
+                }
+                const reason = cellAllowed(field, currentRow);
                 if (reason) {
                     delete patch[prop];
                     skipped.set(field.label, reason);
@@ -1570,17 +1586,19 @@ function RenovationGridInner(
             // buffer — without trimming, an extra empty cell below overwrites
             // a neighbor nobody asked for.
             const split = text.split(/\r\n|\n|\r/).map((row) => row.split("\t"));
-            while (
-                split.length > 0 &&
-                split[split.length - 1].every((cell) => cell.trim() === "")
-            ) {
+            while (split.length > 0) {
+                const lastRow = split[split.length - 1];
+                if (!lastRow || !lastRow.every((cell) => cell.trim() === "")) break;
                 split.pop();
             }
             if (split.length === 0) return;
             let width = Math.max(...split.map((cells) => cells.length));
             while (
                 width > 0 &&
-                split.every((cells) => width - 1 >= cells.length || cells[width - 1].trim() === "")
+                split.every((cells) => {
+                    const cell = cells[width - 1];
+                    return width - 1 >= cells.length || (cell !== undefined && cell.trim() === "");
+                })
             ) {
                 width -= 1;
             }
@@ -1609,7 +1627,9 @@ function RenovationGridInner(
             const data: Record<string, Record<string, unknown>> = {};
             const models: RenovationGridRow[] = [];
             for (let y = toY; y <= toY1; y += 1) {
-                models[y] = visible[y];
+                const row = visible[y];
+                if (!row) continue;
+                models[y] = row;
                 const patch: Record<string, unknown> = {};
                 for (let x = toX; x <= toX1; x += 1) {
                     const column = columns[x] as ColumnRegular | undefined;
@@ -1955,6 +1975,7 @@ function RenovationGridInner(
         ];
         for (let i = 0; i < displayFields.length - 1; i += 1) {
             const field = displayFields[i];
+            if (!field) continue;
             if (SERVICE_DB_NAMES.has(field.dbName)) continue;
             result.push({
                 key: field.dbName,
@@ -2265,7 +2286,7 @@ function RenovationGridInner(
                     className="renovation-grid"
                     columns={columns}
                     source={displaySource}
-                    pinnedTopSource={pinnedSummaryRow}
+                    pinnedTopSource={pinnedSummaryRow ?? []}
                     theme="compact"
                     range
                     useClipboard={false}
@@ -2329,9 +2350,3 @@ function RenovationGridInner(
 }
 
 export const RenovationGrid = forwardRef(RenovationGridInner);
-
-function serializeCellValue(value: unknown): string {
-    if (value === null || value === undefined) return "";
-    if (Array.isArray(value)) return value.map(serializeCellValue).join(", ");
-    return String(value);
-}

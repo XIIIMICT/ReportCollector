@@ -57,6 +57,7 @@ async function connected(handlers: ConstructorParameters<typeof CollabWsClient>[
         await Promise.resolve();
     expect(TestSocket.instances).toHaveLength(1);
     const socket = TestSocket.instances[0];
+    if (!socket) throw new Error("Socket not created");
     socket.onopen?.();
     return socket;
 }

@@ -38,5 +38,6 @@ test("a tab marked separatorBefore starts a new group", () => {
     const view = render(<SectionTabs tabs={tabs} value="movement" onChange={mock()} />);
     const separators = view.container.querySelectorAll('[data-slot="tabs-separator"]');
     expect(separators.length).toBe(1);
-    expect(separators[0].closest('[role="tab"]')?.textContent).toContain("Сырьевые позиции");
+    const firstSeparator = separators[0];
+    expect(firstSeparator?.closest('[role="tab"]')?.textContent).toContain("Сырьевые позиции");
 });

@@ -14,7 +14,9 @@ async function loginAs(page: Page, username: string, _password: string) {
         petrov: "petrov.da@ruschem.ru",
         lebedeva: "lebedeva.ol@ruschem.ru",
     };
-    await loginAsLocalUser(page, { email: emails[username], password: "TestPassword123" });
+    const email = emails[username];
+    if (!email) throw new Error(`Unknown username: ${username}`);
+    await loginAsLocalUser(page, { email, password: "TestPassword123" });
     await page.goto(APP_ORIGIN + "/raw-materials", { waitUntil: "domcontentloaded" });
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 30000 });
 }

@@ -14,7 +14,7 @@ import {
     WarningTriangle,
 } from "iconoir-react";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
 
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
 import {
@@ -68,6 +68,7 @@ import { isFromTextEditor } from "@/shared/keyboard";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
 import { ColumnFilterPopover } from "@/shared/ui/column-filter-popover";
 import { FormStatus } from "@/shared/ui/form-status";
+import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { RowRangeFilter } from "@/shared/ui/row-range-filter";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
@@ -234,6 +235,8 @@ export function RenovationWorkspace({
     // anchor); switching the version or the asset filter resets it to the top.
     const [planWindow, setPlanWindow] = useState<PlanWindow | null>(null);
     const [planError, setPlanError] = useState<string | null>(null);
+    // Loading state for showing skeleton rows during chunk fetch
+    const [loadingEdge, setLoadingEdge] = useState<"top" | "bottom" | null>(null);
     // Numeric totals of the filtered plan — the pinned summary row.
     const [summaryValues, setSummaryValues] = useState<Record<string, number> | null>(null);
     const windowGenerationRef = useRef(0);
@@ -263,7 +266,9 @@ export function RenovationWorkspace({
         if (!isPlanSection) {
             setPlanError(null);
             planWindowRef.current = null;
-            setPlanWindow(null);
+            startTransition(() => {
+                setPlanWindow(null);
+            });
             return;
         }
         const generation = ++windowGenerationRef.current;
@@ -313,7 +318,9 @@ export function RenovationWorkspace({
                         complete: false,
                     };
                     planWindowRef.current = next;
-                    setPlanWindow(next);
+                    startTransition(() => {
+                        setPlanWindow(next);
+                    });
                     scrollToEdgeTokenRef.current += 1;
                     setScrollToEdge({ edge: "bottom", token: scrollToEdgeTokenRef.current });
                 } else if (meta?.workingPlanId == null && isPlanSection) {
@@ -361,7 +368,9 @@ export function RenovationWorkspace({
                         complete: false,
                     };
                     planWindowRef.current = next;
-                    setPlanWindow(next);
+                    startTransition(() => {
+                        setPlanWindow(next);
+                    });
                     scrollToEdgeTokenRef.current += 1;
                     setScrollToEdge({ edge: "bottom", token: scrollToEdgeTokenRef.current });
                 }
@@ -465,7 +474,9 @@ export function RenovationWorkspace({
                         baselineBoundary: page.baselineBoundary ?? null,
                     };
                     planWindowRef.current = next;
-                    setPlanWindow(next);
+                    startTransition(() => {
+                        setPlanWindow(next);
+                    });
                 }
             } catch {
                 // Keep the current rows; the next refresh retries.
@@ -538,7 +549,9 @@ export function RenovationWorkspace({
                 complete: false,
             };
             planWindowRef.current = next;
-            setPlanWindow(next);
+            startTransition(() => {
+                setPlanWindow(next);
+            });
         },
         [],
     );
@@ -548,6 +561,10 @@ export function RenovationWorkspace({
             const base = planWindowRef.current;
             if (!base || base.complete) return;
             const generation = windowGenerationRef.current;
+
+            // Show loading indicator
+            setLoadingEdge(direction);
+
             try {
                 if (direction === "bottom") {
                     const chunkStart = base.start + base.rows.length;
@@ -594,6 +611,9 @@ export function RenovationWorkspace({
                 }
             } catch {
                 // Chunk fetch failed — the next edge approach retries.
+            } finally {
+                // Hide loading indicator
+                setLoadingEdge(null);
             }
         },
         [applyWindowChunk, assetFilter, viewPlanId, activeColumnFilters, positionFilter],
@@ -972,7 +992,7 @@ export function RenovationWorkspace({
         }
         result.sort((a, b) => a.__position - b.__position);
         return result;
-    }, [diff, planWindow]);
+    }, [diff, planWindow?.id, planWindow?.rows, planWindow?.start]);
 
     // Remote cell values (live edits of other users) override the local ones
     // for display — the working plan only.
@@ -1858,71 +1878,75 @@ export function RenovationWorkspace({
                                 {isPlanSection ? (
                                     planWindow ? (
                                         <>
-                                            <RenovationGrid
-                                                ref={gridRef}
-                                                fields={meta.fields}
-                                                headerCells={meta.headerCells}
-                                                catalogs={meta.catalogs}
-                                                rows={displayRows}
-                                                assetFilter={assetFilterSet}
-                                                blockFilter={blockFilter}
-                                                baselineBoundary={planWindow.baselineBoundary}
-                                                readOnly={readOnly}
-                                                canEdit={canEditRows}
-                                                editableFieldKeys={editableFieldKeys}
-                                                userAssetIds={userAssetIds}
-                                                remoteLocks={remoteLocks}
-                                                remotePresence={remotePresence}
-                                                remoteCellInfo={remoteCellInfo}
-                                                onAcquireLease={room.acquireLeases}
-                                                onReleaseLease={room.releaseLeases}
-                                                onLockedCellEdit={(_, ownerName) =>
-                                                    toast.warning("Ячейка занята", {
-                                                        description: `Сейчас её занимает ${ownerName}.`,
-                                                    })
-                                                }
-                                                onCommit={commit}
-                                                onCommitFailed={refresh}
-                                                onValidationError={(message) =>
-                                                    toast.warning("Некорректное значение", {
-                                                        description: message,
-                                                    })
-                                                }
-                                                onPasteSkipped={(description) =>
-                                                    toast.warning(
-                                                        "Вставка выполнена не полностью",
-                                                        {
-                                                            description,
-                                                        },
-                                                    )
-                                                }
-                                                onSelectionChange={handleSelectionChange}
-                                                onViewStatsChange={setGridStats}
-                                                onClipboardStateChange={handleClipboardState}
-                                                headerPinned={planHeaderPinned}
-                                                showServiceColumns={planServiceColumns}
-                                                hasMoreTop={hasMoreTop}
-                                                hasMoreBottom={hasMoreBottom}
-                                                onNearTop={handleNearTop}
-                                                onNearBottom={handleNearBottom}
-                                                scrollToEdge={scrollToEdge}
-                                                totalRowsOverride={planWindow.total}
-                                                totalAllRowsOverride={planWindow.totalAll}
-                                                summaryValues={summaryValues}
-                                                activeFilterColumns={activeFilterColumns}
-                                                onOpenColumnFilter={(column, anchor) =>
-                                                    setColumnFilterTarget({
-                                                        column,
-                                                        label:
-                                                            meta.fields.find(
-                                                                (field) => field.dbName === column,
-                                                            )?.label ?? column,
-                                                        anchor,
-                                                    })
-                                                }
-                                                onOpenRowFilter={setRowFilterTarget}
-                                                rowFilterActive={positionFilter !== null}
-                                            />
+                                            <GridErrorBoundary>
+                                                <RenovationGrid
+                                                    ref={gridRef}
+                                                    fields={meta.fields}
+                                                    headerCells={meta.headerCells}
+                                                    catalogs={meta.catalogs}
+                                                    rows={displayRows}
+                                                    assetFilter={assetFilterSet}
+                                                    blockFilter={blockFilter}
+                                                    baselineBoundary={planWindow.baselineBoundary}
+                                                    readOnly={readOnly}
+                                                    canEdit={canEditRows}
+                                                    editableFieldKeys={editableFieldKeys}
+                                                    userAssetIds={userAssetIds}
+                                                    remoteLocks={remoteLocks}
+                                                    remotePresence={remotePresence}
+                                                    remoteCellInfo={remoteCellInfo}
+                                                    loadingEdge={loadingEdge}
+                                                    onAcquireLease={room.acquireLeases}
+                                                    onReleaseLease={room.releaseLeases}
+                                                    onLockedCellEdit={(_, ownerName) =>
+                                                        toast.warning("Ячейка занята", {
+                                                            description: `Сейчас её занимает ${ownerName}.`,
+                                                        })
+                                                    }
+                                                    onCommit={commit}
+                                                    onCommitFailed={refresh}
+                                                    onValidationError={(message) =>
+                                                        toast.warning("Некорректное значение", {
+                                                            description: message,
+                                                        })
+                                                    }
+                                                    onPasteSkipped={(description) =>
+                                                        toast.warning(
+                                                            "Вставка выполнена не полностью",
+                                                            {
+                                                                description,
+                                                            },
+                                                        )
+                                                    }
+                                                    onSelectionChange={handleSelectionChange}
+                                                    onViewStatsChange={setGridStats}
+                                                    onClipboardStateChange={handleClipboardState}
+                                                    headerPinned={planHeaderPinned}
+                                                    showServiceColumns={planServiceColumns}
+                                                    hasMoreTop={hasMoreTop}
+                                                    hasMoreBottom={hasMoreBottom}
+                                                    onNearTop={handleNearTop}
+                                                    onNearBottom={handleNearBottom}
+                                                    scrollToEdge={scrollToEdge}
+                                                    totalRowsOverride={planWindow.total}
+                                                    totalAllRowsOverride={planWindow.totalAll}
+                                                    summaryValues={summaryValues}
+                                                    activeFilterColumns={activeFilterColumns}
+                                                    onOpenColumnFilter={(column, anchor) =>
+                                                        setColumnFilterTarget({
+                                                            column,
+                                                            label:
+                                                                meta.fields.find(
+                                                                    (field) =>
+                                                                        field.dbName === column,
+                                                                )?.label ?? column,
+                                                            anchor,
+                                                        })
+                                                    }
+                                                    onOpenRowFilter={setRowFilterTarget}
+                                                    rowFilterActive={positionFilter !== null}
+                                                />
+                                            </GridErrorBoundary>
                                             {displayRows.length === 0 ? (
                                                 <div className="grid-empty">
                                                     В этом плане пока нет строк.
@@ -2032,7 +2056,7 @@ export function RenovationWorkspace({
                     column={columnFilterTarget.column}
                     columnLabel={columnFilterTarget.label}
                     anchor={columnFilterTarget.anchor}
-                    planId={viewPlanId ?? undefined}
+                    {...(viewPlanId && { planId: viewPlanId })}
                     asset={assetFilter}
                     initial={columnFilters[columnFilterTarget.column] ?? null}
                     onApply={applyColumnFilter(columnFilterTarget.column)}
