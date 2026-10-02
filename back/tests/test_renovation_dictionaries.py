@@ -44,13 +44,16 @@ async def test_dictionary_endpoints_require_admin(client: AsyncClient) -> None:
 
 
 async def test_asset_rows_carry_the_plan_total(client: AsyncClient) -> None:
-    """Each asset row carries the sum of «Стоимость итого» over the plan."""
+    """Each asset row carries the plan total and the number of repair works."""
     response = await client.get("/api/renovation/dictionary/assets", headers=ADMIN_HEADERS)
     assert response.status_code == 200
     by_code = {row["repairCode"]: row for row in response.json()}
     # The fixture: bsk col_031 = 10 + 20 = 30, vos = 5 + 7 = 12.
     assert by_code["BSKR"]["totalCost"] == 30.0
     assert by_code["VOZR"]["totalCost"] == 12.0
+    # Each fixture asset has exactly one row in the working version.
+    assert by_code["BSKR"]["repairCount"] == 1
+    assert by_code["VOZR"]["repairCount"] == 1
 
 
 async def test_assets_create_read_patch_delete(
@@ -509,6 +512,8 @@ async def test_dictionary_export_assets(client: AsyncClient) -> None:
             "columns": [
                 {"key": "name", "headerPath": ["Актив"], "width": 20},
                 {"key": "repairCode", "headerPath": ["Ремонтный код"], "width": 12},
+                {"key": "totalCost", "headerPath": ["Стоимость итого, руб. без НДС"], "width": 24},
+                {"key": "repairCount", "headerPath": ["Число ремонтных работ"], "width": 18},
             ],
             "rowIds": None,
         },
@@ -521,9 +526,12 @@ async def test_dictionary_export_assets(client: AsyncClient) -> None:
     sheet = workbook["Активы"]
     assert sheet.cell(row=1, column=1).value == "Актив"
     assert sheet.cell(row=1, column=2).value == "Ремонтный код"
+    assert sheet.cell(row=1, column=4).value == "Число ремонтных работ"
     assert sheet.max_row >= 3
     names = {sheet.cell(row=index, column=1).value for index in range(2, sheet.max_row + 1)}
     assert R_ASSETS[0][2] in names
+    counts = {sheet.cell(row=index, column=4).value for index in range(2, sheet.max_row + 1)}
+    assert 1 in counts
 
 
 async def test_dictionary_export_users_with_asset_dropdown(client: AsyncClient) -> None:

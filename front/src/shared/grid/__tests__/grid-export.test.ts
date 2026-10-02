@@ -39,4 +39,11 @@ describe("exportColumnsFromGrid", () => {
         const columns = exportColumnsFromGrid("materialMovement", true, false, []);
         expect(columns.every((column) => column.numberFormat === null)).toBe(true);
     });
+
+    test("предприятия: «Число ремонтных работ» идёт перед «Стоимость итого»", () => {
+        const columns = exportColumnsFromGrid("renovationAssets", true, false, []);
+        const keys = columns.map((column) => column.key);
+        expect(keys).toContain("repairCount");
+        expect(keys.indexOf("repairCount")).toBeLessThan(keys.indexOf("totalCost"));
+    });
 });

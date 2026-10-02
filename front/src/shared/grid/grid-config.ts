@@ -183,6 +183,9 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     renovationAssets: [
         text("name", "Наименование", 380),
         text("repairCode", "Ремонтный код", 170),
+        // Computed on the server: the number of repair works — the working
+        // plan's rows for this asset.
+        calculated("repairCount", "Число ремонтных работ", 170),
         // Computed on the server: the sum of «Стоимость итого» (col_031) over
         // the working plan's rows for this asset.
         calculated("totalCost", "Стоимость итого, руб. без НДС", 220),

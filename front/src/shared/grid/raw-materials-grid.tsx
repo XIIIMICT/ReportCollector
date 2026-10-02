@@ -364,6 +364,7 @@ function RawMaterialsGridInner(
                 else void onCommit([{ rowId: row.id, field, value }]);
             },
         });
+        const summaryRow = pinnedTopSource?.[0];
         // Tag the pinned summary row's cells so CSS can draw them like the
         // plan's summary (one vertical + one bottom border, white empty cells,
         // a green numeric cell) and the row header can hide its number.
@@ -372,6 +373,32 @@ function RawMaterialsGridInner(
                 ? ((column as ColumnGrouping).children as ColumnRegular[])
                 : [column as ColumnRegular];
             for (const leaf of leaves) {
+                // A column whose summary cell stays empty merges with it: the
+                // header cell stretches over the summary row, so the column
+                // reads as one tall header cell (the totals columns — the only
+                // ones carrying a value — keep a separate header cell).
+                const summaryValue = summaryRow?.[String(leaf.prop)];
+                const mergeHeader =
+                    summaryRow !== undefined &&
+                    (summaryValue === undefined || summaryValue === null || summaryValue === "");
+                if (mergeHeader) {
+                    const baseHeader = leaf.columnProperties;
+                    const mergedHeaderProperties = ((props: unknown) => {
+                        const result = (baseHeader ? baseHeader(props as never) : undefined) as
+                            | { className?: Record<string, boolean> }
+                            | undefined;
+                        return {
+                            ...result,
+                            className: {
+                                ...result?.className,
+                                "report-header-cell--summary-merge": true,
+                            },
+                        };
+                    }) as ColumnRegular["columnProperties"];
+                    if (mergedHeaderProperties !== undefined) {
+                        leaf.columnProperties = mergedHeaderProperties;
+                    }
+                }
                 const base = leaf.cellProperties;
                 const newCellProperties = ((props: { model: unknown; prop: string }) => {
                     const result = (base ? base(props as never) : undefined) as
@@ -407,6 +434,7 @@ function RawMaterialsGridInner(
         showAssetColumn,
         onCommit,
         onPlaceholderCommit,
+        pinnedTopSource,
         readOnly,
         remoteCellInfo,
         remoteLocks,

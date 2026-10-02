@@ -58,6 +58,11 @@ const HEADER_LEVEL_HEIGHT = 24;
 
 const HEADER_LEVEL_COUNT = 11;
 const ROW_HEADER_WIDTH = 52;
+
+/** Height of the column-number strip under the header levels. */
+const COLUMN_NUMBER_ROW_HEIGHT = 24;
+/** Height of the pinned totals row (revo-grid rowSize) — a merged number cell spans both. */
+const SUMMARY_ROW_HEIGHT = 36;
 const MIN_COLUMN_WIDTH = 60;
 const MAX_COLUMN_WIDTH = 600;
 const WIDTH_STORAGE_PREFIX = "renovation:colWidth:";
@@ -72,6 +77,8 @@ const DEFAULT_COLUMN_WIDTH: Record<string, number> = {
 /** The synthetic first column showing the row's asset; an asset picker in the placeholder row. */
 const ASSET_COLUMN_PROP = "__assetName";
 const ASSET_COLUMN_WIDTH = 220;
+/** The form field the synthetic asset column replaces (its ordinal numbers the column). */
+const ASSET_FIELD_DB_NAME = "col_002";
 
 /** Placeholder a missing renovation-id component is replaced with (backend renovation_id.py). */
 const MISSING_COMPONENT = "<NULL>";
@@ -79,6 +86,9 @@ const MISSING_COMPONENT = "<NULL>";
 /** Lazy window: start loading the next chunk this many rows before the edge. */
 const LAZY_EDGE_ROWS = 160;
 const LAZY_EDGE_PX = LAZY_EDGE_ROWS * 36;
+
+/** Stable empty pinned strip — a fresh `[]` per render makes revo-grid reprocess the pinned row. */
+const EMPTY_PINNED_SOURCE: RenovationGridRow[] = [];
 
 /** Canonical responsibility-block labels — must match the «Все блоки» filter. */
 const BLOCK_HEADER_LABELS: Record<string, string> = {
@@ -152,14 +162,19 @@ export type RenovationGridProps = {
     headerPinned: boolean;
     showServiceColumns: boolean;
     // ── Lazy window (the workspace loads chunks and evicts far rows) ─────────
-    /** Currently loading chunk at top or bottom edge (shows skeleton). */
-    loadingEdge?: "top" | "bottom" | null;
     /** More rows exist above / below the loaded window. */
     hasMoreTop?: boolean;
     hasMoreBottom?: boolean;
-    /** The user scrolled within LAZY_EDGE_ROWS of the window edge. */
-    onNearTop?: () => void;
-    onNearBottom?: () => void;
+    /** The user scrolled within LAZY_EDGE_ROWS of the window edge.
+     * Return true when the approach was consumed (a chunk load started);
+     * the watcher re-arms the edge only on consumed fires, so one
+     * approach loads one chunk — not chunk after chunk. */
+    onNearTop?: () => boolean;
+    onNearBottom?: () => boolean;
+    /** Rows per lazy chunk (the workspace's WINDOW_CHUNK). Sizes the
+     * re-arm floor that keeps the edge watcher firing while the
+     * restored scroll is still inside the edge zone. */
+    lazyChunkRows: number;
     /** The full plan size — the loaded window is only a slice of it. */
     totalRowsOverride?: number | null;
     /** Whole-plan row count (unfiltered) — the «всего» counter; null → same as totalRowsOverride. */
@@ -321,6 +336,7 @@ function RenovationGridInner(
         hasMoreBottom = false,
         onNearTop,
         onNearBottom,
+        lazyChunkRows = 100,
         totalRowsOverride = null,
         totalAllRowsOverride = null,
         summaryValues = null,
@@ -418,7 +434,7 @@ function RenovationGridInner(
         return [...fields]
             .filter(
                 (field) =>
-                    field.dbName !== "col_002" &&
+                    field.dbName !== ASSET_FIELD_DB_NAME &&
                     (blockFilter === null ||
                         ALWAYS_VISIBLE.has(field.dbName) ||
                         field.responsibilityBlock === blockFilter),
@@ -508,6 +524,54 @@ function RenovationGridInner(
         }
         return { offsets, totalWidth: acc };
     }, [assetWidth, displayFields, fieldWidth]);
+
+    // The column-number strip of the overlay: every visible column shows its
+    // form position — «Предприятие» = 1 (col_002) … «Примечание» = 217, so the
+    // numbering starts at the first data column; «№» is not numbered and the
+    // service columns stay empty.
+    const assetColumnNumber = useMemo(
+        () => fields.find((field) => field.dbName === ASSET_FIELD_DB_NAME)?.position ?? null,
+        [fields],
+    );
+    const columnNumberCells = useMemo(() => {
+        // A column whose totals cell is empty merges with it: the number cell
+        // spans the strip AND the totals row (no line between the two). Only
+        // when the totals band is shown — without it nothing extends below.
+        const heightOf = (dbName: string): number => {
+            if (summaryValues === null) return COLUMN_NUMBER_ROW_HEIGHT;
+            return typeof summaryValues[dbName] === "number"
+                ? COLUMN_NUMBER_ROW_HEIGHT
+                : COLUMN_NUMBER_ROW_HEIGHT + SUMMARY_ROW_HEIGHT;
+        };
+        const cells: Array<{
+            key: string;
+            text: string;
+            left: number;
+            width: number;
+            height: number;
+        }> = [
+            {
+                key: ASSET_COLUMN_PROP,
+                text: assetColumnNumber === null ? "" : String(assetColumnNumber),
+                left: ROW_HEADER_WIDTH,
+                width: assetWidth,
+                height: heightOf(ASSET_COLUMN_PROP),
+            },
+        ];
+        for (const field of displayFields) {
+            const left = geometry.offsets.get(field.dbName);
+            if (left === undefined) continue;
+            const number = SERVICE_DB_NAMES.has(field.dbName) ? null : field.position;
+            cells.push({
+                key: field.dbName,
+                text: number === null || !Number.isFinite(number) ? "" : String(number),
+                left,
+                width: fieldWidth(field),
+                height: heightOf(field.dbName),
+            });
+        }
+        return cells;
+    }, [assetColumnNumber, assetWidth, displayFields, fieldWidth, geometry.offsets, summaryValues]);
 
     // The header is a static grid of cells (text, colSpan/rowSpan from the
     // backend). A cell's startPosition is 0-based (0 = the first field, whose
@@ -1007,21 +1071,44 @@ function RenovationGridInner(
     // Re-runs the edge check from the compensation effect (a separate effect
     // that cannot see the watcher's local `check`).
     const checkRef = useRef<(() => void) | null>(null);
-    // The latest slide that still owes a scroll shift, and the token already
-    // applied. While one is pending the edge check is muted: after a load the
-    // scroll is still parked at the old offset (and the watcher re-attaches as
-    // the window prop changes), so without this the same approach loaded
-    // several chunks in a row.
     // True while the anchor restore is writing the scroll: the programmatic
     // write fires a scroll event that would otherwise be read as "the user
     // approached an edge" and load another chunk immediately.
     const restoringScrollRef = useRef(false);
+    // One chunk per approach: the edge distance (px) at which each
+    // direction last fired a CONSUMED load. After a chunk load the
+    // anchor restore parks the scroll the same distance from that edge
+    // (one chunk farther than at the fire), so without these tokens the
+    // watcher re-fires on the restored position and slides the window
+    // chunk after chunk — the flicker loop. A direction re-arms once
+    // the user scrolled closer to its edge than the previous fire, or
+    // within the re-arm floor (see LAZY_REARM_PX).
+    const lastTopFireRef = useRef<number | null>(null);
+    const lastBottomFireRef = useRef<number | null>(null);
+    // The re-arm floor. A chunk smaller than the edge zone can leave the
+    // restored scroll still inside the zone with a token at the very edge
+    // (the user scrolled to the hard edge during the fetch) — a token
+    // scroll can never re-arm. Inside the floor the next chunk is
+    // mandatory anyway, so the edge fires regardless of the token.
+    const lazyRearmPx = Math.max(0, LAZY_EDGE_ROWS - lazyChunkRows) * 36;
     useEffect(() => {
         if (!onNearBottom && !onNearTop) return;
         let target: HTMLElement | null = null;
         let detached = false;
         let throttleTimer: number | undefined;
-        const observer = new ResizeObserver(() => check());
+        let resizeTimer: number | undefined;
+        // The strip's size transiently dips while revo-grid re-measures
+        // the spacer after a source change; a check on the transient
+        // value reads a mid-window scroll as "near the opposite edge"
+        // and slides the window the wrong way. Debounce: real size
+        // changes outlive the transient, which settles within frames.
+        const observer = new ResizeObserver(() => {
+            if (resizeTimer !== undefined) return;
+            resizeTimer = window.setTimeout(() => {
+                resizeTimer = undefined;
+                check();
+            }, 120);
+        });
         const getTarget = (): HTMLElement | null => {
             if (headerPinned) {
                 // The internal strip renders async — null until then. No
@@ -1040,11 +1127,31 @@ function RenovationGridInner(
             // No overflow yet (the spacer is not measured, or everything fits)
             // — nothing to approach.
             if (el.scrollHeight <= el.clientHeight) return;
-            if (hasMoreBottom && el.scrollHeight - el.scrollTop - el.clientHeight < LAZY_EDGE_PX) {
-                onNearBottom?.();
+            const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+            if (
+                hasMoreBottom &&
+                fromBottom < LAZY_EDGE_PX &&
+                (lastBottomFireRef.current === null ||
+                    fromBottom < lastBottomFireRef.current ||
+                    fromBottom < lazyRearmPx)
+            ) {
+                // Record only consumed fires: while a load is in flight the
+                // user may keep scrolling to the edge, and a token at 0 can
+                // never re-arm by scrolling.
+                if (onNearBottom?.()) {
+                    lastBottomFireRef.current = fromBottom;
+                }
             }
-            if (hasMoreTop && el.scrollTop < LAZY_EDGE_PX) {
-                onNearTop?.();
+            if (
+                hasMoreTop &&
+                el.scrollTop < LAZY_EDGE_PX &&
+                (lastTopFireRef.current === null ||
+                    el.scrollTop < lastTopFireRef.current ||
+                    el.scrollTop < lazyRearmPx)
+            ) {
+                if (onNearTop?.()) {
+                    lastTopFireRef.current = el.scrollTop;
+                }
             }
         };
         checkRef.current = check;
@@ -1075,6 +1182,7 @@ function RenovationGridInner(
             if (target) target.removeEventListener("scroll", onScroll);
             observer.disconnect();
             if (throttleTimer !== undefined) window.clearTimeout(throttleTimer);
+            if (resizeTimer !== undefined) window.clearTimeout(resizeTimer);
         };
     }, [hasMoreBottom, hasMoreTop, headerPinned, onNearBottom, onNearTop, displaySource]);
 
@@ -1175,6 +1283,10 @@ function RenovationGridInner(
             settlingScrollRef.current = false;
             return;
         }
+        // A structural window reset re-arms both edges: the fire tokens
+        // describe the previous window's scroll distances.
+        lastTopFireRef.current = null;
+        lastBottomFireRef.current = null;
         const edge = scrollToEdge.edge;
         let idlePolls = 0;
         let landingPolls = 0;
@@ -1987,9 +2099,10 @@ function RenovationGridInner(
     }, [assetWidth, displayFields, fieldWidth, geometry.offsets]);
 
     const headerHeight = HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT;
-    // The totals row is a revo-grid pinned top row (like the assets dictionary)
-    // — the custom header overlay stays header-only.
-    const overlayHeight = headerHeight;
+    // The totals row is a revo-grid pinned top row (like the assets dictionary).
+    // The overlay carries the 11 header levels plus the column-number strip
+    // directly above the pinned totals row.
+    const overlayHeight = headerHeight + COLUMN_NUMBER_ROW_HEIGHT;
     const pinnedSummaryRow = useMemo<RenovationGridRow[] | undefined>(
         () =>
             summaryValues
@@ -2013,7 +2126,7 @@ function RenovationGridInner(
     // Unpinned mode (corner menu «Закрепить заголовок» off) — the same
     // scrolling model as the «Сырьё» grids: the header scrolls away with the
     // content and an external horizontal scrollbar strip appears at the bottom.
-    const contentHeight = headerHeight + displaySource.length * 36 + 18;
+    const contentHeight = overlayHeight + displaySource.length * 36 + 18;
 
     const refreshHorizontalScrollbar = useCallback(async () => {
         const grid = gridRef.current;
@@ -2074,7 +2187,15 @@ function RenovationGridInner(
 
     const headerOverlay = (
         <div className="renovation-grid__header" style={{ height: overlayHeight }}>
-            <div className="renovation-grid__corner">
+            {/* The «№» cell merges every cell below it — the number strip and the
+                totals row — into itself: one box whose bottom line sits under the
+                totals row (nothing to number, no internal borders). */}
+            <div
+                className="renovation-grid__corner"
+                style={{
+                    height: overlayHeight + (summaryValues === null ? 0 : SUMMARY_ROW_HEIGHT),
+                }}
+            >
                 <span className="renovation-grid__corner-label">№</span>
                 {onOpenRowFilter ? (
                     <button
@@ -2130,9 +2251,10 @@ function RenovationGridInner(
                         className={[
                             "renovation-grid__header-cell",
                             cell.isTop ? "renovation-grid__header-cell--top" : "",
-                            // A bottom-most cell sits directly above the summary
-                            // row — drop its bottom line so the two merge.
-                            summaryValues && cell.top + cell.height >= headerHeight - 0.5
+                            // A bottom-most cell sits directly above the column-number
+                            // strip — drop its bottom line so the strip's own top line
+                            // is the only border between them.
+                            cell.top + cell.height >= headerHeight - 0.5
                                 ? "renovation-grid__header-cell--bottom"
                                 : "",
                         ]
@@ -2193,6 +2315,20 @@ function RenovationGridInner(
                         ) : null}
                     </div>
                 ))}
+                {columnNumberCells.map((cell) => (
+                    <div
+                        key={cell.key}
+                        className="renovation-grid__number-cell"
+                        style={{
+                            left: cell.left,
+                            top: headerHeight,
+                            width: cell.width,
+                            height: cell.height,
+                        }}
+                    >
+                        {cell.text}
+                    </div>
+                ))}
                 {handles.map((handle) => (
                     <div
                         key={handle.key}
@@ -2225,7 +2361,7 @@ function RenovationGridInner(
             style={
                 {
                     "--grid-content-height": `${contentHeight}px`,
-                    "--grid-header-height": `${headerHeight}px`,
+                    "--grid-header-height": `${overlayHeight}px`,
                 } as CSSProperties
             }
             onPointerMove={(event) => {
@@ -2286,7 +2422,7 @@ function RenovationGridInner(
                     className="renovation-grid"
                     columns={columns}
                     source={displaySource}
-                    pinnedTopSource={pinnedSummaryRow ?? []}
+                    pinnedTopSource={pinnedSummaryRow ?? EMPTY_PINNED_SOURCE}
                     theme="compact"
                     range
                     useClipboard={false}

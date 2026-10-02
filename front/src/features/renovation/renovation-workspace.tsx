@@ -235,8 +235,6 @@ export function RenovationWorkspace({
     // anchor); switching the version or the asset filter resets it to the top.
     const [planWindow, setPlanWindow] = useState<PlanWindow | null>(null);
     const [planError, setPlanError] = useState<string | null>(null);
-    // Loading state for showing skeleton rows during chunk fetch
-    const [loadingEdge, setLoadingEdge] = useState<"top" | "bottom" | null>(null);
     // Numeric totals of the filtered plan — the pinned summary row.
     const [summaryValues, setSummaryValues] = useState<Record<string, number> | null>(null);
     const windowGenerationRef = useRef(0);
@@ -562,9 +560,6 @@ export function RenovationWorkspace({
             if (!base || base.complete) return;
             const generation = windowGenerationRef.current;
 
-            // Show loading indicator
-            setLoadingEdge(direction);
-
             try {
                 if (direction === "bottom") {
                     const chunkStart = base.start + base.rows.length;
@@ -611,34 +606,33 @@ export function RenovationWorkspace({
                 }
             } catch {
                 // Chunk fetch failed — the next edge approach retries.
-            } finally {
-                // Hide loading indicator
-                setLoadingEdge(null);
             }
         },
         [applyWindowChunk, assetFilter, viewPlanId, activeColumnFilters, positionFilter],
     );
 
-    const handleNearBottom = useCallback(() => {
-        if (loadingBottomRef.current) return;
+    const handleNearBottom = useCallback((): boolean => {
+        if (loadingBottomRef.current) return false;
         const base = planWindowRef.current;
-        if (!base || base.complete) return;
-        if (base.start + base.rows.length >= base.total) return;
+        if (!base || base.complete) return false;
+        if (base.start + base.rows.length >= base.total) return false;
         loadingBottomRef.current = true;
         void loadChunk("bottom").finally(() => {
             loadingBottomRef.current = false;
         });
+        return true;
     }, [loadChunk]);
 
-    const handleNearTop = useCallback(() => {
-        if (loadingTopRef.current) return;
+    const handleNearTop = useCallback((): boolean => {
+        if (loadingTopRef.current) return false;
         const base = planWindowRef.current;
-        if (!base || base.complete) return;
-        if (base.start <= 0) return;
+        if (!base || base.complete) return false;
+        if (base.start <= 0) return false;
         loadingTopRef.current = true;
         void loadChunk("top").finally(() => {
             loadingTopRef.current = false;
         });
+        return true;
     }, [loadChunk]);
     const { data: diff } = useAsyncData<RenovationDiff | null>(
         () => (viewPlanId ? getRenovationDiff(viewPlanId) : Promise.resolve(null)),
@@ -1976,7 +1970,6 @@ export function RenovationWorkspace({
                                                     remoteLocks={remoteLocks}
                                                     remotePresence={remotePresence}
                                                     remoteCellInfo={remoteCellInfo}
-                                                    loadingEdge={loadingEdge}
                                                     onAcquireLease={room.acquireLeases}
                                                     onReleaseLease={room.releaseLeases}
                                                     onLockedCellEdit={(_, ownerName) =>
@@ -2008,6 +2001,7 @@ export function RenovationWorkspace({
                                                     hasMoreBottom={hasMoreBottom}
                                                     onNearTop={handleNearTop}
                                                     onNearBottom={handleNearBottom}
+                                                    lazyChunkRows={WINDOW_CHUNK}
                                                     scrollToEdge={scrollToEdge}
                                                     totalRowsOverride={planWindow.total}
                                                     totalAllRowsOverride={planWindow.totalAll}

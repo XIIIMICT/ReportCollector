@@ -1550,8 +1550,6 @@ body {
     background: var(--cell-calculated) !important;
 }
 
-/* No line between the header and the pinned summary row: drop the header
-   cells' bottom edge (the top edge stays for the header's own top border). */
 /* No line between the header and the pinned summary row: drop any bottom edge
    on the header and any top edge on the summary cells. */
 .raw-materials-grid--summary revogr-header,
@@ -1565,6 +1563,29 @@ body {
 .raw-materials-grid--summary revogr-data .rgCell.raw-materials-grid__summary-cell,
 .raw-materials-grid--summary revogr-data .rgCell.raw-materials-grid__summary-cell--filled {
     border-top: 0 !important;
+}
+
+/* Merge the header with the pinned summary row where the summary cell stays
+   empty (every assets column but the two carrying totals): the header cell
+   stretches over both rows and covers the empty summary cell, so the column
+   reads as one tall header cell with its label centred — like the plan's
+   merged column-number cells. The totals columns keep a separate header cell
+   and the green totals cell below it. The pinned row is as tall as the grid's
+   rowSize (36). */
+.raw-materials-grid--summary {
+    --rm-summary-row-height: 36px;
+}
+
+.raw-materials-grid--summary revogr-header .rgHeaderCell.report-header-cell--summary-merge,
+.raw-materials-grid--summary .rowHeaders revogr-header .rgHeaderCell.report-row-header--heading {
+    height: calc(100% + var(--rm-summary-row-height)) !important;
+    z-index: 2;
+}
+
+/* The row header's «№» rests on the cell's line box; centre it in the merged
+   cell so it sits level with the stretched column headers. */
+.raw-materials-grid--summary .rowHeaders revogr-header .rgHeaderCell.report-row-header--heading {
+    align-items: center;
 }
 
 .report-row-header__summary {
@@ -1777,7 +1798,13 @@ body {
     z-index: 5;
     flex: 0 0 auto;
     background: var(--surface);
-    overflow: hidden;
+    /* Landmine: the sideways clip must stay, but a number cell of a column with
+       no total is merged with the empty totals cell below it and extends 36px
+       into the pinned totals row. `overflow: hidden` would cut that merge off —
+       clip-path with a negative bottom inset clips left/right/top at the box
+       while letting the merged cells paint over the totals row. */
+    overflow: visible;
+    clip-path: inset(0 0 -36px 0);
 }
 
 /* The «№» corner above the row numbers: an opaque, full-header-height cell
@@ -1786,8 +1813,10 @@ body {
 .renovation-grid__corner {
     position: absolute;
     z-index: 2;
+    /* The height is set inline: the corner merges the number strip and the
+       totals row into itself (no internal borders, its bottom line under the
+       totals row) — a single cell beside the «№» data column. */
     top: 0;
-    bottom: 0;
     left: 0;
     display: flex;
     align-items: center;
@@ -1887,6 +1916,33 @@ body {
 
 .renovation-grid revogr-data .rgCell.renovation-grid__summary-cell--filled {
     background: var(--cell-calculated) !important;
+}
+
+/* The column-number strip: one cell per visible column with its form position
+   (the numbering starts at «Предприятие» = 1), drawn at the bottom of the
+   overlay. Muted — a service row, not a header level. Top border: the header
+   cell above drops its bottom line. A cell of a column whose totals cell is
+   empty is taller (24px + the totals row) and merges with it — one cell, the
+   number centered over both rows. pointer-events: none keeps the grid below
+   (the totals row itself) hoverable through the merge. */
+.renovation-grid__number-cell {
+    position: absolute;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    color: var(--muted);
+    background: var(--surface);
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    user-select: none;
+    pointer-events: none;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
 }
 
 .renovation-grid__resize-handle {

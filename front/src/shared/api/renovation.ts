@@ -358,6 +358,8 @@ export type RenovationAssetRow = {
     createdAt: string;
     updatedAt: string;
     updatedBy: string;
+    /** Computed: the working plan's row count for this asset. */
+    repairCount: number;
     /** Computed: sum of «Стоимость итого» (col_031) over the plan rows. */
     totalCost: number;
 };

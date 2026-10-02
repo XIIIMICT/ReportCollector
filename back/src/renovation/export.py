@@ -390,7 +390,11 @@ SECTION_SHEET_NAMES: dict[str, str] = {
 }
 
 ALLOWED_KEYS: dict[str, frozenset[str]] = {
-    "renovationAssets": frozenset({"repairCode", "name", "createdAt", "updatedAt", "updatedBy"}),
+    # Computed columns («Стоимость итого», «Число ремонтных работ») are exported
+    # like any other column — keep them in sync with the grid descriptors.
+    "renovationAssets": frozenset(
+        {"repairCode", "name", "totalCost", "repairCount", "createdAt", "updatedAt", "updatedBy"}
+    ),
     "renovationUsers": frozenset(
         {
             "email",

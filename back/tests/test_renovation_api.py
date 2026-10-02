@@ -337,6 +337,10 @@ async def test_plan_summary_sums_numeric_fields(client: AsyncClient) -> None:
     values = response.json()["values"]
     # The fixture's two rows carry col_028 = 10 and 5.
     assert values["col_028"] == 15.0
+    # Non-additive columns are omitted entirely: the defect-statement number,
+    # the duration, the physical volumes and the MTR-readiness block.
+    for field in ("col_023", "col_026", "col_083", "col_084", "col_208", "col_211", "col_214"):
+        assert field not in values
 
     filtered = await client.get(
         "/api/renovation/plan/summary",

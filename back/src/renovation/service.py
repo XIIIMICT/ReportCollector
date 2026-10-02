@@ -823,6 +823,24 @@ async def read_plan_rows(
     )
 
 
+# Numeric fields that are NOT summed into the pinned summary row: an aggregate
+# is meaningless for them (a defect-statement number, a duration, physical
+# volumes, and the whole «Статус готовности МТР к проведению ремонта» block).
+_SUMMARY_EXCLUDED_FIELDS = frozenset(
+    {
+        "col_023",  # «Дефектная ведомость/ВОР №»
+        "col_026",  # «Продолжительность, дни»
+        "col_083",  # «Физические объемы работ» — «Ед. изм.»
+        "col_084",  # «Физические объемы работ» — «Количество»
+        "col_208",  # «Статус готовности МТР…» — «Централизованная поставка»
+        "col_209",  # «Статус готовности МТР…» — «Прямая поставка»
+        "col_210",  # «Статус готовности МТР…» — «Централизованная поставка»
+        "col_211",  # «Статус готовности МТР…» — «Прямая поставка»
+        "col_214",  # «Статус готовности МТР…» — «Поставка оборудования и МТР Подрядчика»
+    }
+)
+
+
 async def read_plan_summary(
     session: AsyncSession,
     assets: list[RAsset],
@@ -835,11 +853,13 @@ async def read_plan_summary(
     position_to: int | None = None,
 ) -> dict[str, float]:
     """
-    Sum every numeric field over the filtered plan (the pinned summary row).
+    Sum every additive numeric field over the filtered plan (the pinned summary row).
 
     Same scope as `read_plan_rows` (visible assets plus the header and
     row-number filters), so the totals always match what the grid shows. Only
-    numeric fields are returned; an empty scope yields zeros.
+    numeric fields are returned; an empty scope yields zeros. Fields whose sum
+    is meaningless (`_SUMMARY_EXCLUDED_FIELDS`) are omitted — their summary
+    cells stay empty.
     """
     if plan_id is not None:
         plan = await session.get(RenovationPlan, plan_id)
@@ -860,7 +880,11 @@ async def read_plan_summary(
         position_from=position_from,
         position_to=position_to,
     )
-    numeric = [meta.db_name for meta in field_metas() if meta.cell_type == "number"]
+    numeric = [
+        meta.db_name
+        for meta in field_metas()
+        if meta.cell_type == "number" and meta.db_name not in _SUMMARY_EXCLUDED_FIELDS
+    ]
     columns = [func.coalesce(func.sum(getattr(RenovationPlanRow, name)), 0) for name in numeric]
     sums = (await session.exec(select(*columns).select_from(RenovationPlanRow).where(row_condition))).one()
     return {name: float(value or 0) for name, value in zip(numeric, sums, strict=True)}
@@ -2180,22 +2204,25 @@ async def read_renovation_asset_rows(
     if asset_id is not None:
         query = query.where(col(RAsset.id) == asset_id)
     rows = (await session.exec(query)).all()
-    # Computed column: the total «Стоимость итого» (col_031) of the working
-    # plan's rows per asset.
+    # Computed columns of the working plan's rows per asset: the total
+    # «Стоимость итого» (col_031) and the number of repair works (rows).
     working_plan_id = await _plan_id_by_state(session, RPlanState.WORKING)
     totals: dict[UUID, float] = {}
+    counts: dict[UUID, int] = {}
     if working_plan_id is not None:
         sums = (
             await session.exec(
                 select(
                     col(RenovationPlanRow.asset_id),
                     func.coalesce(func.sum(col(RenovationPlanRow.col_031)), 0),
+                    func.count(),
                 )
                 .where(col(RenovationPlanRow.plan_id) == working_plan_id)
                 .group_by(col(RenovationPlanRow.asset_id))
             )
         ).all()
-        totals = {asset_id: float(total or 0) for asset_id, total in sums if asset_id is not None}
+        totals = {asset_id: float(total or 0) for asset_id, total, _count in sums if asset_id is not None}
+        counts = {asset_id: int(count) for asset_id, _total, count in sums if asset_id is not None}
     return [
         RenovationAssetRowRead(
             id=asset.id,
@@ -2205,6 +2232,7 @@ async def read_renovation_asset_rows(
             updatedAt=asset.updated_at,
             updatedBy=asset.updated_by,
             totalCost=totals.get(asset.id, 0.0),
+            repairCount=counts.get(asset.id, 0),
         )
         for asset in rows
     ]
