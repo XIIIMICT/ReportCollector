@@ -770,6 +770,24 @@ export function RenovationWorkspace({
         }
         return keys;
     }, [isApprover, meta, userBlock]);
+    // Calculated fields (formula results + the renovation ID) are never edited
+    // directly, but they DO update live from other users' edits — the backend
+    // publishes them as cell:changed, and displayRows merges them on top.
+    const calculatedFieldKeys = useMemo(() => {
+        const keys = new Set<string>();
+        if (!meta) return keys;
+        for (const field of meta.fields) {
+            if (field.isCalculated) keys.add(field.dbName);
+        }
+        return keys;
+    }, [meta]);
+    // The union of editable + calculated fields: the fields displayRows merges
+    // from remote cell values.
+    const mergeableFieldKeys = useMemo(() => {
+        const keys = new Set(editableFieldKeys);
+        for (const key of calculatedFieldKeys) keys.add(key);
+        return keys;
+    }, [editableFieldKeys, calculatedFieldKeys]);
 
     const userAssetIds = useMemo(() => {
         if (!meta) return null;
@@ -1045,7 +1063,7 @@ export function RenovationWorkspace({
         const result = gridRows.map((row) => {
             // Build cache key from row id + remote values for this row
             const remoteKeys: string[] = [];
-            for (const field of editableFieldKeys) {
+            for (const field of mergeableFieldKeys) {
                 const value = remoteCellValues.get(canonicalRenovationKey(row.__id, field));
                 if (value !== undefined) {
                     remoteKeys.push(`${field}:${JSON.stringify(value)}`);
@@ -1070,10 +1088,20 @@ export function RenovationWorkspace({
 
             // Create new merged row
             const merged = { ...row };
-            for (const field of editableFieldKeys) {
+            for (const field of mergeableFieldKeys) {
                 const value = remoteCellValues.get(canonicalRenovationKey(row.__id, field));
                 if (value !== undefined) {
                     merged[field] = value;
+                    if (field === "col_003") {
+                        // The renovation ID drives the red «incomplete» tint:
+                        // derive the missing-components flag from the value
+                        // itself (<NULL> placeholder) — the cell:changed
+                        // payload carries no metadata.
+                        merged.__renovationId = value == null ? null : String(value);
+                        merged.__missingComponents = String(value).includes("<NULL>")
+                            ? ["missing"]
+                            : [];
+                    }
                 }
             }
 
@@ -1083,7 +1111,7 @@ export function RenovationWorkspace({
 
         rowIdentityCache.current = nextCache;
         return result;
-    }, [editableFieldKeys, gridRows, isArchive, remoteCellValues]);
+    }, [mergeableFieldKeys, gridRows, isArchive, remoteCellValues]);
 
     // Undo/redo is per session, form and collab section: the counters are
     // re-read from the server on every version or tab switch.

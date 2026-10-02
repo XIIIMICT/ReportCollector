@@ -352,6 +352,23 @@ async def patch_renovation_plan(
         )
         for cell in calculated
     )
+    # The renovation ID (col_003) is derived too, but it is NOT part of
+    # `calculated` (the formula engine doesn't own it) — publish it explicitly
+    # so other clients update the code live. The editor refreshes its window
+    # from the PATCH response; everyone else only gets cell:changed.
+    cells.extend(
+        AppliedCell(
+            target_table=RENOVATION_PLAN_ROWS_TABLE,
+            row_id=renovation_id.rowId,
+            field="col_003",
+            old_value=None,
+            new_value=renovation_id.value,
+            revision=0,
+            action_id=0,
+        )
+        for renovation_id in renovation_ids
+        if renovation_id.changed
+    )
     await publish_cell_changed(
         JournalStore(session),
         project_key=RENOVATION_PROJECT_KEY,

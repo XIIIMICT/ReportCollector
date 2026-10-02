@@ -1574,11 +1574,17 @@ async def update_plan_cells(
         edited_fields = touched_fields.get(row.id) or set()
         keep_existing = not (edited_fields & _RENOVATION_ID_INPUT_FIELDS)
         result = _safe_renovation_id(_renovation_id_input(row, asset, label_map, keep_existing=keep_existing))
-        if row.col_003 != result.value:
+        id_changed = row.col_003 != result.value
+        if id_changed:
             row.col_003 = result.value
             session.add(row)
         renovation_ids.append(
-            RenovationIdRead(rowId=row.id, value=result.value, missingComponents=list(result.missing_components))
+            RenovationIdRead(
+                rowId=row.id,
+                value=result.value,
+                missingComponents=list(result.missing_components),
+                changed=id_changed,
+            )
         )
 
     await record_cell_updates(

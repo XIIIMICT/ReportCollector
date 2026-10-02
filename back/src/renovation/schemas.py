@@ -290,6 +290,9 @@ class RenovationIdRead(BaseModel):
     rowId: UUID
     value: str
     missingComponents: list[str] = []
+    # True when the recomputed id differs from the stored one (the router
+    # publishes it to the room so other clients update live).
+    changed: bool = False
 
 
 class RenovationUpdateRead(BaseModel):

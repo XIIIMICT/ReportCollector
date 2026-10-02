@@ -35,6 +35,8 @@ Server → client:
 
 REST edits publish `cell:changed` into the room via `publish_cell_changed` (`back/src/collab/events.py`) — so edits reach all workers through pub/sub.
 
+For the renovation plan the published cells include **derived** fields: the formula results (`calculated`) and the renovation ID `col_003` (when it changed). The editor refreshes its window from the PATCH response; every other client only receives `cell:changed`, so without publishing the derived cells the renovation ID would stay stale until a reload.
+
 ## Lease, presence, idle (timings)
 
 | What | TTL | Client |
