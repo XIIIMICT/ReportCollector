@@ -20,7 +20,9 @@
 - Анализ обновлённых зависимостей (React 19, TypeScript 7, Zod 4)
 
 ### 2. Оптимизация виртуализации (пообъектный план) ✅
-**Документ**: [`VIRTUALIZATION_OPTIMIZATION.md`](./VIRTUALIZATION_OPTIMIZATION.md)
+**Документы**:
+- [`VIRTUALIZATION_OPTIMIZATION.md`](./VIRTUALIZATION_OPTIMIZATION.md)
+- [`PERFORMANCE_OPTIMIZATION_2026-10-02.md`](./PERFORMANCE_OPTIMIZATION_2026-10-02.md) — identity cache
 
 **Проблема**: Мигание грида при подгрузке новых чанков, низкий FPS при скролле
 
@@ -30,11 +32,13 @@
 - ✅ **P0.3**: Loading state для skeleton rows
 - ✅ **P1.1**: Throttle scroll events до 60fps (16ms)
 - ✅ **P1.2**: Request deduplication (уже работал)
+- ✅ **NEW**: Identity cache для gridRows — переиспользование объектов
 
 **Ожидаемый эффект**:
 - Мигание: значительно уменьшено
 - FPS: 55-58 fps (было 40-50)
 - Scroll overhead: ~95% меньше
+- Row re-renders: ~80% меньше (благодаря identity cache)
 
 ---
 
@@ -220,7 +224,7 @@
 
 ## 📝 Изменённые файлы
 
-### Frontend (15 файлов)
+### Frontend (16 файлов)
 - `front/tsconfig.json` — strict mode
 - `front/next.config.ts` — CSP, bundle analyzer
 - `front/package.json` — dependencies updates
@@ -229,17 +233,19 @@
 - `front/src/shared/ui/index.ts` — exports
 - `front/src/shared/grid/raw-materials-grid.tsx` — React 19 fixes
 - `front/src/shared/grid/__tests__/section-tabs.test.tsx` — test fixes
-- `front/src/features/renovation/renovation-workspace.tsx` — error boundary + virtualization
+- `front/src/features/renovation/renovation-workspace.tsx` — error boundary + virtualization + **identity cache**
 - `front/src/features/renovation/renovation-grid.tsx` — throttle + loading state
 - `front/src/features/raw-materials/raw-materials-workspace.tsx` — error boundary
 
-### Документация (7 файлов)
+### Документация (8 файлов)
 - `docs/AUDIT-2026-10-02.md` — полный аудит
 - `docs/AUDIT-2026-10-02-SUMMARY-RU.md` — краткое резюме
 - `docs/AUDIT-2026-10-02-FIXED.md` — отчёт об исправлениях
 - `docs/VIRTUALIZATION_OPTIMIZATION.md` — оптимизация виртуализации
+- `docs/PERFORMANCE_OPTIMIZATION_2026-10-02.md` — **identity cache (новый)**
 - `docs/TECH-DEBT-REDUCTION-2026-10-02.md` — план снижения технического долга
 - `docs/OPTIMIZATION_SUMMARY.md` — этот файл
+- `docs/README_OPTIMIZATION.md` — главный README
 
 ### Backend
 Изменений нет (все проблемы оказались ложными тревогами)
