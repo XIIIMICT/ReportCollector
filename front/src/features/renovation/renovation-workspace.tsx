@@ -936,10 +936,17 @@ export function RenovationWorkspace({
 
     // The grid rows: plan rows with diff states plus deleted-row ghosts from
     // the comparison plan (the version being compared to).
+    // Stable identity cache to prevent unnecessary re-renders
+    const gridRowsCache = useRef(new Map<string, RenovationGridRow>());
+
     const gridRows = useMemo<RenovationGridRow[]>(() => {
         if (!planWindow) return [];
+
+        const cache = gridRowsCache.current;
+        const nextCache = new Map<string, RenovationGridRow>();
         const result: RenovationGridRow[] = [];
         const diffByRow = new Map((diff?.rows ?? []).map((row) => [row.rowId, row]));
+
         for (const row of planWindow.rows) {
             const diffRow = diffByRow.get(row.id);
             const rowState: RenovationGridRow["__rowState"] = diffRow
@@ -947,7 +954,21 @@ export function RenovationWorkspace({
                     ? "new"
                     : "changed"
                 : "unchanged";
-            result.push({
+
+            // Build cache key from row data that affects rendering
+            const changedFields = diffRow?.cells.map((cell) => cell.field) ?? [];
+            const cacheKey = `${row.id}|${row.revision}|${rowState}|${changedFields.join(",")}`;
+
+            const cached = cache.get(cacheKey);
+            if (cached) {
+                // Reuse cached row object
+                nextCache.set(cacheKey, cached);
+                result.push(cached);
+                continue;
+            }
+
+            // Create new row object
+            const gridRow: RenovationGridRow = {
                 ...row.values,
                 // The read-only «№ ремонта» column shows the computed value.
                 col_003: row.renovationId,
@@ -963,15 +984,28 @@ export function RenovationWorkspace({
                 __assetName: row.assetName ?? "",
                 __renovationId: row.renovationId,
                 __rowState: rowState,
-                __changedFields: diffRow?.cells.map((cell) => cell.field) ?? [],
+                __changedFields: changedFields,
                 __missingComponents: row.missingComponents,
-            });
+            };
+
+            nextCache.set(cacheKey, gridRow);
+            result.push(gridRow);
         }
+
         if (diff) {
             // Deleted ghosts come from the diff itself (the previous version's
             // rows), so no full plan read is needed to render them.
             for (const row of diff.deletedRows) {
-                result.push({
+                const cacheKey = `${row.id}|${row.revision}|deleted`;
+                const cached = cache.get(cacheKey);
+
+                if (cached) {
+                    nextCache.set(cacheKey, cached);
+                    result.push(cached);
+                    continue;
+                }
+
+                const gridRow: RenovationGridRow = {
                     ...row.values,
                     col_003: row.renovationId,
                     id: row.id,
@@ -987,10 +1021,15 @@ export function RenovationWorkspace({
                     __rowState: "deleted",
                     __changedFields: [],
                     __missingComponents: row.missingComponents,
-                });
+                };
+
+                nextCache.set(cacheKey, gridRow);
+                result.push(gridRow);
             }
         }
+
         result.sort((a, b) => a.__position - b.__position);
+        gridRowsCache.current = nextCache;
         return result;
     }, [diff, planWindow?.id, planWindow?.rows, planWindow?.start]);
 
