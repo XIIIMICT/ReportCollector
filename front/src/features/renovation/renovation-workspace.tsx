@@ -996,18 +996,60 @@ export function RenovationWorkspace({
 
     // Remote cell values (live edits of other users) override the local ones
     // for display — the working plan only.
+    // Stable row identity map to prevent unnecessary re-renders
+    const rowIdentityCache = useRef(new Map<string, RenovationGridRow>());
+
     const displayRows = useMemo(() => {
-        if (isArchive || remoteCellValues.size === 0) return gridRows;
-        return gridRows.map((row) => {
-            let merged: RenovationGridRow | null = null;
+        if (isArchive || remoteCellValues.size === 0) {
+            // Clear cache when no remote edits
+            rowIdentityCache.current.clear();
+            return gridRows;
+        }
+
+        const cache = rowIdentityCache.current;
+        const nextCache = new Map<string, RenovationGridRow>();
+
+        const result = gridRows.map((row) => {
+            // Build cache key from row id + remote values for this row
+            const remoteKeys: string[] = [];
             for (const field of editableFieldKeys) {
                 const value = remoteCellValues.get(canonicalRenovationKey(row.__id, field));
-                if (value === undefined) continue;
-                if (!merged) merged = { ...row };
-                merged[field] = value;
+                if (value !== undefined) {
+                    remoteKeys.push(`${field}:${JSON.stringify(value)}`);
+                }
             }
-            return merged ?? row;
+
+            if (remoteKeys.length === 0) {
+                // No remote edits for this row
+                nextCache.set(row.__id, row);
+                return row;
+            }
+
+            // Cache key: row id + sorted remote field values
+            const cacheKey = `${row.__id}|${remoteKeys.sort().join("|")}`;
+            const cached = cache.get(cacheKey);
+
+            if (cached) {
+                // Reuse cached merged row
+                nextCache.set(cacheKey, cached);
+                return cached;
+            }
+
+            // Create new merged row
+            const merged = { ...row };
+            for (const field of editableFieldKeys) {
+                const value = remoteCellValues.get(canonicalRenovationKey(row.__id, field));
+                if (value !== undefined) {
+                    merged[field] = value;
+                }
+            }
+
+            nextCache.set(cacheKey, merged);
+            return merged;
         });
+
+        rowIdentityCache.current = nextCache;
+        return result;
     }, [editableFieldKeys, gridRows, isArchive, remoteCellValues]);
 
     // Undo/redo is per session, form and collab section: the counters are
