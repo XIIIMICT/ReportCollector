@@ -21,6 +21,7 @@ from .collab.outbox import run_outbox
 from .collab.store import get_collab_store
 from .config import get_settings
 from .database import async_session_factory
+from .renovation.export_jobs import export_jobs
 
 settings = get_settings()
 configure_application_logging(settings.log_file)
@@ -76,12 +77,14 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     log_event(LOGGER, "application_started", "Приложение ReportCollector запущено.")
 
     dispatcher = asyncio.create_task(run_outbox())
+    await export_jobs.start()
     try:
         yield
     finally:
         dispatcher.cancel()
         with suppress(asyncio.CancelledError):
             await dispatcher
+        await export_jobs.stop()
         await get_collab_store().close()
     log_event(LOGGER, "application_stopped", "Приложение ReportCollector остановлено.")
 

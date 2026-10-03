@@ -440,3 +440,14 @@ class RenovationPlanExportRequest(BaseModel):
     rowIds: list[UUID] | None = None
     asset: str | None = None
     block: RBlock | None = None
+
+
+class RenovationExportJobRead(BaseModel):
+    """A background plan-export job: status polling and the ready file name."""
+
+    id: str
+    status: str
+    progress: int
+    total: int
+    fileName: str
+    error: str | None = None

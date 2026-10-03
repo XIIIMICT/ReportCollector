@@ -8,6 +8,8 @@ renovation_reference_values ids and transported over the API as display
 labels (the same pattern as «deliveryBasisName» in the «Цены» form).
 """
 
+import asyncio
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
@@ -19,6 +21,7 @@ from sqlalchemy import cast as sql_cast
 from sqlalchemy import false as sa_false
 from sqlalchemy import select as sa_select
 from sqlalchemy import update as sa_update
+from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -356,16 +359,35 @@ async def read_plan(
 
 
 @dataclass(slots=True)
+class RenovationPlanExportMeta:
+    """
+    Plan metadata for the streaming XLSX writer — everything except the rows.
+
+    `asset_ids` are the caller's permitted assets (already narrowed by the
+    asset filter); `total` is the number of rows the row iterator will yield
+    (the export-job progress denominator). The rows themselves are streamed in
+    batches by `iter_plan_export_rows`, so a 300k-row plan never has to be
+    materialized in one list.
+    """
+
+    plan_id: UUID
+    baseline_generation: int
+    state: RPlanState
+    stamp: datetime
+    reference_labels: dict[UUID, str]
+    block: RBlock | None
+    asset_ids: list[UUID]
+    total: int
+
+
+@dataclass(slots=True)
 class RenovationPlanExportData:
     """
     Plan metadata and prepared rows for the streaming XLSX writer.
 
-    state selects the export file-name suffix; stamp is the timestamp shown in the
-    file name — plan.updated_at (submit/approve moment) for a pending/archived
-    version, the latest row edit (max row.updated_at) for the working one.
-    `rows` holds the prepared rows (position, asset name, repair code, sparse
-    values); they are read in the request handler because the session is
-    finalized before the streaming response body is written.
+    Kept for the synchronous export endpoints and tests; the export-job worker
+    uses `RenovationPlanExportMeta` + `iter_plan_export_rows` instead so memory
+    stays bounded.
     """
 
     baseline_generation: int
@@ -377,36 +399,12 @@ class RenovationPlanExportData:
     block: RBlock | None = None
 
 
-async def read_plan_export_data(
-    session: AsyncSession,
-    assets: list[RAsset],
-    *,
-    plan_id: UUID | None = None,
-    state: RPlanState = RPlanState.WORKING,
-    row_ids: list[UUID] | None = None,
-    asset_name: str | None = None,
-    block: RBlock | None = None,
-) -> RenovationPlanExportData:
-    """
-    Read plan rows directly for XLSX export without a 94k-row Pydantic copy.
-
-    `asset_name` narrows the rows to one asset; `block` narrows the exported
-    columns to one responsibility block (the server-side "visible" filter).
-    """
-    if plan_id is not None:
-        plan = await session.get(RenovationPlan, plan_id)
-        if plan is None:
-            raise _ERR_PLAN_NOT_FOUND
-    else:
-        plan = await _plan_by_state(session, state)
-        if plan is None:
-            message = f"Нет плана в состоянии «{state.value}»."
-            raise RenovationPlanNotFoundError(message)
-
-    permitted_asset_ids = [asset.id for asset in assets]
-    if asset_name is not None:
-        permitted_asset_ids = [asset.id for asset in assets if asset.name == asset_name]
-
+def _plan_export_query(
+    plan_id: UUID,
+    asset_ids: list[UUID],
+    row_ids: list[UUID] | None,
+) -> Select:
+    """Build the export row query (sparse values, asset scope, optional exact set)."""
     sparse_values = func.jsonb_strip_nulls(
         func.to_jsonb(literal_column("renovation_plan_rows"))
         - sql_cast(
@@ -434,26 +432,110 @@ async def read_plan_export_data(
         )
         .join(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
         .where(
-            col(RenovationPlanRow.plan_id) == plan.id,
+            col(RenovationPlanRow.plan_id) == plan_id,
             # The asset filter is applied in SQL so the whole filtered set is
             # exported — not just the fragment currently on screen.
-            col(RenovationPlanRow.asset_id).in_(permitted_asset_ids),
+            col(RenovationPlanRow.asset_id).in_(asset_ids),
         )
         .order_by(col(RenovationPlanRow.position))
     )
     if row_ids is not None:
         query = query.where(col(RenovationPlanRow.id).in_(row_ids))
+    return query
+
+
+async def _resolve_export_plan(
+    session: AsyncSession,
+    plan_id: UUID | None,
+    state: RPlanState,
+) -> RenovationPlan:
+    if plan_id is not None:
+        plan = await session.get(RenovationPlan, plan_id)
+        if plan is None:
+            raise _ERR_PLAN_NOT_FOUND
+        return plan
+    plan = await _plan_by_state(session, state)
+    if plan is None:
+        message = f"Нет плана в состоянии «{state.value}»."
+        raise RenovationPlanNotFoundError(message)
+    return plan
+
+
+async def read_plan_export_meta(
+    session: AsyncSession,
+    asset_ids: list[UUID],
+    *,
+    plan_id: UUID | None = None,
+    state: RPlanState = RPlanState.WORKING,
+    row_ids: list[UUID] | None = None,
+    block: RBlock | None = None,
+) -> RenovationPlanExportMeta:
+    """
+    Resolve the export scope without reading rows.
+
+    Plan, stamp, row count, reference labels and the responsibility block.
+    """
+    plan = await _resolve_export_plan(session, plan_id, state)
+    count_query = (
+        sa_select(func.count())
+        .select_from(RenovationPlanRow)
+        .where(
+            col(RenovationPlanRow.plan_id) == plan.id,
+            col(RenovationPlanRow.asset_id).in_(asset_ids),
+        )
+    )
+    if row_ids is not None:
+        count_query = count_query.where(col(RenovationPlanRow.id).in_(row_ids))
+    total = int((await session.exec(count_query)).one()[0])
+    return RenovationPlanExportMeta(
+        plan_id=plan.id,
+        baseline_generation=plan.baseline_generation,
+        state=plan.state,
+        stamp=await _plan_export_stamp(session, plan, asset_ids),
+        reference_labels=await _reference_labels(session),
+        block=block,
+        asset_ids=list(asset_ids),
+        total=total,
+    )
+
+
+async def iter_plan_export_rows(
+    session: AsyncSession,
+    *,
+    plan_id: UUID,
+    asset_ids: list[UUID],
+    row_ids: list[UUID] | None = None,
+    batch_size: int = EXPORT_BATCH_SIZE,
+) -> AsyncIterator[list[tuple[int, str, str, dict[str, object]]]]:
+    """
+    Stream prepared export rows in batches.
+
+    Each row is `(position, asset name, repair code, values)`. Formula fields
+    are recomputed so derived columns (dates, durations, sums) are exported
+    with fresh values even when the stored cell is NULL (recalc happens on
+    edit; adopted/imported rows may never have run it). A server-side cursor
+    keeps memory bounded — only one batch is prepared at a time.
+    """
+    query = _plan_export_query(plan_id, asset_ids, row_ids)
     label_map = await _reference_labels(session)
     engine = formula_engine()
 
     def _prepare(values: dict[str, object], repair_code: str) -> dict[str, object]:
-        # Recompute formula fields so derived columns (dates, durations, sums)
-        # are exported with fresh values even when the stored cell is NULL
-        # (recalc happens on edit; adopted/imported rows may never have run it).
         engine.materialize(values)
         if not values.get("col_003"):
             values["col_003"] = _sparse_row_renovation_id(values, repair_code, label_map)
         return values
+
+    def _prepare_partition(
+        partition: Sequence[object],
+    ) -> list[tuple[int, str, str, dict[str, object]]]:
+        prepared: list[tuple[int, str, str, dict[str, object]]] = []
+        for entry in partition:
+            _row_id, position, asset_name_, repair_code, values = cast(
+                "tuple[UUID, int, str, str, dict[str, object]]", entry
+            )
+            prepared.append((position, asset_name_, repair_code, _prepare(values, repair_code)))
+        return prepared
 
     if row_ids is not None:
         # An exact-set export is small: read it fully and keep the rowIds order.
@@ -462,33 +544,71 @@ async def read_plan_export_data(
             row_id: (position, asset_name_, repair_code, _prepare(values, repair_code))
             for row_id, position, asset_name_, repair_code, values in db_rows_with_ids
         }
-        db_rows = [by_id[row_id] for row_id in row_ids if row_id in by_id]
-    else:
-        # Read the whole plan here, in the request handler: FastAPI finalizes the
-        # request session (commit) before the streaming response body is written,
-        # so the XLSX writer thread cannot query through it. A server-side cursor
-        # keeps the ORM identity map from holding the plan; only the prepared
-        # tuples are materialized.
-        result = await session.stream(query)
-        db_rows = []
-        async for partition in result.partitions(EXPORT_BATCH_SIZE):
-            for _row_id, position, asset_name_, repair_code, values in partition:
-                db_rows.append((position, asset_name_, repair_code, _prepare(values, repair_code)))
+        ordered = [by_id[row_id] for row_id in row_ids if row_id in by_id]
+        for start in range(0, len(ordered), batch_size):
+            yield ordered[start : start + batch_size]
+        return
+    result = await session.stream(query)
+    try:
+        async for partition in result.partitions(batch_size):
+            # Formula materialization is CPU-bound: run it off the event loop
+            # so the API stays responsive while a plan export is generating.
+            yield await asyncio.to_thread(_prepare_partition, partition)
+    finally:
         await result.close()
-    return RenovationPlanExportData(
-        baseline_generation=plan.baseline_generation,
-        state=plan.state,
-        stamp=await _plan_export_stamp(session, plan, assets),
-        rows=db_rows,
-        reference_labels=label_map,
+
+
+async def read_plan_export_data(
+    session: AsyncSession,
+    assets: list[RAsset],
+    *,
+    plan_id: UUID | None = None,
+    state: RPlanState = RPlanState.WORKING,
+    row_ids: list[UUID] | None = None,
+    asset_name: str | None = None,
+    block: RBlock | None = None,
+) -> RenovationPlanExportData:
+    """
+    Read plan rows directly for XLSX export without a 94k-row Pydantic copy.
+
+    `asset_name` narrows the rows to one asset; `block` narrows the exported
+    columns to one responsibility block (the server-side "visible" filter).
+    Synchronous path (the old streaming endpoints/tests); export jobs stream
+    through `read_plan_export_meta` + `iter_plan_export_rows`.
+    """
+    asset_ids = [asset.id for asset in assets]
+    if asset_name is not None:
+        asset_ids = [asset.id for asset in assets if asset.name == asset_name]
+    meta = await read_plan_export_meta(
+        session,
+        asset_ids,
+        plan_id=plan_id,
+        state=state,
+        row_ids=row_ids,
         block=block,
+    )
+    rows: list[tuple[int, str, str, dict[str, object]]] = []
+    async for batch in iter_plan_export_rows(
+        session,
+        plan_id=meta.plan_id,
+        asset_ids=asset_ids,
+        row_ids=row_ids,
+    ):
+        rows.extend(batch)
+    return RenovationPlanExportData(
+        baseline_generation=meta.baseline_generation,
+        state=meta.state,
+        stamp=meta.stamp,
+        rows=rows,
+        reference_labels=meta.reference_labels,
+        block=meta.block,
     )
 
 
 async def _plan_export_stamp(
     session: AsyncSession,
     plan: RenovationPlan,
-    assets: list[RAsset],
+    asset_ids: list[UUID],
 ) -> datetime:
     """
     Timestamp for the exported plan file name.
@@ -505,7 +625,7 @@ async def _plan_export_stamp(
         await session.exec(
             sa_select(func.max(col(RenovationPlanRow.updated_at))).where(
                 col(RenovationPlanRow.plan_id) == plan.id,
-                col(RenovationPlanRow.asset_id).in_([asset.id for asset in assets]),
+                col(RenovationPlanRow.asset_id).in_(asset_ids),
             )
         )
     ).one_or_none()

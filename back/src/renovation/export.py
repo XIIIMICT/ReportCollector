@@ -10,12 +10,13 @@ decimal count, dates as DD.MM.YYYY, booleans as Да/Нет.
 """
 
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from datetime import date, datetime
 from io import BytesIO, UnsupportedOperation
 from queue import Queue
 from threading import Thread
-from typing import IO, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, cast
 from uuid import UUID
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -27,6 +28,7 @@ from openpyxl.utils.cell import range_boundaries
 from openpyxl.worksheet.worksheet import Worksheet
 
 from src.renovation.form_schema import RenovationFieldMeta, field_metas, header_rows
+from src.renovation.plan import RPlanState
 
 if TYPE_CHECKING:
     from src.renovation.service import RenovationPlanExportData
@@ -53,14 +55,13 @@ def stream_renovation_workbook(plan: RenovationPlanExportData) -> Iterator[bytes
     def build() -> None:
         try:
             sink = _QueueWriter(queue)
-            with ZipFile(sink, "w", compression=ZIP_DEFLATED, compresslevel=1) as archive:  # ty: ignore[no-matching-overload]
-                archive.writestr("[Content_Types].xml", _CONTENT_TYPES_XML)
-                archive.writestr("_rels/.rels", _ROOT_RELS_XML)
-                archive.writestr("xl/workbook.xml", _WORKBOOK_XML)
-                archive.writestr("xl/_rels/workbook.xml.rels", _WORKBOOK_RELS_XML)
-                archive.writestr("xl/styles.xml", _STYLES_XML)
-                with archive.open("xl/worksheets/sheet1.xml", "w") as worksheet:
-                    _write_plan_sheet_xml(worksheet, plan)
+            writer = RenovationWorkbookWriter(
+                cast("IO[bytes]", sink),
+                build_plan_sheet_layout(plan.block),
+                plan.reference_labels,
+            )
+            writer.write_rows(plan.rows)
+            writer.close()
         except BaseException as error:  # noqa: BLE001
             queue.put(error)
         finally:
@@ -103,6 +104,23 @@ _ALWAYS_VISIBLE_FIELDS = frozenset({"col_003", "col_217"})
 _ASSET_FIELD = "col_002"
 
 
+def plan_export_filename(state: RPlanState, stamp: datetime) -> str:
+    """
+    «Наименование — <версия> (дд.мм.гггг, чч:мм:сс).xlsx», как остальные формы.
+
+    The timestamp is the export stamp resolved by the service: the submit/approve
+    moment for a pending/archived version and the max row.updated_at (last edit)
+    for the working one.
+    """
+    suffix = {
+        RPlanState.WORKING: "рабочая версия",
+        RPlanState.PENDING_APPROVAL: "версия на согласовании",
+        RPlanState.ARCHIVED: "утверждённая версия",
+    }.get(state, "версия")
+    timestamp = stamp.astimezone().strftime("%d.%m.%Y, %H.%M.%S")
+    return f"Пообъектный план — {suffix} ({timestamp}).xlsx"
+
+
 def _export_fields(block: object) -> tuple[RenovationFieldMeta, ...]:
     """
     Form fields the export keeps for a block filter (mirrors the grid).
@@ -131,64 +149,176 @@ def _column_offset(meta: RenovationFieldMeta) -> int:
     return meta.position + 1
 
 
-def _write_plan_sheet_xml(worksheet: IO[bytes], plan: RenovationPlanExportData) -> None:
-    """Write sheet1.xml incrementally so memory stays bounded for 300k rows."""
-    fields = _export_fields(plan.block)
+# Placeholder replaced with the data row number when a formula template is
+# rendered. NUL cannot appear in a formula string from the form JSON.
+_ROW_PLACEHOLDER = "\x00"
+
+
+@dataclass(slots=True)
+class PlanSheetLayout:
+    """
+    Per-export sheet pieces shared by every data row.
+
+    Column letters and formula templates are row-independent: compiling them
+    once removes millions of `get_column_letter`/regex calls from the row loop
+    (the dominant cost of a 300k-row export).
+    """
+
+    fields: tuple[RenovationFieldMeta, ...]
+    column_by_field: dict[str, int]
+    letters: dict[int, str]
+    # field -> Excel formula template carrying `_ROW_PLACEHOLDER` (absent — no
+    # formula: a plain field or a calculated one whose dependency was dropped).
+    formulas: dict[str, str]
+    widths_xml: str
+    header_xml: str
+    merged_xml: str
+
+
+def build_plan_sheet_layout(block: object) -> PlanSheetLayout:
+    """Precompute the static sheet parts for a block-filtered export."""
+    fields = _export_fields(block)
     column_by_field = {meta.db_name: 2 + index for index, meta in enumerate(fields)}
-    worksheet.write(_SHEET_XML_PREFIX)
-    worksheet.write(_column_widths_xml(fields).encode())
-    worksheet.write(b"<sheetData>")
+    letters = {column: get_column_letter(column) for column in range(1, len(fields) + 2)}
+    formulas: dict[str, str] = {}
+    for meta in fields:
+        if not (meta.is_calculated and meta.formula):
+            continue
+        template = _compile_formula_template(meta.formula, column_by_field, letters)
+        if template is not None:
+            formulas[meta.db_name] = template
+    return PlanSheetLayout(
+        fields=fields,
+        column_by_field=column_by_field,
+        letters=letters,
+        formulas=formulas,
+        widths_xml=_column_widths_xml(fields),
+        header_xml=_header_rows_xml(fields, column_by_field, letters),
+        merged_xml=_merged_ranges_xml(fields, column_by_field),
+    )
+
+
+def _header_rows_xml(
+    fields: tuple[RenovationFieldMeta, ...],
+    column_by_field: dict[str, int],
+    letters: dict[int, str],
+) -> str:
+    parts: list[str] = []
     for row_number, values in enumerate(_header_matrix(fields, column_by_field), start=1):
         xml = [f'<row r="{row_number}" ht="30" customHeight="1">']
         for column, value in enumerate(values, start=1):
+            ref = f"{letters[column]}{row_number}"
             # A merged header range is expressed by a top-left <c> plus the
             # <mergeCells> entry; every other cell of the range still needs the
             # bordered style, or Excel draws the frame only around the top-left
             # cell and the grid looks underdrawn down and right.
             if value is None:
-                xml.append(_styled_cell_xml(row_number, column, style=1))
+                xml.append(_styled_cell_xml(ref, style=1))
             else:
-                xml.append(_text_cell_xml(row_number, column, value, style=1))
+                xml.append(_text_cell_xml(ref, value, style=1))
         xml.append("</row>")
-        worksheet.write("".join(xml).encode())
-    for position, asset_name, _, row_values in plan.rows:
-        row_number = len(header_rows()) + position
-        xml = [
-            f'<row r="{row_number}">',
-            _number_cell_xml(row_number, 1, position),
-            _text_cell_xml(row_number, 2, asset_name),
-        ]
-        # Every kept field gets a cell — empty ones included — so a reader sees
-        # the full column set even when a value (often a derived field whose
-        # inputs are blank) is missing. col_002 is the asset column, written above.
-        for meta in fields:
-            if meta.db_name == _ASSET_FIELD:
+        parts.append("".join(xml))
+    return "".join(parts)
+
+
+def _row_xml(
+    position: int,
+    asset_name: str,
+    values: dict[str, object],
+    layout: PlanSheetLayout,
+    reference_labels: dict[UUID, str],
+    row_number: int,
+) -> str:
+    """One <row> element for a prepared export row."""
+    letters = layout.letters
+    xml = [
+        f'<row r="{row_number}">',
+        _number_cell_xml(f"{letters[1]}{row_number}", position),
+        _text_cell_xml(f"{letters[2]}{row_number}", asset_name),
+    ]
+    # Every kept field gets a cell when it has a value, so a reader sees the
+    # full column set even when a value (often a derived field whose inputs are
+    # blank) is missing. col_002 is the asset column, written above.
+    for meta in layout.fields:
+        if meta.db_name == _ASSET_FIELD:
+            continue
+        value = values.get(meta.db_name)
+        if value is None:
+            continue
+        if meta.cell_type == "reference":
+            display_value = reference_labels.get(UUID(str(value)))
+            if display_value is None:
                 continue
-            value = row_values.get(meta.db_name)
-            if value is None:
-                continue
-            if meta.cell_type == "reference":
-                display_value = plan.reference_labels.get(UUID(str(value)))
-                if display_value is None:
-                    continue
-                value = display_value
-            column = column_by_field[meta.db_name]
+            value = display_value
+        column = layout.column_by_field[meta.db_name]
+        ref = f"{letters[column]}{row_number}"
+        template = layout.formulas.get(meta.db_name)
+        if template is not None:
             # A calculated field keeps its Excel formula (rendered onto this
             # sheet's cell references) so the exported workbook recalculates.
-            formula = (
-                _render_excel_formula(meta.formula, column_by_field, row_number)
-                if meta.is_calculated and meta.formula
-                else None
+            formula = template.replace(_ROW_PLACEHOLDER, str(row_number))
+            xml.append(_formula_cell_xml(ref, formula, value, meta))
+        else:
+            xml.append(_data_cell_xml(ref, value, meta))
+    xml.append("</row>")
+    return "".join(xml)
+
+
+class RenovationWorkbookWriter:
+    """
+    Write the XLSX incrementally: static parts and the header once, rows in batches.
+
+    Memory stays bounded regardless of the plan size — used by the export-job
+    worker and the synchronous streaming endpoint alike.
+    """
+
+    def __init__(
+        self,
+        sink: IO[bytes],
+        layout: PlanSheetLayout,
+        reference_labels: dict[UUID, str],
+    ) -> None:
+        self.layout = layout
+        self.reference_labels = reference_labels
+        self.header_rows_count = len(header_rows())
+        self.archive = ZipFile(sink, "w", compression=ZIP_DEFLATED, compresslevel=1)
+        self.archive.writestr("[Content_Types].xml", _CONTENT_TYPES_XML)
+        self.archive.writestr("_rels/.rels", _ROOT_RELS_XML)
+        self.archive.writestr("xl/workbook.xml", _WORKBOOK_XML)
+        self.archive.writestr("xl/_rels/workbook.xml.rels", _WORKBOOK_RELS_XML)
+        self.archive.writestr("xl/styles.xml", _STYLES_XML)
+        # The sheet XML of a 300k-row plan exceeds 4 GB uncompressed: the entry
+        # must opt into ZIP64 explicitly when written through a seekable sink
+        # (the streaming queue sink used data descriptors and did it implicitly).
+        self.sheet = self.archive.open("xl/worksheets/sheet1.xml", "w", force_zip64=True)
+        self.sheet.write(_SHEET_XML_PREFIX)
+        self.sheet.write(layout.widths_xml.encode())
+        self.sheet.write(b"<sheetData>")
+        self.sheet.write(layout.header_xml.encode())
+
+    def write_rows(
+        self,
+        rows: Iterable[tuple[int, str, str, dict[str, object]]],
+    ) -> None:
+        """Write one batch of prepared rows; call repeatedly for the whole plan."""
+        for position, asset_name, _repair_code, values in rows:
+            self.sheet.write(
+                _row_xml(
+                    position,
+                    asset_name,
+                    values,
+                    self.layout,
+                    self.reference_labels,
+                    self.header_rows_count + position,
+                ).encode()
             )
-            if formula is not None:
-                xml.append(_formula_cell_xml(row_number, column, formula, value, meta))
-            else:
-                xml.append(_data_cell_xml(row_number, column, value, meta))
-        xml.append("</row>")
-        worksheet.write("".join(xml).encode())
-    worksheet.write(b"</sheetData>")
-    worksheet.write(_merged_ranges_xml(fields, column_by_field).encode())
-    worksheet.write(b"</worksheet>")
+
+    def close(self) -> None:
+        self.sheet.write(b"</sheetData>")
+        self.sheet.write(self.layout.merged_xml.encode())
+        self.sheet.write(b"</worksheet>")
+        self.sheet.close()
+        self.archive.close()
 
 
 def _clip_columns(
@@ -262,28 +392,33 @@ def _column_widths_xml(fields: tuple[RenovationFieldMeta, ...]) -> str:
     return f"<cols>{''.join(columns)}</cols>"
 
 
-def _data_cell_xml(row: int, column: int, value: object, meta: RenovationFieldMeta) -> str:
+def _data_cell_xml(ref: str, value: object, meta: RenovationFieldMeta) -> str:
     if meta.cell_type == "boolean":
-        return _text_cell_xml(row, column, "Да" if value else "Нет")
+        return _text_cell_xml(ref, "Да" if value else "Нет")
     if meta.cell_type == "date":
         parsed = value if isinstance(value, date) else date.fromisoformat(str(value))
         serial = (parsed - date(1899, 12, 30)).days
-        return _number_cell_xml(row, column, serial, style=2)
+        return _number_cell_xml(ref, serial, style=2)
     if meta.cell_type == "number":
-        return _number_cell_xml(row, column, value, style=3 if meta.decimals else 0)
-    return _text_cell_xml(row, column, str(value))
+        return _number_cell_xml(ref, value, style=3 if meta.decimals else 0)
+    return _text_cell_xml(ref, str(value))
 
 
 _FIELD_REFERENCE = re.compile(r"col_\d+")
 
 
-def _render_excel_formula(formula: str, column_by_field: dict[str, int], row: int) -> str | None:
+def _compile_formula_template(
+    formula: str,
+    column_by_field: dict[str, int],
+    letters: dict[int, str],
+) -> str | None:
     """
-    Render an engine formula onto the sheet's Excel cell references.
+    Render an engine formula onto the sheet's Excel cell references ONCE.
 
-    `col_XXX` becomes the field's exported column letter + the data row. Returns
-    None when a referenced field was dropped (a block-filtered export) — the
-    caller then falls back to the stored value.
+    `col_XXX` becomes the field's exported column letter + the row placeholder;
+    the row number is substituted per data row. Returns None when a referenced
+    field was dropped (a block-filtered export) — the caller then falls back to
+    the stored value.
     """
     missing = False
 
@@ -293,21 +428,19 @@ def _render_excel_formula(formula: str, column_by_field: dict[str, int], row: in
         if column is None:
             missing = True
             return match.group(0)
-        return f"{get_column_letter(column)}{row}"
+        return f"{letters[column]}{_ROW_PLACEHOLDER}"
 
     rendered = _FIELD_REFERENCE.sub(replace, formula)
     return None if missing else rendered
 
 
 def _formula_cell_xml(
-    row: int,
-    column: int,
+    ref: str,
     formula: str,
     value: object,
     meta: RenovationFieldMeta,
 ) -> str:
     """Build a cell carrying an Excel formula plus its cached value."""
-    ref = f"{get_column_letter(column)}{row}"
     inner = f"<f>{escape(formula)}</f>"
     if meta.cell_type == "date":
         parsed = value if isinstance(value, date) else date.fromisoformat(str(value))
@@ -320,21 +453,18 @@ def _formula_cell_xml(
     return f'<c r="{ref}">{inner}</c>'
 
 
-def _text_cell_xml(row: int, column: int, value: str, *, style: int = 0) -> str:
-    ref = f"{get_column_letter(column)}{row}"
+def _text_cell_xml(ref: str, value: str, *, style: int = 0) -> str:
     style_attr = f' s="{style}"' if style else ""
     return f'<c r="{ref}" t="inlineStr"{style_attr}><is><t>{escape(value)}</t></is></c>'
 
 
-def _styled_cell_xml(row: int, column: int, *, style: int = 0) -> str:
+def _styled_cell_xml(ref: str, *, style: int = 0) -> str:
     """Build an empty styled cell, carrying the header border in merge cells."""
-    ref = f"{get_column_letter(column)}{row}"
     style_attr = f' s="{style}"' if style else ""
     return f'<c r="{ref}"{style_attr}/>'
 
 
-def _number_cell_xml(row: int, column: int, value: object, *, style: int = 0) -> str:
-    ref = f"{get_column_letter(column)}{row}"
+def _number_cell_xml(ref: str, value: object, *, style: int = 0) -> str:
     style_attr = f' s="{style}"' if style else ""
     return f'<c r="{ref}"{style_attr}><v>{value}</v></c>'
 
