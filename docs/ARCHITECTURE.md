@@ -95,6 +95,7 @@ Project URLs — `/raw-materials`, `/renovation`, `/kppk` (root redirects to the
   - Undo/redo: `GET /undo-state?section=&report_month=`, `POST /undo`, `POST /redo` (scope in the body).
   - Fixing: `POST /movement/fix` (admin) — see "Landmines" in AGENTS.md.
   - `POST /export` — Excel (openpyxl): whole/visible selection, for «Движение» — archive versions.
+  - Renovation plan export — **background jobs**: `POST /plan/export/jobs` (202 + job id), `GET /plan/export/jobs/{id}` (status/progress), `GET /plan/export/jobs/{id}/file` (download). The legacy synchronous `GET/POST /plan/export` endpoints remain for tests/compat but the UI never uses them (they materialize the whole plan in the API process).
 - `ws`: `WS /ws/raw-materials` — collaboration (see `docs/COLLAB.md`).
 - Service: `GET /health` (process liveness), `GET /ready` (PostgreSQL/Valkey readiness, including the required outbox migration), rate-limit and log middlewares in `back/src/main.py`. HTTP responses carry `X-Request-ID`, also recorded in structured request logs. Uvicorn access/handshake logs redact credential query parameters (`ticket`, `access_token`, `token`); the external reverse proxy must apply its own redaction policy.
 
@@ -107,6 +108,28 @@ Errors: `CellValidationError` → 422, `DictionaryReferenceError` → 409, `Valu
 ## Deployment (prod)
 
 nginx is **not in Docker**, config `/etc/nginx/conf.d/reportcollector.conf`: `location /` → front `127.0.0.1:5000`; `location /api/ws/` → back `127.0.0.1:8000` with `Upgrade`/`Connection "Upgrade"` and large timeouts (`proxy_read_timeout 86400s`). HTTPS/WSS terminated by nginx (cert in SAN). Prod address: `https://m2v-form-1.h2-group.ru`. Details and WS diagnostics — `docs/COLLAB.md`, "Deployment and diagnostics" section.
+
+## Renovation plan export jobs
+
+A full plan export is ~306k rows × 216 columns: minutes of CPU and ~500 MB of
+XLSX (the sheet XML exceeds 4 GB uncompressed → ZIP64). Doing that in the
+request handler froze the whole event loop for every user and several parallel
+requests OOM'ed the container. The export is therefore a background job
+(`back/src/renovation/export_jobs.py`):
+
+- `POST /plan/export/jobs` resolves the scope (plan + asset + block + optional
+  rowIds), computes the export stamp (last row edit for the working plan) and
+  enqueues a job; the response is immediate. An identical scope+stamp reuses the
+  ready file (cache key = sha256 of the scope + stamp).
+- A single sequential worker (started in the lifespan, in-process — the app runs
+  one uvicorn worker) streams the rows through a server-side cursor and writes
+  the XLSX to `EXPORT_DIR` (default: the system temp dir). Formula
+  materialization and XML serialization run via `asyncio.to_thread`, so the API
+  stays responsive (measured during a full export: avg ~140 ms, max <600 ms).
+- Limits: 8 active jobs globally, 2 per user → `429`; finished jobs and files
+  are pruned after an hour. Completed jobs survive as cache entries; jobs are
+  in-memory, so a restart drops pending ones (the client re-creates).
+- The grid/workspace polls the job and shows progress, then downloads the file.
 
 ## Transactional collaboration
 

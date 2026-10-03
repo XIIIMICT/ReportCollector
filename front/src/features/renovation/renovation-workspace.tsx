@@ -30,9 +30,11 @@ import type { CellUpdate } from "@/shared/api/raw-materials";
 import {
     addRenovationRow,
     approveRenovationPlan,
+    createRenovationExportJob,
     deleteRenovationRow,
-    exportRenovationPlan,
+    downloadRenovationExportJob,
     getRenovationDiff,
+    getRenovationExportJob,
     getRenovationMeta,
     getRenovationPlanRows,
     getRenovationPlanSummary,
@@ -43,12 +45,14 @@ import {
     RENOVATION_SECTION,
     RENOVATION_USERS_SECTION,
     renovationCatalogSection,
+    renovationExportJobFileUrl,
     submitRenovationPlan,
     undoCells,
     updateRenovationCells,
     type RenovationColumnFilter,
     type RenovationDiff,
     type RenovationDiffRow,
+    type RenovationExportJob,
     type RenovationMeta,
     type RenovationPlanRow,
     type RenovationPlanVersion,
@@ -62,6 +66,12 @@ import {
 import { canonicalCellKey, useCollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
+import {
+    hasSaveFilePicker,
+    pickSaveFile,
+    streamUrlToFileHandle,
+    type SaveFileHandle,
+} from "@/shared/file-save";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { SectionTabs } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
@@ -150,6 +160,23 @@ function toGridRow(
 
 function errorMessage(reason: unknown): string {
     return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
+}
+
+/** Human-readable progress of a background plan export (toast description). */
+function exportProgressLabel(job: RenovationExportJob): string {
+    if (job.total > 0 && job.progress > 0) {
+        const percent = Math.min(100, Math.round((job.progress / job.total) * 100));
+        return `${percent}% (${job.progress} из ${job.total} строк)`;
+    }
+    return "Подготовка данных…";
+}
+
+/** Bytes as KB/MB for the saving-progress toast. */
+function formatBytes(bytes: number): string {
+    if (bytes < 1024 * 1024) {
+        return `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
 }
 
 function formatVersionStamp(value: string): string {
@@ -990,18 +1017,81 @@ export function RenovationWorkspace({
         async (scope: "all" | "visible") => {
             if (exportPending) return;
             setExportPending(true);
+            // «Видимая» — the whole plan filtered server-side by the active
+            // asset and block, not just the window currently rendered.
+            const visible = scope === "visible";
+            let toastId: string | null = null;
             try {
-                // «Видимая» — the whole plan filtered server-side by the active
-                // asset and block, not just the window currently rendered.
-                const visible = scope === "visible";
-                const { blob, fileName } = await exportRenovationPlan({
+                const job = await createRenovationExportJob({
                     planId: viewPlanId ?? undefined,
                     asset: visible ? assetFilter : null,
                     block: visible ? blockFilter : null,
                 });
-                downloadBlob(blob, fileName);
-                toast.success("Файл выгружен", { description: fileName });
+                // Chromium: ask for the destination immediately (like a normal
+                // big download), then stream the ready file into it. The user
+                // sees the save dialog at once and a real percentage: first the
+                // generation progress, then the byte progress.
+                let handle: SaveFileHandle | null = null;
+                if (hasSaveFilePicker()) {
+                    try {
+                        handle = await pickSaveFile(job.fileName);
+                    } catch (reason) {
+                        if (reason instanceof DOMException && reason.name === "AbortError") {
+                            // The user closed the save dialog — stop silently.
+                            return;
+                        }
+                        handle = null; // picker unavailable/expired — blob fallback
+                    }
+                }
+                let current = job;
+                if (current.status !== "done") {
+                    toastId = toast.info("Формируется файл выгрузки…", {
+                        timeout: 0,
+                        description: exportProgressLabel(current),
+                    });
+                }
+                // The full plan is minutes of server CPU: poll the background
+                // job until it is ready instead of holding the request open.
+                while (current.status === "pending" || current.status === "running") {
+                    await new Promise((resolve) => setTimeout(resolve, 1500));
+                    current = await getRenovationExportJob(current.id);
+                    if (toastId) {
+                        toast.update(toastId, "Формируется файл выгрузки…", {
+                            description: exportProgressLabel(current),
+                        });
+                    }
+                }
+                if (current.status === "failed") {
+                    throw new Error(current.error ?? "Не удалось сформировать файл.");
+                }
+                if (handle) {
+                    if (toastId) {
+                        toast.update(toastId, "Сохранение файла…", { description: "0%" });
+                    }
+                    await streamUrlToFileHandle(
+                        handle,
+                        renovationExportJobFileUrl(current.id),
+                        (received, total) => {
+                            if (!toastId) return;
+                            const percent =
+                                total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
+                            const description =
+                                total > 0
+                                    ? `${percent}% (${formatBytes(received)} из ${formatBytes(total)})`
+                                    : formatBytes(received);
+                            toast.update(toastId, "Сохранение файла…", { description });
+                        },
+                    );
+                    if (toastId) toast.close(toastId);
+                    toast.success("Файл сохранён", { description: current.fileName });
+                } else {
+                    const { blob, fileName } = await downloadRenovationExportJob(current.id);
+                    downloadBlob(blob, fileName);
+                    if (toastId) toast.close(toastId);
+                    toast.success("Файл выгружен", { description: fileName });
+                }
             } catch (reason) {
+                if (toastId) toast.close(toastId);
                 toast.danger("Не удалось выгрузить файл", { description: errorMessage(reason) });
             } finally {
                 setExportPending(false);
