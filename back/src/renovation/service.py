@@ -641,6 +641,7 @@ def _sparse_row_renovation_id(
     work_category_id = values.get("col_017")
     work_type_id = values.get("col_018")
     defect = values.get("col_023")
+    project_code = values.get("col_136")
     result = _safe_renovation_id(
         RenovationIdInput(
             existing_id=None,
@@ -649,8 +650,8 @@ def _sparse_row_renovation_id(
             direction_code=str(values.get("col_189") or "") or None,
             bpof_section=str(values.get("col_016") or "") or None,
             work_category=label_map.get(UUID(str(work_category_id))) if work_category_id else None,
+            project_code=str(project_code) if project_code else None,
             defect_number=_defect_number_text(defect),
-            correction_text=str(values.get("col_218") or "") or None,
             technology_position=str(values.get("col_011") or "") or None,
             work_type_label=label_map.get(UUID(str(work_type_id))) if work_type_id else None,
         )
@@ -1526,7 +1527,9 @@ def _row_renovation_id(
 
 # The cells `calculate_renovation_id` reads. Editing any of them must rebuild
 # col_003 from the row's inputs instead of keeping the stored value.
-_RENOVATION_ID_INPUT_FIELDS = frozenset({"col_016", "col_017", "col_023", "col_024", "col_189", "col_218"})
+_RENOVATION_ID_INPUT_FIELDS = frozenset(
+    {"col_011", "col_016", "col_017", "col_018", "col_023", "col_024", "col_136", "col_189"}
+)
 
 
 def _defect_number_text(value: object) -> str | None:
@@ -1568,8 +1571,8 @@ def _renovation_id_input(
         direction_code=row.col_189,
         bpof_section=row.col_016,
         work_category=label_map.get(row.col_017) if row.col_017 is not None else None,
+        project_code=row.col_136,
         defect_number=_defect_number_text(row.col_023),
-        correction_text=row.col_218,
         technology_position=row.col_011,
         work_type_label=label_map.get(row.col_018) if row.col_018 is not None else None,
     )

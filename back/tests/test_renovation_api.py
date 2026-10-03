@@ -140,9 +140,9 @@ async def test_read_plan_returns_rows_with_labels_and_ids(
     assert bsk["values"]["col_018"] == "ТР"
     assert bsk["values"]["col_028"] == 10.0
     assert bsk["values"]["col_002"] == "АО «БСК»"
-    assert bsk["renovationId"] == "2027_BSKR_1.1.1._1382467_00"
+    assert bsk["renovationId"] == "2027_BSKR_1.1.1_1382467"
     assert bsk["missingComponents"] == []
-    assert by_asset["vos"]["renovationId"] == "2027_VOZR_1.1.1._2247000_00"
+    assert by_asset["vos"]["renovationId"] == "2027_VOZR_1.1.1_2247000"
 
 
 async def test_read_plan_facets_sorted_distinct(client: AsyncClient) -> None:
@@ -226,23 +226,16 @@ async def test_renovation_id_filter_is_two_buckets(client: AsyncClient, db_sessi
     assert [item["count"] for item in facets.json()["values"]] == [1, 1]
 
 
-async def test_edit_rebuilds_renovation_id_when_correction_replaces_defect(
+async def test_edit_rebuilds_renovation_id_when_defect_is_cleared(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """Clearing col_023 and setting col_218 rebuilds col_003 from the correction."""
+    """Clearing col_023 rebuilds col_003 as the no-DV composite (spec 5.2)."""
     row = await _row_by_asset_code(db_session, "bsk")
-    status, _ = await _patch(
-        client,
-        [
-            {"rowId": str(row.id), "field": "col_023", "value": None},
-            {"rowId": str(row.id), "field": "col_218", "value": "Кор-И101"},
-        ],
-    )
+    status, _ = await _patch(client, [{"rowId": str(row.id), "field": "col_023", "value": None}])
     assert status == 200
     await db_session.refresh(row)
-    assert "Кор-И101" in (row.col_003 or "")
-    assert "1382467" not in (row.col_003 or "")
+    assert row.col_003 == "2027_BSKR_1.1.1_Шкаф ПЛК*ТР*Январь"
 
 
 async def test_renovation_id_pads_a_short_defect_number(
@@ -606,7 +599,7 @@ async def test_patch_edits_recalculates_and_journals(
     assert calculated["col_026"] == 30.0
     assert calculated["col_031"] == 35.0
     assert len(body["renovationIds"]) == 1
-    assert body["renovationIds"][0]["value"] == "2027_BSKR_1.1.1._1382467_00"
+    assert body["renovationIds"][0]["value"] == "2027_BSKR_1.1.1_1382467"
 
     response = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
     row_read = next(r for r in response.json()["rows"] if r["assetCode"] == "bsk")
@@ -1333,7 +1326,7 @@ async def test_export_working_plan_renders_merged_header(client: AsyncClient) ->
     assert worksheet.freeze_panes == "C12"
     assert worksheet["A12"].value == 1
     assert worksheet["B12"].value == "АО «БСК»"
-    assert worksheet["C12"].value == "2027_BSKR_1.1.1._1382467_00"
+    assert worksheet["C12"].value == "2027_BSKR_1.1.1_1382467"
     assert worksheet.max_column == 218
     assert worksheet.max_row == 13
 

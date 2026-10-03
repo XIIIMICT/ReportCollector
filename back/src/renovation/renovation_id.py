@@ -21,9 +21,10 @@ IMPROVEMENT_CATEGORY_LABEL = "проект улучшения"
 IMPROVEMENT_CATEGORY_VALUE_ID = "work_category_007"
 
 PROJECT_CODE_FIELD = "код проекта"
-CORRECTION_FIELD = "корректировка (col_218)"
 TECHNOLOGY_POSITION_FIELD = "технологическая позиция (col_011)"
 WORK_TYPE_FIELD = "отображаемое значение вида работ (col_018)"
+# No-DV object code: «Технологическая позиция*Вид работ*Месяц начала» (spec 5.2).
+NO_DV_FIELD = "технологическая позиция*вид работ*месяц (без ДВ)"
 
 _MONTHS = (
     "Январь",
@@ -79,7 +80,7 @@ def _invalid_asset_repair_code(value: str) -> RenovationIdError:
 
 def _invalid_direction_code(value: str) -> RenovationIdError:
     return RenovationIdError(
-        f"некорректный код направления деятельности `{value}`: ожидаются три цифровые группы, например 1.1.1."
+        f"некорректный код направления деятельности `{value}`: ожидаются три цифровые группы, например 1.1.1"
     )
 
 
@@ -125,13 +126,10 @@ class RenovationIdInput:
     bpof_section: str | None = None
     # col_017: идентификатор reference-значения или отображаемая метка.
     work_category: str | None = None
-    # Код проекта, используемый для проектов улучшения.
+    # Код проекта (col_136), используемый для проектов улучшения.
     project_code: str | None = None
     # col_023, представленный текстом, чтобы ведущие нули не терялись.
     defect_number: str | None = None
-    # col_218: свободная строка, которой идентифицируется работа, когда номер
-    # дефектной ведомости (col_023) отсутствует.
-    correction_text: str | None = None
     # Необязательный двухзначный номер повторной типовой ДВ.
     typical_defect_suffix: str | None = None
     # col_011.
@@ -161,10 +159,12 @@ def calculate_renovation_id(input_: RenovationIdInput) -> RenovationIdResult:
     Рассчитывает неизменяемый идентификатор работ/ремонта для col_003.
 
     Уже присвоенный непустой идентификатор всегда побеждает, даже если
-    остальные входы отсутствуют или невалидны. Для нового идентификатора
-    приоритет кода объекта: проект улучшения, семизначная ДВ, затем
-    «корректировка» (col_218); при отсутствии и ДВ, и корректировки объектная
-    часть оставляется пустой (`<NULL>`).
+    остальные входы отсутствуют или невалидны. Формат нового идентификатора
+    (спецификация, п. 5): `Год_ДО_КодНаправления_КодОбъекта[_ДопНумерация]`.
+    Приоритет кода объекта: проект улучшения (col_136), семизначный номер ДВ
+    (col_023), затем — при отсутствии ДВ — составной код по п. 5.2
+    «Технологическая позиция*Вид работ*Месяц начала» (col_011*col_018*col_024).
+    Дополнительная нумерация типовой ДВ добавляется только когда задана.
     Отсутствующий обязательный компонент подставляется как `<NULL>`.
     """
     if input_.existing_id and input_.existing_id.strip():
@@ -187,6 +187,7 @@ def calculate_renovation_id(input_: RenovationIdInput) -> RenovationIdResult:
         missing.append("direction_code")
 
     year = f"{start_date.year:04d}" if start_date is not None else MISSING_COMPONENT
+    suffix = ""
 
     if improvement_project:
         project_code = _optional_trimmed(input_.project_code)
@@ -195,30 +196,37 @@ def calculate_renovation_id(input_: RenovationIdInput) -> RenovationIdResult:
         if project_code is None:
             missing.append("project_code")
         object_code = project_code if project_code is not None else MISSING_COMPONENT
-        suffix = "00"
     elif defect_number is not None:
         _validate_fixed_ascii_digits(defect_number, 7, _invalid_defect_number(defect_number))
+        object_code = defect_number
         if typical_suffix is not None:
             _validate_fixed_ascii_digits(typical_suffix, 2, _invalid_typical_defect_suffix(typical_suffix))
-        object_code = defect_number
-        suffix = typical_suffix or "00"
+            suffix = f"_{typical_suffix}"
     else:
         if typical_suffix is not None:
             raise _suffix_without_defect_number()
-        correction = _optional_trimmed(input_.correction_text)
-        if correction is not None:
-            _validate_object_component(correction, CORRECTION_FIELD)
-            object_code = correction
-        else:
-            # Без ДВ и без корректировки объект кода просто пуст — никакая
-            # сборка из техпозиции/вида/месяца на это место не подставляется.
-            object_code = MISSING_COMPONENT
-        suffix = "00"
+        # Без ДВ объектный код собирается по п. 5.2 спецификации из
+        # технологической позиции, вида работ и месяца начала работ.
+        technology = _optional_trimmed(input_.technology_position)
+        work_type = _optional_trimmed(input_.work_type_label)
+        if technology is None:
+            missing.append("technology_position")
+        if work_type is None:
+            missing.append("work_type")
+        month = _russian_month_name(start_date.month) if start_date is not None else None
+        object_code = "*".join(
+            (
+                technology if technology is not None else MISSING_COMPONENT,
+                _abbreviate_work_type(work_type) if work_type is not None else MISSING_COMPONENT,
+                month if month is not None else MISSING_COMPONENT,
+            )
+        )
+        _validate_object_component(object_code, NO_DV_FIELD)
 
     value = (
         f"{year}_{repair_code if repair_code is not None else MISSING_COMPONENT}"
         f"_{direction_code if direction_code is not None else MISSING_COMPONENT}"
-        f"_{object_code}_{suffix}"
+        f"_{object_code}{suffix}"
     )
     unique_missing = tuple(dict.fromkeys(missing))
     return RenovationIdResult(value=value, missing_components=unique_missing)
@@ -288,7 +296,9 @@ def _normalize_direction_code(value: str | None) -> str | None:
     valid = len(parts) == 3 and all(part and part.isascii() and part.isdigit() for part in parts)
     if not valid:
         raise _invalid_direction_code(value)
-    return f"{body}."
+    # Canonical form without the trailing dot (the spec's examples carry it in
+    # the source data, but the code component ends on the last digit).
+    return body
 
 
 def _validate_project_code(value: str) -> None:
