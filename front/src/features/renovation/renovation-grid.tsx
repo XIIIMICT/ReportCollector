@@ -401,6 +401,7 @@ function RenovationGridInner(
 ) {
     const gridRef = useRef<HTMLRevoGridElement>(null);
     const shellRef = useRef<HTMLDivElement>(null);
+    const horizontalScrollRef = useRef<HTMLDivElement>(null);
     const headerBodyRef = useRef<HTMLDivElement>(null);
     const [selectionRange, setSelectionRange] = useState<RangeArea | null>(null);
     const selectionRangeRef = useRef<RangeArea | null>(null);
@@ -420,6 +421,7 @@ function RenovationGridInner(
     const rowSelectionAnchorRef = useRef<number | null>(null);
     const activeLeaseRef = useRef<string | null>(null);
     const rowValuesRef = useRef<Map<string, Readonly<Record<string, unknown>>>>(new Map());
+    const [horizontalContentWidth, setHorizontalContentWidth] = useState(0);
     // Content width of the last measurement — used only to detect a change
     // (revo-grid re-fires `contentsizechanged` on every virtualized tick).
     const horizontalContentWidthRef = useRef(0);
@@ -2071,7 +2073,7 @@ function RenovationGridInner(
     // margin-top animates to zero height when «Закрепить заголовок» is off — the
     // grid resizes in place (revo-grid re-measures) instead of the old external
     // 11M-px scroller that froze the renderer with the Infinity Scroll source.
-    const refreshHorizontalOverflow = useCallback(async () => {
+    const refreshHorizontalScrollbar = useCallback(async () => {
         const grid = gridRef.current;
         if (!grid) return;
         const size = await grid.getContentSize();
@@ -2083,37 +2085,37 @@ function RenovationGridInner(
         // commit state when the width actually changed.
         if (width === horizontalContentWidthRef.current) return;
         horizontalContentWidthRef.current = width;
+        setHorizontalContentWidth(width);
         const shell = shellRef.current;
         setHasHorizontalOverflow(width > (shell?.clientWidth ?? 0));
     }, []);
 
     useEffect(() => {
         const frame = requestAnimationFrame(() => {
-            void refreshHorizontalOverflow();
+            void refreshHorizontalScrollbar();
         });
         const observer = new ResizeObserver(() => {
-            void refreshHorizontalOverflow();
+            void refreshHorizontalScrollbar();
         });
         if (gridRef.current) observer.observe(gridRef.current);
         return () => {
             cancelAnimationFrame(frame);
             observer.disconnect();
         };
-    }, [columns, headerPinned, refreshHorizontalOverflow]);
+    }, [columns, headerPinned, refreshHorizontalScrollbar]);
 
-    // Wheel over the native horizontal strip scrolls it sideways (native
-    // Chrome behavior scrolls the vertical axis instead). The strip is a real
-    // light-DOM element of the grid. Native listener — React's onWheel is
-    // passive and can't preventDefault.
+    // Wheel over the external horizontal scrollbar strip scrolls it sideways
+    // (native Chrome behavior scrolls the vertical axis instead). Native
+    // listener — React's onWheel is passive and can't preventDefault.
     useEffect(() => {
         const shell = shellRef.current;
         if (!shell) return;
         const handleWheel = (event: WheelEvent) => {
             if (event.deltaY === 0 && event.deltaX === 0) return;
-            const target = event.target as Element | null;
-            const strip = target?.closest?.(
-                "revogr-scroll-virtual.horizontal",
-            ) as HTMLElement | null;
+            const target = event.target as Node | null;
+            if (!target) return;
+            const external = horizontalScrollRef.current;
+            const strip = external?.contains(target) ? external : null;
             if (!strip) return;
             if (strip.scrollWidth <= strip.clientWidth) return;
             event.preventDefault();
@@ -2384,9 +2386,9 @@ function RenovationGridInner(
                     colSize={150}
                     accessible
                     onAftersourceset={() => {
-                        void refreshHorizontalOverflow();
+                        void refreshHorizontalScrollbar();
                     }}
-                    onContentsizechanged={() => void refreshHorizontalOverflow()}
+                    onContentsizechanged={() => void refreshHorizontalScrollbar()}
                     onViewportscroll={(event) => {
                         if (event.detail.dimension === "rgCol") {
                             // The header overlay tracks the scroll position
@@ -2396,6 +2398,10 @@ function RenovationGridInner(
                             const body = headerBodyRef.current;
                             if (body) {
                                 body.style.transform = `translateX(${-event.detail.coordinate}px)`;
+                            }
+                            const scrollbar = horizontalScrollRef.current;
+                            if (scrollbar && scrollbar.scrollLeft !== event.detail.coordinate) {
+                                scrollbar.scrollLeft = event.detail.coordinate;
                             }
                         }
                     }}
@@ -2413,6 +2419,22 @@ function RenovationGridInner(
                     }
                     onBeforerange={(event) => updateSelectionRange(event.detail.newRange)}
                 />
+            </div>
+            {/* The custom horizontal strip (the native one is hidden: Chrome
+                renders it too thick). Its spacer carries the full content
+                width, so the thumb is proportional to the whole plan. */}
+            <div
+                ref={horizontalScrollRef}
+                className="revo-grid-external-scrollbar"
+                style={{ display: hasHorizontalOverflow ? undefined : "none" }}
+                aria-label="Горизонтальная прокрутка таблицы"
+                onScroll={(event) => {
+                    void gridRef.current?.scrollToCoordinate({
+                        x: event.currentTarget.scrollLeft,
+                    });
+                }}
+            >
+                <div style={{ width: horizontalContentWidth }} />
             </div>
         </div>
     );
