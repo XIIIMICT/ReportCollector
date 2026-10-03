@@ -1661,36 +1661,88 @@ body {
     height: 100%;
 }
 
-/* Unpinned mode (corner menu «Закрепить заголовок» off) — the same scrolling
-   model as the «Сырьё» grids: the overlay header moves into the scroll flow
-   (scrolled away with the content), the grid is sized by the content height
-   (minus the header, which the grid itself doesn't carry) and internal
-   scrollbars are hidden in favor of the external bottom strip. */
-.revo-grid-shell:not(.revo-grid-shell--pinned) .renovation-grid {
-    height: calc(var(--grid-content-height) - var(--grid-header-height));
-    min-height: calc(100% - var(--grid-header-height));
+/* The plan grid always fills the shell and scrolls through its OWN native
+   strips. The header overlay is a flex sibling whose margin animates away when
+   «Закрепить заголовок» is off; the grid simply resizes (revo-grid re-measures)
+   — the old external 11M-px scroller froze the renderer with the Infinity
+   Scroll source. */
+.revo-grid-shell:not(.revo-grid-shell--pinned) .renovation-grid,
+.revo-grid-shell--pinned .renovation-grid {
+    height: 100%;
+    min-height: 0;
 }
 
-.revo-grid-shell:not(.revo-grid-shell--pinned) .renovation-grid revogr-scroll-virtual {
-    visibility: hidden;
+/* The overlay slot: the header slides up and fades out, giving its 288px back
+   to the grid. `overflow: hidden` lives on the shell, so the negative margin
+   clips cleanly. */
+.renovation-grid__header-slot {
+    position: relative;
+    z-index: 5;
+    flex: 0 0 auto;
+    transition:
+        margin-top 240ms ease,
+        opacity 180ms ease;
 }
 
-.revo-grid-shell:not(.revo-grid-shell--pinned) .renovation-grid revogr-scroll-virtual.vertical {
-    width: 0 !important;
-    min-width: 0 !important;
+.renovation-grid__header-slot--hidden {
+    margin-top: calc(-1 * var(--grid-header-height));
+    opacity: 0;
+    pointer-events: none;
 }
 
-.revo-grid-shell:not(.revo-grid-shell--pinned) .renovation-grid revogr-scroll-virtual.horizontal {
+/* In the renovation shell the external scroller is gone: the grid scrolls
+   internally in both pin states (padding reserved for a strip that no longer
+   exists would leave a dead gap). */
+.renovation-grid-shell .revo-grid-vertical-scroller,
+.renovation-grid-shell:not(.revo-grid-shell--pinned):not(.revo-grid-shell--no-hscroll)
+    .revo-grid-vertical-scroller,
+.renovation-grid-shell.revo-grid-shell--pinned:not(.revo-grid-shell--no-hscroll)
+    .revo-grid-vertical-scroller {
+    overflow: hidden;
+    padding-bottom: 0;
+}
+
+/* ── Native strips of the plan grid ────────────────────────────────────────
+   The horizontal strip is the grid's own (`revogr-scroll-virtual.horizontal`):
+   always rendered (Chrome overlay scrollbars would collapse it to zero), with
+   a transparent thumb that appears on hover; wheel over it scrolls sideways
+   (JS). The vertical strip starts below the pinned summary row so it never
+   covers it. */
+.renovation-grid-shell .renovation-grid revogr-scroll-virtual.horizontal {
+    height: 17px !important;
+    min-height: 17px !important;
+    visibility: visible !important;
+}
+
+.renovation-grid-shell.revo-grid-shell--no-hscroll
+    .renovation-grid
+    revogr-scroll-virtual.horizontal {
     height: 0 !important;
     min-height: 0 !important;
 }
 
-/* The external strip is used in pinned mode too. Chrome's overlay scrollbar
-   makes revo-grid report a native scrollbar size of zero and autohides its
-   internal strip, so leave the internal horizontal host without a scrollbar. */
-.revo-grid-shell--pinned .renovation-grid revogr-scroll-virtual.horizontal {
-    height: 0 !important;
-    min-height: 0 !important;
+.renovation-grid revogr-scroll-virtual.horizontal::-webkit-scrollbar {
+    height: 17px;
+}
+
+.renovation-grid revogr-scroll-virtual.horizontal::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.renovation-grid revogr-scroll-virtual.horizontal::-webkit-scrollbar-thumb {
+    min-width: 32px;
+    background: transparent;
+    border: 3px solid transparent;
+    border-radius: 999px;
+}
+
+.renovation-grid revogr-scroll-virtual.horizontal:hover::-webkit-scrollbar-thumb,
+.renovation-grid revogr-scroll-virtual.horizontal:active::-webkit-scrollbar-thumb {
+    background: var(--scrollbar);
+}
+
+.renovation-grid-shell .renovation-grid revogr-scroll-virtual.vertical {
+    top: var(--renovation-summary-height, 0px) !important;
 }
 
 .dark .renovation-grid {
