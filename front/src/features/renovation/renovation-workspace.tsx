@@ -48,6 +48,7 @@ import {
     updateRenovationCells,
     type RenovationColumnFilter,
     type RenovationDiff,
+    type RenovationDiffRow,
     type RenovationMeta,
     type RenovationPlanRow,
     type RenovationPlanVersion,
@@ -69,7 +70,7 @@ import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
 import { ColumnFilterPopover } from "@/shared/ui/column-filter-popover";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
-import { RowRangeFilter } from "@/shared/ui/row-range-filter";
+import { RowGoToFilter } from "@/shared/ui/row-go-to-filter";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { ViewStrip } from "@/shared/ui/view-strip";
@@ -83,6 +84,7 @@ import {
     RenovationGrid,
     type RenovationGridHandle,
     type RenovationGridRow,
+    type RenovationRowPatch,
 } from "./renovation-grid";
 
 export type RenovationWorkspaceProps = {
@@ -96,34 +98,55 @@ export type RenovationWorkspaceProps = {
 };
 
 const WORKING_VERSION_ID = "__working";
-// ── Sliding-window lazy loading of the working plan ──────────────────────────
-// The plan holds ~94k rows — too much for one request or for memory, so the
-// grid renders a contiguous WINDOW of rows: chunks arrive as the user scrolls
-// towards the edges and the far side is evicted, with the grid's scroll
-// position compensated by the evicted height. Row numbering is the stored
-// position («№»), so windowing is invisible in the UI. Archived versions are
-// read-only comparisons and stay full reads.
-// 100 строк на чанк. Первым запросом читается ровно один чанк — его пользователь
-// видит сразу; следующим — BUFFER_CHUNKS над ним (см. useEffect ниже). Дальше
-// окно растит по краям: пока сверху/снизу от видимой области есть BUFFER_CHUNKS
-// буферных чанков, догрузки нет; окно никогда не держит больше WINDOW_MAX_ROWS.
-const WINDOW_CHUNK = 100;
-/** Chunk-буферов держится над и под видимой областью до начала догрузки. */
-const BUFFER_CHUNKS = 2;
-const WINDOW_MAX_ROWS = WINDOW_CHUNK * 5;
 
-type PlanWindow = {
-    id: string;
-    rows: RenovationPlanRow[];
-    /** Offset of rows[0] in the filtered plan (0 for archive full reads). */
-    start: number;
-    total: number;
-    /** Whole-plan row count (ignoring the asset filter) — «всего» counter. */
-    totalAll: number | null;
-    baselineBoundary: number | null;
-    /** Archive full read — no lazy loading. */
-    complete: boolean;
-};
+/**
+ * Identity of the remote row scope the grid loads: the plan version plus every
+ * server-side filter. Changing any of them must restart loading from the first
+ * chunk, so the grid keys its Infinity Scroll config off this string.
+ */
+function renovationGridScopeKey(params: {
+    planId: string | null;
+    asset: string | null;
+    filters: RenovationColumnFilter[];
+}): string {
+    return JSON.stringify([params.planId ?? "working", params.asset ?? "", params.filters]);
+}
+
+/**
+ * A server plan row as the grid renders it: the cell values plus the service
+ * fields the columns, the row header and the live patches read. It is applied
+ * as a chunk loads, so the diff state (an archived plan compared to its
+ * baseline) is stamped immediately instead of waiting for the diff request.
+ *
+ * Deleted rows live only in the diff — the grid's source is server-ordered and
+ * index-addressed (grid index == server offset), so a ghost row cannot be
+ * spliced in; the deletion is reported through the diff cell highlighting.
+ */
+function toGridRow(
+    row: RenovationPlanRow,
+    diffByRowId: Map<string, RenovationDiffRow>,
+): RenovationGridRow {
+    const diffRow = diffByRowId.get(row.id);
+    return {
+        ...row.values,
+        // The read-only «№ ремонта» column shows the computed value.
+        col_003: row.renovationId,
+        // Service columns (corner menu «Показать служебные столбцы»).
+        id: row.id,
+        position: row.position,
+        revision: row.revision,
+        updatedAt: row.updatedAt,
+        updatedBy: row.updatedBy,
+        __id: row.id,
+        __position: row.position,
+        __assetId: row.assetId,
+        __assetName: row.assetName ?? "",
+        __renovationId: row.renovationId,
+        __rowState: diffRow ? (diffRow.isNew ? "new" : "changed") : "unchanged",
+        __changedFields: diffRow?.cells.map((cell) => cell.field) ?? [],
+        __missingComponents: row.missingComponents,
+    };
+}
 
 function errorMessage(reason: unknown): string {
     return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
@@ -172,12 +195,6 @@ export function RenovationWorkspace({
     const [reloadKey, setReloadKey] = useState(0);
     const [assetFilter, setAssetFilter] = useState<string | null>(null);
     const [blockFilter, setBlockFilter] = useState<string | null>(null);
-    // Row-number («№») range filter: `null` on a bound means «from the first» /
-    // «to the last». Applied server-side so the window and the counter agree.
-    const [positionFilter, setPositionFilter] = useState<{
-        from: number | null;
-        to: number | null;
-    } | null>(null);
     // Active header filters, keyed by column prop (field dbName or the synthetic
     // asset column). A column keeps display values + the «Пустые» bucket; all
     // columns combine with AND (server-side).
@@ -230,191 +247,103 @@ export function RenovationWorkspace({
     useEffect(() => {
         setApproveVersions(null);
     }, [versions]);
-    // The loaded window of the working plan (see PlanWindow above). `refresh()`
-    // reloads it in place (cell edits, undo/redo, remote row changes keep the
-    // anchor); switching the version or the asset filter resets it to the top.
-    const [planWindow, setPlanWindow] = useState<PlanWindow | null>(null);
+    // ── Remote plan metadata (the grid loads its own chunks) ────────────────
+    // The workspace no longer owns a sliding window of rows: the grid's
+    // InfinityScrollPlugin does. What is still needed here is the scope the
+    // rows belong to — the plan version, its filtered size (the plugin's
+    // `total`), the baseline boundary and the summary row.
     const [planError, setPlanError] = useState<string | null>(null);
     // Numeric totals of the filtered plan — the pinned summary row.
     const [summaryValues, setSummaryValues] = useState<Record<string, number> | null>(null);
-    const windowGenerationRef = useRef(0);
-    const planWindowRef = useRef<PlanWindow | null>(null);
-    const loadingBottomRef = useRef(false);
-    const loadingTopRef = useRef(false);
-    // After a structural load the grid jumps to this edge of the loaded data:
-    // the working plan anchors at its TAIL (rows are appended at the end), the
-    // archive reads top-down.
-    const [scrollToEdge, setScrollToEdge] = useState<{
-        edge: "top" | "bottom";
+    // Filtered plan size (the plugin's `total`) and the whole-plan counter.
+    const [planTotals, setPlanTotals] = useState<{ total: number; totalAll: number | null } | null>(
+        null,
+    );
+    const [baselineBoundary, setBaselineBoundary] = useState<number | null>(null);
+    // Structural scroll: the working plan opens at its TAIL (rows are appended
+    // at the end), the archive reads top-down. Expressed as the sequential
+    // number in the filtered scope (1-based).
+    const [scrollToPosition, setScrollToPosition] = useState<{
+        position: number;
         token: number;
     } | null>(null);
-    const scrollToEdgeTokenRef = useRef(0);
+    const scrollToPositionTokenRef = useRef(0);
 
-    // Structural reset: a new plan version or a new asset filter restarts the
-    // window. The working plan anchors at its tail — the first request reads
-    // the total (one row), the second fetches the last WINDOW_CHUNK rows, so
-    // the user already sees the tail while the buffer loads; a third request
-    // then fetches BUFFER_CHUNKS more chunks ABOVE the tail in one go. Bumping
-    // the generation discards in-flight chunks.
+    // Structural reset: a new plan version or a new filter restarts the row
+    // scope. The grid's Infinity Scroll reloads from the first chunk when the
+    // scope key changes; here we only re-read the scope's metadata (its size,
+    // the baseline boundary) and re-issue the structural jump.
     useEffect(() => {
         if (!meta) return;
-        // The window belongs to the plan section only; on a dictionary there is
-        // nothing to load and the working-plan read would 404 («Нет плана в
+        // The plan belongs to the plan section only; on a dictionary there is
+        // nothing to read and the working-plan request would 404 («Нет плана в
         // состоянии working») into an error card over the dictionary.
         if (!isPlanSection) {
             setPlanError(null);
-            planWindowRef.current = null;
+            setLoadedRows([]);
+            setScrollToPosition(null);
             startTransition(() => {
-                setPlanWindow(null);
+                setPlanTotals(null);
             });
             return;
         }
-        const generation = ++windowGenerationRef.current;
-        loadingBottomRef.current = false;
-        loadingTopRef.current = false;
         let cancelled = false;
         setPlanError(null);
+        setLoadedRows([]);
         void (async () => {
             try {
-                // The planId/undefined pair must match in all three reads —
-                // they describe the same plan view.
-                const planArg = viewPlanId ?? undefined;
-                if (viewPlanId) {
-                    // Archive/pending view: lazy-load a tail window too — a full
-                    // read of a ~94k-row plan is slow and fills memory. Reuse the
-                    // same getRenovationPlanRows(offset, limit, planId, asset)
-                    // path as the working window.
-                    const head = await getRenovationPlanRows(
-                        0,
-                        1,
-                        planArg,
-                        assetFilter,
-                        activeColumnFilters,
-                        positionFilter?.from ?? null,
-                        positionFilter?.to ?? null,
-                    );
-                    if (cancelled || generation !== windowGenerationRef.current) return;
-                    const total = head.total;
-                    const start = Math.max(0, total - WINDOW_CHUNK);
-                    const page = await getRenovationPlanRows(
-                        start,
-                        WINDOW_CHUNK,
-                        planArg,
-                        assetFilter,
-                        activeColumnFilters,
-                        positionFilter?.from ?? null,
-                        positionFilter?.to ?? null,
-                    );
-                    if (cancelled || generation !== windowGenerationRef.current) return;
-                    const next: PlanWindow = {
-                        id: page.id,
-                        rows: page.rows,
-                        start,
-                        total: page.total,
-                        totalAll: page.totalAll ?? null,
-                        baselineBoundary: page.baselineBoundary ?? null,
-                        complete: false,
-                    };
-                    planWindowRef.current = next;
-                    startTransition(() => {
-                        setPlanWindow(next);
-                    });
-                    scrollToEdgeTokenRef.current += 1;
-                    setScrollToEdge({ edge: "bottom", token: scrollToEdgeTokenRef.current });
-                } else if (meta?.workingPlanId == null && isPlanSection) {
-                    // No working plan — right after submit, or a cold load with
-                    // only pending/archived versions. Only on the plan section:
-                    // auto-select the pending plan (the most relevant) and let the
-                    // effect re-run its archive branch. Guarded by isPlanSection so
-                    // leaving into a dictionary (which resets viewPlanId to null)
-                    // doesn't re-select the pending plan and fight the reset — that
-                    // toggle (null ↔ pending) would loop past the update-depth guard.
-                    const nextPlanId = meta?.pendingPlanId ?? null;
-                    if (nextPlanId && nextPlanId !== viewPlanId) {
-                        setViewPlanId(nextPlanId);
-                    }
-                } else {
-                    const head = await getRenovationPlanRows(
-                        0,
-                        1,
-                        planArg,
-                        assetFilter,
-                        activeColumnFilters,
-                        positionFilter?.from ?? null,
-                        positionFilter?.to ?? null,
-                    );
-                    if (cancelled || generation !== windowGenerationRef.current) return;
-                    const total = head.total;
-                    const start = Math.max(0, total - WINDOW_CHUNK);
-                    const page = await getRenovationPlanRows(
-                        start,
-                        WINDOW_CHUNK,
-                        planArg,
-                        assetFilter,
-                        activeColumnFilters,
-                        positionFilter?.from ?? null,
-                        positionFilter?.to ?? null,
-                    );
-                    if (cancelled || generation !== windowGenerationRef.current) return;
-                    const next: PlanWindow = {
-                        id: page.id,
-                        rows: page.rows,
-                        start,
-                        total: page.total,
-                        totalAll: page.totalAll ?? null,
-                        baselineBoundary: page.baselineBoundary ?? null,
-                        complete: false,
-                    };
-                    planWindowRef.current = next;
-                    startTransition(() => {
-                        setPlanWindow(next);
-                    });
-                    scrollToEdgeTokenRef.current += 1;
-                    setScrollToEdge({ edge: "bottom", token: scrollToEdgeTokenRef.current });
-                }
-                // The tail chunk is on screen — fill the buffer above it in ONE
-                // request while the user reads. Without the generation re-check
-                // a fast filter switch could merge stale rows into a new window.
-                const base = planWindowRef.current;
-                if (!base || base.start <= 0) return;
-                if (generation !== windowGenerationRef.current || cancelled) return;
-                const bufferStart = Math.max(0, base.start - BUFFER_CHUNKS * WINDOW_CHUNK);
-                const buffered = await getRenovationPlanRows(
-                    bufferStart,
-                    base.start - bufferStart,
+                // The head read doubles as the scope probe: it returns the
+                // filtered total (the plugin's `total`) and the baseline
+                // boundary without transferring any rows.
+                const head = await getRenovationPlanRows(
+                    0,
+                    1,
                     viewPlanId ?? undefined,
                     assetFilter,
                     activeColumnFilters,
-                    positionFilter?.from ?? null,
-                    positionFilter?.to ?? null,
                 );
-                if (cancelled || generation !== windowGenerationRef.current) return;
-                applyWindowChunk(
-                    buffered.rows,
-                    bufferStart,
-                    "top",
-                    buffered.total,
-                    buffered.baselineBoundary ?? null,
-                    buffered.id,
-                );
-                // The buffer prepend replaces the source, so the tail jump issued
-                // for the single tail chunk may have settled on the shorter window.
-                // Re-issue it so the grid lands on the last row of the full window.
-                scrollToEdgeTokenRef.current += 1;
-                setScrollToEdge({ edge: "bottom", token: scrollToEdgeTokenRef.current });
-            } catch (reason) {
-                if (!cancelled && generation === windowGenerationRef.current) {
-                    setPlanError(errorMessage(reason));
+                if (cancelled) return;
+                setPlanTotals({ total: head.total, totalAll: head.totalAll ?? null });
+                setBaselineBoundary(head.baselineBoundary ?? null);
+                // The working plan anchors at its tail — the user lands on the
+                // rows they append most; an archive reads top-down. The jump
+                // must be cleared for the archive, otherwise the previous
+                // working-plan position leaks into it (the grid effect keys on
+                // totalRows, which changes between versions).
+                if (!viewPlanId && head.total > 0) {
+                    scrollToPositionTokenRef.current += 1;
+                    setScrollToPosition({
+                        position: head.total,
+                        token: scrollToPositionTokenRef.current,
+                    });
+                } else {
+                    setScrollToPosition(null);
                 }
+            } catch (reason) {
+                if (!cancelled) setPlanError(errorMessage(reason));
             }
         })();
         return () => {
             cancelled = true;
         };
-    }, [meta, viewPlanId, assetFilter, activeColumnFilters, positionFilter, isPlanSection]);
+    }, [meta, viewPlanId, assetFilter, activeColumnFilters, isPlanSection]);
 
-    // Pinned summary row: an aggregating query over the same scope as the row
-    // window (asset + header + row-number filters), refreshed with them.
+    // No working plan — right after submit, or a cold load with only
+    // pending/archived versions. Only on the plan section: auto-select the
+    // pending plan (the most relevant) and let the effect above re-run its
+    // archive branch. Guarded by isPlanSection so leaving into a dictionary
+    // (which resets viewPlanId to null) doesn't re-select the pending plan and
+    // fight the reset — that toggle (null ↔ pending) would loop past the
+    // update-depth guard.
+    useEffect(() => {
+        if (!meta || !isPlanSection || viewPlanId) return;
+        if (meta.workingPlanId != null) return;
+        const nextPlanId = meta.pendingPlanId ?? null;
+        if (nextPlanId) setViewPlanId(nextPlanId);
+    }, [meta, isPlanSection, viewPlanId]);
+
+    // Pinned summary row: an aggregating query over the same scope as the remote
+    // rows (asset + header filters), refreshed with them.
     useEffect(() => {
         if (!meta || !isPlanSection) {
             setSummaryValues(null);
@@ -425,8 +354,6 @@ export function RenovationWorkspace({
             planId: viewPlanId ?? undefined,
             asset: assetFilter,
             filters: activeColumnFilters,
-            positionFrom: positionFilter?.from ?? null,
-            positionTo: positionFilter?.to ?? null,
         })
             .then((values) => {
                 if (!cancelled) setSummaryValues(values);
@@ -437,213 +364,63 @@ export function RenovationWorkspace({
         return () => {
             cancelled = true;
         };
-    }, [meta, viewPlanId, assetFilter, activeColumnFilters, positionFilter, isPlanSection]);
+    }, [meta, viewPlanId, assetFilter, activeColumnFilters, isPlanSection]);
 
-    // In-place reload (refresh()): re-read the current window, keep the anchor.
-    // The working and the pending («на согласовании») views re-read their own
-    // window (so recalced cells like the renovation ID appear in place); only a
-    // read-only archive skips the re-read.
-    useEffect(() => {
-        if (reloadKey === 0 || isArchive) return;
-        const base = planWindowRef.current;
-        if (!base) return;
-        const generation = windowGenerationRef.current;
-        let cancelled = false;
-        void (async () => {
-            try {
-                const limit = Math.max(base.rows.length, WINDOW_CHUNK);
-                const page = await getRenovationPlanRows(
-                    base.start,
-                    limit,
-                    viewPlanId ?? undefined,
-                    assetFilter,
-                    activeColumnFilters,
-                    positionFilter?.from ?? null,
-                    positionFilter?.to ?? null,
-                );
-                if (!cancelled && generation === windowGenerationRef.current) {
-                    const prev = planWindowRef.current;
-                    if (!prev) return;
-                    const next: PlanWindow = {
-                        ...prev,
-                        id: page.id,
-                        rows: page.rows,
-                        total: page.total,
-                        baselineBoundary: page.baselineBoundary ?? null,
-                    };
-                    planWindowRef.current = next;
-                    startTransition(() => {
-                        setPlanWindow(next);
-                    });
-                }
-            } catch {
-                // Keep the current rows; the next refresh retries.
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [reloadKey, assetFilter, viewPlanId, activeColumnFilters, positionFilter]);
+    // ── Row-scope loading (InfinityScrollPlugin's loadData) ────────────────
+    // One chunk of the filtered plan in «№» order. The offset/limit are rows
+    // of the FILTERED scope, which is exactly what the server pages by, so a
+    // row's grid index equals its offset — that is what lets the grid jump to
+    // a «№» and patch rows by index. Every request carries the scope it was
+    // made for; a stale one (the user switched version/filter mid-flight) is
+    // dropped instead of leaking rows into the new scope.
+    const scopeKey = useMemo(
+        () =>
+            renovationGridScopeKey({
+                planId: viewPlanId,
+                asset: assetFilter,
+                filters: activeColumnFilters,
+            }),
+        [activeColumnFilters, assetFilter, viewPlanId],
+    );
+    const scopeKeyRef = useRef(scopeKey);
+    scopeKeyRef.current = scopeKey;
+    // The diff of the version being viewed, by row id. Assigned below with the
+    // diff itself and read by `loadRows`, so a chunk that arrives before (or
+    // after) the diff still carries the right `__rowState`/`__changedFields`.
+    const diffByRowIdRef = useRef<Map<string, RenovationDiffRow>>(new Map());
 
-    /** Merge a fetched chunk into the window; evict the far side when it overflows. */
-    const applyWindowChunk = useCallback(
-        (
-            chunk: RenovationPlanRow[],
-            chunkStart: number,
-            direction: "top" | "bottom",
-            total: number,
-            baselineBoundary: number | null,
-            id: string,
-        ) => {
-            // The ref is the synchronous source of truth: edge events can fire
-            // before React commits the previous chunk, and reading state would
-            // fetch the same chunk twice.
-            const prev = planWindowRef.current;
-            if (!prev) return;
-            const baseEnd = prev.start + prev.rows.length;
-            const chunkEnd = chunkStart + chunk.length;
-            const start = Math.min(prev.start, chunkStart);
-            const end = Math.max(baseEnd, chunkEnd);
-            // Offset-indexed fill; fresh chunk rows win over stale base rows.
-            const merged: Array<RenovationPlanRow | undefined> = Array.from({
-                length: end - start,
-            });
-            for (let i = 0; i < prev.rows.length; i += 1) {
-                merged[prev.start + i - start] = prev.rows[i];
-            }
-            for (let i = 0; i < chunk.length; i += 1) {
-                merged[chunkStart + i - start] = chunk[i];
-            }
-            // Trim possible holes from racing fetches: keep the contiguous
-            // run around the chunk.
-            let first = 0;
-            while (first < merged.length && merged[first] === undefined) first += 1;
-            let last = merged.length - 1;
-            while (last >= 0 && merged[last] === undefined) last -= 1;
-            let rows = (
-                first <= last
-                    ? merged.slice(first, last + 1).filter((row) => row !== undefined)
-                    : []
-            ) as RenovationPlanRow[];
-            let newStart = start + first;
-            if (rows.length > WINDOW_MAX_ROWS) {
-                if (direction === "top") {
-                    // Prepend: trim the overflow from the far (bottom) side.
-                    rows = rows.slice(0, WINDOW_MAX_ROWS);
-                } else {
-                    // Append: trim the overflow from the top.
-                    const evict = rows.length - WINDOW_MAX_ROWS;
-                    rows = rows.slice(evict);
-                    newStart += evict;
-                }
-            }
-            const next: PlanWindow = {
-                id,
-                rows,
-                start: newStart,
-                total,
-                totalAll: prev.totalAll,
-                baselineBoundary,
-                complete: false,
+    const loadRows = useCallback(
+        async (
+            offset: number,
+            limit: number,
+        ): Promise<{ rows: RenovationGridRow[]; total: number }> => {
+            const requestedScope = scopeKeyRef.current;
+            const page = await getRenovationPlanRows(
+                offset,
+                limit,
+                viewPlanId ?? undefined,
+                assetFilter,
+                activeColumnFilters,
+            );
+            if (scopeKeyRef.current !== requestedScope) return { rows: [], total: 0 };
+            const diffByRowId = diffByRowIdRef.current;
+            return {
+                rows: page.rows.map((row) => toGridRow(row, diffByRowId)),
+                total: page.total,
             };
-            planWindowRef.current = next;
-            startTransition(() => {
-                setPlanWindow(next);
-            });
         },
-        [],
+        [activeColumnFilters, assetFilter, viewPlanId],
     );
 
-    const loadChunk = useCallback(
-        async (direction: "top" | "bottom") => {
-            const base = planWindowRef.current;
-            if (!base || base.complete) return;
-            const generation = windowGenerationRef.current;
-
-            try {
-                if (direction === "bottom") {
-                    const chunkStart = base.start + base.rows.length;
-                    if (chunkStart >= base.total) return;
-                    const page = await getRenovationPlanRows(
-                        chunkStart,
-                        WINDOW_CHUNK,
-                        viewPlanId ?? undefined,
-                        assetFilter,
-                        activeColumnFilters,
-                        positionFilter?.from ?? null,
-                        positionFilter?.to ?? null,
-                    );
-                    if (generation !== windowGenerationRef.current) return;
-                    applyWindowChunk(
-                        page.rows,
-                        chunkStart,
-                        "bottom",
-                        page.total,
-                        page.baselineBoundary ?? null,
-                        page.id,
-                    );
-                } else {
-                    const chunkStart = Math.max(0, base.start - WINDOW_CHUNK);
-                    if (chunkStart >= base.start) return;
-                    const page = await getRenovationPlanRows(
-                        chunkStart,
-                        base.start - chunkStart,
-                        viewPlanId ?? undefined,
-                        assetFilter,
-                        activeColumnFilters,
-                        positionFilter?.from ?? null,
-                        positionFilter?.to ?? null,
-                    );
-                    if (generation !== windowGenerationRef.current) return;
-                    applyWindowChunk(
-                        page.rows,
-                        chunkStart,
-                        "top",
-                        page.total,
-                        page.baselineBoundary ?? null,
-                        page.id,
-                    );
-                }
-            } catch {
-                // Chunk fetch failed — the next edge approach retries.
-            }
-        },
-        [applyWindowChunk, assetFilter, viewPlanId, activeColumnFilters, positionFilter],
-    );
-
-    const handleNearBottom = useCallback((): boolean => {
-        if (loadingBottomRef.current) return false;
-        const base = planWindowRef.current;
-        if (!base || base.complete) return false;
-        if (base.start + base.rows.length >= base.total) return false;
-        loadingBottomRef.current = true;
-        void loadChunk("bottom").finally(() => {
-            loadingBottomRef.current = false;
-        });
-        return true;
-    }, [loadChunk]);
-
-    const handleNearTop = useCallback((): boolean => {
-        if (loadingTopRef.current) return false;
-        const base = planWindowRef.current;
-        if (!base || base.complete) return false;
-        if (base.start <= 0) return false;
-        loadingTopRef.current = true;
-        void loadChunk("top").finally(() => {
-            loadingTopRef.current = false;
-        });
-        return true;
-    }, [loadChunk]);
     const { data: diff } = useAsyncData<RenovationDiff | null>(
         () => (viewPlanId ? getRenovationDiff(viewPlanId) : Promise.resolve(null)),
         [metaReloadKey, reloadKey, viewPlanId],
     );
-
-    const hasMoreTop = !!planWindow && !planWindow.complete && planWindow.start > 0;
-    const hasMoreBottom =
-        !!planWindow &&
-        !planWindow.complete &&
-        planWindow.start + planWindow.rows.length < planWindow.total;
+    const diffByRowId = useMemo(
+        () => new Map((diff?.rows ?? []).map((row) => [row.rowId, row] as const)),
+        [diff],
+    );
+    diffByRowIdRef.current = diffByRowId;
 
     const [user, setUser] = useState(currentUser);
     const {
@@ -946,172 +723,106 @@ export function RenovationWorkspace({
         setClipboardState({ canPaste: false, onCopy: () => {}, onPaste: () => {} });
     }, [activeSection]);
 
-    // The grid rows: plan rows with diff states plus deleted-row ghosts from
-    // the comparison plan (the version being compared to).
-    // Stable identity cache to prevent unnecessary re-renders
-    const gridRowsCache = useRef(new Map<string, RenovationGridRow>());
+    // ── Row mirror + live patches ───────────────────────────────────────────
+    // The grid owns the loaded window (the plugin fills and evicts chunks);
+    // the workspace mirrors the SAME row objects so selection, delete checks
+    // and remote-cell overlays see them. Updates are applied by mutating a row
+    // object and pushing its index to the grid — never by replacing the source
+    // (which is what used to make the viewport flicker on every chunk).
+    const loadedRowsRef = useRef(new Map<string, RenovationGridRow>());
+    const [loadedRows, setLoadedRows] = useState<RenovationGridRow[]>([]);
+    const [rowPatches, setRowPatches] = useState<RenovationRowPatch[]>([]);
 
-    const gridRows = useMemo<RenovationGridRow[]>(() => {
-        if (!planWindow) return [];
+    /** Mirror of the rows the plugin holds; the same objects the grid renders. */
+    const handleLoadedRowsChange = useCallback((rows: RenovationGridRow[]) => {
+        const byId = new Map<string, RenovationGridRow>();
+        for (const row of rows) byId.set(row.__id, row);
+        loadedRowsRef.current = byId;
+        setLoadedRows(rows);
+    }, []);
 
-        const cache = gridRowsCache.current;
-        const nextCache = new Map<string, RenovationGridRow>();
-        const result: RenovationGridRow[] = [];
-        const diffByRow = new Map((diff?.rows ?? []).map((row) => [row.rowId, row]));
-
-        for (const row of planWindow.rows) {
-            const diffRow = diffByRow.get(row.id);
-            const rowState: RenovationGridRow["__rowState"] = diffRow
-                ? diffRow.isNew
-                    ? "new"
-                    : "changed"
-                : "unchanged";
-
-            // Build cache key from row data that affects rendering
-            const changedFields = diffRow?.cells.map((cell) => cell.field) ?? [];
-            const cacheKey = `${row.id}|${row.revision}|${rowState}|${changedFields.join(",")}`;
-
-            const cached = cache.get(cacheKey);
-            if (cached) {
-                // Reuse cached row object
-                nextCache.set(cacheKey, cached);
-                result.push(cached);
-                continue;
+    /**
+     * Push fresh values into the rows the grid holds — the row object is
+     * mutated in place (the grid renders that very reference) and handed back
+     * as an indexed patch, so no source reset and no viewport flicker.
+     */
+    const patchLoadedRows = useCallback(
+        (changes: Array<{ rowId: string; fields: Record<string, unknown> }>) => {
+            const patches: RenovationRowPatch[] = [];
+            for (const change of changes) {
+                const row = loadedRowsRef.current.get(change.rowId);
+                if (!row || row.__index === undefined) continue;
+                Object.assign(row, change.fields);
+                patches.push({ index: row.__index, fields: change.fields });
             }
+            if (patches.length > 0) setRowPatches(patches);
+        },
+        [],
+    );
 
-            // Create new row object
-            const gridRow: RenovationGridRow = {
-                ...row.values,
-                // The read-only «№ ремонта» column shows the computed value.
-                col_003: row.renovationId,
-                // Service columns (corner menu «Показать служебные столбцы»).
-                id: row.id,
-                position: row.position,
-                revision: row.revision,
-                updatedAt: row.updatedAt,
-                updatedBy: row.updatedBy,
-                __id: row.id,
-                __position: row.position,
-                __assetId: row.assetId,
-                __assetName: row.assetName ?? "",
-                __renovationId: row.renovationId,
-                __rowState: rowState,
-                __changedFields: changedFields,
-                __missingComponents: row.missingComponents,
-            };
+    /** Fresh server rows (refresh()): patch the loaded window in place. */
+    const applyServerRows = useCallback(
+        (rows: RenovationPlanRow[]) => {
+            patchLoadedRows(
+                rows.map((row) => ({
+                    rowId: row.id,
+                    fields: {
+                        ...row.values,
+                        col_003: row.renovationId,
+                        revision: row.revision,
+                        updatedAt: row.updatedAt,
+                        updatedBy: row.updatedBy,
+                        __renovationId: row.renovationId,
+                        __missingComponents: row.missingComponents,
+                    },
+                })),
+            );
+        },
+        [patchLoadedRows],
+    );
 
-            nextCache.set(cacheKey, gridRow);
-            result.push(gridRow);
-        }
-
-        if (diff) {
-            // Deleted ghosts come from the diff itself (the previous version's
-            // rows), so no full plan read is needed to render them.
-            for (const row of diff.deletedRows) {
-                const cacheKey = `${row.id}|${row.revision}|deleted`;
-                const cached = cache.get(cacheKey);
-
-                if (cached) {
-                    nextCache.set(cacheKey, cached);
-                    result.push(cached);
-                    continue;
-                }
-
-                const gridRow: RenovationGridRow = {
-                    ...row.values,
-                    col_003: row.renovationId,
-                    id: row.id,
-                    position: row.position,
-                    revision: row.revision,
-                    updatedAt: row.updatedAt,
-                    updatedBy: row.updatedBy,
-                    __id: row.id,
-                    __position: row.position,
-                    __assetId: row.assetId,
-                    __assetName: row.assetName ?? "",
-                    __renovationId: row.renovationId,
-                    __rowState: "deleted",
-                    __changedFields: [],
-                    __missingComponents: row.missingComponents,
-                };
-
-                nextCache.set(cacheKey, gridRow);
-                result.push(gridRow);
-            }
-        }
-
-        result.sort((a, b) => a.__position - b.__position);
-        gridRowsCache.current = nextCache;
-        return result;
-    }, [diff, planWindow?.id, planWindow?.rows, planWindow?.start]);
-
-    // Remote cell values (live edits of other users) override the local ones
-    // for display — the working plan only.
-    // Stable row identity map to prevent unnecessary re-renders
-    const rowIdentityCache = useRef(new Map<string, RenovationGridRow>());
-
-    const displayRows = useMemo(() => {
-        if (isArchive || remoteCellValues.size === 0) {
-            // Clear cache when no remote edits
-            rowIdentityCache.current.clear();
-            return gridRows;
-        }
-
-        const cache = rowIdentityCache.current;
-        const nextCache = new Map<string, RenovationGridRow>();
-
-        const result = gridRows.map((row) => {
-            // Build cache key from row id + remote values for this row
-            const remoteKeys: string[] = [];
+    // Remote cell values (live edits of other users) override the local ones.
+    // Only the rows the grid currently holds can be patched; the rest pick the
+    // value up when their chunk loads.
+    useEffect(() => {
+        if (isArchive || remoteCellValues.size === 0) return;
+        const changes: Array<{ rowId: string; fields: Record<string, unknown> }> = [];
+        for (const row of loadedRowsRef.current.values()) {
+            const fields: Record<string, unknown> = {};
             for (const field of mergeableFieldKeys) {
                 const value = remoteCellValues.get(canonicalRenovationKey(row.__id, field));
-                if (value !== undefined) {
-                    remoteKeys.push(`${field}:${JSON.stringify(value)}`);
+                if (value === undefined) continue;
+                fields[field] = value;
+                if (field === "col_003") {
+                    // The renovation ID drives the red «incomplete» tint: derive
+                    // the missing-components flag from the value itself (<NULL>
+                    // placeholder) — the cell:changed payload carries no metadata.
+                    fields.__renovationId = value == null ? null : String(value);
+                    fields.__missingComponents = String(value).includes("<NULL>")
+                        ? ["missing"]
+                        : [];
                 }
             }
+            if (Object.keys(fields).length > 0) changes.push({ rowId: row.__id, fields });
+        }
+        patchLoadedRows(changes);
+    }, [isArchive, mergeableFieldKeys, patchLoadedRows, remoteCellValues]);
 
-            if (remoteKeys.length === 0) {
-                // No remote edits for this row
-                nextCache.set(row.__id, row);
-                return row;
-            }
-
-            // Cache key: row id + sorted remote field values
-            const cacheKey = `${row.__id}|${remoteKeys.sort().join("|")}`;
-            const cached = cache.get(cacheKey);
-
-            if (cached) {
-                // Reuse cached merged row
-                nextCache.set(cacheKey, cached);
-                return cached;
-            }
-
-            // Create new merged row
-            const merged = { ...row };
-            for (const field of mergeableFieldKeys) {
-                const value = remoteCellValues.get(canonicalRenovationKey(row.__id, field));
-                if (value !== undefined) {
-                    merged[field] = value;
-                    if (field === "col_003") {
-                        // The renovation ID drives the red «incomplete» tint:
-                        // derive the missing-components flag from the value
-                        // itself (<NULL> placeholder) — the cell:changed
-                        // payload carries no metadata.
-                        merged.__renovationId = value == null ? null : String(value);
-                        merged.__missingComponents = String(value).includes("<NULL>")
-                            ? ["missing"]
-                            : [];
-                    }
-                }
-            }
-
-            nextCache.set(cacheKey, merged);
-            return merged;
-        });
-
-        rowIdentityCache.current = nextCache;
-        return result;
-    }, [mergeableFieldKeys, gridRows, isArchive, remoteCellValues]);
+    // The diff marks rows as new/changed; it arrives after the rows themselves,
+    // so the states are patched into the loaded window instead of being baked
+    // into the source (which would evict and re-fetch it).
+    useEffect(() => {
+        if (!diff) return;
+        patchLoadedRows(
+            diff.rows.map((row) => ({
+                rowId: row.rowId,
+                fields: {
+                    __rowState: row.isNew ? "new" : "changed",
+                    __changedFields: row.cells.map((cell) => cell.field),
+                },
+            })),
+        );
+    }, [diff, patchLoadedRows]);
 
     // Undo/redo is per session, form and collab section: the counters are
     // re-read from the server on every version or tab switch.
@@ -1316,7 +1027,6 @@ export function RenovationWorkspace({
                 else {
                     setAssetFilter(null);
                     setBlockFilter(null);
-                    setPositionFilter(null);
                     // Header filters live in the query, so clear them too —
                     // otherwise the reset looks like it did nothing.
                     setColumnFilters({});
@@ -1329,9 +1039,49 @@ export function RenovationWorkspace({
         [dictResetState, isPlanSection],
     );
 
+    // In-place reload (refresh()): re-read the rows the grid currently holds so
+    // recalced cells (the renovation ID, repair counts, derived values) appear
+    // in place. A full scope restart would throw the user back to the first
+    // chunk, so the reload patches the loaded window instead.
+    useEffect(() => {
+        if (reloadKey === 0 || isArchive) return;
+        let cancelled = false;
+        void (async () => {
+            try {
+                const rows = await gridRef.current?.getLoadedRows();
+                if (cancelled || !rows || rows.length === 0) return;
+                const first = rows[0];
+                const last = rows[rows.length - 1];
+                if (!first || !last) return;
+                // One contiguous read of the loaded span (the plugin evicts
+                // outside its buffer, so the span stays bounded). The offsets
+                // are the grid indexes (`__index` — the filtered offset), not
+                // the stored plan positions: after filtering they differ.
+                const start = first.__index ?? first.__position - 1;
+                const end = last.__index ?? last.__position - 1;
+                const page = await getRenovationPlanRows(
+                    start,
+                    end - start + 1,
+                    viewPlanId ?? undefined,
+                    assetFilter,
+                    activeColumnFilters,
+                );
+                if (cancelled) return;
+                setBaselineBoundary(page.baselineBoundary ?? null);
+                setPlanTotals({ total: page.total, totalAll: page.totalAll ?? null });
+                applyServerRows(page.rows);
+            } catch {
+                // Keep the current rows; the next refresh retries.
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [reloadKey, assetFilter, viewPlanId, activeColumnFilters, isArchive, applyServerRows]);
+
     const selectedRow = useMemo(
-        () => displayRows.find((row) => row.__id === selection?.rowId) ?? null,
-        [displayRows, selection?.rowId],
+        () => loadedRows.find((row) => row.__id === selection?.rowId) ?? null,
+        [loadedRows, selection?.rowId],
     );
     // A row may be deleted by anyone except the approver, and only while it
     // holds no data — just the mandatory asset plus the technical columns.
@@ -1450,7 +1200,7 @@ export function RenovationWorkspace({
         !isArchive &&
         !readOnly &&
         meta?.workingPlanId != null &&
-        (planWindow?.total ?? 0) > 0;
+        (planTotals?.total ?? 0) > 0;
     const canApprovePlan = canApprove && !isArchive && !readOnly && meta?.pendingPlanId != null;
 
     // Assets the user may add rows for: everyone sees the full dictionary
@@ -1979,7 +1729,7 @@ export function RenovationWorkspace({
                             {toolbar}
                             <div className="grid-viewport" aria-busy={isMutationPending}>
                                 {isPlanSection ? (
-                                    planWindow ? (
+                                    planTotals ? (
                                         <>
                                             <GridErrorBoundary>
                                                 <RenovationGrid
@@ -1987,10 +1737,13 @@ export function RenovationWorkspace({
                                                     fields={meta.fields}
                                                     headerCells={meta.headerCells}
                                                     catalogs={meta.catalogs}
-                                                    rows={displayRows}
+                                                    scopeKey={scopeKey}
+                                                    totalRows={planTotals.total}
+                                                    loadRows={loadRows}
+                                                    loadedRows={loadedRows}
                                                     assetFilter={assetFilterSet}
                                                     blockFilter={blockFilter}
-                                                    baselineBoundary={planWindow.baselineBoundary}
+                                                    baselineBoundary={baselineBoundary}
                                                     readOnly={readOnly}
                                                     canEdit={canEditRows}
                                                     editableFieldKeys={editableFieldKeys}
@@ -2023,17 +1776,12 @@ export function RenovationWorkspace({
                                                     onSelectionChange={handleSelectionChange}
                                                     onViewStatsChange={setGridStats}
                                                     onClipboardStateChange={handleClipboardState}
+                                                    onLoadedRowsChange={handleLoadedRowsChange}
                                                     headerPinned={planHeaderPinned}
                                                     showServiceColumns={planServiceColumns}
-                                                    hasMoreTop={hasMoreTop}
-                                                    hasMoreBottom={hasMoreBottom}
-                                                    onNearTop={handleNearTop}
-                                                    onNearBottom={handleNearBottom}
-                                                    lazyChunkRows={WINDOW_CHUNK}
-                                                    scrollToEdge={scrollToEdge}
-                                                    totalRowsOverride={planWindow.total}
-                                                    totalAllRowsOverride={planWindow.totalAll}
                                                     summaryValues={summaryValues}
+                                                    rowPatches={rowPatches}
+                                                    scrollToPosition={scrollToPosition}
                                                     activeFilterColumns={activeFilterColumns}
                                                     onOpenColumnFilter={(column, anchor) =>
                                                         setColumnFilterTarget({
@@ -2047,10 +1795,9 @@ export function RenovationWorkspace({
                                                         })
                                                     }
                                                     onOpenRowFilter={setRowFilterTarget}
-                                                    rowFilterActive={positionFilter !== null}
                                                 />
                                             </GridErrorBoundary>
-                                            {displayRows.length === 0 ? (
+                                            {planTotals.total === 0 ? (
                                                 <div className="grid-empty">
                                                     В этом плане пока нет строк.
                                                 </div>
@@ -2167,10 +1914,10 @@ export function RenovationWorkspace({
                 />
             ) : null}
             {rowFilterTarget ? (
-                <RowRangeFilter
+                <RowGoToFilter
                     anchor={rowFilterTarget}
-                    initial={positionFilter}
-                    onApply={setPositionFilter}
+                    total={planTotals?.total ?? 0}
+                    onGoTo={(position) => void gridRef.current?.scrollToPosition(position)}
                     onClose={() => setRowFilterTarget(null)}
                 />
             ) : null}

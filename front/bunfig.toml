@@ -1,3 +1,14 @@
+[install.scopes]
+# RevoGrid Pro Trial публикуется в публичном trial-реестре (без токена).
+# Пакеты @revolist/* (revogrid, react-datagrid, rv-pro-trial) ставятся оттуда.
+"@revolist" = "https://trial.rv-grid.com"
+
+[install]
+# Точные версии без ^/~/latest: триал-пакеты RevoGrid Pro должны быть
+# заморожены (bun.lock фиксирует tarball + integrity, Docker ставит
+# --frozen-lockfile) — случайное обновление ломает грид перед демо.
+exact = true
+
 [test]
 # DOM-среда для компонентных тестов
 preload = ["./src/test-setup.ts"]

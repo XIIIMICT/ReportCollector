@@ -476,7 +476,11 @@ function buildLeaf(
     }
     if (descriptor.kind === "asset" || descriptor.kind === "basis") {
         column.editor = "reference";
-        column.source = options;
+        // `null` means «no reference options» (a non-asset/basis column); the
+        // grid treats an empty source the same way. Inferred as `string[]`
+        // because the Pro dropdown editor widens `ColumnRegular.source` to
+        // `DropdownColumnSourceEntry[]` (no null) via module augmentation.
+        column.source = options ?? [];
     }
     if (descriptor.kind === "boolean") {
         column.cellTemplate = (h, props) =>

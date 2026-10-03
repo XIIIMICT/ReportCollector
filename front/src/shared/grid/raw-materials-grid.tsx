@@ -47,6 +47,16 @@ import { serializeCellValue } from "./index";
 /** The pinned summary row's id (revo-grid `pinnedTopSource`) — never a real record. */
 export const SUMMARY_ROW_ID = "__summary__";
 
+/**
+ * Stable empty pinned strip. The `pinnedTopSource` prop must ALWAYS be assigned
+ * (even with no summary row): the React wrapper only writes props it receives,
+ * so omitting the prop when a section has no summary left the previous
+ * section's pinned row on the element — a blank strip appeared in every
+ * dictionary after visiting «Предприятия». A fresh `[]` per render is not an
+ * option either: Stencil's `@Watch` fires on every reference change.
+ */
+const EMPTY_PINNED_SOURCE: Record<string, unknown>[] = [];
+
 export type RawMaterialsGridState = {
     columns: ExportColumn[];
     rowIds: string[];
@@ -1665,7 +1675,7 @@ function RawMaterialsGridInner(
                         .join(" ")}
                     columns={columns}
                     source={rows}
-                    {...(pinnedTopSource ? { pinnedTopSource } : {})}
+                    pinnedTopSource={pinnedTopSource ?? EMPTY_PINNED_SOURCE}
                     theme="compact"
                     range
                     useClipboard={false}

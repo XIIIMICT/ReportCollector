@@ -21,6 +21,7 @@
         "@heroui/styles": "^3.2.6",
         "@internationalized/date": "3.12.4",
         "@revolist/react-datagrid": "4.28.0",
+        "@revolist/rv-pro-trial": "2.9.6",
         "iconoir-react": "^7.12.1",
         "jose": "^6.2.12",
         "next": "16.3.8",

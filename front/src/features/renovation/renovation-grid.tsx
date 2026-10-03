@@ -4,6 +4,8 @@ import { Tooltip } from "@heroui/react";
 import {
     Editor,
     RevoGrid,
+    getSourceItem,
+    setSourceByPhysicalIndex,
     type BeforeRangeSaveDataDetails,
     type BeforeSaveDataDetails,
     type ColumnRegular,
@@ -13,12 +15,14 @@ import {
     type RowHeaders,
     type VNode,
 } from "@revolist/react-datagrid";
+import { InfinityScrollPlugin } from "@revolist/rv-pro-trial";
+
+import "@revolist/rv-pro-trial/styles.css";
 import {
     forwardRef,
     useCallback,
     useEffect,
     useImperativeHandle,
-    useLayoutEffect,
     useMemo,
     useRef,
     useState,
@@ -50,6 +54,12 @@ import { isFromTextEditor } from "@/shared/keyboard";
  * Row headers («№» = position + 1) stay native (revogr-row-headers is a
  * sibling of the hidden column-header element), the 52px corner is covered
  * by the overlay's opaque corner.
+ *
+ * Rows come from RevoGrid Pro's InfinityScrollPlugin: the grid keeps one
+ * sparse array of `total` slots and loads chunks through `loadData` as the
+ * user scrolls, evicting the far ones. `source` is therefore NOT a prop —
+ * the plugin owns it; the workspace only feeds `total` (and the identity of
+ * the row scope) and pushes live cell updates into loaded rows.
  */
 
 export const RENOVATION_PLAN_ROWS_TABLE = "renovation_plan_rows";
@@ -83,12 +93,19 @@ const ASSET_FIELD_DB_NAME = "col_002";
 /** Placeholder a missing renovation-id component is replaced with (backend renovation_id.py). */
 const MISSING_COMPONENT = "<NULL>";
 
-/** Lazy window: start loading the next chunk this many rows before the edge. */
-const LAZY_EDGE_ROWS = 160;
-const LAZY_EDGE_PX = LAZY_EDGE_ROWS * 36;
-
 /** Stable empty pinned strip — a fresh `[]` per render makes revo-grid reprocess the pinned row. */
 const EMPTY_PINNED_SOURCE: RenovationGridRow[] = [];
+
+/**
+ * Rows per remote chunk. One scroll load = one request; the plugin keeps
+ * `bufferSize` rows around the viewport and evicts the rest, so memory stays
+ * flat no matter how far the user scrolls.
+ */
+const INFINITY_CHUNK_ROWS = 100;
+/** Rows kept loaded around the viewport (chunks are evicted beyond it). */
+const INFINITY_BUFFER_ROWS = 400;
+/** Fraction of the last loaded chunk that triggers the next prefetch. */
+const INFINITY_PRELOAD_THRESHOLD = 0.5;
 
 /** Canonical responsibility-block labels — must match the «Все блоки» filter. */
 const BLOCK_HEADER_LABELS: Record<string, string> = {
@@ -112,6 +129,12 @@ const SERVICE_DB_NAMES = new Set(SERVICE_COLUMNS.map((column) => column.dbName))
 export type RenovationGridRow = {
     /** Canonical row id (UUID). */
     __id: string;
+    /**
+     * Row index in the remote source (0-based) — the offset of the row in the
+     * FILTERED plan, which is also the index the server pages by. Assigned when
+     * the plugin loads the row; the workspace uses it to patch that exact slot.
+     */
+    __index?: number;
     __position: number;
     __assetId: string | null;
     __assetName: string;
@@ -126,7 +149,31 @@ export type RenovationGridProps = {
     fields: RenovationField[];
     headerCells: RenovationHeaderCell[];
     catalogs: RenovationCatalog[];
-    rows: RenovationGridRow[];
+    /**
+     * Identity of the remote row scope (plan + filters). The grid loads its
+     * own chunks; when this changes the plugin reloads from the first chunk,
+     * so a filter/version switch shows the same rows the counters describe.
+     * Built by the workspace via `renovationGridScopeKey`.
+     */
+    scopeKey: string;
+    /** Whole-plan row count — `total` for the remote loader (0 = nothing to load). */
+    totalRows: number;
+    /**
+     * Loads one chunk of the scope. `offset`/`limit` are rows of the FILTERED
+     * plan in the server's «№» order, so a row's grid index equals its offset
+     * (see `RenovationGridHandle.scrollToPosition`).
+     */
+    loadRows: (
+        offset: number,
+        limit: number,
+    ) => Promise<{ rows: RenovationGridRow[]; total: number }>;
+    /**
+     * The loaded rows that match the client-side asset filter, in grid order.
+     * Only used for display-mode reports (stats, selection labels); the grid
+     * itself renders the remote source. Pass an empty array while nothing is
+     * loaded yet.
+     */
+    loadedRows: RenovationGridRow[];
     /** Asset-name filter (client-side); null — show all rows. */
     assetFilter: Set<string> | null;
     /** Only columns of this responsibility block (null — all). Always-visible columns stay. */
@@ -161,36 +208,35 @@ export type RenovationGridProps = {
     /** Controlled display toggles (rendered in the view strip). */
     headerPinned: boolean;
     showServiceColumns: boolean;
-    // ── Lazy window (the workspace loads chunks and evicts far rows) ─────────
-    /** More rows exist above / below the loaded window. */
-    hasMoreTop?: boolean;
-    hasMoreBottom?: boolean;
-    /** The user scrolled within LAZY_EDGE_ROWS of the window edge.
-     * Return true when the approach was consumed (a chunk load started);
-     * the watcher re-arms the edge only on consumed fires, so one
-     * approach loads one chunk — not chunk after chunk. */
-    onNearTop?: () => boolean;
-    onNearBottom?: () => boolean;
-    /** Rows per lazy chunk (the workspace's WINDOW_CHUNK). Sizes the
-     * re-arm floor that keeps the edge watcher firing while the
-     * restored scroll is still inside the edge zone. */
-    lazyChunkRows: number;
-    /** The full plan size — the loaded window is only a slice of it. */
-    totalRowsOverride?: number | null;
-    /** Whole-plan row count (unfiltered) — the «всего» counter; null → same as totalRowsOverride. */
-    totalAllRowsOverride?: number | null;
     /** Numeric totals of the filtered plan — the pinned summary row (null hides it). */
     summaryValues?: Record<string, number> | null;
-    /** After a structural window load, jump to this edge of the loaded data. */
-    scrollToEdge?: { edge: "top" | "bottom"; token: number } | null;
+    /** Live updates for rows the plugin already holds (edits, undo, remote cells). */
+    rowPatches: RenovationRowPatch[];
+    /**
+     * Fires whenever the plugin changes which rows it holds (chunk load or
+     * eviction). The workspace mirrors the SAME objects so it can patch them
+     * in place — the grid never resets its source for an update.
+     */
+    onLoadedRowsChange?: (rows: RenovationGridRow[]) => void;
+    /**
+     * Scroll the grid to a row by its SEQUENTIAL number in the current
+     * filtered scope (1-based — the number shown in the «№» column). The plan
+     * grid opens at the TAIL (rows are appended at the end) and the archive
+     * reads top-down — both are expressed through this one method.
+     */
+    scrollToPosition?: { position: number; token: number } | null;
     /** Columns with an active header filter (leaf header shows the active marker). */
     activeFilterColumns?: ReadonlySet<string>;
     /** Open the column-filter popover for a leaf header (anchor = its rect). */
     onOpenColumnFilter?: (column: string, anchor: DOMRect) => void;
-    /** Open the row-number range filter from the «№» corner (anchor = its rect). */
+    /** Open the «go to row» popover from the «№» corner (anchor = its rect). */
     onOpenRowFilter?: (anchor: DOMRect) => void;
-    /** Whether a row-number range filter is active (corner funnel highlight). */
-    rowFilterActive?: boolean;
+};
+
+/** One live update of an already-loaded row (grid index + changed fields). */
+export type RenovationRowPatch = {
+    index: number;
+    fields: Record<string, unknown>;
 };
 
 export type RenovationGridHandle = {
@@ -199,6 +245,14 @@ export type RenovationGridHandle = {
     pasteIntoSelection: () => void;
     /** Ids of the rows currently on screen (visible source, no placeholder/deleted). */
     getVisibleRowIds: () => Promise<string[]>;
+    /**
+     * Plan rows the plugin currently holds, in grid order (holes skipped).
+     * The workspace patches these objects in place and feeds the changed
+     * ones back through `rowPatches` — no full source reset, no flicker.
+     */
+    getLoadedRows: () => Promise<RenovationGridRow[]>;
+    /** Scroll to a row by its sequential number in the filtered scope (1-based). */
+    scrollToPosition: (position: number) => Promise<void>;
     /** Drop the persisted per-column widths — columns return to defaults. */
     resetColumnWidths: () => void;
 };
@@ -309,7 +363,10 @@ function RenovationGridInner(
         fields,
         headerCells,
         catalogs,
-        rows,
+        scopeKey,
+        totalRows,
+        loadRows,
+        loadedRows,
         assetFilter,
         blockFilter,
         baselineBoundary,
@@ -332,25 +389,18 @@ function RenovationGridInner(
         onViewStatsChange,
         headerPinned,
         showServiceColumns,
-        hasMoreTop = false,
-        hasMoreBottom = false,
-        onNearTop,
-        onNearBottom,
-        lazyChunkRows = 100,
-        totalRowsOverride = null,
-        totalAllRowsOverride = null,
         summaryValues = null,
-        scrollToEdge,
+        rowPatches,
+        onLoadedRowsChange,
+        scrollToPosition,
         activeFilterColumns,
         onOpenColumnFilter,
         onOpenRowFilter,
-        rowFilterActive = false,
     }: RenovationGridProps,
     forwardedRef: Ref<RenovationGridHandle>,
 ) {
     const gridRef = useRef<HTMLRevoGridElement>(null);
     const shellRef = useRef<HTMLDivElement>(null);
-    const verticalScrollRef = useRef<HTMLDivElement>(null);
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
     const headerBodyRef = useRef<HTMLDivElement>(null);
     const [selectionRange, setSelectionRange] = useState<RangeArea | null>(null);
@@ -689,6 +739,9 @@ function RenovationGridInner(
     const editableCell = useCallback(
         (field: RenovationField, row: RenovationGridRow): boolean => {
             if (readOnly) return false;
+            // An unloaded slot is a placeholder object (`{}`) the plugin renders
+            // until its chunk arrives — it has no row id and is not editable.
+            if (row.__id === undefined) return false;
             if (field.isCalculated || field.isReadOnly) return false;
             if (!editableFieldKeys.has(field.dbName)) return false;
             if (row.__rowState === "deleted") return false;
@@ -771,7 +824,7 @@ function RenovationGridInner(
                         const invalid =
                             field.dbName === "col_003" &&
                             calculated &&
-                            (row.__missingComponents.length > 0 ||
+                            ((row.__missingComponents?.length ?? 0) > 0 ||
                                 String(row.col_003 ?? "").includes(MISSING_COMPONENT));
                         return {
                             className: {
@@ -873,12 +926,17 @@ function RenovationGridInner(
         visibleFields,
     ]);
 
-    // Client-side asset filter: the workspace passes every row, the grid
-    // reports how much is shown.
-    const displaySource = useMemo<RenovationGridRow[]>(() => {
-        if (!assetFilter) return rows;
-        return rows.filter((row) => assetFilter.has(row.__assetName));
-    }, [assetFilter, rows]);
+    // Grid row index → loaded row. The remote source is sparse (unloaded slots
+    // are `{}`), so a compact array cannot be indexed by the grid's rowIndex —
+    // this map carries the authoritative `__index` (the filtered offset). The
+    // grid index is also the visible sequential number minus one.
+    const rowsByIndex = useMemo(() => {
+        const map = new Map<number, RenovationGridRow>();
+        for (const row of loadedRows) {
+            if (row.__index !== undefined) map.set(row.__index, row);
+        }
+        return map;
+    }, [loadedRows]);
 
     const clearGridSelection = useCallback(() => {
         const grid = gridRef.current;
@@ -926,22 +984,15 @@ function RenovationGridInner(
                 const anchor = rowSelectionAnchorRef.current ?? rowIndex;
                 const start = Math.min(anchor, rowIndex);
                 const end = Math.max(anchor, rowIndex);
-                // Row indexes are screen coordinates: under sorting they map
-                // through the visible source, not the source array (same
-                // landmine as paste/copy).
-                void (async () => {
-                    const grid = gridRef.current;
-                    const visible = grid
-                        ? ((await grid.getVisibleSource("rgRow")) as RenovationGridRow[])
-                        : [];
-                    clearGridSelection();
-                    setSelectedRowIds(
-                        visible
-                            .slice(start, end + 1)
-                            .map((row) => row.__id)
-                            .filter(Boolean),
-                    );
-                })();
+                // The grid row index is the filtered offset; only loaded rows
+                // can be selected (an unloaded slot has no id).
+                clearGridSelection();
+                const ids: string[] = [];
+                for (let index = start; index <= end; index += 1) {
+                    const row = rowsByIndex.get(index);
+                    if (row) ids.push(row.__id);
+                }
+                setSelectedRowIds(ids);
                 return;
             }
             if (modifiers) {
@@ -961,7 +1012,7 @@ function RenovationGridInner(
             clearGridSelection();
             setSelectedRowIds([id]);
         },
-        [clearGridSelection, selectedRowIdSet],
+        [clearGridSelection, rowsByIndex, selectedRowIdSet],
     );
 
     const rowHeaders = useMemo<RowHeaders>(
@@ -991,6 +1042,16 @@ function RenovationGridInner(
                 if (row.__id === SUMMARY_ROW_ID) {
                     return h("span", { class: "report-row-header__summary" });
                 }
+                // The number is the SEQUENTIAL position in the current filtered
+                // scope (grid index + 1), not the stored plan position — after
+                // filtering the user sees 1..N. Unloaded slots show their
+                // number too (the number is positional, not data).
+                const number = rowIndex + 1;
+                // An unloaded slot has no id — render the number without the
+                // selection button; it becomes clickable once the chunk loads.
+                if (row.__id === undefined) {
+                    return h("span", { class: "report-row-header__number" }, String(number));
+                }
                 const selected = selectedRowIds.includes(row.__id);
                 return h(
                     "button",
@@ -1001,8 +1062,8 @@ function RenovationGridInner(
                             "report-row-header__button--selected": selected,
                         },
                         title: selected
-                            ? `Снять выделение строки ${row.__position}`
-                            : `Выделить строку ${row.__position}`,
+                            ? `Снять выделение строки ${number}`
+                            : `Выделить строку ${number}`,
                         onMouseDown: (event: MouseEvent) => {
                             event.stopPropagation();
                         },
@@ -1011,7 +1072,7 @@ function RenovationGridInner(
                             handleRowNumberClick(event, rowIndex, row.__id);
                         },
                     },
-                    String(row.__position),
+                    String(number),
                 );
             },
         }),
@@ -1021,15 +1082,11 @@ function RenovationGridInner(
 
     useEffect(() => {
         onViewStatsChange({
-            // «Всего» — the whole plan WITHOUT the asset filter (totalAll); it
-            // must not shrink when a filter hides rows. «Найдено» — the FULL
-            // server-side filtered count (totalOverride), never the loaded
-            // chunk size (the lazy window is just a slice).
-            filteredRows: totalRowsOverride ?? displaySource.length,
-            totalRows:
-                totalAllRowsOverride ??
-                totalRowsOverride ??
-                rows.filter((row) => row.__rowState !== "deleted").length,
+            // «Найдено» — the filtered plan size the server reports for the
+            // current scope (never the loaded chunk count: the plugin keeps
+            // only a window around the viewport).
+            filteredRows: totalRows,
+            totalRows,
             totalCols: displayFields.length,
             filtersApplied: assetFilter !== null,
             immutableCols: displayFields.filter((field) => field.isReadOnly && !field.isCalculated)
@@ -1040,306 +1097,160 @@ function RenovationGridInner(
                     !field.isCalculated && !field.isReadOnly && editableFieldKeys.has(field.dbName),
             ).length,
         });
-    }, [
-        assetFilter,
-        displayFields,
-        displaySource.length,
-        editableFieldKeys,
-        onViewStatsChange,
-        rows,
-        totalAllRowsOverride,
-        totalRowsOverride,
-    ]);
+    }, [assetFilter, displayFields, editableFieldKeys, onViewStatsChange, totalRows]);
 
     useEffect(() => {
-        rowValuesRef.current = new Map(rows.map((row) => [row.__id, { ...row }]));
-    }, [rows]);
+        rowValuesRef.current = new Map(loadedRows.map((row) => [row.__id, { ...row }]));
+    }, [loadedRows]);
 
-    // ── Lazy window: edge watching + scroll compensation ─────────────────────
-    // The workspace owns the loaded window; the grid reports when the user
-    // gets within LAZY_EDGE_PX of either edge of the loaded data. Pinned mode
-    // scrolls the internal virtual strip, unpinned — the external scroller.
-    // The stencil strip appears ASYNC after mount — poll until it exists,
-    // otherwise the listener silently sticks to the wrong element forever.
-    const lazyTargetRef = useRef<HTMLElement | null>(null);
-    // True while the grid is being positioned by a deliberate edge jump (open
-    // at the tail). It must START true: the lazy watcher attaches on mount with
-    // scrollTop still 0, and would otherwise read that as "near the top" and
-    // load chunks above (sliding the window and fighting the jump). It is
-    // cleared once the edge jump settles (or there is no jump to perform).
-    const settlingScrollRef = useRef(true);
-    // Re-runs the edge check from the compensation effect (a separate effect
-    // that cannot see the watcher's local `check`).
-    const checkRef = useRef<(() => void) | null>(null);
-    // True while the anchor restore is writing the scroll: the programmatic
-    // write fires a scroll event that would otherwise be read as "the user
-    // approached an edge" and load another chunk immediately.
-    const restoringScrollRef = useRef(false);
-    // One chunk per approach: the edge distance (px) at which each
-    // direction last fired a CONSUMED load. After a chunk load the
-    // anchor restore parks the scroll the same distance from that edge
-    // (one chunk farther than at the fire), so without these tokens the
-    // watcher re-fires on the restored position and slides the window
-    // chunk after chunk — the flicker loop. A direction re-arms once
-    // the user scrolled closer to its edge than the previous fire, or
-    // within the re-arm floor (see LAZY_REARM_PX).
-    const lastTopFireRef = useRef<number | null>(null);
-    const lastBottomFireRef = useRef<number | null>(null);
-    // The re-arm floor. A chunk smaller than the edge zone can leave the
-    // restored scroll still inside the zone with a token at the very edge
-    // (the user scrolled to the hard edge during the fetch) — a token
-    // scroll can never re-arm. Inside the floor the next chunk is
-    // mandatory anyway, so the edge fires regardless of the token.
-    const lazyRearmPx = Math.max(0, LAZY_EDGE_ROWS - lazyChunkRows) * 36;
-    useEffect(() => {
-        if (!onNearBottom && !onNearTop) return;
-        let target: HTMLElement | null = null;
-        let detached = false;
-        let throttleTimer: number | undefined;
-        let resizeTimer: number | undefined;
-        // The strip's size transiently dips while revo-grid re-measures
-        // the spacer after a source change; a check on the transient
-        // value reads a mid-window scroll as "near the opposite edge"
-        // and slides the window the wrong way. Debounce: real size
-        // changes outlive the transient, which settles within frames.
-        const observer = new ResizeObserver(() => {
-            if (resizeTimer !== undefined) return;
-            resizeTimer = window.setTimeout(() => {
-                resizeTimer = undefined;
-                check();
-            }, 120);
-        });
-        const getTarget = (): HTMLElement | null => {
-            if (headerPinned) {
-                // The internal strip renders async — null until then. No
-                // fallback: the external scroller never scrolls in pinned
-                // mode, and attaching to it would silence the watcher.
-                return gridRef.current?.querySelector(
-                    "revogr-scroll-virtual.vertical",
-                ) as HTMLElement | null;
-            }
-            return verticalScrollRef.current;
-        };
-        const check = () => {
-            if (settlingScrollRef.current || restoringScrollRef.current) return;
-            const el = target;
-            if (!el) return;
-            // No overflow yet (the spacer is not measured, or everything fits)
-            // — nothing to approach.
-            if (el.scrollHeight <= el.clientHeight) return;
-            const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-            if (
-                hasMoreBottom &&
-                fromBottom < LAZY_EDGE_PX &&
-                (lastBottomFireRef.current === null ||
-                    fromBottom < lastBottomFireRef.current ||
-                    fromBottom < lazyRearmPx)
-            ) {
-                // Record only consumed fires: while a load is in flight the
-                // user may keep scrolling to the edge, and a token at 0 can
-                // never re-arm by scrolling.
-                if (onNearBottom?.()) {
-                    lastBottomFireRef.current = fromBottom;
-                }
-            }
-            if (
-                hasMoreTop &&
-                el.scrollTop < LAZY_EDGE_PX &&
-                (lastTopFireRef.current === null ||
-                    el.scrollTop < lastTopFireRef.current ||
-                    el.scrollTop < lazyRearmPx)
-            ) {
-                if (onNearTop?.()) {
-                    lastTopFireRef.current = el.scrollTop;
-                }
-            }
-        };
-        checkRef.current = check;
-        // Throttle scroll events to ~60fps (16ms) to reduce overhead
-        const onScroll = () => {
-            if (throttleTimer !== undefined) return;
-            throttleTimer = window.setTimeout(() => {
-                throttleTimer = undefined;
-                check();
-            }, 16);
-        };
-        const attach = () => {
-            if (detached) return;
-            const desired = getTarget();
-            if (desired && desired !== target) {
-                target = desired;
-                lazyTargetRef.current = desired;
-                target.addEventListener("scroll", onScroll, { passive: true });
-                observer.observe(target);
-                check();
-            }
-            if (!target) setTimeout(attach, 150);
-        };
-        attach();
-        return () => {
-            detached = true;
-            checkRef.current = null;
-            if (target) target.removeEventListener("scroll", onScroll);
-            observer.disconnect();
-            if (throttleTimer !== undefined) window.clearTimeout(throttleTimer);
-            if (resizeTimer !== undefined) window.clearTimeout(resizeTimer);
-        };
-    }, [hasMoreBottom, hasMoreTop, headerPinned, onNearBottom, onNearTop, displaySource]);
-
-    // Preserve the user's view across any window change — a top/bottom chunk
-    // load or an eviction — and the header-pin scroller swap. The top visible
-    // row is tracked by its stable «№» position; after the new source renders
-    // the scroll is put back on that row. This is robust to revo-grid resetting
-    // `scrollTop` when the `source` array is replaced (a plain pixel delta then
-    // lands in the wrong place — the "landed a chunk higher" bug). The layout
-    // effect applies before paint; the retry covers the pinned strip, whose
-    // spacer revo-grid re-measures asynchronously.
-    const scrollTarget = useCallback(
-        () =>
-            headerPinned
-                ? (gridRef.current?.querySelector(
-                      "revogr-scroll-virtual.vertical",
-                  ) as HTMLElement | null)
-                : verticalScrollRef.current,
-        [headerPinned],
+    // ── Remote rows (InfinityScrollPlugin) ──────────────────────────────────
+    // The plugin owns `source`: it keeps a sparse array of `total` slots and
+    // fills/evicts chunks through `loadData`. A row's index in that array is
+    // its offset in the filtered plan, so `scrollToRow(position - 1)` lands on
+    // a «№» exactly. The config is rebuilt when the scope (plan + filters)
+    // changes — assigning a new object makes the plugin reload from the first
+    // chunk, which is what a version/filter switch must do.
+    const scopeKeyRef = useRef(scopeKey);
+    scopeKeyRef.current = scopeKey;
+    const loadRowsRef = useRef(loadRows);
+    loadRowsRef.current = loadRows;
+    const onLoadedRowsChangeRef = useRef(onLoadedRowsChange);
+    onLoadedRowsChangeRef.current = onLoadedRowsChange;
+    const infinityScroll = useMemo(
+        () => ({
+            chunkSize: INFINITY_CHUNK_ROWS,
+            bufferSize: INFINITY_BUFFER_ROWS,
+            preloadThreshold: INFINITY_PRELOAD_THRESHOLD,
+            total: totalRows,
+            loadData: async (skip: number, limit: number) => {
+                const page = await loadRowsRef.current(skip, limit);
+                return { data: page.rows, total: page.total };
+            },
+        }),
+        [scopeKey, totalRows],
     );
-    const anchorRef = useRef<{ position: number; offset: number } | null>(null);
-    useEffect(() => {
-        const update = () => {
-            // Don't overwrite the anchor from a clamped scrollTop while the
-            // restore is still waiting for revo-grid to apply the new source.
-            if (restoringScrollRef.current) return;
-            const el = scrollTarget();
-            if (!el || displaySource.length === 0) return;
-            const index = Math.max(
-                0,
-                Math.min(displaySource.length - 1, Math.round(el.scrollTop / 36)),
-            );
-            const row = displaySource[index];
-            if (row) {
-                anchorRef.current = {
-                    position: row.__position,
-                    offset: el.scrollTop - index * 36,
-                };
-            }
-        };
-        const el = scrollTarget();
-        el?.addEventListener("scroll", update, { passive: true });
-        update();
-        return () => el?.removeEventListener("scroll", update);
-    }, [displaySource, scrollTarget]);
-    useLayoutEffect(() => {
-        // The structural edge jump owns the scroll until it settles.
-        if (settlingScrollRef.current) return;
-        const anchor = anchorRef.current;
-        if (!anchor) return;
-        const index = displaySource.findIndex((row) => row.__position === anchor.position);
-        if (index < 0) return; // the anchored row was evicted — leave the scroll
-        const target = Math.max(0, index * 36 + anchor.offset);
-        restoringScrollRef.current = true;
-        let frames = 0;
-        let stable = 0;
-        const apply = () => {
-            const el = scrollTarget();
-            if (!el) {
-                restoringScrollRef.current = false;
-                return;
-            }
-            if (Math.abs(el.scrollTop - target) <= 1) {
-                stable += 1;
-            } else {
-                stable = 0;
-                if (headerPinned && gridRef.current) {
-                    void gridRef.current.scrollToRow(index);
-                } else {
-                    el.scrollTop = target;
-                }
-            }
-            frames += 1;
-            // Keep re-applying for a while: revo-grid applies the new `source`
-            // asynchronously, so an early `scrollTop` write is clamped and a late
-            // reset would otherwise leave the viewport on the wrong row.
-            if (frames < 40 && stable < 6) {
-                requestAnimationFrame(apply);
-            } else {
-                restoringScrollRef.current = false;
-                checkRef.current?.();
-            }
-        };
-        apply();
-    }, [displaySource, scrollTarget, headerPinned]);
 
-    // After a structural window load the workspace asks to jump to an edge:
-    // the working plan anchors at its TAIL (rows are appended at the end), the
-    // archive reads top-down. Resolved via setTimeout so it holds until the
-    // stencil strip exists and the spacer is measured (the edge watcher's
-    // lazyTargetRef may attach later — never depend on it here). Switching the
-    // asset filter reloads the window, so the target is re-computed against the
-    // freshest row dimensions for a short window — otherwise a stale scrollHeight
-    // (the pre-filter rows) resolves first and the scroll never reaches the tail.
+    // Live updates: patch already-loaded rows in place. A full source reset
+    // would evict the loaded window and re-fetch it (the flicker this grid had
+    // before); `setSourceByPhysicalIndex` + `refresh` touches only the rows
+    // that actually changed.
     useEffect(() => {
-        if (!scrollToEdge) {
-            // No pending jump — allow lazy loading.
-            settlingScrollRef.current = false;
-            return;
-        }
-        // A structural window reset re-arms both edges: the fire tokens
-        // describe the previous window's scroll distances.
-        lastTopFireRef.current = null;
-        lastBottomFireRef.current = null;
-        const edge = scrollToEdge.edge;
-        let idlePolls = 0;
-        let landingPolls = 0;
-        let lastOverflow = 0;
-        let stablePolls = 0;
-        let timer: number | undefined;
-        settlingScrollRef.current = true;
-        const apply = () => {
-            let el: HTMLElement | null = null;
-            if (headerPinned) {
-                el = gridRef.current?.querySelector(
-                    "revogr-scroll-virtual.vertical",
-                ) as HTMLElement | null;
-            } else {
-                el = verticalScrollRef.current;
+        const grid = gridRef.current;
+        if (!grid || rowPatches.length === 0) return;
+        void (async () => {
+            try {
+                const store = await grid.getSourceStore("rgRow");
+                const patches: Record<number, Record<string, unknown>> = {};
+                for (const patch of rowPatches) {
+                    const current = getSourceItem(store, patch.index);
+                    // Only loaded slots carry a row; an unloaded placeholder
+                    // needs no patch — its chunk fetch reads the fresh value.
+                    if (!current || current.__id === undefined) continue;
+                    patches[patch.index] = { ...current, ...patch.fields };
+                }
+                if (Object.keys(patches).length === 0) return;
+                setSourceByPhysicalIndex(store, patches, false);
+                await grid.refresh("rgRow");
+            } catch {
+                // The grid was disposed or the store is mid-reset — the next
+                // patch (or the chunk load) carries the value anyway.
             }
-            if (!el) {
-                idlePolls += 1;
-                if (idlePolls < 400) timer = window.setTimeout(apply, 100);
-                return;
-            }
-            const overflow = el.scrollHeight - el.clientHeight;
-            const target = edge === "bottom" ? overflow : 0;
-            if (el.scrollTop !== target) el.scrollTop = target;
-            const landed = Math.abs(el.scrollTop - target) <= 1;
-            // Before the tail window is mounted, overflow is ~0 and scrollTop
-            // "lands" trivially — never treat that as done.
-            if (edge === "bottom" && overflow <= 1) {
-                landingPolls += 1;
-                if (landingPolls < 120) timer = window.setTimeout(apply, 60);
-                return;
-            }
-            // Keep going until the overflow is stable AND the scroll is parked
-            // at it — the window may still be settling its height.
-            if (landed && Math.abs(overflow - lastOverflow) <= 1) {
-                stablePolls += 1;
-            } else {
-                stablePolls = 0;
-            }
-            lastOverflow = overflow;
-            if (!landed || stablePolls < 3) {
-                landingPolls += 1;
-                if (landingPolls < 120) timer = window.setTimeout(apply, 60);
-                return;
-            }
-            settlingScrollRef.current = false;
+        })();
+    }, [rowPatches]);
+
+    // Jump to a grid row index, retrying until the viewport lands near it. A
+    // single `scrollToRow` is often swallowed (the grid is still settling its
+    // layout) and the target chunk is loaded on demand, so the call is repeated
+    // until the scroll position matches the row (±5 rows of slack — the plugin
+    // may align the chunk slightly differently). Returns a cancel function.
+    // Used by the structural tail jump and the «go to row» popover.
+    const jumpToRow = useCallback((target: number): (() => void) => {
+        const grid = gridRef.current;
+        if (!grid) return () => {};
+        let cancelled = false;
+        let attempts = 0;
+        const landed = () => {
+            const internal = grid.querySelector(
+                "revogr-scroll-virtual.vertical",
+            ) as HTMLElement | null;
+            const external = document.querySelector(
+                ".revo-grid-vertical-scroller",
+            ) as HTMLElement | null;
+            const top = internal?.scrollTop || external?.scrollTop || 0;
+            if (target === 0) return top <= 36;
+            return Math.abs(top - target * 36) <= 36 * 5;
         };
-        apply();
+        const attempt = () => {
+            if (cancelled || attempts >= 50) return;
+            attempts += 1;
+            void (async () => {
+                try {
+                    await grid.scrollToRow(target);
+                } catch {
+                    // The element may not be upgraded yet — retry below.
+                }
+                if (cancelled) return;
+                window.setTimeout(() => {
+                    if (cancelled || landed()) return;
+                    attempt();
+                }, 150);
+            })();
+        };
+        attempt();
         return () => {
-            settlingScrollRef.current = false;
+            cancelled = true;
+        };
+    }, []);
+
+    // Structural scroll: open at the tail of the working plan, at the top of
+    // the archive.
+    useEffect(() => {
+        if (!scrollToPosition) return;
+        const target = Math.max(0, Math.min(totalRows - 1, scrollToPosition.position - 1));
+        return jumpToRow(target);
+    }, [scrollToPosition, totalRows, jumpToRow]);
+
+    // Report the rows the plugin holds. Fires on every chunk load/eviction so
+    // the workspace can mirror them (and patch them in place later). Each row
+    // carries its source index, which is what the patch targets.
+    const reportLoadedRows = useCallback(async () => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        const source = (await grid.getSource("rgRow")) as RenovationGridRow[];
+        const rows: RenovationGridRow[] = [];
+        for (let index = 0; index < source.length; index += 1) {
+            const row = source[index];
+            // Unloaded slots are empty placeholders — they are not rows yet.
+            if (!row || row.__id === undefined) continue;
+            row.__index = index;
+            rows.push(row);
+        }
+        onLoadedRowsChangeRef.current?.(rows);
+    }, []);
+
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        let timer: number | undefined;
+        // The plugin loads/evicts chunks by patching its store directly and
+        // does NOT emit `aftersourceset` for them — only `scrollchange` (when
+        // it starts a load). Debounce the report so it runs after the chunk
+        // has landed; without it the workspace mirror went stale after the
+        // first chunk (selection labels, row shift-select and live patches
+        // lost every later row).
+        const schedule = () => {
+            if (timer !== undefined) window.clearTimeout(timer);
+            timer = window.setTimeout(() => void reportLoadedRows(), 300);
+        };
+        grid.addEventListener("aftersourceset", schedule);
+        grid.addEventListener("scrollchange", schedule);
+        void reportLoadedRows();
+        return () => {
+            grid.removeEventListener("aftersourceset", schedule);
+            grid.removeEventListener("scrollchange", schedule);
             if (timer !== undefined) window.clearTimeout(timer);
         };
-    }, [scrollToEdge, headerPinned]);
+    }, [reportLoadedRows, scopeKey]);
 
     function normalizeValue(value: unknown, field: RenovationField): NormalizeResult {
         if (field.cellType === "number") {
@@ -1476,7 +1387,7 @@ function RenovationGridInner(
         const models = event.detail.models as Record<string, RenovationGridRow | undefined>;
         const skipped = new Map<string, string>();
         for (const [rowIndex, patch] of Object.entries(patches)) {
-            const currentRow = models[Number(rowIndex)] ?? displaySource[Number(rowIndex)];
+            const currentRow = models[Number(rowIndex)] ?? rowsByIndex.get(Number(rowIndex));
             for (const prop of Object.keys(patch)) {
                 const field = fieldByDbName.get(String(prop));
                 if (!field) {
@@ -1602,16 +1513,32 @@ function RenovationGridInner(
         })();
     }
 
-    const getVisibleRows = useCallback(async (): Promise<RenovationGridRow[]> => {
+    // Rows the plugin currently holds, in grid order, holes skipped. Copy/
+    // paste and row-id reporting run on this (the workspace keeps the same
+    // objects, so a patch reaches them without a re-render).
+    const getLoadedRows = useCallback(async (): Promise<RenovationGridRow[]> => {
         const grid = gridRef.current;
         if (!grid) return [];
-        return (await grid.getVisibleSource("rgRow")) as RenovationGridRow[];
+        const source = (await grid.getSource("rgRow")) as RenovationGridRow[];
+        return source.filter((row) => row && row.__id !== undefined);
     }, []);
 
     const getVisibleRowIds = useCallback(async (): Promise<string[]> => {
-        const visible = await getVisibleRows();
+        const visible = await getLoadedRows();
         return visible.filter((row) => row.__rowState !== "deleted").map((row) => row.__id);
-    }, [getVisibleRows]);
+    }, [getLoadedRows]);
+
+    // The visible number is the sequential ordinal in the filtered scope
+    // (1-based); the grid index is that number minus one, and the plugin maps
+    // it to the owning chunk (loading it on demand). The shared jump helper
+    // retries until the viewport actually lands.
+    const scrollToPlanPosition = useCallback(
+        (position: number): Promise<void> => {
+            jumpToRow(Math.max(0, position - 1));
+            return Promise.resolve();
+        },
+        [jumpToRow],
+    );
 
     const applyGridRange = useCallback(
         async (start: { x: number; y: number }, end: { x: number; y: number }) => {
@@ -1643,10 +1570,10 @@ function RenovationGridInner(
     const buildCopyText = useCallback(async (): Promise<string | null> => {
         const range = selectionRangeRef.current;
         if (!range) return null;
-        const visible = await getVisibleRows();
         const lines: string[] = [];
-        for (let y = range.y; y <= Math.min(range.y1, visible.length - 1); y += 1) {
-            const row = visible[y];
+        const lastRow = Math.min(range.y1, totalRows - 1);
+        for (let y = range.y; y <= lastRow; y += 1) {
+            const row = rowsByIndex.get(y);
             if (!row) continue;
             const cells: string[] = [];
             for (let x = range.x; x <= range.x1; x += 1) {
@@ -1657,7 +1584,7 @@ function RenovationGridInner(
             lines.push(cells.join("\t"));
         }
         return lines.join("\n");
-    }, [columns, getVisibleRows]);
+    }, [columns, rowsByIndex, totalRows]);
 
     const copySelection = useCallback(() => {
         void (async () => {
@@ -1724,13 +1651,12 @@ function RenovationGridInner(
             const selectedWidth = range.x1 - range.x + 1;
             const singleCell = selectedHeight === 1 && selectedWidth === 1;
 
-            const visible = await getVisibleRows();
             let toY = range.y;
             let toY1 = range.y1;
             let toX = range.x;
             let toX1 = range.x1;
             if (singleCell) {
-                toY1 = Math.min(visible.length - 1, range.y + pasteHeight - 1);
+                toY1 = Math.min(totalRows - 1, range.y + pasteHeight - 1);
                 toX1 = Math.min(columns.length - 1, range.x + pasteWidth - 1);
             } else if (pasteHeight > selectedHeight || pasteWidth > selectedWidth) {
                 onPasteSkipped("Буфер шире или выше выделения — вставлена только его часть.");
@@ -1739,7 +1665,7 @@ function RenovationGridInner(
             const data: Record<string, Record<string, unknown>> = {};
             const models: RenovationGridRow[] = [];
             for (let y = toY; y <= toY1; y += 1) {
-                const row = visible[y];
+                const row = rowsByIndex.get(y);
                 if (!row) continue;
                 models[y] = row;
                 const patch: Record<string, unknown> = {};
@@ -1762,7 +1688,7 @@ function RenovationGridInner(
             );
             void applyGridRange({ x: toX, y: toY }, { x: toX1, y: toY1 });
         },
-        [applyGridRange, columns, getVisibleRows, onPasteSkipped],
+        [applyGridRange, columns, onPasteSkipped, rowsByIndex, totalRows],
     );
 
     // Window-level copy/paste (capture): works regardless of the focus inside
@@ -1912,12 +1838,9 @@ function RenovationGridInner(
         // beforeRangeEdit still re-checks and skips busy cells at paste time.
         const canPasteInto = (): boolean => {
             if (!canEdit || !selectionRange || readOnly) return false;
-            for (
-                let y = selectionRange.y;
-                y <= Math.min(selectionRange.y1, displaySource.length - 1);
-                y += 1
-            ) {
-                const row = displaySource[y];
+            const lastRow = Math.min(selectionRange.y1, totalRows - 1);
+            for (let y = selectionRange.y; y <= lastRow; y += 1) {
+                const row = rowsByIndex.get(y);
                 if (!row) continue;
                 for (let x = selectionRange.x; x <= selectionRange.x1; x += 1) {
                     const column = columns[x] as ColumnRegular | undefined;
@@ -1935,21 +1858,28 @@ function RenovationGridInner(
         if (selectedRowIds.length > 0) {
             // Row-number selection wins over the cell range (row clicks clear
             // the range): report the rows for row-level actions like delete.
-            const positions = displaySource
-                .filter((row) => selectedRowIdSet.has(row.__id))
-                .map((row) => row.__position)
+            // Numbers are the sequential filtered ordinals (index + 1).
+            const numbers = loadedRows
+                .filter((row) => row.__index !== undefined && selectedRowIdSet.has(row.__id))
+                .map((row) => row.__index! + 1)
                 .sort((a, b) => a - b);
-            if (positions.length === 0) {
+            if (numbers.length === 0) {
                 onSelectionChange(null);
                 return;
             }
-            const first = positions[0]!;
-            const last = positions[positions.length - 1]!;
+            const first = numbers[0]!;
+            const last = numbers[numbers.length - 1]!;
             const label = first === last ? `строка ${first}` : `строки ${first}–${last}`;
             onSelectionChange({
                 label,
                 cellKeys: [],
-                rowId: displaySource.find((row) => row.__position === last)?.__id ?? null,
+                rowId:
+                    loadedRows.find(
+                        (row) =>
+                            row.__index !== undefined &&
+                            row.__index + 1 === last &&
+                            selectedRowIdSet.has(row.__id),
+                    )?.__id ?? null,
             });
             return;
         }
@@ -1960,28 +1890,29 @@ function RenovationGridInner(
         const firstColumn = columns[selectionRange.x] as ColumnRegular | undefined;
         const lastColumn = columns[selectionRange.x1] as ColumnRegular | undefined;
         const rangeRows: RenovationGridRow[] = [];
-        for (let y = selectionRange.y; y <= selectionRange.y1 && y < displaySource.length; y += 1) {
-            const row = displaySource[y];
+        const lastRow = Math.min(selectionRange.y1, totalRows - 1);
+        for (let y = selectionRange.y; y <= lastRow; y += 1) {
+            const row = rowsByIndex.get(y);
             if (row) rangeRows.push(row);
         }
         const firstRow = rangeRows[0];
-        const lastRow = rangeRows[rangeRows.length - 1];
         const columnText =
             firstColumn && lastColumn
                 ? firstColumn === lastColumn
                     ? String(firstColumn.name ?? "")
                     : `${String(firstColumn.name ?? "")} — ${String(lastColumn.name ?? "")}`
                 : "";
+        // The numbers are the sequential ordinals of the filtered scope — the
+        // range bounds are the grid row indexes (+1), so even a range over a
+        // not-yet-loaded chunk is labelled with the numbers the user sees.
         const rowText =
-            firstRow && lastRow
-                ? firstRow.__position === lastRow.__position
-                    ? `строка ${firstRow.__position}`
-                    : `строки ${firstRow.__position}–${lastRow.__position}`
-                : "";
+            selectionRange.y === selectionRange.y1
+                ? `строка ${selectionRange.y + 1}`
+                : `строки ${selectionRange.y + 1}–${selectionRange.y1 + 1}`;
         const label = [columnText, rowText].filter(Boolean).join(", ") || null;
         const cellKeys: string[] = [];
-        for (let y = selectionRange.y; y <= selectionRange.y1 && y < displaySource.length; y += 1) {
-            const row = displaySource[y];
+        for (let y = selectionRange.y; y <= lastRow; y += 1) {
+            const row = rowsByIndex.get(y);
             if (!row) continue;
             for (let x = selectionRange.x; x <= selectionRange.x1; x += 1) {
                 const column = columns[x] as ColumnRegular | undefined;
@@ -1998,16 +1929,18 @@ function RenovationGridInner(
         canEdit,
         cellAllowed,
         columns,
-        displaySource,
         fieldByDbName,
+        loadedRows,
         onClipboardStateChange,
         onSelectionChange,
         readOnly,
         remoteLocks,
         remotePresence,
+        rowsByIndex,
         selectedRowIdSet,
         selectedRowIds,
         selectionRange,
+        totalRows,
     ]);
 
     // Resize: pointer drag on the boundary between visible columns. The
@@ -2072,9 +2005,19 @@ function RenovationGridInner(
             clearSelection: clearGridSelection,
             pasteIntoSelection: () => void pasteIntoSelection(),
             getVisibleRowIds,
+            getLoadedRows,
+            scrollToPosition: scrollToPlanPosition,
             resetColumnWidths: resetWidths,
         }),
-        [clearGridSelection, copySelection, getVisibleRowIds, pasteIntoSelection, resetWidths],
+        [
+            clearGridSelection,
+            copySelection,
+            getLoadedRows,
+            getVisibleRowIds,
+            pasteIntoSelection,
+            resetWidths,
+            scrollToPlanPosition,
+        ],
     );
 
     const handles = useMemo(() => {
@@ -2126,17 +2069,15 @@ function RenovationGridInner(
     // Unpinned mode (corner menu «Закрепить заголовок» off) — the same
     // scrolling model as the «Сырьё» grids: the header scrolls away with the
     // content and an external horizontal scrollbar strip appears at the bottom.
-    const contentHeight = overlayHeight + displaySource.length * 36 + 18;
+    // The height follows the remote source size, so the scrollbar is sized for
+    // the whole plan even though only a window of rows is in memory.
+    const contentHeight = overlayHeight + totalRows * 36 + 18;
 
     const refreshHorizontalScrollbar = useCallback(async () => {
         const grid = gridRef.current;
         if (!grid) return;
         const size = await grid.getContentSize();
-        const verticalScroller = verticalScrollRef.current;
-        const scrollbarGutter = verticalScroller
-            ? verticalScroller.offsetWidth - verticalScroller.clientWidth
-            : 0;
-        const width = size.x + scrollbarGutter + ROW_HEADER_WIDTH;
+        const width = size.x + ROW_HEADER_WIDTH;
         // revo-grid fires contentsizechanged on every virtualized scroll tick;
         // re-setting the same width re-rendered the grid, which rebuilt the
         // 216-column memo and re-fired contentsizechanged — an endless loop
@@ -2161,7 +2102,7 @@ function RenovationGridInner(
             cancelAnimationFrame(frame);
             observer.disconnect();
         };
-    }, [columns, headerPinned, refreshHorizontalScrollbar, displaySource]);
+    }, [columns, headerPinned, refreshHorizontalScrollbar]);
 
     // Wheel over the horizontal scrollbar strip scrolls it horizontally
     // (native Chrome behavior scrolls the vertical axis instead). The strip is
@@ -2200,13 +2141,8 @@ function RenovationGridInner(
                 {onOpenRowFilter ? (
                     <button
                         type="button"
-                        className={
-                            rowFilterActive
-                                ? "renovation-grid__filter-button is-active"
-                                : "renovation-grid__filter-button"
-                        }
-                        aria-label="Фильтр по номеру строки"
-                        aria-pressed={rowFilterActive}
+                        className="renovation-grid__filter-button"
+                        aria-label="Перейти к строке"
                         onPointerDown={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -2415,13 +2351,16 @@ function RenovationGridInner(
                     </span>
                 </Tooltip.Content>
             </Tooltip>
-            <div ref={verticalScrollRef} className="revo-grid-vertical-scroller">
+            <div className="revo-grid-vertical-scroller">
                 {!headerPinned ? headerOverlay : null}
                 <RevoGrid
                     ref={gridRef}
                     className="renovation-grid"
                     columns={columns}
-                    source={displaySource}
+                    // The plugin owns `source` (a sparse array of `total` slots
+                    // filled chunk by chunk); `infinityScroll` is its config.
+                    plugins={[InfinityScrollPlugin]}
+                    infinityScroll={infinityScroll}
                     pinnedTopSource={pinnedSummaryRow ?? EMPTY_PINNED_SOURCE}
                     theme="compact"
                     range

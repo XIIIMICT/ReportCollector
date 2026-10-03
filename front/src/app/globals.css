@@ -1423,6 +1423,15 @@ body {
     font: inherit;
 }
 
+/* The sequential number of a not-yet-loaded slot: same geometry as the
+   button, muted — it becomes clickable once the chunk arrives. */
+.report-row-header__number {
+    display: block;
+    width: 100%;
+    text-align: center;
+    color: var(--muted);
+}
+
 .raw-materials-grid .rowHeaders revogr-data .rgCell.report-row-header--selected {
     color: var(--foreground);
     background: var(--accent-glow);
@@ -2340,31 +2349,15 @@ body {
     background: var(--border);
 }
 
-/* ─── Row-number («№») range filter ────────────────────────── */
+/* ─── Row-number («№») go-to popover ───────────────────────── */
 
-.row-range-filter__popover {
-    width: 18rem;
+.row-go-to-filter__popover {
+    width: 14rem;
 }
 
-.row-range-filter {
+.row-go-to-filter {
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
     padding: 0.25rem;
-}
-
-.row-range-filter__fields {
-    display: flex;
-    align-items: flex-end;
-    gap: 0.5rem;
-}
-
-.row-range-filter__fields > span {
-    padding-bottom: 0.6rem;
-    color: var(--muted);
-}
-
-.row-range-filter__actions {
-    display: flex;
-    justify-content: flex-end;
 }
