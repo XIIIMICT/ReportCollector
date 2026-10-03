@@ -27,6 +27,15 @@ services:
         required: true
     environment:
       LOG_FILE: /app/logs/reportcollector.log
+      # В контейнере .env-значение POSTGRES_HOST (`localhost` для хостового
+      # запуска) указывает на сам контейнер: /health отвечает 200, а каждый
+      # запрос к БД падает ConnectionRefusedError → серверный компонент
+      # страницы кидает 500 и Next отдаёт «Minified React error #441».
+      # host.docker.internal ведёт на хост (extra_hosts ниже), где
+      # rc-postgres публикует 5432; на сервере с внешней БД задайте
+      # POSTGRES_HOST_DOCKER. Как и VALKEY_URL, значение только для контейнера —
+      # сам .env остаётся пригодным для just back/just front/seed.
+      POSTGRES_HOST: ${POSTGRES_HOST_DOCKER:-host.docker.internal}
       AUTH_KEYCLOAK_INTERNAL_ISSUER: ${AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER:-${AUTH_KEYCLOAK_PUBLIC_ISSUER}}
       # Ориджины CORS/WS: локальные + хост приложения из AUTH_APP_ORIGIN
       # (единый источник хоста в .env). Переопределить можно явным значением.
