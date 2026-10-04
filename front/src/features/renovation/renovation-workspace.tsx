@@ -145,6 +145,7 @@ function toGridRow(
         id: row.id,
         position: row.position,
         revision: row.revision,
+        createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         updatedBy: row.updatedBy,
         __id: row.id,

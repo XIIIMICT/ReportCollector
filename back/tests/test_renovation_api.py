@@ -106,7 +106,8 @@ async def test_meta_lists_form_fields_and_catalogs(client: AsyncClient) -> None:
     response = await client.get("/api/renovation/meta", headers=ADMIN_HEADERS)
     assert response.status_code == 200
     body = response.json()
-    assert len(body["fields"]) == 217
+    # 217 form fields minus the hidden «Корректировка» (col_218).
+    assert len(body["fields"]) == 216
     assert len(body["catalogs"]) == 5
     assert {asset["code"] for asset in body["assets"]} >= {"bsk", "vos"}
     col_003 = next(field for field in body["fields"] if field["dbName"] == "col_003")
@@ -1321,13 +1322,15 @@ async def test_export_working_plan_renders_merged_header(client: AsyncClient) ->
     worksheet = load_workbook(BytesIO(response.content)).active
     assert worksheet["A1"].value == "№"
     assert any(str(r) == "A1:A11" for r in worksheet.merged_cells.ranges)
-    assert any(str(r) == "D1:AF1" for r in worksheet.merged_cells.ranges)
+    assert any(str(r) == "D1:AE1" for r in worksheet.merged_cells.ranges)
     assert worksheet["B2"].value == "Предприятие"
     assert worksheet.freeze_panes == "C12"
     assert worksheet["A12"].value == 1
     assert worksheet["B12"].value == "АО «БСК»"
     assert worksheet["C12"].value == "2027_BSKR_1.1.1_1382467"
-    assert worksheet.max_column == 218
+    # 217 kept fields (col_218 hidden) + the row-number column = 218; the
+    # hidden column leaves a one-column gap on the last level.
+    assert worksheet.max_column == 217
     assert worksheet.max_row == 13
 
 
@@ -1422,13 +1425,14 @@ async def test_export_recalculates_derived_columns(
     response = await client.get("/api/renovation/plan/export", headers=ADMIN_HEADERS)
     assert response.status_code == 200
     worksheet = load_workbook(BytesIO(response.content)).active
-    # col_026 lands on column AA (27); col_024/col_025 on Y/Z (25/26).
-    assert worksheet["Y12"].value.date() == date(2027, 1, 10)
-    assert worksheet["Z12"].value.date() == date(2027, 1, 25)
+    # Hiding col_218 shifts every later field one column left: col_024/col_025
+    # now land on X/Y (26); col_026 on Z.
+    assert worksheet["X12"].value.date() == date(2027, 1, 10)
+    assert worksheet["Y12"].value.date() == date(2027, 1, 25)
     # The calculated column keeps its Excel formula, with the recomputed value cached.
-    assert worksheet["AA12"].value == "=Z12 - Y12"
+    assert worksheet["Z12"].value == "=Y12 - X12"
     cached = load_workbook(BytesIO(response.content), data_only=True).active
-    assert cached["AA12"].value == 15
+    assert cached["Z12"].value == 15
 
 
 async def test_export_block_filters_columns(client: AsyncClient) -> None:
@@ -1469,8 +1473,9 @@ async def test_export_header_borders_on_every_merged_cell(client: AsyncClient) -
     """
     response = await client.get("/api/renovation/plan/export", headers=ADMIN_HEADERS)
     sheet = ZipFile(BytesIO(response.content)).read("xl/worksheets/sheet1.xml").decode()
-    # D1:AF1 is merged; D1 holds the text, every other cell must carry `s="1"`.
-    styled = {ref: f'<c r="{ref}" s="1"' for ref in ("D1", "E1", "AF1", "AA5", "HJ11")}
+    # D1:AE1 is merged; D1 holds the text, every other cell must carry `s="1"`.
+    # Hiding col_218 shifts the last header cells one column left (HH/HG).
+    styled = {ref: f'<c r="{ref}" s="1"' for ref in ("D1", "E1", "AE1", "AA5", "HH11")}
     for ref, marker in styled.items():
         assert re.search(rf'<c r="{ref}"[^>]* s="1"', sheet), ref
 

@@ -220,7 +220,8 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     ],
 };
 
-const SERVICE_DESCRIPTORS: ColumnDescriptor[] = [
+/** Service columns appended by «Показать служебные столбцы» (all grids). */
+export const SERVICE_DESCRIPTORS: ColumnDescriptor[] = [
     { ...fixed("createdAt", "Время добавления", 190), kind: "datetime", exportable: true },
     { ...fixed("updatedAt", "Время редактирования", 190), kind: "datetime", exportable: true },
     { ...fixed("updatedBy", "Автор последней редакции", 320), exportable: true },

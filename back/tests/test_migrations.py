@@ -28,6 +28,13 @@ _EMPTY_AS_NULL_COLUMNS: dict[str, tuple[str, ...]] = {
     "rm_raw_material_prices": ("business_plan_updated_at", "storage_standard_updated_at"),
 }
 
+# Columns the migration chain legitimately drops (0007_drop_plan_correction):
+# they exist on the pre-adoption snapshot but not after the upgrade, so the data
+# comparison excludes them.
+_DROPPED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "renovation_plan_rows": ("col_218",),
+}
+
 
 def business_snapshot(connection) -> dict[str, list[str]]:
     """Compare every stored business column, not just selected example fields."""
@@ -43,6 +50,10 @@ def business_snapshot(connection) -> dict[str, list[str]]:
             expression = f"(to_jsonb(t) || jsonb_build_object({patch}))::text"
         else:
             expression = "row_to_json(t)::text"
+        dropped = _DROPPED_COLUMNS.get(table)
+        if dropped:
+            removal = " - ".join(repr(name) for name in dropped)
+            expression = f"(row_to_json(t)::jsonb - {removal})::text"
         snapshot[table] = list(
             connection.execute(
                 # Names come from the inspector and are dialect-quoted, never user input.
@@ -82,7 +93,9 @@ async def test_adopt_preserves_data_and_refuses_drift(db_session, test_engine, m
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == BASELINE
         assert (await conn.execute(text("SELECT id, col_011 FROM renovation_plan_rows ORDER BY id"))).all() == before
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
-        await conn.execute(text("ALTER TABLE renovation_plan_rows DROP COLUMN col_218"))
+        # Drop a tracked (non-legacy-only) column to force real drift; col_218
+        # is on the tolerated list now (0007 drops it during the upgrade).
+        await conn.execute(text("ALTER TABLE renovation_plan_rows DROP COLUMN col_013"))
         with pytest.raises(ValueError, match="Схема отличается"):
             await conn.run_sync(adopt)
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
@@ -139,7 +152,7 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         assert await conn.run_sync(business_snapshot) == all_business_data
         assert (
             await conn.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalar_one() == "0006_price_audit_timestamps"
+        ).scalar_one() == "0007_drop_plan_correction"
         assert (await conn.execute(text("SELECT id, col_011 FROM renovation_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
         assert (
@@ -334,7 +347,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) ->
             await conn.run_sync(upgrade)
             assert (
                 await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "0006_price_audit_timestamps"
+            ).scalar_one() == "0007_drop_plan_correction"
         assert all(not path.exists() for path in stale)
     finally:
         for path in stale:

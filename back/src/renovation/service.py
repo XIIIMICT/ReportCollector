@@ -1487,6 +1487,7 @@ def _plan_row_read(
         assetRepairCode=asset.repair_code if asset is not None else None,
         position=row.position,
         revision=row.revision,
+        createdAt=row.created_at,
         updatedAt=row.updated_at,
         updatedBy=row.updated_by,
         values=values,

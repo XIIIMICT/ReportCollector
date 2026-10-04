@@ -85,6 +85,7 @@ export type RenovationPlanRow = {
     assetRepairCode: string | null;
     position: number;
     revision: number;
+    createdAt: string;
     updatedAt: string;
     updatedBy: string;
     values: Record<string, string | number | boolean | null>;

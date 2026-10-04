@@ -77,8 +77,12 @@ def prune_legacy_revision_files(directory: Path) -> list[str]:
 
 # Legacy-only column the models dropped: `renovation_reference_values.metadata`.
 # It is nullable and unused; the guard tolerates it so old installations adopt.
+# `renovation_plan_rows.col_218` (the retired «Корректировка») is dropped by
+# 0007_drop_plan_correction, which runs after the baseline during adoption, so
+# its presence on the pre-adoption schema is expected too.
 _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
     "renovation_reference_values": {"metadata"},
+    "renovation_plan_rows": {"col_218"},
 }
 
 # Indexes the models declare that a legacy-0015 installation does not carry yet:

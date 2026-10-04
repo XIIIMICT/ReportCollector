@@ -125,6 +125,7 @@ class RenovationPlanRowRead(BaseModel):
     assetRepairCode: str | None = None
     position: int
     revision: int
+    createdAt: datetime
     updatedAt: datetime
     updatedBy: str
     values: dict[str, str | float | bool | date | None]

@@ -37,6 +37,7 @@ import type {
     RenovationHeaderCell,
 } from "@/shared/api/renovation";
 import { serializeCellValue } from "@/shared/grid";
+import { SERVICE_DESCRIPTORS } from "@/shared/grid/grid-config";
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/raw-materials-grid";
@@ -114,14 +115,15 @@ const BLOCK_HEADER_LABELS: Record<string, string> = {
     mto: "3) Дирекция МТО",
 };
 
-/** Service columns revealed by the corner menu («Показать служебные столбцы»). */
-const SERVICE_COLUMNS: ReadonlyArray<{ dbName: string; label: string; width: number }> = [
-    { dbName: "id", label: "Идентификатор", width: 120 },
-    { dbName: "position", label: "Позиция", width: 90 },
-    { dbName: "revision", label: "Ревизия", width: 90 },
-    { dbName: "updatedAt", label: "Обновлено", width: 160 },
-    { dbName: "updatedBy", label: "Кем обновлено", width: 200 },
-];
+/** Service columns revealed by the corner menu («Показать служебные столбцы»):
+ * the same audit trio as every other dictionary (creation time, edit time and
+ * the last editor) — not the internal id/position/revision. */
+const SERVICE_COLUMNS: ReadonlyArray<{ dbName: string; label: string; width: number }> =
+    SERVICE_DESCRIPTORS.map((descriptor) => ({
+        dbName: descriptor.key,
+        label: descriptor.label,
+        width: descriptor.width,
+    }));
 
 /** Row-model fields that are not plan values (the overlay never renders them). */
 const SERVICE_DB_NAMES = new Set(SERVICE_COLUMNS.map((column) => column.dbName));
@@ -872,8 +874,9 @@ function RenovationGridInner(
                     column.cellTemplate = dateTemplate;
                     column.editor = "date";
                 }
-                // The service «Обновлено» column carries a full timestamp.
-                if (field.dbName === "updatedAt") {
+                // The service «Время добавления»/«Время редактирования» columns
+                // carry full timestamps.
+                if (field.dbName === "updatedAt" || field.dbName === "createdAt") {
                     column.cellTemplate = dateTimeTemplate;
                 }
                 if (field.cellType === "boolean") {

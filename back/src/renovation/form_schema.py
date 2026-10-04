@@ -16,6 +16,12 @@ from src.renovation.calculations import FormulaDefinition, FormulaEngine
 
 FORM_DATA_PATH = Path(__file__).parent / "form_data" / "renovation-form.json"
 
+# Fields kept in the legacy layout but no longer part of the app: the column is
+# dropped from the DB, and hiding it here keeps every consumer (meta, grid,
+# export, formula inputs) consistent without renumbering the form positions
+# (removing it from the JSON would shift every later field's position).
+HIDDEN_FIELDS = frozenset({"col_218"})
+
 
 @dataclass(frozen=True)
 class RenovationFieldMeta:
@@ -74,6 +80,7 @@ def field_metas() -> tuple[RenovationFieldMeta, ...]:
             excel_formula=field.get("excelFormula"),
         )
         for field in _load_form()["fields"]
+        if field["dbName"] not in HIDDEN_FIELDS
     ]
     return tuple(sorted(metas, key=lambda meta: meta.position))
 
