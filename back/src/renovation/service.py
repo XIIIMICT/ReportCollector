@@ -179,6 +179,10 @@ def _bad_boolean(value: object) -> CellValidationError:
     return CellValidationError(f"Не булево значение: {value!r}")
 
 
+def _rule_violation(label: str, detail: str) -> CellValidationError:
+    return CellValidationError(f"Значение в ячейке «{label}» нарушает ограничение: {detail}.")
+
+
 async def resolve_renovation_access(
     session: AsyncSession,
     identity: CurrentUserIdentity,
@@ -293,6 +297,8 @@ def _field_read(meta: RenovationFieldMeta) -> RenovationFieldRead:
         position=meta.position,
         ordinal=meta.ordinal,
         responsibilityBlock=meta.responsibility_block,
+        rules=[dict(rule) for rule in meta.rules],
+        allowNull=meta.allow_null,
     )
 
 
@@ -1493,7 +1499,46 @@ def _plan_row_read(
         values=values,
         renovationId=renovation_id,
         missingComponents=list(missing),
+        invalidFields=_row_rule_violations(row, label_map),
     )
+
+
+def _row_rule_violations(
+    row: RenovationPlanRow,
+    label_map: dict[UUID, str],
+) -> list[str]:
+    """
+    Fields whose stored value breaks a form rule (for the grid's red highlight).
+
+    Rules from the source workbook (minimum/percentage/allowed_values/integer)
+    are enforced on input by `_coerce_cell`, but a CALCULATED field is never
+    edited directly: e.g. «Продолжительность, дни» = col_025 − col_024 can go
+    negative when the dates are entered in the wrong order. Reporting the
+    offending fields lets the grid tint those cells red, like the incomplete
+    renovation ID.
+    """
+    invalid: list[str] = []
+    for meta in field_metas():
+        if meta.db_name in _VIRTUAL_FIELDS or not meta.rules:
+            continue
+        value = getattr(row, meta.db_name)
+        if value is None:
+            continue
+        if meta.cell_type == "reference":
+            value = label_map.get(value)
+            if value is None:
+                continue
+        if _value_breaks_rules(meta, value):
+            invalid.append(meta.db_name)
+    return invalid
+
+
+def _value_breaks_rules(meta: RenovationFieldMeta, value: object) -> bool:
+    try:
+        _check_edit_rules(meta, value)
+    except CellValidationError:
+        return True
+    return False
 
 
 def _safe_renovation_id(input_: RenovationIdInput) -> RenovationIdResult:
@@ -1889,9 +1934,11 @@ async def _coerce_cell(
     """Coerce an API cell value to (journal value, DB value) by the field type."""
     if meta.cell_type == "number":
         parsed = coerce_number(value)
+        _check_edit_rules(meta, parsed)
         return parsed, parsed
     if meta.cell_type == "date":
         parsed = _coerce_date(value)
+        _check_date_rules(meta, parsed)
         return parsed.isoformat() if parsed is not None else None, parsed
     if meta.cell_type == "boolean":
         if value is None:
@@ -1905,6 +1952,52 @@ async def _coerce_cell(
         return label, value_id
     text = coerce_text(value)
     return text, text
+
+
+def _is_field_rule(rule: dict[str, object], kind: str) -> bool:
+    return rule.get("kind") == kind
+
+
+def _percentage_bounds(rule: dict[str, object]) -> tuple[Decimal, Decimal]:
+    minimum = Decimal(str(rule.get("minimum", 0)))
+    maximum = Decimal(str(rule.get("maximum", 100)))
+    return minimum, maximum
+
+
+def _check_edit_rules(meta: RenovationFieldMeta, value: object) -> None:
+    """
+    Validate a value against the form's field-local rules before it is stored.
+
+    Only rules checkable from the cell value itself are enforced here (values
+    are non-null: `None` is allowed by `allowNull` and clears the cell):
+    `minimum`, `integer`, `percentage` and `allowed_values`. The cross-field
+    rules (`field_compare` — col_025 ≥ col_024; `calendar_year` — col_024) are
+    validated in the grid, which has both the field metadata and the row.
+    """
+    if value is None:
+        return
+    for rule in meta.rules:
+        kind = rule.get("kind")
+        if kind == "minimum":
+            minimum = rule.get("value")
+            if minimum is not None and Decimal(str(value)) < Decimal(str(minimum)):
+                raise _rule_violation(meta.label, "значение не может быть отрицательным")
+        elif kind == "integer":
+            if Decimal(str(value)) != Decimal(str(value)).to_integral_value():
+                raise _rule_violation(meta.label, "значение должно быть целым числом")
+        elif kind == "percentage":
+            minimum, maximum = _percentage_bounds(rule)
+            if not (minimum <= Decimal(str(value)) <= maximum):
+                raise _rule_violation(meta.label, f"значение должно быть от {minimum} до {maximum}%")
+        elif kind == "allowed_values":
+            allowed = rule.get("values")
+            if isinstance(allowed, list) and str(value) not in {str(item) for item in allowed}:
+                raise _rule_violation(meta.label, "значение не входит в список допустимых")
+
+
+def _check_date_rules(meta: RenovationFieldMeta, value: date | None) -> None:
+    """Date rules needing the row are checked in the grid; nothing here yet."""
+    del meta, value
 
 
 def _coerce_date(value: object) -> date | None:

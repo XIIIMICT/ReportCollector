@@ -156,6 +156,7 @@ function toGridRow(
         __rowState: diffRow ? (diffRow.isNew ? "new" : "changed") : "unchanged",
         __changedFields: diffRow?.cells.map((cell) => cell.field) ?? [],
         __missingComponents: row.missingComponents,
+        __invalidFields: row.invalidFields ?? [],
     };
 }
 

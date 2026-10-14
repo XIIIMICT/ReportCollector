@@ -41,6 +41,13 @@ class RenovationFieldMeta:
     # the export renders the former onto the sheet's cell references.
     formula: str | None = None
     excel_formula: str | None = None
+    # Validation rules from the source workbook (kind + parameters). Used by the
+    # edit path (rejects input violating a rule) and by the grid to highlight a
+    # calculated cell whose value breaks its rule (e.g. a negative duration).
+    rules: tuple[dict[str, object], ...] = ()
+    # Reference label used for a `field_compare` rule (e.g. «Дата окончания» ≥
+    # «Дата начала»): the compared field's label, resolved from the form.
+    allow_null: bool = True
 
 
 @dataclass(frozen=True)
@@ -78,6 +85,8 @@ def field_metas() -> tuple[RenovationFieldMeta, ...]:
             responsibility_block=field.get("responsibilityBlock"),
             formula=field.get("formula"),
             excel_formula=field.get("excelFormula"),
+            rules=tuple(field.get("validation", {}).get("rules", ())),
+            allow_null=bool(field.get("validation", {}).get("allowNull", True)),
         )
         for field in _load_form()["fields"]
         if field["dbName"] not in HIDDEN_FIELDS

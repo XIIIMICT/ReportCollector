@@ -64,6 +64,8 @@ class RenovationFieldRead(BaseModel):
     position: int
     ordinal: int
     responsibilityBlock: str | None = None
+    rules: list[dict[str, object]] = []
+    allowNull: bool = True
 
 
 class RenovationHeaderCellRead(BaseModel):
@@ -131,6 +133,8 @@ class RenovationPlanRowRead(BaseModel):
     values: dict[str, str | float | bool | date | None]
     renovationId: str | None = None
     missingComponents: list[str] = []
+    # Fields whose stored value breaks a form rule (red highlight in the grid).
+    invalidFields: list[str] = []
 
 
 class RenovationPlanRead(BaseModel):

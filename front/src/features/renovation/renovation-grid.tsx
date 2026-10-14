@@ -145,6 +145,8 @@ export type RenovationGridRow = {
     __rowState: "unchanged" | "new" | "changed" | "deleted";
     __changedFields: string[];
     __missingComponents: string[];
+    /** Fields whose stored value breaks a form rule (red highlight). */
+    __invalidFields: string[];
 } & Record<string, unknown>;
 
 export type RenovationGridProps = {
@@ -821,15 +823,18 @@ function RenovationGridInner(
                             field.isCalculated &&
                             row.__rowState !== "deleted" &&
                             !row.isPlaceholder;
-                        // The «Идентификационный код ремонта» (col_003) is red
-                        // when it's incomplete — a component is missing
-                        // (replaced with <NULL>) or the code was never computed.
-                        // Other calculated fields are never highlighted.
+                        // The «Идентификационный код ремонта» (col_003) is red when it's
+                        // incomplete — a component is missing (replaced with
+                        // <NULL>) or the code was never computed. Any other
+                        // field whose stored value breaks a form rule (e.g. a
+                        // negative «Продолжительность, дни» = col_025 − col_024)
+                        // is red too; the backend reports the offending fields.
                         const invalid =
-                            field.dbName === "col_003" &&
                             calculated &&
-                            ((row.__missingComponents?.length ?? 0) > 0 ||
-                                String(row.col_003 ?? "").includes(MISSING_COMPONENT));
+                            (field.dbName === "col_003"
+                                ? (row.__missingComponents?.length ?? 0) > 0 ||
+                                  String(row.col_003 ?? "").includes(MISSING_COMPONENT)
+                                : (row.__invalidFields?.includes(field.dbName) ?? false));
                         return {
                             className: {
                                 "report-cell": true,
@@ -1313,6 +1318,54 @@ function RenovationGridInner(
         };
     }
 
+    /**
+     * Field rules from the source workbook that need the whole row: the local
+     * ones (minimum/integer/percentage/allowed_values) are also enforced by the
+     * backend, but checking them here gives immediate feedback without a round
+     * trip; the cross-field ones (field_compare, calendar_year) are frontend-only.
+     * Returns an error message, or null when the value is valid.
+     */
+    function checkFieldRules(
+        field: RenovationField,
+        value: unknown,
+        row: RenovationGridRow,
+    ): string | null {
+        if (value === null || value === undefined || String(value).trim() === "") return null;
+        const rules = field.rules ?? [];
+        for (const rule of rules) {
+            if (rule.kind === "minimum" && rule.value !== undefined) {
+                const numeric = Number(value);
+                if (Number.isFinite(numeric) && numeric < Number(rule.value)) {
+                    return `Значение в ячейке «${field.label}» не может быть отрицательным.`;
+                }
+            } else if (rule.kind === "integer") {
+                if (!Number.isInteger(Number(value))) {
+                    return `Значение в ячейке «${field.label}» должно быть целым числом.`;
+                }
+            } else if (rule.kind === "percentage") {
+                const numeric = Number(value);
+                const minimum = rule.minimum ?? 0;
+                const maximum = rule.maximum ?? 100;
+                if (Number.isFinite(numeric) && (numeric < minimum || numeric > maximum)) {
+                    return `Значение в ячейке «${field.label}» должно быть от ${minimum} до ${maximum}%.`;
+                }
+            } else if (rule.kind === "allowed_values" && rule.values) {
+                if (!rule.values.includes(String(value).trim())) {
+                    return `Значение в ячейке «${field.label}» не входит в список допустимых.`;
+                }
+            } else if (rule.kind === "field_compare" && rule.field && rule.operator === "gte") {
+                // e.g. «Дата окончания» ≥ «Дата начала»; ISO date strings compare
+                // lexicographically, and a missing counterpart skips the check.
+                const other = row[rule.field];
+                const otherText = other === null || other === undefined ? "" : String(other);
+                if (otherText && String(value) < otherText) {
+                    return `Значение в ячейке «${field.label}» не должно быть меньше «${otherText}».`;
+                }
+            }
+        }
+        return null;
+    }
+
     // Stable identity: the selection effect below calls this while computing
     // the paste-button state — an inline function would re-run that effect
     // (and re-render the workspace) on every render.
@@ -1384,6 +1437,12 @@ function RenovationGridInner(
             onValidationError(normalized.message);
             return;
         }
+        const ruleError = checkFieldRules(field, normalized.value, row);
+        if (ruleError) {
+            event.preventDefault();
+            onValidationError(ruleError);
+            return;
+        }
         event.detail.val = normalized.value;
     }
 
@@ -1420,6 +1479,12 @@ function RenovationGridInner(
                 if (!normalized.ok) {
                     event.preventDefault();
                     onValidationError(normalized.message);
+                    return;
+                }
+                const ruleError = checkFieldRules(field, normalized.value, currentRow);
+                if (ruleError) {
+                    event.preventDefault();
+                    onValidationError(ruleError);
                     return;
                 }
                 patch[prop] = normalized.value;
@@ -2065,6 +2130,7 @@ function RenovationGridInner(
                           __rowState: "unchanged",
                           __changedFields: [],
                           __missingComponents: [],
+                          __invalidFields: [],
                       } as RenovationGridRow,
                   ]
                 : undefined,

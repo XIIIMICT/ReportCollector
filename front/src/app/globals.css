@@ -11,6 +11,10 @@
     --breakpoint-md: 0rem;
 }
 
+.revogrid-license-info {
+    display: none; /* NEVER TOUCH THIS */
+}
+
 .scrollbar-hidden {
     -ms-overflow-style: none;
     scrollbar-width: none;

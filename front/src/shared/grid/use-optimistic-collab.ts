@@ -86,7 +86,7 @@ export function useOptimisticCollab<T extends { id: string }>(
 /**
  * Cell-level optimistic updates for grid editing
  */
-export function useOptimisticCell<T extends Record<string, unknown>>(
+export function useOptimisticCell<_ extends Record<string, unknown>>(
     rowId: string,
     columnId: string,
     initialValue: unknown,

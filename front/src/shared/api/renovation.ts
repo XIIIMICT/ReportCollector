@@ -23,6 +23,19 @@ export type RenovationCatalog = {
     options: RenovationCatalogOption[];
 };
 
+export type RenovationFieldRule = {
+    kind: string;
+    /** `minimum`'s bound, `percentage`'s lower bound, `field_compare`'s target. */
+    value?: number | string;
+    minimum?: number;
+    maximum?: number;
+    /** `allowed_values` whitelist. */
+    values?: string[];
+    /** `field_compare` operator (`gte`). */
+    operator?: string;
+    field?: string;
+};
+
 export type RenovationField = {
     dbName: string;
     label: string;
@@ -34,6 +47,9 @@ export type RenovationField = {
     position: number;
     ordinal: number;
     responsibilityBlock?: string | null;
+    /** Validation rules from the source workbook (see RenovationFieldRule). */
+    rules?: RenovationFieldRule[];
+    allowNull?: boolean;
 };
 
 export type RenovationHeaderCell = {
@@ -91,6 +107,8 @@ export type RenovationPlanRow = {
     values: Record<string, string | number | boolean | null>;
     renovationId: string | null;
     missingComponents: string[];
+    /** Fields whose stored value breaks a form rule (red highlight). */
+    invalidFields?: string[];
 };
 
 export type RenovationPlan = {

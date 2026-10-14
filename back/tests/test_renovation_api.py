@@ -251,6 +251,45 @@ async def test_renovation_id_pads_a_short_defect_number(
     assert "0706179" in (row.col_003 or "")
 
 
+async def test_edit_rejects_a_value_breaking_the_field_rule(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """col_028 is «не может быть отрицательным» — a negative edit is refused."""
+    row = await _row_by_asset_code(db_session, "bsk")
+    status, _ = await _patch(client, [{"rowId": str(row.id), "field": "col_028", "value": -1}])
+    assert status == 422
+
+
+async def test_read_plan_reports_calculated_rule_violations(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """A calculated field breaking its rule is flagged for the grid's red tint.
+
+    «Продолжительность, дни» (col_026 = col_025 − col_024) cannot be negative;
+    the dates are edited directly, so the violation is only visible after the
+    recalculation and must be reported as an invalid field.
+    """
+    row = await _row_by_asset_code(db_session, "bsk")
+    # Start after end → col_026 becomes negative. The edit is applied and the
+    # row recalced by the same PATCH; the dates themselves have no minimum
+    # rule, so only the derived duration breaks one.
+    status, _ = await _patch(
+        client,
+        [
+            {"rowId": str(row.id), "field": "col_024", "value": "2027-03-01"},
+            {"rowId": str(row.id), "field": "col_025", "value": "2027-01-01"},
+        ],
+    )
+    assert status == 200
+
+    response = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
+    assert response.status_code == 200
+    bsk = next(item for item in response.json()["rows"] if item["assetCode"] == "bsk")
+    assert "col_026" in bsk["invalidFields"]
+
+
 async def test_read_plan_facets_with_offsets(client: AsyncClient) -> None:
     """The distinct-value window is lazy: offset/limit page over the sorted list."""
     response = await client.get(
