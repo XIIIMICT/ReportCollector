@@ -22,6 +22,10 @@ if TYPE_CHECKING:
 
 # Env vars must be set before the first src.* import, because src.database
 # caches settings at module level.
+# POSTGRES_HOST defaults to the raw loopback IP, not `localhost`: on Windows
+# `localhost` resolves to ::1 first and Docker Desktop swallows that connection
+# attempt until the TCP retransmission timeout (~21 s per fresh connection),
+# which turns every test that opens pooled connections into a timing flake.
 os.environ.setdefault("AUTH_SECRET", "test-secret-that-is-at-least-32-characters-long")
 os.environ.setdefault("AUTH_IDENTITY_TTL", "3600")
 os.environ.setdefault("AUTH_SEED_ADMIN_EMAIL", "admin@example.ru")
@@ -29,11 +33,11 @@ os.environ.setdefault("AUTH_SEED_ADMIN_PASSWORD", "AdminPassword123")
 os.environ.setdefault("POSTGRES_USER", "postgres")
 os.environ.setdefault("POSTGRES_PASSWORD", "strong_password")
 os.environ.setdefault("POSTGRES_DB", "dwh")
-os.environ.setdefault("POSTGRES_HOST", "localhost")
+os.environ.setdefault("POSTGRES_HOST", "127.0.0.1")
 os.environ.setdefault("POSTGRES_PORT", "5432")
 os.environ.setdefault("POSTGRES_SCHEMA", "rc")
 os.environ.setdefault("BACKEND_CORS_ORIGINS", '["http://localhost:5000","http://127.0.0.1:5000"]')
-os.environ.setdefault("TEST_DATABASE_URL", "postgresql+asyncpg://postgres:strong_password@localhost:5432/dwh")
+os.environ.setdefault("TEST_DATABASE_URL", "postgresql+asyncpg://postgres:strong_password@127.0.0.1:5432/dwh")
 os.environ.setdefault("TEST_SCHEMA", "rc_test")
 COLLAB_BACKEND = os.environ.get("TEST_COLLAB_BACKEND", "memory")
 if COLLAB_BACKEND not in {"memory", "valkey"}:
@@ -42,6 +46,9 @@ if COLLAB_BACKEND not in {"memory", "valkey"}:
 os.environ["VALKEY_URL"] = os.environ.get("TEST_VALKEY_URL", "") if COLLAB_BACKEND == "valkey" else ""
 
 TEST_DATABASE_URL = os.environ["TEST_DATABASE_URL"]
+# Normalize an explicitly provided URL to the loopback IP for the same reason;
+# `127.0.0.1` behaves identically to `localhost` on Linux CI.
+TEST_DATABASE_URL = TEST_DATABASE_URL.replace("@localhost:", "@127.0.0.1:")
 TEST_SCHEMA = os.environ["TEST_SCHEMA"]
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if not TEST_SCHEMA.startswith("rc_test") or not TEST_SCHEMA.replace("_", "").isalnum():

@@ -26,7 +26,8 @@
 !/back/
 !/front/
 
-# Renovation seed workbook (the «Пообъектный план», ~94k rows, 129 MB) is a
-# local-only artifact: never committed (see docs/seed/); the seed falls back to
-# demo rows when it is absent.
-/docs/seed/*.xlsx
+# Seed reference sources (docs/seed/): the renovation workbook (~94k rows,
+# 129 MB), raw-materials plan workbooks («Планы», ~72 MB) and the source
+# specs are local-only artifacts, never committed; seeds fall back to demo
+# rows when the files are absent.
+/docs/seed/
