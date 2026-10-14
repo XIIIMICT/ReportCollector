@@ -25,10 +25,17 @@ import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 export function FormStatus({
     room,
     selectionLabel,
+    selectionDetail,
     gridStats,
 }: {
     room: CollabRoom | null;
     selectionLabel: string | null;
+    /**
+     * The selection spelled out in full for the tooltip — the renovation plan
+     * passes the header chain («1) Техническая дирекция → … → Всего, строка 3»);
+     * falls back to `selectionLabel`.
+     */
+    selectionDetail?: string | null;
     gridStats: GridViewStats | null;
 }) {
     const hasPresence = room !== null && room.status === "online";
@@ -117,7 +124,7 @@ export function FormStatus({
                     {selectionLabel ? (
                         <div className="form-status-detail__row">
                             <span>
-                                <b>Выделено:</b> {selectionLabel}
+                                <b>Выделено:</b> {selectionDetail ?? selectionLabel}
                             </span>
                         </div>
                     ) : null}

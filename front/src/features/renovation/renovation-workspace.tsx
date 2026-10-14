@@ -465,6 +465,7 @@ export function RenovationWorkspace({
     const [gridStats, setGridStats] = useState<GridViewStats | null>(null);
     const [selection, setSelection] = useState<{
         label: string | null;
+        detail: string | null;
         cellKeys: string[];
         rowId: string | null;
     } | null>(null);
@@ -1381,6 +1382,7 @@ export function RenovationWorkspace({
         (
             next: {
                 label: string | null;
+                detail: string | null;
                 cellKeys: string[];
                 rowId: string | null;
             } | null,
@@ -1797,6 +1799,7 @@ export function RenovationWorkspace({
                     <FormStatus
                         room={room}
                         selectionLabel={isPlanSection ? (selection?.label ?? null) : null}
+                        selectionDetail={isPlanSection ? (selection?.detail ?? null) : null}
                         gridStats={isPlanSection ? gridStats : null}
                     />
                 ) : null}

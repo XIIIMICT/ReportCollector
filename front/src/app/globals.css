@@ -1966,13 +1966,13 @@ body {
     background: var(--cell-calculated) !important;
 }
 
-/* The column-number strip: one cell per visible column with its form position
-   (the numbering starts at «Предприятие» = 1), drawn at the bottom of the
-   overlay. Muted — a service row, not a header level. Top border: the header
-   cell above drops its bottom line. A cell of a column whose totals cell is
-   empty is taller (24px + the totals row) and merges with it — one cell, the
-   number centered over both rows. pointer-events: none keeps the grid below
-   (the totals row itself) hoverable through the merge. */
+/* The column-number strip: one cell per visible column with its number in the
+   form («Предприятие» = 1), drawn at the bottom of the overlay. Muted — a
+   service row, not a header level. Top border: the header cell above drops its
+   bottom line. A cell of a column whose totals cell is empty is taller (24px +
+   the totals row) and merges with it — one cell, the number centered over both
+   rows. The cell is hoverable: the column-number tooltip lists the column's
+   header chain from the top level down. */
 .renovation-grid__number-cell {
     position: absolute;
     box-sizing: border-box;
@@ -1986,11 +1986,18 @@ body {
     font-weight: 600;
     line-height: 1;
     user-select: none;
-    pointer-events: none;
     box-shadow:
         -1px 0 0 var(--cell-border) inset,
         0 1px 0 var(--cell-border) inset,
         0 -1px 0 var(--cell-border) inset;
+}
+
+/* The column-number tooltip's content: one header level per line, «↓» between
+   the levels. */
+.renovation-grid__number-tooltip {
+    display: block;
+    line-height: 1.35;
+    text-align: left;
 }
 
 .renovation-grid__resize-handle {

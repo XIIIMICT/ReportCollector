@@ -20,6 +20,7 @@ import { InfinityScrollPlugin } from "@revolist/rv-pro-trial";
 import "@revolist/rv-pro-trial/styles.css";
 import {
     forwardRef,
+    Fragment,
     useCallback,
     useEffect,
     useImperativeHandle,
@@ -207,6 +208,11 @@ export type RenovationGridProps = {
     onSelectionChange: (
         selection: {
             label: string | null;
+            /**
+             * The full header chain of a single-column selection (the status
+             * tooltip shows it with «→»); null when it does not apply.
+             */
+            detail: string | null;
             cellKeys: string[];
             /** The row the selection started in (for row-level actions like delete). */
             rowId: string | null;
@@ -579,6 +585,8 @@ function RenovationGridInner(
     // The overlay carries the 11 header levels plus the column-number strip
     // directly above the pinned totals row.
     const overlayHeight = headerHeight + COLUMN_NUMBER_ROW_HEIGHT;
+    /** The pinned totals row's height (0 when there is no summary). */
+    const summaryHeight = summaryValues === null ? 0 : SUMMARY_ROW_HEIGHT;
     // Floating tooltip over a cell occupied by another participant (lease/presence):
     // the owner's name in bold, then the selected range.
     const [remoteTooltip, setRemoteTooltip] = useState<{
@@ -588,6 +596,14 @@ function RenovationGridInner(
         top: number;
     } | null>(null);
     const remoteTooltipTargetRef = useRef<Element | null>(null);
+    // Floating tooltip over a column number: the column's header chain, from the
+    // top level down («1) Техническая дирекция ↓ … ↓ Всего»).
+    const [numberTooltip, setNumberTooltip] = useState<{
+        lines: string[];
+        left: number;
+        top: number;
+    } | null>(null);
+    const numberTooltipTargetRef = useRef<Element | null>(null);
 
     const catalogLabelsByField = useMemo(() => {
         const optionsByCatalog = new Map<string, string[]>();
@@ -710,6 +726,10 @@ function RenovationGridInner(
     // number in the form (the workbook ordinal shifted so «Предприятие» = 1 —
     // see `columnNumber`), so hiding a field (e.g. the dropped col_218) never
     // leaves a gap in the numbering. The service columns stay empty.
+    const assetPosition = useMemo(
+        () => fields.find((field) => field.dbName === ASSET_FIELD_DB_NAME)?.position ?? null,
+        [fields],
+    );
     const assetColumnNumber = useMemo(() => {
         const asset = fields.find((field) => field.dbName === ASSET_FIELD_DB_NAME);
         return asset ? columnNumber(asset) : null;
@@ -785,6 +805,15 @@ function RenovationGridInner(
             height: number;
             /** The cell is in the header's top row — it draws the table's top line. */
             isTop: boolean;
+            /** The form levels the cell spans (0-based, like `headerCells`). */
+            level: number;
+            /**
+             * The 1-based form positions the cell covers (start inclusive, end
+             * exclusive) — the column-number tooltip walks them to build a
+             * column's header chain from the top level down.
+             */
+            fromPosition: number;
+            toPosition: number;
             /** Leaf header of a filterable column (its dbName) — a filter button. */
             filterColumn?: string;
         }> = [];
@@ -826,6 +855,9 @@ function RenovationGridInner(
                 width,
                 height: (levelOffsets[cell.level + cell.rowSpan] ?? headerHeight) - top,
                 isTop: top === 0,
+                level: cell.level,
+                fromPosition: cell.startPosition + 1,
+                toPosition: endPosition,
                 // A single-field leaf header filters that column. Multi-field
                 // group headers have no single column to filter.
                 ...(filterColumn && { filterColumn }),
@@ -840,6 +872,11 @@ function RenovationGridInner(
             width: assetWidth,
             height: headerHeight,
             isTop: true,
+            // The synthetic column stands in for the form's «Предприятие»
+            // (col_002) — its own single-cell chain.
+            level: 0,
+            fromPosition: assetPosition ?? 1,
+            toPosition: (assetPosition ?? 1) + 1,
             filterColumn: ASSET_COLUMN_PROP,
         });
         if (showServiceColumns) {
@@ -852,11 +889,16 @@ function RenovationGridInner(
                     width: serviceWidthOf(column.dbName),
                     height: headerHeight,
                     isTop: true,
+                    // No form position: service columns are not numbered.
+                    level: 0,
+                    fromPosition: 0,
+                    toPosition: 0,
                 });
             }
         }
         return cells;
     }, [
+        assetPosition,
         assetWidth,
         geometry.offsets,
         headerCells,
@@ -868,6 +910,34 @@ function RenovationGridInner(
         visibleIndexByPosition,
         widthOf,
     ]);
+
+    /**
+     * The header chain of every numbered column: the cells covering it, from
+     * the top level down to the leaf — the column-number tooltip spells them
+     * out with «↓», the status tooltip with «→» (the same texts the overlay
+     * draws, canonical block labels included).
+     */
+    const headerChainByProp = useMemo(() => {
+        const chains = new Map<string, string[]>();
+        const add = (prop: string, position: number | null) => {
+            if (position === null) return;
+            const texts: string[] = [];
+            for (const cell of overlayCells) {
+                if (cell.fromPosition > position || position >= cell.toPosition) continue;
+                const text = cell.text.trim();
+                // Consecutive duplicates (a label repeated on two levels) read
+                // as noise in the chain.
+                if (text !== "" && text !== texts[texts.length - 1]) texts.push(text);
+            }
+            if (texts.length > 0) chains.set(prop, texts);
+        };
+        add(ASSET_COLUMN_PROP, assetPosition);
+        for (const field of displayFields) {
+            if (SERVICE_DB_NAMES.has(field.dbName)) continue;
+            add(field.dbName, field.position);
+        }
+        return chains;
+    }, [assetPosition, displayFields, overlayCells]);
 
     const editableCell = useCallback(
         (field: RenovationField, row: RenovationGridRow): boolean => {
@@ -1062,6 +1132,26 @@ function RenovationGridInner(
         selectionEpoch,
         visibleFields,
     ]);
+
+    /**
+     * The column behind a grid column index: its strip number (null for the
+     * unnumbered service columns), its label and its prop — the selection label
+     * and the status tooltip are built from this.
+     */
+    const columnInfoAt = useCallback(
+        (index: number): { number: number | null; label: string; prop: string | null } | null => {
+            const column = columns[index] as ColumnRegular | undefined;
+            if (!column || column.prop === undefined) return null;
+            const prop = String(column.prop);
+            if (prop === ASSET_COLUMN_PROP) {
+                return { number: assetColumnNumber, label: "Предприятие", prop };
+            }
+            const field = fieldByDbName.get(prop);
+            if (!field) return { number: null, label: String(column.name ?? ""), prop };
+            return { number: columnNumber(field), label: field.label, prop };
+        },
+        [assetColumnNumber, columns, fieldByDbName],
+    );
 
     // Grid row index → loaded row. The remote source is sparse (unloaded slots
     // are `{}`), so a compact array cannot be indexed by the grid's rowIndex —
@@ -2069,6 +2159,7 @@ function RenovationGridInner(
             const label = first === last ? `строка ${first}` : `строки ${first}–${last}`;
             onSelectionChange({
                 label,
+                detail: null,
                 cellKeys: [],
                 rowId:
                     loadedRows.find(
@@ -2084,8 +2175,6 @@ function RenovationGridInner(
             onSelectionChange(null);
             return;
         }
-        const firstColumn = columns[selectionRange.x] as ColumnRegular | undefined;
-        const lastColumn = columns[selectionRange.x1] as ColumnRegular | undefined;
         const rangeRows: RenovationGridRow[] = [];
         const lastRow = Math.min(selectionRange.y1, totalRows - 1);
         for (let y = selectionRange.y; y <= lastRow; y += 1) {
@@ -2093,12 +2182,25 @@ function RenovationGridInner(
             if (row) rangeRows.push(row);
         }
         const firstRow = rangeRows[0];
-        const columnText =
-            firstColumn && lastColumn
-                ? firstColumn === lastColumn
-                    ? String(firstColumn.name ?? "")
-                    : `${String(firstColumn.name ?? "")} — ${String(lastColumn.name ?? "")}`
-                : "";
+        // The footer names the selection by COLUMN NUMBER (not the header text):
+        // «столбец 2, строка 3». The full header chain of a single-column
+        // selection travels as `detail` — the status tooltip spells it out with
+        // " → " (the column-number tooltip shows the same chain with "↓").
+        const firstColumnInfo = columnInfoAt(selectionRange.x);
+        const lastColumnInfo = columnInfoAt(selectionRange.x1);
+        let columnText = "";
+        if (firstColumnInfo) {
+            if (selectionRange.x === selectionRange.x1) {
+                columnText =
+                    firstColumnInfo.number === null
+                        ? `столбец «${firstColumnInfo.label}»`
+                        : `столбец ${firstColumnInfo.number}`;
+            } else if (lastColumnInfo) {
+                const from = firstColumnInfo.number ?? `«${firstColumnInfo.label}»`;
+                const to = lastColumnInfo.number ?? `«${lastColumnInfo.label}»`;
+                columnText = `столбцы ${from}–${to}`;
+            }
+        }
         // The numbers are the sequential ordinals of the filtered scope — the
         // range bounds are the grid row indexes (+1), so even a range over a
         // not-yet-loaded chunk is labelled with the numbers the user sees.
@@ -2107,6 +2209,11 @@ function RenovationGridInner(
                 ? `строка ${selectionRange.y + 1}`
                 : `строки ${selectionRange.y + 1}–${selectionRange.y1 + 1}`;
         const label = [columnText, rowText].filter(Boolean).join(", ") || null;
+        const chain =
+            selectionRange.x === selectionRange.x1 && firstColumnInfo?.prop
+                ? headerChainByProp.get(firstColumnInfo.prop)
+                : undefined;
+        const detail = chain && chain.length > 0 ? [chain.join(" → "), rowText].join(", ") : null;
         const cellKeys: string[] = [];
         for (let y = selectionRange.y; y <= lastRow; y += 1) {
             const row = rowsByIndex.get(y);
@@ -2119,14 +2226,17 @@ function RenovationGridInner(
         }
         onSelectionChange({
             label,
+            detail,
             cellKeys,
             rowId: firstRow?.__id ?? null,
         });
     }, [
         canEdit,
         cellAllowed,
+        columnInfoAt,
         columns,
         fieldByDbName,
+        headerChainByProp,
         loadedRows,
         onClipboardStateChange,
         onSelectionChange,
@@ -2170,11 +2280,16 @@ function RenovationGridInner(
             return result;
         });
     }, []);
+    // Mirror of the live preview widths: `endResize` also runs from the
+    // window-level pointerup fallback, where a stale closure would persist an
+    // outdated width.
+    const overlayWidthsRef = useRef(overlayWidths);
+    overlayWidthsRef.current = overlayWidths;
     const endResize = useCallback(() => {
         const drag = dragRef.current;
         if (!drag) return;
         dragRef.current = null;
-        const width = clampWidth(overlayWidths.get(drag.dbName) ?? drag.startWidth);
+        const width = clampWidth(overlayWidthsRef.current.get(drag.dbName) ?? drag.startWidth);
         setWidths((current) => {
             if (current.get(drag.dbName) === width) return current;
             const result = new Map(current);
@@ -2184,7 +2299,7 @@ function RenovationGridInner(
         setOverlayWidths(new Map());
         setResizingField(null);
         window.localStorage.setItem(WIDTH_STORAGE_PREFIX + drag.dbName, String(width));
-    }, [overlayWidths]);
+    }, []);
 
     // Header level heights: pointer drag on the boundary under a level. The
     // overlay geometry follows live (the grid columns don't depend on it, so
@@ -2231,6 +2346,23 @@ function RenovationGridInner(
         setLevelHeights(defaultLevelHeights());
     }, [fields]);
 
+    // Fallback for a drag whose pointerup never reaches the handle (the
+    // capture was lost, the pointer was released outside the window): commit
+    // and persist it anyway — the user sees the column resized, so a reload
+    // must keep the new size.
+    useEffect(() => {
+        const finish = () => {
+            endResize();
+            endLevelResize();
+        };
+        window.addEventListener("pointerup", finish, true);
+        window.addEventListener("pointercancel", finish, true);
+        return () => {
+            window.removeEventListener("pointerup", finish, true);
+            window.removeEventListener("pointercancel", finish, true);
+        };
+    }, [endLevelResize, endResize]);
+
     useImperativeHandle(
         forwardedRef,
         () => ({
@@ -2258,8 +2390,9 @@ function RenovationGridInner(
      * to the y-bands where the boundary LINE is actually drawn. The header
      * cells tile the levels, so a boundary inside a merged (spanned) cell has
      * no line — the handle must not react to the pointer there (the reported
-     * "bars appear over merged cells" glitch). The number strip below the
-     * levels draws every boundary, so its band is always included.
+     * "bars appear over merged cells" glitch). Below the levels the number
+     * strip and the totals row draw every boundary, so that band is always
+     * included — the handle reaches the BOTTOM of the aggregating row.
      */
     const handles = useMemo(() => {
         const edges = new Map<number, HandleBand[]>();
@@ -2269,22 +2402,25 @@ function RenovationGridInner(
             if (bands) bands.push({ from: cell.top, to: cell.top + cell.height });
             else edges.set(key, [{ from: cell.top, to: cell.top + cell.height }]);
         }
+        const handleHeight = overlayHeight + summaryHeight;
         const result: Array<{
             key: string;
             dbName: string;
             left: number;
+            height: number;
             clipPath: string | null;
         }> = [];
         const push = (dbName: string, boundary: number) => {
             const bands = mergeBands([
                 ...(edges.get(Math.round(boundary * 2)) ?? []),
-                { from: headerHeight, to: overlayHeight },
+                { from: headerHeight, to: handleHeight },
             ]);
             result.push({
                 key: dbName,
                 dbName,
                 left: boundary - 3,
-                clipPath: handleClipPath(bands, overlayHeight, true),
+                height: handleHeight,
+                clipPath: handleClipPath(bands, handleHeight, true),
             });
         };
         push(ASSET_COLUMN_PROP, ROW_HEADER_WIDTH + assetWidth);
@@ -2303,6 +2439,7 @@ function RenovationGridInner(
         headerHeight,
         overlayCells,
         overlayHeight,
+        summaryHeight,
     ]);
 
     /**
@@ -2461,9 +2598,8 @@ function RenovationGridInner(
                     // right above the summary, beside the column numbers.
                     top: headerPinned ? 0 : headerHeight,
                     height: headerPinned
-                        ? overlayHeight + (summaryValues === null ? 0 : SUMMARY_ROW_HEIGHT)
-                        : COLUMN_NUMBER_ROW_HEIGHT +
-                          (summaryValues === null ? 0 : SUMMARY_ROW_HEIGHT),
+                        ? overlayHeight + summaryHeight
+                        : COLUMN_NUMBER_ROW_HEIGHT + summaryHeight,
                 }}
             >
                 <span className="renovation-grid__corner-label">№</span>
@@ -2584,6 +2720,7 @@ function RenovationGridInner(
                     <div
                         key={cell.key}
                         className="renovation-grid__number-cell"
+                        data-column={cell.text === "" ? undefined : cell.key}
                         style={{
                             left: cell.left,
                             top: headerHeight,
@@ -2627,6 +2764,13 @@ function RenovationGridInner(
                         }
                         style={{
                             left: handle.left,
+                            // The bar runs to the bottom of the totals row, like
+                            // the boundary line itself (the header body ends at
+                            // the strip — the explicit height overhangs it, the
+                            // same way the «№» corner and the merged number
+                            // cells do; the header's clip-path allows it).
+                            height: handle.height,
+                            bottom: "auto",
                             clipPath: handle.clipPath ?? undefined,
                         }}
                         onPointerDown={(event) => startResize(event, handle.dbName)}
@@ -2657,10 +2801,32 @@ function RenovationGridInner(
                     "--renovation-header-levels-height": `${headerHeight}px`,
                     // The native vertical strip starts below the pinned summary
                     // row instead of covering it.
-                    "--renovation-summary-height": `${summaryValues === null ? 0 : SUMMARY_ROW_HEIGHT}px`,
+                    "--renovation-summary-height": `${summaryHeight}px`,
                 } as CSSProperties
             }
             onPointerMove={(event) => {
+                // The column-number tooltip first: it only exists while the
+                // pointer is over a numbered strip cell.
+                const numberCell =
+                    (event.target as Element).closest?.(
+                        ".renovation-grid__number-cell[data-column]",
+                    ) ?? null;
+                if (numberCell !== numberTooltipTargetRef.current) {
+                    numberTooltipTargetRef.current = numberCell;
+                    const chain = numberCell
+                        ? headerChainByProp.get(numberCell.getAttribute("data-column") ?? "")
+                        : undefined;
+                    if (numberCell && chain && chain.length > 0) {
+                        const rect = numberCell.getBoundingClientRect();
+                        setNumberTooltip({
+                            lines: chain,
+                            left: rect.left + rect.width / 2,
+                            top: rect.bottom,
+                        });
+                    } else {
+                        setNumberTooltip(null);
+                    }
+                }
                 const target = (event.target as Element).closest?.("[data-remote-lock]") ?? null;
                 if (target === remoteTooltipTargetRef.current) return;
                 remoteTooltipTargetRef.current = target;
@@ -2686,6 +2852,8 @@ function RenovationGridInner(
             onPointerLeave={() => {
                 remoteTooltipTargetRef.current = null;
                 setRemoteTooltip(null);
+                numberTooltipTargetRef.current = null;
+                setNumberTooltip(null);
             }}
         >
             {/* The header overlay is always mounted: toggling «Закрепить
@@ -2721,6 +2889,32 @@ function RenovationGridInner(
                                 {remoteTooltip.label}
                             </>
                         ) : null}
+                    </span>
+                </Tooltip.Content>
+            </Tooltip>
+            {/* The column number's header chain, top level first. */}
+            <Tooltip isOpen={numberTooltip !== null}>
+                <Tooltip.Trigger
+                    className="remote-cell-tooltip-trigger"
+                    style={{
+                        left: numberTooltip?.left ?? -1000,
+                        top: numberTooltip?.top ?? -1000,
+                    }}
+                >
+                    <span aria-hidden="true" />
+                </Tooltip.Trigger>
+                <Tooltip.Content placement="bottom" className="form-status-tooltip">
+                    <span className="renovation-grid__number-tooltip">
+                        {(numberTooltip?.lines ?? []).map((line, index) => (
+                            <Fragment key={`${index}:${line}`}>
+                                {index > 0 ? (
+                                    <>
+                                        <br />↓<br />
+                                    </>
+                                ) : null}
+                                {line}
+                            </Fragment>
+                        ))}
                     </span>
                 </Tooltip.Content>
             </Tooltip>
