@@ -27,6 +27,7 @@ export function ViewStrip({
     onToggleFullscreen,
     hideExport = false,
     onDropdownOpenChange,
+    columnResetLabel = "Сброс ширины столбцов",
 }: {
     headerPinned?: boolean;
     onHeaderPinnedChange?: (value: boolean) => void;
@@ -43,6 +44,8 @@ export function ViewStrip({
     /** Notifies the owner when a hover dropdown opens/closes (holds the
         fullscreen toolbar panels open while its menu is expanded). */
     onDropdownOpenChange?: (open: boolean) => void;
+    /** Label of the column-reset entry (the plan also resets header heights). */
+    columnResetLabel?: string;
 }) {
     const hasToggles =
         headerPinned !== undefined &&
@@ -157,7 +160,7 @@ export function ViewStrip({
                             : null}
                         {menuItem(
                             "reset-column-widths",
-                            "Сброс ширины столбцов",
+                            columnResetLabel,
                             false,
                             true,
                             <Refresh aria-hidden="true" />,

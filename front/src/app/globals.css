@@ -1676,22 +1676,28 @@ body {
     min-height: 0;
 }
 
-/* The overlay slot: the header slides up and fades out, giving its 288px back
-   to the grid. `overflow: hidden` lives on the shell, so the negative margin
-   clips cleanly. */
+/* The overlay slot: when «Закрепить заголовок» is off the 11 header LEVELS
+   slide up and fade out, giving their height back to the grid — but the
+   column-number strip and the «№» corner stay visible: they sit in the slot's
+   bottom band, and the slot is pulled up by exactly the levels' height
+   (`--renovation-header-levels-height`), so that band lands at the top of the
+   grid, right above the pinned totals row. `overflow: hidden` lives on the
+   shell, so the levels clip cleanly. */
 .renovation-grid__header-slot {
     position: relative;
     z-index: 5;
     flex: 0 0 auto;
-    transition:
-        margin-top 240ms ease,
-        opacity 180ms ease;
+    transition: margin-top 240ms ease;
 }
 
 .renovation-grid__header-slot--hidden {
-    margin-top: calc(-1 * var(--grid-header-height));
+    margin-top: calc(-1 * var(--renovation-header-levels-height, 0px));
+}
+
+/* The levels fade with the slide; the number strip (a sibling of the level
+   cells) and the corner stay at full opacity. */
+.renovation-grid__header-slot--hidden .renovation-grid__header-cell {
     opacity: 0;
-    pointer-events: none;
 }
 
 /* In the renovation shell the external vertical scroller is gone: the grid
@@ -1715,6 +1721,12 @@ body {
 
 .renovation-grid-shell .renovation-grid revogr-scroll-virtual.vertical {
     top: var(--renovation-summary-height, 0px) !important;
+    /* The strip starts below the pinned summary row (the `top` above) and must
+       END at the grid's bottom edge: the library's `height: 100%`, shifted down
+       by the summary height, would otherwise stick 36px past the grid — right
+       over the custom horizontal strip's right end (the overlap in the
+       bottom-right corner). Subtract the shift instead of overhanging. */
+    height: calc(100% - var(--renovation-summary-height, 0px)) !important;
 }
 
 .dark .renovation-grid {
@@ -1909,6 +1921,9 @@ body {
     text-overflow: ellipsis;
     white-space: normal;
     user-select: none;
+    /* Fades out with the slide when the header is unpinned (the number strip
+       and the corner never fade). */
+    transition: opacity 180ms ease;
 }
 
 /* The header's top row closes the table's top line (the container's own line
@@ -1991,6 +2006,26 @@ body {
 
 .renovation-grid__resize-handle:hover,
 .renovation-grid__resize-handle.is-dragging {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* Header level height: a horizontal handle on each level's bottom boundary
+   (the level above the boundary is the one being resized). The vertical
+   handles are rendered AFTER these, so at a crossing the column resize wins
+   and the level boundary stays grabbable a few pixels away from it. */
+.renovation-grid__level-resize-handle {
+    position: absolute;
+    z-index: 1;
+    right: 0;
+    left: 0;
+    height: 6px;
+    margin-top: -3px;
+    cursor: row-resize;
+    touch-action: none;
+}
+
+.renovation-grid__level-resize-handle:hover,
+.renovation-grid__level-resize-handle.is-dragging {
     background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
@@ -2323,6 +2358,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
     .renovation-grid__filter-button,
+    .renovation-grid__header-cell,
     .renovation-grid__header-label {
         transition: none;
     }

@@ -66,6 +66,11 @@ import { isFromTextEditor } from "@/shared/keyboard";
 export const RENOVATION_PLAN_ROWS_TABLE = "renovation_plan_rows";
 
 const HEADER_LEVEL_HEIGHT = 24;
+/** Limits of a header level's height (dragged on the level's bottom boundary). */
+const MIN_HEADER_LEVEL_HEIGHT = 12;
+const MAX_HEADER_LEVEL_HEIGHT = 400;
+/** Persisted header level heights — a JSON array, one entry per level. */
+const HEADER_LEVEL_HEIGHT_STORAGE_KEY = "renovation:headerLevelHeights";
 
 const HEADER_LEVEL_COUNT = 11;
 const ROW_HEADER_WIDTH = 52;
@@ -257,7 +262,7 @@ export type RenovationGridHandle = {
     getLoadedRows: () => Promise<RenovationGridRow[]>;
     /** Scroll to a row by its sequential number in the filtered scope (1-based). */
     scrollToPosition: (position: number) => Promise<void>;
-    /** Drop the persisted per-column widths — columns return to defaults. */
+    /** Drop the persisted per-column widths and header level heights. */
     resetColumnWidths: () => void;
 };
 
@@ -273,6 +278,100 @@ function isGridTarget(event: Event, grid: HTMLRevoGridElement): boolean {
 
 function clampWidth(width: number): number {
     return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, width));
+}
+
+function clampLevelHeight(height: number): number {
+    return Math.min(MAX_HEADER_LEVEL_HEIGHT, Math.max(MIN_HEADER_LEVEL_HEIGHT, height));
+}
+
+/** A contiguous slice of a resize handle along its long axis (body coordinates). */
+type HandleBand = { from: number; to: number };
+
+/** Merge touching/overlapping bands — the tiling header cells share their edges. */
+function mergeBands(bands: HandleBand[]): HandleBand[] {
+    const sorted = [...bands].sort((a, b) => a.from - b.from);
+    const merged: HandleBand[] = [];
+    for (const band of sorted) {
+        const last = merged[merged.length - 1];
+        if (last && band.from <= last.to + 0.5) last.to = Math.max(last.to, band.to);
+        else merged.push({ ...band });
+    }
+    return merged;
+}
+
+/**
+ * `clip-path` limiting a 6px-thick resize handle to the bands where its
+ * boundary line is actually drawn: inside a merged (spanned) header cell there
+ * is no line, and the handle must not react to the pointer there — otherwise
+ * the resize bar pops up over the merged cells' interior. `null` when the
+ * bands cover the whole box (nothing to clip).
+ */
+function handleClipPath(bands: HandleBand[], length: number, vertical: boolean): string | null {
+    // No visible band — hide the handle entirely (defensive: the callers skip
+    // such handles, the column handles always carry the number strip's band).
+    if (bands.length === 0) return "inset(0 0 100% 0)";
+    const first = bands[0];
+    const last = bands[bands.length - 1];
+    if (
+        bands.length === 1 &&
+        first !== undefined &&
+        last !== undefined &&
+        first.from <= 0.5 &&
+        last.to >= length - 0.5
+    ) {
+        return null;
+    }
+    const px = (value: number): string => `${Math.round(value * 10) / 10}px`;
+    const points: string[] = [];
+    for (const band of bands) {
+        // A "staircase" polygon: disjoint bands, the connectors run along the
+        // handle's own edges, so nothing between the bands is painted or hit.
+        if (vertical) {
+            points.push(`0px ${px(band.from)}`, `6px ${px(band.from)}`);
+            points.push(`6px ${px(band.to)}`, `0px ${px(band.to)}`);
+        } else {
+            points.push(`${px(band.from)} 0px`, `${px(band.from)} 6px`);
+            points.push(`${px(band.to)} 6px`, `${px(band.to)} 0px`);
+        }
+    }
+    return `polygon(${points.join(", ")})`;
+}
+
+/**
+ * The number a column shows in the strip: the workbook ordinal shifted so the
+ * first data column («Предприятие») is 1 — the workbook counts the row-number
+ * «№» column as 1, the app does not number it. Using the ordinal (not the
+ * field's `position`, which the dropped col_218 skips) keeps the numbering
+ * continuous whatever is hidden.
+ */
+function columnNumber(field: RenovationField): number {
+    return field.ordinal - 1;
+}
+
+function defaultLevelHeights(): number[] {
+    return Array.from({ length: HEADER_LEVEL_COUNT }, () => HEADER_LEVEL_HEIGHT);
+}
+
+/** Persisted header level heights (a JSON array) with per-level clamping. */
+function loadLevelHeights(): number[] {
+    const fallback = defaultLevelHeights();
+    // Guard the lazy initializer: it runs during render, which can happen in an
+    // environment without `window` (SSR / early hydration / some e2e).
+    if (typeof window === "undefined") return fallback;
+    try {
+        const raw = window.localStorage.getItem(HEADER_LEVEL_HEIGHT_STORAGE_KEY);
+        if (!raw) return fallback;
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed) || parsed.length !== HEADER_LEVEL_COUNT) return fallback;
+        return parsed.map((value, index) => {
+            const numeric = Number(value);
+            return Number.isFinite(numeric)
+                ? clampLevelHeight(numeric)
+                : (fallback[index] ?? HEADER_LEVEL_HEIGHT);
+        });
+    } catch {
+        return fallback;
+    }
 }
 
 function numberTemplate(decimals: number | null | undefined) {
@@ -454,6 +553,32 @@ function RenovationGridInner(
     const [overlayWidths, setOverlayWidths] = useState<Map<string, number>>(new Map());
     const [resizingField, setResizingField] = useState<string | null>(null);
     const dragRef = useRef<{ dbName: string; startX: number; startWidth: number } | null>(null);
+    // Header level heights (dragged on a level's bottom boundary). The overlay
+    // geometry follows live; the persisted array is written on drop.
+    const [levelHeights, setLevelHeights] = useState<number[]>(loadLevelHeights);
+    const levelHeightsRef = useRef(levelHeights);
+    levelHeightsRef.current = levelHeights;
+    const [resizingLevel, setResizingLevel] = useState<number | null>(null);
+    const levelDragRef = useRef<{ level: number; startY: number; startHeight: number } | null>(
+        null,
+    );
+    // Top edge of every header level: levelOffsets[i] is the top of level i,
+    // levelOffsets[HEADER_LEVEL_COUNT] is the whole 11-level block's height.
+    const levelOffsets = useMemo(() => {
+        const offsets: number[] = [0];
+        let acc = 0;
+        for (const height of levelHeights) {
+            acc += height;
+            offsets.push(acc);
+        }
+        return offsets;
+    }, [levelHeights]);
+    const headerHeight =
+        levelOffsets[HEADER_LEVEL_COUNT] ?? HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT;
+    // The totals row is a revo-grid pinned top row (like the assets dictionary).
+    // The overlay carries the 11 header levels plus the column-number strip
+    // directly above the pinned totals row.
+    const overlayHeight = headerHeight + COLUMN_NUMBER_ROW_HEIGHT;
     // Floating tooltip over a cell occupied by another participant (lease/presence):
     // the owner's name in bold, then the selected range.
     const [remoteTooltip, setRemoteTooltip] = useState<{
@@ -582,13 +707,13 @@ function RenovationGridInner(
     }, [assetWidth, displayFields, fieldWidth]);
 
     // The column-number strip of the overlay: every visible column shows its
-    // form position — «Предприятие» = 1 (col_002) … «Примечание» = 217, so the
-    // numbering starts at the first data column; «№» is not numbered and the
-    // service columns stay empty.
-    const assetColumnNumber = useMemo(
-        () => fields.find((field) => field.dbName === ASSET_FIELD_DB_NAME)?.position ?? null,
-        [fields],
-    );
+    // number in the form (the workbook ordinal shifted so «Предприятие» = 1 —
+    // see `columnNumber`), so hiding a field (e.g. the dropped col_218) never
+    // leaves a gap in the numbering. The service columns stay empty.
+    const assetColumnNumber = useMemo(() => {
+        const asset = fields.find((field) => field.dbName === ASSET_FIELD_DB_NAME);
+        return asset ? columnNumber(asset) : null;
+    }, [fields]);
     const columnNumberCells = useMemo(() => {
         // A column whose totals cell is empty merges with it: the number cell
         // spans the strip AND the totals row (no line between the two). Only
@@ -617,7 +742,7 @@ function RenovationGridInner(
         for (const field of displayFields) {
             const left = geometry.offsets.get(field.dbName);
             if (left === undefined) continue;
-            const number = SERVICE_DB_NAMES.has(field.dbName) ? null : field.position;
+            const number = SERVICE_DB_NAMES.has(field.dbName) ? null : columnNumber(field);
             cells.push({
                 key: field.dbName,
                 text: number === null || !Number.isFinite(number) ? "" : String(number),
@@ -675,7 +800,7 @@ function RenovationGridInner(
             }
             if (width === 0) continue;
             const topLevel = coveredByTopRow.has(cell.startPosition) ? cell.level : 0;
-            const top = topLevel * HEADER_LEVEL_HEIGHT;
+            const top = levelOffsets[topLevel] ?? 0;
             // Level-0 directorate group headers carry a short label in the form
             // data; show the same canonical name as the «Все блоки» filter.
             let text = cell.text.trim();
@@ -699,7 +824,7 @@ function RenovationGridInner(
                 left: geometry.offsets.get(startField.dbName) ?? ROW_HEADER_WIDTH,
                 top,
                 width,
-                height: (cell.rowSpan + cell.level - topLevel) * HEADER_LEVEL_HEIGHT,
+                height: (levelOffsets[cell.level + cell.rowSpan] ?? headerHeight) - top,
                 isTop: top === 0,
                 // A single-field leaf header filters that column. Multi-field
                 // group headers have no single column to filter.
@@ -713,7 +838,7 @@ function RenovationGridInner(
             left: ROW_HEADER_WIDTH,
             top: 0,
             width: assetWidth,
-            height: HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT,
+            height: headerHeight,
             isTop: true,
             filterColumn: ASSET_COLUMN_PROP,
         });
@@ -725,7 +850,7 @@ function RenovationGridInner(
                     left: geometry.offsets.get(column.dbName) ?? ROW_HEADER_WIDTH,
                     top: 0,
                     width: serviceWidthOf(column.dbName),
-                    height: HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT,
+                    height: headerHeight,
                     isTop: true,
                 });
             }
@@ -735,6 +860,8 @@ function RenovationGridInner(
         assetWidth,
         geometry.offsets,
         headerCells,
+        headerHeight,
+        levelOffsets,
         serviceWidthOf,
         showServiceColumns,
         visibleFields,
@@ -2059,13 +2186,49 @@ function RenovationGridInner(
         window.localStorage.setItem(WIDTH_STORAGE_PREFIX + drag.dbName, String(width));
     }, [overlayWidths]);
 
+    // Header level heights: pointer drag on the boundary under a level. The
+    // overlay geometry follows live (the grid columns don't depend on it, so
+    // nothing rebuilds in revo-grid); the array is persisted on drop.
+    const startLevelResize = useCallback((event: React.PointerEvent, level: number) => {
+        event.preventDefault();
+        levelDragRef.current = {
+            level,
+            startY: event.clientY,
+            startHeight: levelHeightsRef.current[level] ?? HEADER_LEVEL_HEIGHT,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setResizingLevel(level);
+    }, []);
+    const moveLevelResize = useCallback((event: React.PointerEvent) => {
+        const drag = levelDragRef.current;
+        if (!drag) return;
+        const next = clampLevelHeight(drag.startHeight + (event.clientY - drag.startY));
+        setLevelHeights((current) => {
+            if (current[drag.level] === next) return current;
+            const result = [...current];
+            result[drag.level] = next;
+            return result;
+        });
+    }, []);
+    const endLevelResize = useCallback(() => {
+        if (!levelDragRef.current) return;
+        levelDragRef.current = null;
+        setResizingLevel(null);
+        window.localStorage.setItem(
+            HEADER_LEVEL_HEIGHT_STORAGE_KEY,
+            JSON.stringify(levelHeightsRef.current),
+        );
+    }, []);
+
     const resetWidths = useCallback(() => {
         window.localStorage.removeItem(WIDTH_STORAGE_PREFIX + ASSET_COLUMN_PROP);
         for (const field of fields) {
             window.localStorage.removeItem(WIDTH_STORAGE_PREFIX + field.dbName);
         }
+        window.localStorage.removeItem(HEADER_LEVEL_HEIGHT_STORAGE_KEY);
         setWidths(new Map());
         setOverlayWidths(new Map());
+        setLevelHeights(defaultLevelHeights());
     }, [fields]);
 
     useImperativeHandle(
@@ -2090,32 +2253,92 @@ function RenovationGridInner(
         ],
     );
 
+    /**
+     * Column-resize handles: one per visible boundary between columns, clipped
+     * to the y-bands where the boundary LINE is actually drawn. The header
+     * cells tile the levels, so a boundary inside a merged (spanned) cell has
+     * no line — the handle must not react to the pointer there (the reported
+     * "bars appear over merged cells" glitch). The number strip below the
+     * levels draws every boundary, so its band is always included.
+     */
     const handles = useMemo(() => {
-        const result: Array<{ key: string; dbName: string; left: number }> = [
-            {
-                key: ASSET_COLUMN_PROP,
-                dbName: ASSET_COLUMN_PROP,
-                left: ROW_HEADER_WIDTH + assetWidth - 3,
-            },
-        ];
+        const edges = new Map<number, HandleBand[]>();
+        for (const cell of overlayCells) {
+            const key = Math.round((cell.left + cell.width) * 2);
+            const bands = edges.get(key);
+            if (bands) bands.push({ from: cell.top, to: cell.top + cell.height });
+            else edges.set(key, [{ from: cell.top, to: cell.top + cell.height }]);
+        }
+        const result: Array<{
+            key: string;
+            dbName: string;
+            left: number;
+            clipPath: string | null;
+        }> = [];
+        const push = (dbName: string, boundary: number) => {
+            const bands = mergeBands([
+                ...(edges.get(Math.round(boundary * 2)) ?? []),
+                { from: headerHeight, to: overlayHeight },
+            ]);
+            result.push({
+                key: dbName,
+                dbName,
+                left: boundary - 3,
+                clipPath: handleClipPath(bands, overlayHeight, true),
+            });
+        };
+        push(ASSET_COLUMN_PROP, ROW_HEADER_WIDTH + assetWidth);
         for (let i = 0; i < displayFields.length - 1; i += 1) {
             const field = displayFields[i];
             if (!field) continue;
             if (SERVICE_DB_NAMES.has(field.dbName)) continue;
+            push(field.dbName, (geometry.offsets.get(field.dbName) ?? 0) + fieldWidth(field));
+        }
+        return result;
+    }, [
+        assetWidth,
+        displayFields,
+        fieldWidth,
+        geometry.offsets,
+        headerHeight,
+        overlayCells,
+        overlayHeight,
+    ]);
+
+    /**
+     * Level-height handles: one per level boundary — dragging a boundary
+     * changes the height of the level above it (the Excel row-height gesture) —
+     * clipped to the x-bands where some header cell actually ends at that
+     * boundary. A vertically merged (rowSpan) cell has no line inside it, so
+     * the bar must not appear there. A boundary with no visible band at all is
+     * skipped: there is nothing to grab.
+     */
+    const levelHandles = useMemo(() => {
+        const edges = new Map<number, HandleBand[]>();
+        for (const cell of overlayCells) {
+            const key = Math.round((cell.top + cell.height) * 2);
+            const bands = edges.get(key);
+            if (bands) bands.push({ from: cell.left, to: cell.left + cell.width });
+            else edges.set(key, [{ from: cell.left, to: cell.left + cell.width }]);
+        }
+        const result: Array<{ level: number; top: number; clipPath: string | null }> = [];
+        for (let level = 0; level < HEADER_LEVEL_COUNT; level += 1) {
+            const top = levelOffsets[level + 1];
+            if (top === undefined) continue;
+            const bands = mergeBands(edges.get(Math.round(top * 2)) ?? []);
+            if (bands.length === 0) continue;
             result.push({
-                key: field.dbName,
-                dbName: field.dbName,
-                left: (geometry.offsets.get(field.dbName) ?? 0) + fieldWidth(field) - 3,
+                level,
+                top,
+                clipPath: handleClipPath(bands, geometry.totalWidth, false),
             });
         }
         return result;
-    }, [assetWidth, displayFields, fieldWidth, geometry.offsets]);
+    }, [geometry.totalWidth, levelOffsets, overlayCells]);
 
-    const headerHeight = HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT;
     // The totals row is a revo-grid pinned top row (like the assets dictionary).
     // The overlay carries the 11 header levels plus the column-number strip
     // directly above the pinned totals row.
-    const overlayHeight = headerHeight + COLUMN_NUMBER_ROW_HEIGHT;
     const pinnedSummaryRow = useMemo<RenovationGridRow[] | undefined>(
         () =>
             summaryValues
@@ -2137,6 +2360,27 @@ function RenovationGridInner(
         [summaryValues],
     );
 
+    // The vertical scrollbar's lane: the width it takes away from the data
+    // area at the grid's right edge. The custom horizontal strip must end
+    // BEFORE it (the bars may not overlap in the bottom-right corner).
+    const [verticalScrollbarLane, setVerticalScrollbarLane] = useState(0);
+    const verticalScrollbarLaneRef = useRef(0);
+    const measureVerticalScrollbarLane = useCallback(() => {
+        const strip = gridRef.current?.querySelector(
+            "revogr-scroll-virtual.vertical",
+        ) as HTMLElement | null;
+        // The library writes the space it reserves into the strip's inline
+        // min-width (`componentDidRender`): the measured system scrollbar size
+        // while the rows overflow, 0 otherwise. Overlay-scrollbar platforms
+        // report 0 — there the bar paints over the grid instead of taking a
+        // lane, and the height rule keeps it above the strip on its own.
+        const reserved = strip ? Number.parseFloat(strip.style.minWidth) : 0;
+        const lane = Number.isFinite(reserved) && reserved > 0 ? Math.round(reserved) : 0;
+        if (lane === verticalScrollbarLaneRef.current) return;
+        verticalScrollbarLaneRef.current = lane;
+        setVerticalScrollbarLane(lane);
+    }, []);
+
     // The grid always fills the shell and scrolls through its OWN native strips
     // (vertical + horizontal). The header overlay is a flex sibling whose
     // margin-top animates to zero height when «Закрепить заголовок» is off — the
@@ -2145,6 +2389,7 @@ function RenovationGridInner(
     const refreshHorizontalScrollbar = useCallback(async () => {
         const grid = gridRef.current;
         if (!grid) return;
+        measureVerticalScrollbarLane();
         const size = await grid.getContentSize();
         const width = size.x + ROW_HEADER_WIDTH;
         // revo-grid fires contentsizechanged on every virtualized scroll tick;
@@ -2157,7 +2402,7 @@ function RenovationGridInner(
         setHorizontalContentWidth(width);
         const shell = shellRef.current;
         setHasHorizontalOverflow(width > (shell?.clientWidth ?? 0));
-    }, []);
+    }, [measureVerticalScrollbarLane]);
 
     useEffect(() => {
         const frame = requestAnimationFrame(() => {
@@ -2166,7 +2411,14 @@ function RenovationGridInner(
         const observer = new ResizeObserver(() => {
             void refreshHorizontalScrollbar();
         });
-        if (gridRef.current) observer.observe(gridRef.current);
+        const grid = gridRef.current;
+        if (grid) {
+            observer.observe(grid);
+            // The vertical strip appears/disappears with the rows' overflow —
+            // its reserved lane changes the horizontal strip's right edge.
+            const verticalStrip = grid.querySelector("revogr-scroll-virtual.vertical");
+            if (verticalStrip) observer.observe(verticalStrip);
+        }
         return () => {
             cancelAnimationFrame(frame);
             observer.disconnect();
@@ -2202,7 +2454,16 @@ function RenovationGridInner(
             <div
                 className="renovation-grid__corner"
                 style={{
-                    height: overlayHeight + (summaryValues === null ? 0 : SUMMARY_ROW_HEIGHT),
+                    // Pinned: the corner merges the whole header (levels + the
+                    // number strip) with the totals row below. Unpinned: the
+                    // levels slide away, so the corner shrinks to the strip plus
+                    // the totals row — the «№» label and its funnel stay visible
+                    // right above the summary, beside the column numbers.
+                    top: headerPinned ? 0 : headerHeight,
+                    height: headerPinned
+                        ? overlayHeight + (summaryValues === null ? 0 : SUMMARY_ROW_HEIGHT)
+                        : COLUMN_NUMBER_ROW_HEIGHT +
+                          (summaryValues === null ? 0 : SUMMARY_ROW_HEIGHT),
                 }}
             >
                 <span className="renovation-grid__corner-label">№</span>
@@ -2333,6 +2594,29 @@ function RenovationGridInner(
                         {cell.text}
                     </div>
                 ))}
+                {/* Level-height handles first: the vertical (column) handles
+                    rendered after them win the 6×6 intersections, so a column
+                    boundary stays grabbable where it crosses a level boundary.
+                    Each handle is clipped to the bands where its line is
+                    actually drawn (see `handleClipPath`). */}
+                {levelHandles.map((handle) => (
+                    <div
+                        key={`level:${handle.level}`}
+                        className={
+                            resizingLevel === handle.level
+                                ? "renovation-grid__level-resize-handle is-dragging"
+                                : "renovation-grid__level-resize-handle"
+                        }
+                        style={{
+                            top: handle.top,
+                            clipPath: handle.clipPath ?? undefined,
+                        }}
+                        onPointerDown={(event) => startLevelResize(event, handle.level)}
+                        onPointerMove={moveLevelResize}
+                        onPointerUp={endLevelResize}
+                        onPointerCancel={endLevelResize}
+                    />
+                ))}
                 {handles.map((handle) => (
                     <div
                         key={handle.key}
@@ -2341,7 +2625,10 @@ function RenovationGridInner(
                                 ? "renovation-grid__resize-handle is-dragging"
                                 : "renovation-grid__resize-handle"
                         }
-                        style={{ left: handle.left }}
+                        style={{
+                            left: handle.left,
+                            clipPath: handle.clipPath ?? undefined,
+                        }}
                         onPointerDown={(event) => startResize(event, handle.dbName)}
                         onPointerMove={moveResize}
                         onPointerUp={endResize}
@@ -2365,6 +2652,9 @@ function RenovationGridInner(
             style={
                 {
                     "--grid-header-height": `${overlayHeight}px`,
+                    // The 11 header levels' height — what the unpinned slot
+                    // slides away by (the number strip and the «№» corner stay).
+                    "--renovation-header-levels-height": `${headerHeight}px`,
                     // The native vertical strip starts below the pinned summary
                     // row instead of covering it.
                     "--renovation-summary-height": `${summaryValues === null ? 0 : SUMMARY_ROW_HEIGHT}px`,
@@ -2491,11 +2781,17 @@ function RenovationGridInner(
             </div>
             {/* The custom horizontal strip (the native one is hidden: Chrome
                 renders it too thick). Its spacer carries the full content
-                width, so the thumb is proportional to the whole plan. */}
+                width, so the thumb is proportional to the whole plan. It stops
+                before the vertical scrollbar's lane: the bars must not overlap
+                in the bottom-right corner (the vertical strip itself ends above
+                the strip's row — see the height rule in globals.css). */}
             <div
                 ref={horizontalScrollRef}
                 className="revo-grid-external-scrollbar"
-                style={{ display: hasHorizontalOverflow ? undefined : "none" }}
+                style={{
+                    display: hasHorizontalOverflow ? undefined : "none",
+                    right: verticalScrollbarLane > 0 ? verticalScrollbarLane : undefined,
+                }}
                 aria-label="Горизонтальная прокрутка таблицы"
                 onScroll={(event) => {
                     void gridRef.current?.scrollToCoordinate({

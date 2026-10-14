@@ -373,8 +373,11 @@ export function RenovationWorkspace({
 
     // Pinned summary row: an aggregating query over the same scope as the remote
     // rows (asset + header filters), refreshed with them.
+    // Note: getRenovationPlanSummary only needs planId/asset/filters, not meta.
+    // Removing meta from deps lets the summary compute in parallel with data loading,
+    // so rows appear immediately and the summary updates when ready.
     useEffect(() => {
-        if (!meta || !isPlanSection) {
+        if (!isPlanSection) {
             setSummaryValues(null);
             return;
         }
@@ -393,7 +396,7 @@ export function RenovationWorkspace({
         return () => {
             cancelled = true;
         };
-    }, [meta, viewPlanId, assetFilter, activeColumnFilters, isPlanSection]);
+    }, [viewPlanId, assetFilter, activeColumnFilters, isPlanSection]);
 
     // ── Row-scope loading (InfinityScrollPlugin's loadData) ────────────────
     // One chunk of the filtered plan in «№» order. The offset/limit are rows
@@ -1584,6 +1587,10 @@ export function RenovationWorkspace({
                 onShowServiceColumnsChange={
                     isPlanSection ? setPlanServiceColumns : setDictServiceColumns
                 }
+                // The plan's reset also drops the header level heights.
+                {...(isPlanSection && {
+                    columnResetLabel: "Сброс ширины столбцов и высоты заголовка",
+                })}
                 exportPending={exportPending}
                 onExport={handleStripExport}
                 onReset={handleStripReset}
