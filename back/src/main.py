@@ -3,7 +3,7 @@ import itertools
 import logging
 import time
 from collections.abc import (
-    AsyncIterator,
+    AsyncGenerator,
     Awaitable,
     Callable,
 )
@@ -73,7 +73,7 @@ def _sweep_rate_limit(now: float) -> None:
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     log_event(LOGGER, "application_started", "Приложение ReportCollector запущено.")
 
     dispatcher = asyncio.create_task(run_outbox())

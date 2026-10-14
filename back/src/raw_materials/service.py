@@ -55,8 +55,9 @@ from src.raw_materials.schemas import (
 
 # SQLModel's select() overloads support up to 4 entities; for the 5-entity
 # form queries we use a typed cast over SQLAlchemy.
-MovementRowsSelect = Select[tuple[MaterialMovement, AssetRawMaterial, RawMaterialAsset, RawMaterial, RawMaterialPrice]]
-PriceRowsSelect = Select[tuple[RawMaterialPrice, AssetRawMaterial, RawMaterialAsset, RawMaterial, DeliveryBasis]]
+# sqlmodel 0.0.48 made Select variadic: Select[A, B, ...] (one type param per entity).
+MovementRowsSelect = Select[MaterialMovement, AssetRawMaterial, RawMaterialAsset, RawMaterial, RawMaterialPrice]
+PriceRowsSelect = Select[RawMaterialPrice, AssetRawMaterial, RawMaterialAsset, RawMaterial, DeliveryBasis]
 
 
 class NoRawMaterialsAccessError(Exception):
