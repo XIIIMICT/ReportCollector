@@ -155,15 +155,17 @@ requests OOM'ed the container. The export is therefore a background job
 
 ### Exported workbook layout
 
-The exported `.xlsx` mirrors the grid exactly: 11 merged header rows, then a
-**single aggregating row** (row 12) that carries each exported column's workbook
-ordinal − 1 (so «Предприятие» = 1) with its total on a second line (a newline inside the
-wrapped cell) for numeric columns — the grid's number-over-sum band, not two
-separate rows. Data rows start dense at row 13 (after the 11 header levels + the
-aggregating row): a filtered export keeps each surviving row's stored plan
-position in column A, but the workbook row is a compact output index, so a
-filter never leaves thousands of blank rows after the header. The pane freezes
-the top 12 rows (header + aggregating row) like the grid.
+The exported `.xlsx` mirrors the grid exactly: 11 merged header rows, then the
+**aggregating band of two rows** — the **number row** (12) carrying each exported
+column's workbook ordinal − 1 (so «Предприятие» = 1) and the **totals row** (13)
+carrying «Итог» plus a live `SUM` over the exported data rows for every
+additive numeric column. A column with no total **merges its number over both
+rows** (`B12:B13`), exactly like the grid's number-over-empty cell; a column with a
+total keeps the two rows separate. Data rows start dense at row 14: a filtered
+export keeps each surviving row's stored plan position in column A, but the
+workbook row is a compact output index, so a filter never leaves thousands of
+blank rows after the header. The pane freezes the top 13 rows (header + the two
+aggregating rows) like the grid.
 
 ## Transactional collaboration
 

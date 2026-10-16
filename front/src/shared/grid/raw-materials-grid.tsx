@@ -299,6 +299,24 @@ function RawMaterialsGridInner(
     // Unpinned mode: the external horizontal scrollbar is shown only when the
     // grid content actually overflows horizontally (native behavior elsewhere).
     const [hasHorizontalOverflow, setHasHorizontalOverflow] = useState(false);
+    // The vertical scrollbar's lane: the width it takes away from the data area at
+    // the grid's right edge. The custom horizontal strip must END before it, so the
+    // two bars never overlap in the bottom-right corner (the renovation plan does
+    // the same). revo-grid writes the reserved space into the strip's inline
+    // min-width; overlay-scrollbar platforms report 0 (the bar paints over the grid
+    // instead of taking a lane).
+    const [verticalScrollbarLane, setVerticalScrollbarLane] = useState(0);
+    const verticalScrollbarLaneRef = useRef(0);
+    const measureVerticalScrollbarLane = useCallback(() => {
+        const strip = gridRef.current?.querySelector(
+            "revogr-scroll-virtual.vertical",
+        ) as HTMLElement | null;
+        const reserved = strip ? Number.parseFloat(strip.style.minWidth) : 0;
+        const lane = Number.isFinite(reserved) && reserved > 0 ? Math.round(reserved) : 0;
+        if (lane === verticalScrollbarLaneRef.current) return;
+        verticalScrollbarLaneRef.current = lane;
+        setVerticalScrollbarLane(lane);
+    }, []);
     const resizedWidthsRef = useRef(new Map<string, number>());
     // Bumped after a widths reset: the columns memo reads the ref, so it needs
     // a dependency change to rebuild with default sizes.
@@ -1058,6 +1076,7 @@ function RawMaterialsGridInner(
     const refreshHorizontalScrollbar = useCallback(async () => {
         const grid = gridRef.current;
         if (!grid) return;
+        measureVerticalScrollbarLane();
         const size = await grid.getContentSize();
         const verticalScroller = verticalScrollRef.current;
         const scrollbarGutter = verticalScroller
@@ -1067,7 +1086,7 @@ function RawMaterialsGridInner(
         setHorizontalContentWidth(width);
         const shell = shellRef.current;
         setHasHorizontalOverflow(width > (shell?.clientWidth ?? 0));
-    }, []);
+    }, [measureVerticalScrollbarLane]);
 
     // Live column resize. revo-grid's own handle commits the width only on
     // pointer-up (its ResizeDirective forwards `onResize` for the `end` event
@@ -1850,21 +1869,25 @@ function RawMaterialsGridInner(
                     onBeforerange={(event) => updateSelectionRange(event.detail.newRange)}
                 />
             </div>
-            {!headerPinned ? (
-                <div
-                    ref={horizontalScrollRef}
-                    className="revo-grid-external-scrollbar"
-                    style={{ display: hasHorizontalOverflow ? undefined : "none" }}
-                    aria-label="Горизонтальная прокрутка таблицы"
-                    onScroll={(event) => {
-                        void gridRef.current?.scrollToCoordinate({
-                            x: event.currentTarget.scrollLeft,
-                        });
-                    }}
-                >
-                    <div style={{ width: horizontalContentWidth }} />
-                </div>
-            ) : null}
+            <div
+                ref={horizontalScrollRef}
+                className="revo-grid-external-scrollbar"
+                style={{
+                    display: hasHorizontalOverflow ? undefined : "none",
+                    // The bar stops before the vertical scrollbar's lane, so the
+                    // two bars never overlap in the bottom-right corner (same as
+                    // the renovation plan).
+                    right: verticalScrollbarLane > 0 ? verticalScrollbarLane : undefined,
+                }}
+                aria-label="Горизонтальная прокрутка таблицы"
+                onScroll={(event) => {
+                    void gridRef.current?.scrollToCoordinate({
+                        x: event.currentTarget.scrollLeft,
+                    });
+                }}
+            >
+                <div style={{ width: horizontalContentWidth }} />
+            </div>
         </div>
     );
 }

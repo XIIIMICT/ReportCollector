@@ -57,7 +57,7 @@ def stream_renovation_workbook(plan: RenovationPlanExportData) -> Iterator[bytes
             sink = _QueueWriter(queue)
             writer = RenovationWorkbookWriter(
                 cast("IO[bytes]", sink),
-                build_plan_sheet_layout(plan.block),
+                build_plan_sheet_layout(plan.block, plan.totals),
                 plan.reference_labels,
                 totals=plan.totals,
             )
@@ -179,7 +179,7 @@ class PlanSheetLayout:
     header_rows: int
 
 
-def build_plan_sheet_layout(block: object) -> PlanSheetLayout:
+def build_plan_sheet_layout(block: object, totals: dict[str, float] | None = None) -> PlanSheetLayout:
     """Precompute the static sheet parts for a block-filtered export."""
     fields = _export_fields(block)
     column_by_field = {meta.db_name: 2 + index for index, meta in enumerate(fields)}
@@ -199,7 +199,7 @@ def build_plan_sheet_layout(block: object) -> PlanSheetLayout:
         formulas=formulas,
         widths_xml=_column_widths_xml(fields),
         header_xml=_header_rows_xml(fields, column_by_field, letters),
-        merged_xml=_merged_ranges_xml(fields, column_by_field),
+        merged_xml=_merged_ranges_xml(fields, column_by_field, totals),
         header_rows=len(header_rows()),
     )
 
@@ -227,31 +227,49 @@ def _header_rows_xml(
     return "".join(parts)
 
 
-def _aggregate_row_xml(layout: PlanSheetLayout, totals: dict[str, float]) -> str:
+def _number_row_xml(layout: PlanSheetLayout) -> str:
     """
-    Render the aggregating band (sheet row 12) - the grid's number strip + totals.
+    Render the column-number strip (sheet row 12) - the grid's numbering.
 
-    One row, mirroring the grid: every exported column carries its workbook ordinal
-    shifted so the asset column («Предприятие») is 1; a numeric column with a sum
-    shows the number on the first line and the sum on the second (a newline inside
-    the wrapped cell), exactly like the grid's number-over-total band. Column A
-    repeats the «№» corner label. A column without a sum shows its number
-    alone.
+    Every exported column carries its workbook ordinal shifted so the asset
+    column («Предприятие») is 1 - the same number the grid's strip shows. Column A
+    repeats the «№» corner label.
     """
     row_number = layout.header_rows + 1
     cells = [_text_cell_xml(f"A{row_number}", "№", style=5)]
     for index, meta in enumerate(layout.fields):
         ref = f"{layout.letters[index + 2]}{row_number}"
-        number = str(meta.ordinal - 1)
-        total = totals.get(meta.db_name)
-        text = f"{number}\n{_format_total(total)}" if total is not None else number
-        cells.append(_text_cell_xml(ref, text, style=5))
-    return f'<row r="{row_number}" ht="34" customHeight="1">{"".join(cells)}</row>'
+        cells.append(_text_cell_xml(ref, str(meta.ordinal - 1), style=5))
+    return f'<row r="{row_number}" ht="20" customHeight="1">{"".join(cells)}</row>'
 
 
-def _format_total(value: float) -> str:
-    """Format a total the way the grid shows it: whole numbers stay whole, the rest round to 2 decimals."""
-    return str(int(value)) if float(value).is_integer() else f"{value:.2f}".replace(".", ",")
+def _totals_row_xml(
+    layout: PlanSheetLayout,
+    totals: dict[str, float],
+    data_from: int,
+    data_to: int,
+) -> str:
+    """
+    Render the aggregating totals row (sheet row 13) - the grid's pinned summary row.
+
+    Every additive numeric column carries a live `SUM` over the exported data rows
+    (the same numbers as the cached sum, but as a formula so the workbook
+    recalculates). Columns with no sum stay empty - their number cell above spans
+    both rows (see `_aggregate_merges_xml`).
+    """
+    row_number = layout.header_rows + 2
+    cells = [_text_cell_xml(f"A{row_number}", "Итог", style=5)]
+    for index, meta in enumerate(layout.fields):
+        ref = f"{layout.letters[index + 2]}{row_number}"
+        if meta.db_name not in totals:
+            cells.append(_styled_cell_xml(ref, style=1))
+            continue
+        letter = layout.letters[index + 2]
+        formula = f"SUM({letter}{data_from}:{letter}{data_to})"
+        # A live SUM over the exported rows, bold and bordered (style 7), with
+        # the cached sum so a reader sees the number before recalculation.
+        cells.append(f'<c r="{ref}" s="7"><f>{formula}</f><v>{totals[meta.db_name]}</v></c>')
+    return f'<row r="{row_number}" ht="22" customHeight="1">{"".join(cells)}</row>'
 
 
 def _row_xml(
@@ -330,13 +348,15 @@ class RenovationWorkbookWriter:
         self.sheet.write(layout.widths_xml.encode())
         self.sheet.write(b"<sheetData>")
         self.sheet.write(layout.header_xml.encode())
-        # The aggregating band (numbers + totals in one row) sits directly under
-        # the 11 header levels, exactly like the grid: header, aggregating row,
-        # then the data rows.
-        self.sheet.write(_aggregate_row_xml(layout, totals or {}).encode())
+        # The aggregating band sits directly under the 11 header levels, exactly
+        # like the grid: the column-number row (12), then the totals row (13)
+        # written at close() once the data range is known, then the data rows.
+        self.totals = totals or {}
+        self.sheet.write(_number_row_xml(layout).encode())
+        self._number_row_written = True
         # Rows already emitted above the data: the 11 header levels + the
-        # aggregating row.
-        self._strip_and_totals_rows = self.header_rows_count + 1
+        # number row. The totals row lands between them and the data.
+        self._strip_and_totals_rows = self.header_rows_count + 2
         # Output rows written so far. The workbook row is
         # `above + this`, NOT `above + position`: `position` is the plan's stored
         # row position, so a filtered export (surviving rows keep their original
@@ -364,7 +384,16 @@ class RenovationWorkbookWriter:
             )
 
     def close(self) -> None:
+        # The totals row (13) needs the final data range, so it is written here,
+        # between the number row (12) and the data (13+..) that are already in the
+        # stream. Its cells carry a live SUM over the exported rows.
+        if self._number_row_written:
+            data_from = self._strip_and_totals_rows
+            data_to = data_from + max(0, self._written - 1)
+            self.sheet.write(_totals_row_xml(self.layout, self.totals, data_from, data_to).encode())
         self.sheet.write(b"</sheetData>")
+        # Header merges plus the aggregate band's number-over-empty ranges are
+        # all folded into the layout's single <mergeCells> block.
         self.sheet.write(self.layout.merged_xml.encode())
         self.sheet.write(b"</worksheet>")
         self.sheet.close()
@@ -414,6 +443,7 @@ def _header_matrix(
 def _merged_ranges_xml(
     fields: tuple[RenovationFieldMeta, ...],
     column_by_field: dict[str, int],
+    totals: dict[str, float] | None = None,
 ) -> str:
     ranges = ["A1:A11"]
     position_by_column = {_column_offset(meta): column_by_field[meta.db_name] for meta in fields}
@@ -426,6 +456,18 @@ def _merged_ranges_xml(
             first_column, last_column = clipped
             if start_row != end_row or first_column != last_column:
                 ranges.append(f"{get_column_letter(first_column)}{start_row}:{get_column_letter(last_column)}{end_row}")
+    # The aggregate band: a column whose totals cell is empty merges its number
+    # over the totals row (the grid does the same), so the strip reads as one
+    # band. The header merge rows are 1..11; the band is rows 12..13.
+    top = len(header_rows()) + 1
+    bottom = top + 1
+    # The asset column (B) never totals, so its number spans the band too.
+    ranges.append(f"B{top}:B{bottom}")
+    for meta in fields:
+        if totals and meta.db_name in totals:
+            continue
+        letter = get_column_letter(column_by_field[meta.db_name])
+        ranges.append(f"{letter}{top}:{letter}{bottom}")
     refs = "".join(f'<mergeCell ref="{cell_range}"/>' for cell_range in ranges)
     return f'<mergeCells count="{len(ranges)}">{refs}</mergeCells>'
 
@@ -546,9 +588,9 @@ _WORKBOOK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 _WORKBOOK_RELS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"""
 _STYLES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="DD.MM.YYYY"/><numFmt numFmtId="165" formatCode="0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="2"><border/><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>"""
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="DD.MM.YYYY"/><numFmt numFmtId="165" formatCode="0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="2"><border/><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="165" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyNumberFormat="1"/><xf numFmtId="165" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>"""
 _SHEET_XML_PREFIX = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="12" topLeftCell="C13" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>"""
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="13" topLeftCell="C14" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>"""
 
 
 # ─── Dictionary exports (assets, catalog options, users) ────────────────

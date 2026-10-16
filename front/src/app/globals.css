@@ -1080,9 +1080,18 @@ body {
     min-width: 0 !important;
 }
 
-.revo-grid-shell:not(.revo-grid-shell--pinned)
-    .raw-materials-grid
-    revogr-scroll-virtual.horizontal {
+/* The custom external strip is the visible horizontal bar in both pin states
+   (it can be inset before the vertical scrollbar's lane); the native one must
+   stay hidden in pinned mode too, or two bars would render side by side. */
+/* The vertical strip sits inside the grid (its header is not an overlay, unlike
+   the renovation plan), so without this it starts at the shell's top and runs
+   across the header cells' right edge. Offset it below the header the same way
+   the plan offsets it below its summary row: `top` + the matching height cut. */
+.revo-grid-shell .raw-materials-grid revogr-scroll-virtual.vertical {
+    top: var(--grid-header-height, 0px);
+    height: calc(100% - var(--grid-header-height, 0px)) !important;
+}
+.revo-grid-shell .raw-materials-grid revogr-scroll-virtual.horizontal {
     height: 0 !important;
     min-height: 0 !important;
 }

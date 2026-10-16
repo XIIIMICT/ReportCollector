@@ -1538,6 +1538,14 @@ function RenovationGridInner(
     // anchor), else at the tail of the working plan / the top of the archive.
     useEffect(() => {
         if (!scrollToPosition) return;
+        // The row count arrives with the first scope read, but this effect also
+        // runs while it is still 0 (the plugin's total lands a render later).
+        // Jumping then would clamp the target to -1 -> row 0 and scroll the
+        // grid to the FIRST row, and the follow-up real jump gets cancelled by
+        // this effect's own cleanup - which is exactly why a reload opened the
+        // top of the plan instead of the remembered row. Wait until the scope
+        // is known.
+        if (totalRows <= 0) return;
         const target = Math.max(0, Math.min(totalRows - 1, scrollToPosition.position - 1));
         return jumpToRow(target, scrollToPosition.centered ?? false);
     }, [scrollToPosition, totalRows, jumpToRow]);

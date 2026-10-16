@@ -235,7 +235,7 @@ class ExportJobManager:
             with partial.open("wb") as sink:
                 writer = RenovationWorkbookWriter(
                     sink,
-                    build_plan_sheet_layout(spec.block),
+                    build_plan_sheet_layout(spec.block, meta.totals),
                     meta.reference_labels,
                     totals=meta.totals,
                 )
