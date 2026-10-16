@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlmodel import col, select
@@ -203,6 +203,7 @@ async def get_renovation_plan_rows(
     filters: Annotated[str | None, Query()] = None,
     position_from: Annotated[int | None, Query(ge=1)] = None,
     position_to: Annotated[int | None, Query(ge=1)] = None,
+    anchor_position: Annotated[int | None, Query(ge=1)] = None,
 ) -> RenovationPlanRowsRead:
     """
     Return a window of renovation plan rows plus the total (lazy loading).
@@ -210,6 +211,9 @@ async def get_renovation_plan_rows(
     `filters` is a JSON array of `{column, values, includeNulls}` (the header
     filters) — combined with AND and applied in SQL so the window is correct.
     `position_from`/`position_to` narrow the window to a row-number («№») range.
+    `anchor_position` resolves a stored row position onto the filtered scope
+    (`anchorOffset` in the response) — the client centres the same row after a
+    reload or a filter change.
     """
     try:
         return await read_plan_rows(
@@ -223,6 +227,7 @@ async def get_renovation_plan_rows(
             filters=parse_column_filters(filters),
             position_from=position_from,
             position_to=position_to,
+            anchor_position=anchor_position,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
@@ -502,6 +507,7 @@ async def post_export_renovation_plan(
             row_ids=payload.rowIds,
             asset_name=payload.asset,
             block=payload.block,
+            filters=payload.filters,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
@@ -559,6 +565,8 @@ async def post_plan_export_job(
             state=RPlanState.WORKING,
             row_ids=payload.rowIds,
             block=payload.block,
+            filters=payload.filters,
+            include_unassigned=payload.asset is None,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
@@ -571,6 +579,7 @@ async def post_plan_export_job(
                 sorted(str(asset_id) for asset_id in asset_ids),
                 sorted(str(row_id) for row_id in payload.rowIds or []),
                 payload.block.value if payload.block is not None else None,
+                [item.model_dump() for item in payload.filters or []],
                 meta.stamp.isoformat(),
             ],
             ensure_ascii=True,
@@ -582,6 +591,8 @@ async def post_plan_export_job(
         asset_ids=asset_ids,
         row_ids=payload.rowIds,
         block=payload.block,
+        filters=payload.filters,
+        include_unassigned=payload.asset is None,
         file_name=file_name,
         total=meta.total,
         cache_key=cache_key,
@@ -610,19 +621,35 @@ async def get_plan_export_job(
 async def get_plan_export_job_file(
     job_id: str,
     access: AccessDependency,
-) -> FileResponse:
-    """Download the ready XLSX of a background plan export."""
+) -> StreamingResponse:
+    """
+    Stream the XLSX of a background plan export AS it is being generated.
+
+    The browser downloads this URL directly (a native download), so its own save
+    dialog and progress UI open immediately. The response streams the growing
+    `.part` file the background worker writes, so the download progress advances
+    from the first byte instead of staying silent for the whole generation (minutes
+    for a 300k-row plan). There is no Content-Length (the size is unknown until
+    generation ends), so the browser shows downloaded bytes rather than a percent -
+    but the bar moves continuously. Reloading or closing the tab does not stop the
+    generation (it runs in the worker) or the browser-owned download.
+    """
     try:
-        job = export_jobs.file(job_id, str(access.user.id))
+        job = export_jobs.get(job_id, str(access.user.id))
     except KeyError as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Файл выгрузки не готов.") from error
-    path = job.path
-    if path is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Файл выгрузки не готов.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Задание выгрузки не найдено.",
+        ) from error
+    if job.status == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Не удалось сформировать файл выгрузки.",
+        )
     filename = job.spec.file_name
     quoted = quote(filename)
-    return FileResponse(
-        path,
+    return StreamingResponse(
+        export_jobs.stream_growing(job_id, str(access.user.id)),
         media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"},
     )

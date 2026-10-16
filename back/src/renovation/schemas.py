@@ -163,6 +163,9 @@ class RenovationPlanRowsRead(BaseModel):
     # Total rows in the plan WITHOUT the asset filter (for the «всего» counter,
     # which must not shrink when a filter hides rows).
     totalAll: int | None = None
+    # Rows before the requested `anchor_position` within the filtered scope
+    # (the anchor row's 0-based index; `total` when it is past the last row).
+    anchorOffset: int | None = None
 
 
 class RenovationPlanSummaryRead(BaseModel):
@@ -437,14 +440,17 @@ class RenovationPlanExportRequest(BaseModel):
     Excel export of a plan version: all rows or only the visible ones.
 
     `rowIds` exports an exact set; when it is null, `asset` narrows the rows to
-    one asset and `block` narrows the exported columns to one responsibility
-    block — the server-side equivalent of the grid's «видимая» filter.
+    one asset, `block` narrows the exported columns to one responsibility block
+    and `filters` are the grid's active header filters (the same shape
+    `GET /plan/rows` takes) — together the server-side equivalent of the grid's
+    «видимая» filter.
     """
 
     planId: UUID | None = None
     rowIds: list[UUID] | None = None
     asset: str | None = None
     block: RBlock | None = None
+    filters: list[RenovationColumnFilter] | None = None
 
 
 class RenovationExportJobRead(BaseModel):

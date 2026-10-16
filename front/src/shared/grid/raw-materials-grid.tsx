@@ -1069,6 +1069,102 @@ function RawMaterialsGridInner(
         setHasHorizontalOverflow(width > (shell?.clientWidth ?? 0));
     }, []);
 
+    // Live column resize. revo-grid's own handle commits the width only on
+    // pointer-up (its ResizeDirective forwards `onResize` for the `end` event
+    // alone), so the boundary jumped only after release. Here we drive the drag
+    // ourselves and route it through the SAME state the columns memo reads: the
+    // new width lands in `resizedWidthsRef` and `widthsVersion` is bumped on every
+    // pointermove, so the `columns` memo rebuilds and revo-grid re-renders the
+    // header (group headers included) live — exactly like the renovation plan's
+    // overlay. Calling `grid.updateColumns` instead left nested group headers stale,
+    // so the boundary did not move.
+    useEffect(() => {
+        const shell = shellRef.current;
+        if (!shell) return;
+        let drag: {
+            prop: string;
+            startX: number;
+            startWidth: number;
+            minWidth: number;
+            maxWidth: number;
+        } | null = null;
+        // getColumns() returns the grouping shape too (a group has children), so
+        // narrow it the way the flatColumns memo above does.
+        const leavesOf = (columns: unknown[]) =>
+            (columns as (ColumnRegular | ColumnGrouping)[]).flatMap((column) =>
+                (column as ColumnGrouping).children?.length
+                    ? ((column as ColumnGrouping).children as ColumnRegular[])
+                    : [column as ColumnRegular],
+            );
+        const resolveColumn = async (handle: Element) => {
+            const grid = gridRef.current;
+            const cell = handle.closest(".rgHeaderCell") as HTMLElement | null;
+            if (!grid || !cell) return null;
+            const match = /translateX\((-?[\d.]+)px\)/.exec(cell.style.transform);
+            const cellLeft = match ? Number(match[1]) : 0;
+            const width = cell.offsetWidth;
+            const leaves = leavesOf(await grid.getColumns());
+            let offset = 0;
+            for (const leaf of leaves) {
+                const leafWidth = typeof leaf.size === "number" ? leaf.size : 150;
+                if (
+                    Math.abs(offset + leafWidth - (cellLeft + width)) < 2 ||
+                    Math.abs(offset - cellLeft) < 2
+                ) {
+                    return {
+                        prop: String(leaf.prop),
+                        startWidth: leafWidth,
+                        minWidth: typeof leaf.minSize === "number" ? leaf.minSize : 40,
+                        maxWidth:
+                            typeof leaf.maxSize === "number"
+                                ? leaf.maxSize
+                                : Number.POSITIVE_INFINITY,
+                    };
+                }
+                offset += leafWidth;
+            }
+            return null;
+        };
+        const onPointerDown = (event: PointerEvent) => {
+            const target = event.target as Element | null;
+            if (!target || !target.classList.contains("resizable-r")) return;
+            if (!gridRef.current) return;
+            event.preventDefault();
+            event.stopPropagation();
+            void resolveColumn(target).then((resolved) => {
+                if (!resolved) return;
+                drag = { ...resolved, startX: event.clientX };
+                document.body.style.cursor = "ew-resize";
+            });
+        };
+        const onPointerMove = (event: PointerEvent) => {
+            if (!drag) return;
+            const next = Math.round(
+                Math.min(
+                    drag.maxWidth,
+                    Math.max(drag.minWidth, drag.startWidth + (event.clientX - drag.startX)),
+                ),
+            );
+            resizedWidthsRef.current.set(columnWidthKey(widthKeySection, drag.prop), next);
+            setWidthsVersion((version) => version + 1);
+        };
+        const onPointerUp = () => {
+            if (!drag) return;
+            document.body.style.cursor = "";
+            drag = null;
+            void refreshHorizontalScrollbar();
+        };
+        shell.addEventListener("pointerdown", onPointerDown, true);
+        window.addEventListener("pointermove", onPointerMove);
+        window.addEventListener("pointerup", onPointerUp);
+        window.addEventListener("pointercancel", onPointerUp);
+        return () => {
+            shell.removeEventListener("pointerdown", onPointerDown, true);
+            window.removeEventListener("pointermove", onPointerMove);
+            window.removeEventListener("pointerup", onPointerUp);
+            window.removeEventListener("pointercancel", onPointerUp);
+        };
+    }, [refreshHorizontalScrollbar, widthKeySection]);
     const getExportState = useCallback(async (): Promise<RawMaterialsGridState> => {
         const grid = gridRef.current;
         if (!grid) {

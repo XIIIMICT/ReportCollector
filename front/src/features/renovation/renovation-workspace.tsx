@@ -20,7 +20,6 @@ import { ProfileModal } from "@/features/raw-materials/profile-modal";
 import {
     AppHeader,
     DeleteRecordDialog,
-    downloadBlob,
     type ArchiveItem,
     type ArchiveState,
     type ClipboardActions,
@@ -32,9 +31,7 @@ import {
     approveRenovationPlan,
     createRenovationExportJob,
     deleteRenovationRow,
-    downloadRenovationExportJob,
     getRenovationDiff,
-    getRenovationExportJob,
     getRenovationMeta,
     getRenovationPlanRows,
     getRenovationPlanSummary,
@@ -52,7 +49,6 @@ import {
     type RenovationColumnFilter,
     type RenovationDiff,
     type RenovationDiffRow,
-    type RenovationExportJob,
     type RenovationMeta,
     type RenovationPlanRow,
     type RenovationPlanVersion,
@@ -66,12 +62,6 @@ import {
 import { canonicalCellKey, useCollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
-import {
-    hasSaveFilePicker,
-    pickSaveFile,
-    streamUrlToFileHandle,
-    type SaveFileHandle,
-} from "@/shared/file-save";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { SectionTabs } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
@@ -164,21 +154,21 @@ function errorMessage(reason: unknown): string {
     return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
 }
 
-/** Human-readable progress of a background plan export (toast description). */
-function exportProgressLabel(job: RenovationExportJob): string {
-    if (job.total > 0 && job.progress > 0) {
-        const percent = Math.min(100, Math.round((job.progress / job.total) * 100));
-        return `${percent}% (${job.progress} из ${job.total} строк)`;
-    }
-    return "Подготовка данных…";
-}
-
-/** Bytes as KB/MB for the saving-progress toast. */
-function formatBytes(bytes: number): string {
-    if (bytes < 1024 * 1024) {
-        return `${Math.max(1, Math.round(bytes / 1024))} КБ`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+/**
+ * Hand the file URL to the browser as a normal download.
+ *
+ * The browser streams it to disk and shows its OWN progress UI — unlike the
+ * File System Access / blob flows, which report the byte progress in a site
+ * toast and (for a blob) buffer the whole file in memory.
+ */
+function triggerNativeDownload(url: string, fileName: string): void {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
 }
 
 function formatVersionStamp(value: string): string {
@@ -288,6 +278,16 @@ export function RenovationWorkspace({
     const [planTotals, setPlanTotals] = useState<{ total: number; totalAll: number | null } | null>(
         null,
     );
+    // Highest column number in the form («Предприятие» is 1). The strip numbers
+    // are FIXED (the workbook ordinal shifted by one), unlike the sequential row
+    // numbers, so this is the bound for the «go to column» field.
+    const totalColumns = useMemo(() => {
+        let max = 1;
+        for (const field of meta?.fields ?? []) {
+            max = Math.max(max, field.ordinal - 1);
+        }
+        return max;
+    }, [meta]);
     const [baselineBoundary, setBaselineBoundary] = useState<number | null>(null);
     // Structural scroll: the working plan opens at its TAIL (rows are appended
     // at the end), the archive reads top-down. Expressed as the sequential
@@ -295,8 +295,33 @@ export function RenovationWorkspace({
     const [scrollToPosition, setScrollToPosition] = useState<{
         position: number;
         token: number;
+        centered?: boolean;
     } | null>(null);
     const scrollToPositionTokenRef = useRef(0);
+
+    // The stored position («__position») of the row the user keeps in the
+    // middle of the viewport — persisted per plan version, so a reload (or a
+    // filter change) shows the same content; when the filters hide that row,
+    // the server resolves the nearest remaining one (see the jump below).
+    const centerPositionRef = useRef<number | null>(null);
+    const centerStorageKey = useCallback(
+        (planId: string | null) => `renovation:centerPosition:${planId ?? "working"}`,
+        [],
+    );
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const stored = window.localStorage.getItem(centerStorageKey(viewPlanId));
+        const parsed = stored === null ? Number.NaN : Number(stored);
+        centerPositionRef.current = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }, [centerStorageKey, viewPlanId]);
+    const handleCenterPositionChange = useCallback(
+        (position: number | null) => {
+            if (position === null || position <= 0) return;
+            centerPositionRef.current = position;
+            window.localStorage.setItem(centerStorageKey(viewPlanId), String(position));
+        },
+        [centerStorageKey, viewPlanId],
+    );
 
     // Structural reset: a new plan version or a new filter restarts the row
     // scope. The grid's Infinity Scroll reloads from the first chunk when the
@@ -319,32 +344,47 @@ export function RenovationWorkspace({
         let cancelled = false;
         setPlanError(null);
         setLoadedRows([]);
+        const anchor = centerPositionRef.current;
         void (async () => {
             try {
                 // The head read doubles as the scope probe: it returns the
                 // filtered total (the plugin's `total`) and the baseline
-                // boundary without transferring any rows.
+                // boundary without transferring any rows. With an anchor it
+                // also resolves that row's index in the current scope.
                 const head = await getRenovationPlanRows(
                     0,
                     1,
                     viewPlanId ?? undefined,
                     assetFilter,
                     activeColumnFilters,
+                    null,
+                    null,
+                    anchor,
                 );
                 if (cancelled) return;
                 setPlanTotals({ total: head.total, totalAll: head.totalAll ?? null });
                 setBaselineBoundary(head.baselineBoundary ?? null);
-                // The working plan anchors at its tail — the user lands on the
-                // rows they append most; an archive reads top-down. The jump
-                // must be cleared for the archive, otherwise the previous
-                // working-plan position leaks into it (the grid effect keys on
-                // totalRows, which changes between versions).
-                if (!viewPlanId && head.total > 0) {
+                const nextToken = () => {
                     scrollToPositionTokenRef.current += 1;
+                    return scrollToPositionTokenRef.current;
+                };
+                if (anchor !== null && head.anchorOffset !== null && head.total > 0) {
+                    // Keep the same content in the middle: the anchor row, or —
+                    // when the filters hid it — the nearest remaining one (the
+                    // offset clamps to the first/last row).
                     setScrollToPosition({
-                        position: head.total,
-                        token: scrollToPositionTokenRef.current,
+                        position: Math.min(head.anchorOffset + 1, head.total),
+                        token: nextToken(),
+                        centered: true,
                     });
+                } else if (!viewPlanId && head.total > 0) {
+                    // No remembered row yet: the working plan anchors at its
+                    // tail — the user lands on the rows they append most; an
+                    // archive reads top-down. The jump must be cleared for the
+                    // archive, otherwise the previous working-plan position
+                    // leaks into it (the grid effect keys on totalRows, which
+                    // changes between versions).
+                    setScrollToPosition({ position: head.total, token: nextToken() });
                 } else {
                     setScrollToPosition(null);
                 }
@@ -1024,86 +1064,35 @@ export function RenovationWorkspace({
             if (exportPending) return;
             setExportPending(true);
             // «Видимая» — the whole plan filtered server-side by the active
-            // asset and block, not just the window currently rendered.
+            // asset, block and header filters, not just the window currently
+            // rendered.
             const visible = scope === "visible";
-            let toastId: string | null = null;
             try {
+                // Start the background export (fast) so the file begins generating.
                 const job = await createRenovationExportJob({
                     planId: viewPlanId ?? undefined,
                     asset: visible ? assetFilter : null,
                     block: visible ? blockFilter : null,
+                    filters: visible ? activeColumnFilters : null,
                 });
-                // Chromium: ask for the destination immediately (like a normal
-                // big download), then stream the ready file into it. The user
-                // sees the save dialog at once and a real percentage: first the
-                // generation progress, then the byte progress.
-                let handle: SaveFileHandle | null = null;
-                if (hasSaveFilePicker()) {
-                    try {
-                        handle = await pickSaveFile(job.fileName);
-                    } catch (reason) {
-                        if (reason instanceof DOMException && reason.name === "AbortError") {
-                            // The user closed the save dialog — stop silently.
-                            return;
-                        }
-                        handle = null; // picker unavailable/expired — blob fallback
-                    }
+                if (job.status === "failed") {
+                    throw new Error(job.error ?? "Не удалось сформировать файл.");
                 }
-                let current = job;
-                if (current.status !== "done") {
-                    toastId = toast.info("Формируется файл выгрузки…", {
-                        timeout: 0,
-                        description: exportProgressLabel(current),
-                    });
-                }
-                // The full plan is minutes of server CPU: poll the background
-                // job until it is ready instead of holding the request open.
-                while (current.status === "pending" || current.status === "running") {
-                    await new Promise((resolve) => setTimeout(resolve, 1500));
-                    current = await getRenovationExportJob(current.id);
-                    if (toastId) {
-                        toast.update(toastId, "Формируется файл выгрузки…", {
-                            description: exportProgressLabel(current),
-                        });
-                    }
-                }
-                if (current.status === "failed") {
-                    throw new Error(current.error ?? "Не удалось сформировать файл.");
-                }
-                if (handle) {
-                    if (toastId) {
-                        toast.update(toastId, "Сохранение файла…", { description: "0%" });
-                    }
-                    await streamUrlToFileHandle(
-                        handle,
-                        renovationExportJobFileUrl(current.id),
-                        (received, total) => {
-                            if (!toastId) return;
-                            const percent =
-                                total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
-                            const description =
-                                total > 0
-                                    ? `${percent}% (${formatBytes(received)} из ${formatBytes(total)})`
-                                    : formatBytes(received);
-                            toast.update(toastId, "Сохранение файла…", { description });
-                        },
-                    );
-                    if (toastId) toast.close(toastId);
-                    toast.success("Файл сохранён", { description: current.fileName });
-                } else {
-                    const { blob, fileName } = await downloadRenovationExportJob(current.id);
-                    downloadBlob(blob, fileName);
-                    if (toastId) toast.close(toastId);
-                    toast.success("Файл выгружен", { description: fileName });
-                }
+                // Hand the URL to the browser as a native download IMMEDIATELY.
+                // The file endpoint waits for the worker to finish, then streams
+                // the workbook with a Content-Length — so the browser shows its
+                // OWN save dialog and percentage progress (a .crdownload that
+                // becomes the finished .xlsx), instead of a site toast. Closing
+                // the tab or reloading neither cancels the generation (it runs in
+                // the background worker) nor the browser-owned download.
+                triggerNativeDownload(renovationExportJobFileUrl(job.id), job.fileName);
             } catch (reason) {
-                if (toastId) toast.close(toastId);
                 toast.danger("Не удалось выгрузить файл", { description: errorMessage(reason) });
             } finally {
                 setExportPending(false);
             }
         },
-        [exportPending, viewPlanId, assetFilter, blockFilter],
+        [activeColumnFilters, exportPending, viewPlanId, assetFilter, blockFilter],
     );
 
     const handleStripExport = useCallback(
@@ -1879,6 +1868,9 @@ export function RenovationWorkspace({
                                                     onViewStatsChange={setGridStats}
                                                     onClipboardStateChange={handleClipboardState}
                                                     onLoadedRowsChange={handleLoadedRowsChange}
+                                                    onCenterPositionChange={
+                                                        handleCenterPositionChange
+                                                    }
                                                     headerPinned={planHeaderPinned}
                                                     showServiceColumns={planServiceColumns}
                                                     summaryValues={summaryValues}
@@ -2019,7 +2011,9 @@ export function RenovationWorkspace({
                 <RowGoToFilter
                     anchor={rowFilterTarget}
                     total={planTotals?.total ?? 0}
+                    maxColumn={totalColumns}
                     onGoTo={(position) => void gridRef.current?.scrollToPosition(position)}
+                    onGoToColumn={(number) => void gridRef.current?.scrollToColumn(number)}
                     onClose={() => setRowFilterTarget(null)}
                 />
             ) : null}

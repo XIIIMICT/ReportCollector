@@ -134,6 +134,11 @@ export type RenovationPlanRows = {
     baselineBoundary: number | null;
     /** Whole-plan row count (ignoring the asset filter) for the «всего» counter. */
     totalAll: number | null;
+    /**
+     * Rows before the requested `anchorPosition` within the filtered scope —
+     * the anchor row's 0-based index (`total` when it is past the last row).
+     */
+    anchorOffset: number | null;
 };
 
 export type RenovationDiffCell = {
@@ -198,6 +203,7 @@ export async function getRenovationPlanRows(
     filters?: RenovationColumnFilter[] | null,
     positionFrom?: number | null,
     positionTo?: number | null,
+    anchorPosition?: number | null,
 ): Promise<RenovationPlanRows> {
     const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
     if (planId) params.set("plan_id", planId);
@@ -205,6 +211,7 @@ export async function getRenovationPlanRows(
     if (filters && filters.length > 0) params.set("filters", JSON.stringify(filters));
     if (positionFrom != null) params.set("position_from", String(positionFrom));
     if (positionTo != null) params.set("position_to", String(positionTo));
+    if (anchorPosition != null) params.set("anchor_position", String(anchorPosition));
     return requestJson(`/api/renovation/plan/rows?${params.toString()}`);
 }
 
@@ -288,6 +295,8 @@ export type RenovationPlanExportParams = {
     rowIds?: string[] | null | undefined;
     asset?: string | null | undefined;
     block?: string | null | undefined;
+    /** Active header filters — the server-side «видимая таблица» scope. */
+    filters?: RenovationColumnFilter[] | null | undefined;
 };
 
 export async function exportRenovationPlan(
@@ -301,6 +310,7 @@ export async function exportRenovationPlan(
             rowIds: params.rowIds ?? null,
             asset: params.asset ?? null,
             block: params.block ?? null,
+            filters: params.filters ?? null,
         }),
         cache: "no-store",
     });
@@ -366,6 +376,7 @@ export async function createRenovationExportJob(
         rowIds: params.rowIds ?? null,
         asset: params.asset ?? null,
         block: params.block ?? null,
+        filters: params.filters ?? null,
     });
 }
 

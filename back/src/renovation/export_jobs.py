@@ -26,7 +26,7 @@ import logging
 import os
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -43,6 +43,7 @@ from .service import iter_plan_export_rows, read_plan_export_meta
 if TYPE_CHECKING:
     from .models import RBlock
     from .plan import RPlanState
+    from .schemas import RenovationColumnFilter
 
 LOGGER = logging.getLogger("reportcollector.application")
 
@@ -77,6 +78,10 @@ class ExportJobSpec:
     file_name: str
     total: int
     cache_key: str
+    # The grid's active header filters (the «видимая таблица» scope) and whether
+    # the not-yet-assigned draft rows belong to it.
+    filters: list[RenovationColumnFilter] | None = None
+    include_unassigned: bool = False
 
 
 @dataclass(slots=True)
@@ -89,6 +94,9 @@ class ExportJob:
     path: Path | None = None
     error: str | None = None
     created_at: float = field(default_factory=time.monotonic)
+    # Final file size in bytes (known only once done; a live download that
+    # streamed the growing file does not need it).
+    size: int | None = None
 
 
 class ExportJobManager:
@@ -219,6 +227,8 @@ class ExportJobManager:
                 state=spec.state,
                 row_ids=spec.row_ids,
                 block=spec.block,
+                filters=spec.filters,
+                include_unassigned=spec.include_unassigned,
             )
             partial = self._part_path(job.id)
             final = self._final_path(job.id)
@@ -227,6 +237,7 @@ class ExportJobManager:
                     sink,
                     build_plan_sheet_layout(spec.block),
                     meta.reference_labels,
+                    totals=meta.totals,
                 )
                 try:
                     async for batch in iter_plan_export_rows(
@@ -234,6 +245,8 @@ class ExportJobManager:
                         plan_id=meta.plan_id,
                         asset_ids=spec.asset_ids,
                         row_ids=spec.row_ids,
+                        filters=spec.filters,
+                        include_unassigned=spec.include_unassigned,
                     ):
                         # Подготовка строк и сборка XML — CPU-bound: уводим из
                         # event loop, чтобы API отвечал во время выгрузки.
@@ -243,6 +256,66 @@ class ExportJobManager:
                     await asyncio.to_thread(writer.close)
             partial.replace(final)
             job.path = final
+            job.size = final.stat().st_size
+
+    async def stream_growing(self, job_id: str, user_id: str) -> AsyncIterator[bytes]:
+        """
+        Yield the export file's bytes AS it is being written by the worker.
+
+        The browser downloads this URL directly, so its native download UI shows
+        progress from the first byte (not only once generation finishes, which for a
+        300k-row plan is minutes of silence). We tail the growing `.part` file the
+        worker thread writes, flush it to the client, and finish when the job is
+        done (the `.part` is then renamed to the final `.xlsx`). If the job fails
+        mid-stream we cannot retract the bytes already sent, so the connection just
+        ends (the browser keeps the partial file); the client surfaces a toast when
+        it later reads the failed status. A finished (cached) job is streamed in one
+        shot.
+        """
+        job = self.get(job_id, user_id)
+        # Fast path: already done (a reused cache hit) - just stream the file.
+        if job.status == "done" and job.path is not None:
+            with job.path.open("rb") as handle:
+                while chunk := handle.read(64 * 1024):
+                    yield chunk
+            return
+        part = self._part_path(job_id)
+        offset = 0
+        idle = 0.0
+        # Open the response immediately (Starlette sends the headers on the first
+        # yielded chunk). While the job is merely QUEUED behind another export the
+        # worker has not written a single byte, so without this the browser would
+        # sit on "waiting for the server" with no download at all; a zero-length
+        # flush makes the download appear at once and the bytes then follow.
+        yield b""
+        while True:
+            job = self.get(job_id, user_id)
+            if job.status == "failed":
+                # Nothing more will be written; end the stream.
+                return
+            written = part.stat().st_size if part.exists() else 0
+            if written > offset:
+                idle = 0.0
+                with part.open("rb") as handle:
+                    handle.seek(offset)
+                    data = handle.read(written - offset)
+                offset = written
+                if data:
+                    yield data
+            elif job.status == "done":
+                # Renamed: the final file carries the tail (the zip end record).
+                final = self._final_path(job_id)
+                with final.open("rb") as handle:
+                    handle.seek(offset)
+                    while tail := handle.read(64 * 1024):
+                        yield tail
+                return
+            else:
+                idle += 1.0
+                if idle > 120.0:
+                    # Nothing written for two minutes: the worker is stuck or died.
+                    return
+            await asyncio.sleep(0.25)
 
 
 export_jobs = ExportJobManager()

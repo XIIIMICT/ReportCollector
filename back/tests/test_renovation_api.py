@@ -2,9 +2,12 @@
 
 import json
 import re
+import tempfile
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from io import BytesIO
+from pathlib import Path
+from typing import IO, cast
 from urllib.parse import unquote
 from uuid import uuid4
 from zipfile import ZipFile
@@ -17,9 +20,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.models import Project, User
 from src.renovation.constants import RENOVATION_PROJECT_KEY
+from src.renovation.export import RenovationWorkbookWriter, build_plan_sheet_layout
+from src.renovation.export_jobs import ExportJobSpec
+from src.renovation.export_jobs import export_jobs as export_jobs_manager
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
-from src.renovation.service import recompute_plan_rows
+from src.renovation.service import read_plan_export_meta, recompute_plan_rows
 
 ADMIN_HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
 VIEWER_HEADERS = signed_identity_headers(email="viewer@example.ru", name="Viewer User")
@@ -1363,14 +1369,75 @@ async def test_export_working_plan_renders_merged_header(client: AsyncClient) ->
     assert any(str(r) == "A1:A11" for r in worksheet.merged_cells.ranges)
     assert any(str(r) == "D1:AE1" for r in worksheet.merged_cells.ranges)
     assert worksheet["B2"].value == "Предприятие"
-    assert worksheet.freeze_panes == "C12"
-    assert worksheet["A12"].value == 1
-    assert worksheet["B12"].value == "АО «БСК»"
-    assert worksheet["C12"].value == "2027_BSKR_1.1.1_1382467"
+    assert worksheet.freeze_panes == "C13"
+    # One aggregating row (12) after the 11 header levels: each column's number,
+    # with its total on a second line; the data rows then start dense at 13.
+    assert worksheet["A12"].value == "№"
+    assert str(worksheet["B12"].value).startswith("1")
+    assert worksheet["A13"].value == 1
+    assert worksheet["B13"].value == "АО «БСК»"
+    assert worksheet["C13"].value == "2027_BSKR_1.1.1_1382467"
     # 217 kept fields (col_218 hidden) + the row-number column = 218; the
     # hidden column leaves a one-column gap on the last level.
     assert worksheet.max_column == 217
-    assert worksheet.max_row == 13
+    assert worksheet.max_row == 14
+
+
+async def test_export_job_file_streams_whole_workbook(client: AsyncClient, db_session: AsyncSession) -> None:
+    """The background-job file endpoint streams the workbook to the browser.
+
+    Regression: the endpoint used to block until generation finished, so the
+    browser showed nothing for minutes. It now streams the file, so the download
+    starts at once. The generation worker uses the app session factory (not the
+    test one), so this test drives the streaming contract directly: it builds the
+    workbook with the real writer and registers a finished job, then reads it back
+    through the API.
+    """
+    user = (await db_session.exec(select(User).where(col(User.email) == "admin@example.ru"))).one()
+    plan = (await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()
+    meta = await read_plan_export_meta(db_session, [], plan_id=plan.id, state=RPlanState.WORKING)
+
+    target = Path(tempfile.gettempdir()) / f"{uuid4()}.xlsx"
+    with target.open("wb") as sink:
+        writer = RenovationWorkbookWriter(
+            cast("IO[bytes]", sink),
+            build_plan_sheet_layout(None),
+            meta.reference_labels,
+            totals=meta.totals,
+        )
+        writer.write_rows([(1, "Test asset", "CODE", {"col_005": "Value"})])
+        writer.close()
+
+    spec = ExportJobSpec(
+        plan_id=meta.plan_id,
+        state=meta.state,
+        asset_ids=[],
+        row_ids=None,
+        block=None,
+        file_name="Пообъектный план — тест.xlsx",
+        total=meta.total,
+        cache_key=f"test-{uuid4()}",
+    )
+    job = await export_jobs_manager.create(spec, str(user.id))
+    job.status = "done"
+    job.path = target
+    try:
+        response = await client.get(f"/api/renovation/plan/export/jobs/{job.id}/file", headers=ADMIN_HEADERS)
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        # The whole workbook arrives through the streaming response, ZIP magic first.
+        assert response.content[:2] == b"PK"
+        assert ZipFile(BytesIO(response.content)).testzip() is None
+    finally:
+        target.unlink(missing_ok=True)
+        export_jobs_manager._jobs.pop(job.id, None)
+
+
+async def test_export_job_file_unknown_id_is_404(client: AsyncClient) -> None:
+    response = await client.get("/api/renovation/plan/export/jobs/missing/file", headers=ADMIN_HEADERS)
+    assert response.status_code == 404
 
 
 async def test_export_archived_plan_by_id(client: AsyncClient) -> None:
@@ -1441,8 +1508,8 @@ async def test_export_visible_rows_only(client: AsyncClient) -> None:
     assert response.content[:2] == b"PK"
 
     worksheet = load_workbook(BytesIO(response.content)).active
-    # Header rows + exactly the one requested plan row.
-    assert worksheet.max_row == 12
+    # Header rows + the aggregating row + exactly the one requested plan row.
+    assert worksheet.max_row == 13
 
 
 async def test_export_recalculates_derived_columns(
@@ -1466,12 +1533,12 @@ async def test_export_recalculates_derived_columns(
     worksheet = load_workbook(BytesIO(response.content)).active
     # Hiding col_218 shifts every later field one column left: col_024/col_025
     # now land on X/Y (26); col_026 on Z.
-    assert worksheet["X12"].value.date() == date(2027, 1, 10)
-    assert worksheet["Y12"].value.date() == date(2027, 1, 25)
+    assert worksheet["X13"].value.date() == date(2027, 1, 10)
+    assert worksheet["Y13"].value.date() == date(2027, 1, 25)
     # The calculated column keeps its Excel formula, with the recomputed value cached.
-    assert worksheet["Z12"].value == "=Y12 - X12"
+    assert worksheet["Z13"].value == "=Y13 - X13"
     cached = load_workbook(BytesIO(response.content), data_only=True).active
-    assert cached["Z12"].value == 15
+    assert cached["Z13"].value == 15
 
 
 async def test_export_block_filters_columns(client: AsyncClient) -> None:
@@ -1497,9 +1564,9 @@ async def test_export_visible_filters_asset_and_block(client: AsyncClient) -> No
     )
     assert response.status_code == 200
     worksheet = load_workbook(BytesIO(response.content)).active
-    assert worksheet["B12"].value == "АО «БСК»"
+    assert worksheet["B13"].value == "АО «БСК»"
     # Only the asset's rows: the seed has rows for other assets, all dropped.
-    assets = {worksheet.cell(row=row, column=2).value for row in range(12, worksheet.max_row + 1)}
+    assets = {worksheet.cell(row=row, column=2).value for row in range(13, worksheet.max_row + 1)}
     assert assets == {"АО «БСК»"}
 
 

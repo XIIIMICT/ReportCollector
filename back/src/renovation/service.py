@@ -11,13 +11,13 @@ labels (the same pattern as «deliveryBasisName» in the «Цены» form).
 import asyncio
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
+from dataclasses import field as dataclasses_field
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import ARRAY, String, Text, and_, bindparam, delete, func, insert, literal, literal_column, or_
-from sqlalchemy import cast as sql_cast
+from sqlalchemy import Column, String, Text, and_, bindparam, delete, func, insert, literal, or_
 from sqlalchemy import false as sa_false
 from sqlalchemy import select as sa_select
 from sqlalchemy import update as sa_update
@@ -384,6 +384,9 @@ class RenovationPlanExportMeta:
     block: RBlock | None
     asset_ids: list[UUID]
     total: int
+    # Additive numeric sums over the exported scope - the exported totals row
+    # (the grid's pinned summary row). Keyed by the field's db name.
+    totals: dict[str, float]
 
 
 @dataclass(slots=True)
@@ -403,45 +406,82 @@ class RenovationPlanExportData:
     reference_labels: dict[UUID, str]
     # Responsibility block whose columns the export keeps (None — every column).
     block: RBlock | None = None
+    # Additive numeric sums over the exported scope (the exported totals row).
+    totals: dict[str, float] = dataclasses_field(default_factory=dict)
+
+
+def _export_columns() -> tuple[Column, ...]:
+    """Return the stored `col_*` value columns, read directly (see `_plan_export_query`)."""
+    columns: list[Column] = []
+    for meta in field_metas():
+        attribute = getattr(RenovationPlanRow, meta.db_name, None)
+        if attribute is not None:
+            columns.append(attribute)
+    return tuple(columns)
+
+
+# The plan's value columns, in table order. Read as plain columns: the previous
+# `jsonb_strip_nulls(to_jsonb(row) - keys)` build measured ~2 ms/row on the
+# 300k-row plan (the export's bottleneck, ~10 minutes), while the direct read
+# is ~0.1 ms/row — the JSONB object with 215 keys is expensive to build,
+# transfer and parse.
+EXPORT_COLUMNS: tuple[Column, ...] = _export_columns()
+EXPORT_COLUMN_NAMES: tuple[str, ...] = tuple(column.name for column in EXPORT_COLUMNS)
+
+
+def _plan_export_scope(
+    plan_id: UUID,
+    asset_ids: list[UUID],
+    *,
+    filters: list[RenovationColumnFilter] | None = None,
+    label_map: dict[UUID, str] | None = None,
+    include_unassigned: bool = False,
+) -> ColumnElement[bool]:
+    """
+    Build the WHERE scope of an export read (mirrors `_plan_row_condition`).
+
+    `filters` are the same header filters the grid sends to `GET /plan/rows`, so
+    the «видимая таблица» export matches what the user sees; `include_unassigned`
+    keeps the not-yet-assigned draft rows the grid also shows when no asset
+    filter is active.
+    """
+    condition = col(RenovationPlanRow.plan_id) == plan_id
+    asset_condition = col(RenovationPlanRow.asset_id).in_(asset_ids)
+    if include_unassigned:
+        asset_condition = asset_condition | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
+    condition = condition & asset_condition
+    for column_filter in filters or []:
+        condition = condition & _column_filter_condition(column_filter, label_map or {})
+    return condition
 
 
 def _plan_export_query(
     plan_id: UUID,
     asset_ids: list[UUID],
     row_ids: list[UUID] | None,
+    *,
+    filters: list[RenovationColumnFilter] | None = None,
+    label_map: dict[UUID, str] | None = None,
+    include_unassigned: bool = False,
 ) -> Select:
-    """Build the export row query (sparse values, asset scope, optional exact set)."""
-    sparse_values = func.jsonb_strip_nulls(
-        func.to_jsonb(literal_column("renovation_plan_rows"))
-        - sql_cast(
-            [
-                "id",
-                "plan_id",
-                "asset_id",
-                "position",
-                "baseline_generation",
-                "revision",
-                "created_at",
-                "updated_at",
-                "updated_by",
-            ],
-            ARRAY(Text),
-        )
-    )
+    """Build the export row query (direct value columns, scope, optional exact set)."""
     query = (
         sa_select(
             col(RenovationPlanRow.id),
             col(RenovationPlanRow.position),
             col(RAsset.name),
             col(RAsset.repair_code),
-            sparse_values,
+            *EXPORT_COLUMNS,
         )
         .join(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
         .where(
-            col(RenovationPlanRow.plan_id) == plan_id,
-            # The asset filter is applied in SQL so the whole filtered set is
-            # exported — not just the fragment currently on screen.
-            col(RenovationPlanRow.asset_id).in_(asset_ids),
+            _plan_export_scope(
+                plan_id,
+                asset_ids,
+                filters=filters,
+                label_map=label_map,
+                include_unassigned=include_unassigned,
+            )
         )
         .order_by(col(RenovationPlanRow.position))
     )
@@ -467,6 +507,43 @@ async def _resolve_export_plan(
     return plan
 
 
+async def _plan_export_totals(
+    session: AsyncSession,
+    plan: RenovationPlan,
+    asset_ids: list[UUID],
+    *,
+    filters: list[RenovationColumnFilter] | None = None,
+    label_map: dict[UUID, str] | None = None,
+    include_unassigned: bool = False,
+    row_ids: list[UUID] | None = None,
+) -> dict[str, float]:
+    """
+    Sum the additive numeric fields over the exported scope.
+
+    The exported totals row carries these numbers (the grid's pinned summary row
+    shows the same).
+    """
+    numeric = [
+        meta.db_name
+        for meta in field_metas()
+        if meta.cell_type == "number" and meta.db_name not in _SUMMARY_EXCLUDED_FIELDS
+    ]
+    columns = [func.coalesce(func.sum(getattr(RenovationPlanRow, name)), 0) for name in numeric]
+    condition = _plan_export_scope(
+        plan.id,
+        asset_ids,
+        filters=filters,
+        label_map=label_map or {},
+        include_unassigned=include_unassigned,
+    )
+    if row_ids is not None:
+        condition = condition & col(RenovationPlanRow.id).in_(row_ids)
+    # Built inline so session.exec can infer the SQLModel overload (a separately
+    # bound sa_select(*columns) loses it - same as read_plan_summary).
+    sums = (await session.exec(select(*columns).select_from(RenovationPlanRow).where(condition))).one()
+    return {name: float(value or 0) for name, value in zip(numeric, sums, strict=True)}
+
+
 async def read_plan_export_meta(
     session: AsyncSession,
     asset_ids: list[UUID],
@@ -475,33 +552,53 @@ async def read_plan_export_meta(
     state: RPlanState = RPlanState.WORKING,
     row_ids: list[UUID] | None = None,
     block: RBlock | None = None,
+    filters: list[RenovationColumnFilter] | None = None,
+    include_unassigned: bool = False,
 ) -> RenovationPlanExportMeta:
     """
     Resolve the export scope without reading rows.
 
-    Plan, stamp, row count, reference labels and the responsibility block.
+    Plan, stamp, row count, reference labels and the responsibility block. The
+    count honours the same header filters as the row read, so the job's progress
+    total matches what the export actually writes.
     """
     plan = await _resolve_export_plan(session, plan_id, state)
+    label_map = await _reference_labels(session)
     count_query = (
         sa_select(func.count())
         .select_from(RenovationPlanRow)
         .where(
-            col(RenovationPlanRow.plan_id) == plan.id,
-            col(RenovationPlanRow.asset_id).in_(asset_ids),
+            _plan_export_scope(
+                plan.id,
+                asset_ids,
+                filters=filters,
+                label_map=label_map,
+                include_unassigned=include_unassigned,
+            )
         )
     )
     if row_ids is not None:
         count_query = count_query.where(col(RenovationPlanRow.id).in_(row_ids))
     total = int((await session.exec(count_query)).one()[0])
+    totals = await _plan_export_totals(
+        session,
+        plan,
+        asset_ids,
+        filters=filters,
+        label_map=label_map,
+        include_unassigned=include_unassigned,
+        row_ids=row_ids,
+    )
     return RenovationPlanExportMeta(
         plan_id=plan.id,
         baseline_generation=plan.baseline_generation,
         state=plan.state,
         stamp=await _plan_export_stamp(session, plan, asset_ids),
-        reference_labels=await _reference_labels(session),
+        reference_labels=label_map,
         block=block,
         asset_ids=list(asset_ids),
         total=total,
+        totals=totals,
     )
 
 
@@ -511,45 +608,57 @@ async def iter_plan_export_rows(
     plan_id: UUID,
     asset_ids: list[UUID],
     row_ids: list[UUID] | None = None,
+    filters: list[RenovationColumnFilter] | None = None,
+    include_unassigned: bool = False,
     batch_size: int = EXPORT_BATCH_SIZE,
 ) -> AsyncIterator[list[tuple[int, str, str, dict[str, object]]]]:
     """
     Stream prepared export rows in batches.
 
-    Each row is `(position, asset name, repair code, values)`. Formula fields
-    are recomputed so derived columns (dates, durations, sums) are exported
-    with fresh values even when the stored cell is NULL (recalc happens on
-    edit; adopted/imported rows may never have run it). A server-side cursor
-    keeps memory bounded — only one batch is prepared at a time.
+    Each row is `(position, asset name, repair code, values)`. The values are
+    the stored `col_*` columns (NULLs dropped — the sparse shape the writers
+    expect). Formula fields are recomputed ONLY for rows that miss a calculated
+    value (recalc happens on edit; adopted/imported rows may never have run it),
+    so a normal plan skips the engine entirely — it used to cost ~2 minutes for
+    300k rows. A server-side cursor keeps memory bounded: one batch at a time.
     """
-    query = _plan_export_query(plan_id, asset_ids, row_ids)
+    query = _plan_export_query(
+        plan_id,
+        asset_ids,
+        row_ids,
+        filters=filters,
+        include_unassigned=include_unassigned,
+    )
     label_map = await _reference_labels(session)
     engine = formula_engine()
+    calculated_fields = tuple(meta.db_name for meta in field_metas() if meta.is_calculated)
 
     def _prepare(values: dict[str, object], repair_code: str) -> dict[str, object]:
-        engine.materialize(values)
+        if any(values.get(field) is None for field in calculated_fields):
+            engine.materialize(values)
         if not values.get("col_003"):
             values["col_003"] = _sparse_row_renovation_id(values, repair_code, label_map)
         return values
 
+    def _prepare_entry(entry: object) -> tuple[int, str, str, dict[str, object]]:
+        row = cast("Sequence[object]", entry)
+        position = cast("int", row[1])
+        asset_name = cast("str", row[2])
+        repair_code = cast("str", row[3])
+        values: dict[str, object] = {
+            name: value for name, value in zip(EXPORT_COLUMN_NAMES, row[4:], strict=True) if value is not None
+        }
+        return (position, asset_name, repair_code, _prepare(values, repair_code))
+
     def _prepare_partition(
         partition: Sequence[object],
     ) -> list[tuple[int, str, str, dict[str, object]]]:
-        prepared: list[tuple[int, str, str, dict[str, object]]] = []
-        for entry in partition:
-            _row_id, position, asset_name_, repair_code, values = cast(
-                "tuple[UUID, int, str, str, dict[str, object]]", entry
-            )
-            prepared.append((position, asset_name_, repair_code, _prepare(values, repair_code)))
-        return prepared
+        return [_prepare_entry(entry) for entry in partition]
 
     if row_ids is not None:
         # An exact-set export is small: read it fully and keep the rowIds order.
         db_rows_with_ids = list((await session.exec(query)).all())  # ty: ignore[no-matching-overload]
-        by_id = {
-            row_id: (position, asset_name_, repair_code, _prepare(values, repair_code))
-            for row_id, position, asset_name_, repair_code, values in db_rows_with_ids
-        }
+        by_id = {entry[0]: _prepare_entry(entry) for entry in db_rows_with_ids}
         ordered = [by_id[row_id] for row_id in row_ids if row_id in by_id]
         for start in range(0, len(ordered), batch_size):
             yield ordered[start : start + batch_size]
@@ -573,18 +682,21 @@ async def read_plan_export_data(
     row_ids: list[UUID] | None = None,
     asset_name: str | None = None,
     block: RBlock | None = None,
+    filters: list[RenovationColumnFilter] | None = None,
 ) -> RenovationPlanExportData:
     """
     Read plan rows directly for XLSX export without a 94k-row Pydantic copy.
 
     `asset_name` narrows the rows to one asset; `block` narrows the exported
-    columns to one responsibility block (the server-side "visible" filter).
-    Synchronous path (the old streaming endpoints/tests); export jobs stream
-    through `read_plan_export_meta` + `iter_plan_export_rows`.
+    columns to one responsibility block; `filters` are the grid's header filters
+    (the server-side "visible" scope). Synchronous path (the old streaming
+    endpoints/tests); export jobs stream through `read_plan_export_meta` +
+    `iter_plan_export_rows`.
     """
     asset_ids = [asset.id for asset in assets]
     if asset_name is not None:
         asset_ids = [asset.id for asset in assets if asset.name == asset_name]
+    include_unassigned = asset_name is None
     meta = await read_plan_export_meta(
         session,
         asset_ids,
@@ -592,6 +704,8 @@ async def read_plan_export_data(
         state=state,
         row_ids=row_ids,
         block=block,
+        filters=filters,
+        include_unassigned=include_unassigned,
     )
     rows: list[tuple[int, str, str, dict[str, object]]] = []
     async for batch in iter_plan_export_rows(
@@ -599,6 +713,8 @@ async def read_plan_export_data(
         plan_id=meta.plan_id,
         asset_ids=asset_ids,
         row_ids=row_ids,
+        filters=filters,
+        include_unassigned=include_unassigned,
     ):
         rows.extend(batch)
     return RenovationPlanExportData(
@@ -608,6 +724,7 @@ async def read_plan_export_data(
         rows=rows,
         reference_labels=meta.reference_labels,
         block=meta.block,
+        totals=meta.totals,
     )
 
 
@@ -888,8 +1005,17 @@ async def read_plan_rows(
     filters: list[RenovationColumnFilter] | None = None,
     position_from: int | None = None,
     position_to: int | None = None,
+    anchor_position: int | None = None,
 ) -> RenovationPlanRowsRead:
-    """Return a window of plan rows plus the total row count (lazy loading)."""
+    """
+    Return a window of plan rows plus the total row count (lazy loading).
+
+    `anchor_position` additionally resolves a stored row position onto the
+    current filtered scope: the response's `anchorOffset` is the number of
+    matching rows BEFORE that position, so the client can keep the same row
+    centred after a reload or a filter change (0 when every row is after it,
+    `total` when the anchor is past the last row).
+    """
     if plan_id is not None:
         plan = await session.get(RenovationPlan, plan_id)
         if plan is None:
@@ -937,6 +1063,20 @@ async def read_plan_rows(
         )
     ).all()
     baseline_boundary = await _baseline_boundary(session) if plan.state == RPlanState.WORKING else None
+    anchor_offset: int | None = None
+    if anchor_position is not None:
+        anchor_offset = int(
+            (
+                await session.exec(
+                    sa_select(func.count())
+                    .select_from(RenovationPlanRow)
+                    .where(
+                        row_condition,
+                        col(RenovationPlanRow.position) < anchor_position,
+                    )
+                )
+            ).one()[0]
+        )
     return RenovationPlanRowsRead(
         id=plan.id,
         state=plan.state.value,
@@ -947,6 +1087,7 @@ async def read_plan_rows(
         total=total,
         baselineBoundary=baseline_boundary,
         totalAll=total_all,
+        anchorOffset=anchor_offset,
     )
 
 

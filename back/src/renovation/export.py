@@ -59,6 +59,7 @@ def stream_renovation_workbook(plan: RenovationPlanExportData) -> Iterator[bytes
                 cast("IO[bytes]", sink),
                 build_plan_sheet_layout(plan.block),
                 plan.reference_labels,
+                totals=plan.totals,
             )
             writer.write_rows(plan.rows)
             writer.close()
@@ -169,10 +170,13 @@ class PlanSheetLayout:
     letters: dict[int, str]
     # field -> Excel formula template carrying `_ROW_PLACEHOLDER` (absent — no
     # formula: a plain field or a calculated one whose dependency was dropped).
+    # The template is XML-escaped ONCE here: the row loop then only substitutes
+    # the row number (escaping ~130 formulas per row was a top export cost).
     formulas: dict[str, str]
     widths_xml: str
     header_xml: str
     merged_xml: str
+    header_rows: int
 
 
 def build_plan_sheet_layout(block: object) -> PlanSheetLayout:
@@ -186,7 +190,8 @@ def build_plan_sheet_layout(block: object) -> PlanSheetLayout:
             continue
         template = _compile_formula_template(meta.formula, column_by_field, letters)
         if template is not None:
-            formulas[meta.db_name] = template
+            # Escaped once: the row loop only substitutes the row number.
+            formulas[meta.db_name] = escape(template)
     return PlanSheetLayout(
         fields=fields,
         column_by_field=column_by_field,
@@ -195,6 +200,7 @@ def build_plan_sheet_layout(block: object) -> PlanSheetLayout:
         widths_xml=_column_widths_xml(fields),
         header_xml=_header_rows_xml(fields, column_by_field, letters),
         merged_xml=_merged_ranges_xml(fields, column_by_field),
+        header_rows=len(header_rows()),
     )
 
 
@@ -221,6 +227,33 @@ def _header_rows_xml(
     return "".join(parts)
 
 
+def _aggregate_row_xml(layout: PlanSheetLayout, totals: dict[str, float]) -> str:
+    """
+    Render the aggregating band (sheet row 12) - the grid's number strip + totals.
+
+    One row, mirroring the grid: every exported column carries its workbook ordinal
+    shifted so the asset column («Предприятие») is 1; a numeric column with a sum
+    shows the number on the first line and the sum on the second (a newline inside
+    the wrapped cell), exactly like the grid's number-over-total band. Column A
+    repeats the «№» corner label. A column without a sum shows its number
+    alone.
+    """
+    row_number = layout.header_rows + 1
+    cells = [_text_cell_xml(f"A{row_number}", "№", style=5)]
+    for index, meta in enumerate(layout.fields):
+        ref = f"{layout.letters[index + 2]}{row_number}"
+        number = str(meta.ordinal - 1)
+        total = totals.get(meta.db_name)
+        text = f"{number}\n{_format_total(total)}" if total is not None else number
+        cells.append(_text_cell_xml(ref, text, style=5))
+    return f'<row r="{row_number}" ht="34" customHeight="1">{"".join(cells)}</row>'
+
+
+def _format_total(value: float) -> str:
+    """Format a total the way the grid shows it: whole numbers stay whole, the rest round to 2 decimals."""
+    return str(int(value)) if float(value).is_integer() else f"{value:.2f}".replace(".", ",")
+
+
 def _row_xml(
     position: int,
     asset_name: str,
@@ -231,9 +264,12 @@ def _row_xml(
 ) -> str:
     """One <row> element for a prepared export row."""
     letters = layout.letters
+    formulas = layout.formulas
+    column_by_field = layout.column_by_field
+    row_text = str(row_number)
     xml = [
         f'<row r="{row_number}">',
-        _number_cell_xml(f"{letters[1]}{row_number}", position),
+        f'<c r="{letters[1]}{row_number}"><v>{position}</v></c>',
         _text_cell_xml(f"{letters[2]}{row_number}", asset_name),
     ]
     # Every kept field gets a cell when it has a value, so a reader sees the
@@ -250,14 +286,12 @@ def _row_xml(
             if display_value is None:
                 continue
             value = display_value
-        column = layout.column_by_field[meta.db_name]
-        ref = f"{letters[column]}{row_number}"
-        template = layout.formulas.get(meta.db_name)
+        ref = f"{letters[column_by_field[meta.db_name]]}{row_number}"
+        template = formulas.get(meta.db_name)
         if template is not None:
             # A calculated field keeps its Excel formula (rendered onto this
             # sheet's cell references) so the exported workbook recalculates.
-            formula = template.replace(_ROW_PLACEHOLDER, str(row_number))
-            xml.append(_formula_cell_xml(ref, formula, value, meta))
+            xml.append(_formula_cell_xml(ref, template.replace(_ROW_PLACEHOLDER, row_text), value, meta))
         else:
             xml.append(_data_cell_xml(ref, value, meta))
     xml.append("</row>")
@@ -277,6 +311,7 @@ class RenovationWorkbookWriter:
         sink: IO[bytes],
         layout: PlanSheetLayout,
         reference_labels: dict[UUID, str],
+        totals: dict[str, float] | None = None,
     ) -> None:
         self.layout = layout
         self.reference_labels = reference_labels
@@ -295,6 +330,20 @@ class RenovationWorkbookWriter:
         self.sheet.write(layout.widths_xml.encode())
         self.sheet.write(b"<sheetData>")
         self.sheet.write(layout.header_xml.encode())
+        # The aggregating band (numbers + totals in one row) sits directly under
+        # the 11 header levels, exactly like the grid: header, aggregating row,
+        # then the data rows.
+        self.sheet.write(_aggregate_row_xml(layout, totals or {}).encode())
+        # Rows already emitted above the data: the 11 header levels + the
+        # aggregating row.
+        self._strip_and_totals_rows = self.header_rows_count + 1
+        # Output rows written so far. The workbook row is
+        # `above + this`, NOT `above + position`: `position` is the plan's stored
+        # row position, so a filtered export (surviving rows keep their original
+        # positions, e.g. 232729) used to place the first data row at row 232740 -
+        # thousands of blank rows after the header, which Excel shows as "header
+        # only". The column A value still carries `position` (the plan's row number).
+        self._written = 0
 
     def write_rows(
         self,
@@ -302,6 +351,7 @@ class RenovationWorkbookWriter:
     ) -> None:
         """Write one batch of prepared rows; call repeatedly for the whole plan."""
         for position, asset_name, _repair_code, values in rows:
+            self._written += 1
             self.sheet.write(
                 _row_xml(
                     position,
@@ -309,7 +359,7 @@ class RenovationWorkbookWriter:
                     values,
                     self.layout,
                     self.reference_labels,
-                    self.header_rows_count + position,
+                    self._strip_and_totals_rows + self._written,
                 ).encode()
             )
 
@@ -440,8 +490,8 @@ def _formula_cell_xml(
     value: object,
     meta: RenovationFieldMeta,
 ) -> str:
-    """Build a cell carrying an Excel formula plus its cached value."""
-    inner = f"<f>{escape(formula)}</f>"
+    """Build a cell carrying an Excel formula (pre-escaped) plus its cached value."""
+    inner = f"<f>{formula}</f>"
     if meta.cell_type == "date":
         parsed = value if isinstance(value, date) else date.fromisoformat(str(value))
         serial = (parsed - date(1899, 12, 30)).days
@@ -492,13 +542,13 @@ _CONTENT_TYPES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 _ROOT_RELS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"""
 _WORKBOOK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Ремонт" sheetId="1" r:id="rId1"/></sheets></workbook>"""
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Ремонт" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="0" fullCalcOnLoad="1"/></workbook>"""
 _WORKBOOK_RELS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"""
 _STYLES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="DD.MM.YYYY"/><numFmt numFmtId="165" formatCode="0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="2"><border/><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>"""
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="DD.MM.YYYY"/><numFmt numFmtId="165" formatCode="0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="2"><border/><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>"""
 _SHEET_XML_PREFIX = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="11" topLeftCell="C12" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>"""
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="12" topLeftCell="C13" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>"""
 
 
 # ─── Dictionary exports (assets, catalog options, users) ────────────────

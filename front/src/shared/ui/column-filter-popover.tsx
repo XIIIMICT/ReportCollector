@@ -9,7 +9,7 @@ import {
     useFilter,
     type Key,
 } from "@heroui/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getRenovationPlanFacets, type RenovationColumnFilter } from "@/shared/api/renovation";
 
@@ -18,6 +18,8 @@ const ALL_KEY = "__all__";
 const NULL_KEY = "__null__";
 /** Lazy window size for the distinct values (matches the backend default). */
 const FACET_PAGE = 200;
+/** Start loading the next window this close (px) to the list's bottom. */
+const FACET_LOAD_THRESHOLD = 120;
 
 /**
  * The plan header column filter, built on HeroUI's multi-select Autocomplete.
@@ -56,7 +58,7 @@ export function ColumnFilterPopover({
     const [values, setValues] = useState<string[]>([]);
     const [hasNulls, setHasNulls] = useState(false);
     // Distinct value count across the whole filtered plan — shown on the
-    // master item as «Выбрать все (N)».
+    // master item as «Выбрать все (N)» and it doubles as the "load more" guard.
     const [total, setTotal] = useState(0);
     const [query, setQuery] = useState("");
     const [allActive, setAllActive] = useState(true);
@@ -66,9 +68,26 @@ export function ColumnFilterPopover({
     // No prior filter (or one that already keeps everything) starts as "all".
     const keepAllOnLoad = useRef(initial === null);
     const { contains } = useFilter({ sensitivity: "base" });
+    // The value list is paged: a column can hold tens of thousands of distinct
+    // values (col_003 — the renovation ID — has ~248k, col_022 ~85k), so only
+    // the first window arrives with the popover and the rest follow as the user
+    // scrolls to the bottom (`/plan/facets` pages by offset/limit).
+    const [loading, setLoading] = useState(true);
+    // Distinguishes the first window from a tail fetch: only the latter should
+    // print «Загрузка…» over the already visible values.
+    const [loadingMore, setLoadingMore] = useState(false);
+    const listRef = useRef<HTMLDivElement>(null);
+    const loadingRef = useRef(false);
+    const exhaustedRef = useRef(false);
+    // Distinct values rendered so far; also the next page's offset.
+    const loadedCountRef = useRef(0);
 
     useEffect(() => {
         let cancelled = false;
+        loadingRef.current = true;
+        exhaustedRef.current = false;
+        loadedCountRef.current = 0;
+        setLoading(true);
         void getRenovationPlanFacets(column, { planId, asset, offset: 0, limit: FACET_PAGE })
             .then((facets) => {
                 if (cancelled) return;
@@ -78,18 +97,98 @@ export function ColumnFilterPopover({
                 setValues(loaded);
                 setHasNulls(facets.hasNulls);
                 setTotal(facets.total);
+                loadedCountRef.current = loaded.length;
+                exhaustedRef.current = loaded.length >= facets.total;
                 if (keepAllOnLoad.current) {
                     setKept(new Set(loaded));
                     keepAllOnLoad.current = false;
                 }
             })
             .catch(() => {
-                if (!cancelled) setValues([]);
+                if (!cancelled) {
+                    setValues([]);
+                    exhaustedRef.current = true;
+                }
+            })
+            .finally(() => {
+                if (cancelled) return;
+                loadingRef.current = false;
+                setLoading(false);
             });
         return () => {
             cancelled = true;
+            loadingRef.current = false;
         };
     }, [column, planId, asset]);
+
+    /**
+     * Append the next window of distinct values.
+     *
+     * Ordering is the server's (casefold + value), so pages concatenate. A Set
+     * dedupes values that moved between windows while the plan was edited.
+     */
+    const loadNextPage = useCallback(async () => {
+        if (loadingRef.current || exhaustedRef.current) return;
+        loadingRef.current = true;
+        setLoadingMore(true);
+        try {
+            const facets = await getRenovationPlanFacets(column, {
+                planId,
+                asset,
+                offset: loadedCountRef.current,
+                limit: FACET_PAGE,
+            });
+            const loaded = facets.values
+                .map((entry) => entry.value)
+                .filter((value): value is string => value !== null);
+            setHasNulls((previous) => previous || facets.hasNulls);
+            setTotal(facets.total);
+            if (loaded.length === 0) {
+                exhaustedRef.current = true;
+            }
+            setValues((previous) => {
+                const seen = new Set(previous);
+                const merged = [...previous];
+                for (const value of loaded) {
+                    if (!seen.has(value)) {
+                        seen.add(value);
+                        merged.push(value);
+                    }
+                }
+                loadedCountRef.current = merged.length;
+                return merged;
+            });
+            // Freshly loaded values must join the kept set while the user has
+            // not excluded anything: otherwise applying the filter would send a
+            // positive list missing every value beyond this window.
+            if (keepAllOnLoad.current) {
+                setKept((previous) => new Set([...previous, ...loaded]));
+            }
+        } catch {
+            // Keep what is loaded; the next scroll or the button retries.
+        } finally {
+            loadingRef.current = false;
+            setLoading(false);
+        }
+    }, [column, planId, asset]);
+
+    const onListScroll = useCallback(
+        (event: React.UIEvent<HTMLDivElement>) => {
+            const element = event.currentTarget;
+            const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
+            if (remaining <= FACET_LOAD_THRESHOLD) void loadNextPage();
+        },
+        [loadNextPage],
+    );
+
+    // A short list never scrolls, so the tail is requested once after each
+    // render: either the list still fits (keep filling) or it overflows and the
+    // scroll handler takes over.
+    useEffect(() => {
+        const element = listRef.current?.querySelector(".column-filter__list");
+        if (!element) return;
+        if (element.scrollHeight <= element.clientHeight + 8) void loadNextPage();
+    }, [loadNextPage, values.length]);
 
     const selectedKeys = useMemo(() => {
         const keys: Key[] = [];
@@ -140,16 +239,24 @@ export function ColumnFilterPopover({
         // A column without a null bucket has nothing to keep there, so the
         // state flag must not leak into the request.
         const keepsNulls = includeNulls && hasNulls;
-        // Everything kept (values + the null bucket, or the column has no
-        // nulls) means no constraint at all.
-        const keepsEverything = keptValues.length === values.length && (keepsNulls || !hasNulls);
+        // «Everything» is the WHOLE column, not the window loaded so far: a
+        // column can hold six figures of distinct values (the renovation ID
+        // column has ~248k), so comparing against `values.length` would turn
+        // «всё, кроме одного» into a 199-value whitelist. The master toggle is
+        // the reliable signal for «nothing was taken away», and with it on the
+        // request carries no constraint at all.
+        if (allActive && (includeNulls || !hasNulls)) return null;
+        // Without the master, every value the user actually saw must be kept —
+        // otherwise the selection would claim values that are merely unloaded.
+        const keepsEverything =
+            values.length > 0 && keptValues.length === values.length && (keepsNulls || !hasNulls);
         if (keepsEverything) return null;
         return {
             column,
             values: keptValues,
             includeNulls: keepsNulls,
         } satisfies RenovationColumnFilter;
-    }, [column, hasNulls, includeNulls, kept, values]);
+    }, [allActive, column, hasNulls, includeNulls, kept, values]);
 
     const close = () => {
         onApply(applied);
@@ -187,9 +294,11 @@ export function ColumnFilterPopover({
                     </SearchField.Group>
                 </SearchField>
                 <ListBox
+                    ref={listRef}
                     className="column-filter__list"
                     selectionMode="multiple"
                     renderEmptyState={() => <EmptyState>Нет значений</EmptyState>}
+                    onScroll={onListScroll}
                 >
                     <ListBox.Item key={ALL_KEY} id={ALL_KEY} textValue="Выбрать все">
                         {total > 0 ? `Выбрать все (${total})` : "Выбрать все"}
@@ -213,6 +322,16 @@ export function ColumnFilterPopover({
                         </ListBox.Item>
                     ))}
                 </ListBox>
+                {/* The window is paged: tell the user how much of the column is
+                    on screen (a master-toggle count is meaningless for 248k
+                    values without it) and that scrolling keeps loading. */}
+                {!query && total > values.length ? (
+                    <p className="column-filter__status" role="status">
+                        {loading || loadingMore
+                            ? "Загрузка…"
+                            : `Показано ${values.length} из ${total}`}
+                    </p>
+                ) : null}
             </Autocomplete.Popover>
         </Autocomplete>
     );

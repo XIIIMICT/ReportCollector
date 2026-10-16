@@ -117,19 +117,53 @@ request handler froze the whole event loop for every user and several parallel
 requests OOM'ed the container. The export is therefore a background job
 (`back/src/renovation/export_jobs.py`):
 
-- `POST /plan/export/jobs` resolves the scope (plan + asset + block + optional
-  rowIds), computes the export stamp (last row edit for the working plan) and
-  enqueues a job; the response is immediate. An identical scope+stamp reuses the
-  ready file (cache key = sha256 of the scope + stamp).
+- `POST /plan/export/jobs` resolves the scope (plan + asset + block + header
+  filters + optional rowIds), computes the export stamp (last row edit for the
+  working plan) and enqueues a job; the response is immediate. An identical
+  scope+stamp reuses the ready file (cache key = sha256 of the scope + stamp).
 - A single sequential worker (started in the lifespan, in-process — the app runs
   one uvicorn worker) streams the rows through a server-side cursor and writes
   the XLSX to `EXPORT_DIR` (default: the system temp dir). Formula
   materialization and XML serialization run via `asyncio.to_thread`, so the API
   stays responsive (measured during a full export: avg ~140 ms, max <600 ms).
+- **Throughput.** The row read selects the `col_*` value columns directly; the
+  earlier `jsonb_strip_nulls(to_jsonb(row) - keys)` sparse-values build measured
+  ~2 ms/row on the 306k-row plan (~10 of the 13 minutes), the direct read
+  ~0.1 ms/row. The formula engine now runs only for rows that miss a calculated
+  value (recalc happens on edit; adopted rows may never have run it), and the
+  ~130 per-row Excel formula templates are XML-escaped once at layout build time
+  instead of per cell — the full export went from ~13 min to ~1.7 min. The
+  workbook sets `fullCalcOnLoad`, so Excel recalculates on open.
 - Limits: 8 active jobs globally, 2 per user → `429`; finished jobs and files
   are pruned after an hour. Completed jobs survive as cache entries; jobs are
   in-memory, so a restart drops pending ones (the client re-creates).
-- The grid/workspace polls the job and shows progress, then downloads the file.
+- The workspace starts the job and then hands the file URL to the browser as a
+  **native download** (an `<a download>` click on `/plan/export/jobs/{id}/file`).
+  The endpoint **streams the growing file** (`ExportJobManager.stream_growing`): it
+  flushes an empty first chunk so the browser's download appears at once, then tails
+  the `.part` file the worker writes and forwards bytes as they land — not after
+  generation finishes, which for a 300k-row plan is minutes of silence. The browser
+  therefore shows its own download UI (a
+  `.crdownload` that becomes the finished `.xlsx`) with the progress bar moving
+  the whole time, and because the browser owns the download, closing the tab or
+  reloading does not cancel the generation (it runs in the background worker) or
+  the download itself. The response is `Transfer-Encoding: chunked` (the final size
+  is unknown until generation ends), so the browser shows downloaded bytes rather
+  than a fixed percentage — measured on the full 306k-row plan: first byte in
+  ~0.3 s, 523 MB streamed over ~92 s (a 26k-row filtered export: ~0.5 s / ~10 s).
+  Nothing is buffered in page memory.
+
+### Exported workbook layout
+
+The exported `.xlsx` mirrors the grid exactly: 11 merged header rows, then a
+**single aggregating row** (row 12) that carries each exported column's workbook
+ordinal − 1 (so «Предприятие» = 1) with its total on a second line (a newline inside the
+wrapped cell) for numeric columns — the grid's number-over-sum band, not two
+separate rows. Data rows start dense at row 13 (after the 11 header levels + the
+aggregating row): a filtered export keeps each surviving row's stored plan
+position in column A, but the workbook row is a compact output index, so a
+filter never leaves thousands of blank rows after the header. The pane freezes
+the top 12 rows (header + aggregating row) like the grid.
 
 ## Transactional collaboration
 
