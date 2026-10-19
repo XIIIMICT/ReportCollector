@@ -78,12 +78,10 @@ from src.raw_materials.service import (
     NoRawMaterialsAccessError,
     create_asset,
     create_delivery_basis,
-    create_project_user,
     create_raw_material,
     delete_asset,
     delete_delivery_basis,
     delete_raw_material,
-    delete_raw_project_user,
     read_asset_rows,
     read_delivery_basis_rows,
     read_meta,
@@ -92,14 +90,18 @@ from src.raw_materials.service import (
     read_price_rows,
     read_raw_material_rows,
     read_snapshot_export_rows,
-    read_user_rows,
     resolve_raw_materials_access,
     update_asset,
     update_delivery_basis,
     update_movement_cells,
     update_price_cells,
-    update_project_user,
     update_raw_material,
+)
+from src.raw_materials.users import (
+    create_project_user,
+    delete_raw_project_user,
+    read_user_rows,
+    update_project_user,
 )
 
 router = APIRouter(prefix="/raw-materials", tags=["raw-materials"])

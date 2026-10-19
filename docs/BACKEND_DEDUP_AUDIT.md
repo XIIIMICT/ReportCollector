@@ -59,7 +59,7 @@ API behavior remains covered by user, realization, WebSocket and undo tests.
 The remaining safe seams are domain-specific modules:
 
 1. renovation plan read/edit/lifecycle vs renovation assets;
-2. raw movement/prices vs raw dictionaries/users;
+2. raw movement/prices vs raw reference dictionaries;
 3. KPPK source dictionaries vs realization vs project users.
 
 Renovation reference catalogs live in `renovation/catalogs.py`; project users
@@ -69,6 +69,12 @@ not on the plan service. The service retains the explicit replay dispatcher.
 All extracted and retained functions/classes match their pre-refactor ASTs,
 including decorators. Asset reads still include working-plan aggregates and
 remain a separate extraction task.
+
+Raw-material user reads, mutations, grants and deletion replay now live in
+`raw_materials/users.py`; shared error types and the snapshot-validation error
+live in `raw_materials/errors.py`. The form/replay service imports these lower
+layers without a reverse import. All raw-material function/class ASTs match
+the pre-extraction baseline; the complete suite passes (403 passed, 4 skipped).
 
 Each seam must preserve transaction decorators, project locks, session ids,
 journal target tables and API error mapping. A broad extraction without
