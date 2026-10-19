@@ -368,3 +368,43 @@ async def test_export_validation_errors(client) -> None:
         headers=signed_identity_headers(**admin_headers()),
     )
     assert hidden_column.status_code == 422
+
+
+async def test_export_big_table_becomes_background_job(client, monkeypatch) -> None:
+    """Past the inline threshold the export returns 202 + a job description, and the file endpoint streams the workbook."""
+    import src.common.export_jobs as jobs_module
+
+    monkeypatch.setattr(jobs_module, "INLINE_EXPORT_MAX_ROWS", 2)
+
+    response = await client.post(
+        "/api/raw-materials/export",
+        json={
+            "section": "materialMovement",
+            "reportMonth": "2026-08-01",
+            "headerPinned": True,
+            "columns": movement_columns(),
+            "fileName": "движение большое.xlsx",
+        },
+        headers=signed_identity_headers(**admin_headers()),
+    )
+    assert response.status_code == 202
+    job = response.json()
+    assert job["status"] in {"pending", "running", "done"}
+    assert job["fileName"].endswith(".xlsx")
+
+    file_response = await client.get(
+        f"/api/raw-materials/export/jobs/{job['id']}/file",
+        headers=signed_identity_headers(**admin_headers()),
+    )
+    assert file_response.status_code == 200
+    assert file_response.content[:2] == b"PK"
+    sheet = load_workbook(BytesIO(file_response.content)).active
+    assert sheet.max_row == 5  # 1 header row + 4 seeded movement rows
+    assert sheet.cell(row=2, column=5).value == "=C2-D2"
+
+    status_response = await client.get(
+        f"/api/raw-materials/export/jobs/{job['id']}",
+        headers=signed_identity_headers(**admin_headers()),
+    )
+    assert status_response.status_code == 200
+    assert status_response.json()["status"] == "done"

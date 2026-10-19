@@ -1,150 +1,74 @@
-import {
-    Autocomplete,
-    Button,
-    Calendar,
-    DatePicker,
-    EmptyState,
-    ListBox,
-    SearchField,
-    useFilter,
-    type Key,
-} from "@heroui/react";
+import { Button, Calendar, DatePicker } from "@heroui/react";
 import { CalendarDate, parseDate } from "@internationalized/date";
 import type { EditorType } from "@revolist/react-datagrid";
 import { useMemo, useRef, useState } from "react";
 
-const EMPTY_REFERENCE = "__empty_reference__";
+import { SmartSelect } from "@/shared/ui/smart-select";
 
-type SelectOption = { value: string; label: string };
+type SelectOption = {
+    value: string;
+    label: string;
+}; /** Wrap an in-cell editor: stops the grid's pointer/keyboard handling and closes on Escape. */
+function EditorShell({ children, close }: { children: React.ReactNode; close: () => void }) {
+    const rootRef = useRef<HTMLDivElement>(null);
+    return (
+        <div
+            ref={rootRef}
+            className="grid-autocomplete-editor"
+            onPointerDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Escape") close();
+            }}
+        >
+            {children}
+        </div>
+    );
+}
 
 export function SelectEditor({ column, save, close }: EditorType) {
-    const rootRef = useRef<HTMLDivElement>(null);
     const options = useMemo(
         () => (Array.isArray(column.column.source) ? (column.column.source as SelectOption[]) : []),
         [column.column.source],
     );
     const current = String(column.value ?? column.model[String(column.prop)] ?? "");
-    const { contains } = useFilter({ sensitivity: "base" });
 
     return (
-        <div
-            ref={rootRef}
-            className="grid-autocomplete-editor"
-            onPointerDown={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Escape") close();
-            }}
-        >
-            <Autocomplete
-                fullWidth
-                defaultOpen
-                aria-label={String(column.column.name)}
+        <EditorShell close={close}>
+            <SmartSelect
+                ariaLabel={String(column.column.name)}
                 placeholder="Выберите значение"
-                selectionMode="single"
+                options={options.map((option) => ({ id: option.value, name: option.label }))}
                 value={current || null}
-                variant="secondary"
-                onChange={(key) => save(key === null ? "" : String(key))}
-            >
-                <Autocomplete.Trigger className="grid-autocomplete-editor__hidden-trigger">
-                    <Autocomplete.Value />
-                    <Autocomplete.Indicator />
-                </Autocomplete.Trigger>
-                <Autocomplete.Popover>
-                    <Autocomplete.Filter filter={contains}>
-                        <SearchField
-                            autoFocus
-                            name="select-search"
-                            aria-label="Найти значение"
-                            variant="secondary"
-                        >
-                            <SearchField.Group>
-                                <SearchField.SearchIcon />
-                                <SearchField.Input placeholder="Найти…" />
-                                <SearchField.ClearButton />
-                            </SearchField.Group>
-                        </SearchField>
-                        <ListBox
-                            renderEmptyState={() => <EmptyState>Ничего не найдено</EmptyState>}
-                        >
-                            {options.map((option) => (
-                                <ListBox.Item
-                                    key={option.value}
-                                    id={option.value}
-                                    textValue={option.label}
-                                >
-                                    {option.label}
-                                    <ListBox.ItemIndicator />
-                                </ListBox.Item>
-                            ))}
-                        </ListBox>
-                    </Autocomplete.Filter>
-                </Autocomplete.Popover>
-            </Autocomplete>
-        </div>
+                onChange={(value) => save(typeof value === "string" ? value : "")}
+                embedded
+                onDismiss={close}
+            />
+        </EditorShell>
     );
 }
 
 export function MultiAssetEditor({ column, save, close }: EditorType) {
-    const rootRef = useRef<HTMLDivElement>(null);
     const options = useMemo(
         () => normalizeStringArray(column.column.source),
         [column.column.source],
     );
-    const [selected, setSelected] = useState<Key[]>(() =>
+    const [selected, setSelected] = useState<string[]>(() =>
         normalizeStringArray(column.value ?? column.model[String(column.prop)]),
     );
-    const { contains } = useFilter({ sensitivity: "base" });
 
     return (
-        <div
-            ref={rootRef}
-            className="grid-autocomplete-editor"
-            onPointerDown={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Escape") close();
-            }}
-        >
-            <Autocomplete
-                fullWidth
-                defaultOpen
-                aria-label="Активы"
+        <EditorShell close={close}>
+            <SmartSelect
+                ariaLabel="Активы"
                 placeholder="Выберите активы"
-                selectionMode="multiple"
+                options={options.map((option) => ({ id: option, name: option }))}
                 value={selected}
-                variant="secondary"
-                onChange={(keys) => setSelected((keys ?? []) as Key[])}
-            >
-                <Autocomplete.Trigger className="grid-autocomplete-editor__hidden-trigger">
-                    <Autocomplete.Value />
-                    <Autocomplete.Indicator />
-                </Autocomplete.Trigger>
-                <Autocomplete.Popover>
-                    <Autocomplete.Filter filter={contains}>
-                        <SearchField
-                            autoFocus
-                            name="asset-search"
-                            aria-label="Найти актив"
-                            variant="secondary"
-                        >
-                            <SearchField.Group>
-                                <SearchField.SearchIcon />
-                                <SearchField.Input placeholder="Найти актив…" />
-                                <SearchField.ClearButton />
-                            </SearchField.Group>
-                        </SearchField>
-                        <ListBox
-                            renderEmptyState={() => <EmptyState>Ничего не найдено</EmptyState>}
-                        >
-                            {options.map((option) => (
-                                <ListBox.Item key={option} id={option} textValue={option}>
-                                    {option}
-                                    <ListBox.ItemIndicator />
-                                </ListBox.Item>
-                            ))}
-                        </ListBox>
-                    </Autocomplete.Filter>
+                multiple
+                onChange={(value) => setSelected(Array.isArray(value) ? value : [])}
+                embedded
+                onDismiss={close}
+                popoverFooter={
                     <div className="grid-autocomplete-editor__actions">
                         <Button size="sm" variant="tertiary" onPress={() => close()}>
                             Отмена
@@ -159,14 +83,13 @@ export function MultiAssetEditor({ column, save, close }: EditorType) {
                             Применить
                         </Button>
                     </div>
-                </Autocomplete.Popover>
-            </Autocomplete>
-        </div>
+                }
+            />
+        </EditorShell>
     );
 }
 
 export function ReferenceEditor({ column, save, close }: EditorType) {
-    const rootRef = useRef<HTMLDivElement>(null);
     const values = useMemo(
         () => normalizeStringArray(column.column.source),
         [column.column.source],
@@ -174,67 +97,20 @@ export function ReferenceEditor({ column, save, close }: EditorType) {
     const allowsEmpty = values.includes("");
     const options = values.filter(Boolean);
     const current = String(column.value ?? column.model[String(column.prop)] ?? "");
-    const { contains } = useFilter({ sensitivity: "base" });
 
     return (
-        <div
-            ref={rootRef}
-            className="grid-autocomplete-editor"
-            onPointerDown={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Escape") close();
-            }}
-        >
-            <Autocomplete
-                fullWidth
-                defaultOpen
-                aria-label="Справочное значение"
+        <EditorShell close={close}>
+            <SmartSelect
+                ariaLabel="Справочное значение"
                 placeholder="Выберите значение"
-                selectionMode="single"
-                value={current || (allowsEmpty ? EMPTY_REFERENCE : null)}
-                variant="secondary"
-                onChange={(key) => save(key === EMPTY_REFERENCE || key === null ? "" : String(key))}
-            >
-                <Autocomplete.Trigger className="grid-autocomplete-editor__hidden-trigger">
-                    <Autocomplete.Value />
-                    {allowsEmpty ? <Autocomplete.ClearButton /> : null}
-                    <Autocomplete.Indicator />
-                </Autocomplete.Trigger>
-                <Autocomplete.Popover>
-                    <Autocomplete.Filter filter={contains}>
-                        <SearchField
-                            autoFocus
-                            name="reference-search"
-                            aria-label="Найти значение"
-                            variant="secondary"
-                        >
-                            <SearchField.Group>
-                                <SearchField.SearchIcon />
-                                <SearchField.Input placeholder="Найти…" />
-                                <SearchField.ClearButton />
-                            </SearchField.Group>
-                        </SearchField>
-                        <ListBox
-                            renderEmptyState={() => <EmptyState>Ничего не найдено</EmptyState>}
-                        >
-                            {allowsEmpty ? (
-                                <ListBox.Item id={EMPTY_REFERENCE} textValue="Не задан">
-                                    Не задан
-                                    <ListBox.ItemIndicator />
-                                </ListBox.Item>
-                            ) : null}
-                            {options.map((option) => (
-                                <ListBox.Item key={option} id={option} textValue={option}>
-                                    {option}
-                                    <ListBox.ItemIndicator />
-                                </ListBox.Item>
-                            ))}
-                        </ListBox>
-                    </Autocomplete.Filter>
-                </Autocomplete.Popover>
-            </Autocomplete>
-        </div>
+                options={options.map((option) => ({ id: option, name: option }))}
+                value={current || null}
+                onChange={(value) => save(typeof value === "string" ? value : "")}
+                embedded
+                onDismiss={close}
+                nullOption={{ label: "Не задан", present: allowsEmpty }}
+            />
+        </EditorShell>
     );
 }
 

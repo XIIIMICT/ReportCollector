@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import { KppkWorkspace } from "@/features/kppk/kppk-workspace";
 import { RawMaterialsWorkspace } from "@/features/raw-materials/raw-materials-workspace";
 import { RenovationWorkspace } from "@/features/renovation/renovation-workspace";
 import type { CurrentUser } from "@/shared/api/report-collector";
@@ -65,9 +66,11 @@ export function ReportWorkspace({
         onSectionChange: handleSectionChange,
     };
 
-    return activeProjectKey === "renovation" ? (
-        <RenovationWorkspace {...sharedProps} />
-    ) : (
-        <RawMaterialsWorkspace {...sharedProps} />
-    );
+    if (activeProjectKey === "renovation") {
+        return <RenovationWorkspace {...sharedProps} />;
+    }
+    if (activeProjectKey === "kppk") {
+        return <KppkWorkspace {...sharedProps} />;
+    }
+    return <RawMaterialsWorkspace {...sharedProps} />;
 }

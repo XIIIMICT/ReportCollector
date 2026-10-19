@@ -8,14 +8,14 @@ from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
-from conftest import signed_identity_headers
+from conftest import raw_materials_role, signed_identity_headers
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.auth.models import ProjectRole, User, UserRole
+from src.auth.models import ProjectRole, User
 from src.collab.events import publish_cell_changed
 from src.collab.models import CellState, EditStack, OutboxEvent
 from src.collab.persistence import JournalStore
@@ -53,7 +53,7 @@ async def patch(client, row_id, value=17):
 async def test_worker_without_assets_reads_nothing_and_cannot_patch(client, db_session):
     _, rows, _ = await admin_and_rows(db_session)
     row_id = rows[0].id
-    role = (await db_session.exec(select(UserRole))).one()
+    role = await raw_materials_role(db_session)
     role.role = ProjectRole.ASSET_WORKER
     await db_session.commit()
     for path in ["movement?report_month=2026-08-01", "prices"]:
@@ -91,7 +91,7 @@ async def test_snapshot_and_export_are_asset_scoped(client, db_session):
     response = await client.post("/api/raw-materials/movement/fix", headers=HEADERS, json={"reportMonth": str(MONTH)})
     assert response.status_code == 200
     snapshot_id = response.json()["id"]
-    role = (await db_session.exec(select(UserRole))).one()
+    role = await raw_materials_role(db_session)
     asset = (await db_session.exec(select(RawMaterialAsset).where(RawMaterialAsset.name == "БСЗ"))).one()
     role.role = ProjectRole.ASSET_WORKER
     db_session.add(RawMaterialUserAsset(user_id=role.user_id, asset_id=asset.id))
@@ -276,7 +276,7 @@ async def test_undo_rechecks_revoked_asset_access(client, db_session):
     _, rows, _ = await admin_and_rows(db_session)
     row_id = rows[0].id
     assert (await patch(client, row_id, 81)).status_code == 200
-    role = (await db_session.exec(select(UserRole))).one()
+    role = await raw_materials_role(db_session)
     role.role = ProjectRole.ASSET_WORKER
     await db_session.commit()
     response = await client.post(

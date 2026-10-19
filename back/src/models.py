@@ -1,4 +1,13 @@
 from .auth.models import Project, ProjectRole, User, UserRole
+from .kppk.models import (
+    KppkOrg,
+    KppkOrgProduct,
+    KppkPeriod,
+    KppkProduct,
+    KppkRaw,
+    KppkRealization,
+    KppkRealizationPlan,
+)
 from .raw_materials.models import (
     AssetRawMaterial,
     DeliveryBasis,
@@ -21,6 +30,13 @@ from .renovation.plan import (
 __all__ = [
     "AssetRawMaterial",
     "DeliveryBasis",
+    "KppkOrg",
+    "KppkOrgProduct",
+    "KppkPeriod",
+    "KppkProduct",
+    "KppkRaw",
+    "KppkRealization",
+    "KppkRealizationPlan",
     "MaterialMovement",
     "MovementPeriod",
     "Project",

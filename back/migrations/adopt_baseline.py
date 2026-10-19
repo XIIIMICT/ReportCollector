@@ -91,6 +91,22 @@ _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
 # is expected, not drift. A closed list — anything else still fails closed.
 _LEGACY_MISSING_INDEXES: frozenset[str] = frozenset({"ix_user_roles_project", "ix_r_user_roles_project"})
 
+# Tables the models declare that a legacy-0015 installation does not have yet:
+# they are created by migrations running AFTER the baseline during adoption
+# (0008_kppk_source_tables), so their absence on the pre-adoption schema —
+# including the indexes of those tables — is expected, not drift. A closed list.
+_LEGACY_MISSING_TABLES: frozenset[str] = frozenset(
+    {
+        "kppk_orgs",
+        "kppk_org_products",
+        "kppk_periods",
+        "kppk_products",
+        "kppk_raws",
+        "kppk_realization",
+        "kppk_realization_plan",
+    }
+)
+
 # Columns rewritten by a migration that runs AFTER the baseline during adoption
 # (0006_price_audit_timestamps). The pre-adoption schema still holds the legacy
 # TEXT values, so the type / nullability / default differences on these two
@@ -204,8 +220,11 @@ def _is_legacy_equivalent(diff: tuple) -> bool:
         return table in _LEGACY_EXTRA_COLUMNS and column.name in _LEGACY_EXTRA_COLUMNS[table]
     if isinstance(diff, tuple) and len(diff) >= 2 and diff[0] == "add_index":
         # An index the migration chain creates after the baseline; absent on a
-        # pre-adoption legacy schema.
-        return diff[1].name in _LEGACY_MISSING_INDEXES
+        # pre-adoption legacy schema — either by name (0005) or together with
+        # the whole post-baseline table it belongs to (0008).
+        return diff[1].name in _LEGACY_MISSING_INDEXES or diff[1].table.name in _LEGACY_MISSING_TABLES
+    if isinstance(diff, tuple) and len(diff) >= 2 and diff[0] == "add_table":
+        return diff[1].name in _LEGACY_MISSING_TABLES
     if isinstance(diff, list):
         # Alembic groups the changes on one column into a nested list; tolerate
         # it only when every change in the group is a known deferred 0006 edit.
@@ -297,8 +316,11 @@ def adopt(connection: Connection) -> None:
     # migration that follows adopt converges it to the model's labels.
     block_legacy = {"tashpaev", "borodiichuk", "babaeva"}
     block_new = {"tech", "ksir", "mto"}
+    live_tables = set(inspector.get_table_names())
     for table in SQLModel.metadata.sorted_tables:
-        if table.name in {"collab_edit_stacks", "collab_cell_states", "collab_outbox"}:
+        # Absent by design before the upgrade: obsolete journal tables and the
+        # tables created by migrations that run after the baseline.
+        if table.name in {"collab_edit_stacks", "collab_cell_states", "collab_outbox"} or table.name not in live_tables:
             continue
         expected_pk = [column.name for column in table.primary_key.columns]
         if inspector.get_pk_constraint(table.name)["constrained_columns"] != expected_pk:

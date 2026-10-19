@@ -1,7 +1,17 @@
 ﻿"use client";
 
 import { Button, Dropdown, Label, Spinner } from "@heroui/react";
-import { Check, Collapse, Download, Expand, MoreHoriz, Refresh } from "iconoir-react";
+import {
+    Collapse,
+    Download,
+    Expand,
+    Eye,
+    EyeClosed,
+    MoreHoriz,
+    Pin,
+    PinSlash,
+    Refresh,
+} from "iconoir-react";
 import { type Key, type ReactNode } from "react";
 
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
@@ -27,7 +37,7 @@ export function ViewStrip({
     onToggleFullscreen,
     hideExport = false,
     onDropdownOpenChange,
-    columnResetLabel = "Сброс ширины столбцов",
+    columnResetLabel = "Сбросить ширину столбцов",
 }: {
     headerPinned?: boolean;
     onHeaderPinnedChange?: (value: boolean) => void;
@@ -149,26 +159,42 @@ export function ViewStrip({
                         className="action-more-menu"
                     >
                         {hasToggles
-                            ? menuItem("pin-header", "Закрепить заголовок", headerPinned)
+                            ? menuItem(
+                                  "pin-header",
+                                  headerPinned
+                                      ? "Открепить шапку таблицы"
+                                      : "Закрепить шапку таблицы",
+                                  false,
+                                  headerPinned ? (
+                                      <PinSlash aria-hidden="true" />
+                                  ) : (
+                                      <Pin aria-hidden="true" />
+                                  ),
+                              )
                             : null}
                         {hasToggles
                             ? menuItem(
                                   "service-columns",
-                                  "Показать служебные столбцы",
-                                  showServiceColumns,
+                                  showServiceColumns
+                                      ? "Скрыть данные о редактировании строк"
+                                      : "Показать данные о редактировании строк",
+                                  false,
+                                  showServiceColumns ? (
+                                      <EyeClosed aria-hidden="true" />
+                                  ) : (
+                                      <Eye aria-hidden="true" />
+                                  ),
                               )
                             : null}
                         {menuItem(
                             "reset-column-widths",
                             columnResetLabel,
-                            false,
                             true,
                             <Refresh aria-hidden="true" />,
                         )}
                         {menuItem(
                             "reset-filters-sorting",
-                            "Сброс всех фильтров и сортировок",
-                            false,
+                            "Сбросить все фильтры и сортировки",
                             true,
                             <Refresh aria-hidden="true" />,
                         )}
@@ -193,14 +219,15 @@ export function ViewStrip({
         </div>
     );
 
-    /** Toggle/reset entry. Toggles render a check when active; reset entries
-        render their explicit icon (width/filters reset) instead. */
-    function menuItem(id: string, label: string, active = false, danger = false, icon?: ReactNode) {
+    /**
+     * Menu entry. Toggles always carry an explicit icon (pin / pin-slash,
+     * eye / eye-closed) so the entry says what a press will DO — the label
+     * changes with the state too. Reset entries pass their own icon.
+     */
+    function menuItem(id: string, label: string, danger = false, icon?: ReactNode) {
         return (
             <Dropdown.Item id={id} textValue={label} variant={danger ? "danger" : undefined}>
-                <span className="view-strip-menu-check">
-                    {icon ?? (active ? <Check aria-hidden="true" /> : null)}
-                </span>
+                <span className="view-strip-menu-check">{icon}</span>
                 <Label>{label}</Label>
             </Dropdown.Item>
         );

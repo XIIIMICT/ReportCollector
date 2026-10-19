@@ -27,7 +27,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.emails import is_valid_email, normalize_email
-from src.auth.models import Project, User
+from src.auth.models import Project, User, UserRole
 from src.auth.service import (
     CurrentUserIdentity,
     get_user_by_identity,
@@ -579,7 +579,7 @@ async def read_plan_export_meta(
     )
     if row_ids is not None:
         count_query = count_query.where(col(RenovationPlanRow.id).in_(row_ids))
-    total = int((await session.exec(count_query)).one()[0])
+    total = int((await session.exec(count_query)).one()[0])  # ty: ignore[no-matching-overload]
     totals = await _plan_export_totals(
         session,
         plan,
@@ -745,7 +745,7 @@ async def _plan_export_stamp(
     if plan.state != RPlanState.WORKING:
         return plan.updated_at
     latest = (
-        await session.exec(
+        await session.exec(  # ty: ignore[no-matching-overload]
             sa_select(func.max(col(RenovationPlanRow.updated_at))).where(
                 col(RenovationPlanRow.plan_id) == plan.id,
                 col(RenovationPlanRow.asset_id).in_(asset_ids),
@@ -1067,7 +1067,7 @@ async def read_plan_rows(
     if anchor_position is not None:
         anchor_offset = int(
             (
-                await session.exec(
+                await session.exec(  # ty: ignore[no-matching-overload]
                     sa_select(func.count())
                     .select_from(RenovationPlanRow)
                     .where(
@@ -1219,7 +1219,7 @@ async def read_plan_facets(
         # list: every ID is unique, so a value list would be unusable.
         correct = _renovation_id_is_correct_condition()
         ok_count, bad_count = (
-            await session.exec(
+            await session.exec(  # ty: ignore[no-matching-overload]
                 sa_select(func.count().filter(correct), func.count().filter(~correct))
                 .select_from(RenovationPlanRow)
                 .where(row_condition)
@@ -1244,7 +1244,7 @@ async def read_plan_facets(
     else:
         group_column = getattr(RenovationPlanRow, column)
         base = sa_select(group_column, func.count()).select_from(RenovationPlanRow)
-    grouped = (await session.exec(base.where(row_condition).group_by(group_column))).all()
+    grouped = (await session.exec(base.where(row_condition).group_by(group_column))).all()  # ty: ignore[no-matching-overload]
 
     counts: dict[str, int] = {}
     has_nulls = False
@@ -1339,7 +1339,7 @@ async def add_plan_row(
     block: RBlock | None,
     assets: list[RAsset],
     asset_id: UUID | None = None,
-) -> RenovationPlanRowRead:
+) -> tuple[RenovationPlanRowRead, AppliedCell]:
     """
     Append a new (empty) row to the current plan.
 
@@ -1392,7 +1392,7 @@ async def add_plan_row(
     await session.flush()
     await session.refresh(row)
     label_map = await _reference_labels(session)
-    return _plan_row_read(row, asset, label_map)
+    return _plan_row_read(row, asset, label_map), _plan_row_created_cell(row)
 
 
 @project_write(RENOVATION_PROJECT_KEY, exclusive=True)
@@ -1405,7 +1405,7 @@ async def assign_plan_row_asset(
     assets: list[RAsset],
     row_id: UUID,
     asset_id: UUID,
-) -> RenovationPlanRowRead:
+) -> tuple[RenovationPlanRowRead, AppliedCell]:
     """
     Set the asset of an asset-less draft row.
 
@@ -1442,7 +1442,14 @@ async def assign_plan_row_asset(
     await session.flush()
     await session.refresh(row)
     label_map = await _reference_labels(session)
-    return _plan_row_read(row, asset, label_map)
+    read = _plan_row_read(row, asset, label_map)
+    return read, AppliedCell(
+        target_table=RenovationPlanRow.__tablename__,
+        row_id=row.id,
+        field="asset_id",
+        old_value=None,
+        new_value=str(asset.id),
+    )
 
 
 @project_write(RENOVATION_PROJECT_KEY, exclusive=True)
@@ -1452,7 +1459,7 @@ async def delete_plan_row(
     assets: list[RAsset],
     roles: list[RProjectRole],
     row_id: UUID,
-) -> None:
+) -> list[AppliedCell]:
     """
     Delete a plan row.
 
@@ -1487,8 +1494,43 @@ async def delete_plan_row(
     # A row may be deleted only while it has no data beyond the mandatory asset.
     if any(getattr(row, field) not in (None, "") for field in editable_fields()):
         raise _ERR_DELETE_NOT_EMPTY
+    snapshot = _plan_row_snapshot(row)
     await session.delete(row)
     await session.flush()
+    return [
+        AppliedCell(
+            target_table=RenovationPlanRow.__tablename__,
+            row_id=row_id,
+            field="__deleted",
+            old_value=snapshot,
+            new_value=None,
+        )
+    ]
+
+
+def _plan_row_snapshot(row: RenovationPlanRow) -> dict[str, object]:
+    """Journal snapshot of a plan row: everything needed to recreate it exactly."""
+    return {
+        "planId": str(row.plan_id),
+        "assetId": str(row.asset_id) if row.asset_id is not None else None,
+        "position": row.position,
+        "baselineGeneration": row.baseline_generation,
+        "revision": row.revision,
+        "createdAt": row.created_at.isoformat(),
+        "updatedAt": row.updated_at.isoformat(),
+        "updatedBy": row.updated_by,
+    }
+
+
+def _plan_row_created_cell(row: RenovationPlanRow) -> AppliedCell:
+    """Journal cell of a newly added plan row (undo removes it again)."""
+    return AppliedCell(
+        target_table=RenovationPlanRow.__tablename__,
+        row_id=row.id,
+        field="__created",
+        old_value=None,
+        new_value=_plan_row_snapshot(row),
+    )
 
 
 async def read_plan_diff(session: AsyncSession, *, plan_id: UUID, assets: list[RAsset]) -> RenovationDiffRead:
@@ -2196,6 +2238,9 @@ async def apply_renovation_cell_value(
     """
     now = datetime.now(UTC)
     updated_by = user.name or user.email or ""
+    if target_table == RenovationPlanRow.__tablename__ and field in ("__created", "__deleted", "asset_id"):
+        await _apply_plan_row_change(session, row_id, field, value)
+        return
     if target_table == RAsset.__tablename__:
         # Both journal pseudo-fields share the same apply: __deleted carries
         # {old: snapshot, new: None}, __created carries {old: None, new:
@@ -2234,6 +2279,13 @@ async def apply_renovation_cell_value(
         session.add(option)
         return
     if target_table == User.__tablename__:
+        if field == "__deleted":
+            if value is None:
+                # Redo: the user is gone from this project already.
+                return
+            if isinstance(value, dict):
+                await restore_renovation_user(session, row_id=row_id, snapshot=value)
+            return
         await _apply_renovation_user_cell(session, row_id, field, value, user)
         return
     if target_table != RENOVATION_PLAN_ROWS_TABLE:
@@ -2257,6 +2309,79 @@ async def apply_renovation_cell_value(
         result = _safe_renovation_id(_renovation_id_input(row, asset, label_map))
         row.col_003 = result.value
     session.add(row)
+
+
+async def _apply_plan_row_change(
+    session: AsyncSession,
+    row_id: UUID,
+    field: str,
+    value: object,
+) -> None:
+    """
+    Undo/redo of a plan row lifecycle change: add, delete, asset assignment.
+
+    «__created» carries {old: None, new: snapshot} — undo (None) deletes the
+    added row, redo (snapshot) recreates it. «__deleted» is the mirror image.
+    «asset_id» is the asset assignment of a draft row (the only other way a
+    row's asset changes). The plan-state guard has already refused an archived
+    or pending plan for a non-admin (`_authorize_action`), so this only has to
+    recreate/remove the row.
+    """
+    if field in ("__created", "__deleted"):
+        if value is None:
+            row = await session.get(RenovationPlanRow, row_id)
+            if row is None:
+                return
+            await session.delete(row)
+            await session.flush()
+            return
+        if not isinstance(value, dict):
+            message = "Некорректные данные для восстановления строки плана."
+            raise CellValidationError(message)
+        if await session.get(RenovationPlanRow, row_id) is not None:
+            return
+        plan_id = UUID(str(value.get("planId")))
+        plan = await session.get(RenovationPlan, plan_id)
+        if plan is None or plan.state == RPlanState.ARCHIVED:
+            message = "Строку нельзя вернуть: план недоступен или заархивирован."
+            raise CellValidationError(message)
+        asset_id = value.get("assetId")
+        row = RenovationPlanRow(
+            id=row_id,
+            plan_id=plan_id,
+            asset_id=UUID(str(asset_id)) if asset_id else None,
+            position=int(value.get("position") or 1),
+            baseline_generation=int(value.get("baselineGeneration") or 0),
+            revision=int(value.get("revision") or 0),
+            created_at=_row_datetime(value.get("createdAt")),
+            updated_at=_row_datetime(value.get("updatedAt")),
+            updated_by=str(value.get("updatedBy") or ""),
+        )
+        session.add(row)
+        await session.flush()
+        return
+    if field == "asset_id":
+        row = await session.get(RenovationPlanRow, row_id)
+        if row is None:
+            raise _CELL_PLAN_ROW_NOT_FOUND
+        row.asset_id = UUID(str(value)) if value else None
+        row.updated_at = datetime.now(UTC)
+        session.add(row)
+        await session.flush()
+        return
+    message = f"Неизвестное изменение строки плана «{field}»."
+    raise CellValidationError(message)
+
+
+def _row_datetime(value: object) -> datetime:
+    """Parse a journaled ISO timestamp; the current time when it is unusable."""
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return datetime.now(UTC)
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    return datetime.now(UTC)
 
 
 async def _apply_renovation_asset_deleted(
@@ -3187,6 +3312,133 @@ async def _renovation_user_asset_names(session: AsyncSession, project_id: UUID, 
         )
     ).all()
     return list(rows)
+
+
+async def delete_renovation_user(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    user_id: UUID,
+) -> list[AppliedCell]:
+    """
+    Delete a user from the «Ремонт» project.
+
+    The renovation link (role, block, activity) and the asset grants are
+    removed; the account itself stays while it is linked to another project —
+    it is only soft-deleted when no project link is left, so the person really
+    disappears instead of lingering as an empty row. The deletion is journaled
+    as an undoable «__deleted» snapshot that restores both.
+
+    A user who fixed a movement month cannot be deleted (the fix records who
+    did it) — the RESTRICT key is a real constraint, surfaced as a clear 409.
+    """
+    user = await session.get(User, user_id)
+    if user is None or user.is_deleted:
+        raise _DICT_USER_NOT_FOUND
+    link = (
+        await session.exec(select(RUserRole).where(RUserRole.user_id == user_id, RUserRole.project_id == project_id))
+    ).one_or_none()
+    if link is None:
+        raise _DICT_USER_NOT_FOUND
+    grant_rows = (
+        await session.exec(
+            select(RUserAsset).where(col(RUserAsset.user_id) == user_id, col(RUserAsset.project_id) == project_id)
+        )
+    ).all()
+    asset_names = await _renovation_user_asset_names(session, project_id, user_id)
+    snapshot = {
+        "email": str(user.email or ""),
+        "fullname": user.name or "",
+        "role": link.role.value,
+        "block": link.block.value if link.block is not None else None,
+        "isActive": link.is_active,
+        "assetNames": asset_names,
+    }
+    for grant in grant_rows:
+        await session.delete(grant)
+    await session.delete(link)
+    await session.flush()
+    await _soft_delete_if_orphaned(session, user_id)
+    return [
+        AppliedCell(
+            target_table=User.__tablename__,
+            row_id=user_id,
+            field="__deleted",
+            old_value=snapshot,
+            new_value=None,
+        )
+    ]
+
+
+async def restore_renovation_user(
+    session: AsyncSession,
+    *,
+    row_id: UUID,
+    snapshot: dict[str, object],
+) -> None:
+    """Restore a deleted renovation user link (undo of the deletion)."""
+    user = await session.get(User, row_id)
+    if user is not None and user.is_deleted:
+        user.is_deleted = False
+        user.updated_at = datetime.now(UTC)
+        session.add(user)
+    project_id = await _renovation_project_id_required(session)
+    now = datetime.now(UTC)
+    role_value = str(snapshot.get("role") or RProjectRole.ASSET_WORKER.value)
+    role = next((item for item in RProjectRole if item.value == role_value), RProjectRole.ASSET_WORKER)
+    block_value = snapshot.get("block")
+    block = next((item for item in RBlock if item.value == block_value), None) if block_value else None
+    fullname = str(snapshot.get("fullname") or "")
+    if user is not None and fullname:
+        user.name = fullname
+        session.add(user)
+    link = await session.get(RUserRole, (row_id, project_id))
+    if link is None:
+        link = RUserRole(
+            user_id=row_id,
+            project_id=project_id,
+            role=role,
+            block=block,
+            is_active=bool(snapshot.get("isActive", True)),
+            created_at=now,
+            updated_at=now,
+            updated_by="",
+        )
+    else:
+        link.role = role
+        link.block = block
+        link.is_active = bool(snapshot.get("isActive", True))
+        link.updated_at = now
+    session.add(link)
+    await session.flush()
+    asset_names = snapshot.get("assetNames")
+    await replace_renovation_user_assets(
+        session,
+        project_id,
+        row_id,
+        [str(name) for name in asset_names] if isinstance(asset_names, list) else [],
+    )
+
+
+async def _soft_delete_if_orphaned(session: AsyncSession, user_id: UUID) -> None:
+    """
+    Close the account once it has no project link left.
+
+    A user is visible in «Пользователи» through a link; with the last one gone
+    the account would linger as a ghost, so it is soft-deleted instead. The
+    row and its history stay for the journal/undo.
+    """
+    raw_link = (await session.exec(select(UserRole).where(col(UserRole.user_id) == user_id))).first()
+    renovation_link = (await session.exec(select(RUserRole).where(col(RUserRole.user_id) == user_id))).first()
+    if raw_link is not None or renovation_link is not None:
+        return
+    user = await session.get(User, user_id)
+    if user is None:
+        return
+    user.is_deleted = True
+    user.updated_at = datetime.now(UTC)
+    session.add(user)
+    await session.flush()
 
 
 async def replace_renovation_user_assets(

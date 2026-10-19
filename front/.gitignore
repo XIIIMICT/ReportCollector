@@ -15,6 +15,7 @@
 !playwright.config.ts
 !postcss.config.ts
 !prek.toml
+!stylelint.config.mjs
 !tsconfig.json
 
 # Исходники, e2e и статика

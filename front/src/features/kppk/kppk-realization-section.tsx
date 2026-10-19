@@ -1,0 +1,475 @@
+"use client";
+
+import { Card, toast } from "@heroui/react";
+import { CellMergePlugin, type MergeData } from "@revolist/rv-pro-trial";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import {
+    getKppkUndoState,
+    getRealizationView,
+    KPPK_REALIZATION_SLICE_FIELDS,
+    redoKppkCells,
+    undoKppkCells,
+    updateRealizationCell,
+    type KppkRealizationRow,
+    type KppkRealizationSectionId,
+    type KppkRealizationSlice,
+    type KppkUndoResult,
+} from "@/shared/api/kppk";
+import type { CellUpdate } from "@/shared/api/raw-materials";
+import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room";
+import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
+import type { CollabCellChanged } from "@/shared/collab/ws-client";
+import type { ColumnDescriptor, GridRow } from "@/shared/grid/grid-config";
+import {
+    RawMaterialsGrid,
+    type GridViewStats,
+    type RawMaterialsGridHandle,
+} from "@/shared/grid/raw-materials-grid";
+import { useAsyncData } from "@/shared/hooks/use-async-data";
+import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
+import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
+import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
+import { publishSelection, type GridSelectionInfo } from "@/shared/ui/text-helpers";
+import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
+
+/** Standard grid toasts: see `gridWarningHandlers`. */
+const gridWarnings = gridWarningHandlers({ lockedVerb: "редактирует" });
+
+/**
+ * The «Реализация» form (Таблицы.xlsx sheet «Реализация»): the workspace
+ * toolbar owns the mandatory «ДЗО» filter (no «Все активы») and the mandatory
+ * slice select («Бизнес-план» / «Оперплан» / «Факт», no «Все срезы»); the
+ * loaded period is also reported into that toolbar row. The columns follow the template two-level header:
+ * Продукция | Рынок сбыта | Выкуп{Объем, Цена FCA} | Реализация{Объем,
+ * Цена FCA}; the product names fold their region rows into one merged cell
+ * (CellMergePlugin) the way the template renders them.
+ *
+ * The period is a server-side constant until the period filter exists; undo/
+ * redo scope and the collaboration room follow the slice storage
+ * (`kppkRealizationPlan` for the plan slices, `kppkRealizationFact` for the
+ * fact one). Editing is admin-only, row operations are disabled (the rows
+ * come from the source copies).
+ */
+
+const KPPK_PROJECT_KEY = "kppk";
+
+const KPPK_REALIZATION_SLICES: { id: KppkRealizationSlice; label: string }[] = [
+    { id: "bp", label: "Бизнес-план" },
+    { id: "op", label: "Оперплан" },
+    { id: "fact", label: "Факт" },
+];
+
+/**
+ * The slice's column layout per the template: the fixed left columns then
+ * the four editable numeric cells under the «Выкуп»/«Реализация» groups.
+ */
+const KPPK_REALIZATION_DESCRIPTORS: Record<KppkRealizationSlice, ColumnDescriptor[]> = {
+    bp: [
+        { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
+        { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
+        { key: "buyoutBpPlan", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
+        { key: "fcaPriceBpPlan", label: "Цена FCA", width: 130, kind: "number", path: ["Выкуп"] },
+        { key: "monthBpPlan", label: "Объем", width: 140, kind: "number", path: ["Реализация"] },
+        {
+            key: "fcaPriceMarketBpPlan",
+            label: "Цена FCA",
+            width: 130,
+            kind: "number",
+            path: ["Реализация"],
+        },
+    ],
+    op: [
+        { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
+        { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
+        { key: "buyoutMaxPlan", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
+        { key: "fcaPriceMaxPlan", label: "Цена FCA", width: 130, kind: "number", path: ["Выкуп"] },
+        { key: "monthMaxPlan", label: "Объем", width: 140, kind: "number", path: ["Реализация"] },
+        {
+            key: "fcaPriceMarketMaxPlan",
+            label: "Цена FCA",
+            width: 130,
+            kind: "number",
+            path: ["Реализация"],
+        },
+    ],
+    fact: [
+        { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
+        { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
+        { key: "buyoutFact", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
+        { key: "fcaPriceFact", label: "Цена FCA", width: 130, kind: "number", path: ["Выкуп"] },
+        { key: "fact", label: "Объем", width: 140, kind: "number", path: ["Реализация"] },
+        {
+            key: "fcaPriceMarketFact",
+            label: "Цена FCA",
+            width: 130,
+            kind: "number",
+            path: ["Реализация"],
+        },
+    ],
+};
+
+/** The collaboration room / undo scope of a slice. */
+function realizationRoomSection(slice: KppkRealizationSlice): KppkRealizationSectionId {
+    return slice === "fact" ? "kppkRealizationFact" : "kppkRealizationPlan";
+}
+
+type KppkUndoActions = {
+    canUndo: boolean;
+    canRedo: boolean;
+    onUndo: () => void;
+    onRedo: () => void;
+};
+
+type ClipboardActions = { canPaste: boolean; onCopy: () => void; onPaste: () => void };
+
+/**
+ * The workspace export button is hidden on this tab (no export app yet), so
+ * the section keeps the no-op export state of the freshly mounted tab.
+ */
+
+const EMPTY_UNDO_ACTIONS: KppkUndoActions = {
+    canUndo: false,
+    canRedo: false,
+    onUndo: () => {},
+    onRedo: () => {},
+};
+
+function errorMessage(reason: unknown): string {
+    return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
+}
+
+export { KPPK_REALIZATION_SLICES, realizationRoomSection, type KppkRealizationSectionProps };
+
+type KppkRealizationSectionProps = {
+    isAdmin: boolean;
+    /** The selected ДЗО: the workspace toolbar always provides one. */
+    orgId: string | null;
+    /** The active slice: the workspace toolbar select owns the choice. */
+    slice: KppkRealizationSlice;
+    /** 1-based month id («1»…«12») or null — null keeps the server-fixed period. */
+    periodMonth: string | null;
+    /** The period year («2023»…«2027») or null — null keeps the server-fixed period. */
+    periodYear: string | null;
+    headerPinned: boolean;
+    showServiceColumns: boolean;
+    onGridStatsChange: (stats: GridViewStats) => void;
+    onSelectionLabelChange: (label: string | null) => void;
+    onSelectionDetailChange?: (detail: string | null) => void;
+    onClipboardStateChange: (state: ClipboardActions) => void;
+    onUndoStateChange: (state: KppkUndoActions) => void;
+    onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
+    onResetState: (state: {
+        resetColumnWidths: () => void;
+        resetFiltersSorting: () => void;
+    }) => void;
+    /** Publishes this form's collaboration room to the footer status. */
+    onRoomChange?: (room: CollabRoom | null) => void;
+    /** The loaded view's period banner (the toolbar renders it) — null while empty. */
+    onPeriodTextChange: (period: string | null) => void;
+};
+
+export function KppkRealizationSection({
+    isAdmin,
+    orgId,
+    slice,
+    periodMonth,
+    periodYear,
+    headerPinned,
+    showServiceColumns,
+    onGridStatsChange,
+    onSelectionLabelChange,
+    onSelectionDetailChange,
+    onClipboardStateChange,
+    onUndoStateChange,
+    onDeleteState,
+    onResetState,
+    onRoomChange,
+    onPeriodTextChange,
+}: KppkRealizationSectionProps) {
+    const roomSection = realizationRoomSection(slice);
+
+    const [reloadKey, setReloadKey] = useState(0);
+    const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
+    const loader = useCallback(
+        () =>
+            orgId !== null
+                ? getRealizationView(orgId, slice, periodMonth, periodYear)
+                : Promise.resolve(null),
+        [orgId, periodMonth, periodYear, slice],
+    );
+    const { data: view, error } = useAsyncData(loader, [loader, reloadKey]);
+
+    // Collaboration room per slice storage; the section the room is keyed by
+    // also carries the undo history scope.
+    const [remoteCellValues, setRemoteCellValues] = useState<Map<string, unknown>>(new Map());
+    const selfCellHandlerRef = useRef<(event: CollabCellChanged) => void>(() => {});
+    const room = useCollabRoom({
+        projectKey: KPPK_PROJECT_KEY,
+        section: roomSection,
+        reportMonth: null,
+        enabled: isAdmin && orgId !== null,
+        onCellChanged: (event) => selfCellHandlerRef.current(event),
+        onRowsChanged: () => refresh(),
+        onReconnect: () => {
+            setRemoteCellValues(new Map());
+            refresh();
+        },
+    });
+    const meId = room.me?.userId ?? null;
+    selfCellHandlerRef.current = (event) => {
+        if (event.user.userId === meId) return;
+        const key = `${roomSection}/${event.rowId}/${event.field}`;
+        setRemoteCellValues((current) => new Map(current).set(key, event.value));
+    };
+    const { remoteLocks, remotePresence, remoteCellInfo } = useRemoteCellMaps(room);
+
+    useEffect(() => {
+        onRoomChange?.(room);
+        return () => onRoomChange?.(null);
+    }, [onRoomChange, room]);
+
+    // ── Undo/redo (per slice scope, same mechanics as the dictionaries) ──
+    const pendingWriteRef = useRef<Promise<unknown> | null>(null);
+    function track<T>(write: Promise<T>): Promise<T> {
+        pendingWriteRef.current = write;
+        return write;
+    }
+    const [undoCounts, setUndoCounts] = useState({ canUndo: false, canRedo: false });
+    const [pendingSkip, setPendingSkip] = useState<{
+        actionId: number;
+        direction: "undo" | "redo";
+    } | null>(null);
+    const refreshUndoState = useCallback(() => {
+        void getKppkUndoState(roomSection)
+            .then((state) => setUndoCounts({ canUndo: state.canUndo, canRedo: state.canRedo }))
+            .catch(() => {});
+    }, [roomSection]);
+    useEffect(() => {
+        if (!isAdmin) return;
+        refreshUndoState();
+    }, [isAdmin, refreshUndoState]);
+
+    const applyUndoResult = useCallback(
+        (result: KppkUndoResult, direction: "undo" | "redo") => {
+            applyHistoryResult({
+                result,
+                direction,
+                setPendingSkip,
+                refresh,
+                refreshState: refreshUndoState,
+            });
+        },
+        [refresh, refreshUndoState],
+    );
+    const runUndo = useCallback(async () => {
+        await runHistoryAction({
+            direction: "undo",
+            pendingWrite: pendingWriteRef.current,
+            pendingSkip,
+            request: (skip) => undoKppkCells(skip, roomSection),
+            apply: applyUndoResult,
+        });
+    }, [applyUndoResult, pendingSkip, roomSection]);
+    const runRedo = useCallback(async () => {
+        await runHistoryAction({
+            direction: "redo",
+            pendingWrite: pendingWriteRef.current,
+            pendingSkip,
+            request: (skip) => redoKppkCells(skip, roomSection),
+            apply: applyUndoResult,
+        });
+    }, [applyUndoResult, pendingSkip, roomSection]);
+
+    useUndoRedoShortcuts({
+        enabled: isAdmin,
+        onUndo: () => void runUndo(),
+        onRedo: () => void runRedo(),
+    });
+
+    // Chain the grid's edit events to the slice PATCH endpoint.
+    async function commit(updates: CellUpdate[]): Promise<boolean> {
+        if (!isAdmin || updates.length === 0) return true;
+        setPendingSkip(null);
+        const write = (async () => {
+            for (const update of updates) {
+                await updateRealizationCell(update.rowId, slice, update.field, update.value);
+            }
+        })();
+        try {
+            await track(write);
+            refresh();
+            return true;
+        } catch (reason) {
+            toast.danger("Изменения не сохранены", { description: errorMessage(reason) });
+            return false;
+        } finally {
+            refreshUndoState();
+        }
+    }
+
+    // ── Grid rows: the group lead carries the product name; then merge ranges ──
+    const gridRows = useMemo<GridRow[]>(() => {
+        const rows: KppkRealizationRow[] = view?.rows ?? [];
+        const fields = KPPK_REALIZATION_SLICE_FIELDS[slice];
+        let previous: string | null = null;
+        return rows.map((row) => {
+            const isGroupStart = row.product !== previous;
+            previous = row.product;
+            const gridRow: GridRow = {
+                ...row,
+                product: isGroupStart ? row.product : "",
+                rowState: "unchanged",
+                changedFields: [],
+                isDeleted: false,
+                isPlaceholder: false,
+                canonicalCells: {},
+            };
+            if (!isAdmin) return gridRow;
+            const cells = gridRow.canonicalCells;
+            for (const field of fields) {
+                if (!cells) return gridRow;
+                const key = `${roomSection}/${row.id}/${field}`;
+                cells[field] = key;
+                const remote = remoteCellValues.get(key);
+                if (remote !== undefined) gridRow[field] = remote;
+            }
+            return gridRow;
+        });
+    }, [isAdmin, remoteCellValues, roomSection, slice, view?.rows]);
+
+    // The template folds each product's region rows into one merged product
+    // cell: one rowSpan range per run of rows sharing the product. The merge
+    // column is the leading `product` leaf (index 0).
+    const cellMerge = useMemo<MergeData[]>(() => {
+        const rows: KppkRealizationRow[] = view?.rows ?? [];
+        const sweeps: MergeData[] = [];
+        let start = -1;
+        for (let i = 0; i < rows.length; i += 1) {
+            const isGroupStart = i === 0 || rows[i]!.product !== rows[i - 1]!.product;
+            if (!isGroupStart) continue;
+            if (start >= 0 && i - start > 1) {
+                sweeps.push({ row: start, column: 0, rowSpan: i - start });
+            }
+            start = i;
+        }
+        if (start >= 0 && rows.length - start > 1) {
+            sweeps.push({ row: start, column: 0, rowSpan: rows.length - start });
+        }
+        return sweeps;
+    }, [view?.rows]);
+
+    // ── Workspace wiring (footer actions, strip handlers) ──
+    const gridRef = useRef<RawMaterialsGridHandle>(null);
+    useEffect(() => {
+        onUndoStateChange(
+            undoCounts.canUndo || undoCounts.canRedo
+                ? {
+                      canUndo: undoCounts.canUndo,
+                      canRedo: undoCounts.canRedo,
+                      onUndo: () => void runUndo(),
+                      onRedo: () => void runRedo(),
+                  }
+                : EMPTY_UNDO_ACTIONS,
+        );
+    }, [onUndoStateChange, runRedo, runUndo, undoCounts]);
+    useEffect(() => {
+        onDeleteState({ canDelete: false, onDelete: () => {} });
+    }, [onDeleteState]);
+    useEffect(() => {
+        onResetState({
+            resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
+            resetFiltersSorting: () => void gridRef.current?.resetFiltersSorting(),
+        });
+    }, [onResetState]);
+    const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
+
+    const handleSelectionChange = useCallback(
+        (selection: GridSelectionInfo) =>
+            publishSelection({
+                selection,
+                room,
+                onLabel: onSelectionLabelChange,
+                onDetail: onSelectionDetailChange,
+            }),
+        [onSelectionDetailChange, onSelectionLabelChange, room],
+    );
+
+    // A new slice/ДЗО is a new selection context — a stale footer label must
+    // not survive the refetch.
+    useEffect(() => {
+        onSelectionLabelChange(null);
+    }, [onSelectionLabelChange, slice, orgId]);
+
+    const isPending = view === null && error === null;
+
+    // The loaded view's period goes to the workspace toolbar row (next to the
+    // ДЗО/срез selects there); null while nothing is loaded.
+    const periodText = view === null ? null : `${view.period.monthName} ${view.period.yearNum}`;
+    useEffect(() => {
+        onPeriodTextChange(periodText);
+    }, [onPeriodTextChange, periodText]);
+
+    // The toolbar always supplies a ДЗО; an empty id is the first-paint moment
+    // while the dictionaries load.
+    if (orgId === null) {
+        return <GridLoadingSkeleton />;
+    }
+
+    if (error) {
+        return (
+            <div className="grid-viewport">
+                <div className="grid-empty">
+                    <Card>
+                        <Card.Content className="text-danger p-4 text-sm">{error}</Card.Content>
+                    </Card>
+                </div>
+            </div>
+        );
+    }
+
+    if (isPending) {
+        return <GridLoadingSkeleton />;
+    }
+
+    return (
+        <div className="grid-viewport">
+            <RawMaterialsGrid
+                ref={gridRef}
+                section={roomSection}
+                rows={gridRows}
+                isAdmin={isAdmin}
+                showAssetColumn={false}
+                readOnly={!isAdmin}
+                hasBaseline={false}
+                headerPinned={headerPinned}
+                showServiceColumns={showServiceColumns}
+                columnDescriptors={KPPK_REALIZATION_DESCRIPTORS[slice]}
+                plugins={[CellMergePlugin]}
+                cellMerge={cellMerge}
+                assets={[]}
+                deliveryBases={[]}
+                onCommit={commit}
+                onPlaceholderCommit={async () => true}
+                onCommitFailed={refresh}
+                remoteLocks={remoteLocks}
+                remotePresence={remotePresence}
+                remoteCellInfo={remoteCellInfo}
+                onAcquireLease={(keys) => room.acquireLeases(keys)}
+                onReleaseLease={(keys) => room.releaseLeases(keys)}
+                onLockedCellEdit={gridWarnings.onLockedCellEdit}
+                onValidationError={gridWarnings.onValidationError}
+                onViewStatsChange={onGridStatsChange}
+                // Row operations are disabled on this form (the rows come from
+                // the source copies) — the grid just requires the handler.
+                onSelectedRowsChange={() => {}}
+                onClipboardStateChange={handleClipboardState}
+                onSelectionChange={handleSelectionChange}
+            />
+            {gridRows.length === 0 ? (
+                <div className="grid-empty">Для выбранного ДЗО и среза данных пока нет.</div>
+            ) : null}
+        </div>
+    );
+}

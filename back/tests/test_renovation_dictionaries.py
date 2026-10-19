@@ -484,7 +484,7 @@ async def test_user_create_duplicate_email_conflicts(
     assert response.status_code == 409
 
 
-async def test_user_delete_not_supported(
+async def test_user_delete_removes_the_project_link(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
@@ -494,11 +494,20 @@ async def test_user_delete_not_supported(
         json={"email": "temp@example.ru", "fullname": "Временный", "role": "admin", "assetNames": []},
     )
     user_id = created.json()["id"]
+    # The protective layer: revoke access first, then delete.
+    refused = await client.delete(f"/api/renovation/dictionary/users/{user_id}", headers=ADMIN_HEADERS)
+    assert refused.status_code == 409
+
+    revoked = await client.patch(
+        f"/api/renovation/dictionary/users/{user_id}",
+        headers=ADMIN_HEADERS,
+        params={"session_id": "users-session"},
+        json={"isActive": False},
+    )
+    assert revoked.status_code == 200
+
     response = await client.delete(f"/api/renovation/dictionary/users/{user_id}", headers=ADMIN_HEADERS)
-    assert response.status_code == 405
-
-
-# ─── Export ────────────────────────────────────────────────────────────────
+    assert response.status_code == 204
 
 
 async def test_dictionary_export_assets(client: AsyncClient) -> None:
@@ -532,6 +541,78 @@ async def test_dictionary_export_assets(client: AsyncClient) -> None:
     assert R_ASSETS[0][2] in names
     counts = {sheet.cell(row=index, column=4).value for index in range(2, sheet.max_row + 1)}
     assert 1 in counts
+
+
+async def test_dictionary_export_assets_carries_summary_row(client: AsyncClient) -> None:
+    """The «Предприятия» export mirrors the grid's pinned summary row.
+
+    Row 2 (directly under the header) aggregates the numeric columns with a
+    live SUM over the data; the non-aggregating columns merge their header
+    cell down over it (one tall header cell, like the grid's summary band).
+    """
+    response = await client.post(
+        "/api/renovation/dictionary/export",
+        headers=ADMIN_HEADERS,
+        json={
+            "section": "renovationAssets",
+            "headerPinned": True,
+            "fileName": "активы.xlsx",
+            "columns": [
+                {"key": "name", "headerPath": ["Актив"], "width": 20},
+                {"key": "repairCode", "headerPath": ["Ремонтный код"], "width": 12},
+                {"key": "totalCost", "headerPath": ["Стоимость итого, руб. без НДС"], "width": 24},
+                {"key": "repairCount", "headerPath": ["Число ремонтных работ"], "width": 18},
+            ],
+            "rowIds": None,
+        },
+    )
+    assert response.status_code == 200
+    workbook = load_workbook(BytesIO(response.content))
+    sheet = workbook["Активы"]
+    # The summary row sits directly under the flat header; the data start below it.
+    assert sheet.cell(row=2, column=3).value is not None  # totalCost aggregate
+    assert isinstance(sheet.cell(row=2, column=3).value, str)
+    assert sheet.cell(row=2, column=3).value.startswith("=SUM(C3:C")
+    assert sheet.cell(row=2, column=4).value is not None  # repairCount aggregate
+    # Non-aggregating columns: the header cell merges down over the summary row.
+    merges = [str(ref) for ref in sheet.merged_cells.ranges]
+    assert "A1:A2" in merges
+    assert "B1:B2" in merges
+    # The frozen pane covers the header AND the summary row.
+    assert sheet.freeze_panes == "A3"
+    # Cached values: the seed's totals match the sum over the data rows.
+    cached = load_workbook(BytesIO(response.content), data_only=True)["Активы"]
+    expected = sum(
+        value
+        for value in (cached.cell(row=row, column=4).value for row in range(3, cached.max_row + 1))
+        if isinstance(value, int | float)
+    )
+    assert cached.cell(row=2, column=4).value == expected
+
+
+async def test_dictionary_export_other_sections_have_no_summary_row(client: AsyncClient) -> None:
+    """Only «Предприятия» pins a summary; the users table stays flat."""
+    response = await client.post(
+        "/api/renovation/dictionary/export",
+        headers=ADMIN_HEADERS,
+        json={
+            "section": "renovationUsers",
+            "headerPinned": True,
+            "fileName": "пользователи.xlsx",
+            "columns": [
+                {"key": "email", "headerPath": ["Email"], "width": 20},
+                {"key": "fullname", "headerPath": ["ФИО"], "width": 28},
+            ],
+            "rowIds": None,
+        },
+    )
+    assert response.status_code == 200
+    workbook = load_workbook(BytesIO(response.content))
+    sheet = workbook["Пользователи"]
+    assert sheet.cell(row=2, column=1).value is not None  # data right under the header
+    assert sheet.freeze_panes == "A2"
+    merges = [str(ref) for ref in sheet.merged_cells.ranges]
+    assert "A1:A2" not in merges
 
 
 async def test_dictionary_export_users_with_asset_dropdown(client: AsyncClient) -> None:

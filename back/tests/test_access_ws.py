@@ -6,12 +6,13 @@ from datetime import date
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from conftest import raw_materials_role
 from fastapi import WebSocket
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from test_collab import FakeWebSocket, _wait_until
 
-from src.auth.models import ProjectRole, UserRole
+from src.auth.models import ProjectRole
 from src.auth.service import verify_signed_identity
 from src.collab.access import RoomAccess, RoomAccessDeniedError
 
@@ -34,7 +35,7 @@ def access_for(db_session, *, section="materialMovement", month="2026-08-01"):
 
 
 async def restrict_admin_to_asset(db_session, asset_id=None):
-    role = (await db_session.exec(select(UserRole))).one()
+    role = await raw_materials_role(db_session)
     role.role = ProjectRole.ASSET_WORKER
     db_session.add(role)
     if asset_id is not None:

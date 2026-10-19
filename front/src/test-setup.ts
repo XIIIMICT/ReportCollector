@@ -31,6 +31,9 @@ Object.defineProperties(globalThis, {
     CSS: { configurable: true, value: domWindow.CSS, writable: true },
     SVGElement: { configurable: true, value: domWindow.SVGElement, writable: true },
     ResizeObserver: { configurable: true, value: domWindow.ResizeObserver, writable: true },
+    // react-aria's `focusSafely` constructs a FocusEvent when it moves the
+    // virtual focus onto a list option; happy-dom has no such global.
+    FocusEvent: { configurable: true, value: domWindow.FocusEvent, writable: true },
     requestAnimationFrame: {
         configurable: true,
         value: domWindow.requestAnimationFrame.bind(domWindow),

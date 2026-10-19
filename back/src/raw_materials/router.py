@@ -3,33 +3,39 @@
 from collections.abc import Sequence
 from datetime import date
 from typing import Annotated
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
-from src.auth.models import Project, ProjectRole, User
+from src.auth.models import Project, ProjectRole, User, UserRole
 from src.auth.router import read_signed_identity
 from src.auth.service import CurrentUserIdentity, get_user_by_identity
-from src.collab.events import publish_cell_changed
+from src.collab.events import publish_cell_changed, publish_rows_changed
 from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.persistence import JournalStore
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
+from src.common.export import safe_sheet_name
+from src.common.export_jobs import ExportJobRead, export_table_or_job, table_export_jobs
 from src.database import get_session
-from src.downloads import attachment_response
+from src.downloads import XLSX_MEDIA_TYPE
 from src.raw_materials.approve import (
     ApprovalError,
     fix_report,
     read_movement_meta,
 )
 from src.raw_materials.export import (
+    CALCULATED_OPERANDS,
+    REFERENCE_LISTS,
+    SECTION_SHEET_NAMES,
     ExportValidationError,
-    render_workbook,
     validate_export_request,
 )
 from src.raw_materials.models import (
@@ -76,8 +82,8 @@ from src.raw_materials.service import (
     create_raw_material,
     delete_asset,
     delete_delivery_basis,
-    delete_project_user,
     delete_raw_material,
+    delete_raw_project_user,
     read_asset_rows,
     read_delivery_basis_rows,
     read_meta,
@@ -375,9 +381,16 @@ async def export_table(
     session: SessionDependency,
     identity: IdentityDependency,
 ) -> Response:
-    """Excel table export: «вся» — the default view, «видимая» — the given rows."""
+    """
+    Excel table export: «вся» — the default view, «видимая» — the given rows.
+
+    Small tables render straight into this response; past
+    ``INLINE_EXPORT_MAX_ROWS`` the response is 202 + a job description and
+    the workbook is built by the shared background worker (its file URL
+    streams the growing file).
+    """
     try:
-        _, roles, user_assets = await resolve_raw_materials_access(session, identity)
+        user, roles, user_assets = await resolve_raw_materials_access(session, identity)
     except NoRawMaterialsAccessError as error:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -403,8 +416,73 @@ async def export_table(
         rows = _reorder_rows(rows, request.rowIds)
     asset_names = [asset.name for asset in user_assets]
     delivery_bases = [basis.name for basis in await read_delivery_basis_rows(session)]
-    payload = await run_in_threadpool(render_workbook, request, rows, asset_names, delivery_bases)
-    return attachment_response(payload, filename=request.fileName.strip())
+    needs_lists = any(column.key in REFERENCE_LISTS for column in request.columns)
+    return await export_table_or_job(
+        sheet_title=safe_sheet_name(SECTION_SHEET_NAMES[request.section]),
+        columns=request.columns,
+        rows=rows,
+        header_pinned=request.headerPinned,
+        file_name=request.fileName,
+        user_id=str(user.id),
+        lists={"assets": asset_names, "deliveryBases": delivery_bases} if needs_lists else None,
+        column_lists=REFERENCE_LISTS,
+        calculated=CALCULATED_OPERANDS,
+    )
+
+
+@router.get("/export/jobs/{job_id}", response_model=ExportJobRead)
+async def get_export_job(
+    job_id: str,
+    session: SessionDependency,
+    identity: IdentityDependency,
+) -> ExportJobRead:
+    """Status of a background table export (progress / done / failed)."""
+    user = await get_user_by_identity(session, identity)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Пользователь не найден.")
+    try:
+        job = table_export_jobs.get(job_id, str(user.id))
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание выгрузки не найдено.") from error
+    return ExportJobRead(
+        id=job.id,
+        status=job.status,
+        progress=job.progress,
+        total=job.spec.total,
+        fileName=job.spec.file_name,
+        error=job.error,
+    )
+
+
+@router.get("/export/jobs/{job_id}/file")
+async def get_export_job_file(
+    job_id: str,
+    session: SessionDependency,
+    identity: IdentityDependency,
+) -> StreamingResponse:
+    """Stream the XLSX of a background table export AS it is being generated."""
+    user = await get_user_by_identity(session, identity)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Пользователь не найден.")
+    user_id = str(user.id)
+    try:
+        job = table_export_jobs.get(job_id, user_id)
+    except KeyError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Задание выгрузки не найдено.",
+        ) from error
+    if job.status == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Не удалось сформировать файл выгрузки.",
+        )
+    quoted = quote(job.spec.file_name)
+    return StreamingResponse(
+        table_export_jobs.stream_growing(job_id, user_id),
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"},
+    )
 
 
 async def _export_rows(
@@ -707,14 +785,16 @@ async def patch_raw_material(
 async def delete_raw_material_endpoint(
     raw_material_id: UUID,
     session: SessionDependency,
-    _user: UserDependency,
+    user: UserDependency,
     _assets: AdminDependency,
+    session_id: str = "",
 ) -> None:
-    """Raw-material item deletion (project admin only)."""
+    """Raw-material item deletion (project admin only, undoable)."""
     try:
-        await delete_raw_material(session, raw_material_id=raw_material_id)
+        applied = await delete_raw_material(session, raw_material_id=raw_material_id)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    await _record_dictionary_delete(session, user=user, section="rawMaterials", session_id=session_id, applied=applied)
 
 
 @router.post("/assets", response_model=AssetRowRead, status_code=status.HTTP_201_CREATED)
@@ -790,14 +870,16 @@ async def patch_asset(
 async def delete_asset_endpoint(
     asset_id: UUID,
     session: SessionDependency,
-    _user: UserDependency,
+    user: UserDependency,
     _assets: AdminDependency,
+    session_id: str = "",
 ) -> None:
-    """Asset deletion (project admin only)."""
+    """Asset deletion (project admin only, undoable)."""
     try:
-        await delete_asset(session, asset_id=asset_id)
+        applied = await delete_asset(session, asset_id=asset_id)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    await _record_dictionary_delete(session, user=user, section="assets", session_id=session_id, applied=applied)
 
 
 @router.post("/delivery-bases", response_model=DeliveryBasisRowRead, status_code=status.HTTP_201_CREATED)
@@ -873,14 +955,16 @@ async def patch_delivery_basis(
 async def delete_delivery_basis_endpoint(
     basis_id: UUID,
     session: SessionDependency,
-    _user: UserDependency,
+    user: UserDependency,
     _assets: AdminDependency,
+    session_id: str = "",
 ) -> None:
-    """Delivery basis deletion (project admin only)."""
+    """Delivery basis deletion (project admin only, undoable)."""
     try:
-        await delete_delivery_basis(session, basis_id=basis_id)
+        applied = await delete_delivery_basis(session, basis_id=basis_id)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    await _record_dictionary_delete(session, user=user, section="deliveryBases", session_id=session_id, applied=applied)
 
 
 @router.post("/users", response_model=UserRowRead, status_code=status.HTTP_201_CREATED)
@@ -1074,17 +1158,77 @@ async def patch_dictionary_batch(
 async def delete_user_endpoint(
     user_id: UUID,
     session: SessionDependency,
-    _user: UserDependency,
+    user: UserDependency,
     _assets: AdminDependency,
+    session_id: str = "",
 ) -> None:
-    """«Сырьё» project user deletion (project admin only)."""
+    """
+    Remove a user from the «Сырьё» project (project admin only, undoable).
+
+    The account is soft-deleted when no project link is left, so the person
+    really disappears from every «Пользователи» list. An admin cannot remove
+    themselves — the last admin would otherwise lock the project out.
+    """
+    if user_id == user.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Нельзя удалить себя из проекта.",
+        )
     project_id = await _raw_materials_project_id(session)
+    link = await session.get(UserRole, (user_id, project_id))
+    if link is not None and link.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Сначала снимите доступ пользователя к проекту, затем удаляйте.",
+        )
     try:
-        await delete_project_user(session, project_id=project_id, user_id=user_id)
-    except DictionaryReferenceError as error:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+        applied = await delete_raw_project_user(session, project_id=project_id, user_id=user_id)
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except IntegrityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Пользователя нельзя удалить: на нём зафиксированные периоды или другие данные.",
+        ) from error
+    await _record_dictionary_delete(session, user=user, section="users", session_id=session_id, applied=applied)
+
+
+async def _record_dictionary_delete(
+    session: AsyncSession,
+    *,
+    user: User,
+    section: str,
+    session_id: str,
+    applied: list[AppliedCell],
+) -> None:
+    """
+    Journal a dictionary deletion as an undoable action and publish it.
+
+    Without a session id nothing is journaled (the history is page-lifetime,
+    like in the other projects), but the room still sees the row disappear.
+    """
+    if not applied:
+        return
+    if session_id:
+        await record_cell_updates(
+            JournalStore(session),
+            user_id=user.id,
+            user_name=user.name or "",
+            project_key=RAW_MATERIALS_PROJECT_KEY,
+            section=section,
+            report_month=None,
+            session_id=session_id,
+            applied=applied,
+        )
+    await publish_rows_changed(
+        JournalStore(session),
+        project_key=RAW_MATERIALS_PROJECT_KEY,
+        section=section,
+        report_month=None,
+        user_id=user.id,
+        user_name=user.name or "",
+        user_email=user.email or "",
+    )
 
 
 async def _raw_materials_project_id(session: AsyncSession) -> UUID:

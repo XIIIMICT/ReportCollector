@@ -30,6 +30,12 @@ export type ActionItem = {
     menu?: Array<{ id: string; label: string; icon?: ReactNode; onPress: () => void }>;
     /** Show a spinner in place of the icon while a background job runs. */
     pending?: boolean;
+    /**
+     * Why a disabled action can't run. Rendered as a native tooltip on the
+     * button, so a protective block («нельзя удалить себя») explains itself
+     * instead of leaving the user guessing.
+     */
+    disabledReason?: string | null;
 };
 
 /** Chunk actions into ButtonGroup runs: consecutive items with equal `group`. */
@@ -84,11 +90,16 @@ export function ActionBar({
 
     // The floating hint carries the label plus a Kbd with the shortcut, so it
     // only makes sense for actions that have a shortcut (a plain button like
-    // «Добавить строку» shows nothing).
-    const hintData = (action: ActionItem) =>
-        action.shortcut
+    // «Добавить строку» shows nothing). A disabled action with a reason shows
+    // the reason instead of the shortcut — that is what the user needs then.
+    const hintData = (action: ActionItem) => {
+        if (action.disabled && action.disabledReason) {
+            return { "data-action-tooltip": action.disabledReason };
+        }
+        return action.shortcut
             ? { "data-action-tooltip": action.label, "data-action-shortcut": action.shortcut.aria }
             : {};
+    };
 
     const renderAction = (action: ActionItem) => {
         const icon = action.pending ? <Spinner size="sm" /> : action.icon;
@@ -198,9 +209,9 @@ export function ActionBar({
                 if (!firstAction) return null;
                 return chunk.length > 1 ? (
                     // Direct Button children only: ButtonGroup injects props
-                    // into them (`__button_group_child`), which a Fragment or
-                    // Tooltip wrapper would reject — the kbd hint is shown by the
-                    // floating tooltip above instead.
+                    // into them (`__button_group_child`), which any wrapper
+                    // element would reject. The kbd/disabled hint is the
+                    // floating tooltip of the action bar instead.
                     <ButtonGroup key={`group-${firstAction.id}`}>
                         {chunk.map((action) => (
                             <Button
@@ -221,7 +232,13 @@ export function ActionBar({
                         ))}
                     </ButtonGroup>
                 ) : (
-                    <span key={firstAction.id} className="action-button-wrapper">
+                    <span
+                        key={firstAction.id}
+                        className="action-button-wrapper"
+                        {...(firstAction.disabled && firstAction.disabledReason
+                            ? { "data-action-tooltip": firstAction.disabledReason }
+                            : {})}
+                    >
                         {renderAction(firstAction)}
                     </span>
                 );

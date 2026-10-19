@@ -8,10 +8,10 @@ from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -28,18 +28,21 @@ from src.collab.models import RENOVATION_PLAN_ROWS_TABLE
 from src.collab.persistence import JournalStore
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
+from src.common.export import safe_sheet_name
+from src.common.export_jobs import ExportJobRead, export_table_or_job, table_export_jobs
 from src.database import get_session
-from src.downloads import XLSX_MEDIA_TYPE, attachment_response
+from src.downloads import XLSX_MEDIA_TYPE
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.export import (
+    REFERENCE_LISTS,
     ExportValidationError,
     plan_export_filename,
-    render_workbook,
+    section_sheet_name,
     stream_renovation_workbook,
     validate_export_request,
 )
 from src.renovation.export_jobs import ExportJob, ExportJobSpec, ExportQueueFullError, export_jobs
-from src.renovation.models import RAsset, RProjectRole
+from src.renovation.models import RAsset, RProjectRole, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
 from src.renovation.schemas import (
     RenovationApproveRead,
@@ -87,6 +90,7 @@ from src.renovation.service import (
     delete_plan_row,
     delete_renovation_asset,
     delete_renovation_catalog_option,
+    delete_renovation_user,
     read_meta,
     read_plan,
     read_plan_diff,
@@ -397,10 +401,11 @@ async def post_renovation_row(
     session: SessionDependency,
     access: AccessDependency,
     request: RenovationRowCreateRequest | None = None,
+    session_id: str = "",
 ) -> RenovationPlanRowRead:
     """Append an empty plan row (asset pre-filled from the request or for single-asset workers)."""
     try:
-        row = await add_plan_row(
+        row, applied = await add_plan_row(
             session,
             user=access.user,
             roles=access.roles,
@@ -412,6 +417,7 @@ async def post_renovation_row(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await _journal_plan_row(session, access, session_id, [applied])
     await _publish_rows_changed(session, access)
     return row
 
@@ -422,10 +428,11 @@ async def patch_renovation_row_asset(
     request: RenovationRowAssignRequest,
     session: SessionDependency,
     access: AccessDependency,
+    session_id: str = "",
 ) -> RenovationPlanRowRead:
     """Point an asset-less draft row at an asset (asset assignment)."""
     try:
-        row = await assign_plan_row_asset(
+        row, applied = await assign_plan_row_asset(
             session,
             user=access.user,
             roles=access.roles,
@@ -440,6 +447,7 @@ async def patch_renovation_row_asset(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await _journal_plan_row(session, access, session_id, [applied])
     await _publish_rows_changed(session, access)
     return row
 
@@ -449,17 +457,45 @@ async def delete_renovation_row(
     row_id: UUID,
     session: SessionDependency,
     access: AccessDependency,
+    session_id: str = "",
 ) -> None:
     """Delete a working-plan row (rows of the approved baseline are protected)."""
     try:
-        await delete_plan_row(session, assets=access.assets, roles=access.roles, row_id=row_id)
+        applied = await delete_plan_row(session, assets=access.assets, roles=access.roles, row_id=row_id)
     except RenovationPermissionError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except RenovationPlanStateError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    await _journal_plan_row(session, access, session_id, applied)
     await _publish_rows_changed(session, access)
+
+
+async def _journal_plan_row(
+    session: AsyncSession,
+    access: RenovationAccess,
+    session_id: str,
+    applied: list[AppliedCell],
+) -> None:
+    """
+    Journal a plan row lifecycle change (add / asset assignment / delete).
+
+    Without a session id nothing is journaled (page-lifetime history, like the
+    cell edits); the room is notified by the caller's `rows:changed` anyway.
+    """
+    if not session_id or not applied:
+        return
+    await record_cell_updates(
+        JournalStore(session),
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        project_key=RENOVATION_PROJECT_KEY,
+        section=RENOVATION_SECTION,
+        report_month=None,
+        session_id=session_id,
+        applied=applied,
+    )
 
 
 @router.get("/plan/diff", response_model=RenovationDiffRead)
@@ -1046,6 +1082,63 @@ async def patch_renovation_user(
     return (await read_renovation_user_rows(session, user_id=user_id))[0]
 
 
+@router.delete("/dictionary/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_renovation_user_endpoint(
+    user_id: UUID,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str = "",
+) -> None:
+    """
+    Remove a user from the «Ремонт» project (project admin only, undoable).
+
+    The account is soft-deleted when no project link is left, so the person
+    really disappears from every «Пользователи» list. An admin cannot remove
+    themselves — the last admin would otherwise lock the project out.
+    """
+    if user_id == access.user.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Нельзя удалить себя из проекта.",
+        )
+    project_id = await _renovation_project_id_or_error(session)
+    link = await session.get(RUserRole, (user_id, project_id))
+    if link is not None and link.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Сначала снимите доступ пользователя к проекту, затем удаляйте.",
+        )
+    try:
+        applied = await delete_renovation_user(session, project_id=project_id, user_id=user_id)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except IntegrityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Пользователя нельзя удалить: на нём зафиксированные периоды или другие данные.",
+        ) from error
+    if session_id:
+        await record_cell_updates(
+            JournalStore(session),
+            user_id=access.user.id,
+            user_name=access.user.name or "",
+            project_key=RENOVATION_PROJECT_KEY,
+            section=RENOVATION_USERS_SECTION,
+            report_month=None,
+            session_id=session_id,
+            applied=applied,
+        )
+    await publish_rows_changed(
+        JournalStore(session),
+        project_key=RENOVATION_PROJECT_KEY,
+        section=RENOVATION_USERS_SECTION,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+    )
+
+
 @router.patch("/dictionary")
 async def patch_renovation_dictionary_batch(
     request: RenovationDictionaryBatchRequest,
@@ -1140,9 +1233,15 @@ async def patch_renovation_dictionary_batch(
 async def export_renovation_dictionary(
     request: RenovationExportViewRequest,
     session: SessionDependency,
-    _access: AdminDependency,
+    access: AdminDependency,
 ) -> Response:
-    """Excel export of a renovation dictionary grid («вся» / «видимая»)."""
+    """
+    Excel export of a renovation dictionary grid («вся» / «видимая»).
+
+    Small tables render straight into this response; past
+    ``INLINE_EXPORT_MAX_ROWS`` the response is 202 + a job description and
+    the workbook is built by the shared background worker.
+    """
     try:
         validate_export_request(request)
     except ExportValidationError as error:
@@ -1152,8 +1251,77 @@ async def export_renovation_dictionary(
         by_id = {str(getattr(row, "id", "") or getattr(row, "valueId", "")): row for row in rows}
         rows = [by_id[str(row_id)] for row_id in request.rowIds if str(row_id) in by_id]
     asset_names = [asset.name for asset in await read_renovation_asset_rows(session)]
-    payload = await run_in_threadpool(render_workbook, request, rows, asset_names)
-    return attachment_response(payload, filename=request.fileName.strip())
+    needs_lists = any(column.key in REFERENCE_LISTS for column in request.columns)
+    # The «Предприятия» tab pins a summary row in the grid (the total repair
+    # count and cost); the export mirrors it over the SAME rows — the ones
+    # surviving the rowIds filter («видимая таблица»).
+    totals_row: dict[str, float] | None = None
+    if request.section == RENOVATION_ASSETS_SECTION and any(
+        column.key in ("repairCount", "totalCost") for column in request.columns
+    ):
+        exported_keys = {column.key for column in request.columns}
+        totals_row = {}
+        for aggregate_key in ("repairCount", "totalCost"):
+            if aggregate_key in exported_keys:
+                totals_row[aggregate_key] = sum(float(getattr(row, aggregate_key) or 0) for row in rows)
+    return await export_table_or_job(
+        sheet_title=safe_sheet_name(section_sheet_name(request.section)),
+        columns=request.columns,
+        rows=rows,
+        header_pinned=request.headerPinned,
+        file_name=request.fileName,
+        user_id=str(access.user.id),
+        lists={"assets": asset_names} if needs_lists else None,
+        column_lists=REFERENCE_LISTS,
+        totals_row=totals_row,
+    )
+
+
+@router.get("/dictionary/export/jobs/{job_id}", response_model=ExportJobRead)
+async def get_renovation_dictionary_export_job(
+    job_id: str,
+    access: AdminDependency,
+) -> ExportJobRead:
+    """Status of a background dictionary export (progress / done / failed)."""
+    try:
+        job = table_export_jobs.get(job_id, str(access.user.id))
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание выгрузки не найдено.") from error
+    return ExportJobRead(
+        id=job.id,
+        status=job.status,
+        progress=job.progress,
+        total=job.spec.total,
+        fileName=job.spec.file_name,
+        error=job.error,
+    )
+
+
+@router.get("/dictionary/export/jobs/{job_id}/file")
+async def get_renovation_dictionary_export_job_file(
+    job_id: str,
+    access: AdminDependency,
+) -> StreamingResponse:
+    """Stream the XLSX of a background dictionary export AS it is being generated."""
+    user_id = str(access.user.id)
+    try:
+        job = table_export_jobs.get(job_id, user_id)
+    except KeyError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Задание выгрузки не найдено.",
+        ) from error
+    if job.status == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Не удалось сформировать файл выгрузки.",
+        )
+    quoted = quote(job.spec.file_name)
+    return StreamingResponse(
+        table_export_jobs.stream_growing(job_id, user_id),
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"},
+    )
 
 
 async def _dictionary_export_rows(

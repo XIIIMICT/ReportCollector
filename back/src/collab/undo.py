@@ -8,7 +8,8 @@ Application only happens if, after the action, none of its cells was
 changed by another user (collab_cell_states lastUserId/lastActionId) and none
 is leased by another (lease). A cell the current user changed last
 themselves is never a conflict — undoing one's own consecutive edits
-works.
+works. The target row is applied through the project's own validator
+(raw-materials, renovation or КППК).
 """
 
 from dataclasses import dataclass, field
@@ -23,6 +24,9 @@ from src.collab.journal import AppliedCell
 from src.collab.locking import lock_project, lock_rows
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE, canonical_key
 from src.collab.store import lease_key
+from src.common.section_policy import section_policy
+from src.kppk.models import KppkOrg, KppkProduct, KppkRaw, KppkRealization, KppkRealizationPlan
+from src.kppk.service import apply_kppk_cell_value
 from src.raw_materials.models import (
     AssetRawMaterial,
     MaterialMovement,
@@ -50,6 +54,16 @@ RENOVATION_TABLES = frozenset(
     }
 )
 
+KPPK_TABLES = frozenset(
+    {
+        KppkProduct.__tablename__,
+        KppkRaw.__tablename__,
+        KppkOrg.__tablename__,
+        KppkRealization.__tablename__,
+        KppkRealizationPlan.__tablename__,
+    }
+)
+
 
 @dataclass
 class UndoConflict:
@@ -71,6 +85,18 @@ class UndoOutcome:
     section: str = ""
     report_month: date | None = None
     applied_value: object = None
+
+
+# Form scopes undo in parallel with running edits (shared lock); the «КППК»
+# realization slices behave like the other forms.
+_FORM_SCOPES = frozenset({"renovationPlan", "materialMovement", "rawMaterialPrices"})
+
+
+def _is_form_scope(scope: str) -> bool:
+    """Whether an undo scope belongs to a concurrently-edited form (shared lock)."""
+    if scope.startswith("kppkRealization"):
+        return True
+    return scope.split("/", maxsplit=1)[0] in _FORM_SCOPES
 
 
 def _action_cells(action: dict) -> list[dict]:
@@ -108,11 +134,7 @@ async def undo_last_edit(
     search and the next available action below is looked up.
     """
     project_key = project_key or ("renovation" if scope.startswith("renovation") else "raw_materials")
-    await lock_project(
-        session,
-        project_key,
-        exclusive=scope.split("/", maxsplit=1)[0] not in {"renovationPlan", "materialMovement", "rawMaterialPrices"},
-    )
+    await lock_project(session, project_key, exclusive=not _is_form_scope(scope))
     await lock_rows(session, [f"undo/{user.id}/{session_id}/{scope}"])
     action = await store.next_action(str(user.id), session_id, scope, undone=False, after_action_id=skip_action_id)
     if action is not None and action["project"] != project_key:
@@ -143,11 +165,7 @@ async def redo_last_undo(
     from the search and the next available action above is looked up.
     """
     project_key = project_key or ("renovation" if scope.startswith("renovation") else "raw_materials")
-    await lock_project(
-        session,
-        project_key,
-        exclusive=scope.split("/", maxsplit=1)[0] not in {"renovationPlan", "materialMovement", "rawMaterialPrices"},
-    )
+    await lock_project(session, project_key, exclusive=not _is_form_scope(scope))
     await lock_rows(session, [f"undo/{user.id}/{session_id}/{scope}"])
     action = await store.next_action(str(user.id), session_id, scope, undone=True, after_action_id=skip_action_id)
     if action is not None and action["project"] != project_key:
@@ -206,6 +224,15 @@ async def _switch_entry(
         try:
             if is_renovation:
                 await apply_renovation_cell_value(
+                    session,
+                    target_table=target_table,
+                    row_id=row_id,
+                    field=field,
+                    value=value,
+                    user=user,
+                )
+            elif target_table in KPPK_TABLES:
+                await apply_kppk_cell_value(
                     session,
                     target_table=target_table,
                     row_id=row_id,
@@ -314,8 +341,25 @@ async def _check_conflict(
     return None
 
 
+async def _dictionary_writable(*, user: User, link: object, section: str) -> bool:
+    """
+    Return whether a dictionary row of this section may be written by this user.
+
+    Mirrors the routers (see `common/section_policy.py`): an admin-only
+    dictionary (`undo == "admin"`) is edited — and therefore undone — by project
+    admins only, so a member's stale dictionary action is never replayed. A
+    dictionary that later becomes member-editable only changes its policy, not
+    this call site.
+    """
+    del user
+    if section_policy(section).undo != "admin":
+        return True
+    role = getattr(link, "role", None)
+    return getattr(role, "value", None) == "admin"
+
+
 async def _authorize_action(session: AsyncSession, user: User, action: dict, cells: list[dict]) -> bool:
-    """Undo is a write, so current role/asset/block/version restrictions apply."""
+    """Check that undo is a write: current role/asset/block/version rules apply."""
     if user.is_deleted:
         return False
     renovation = action["project"] == "renovation"
@@ -340,31 +384,62 @@ async def _authorize_action(session: AsyncSession, user: User, action: dict, cel
         row_id = UUID(cell["rowId"])
         if renovation and table == "renovation_plan_rows":
             row = await session.get(RenovationPlanRow, row_id, populate_existing=True)
-            if row is None:
+            # «__created»/«__deleted» restore a row that no longer exists (or
+            # undo removes the new one): the plan guard uses the snapshot's
+            # plan, the live row only when it is there.
+            snapshot = cell["oldValue"] if cell["field"] == "__deleted" else cell["newValue"]
+            plan_id = row.plan_id if row is not None else None
+            if plan_id is None and isinstance(snapshot, dict) and snapshot.get("planId"):
+                plan_id = UUID(str(snapshot["planId"]))
+            if plan_id is None:
                 return False
-            plan = await session.get(RenovationPlan, row.plan_id, populate_existing=True)
+            plan = await session.get(RenovationPlan, plan_id, populate_existing=True)
             if (
                 plan is None
                 or plan.state == RPlanState.ARCHIVED
                 or (plan.state == RPlanState.PENDING_APPROVAL and not admin)
             ):
                 return False
-            meta = field_meta(cell["field"])
-            if meta is None or meta.is_calculated or meta.is_read_only:
+            if row is None and plan.state != RPlanState.WORKING:
+                # Only a working plan is authored row by row.
                 return False
-            if not admin:
-                if not isinstance(link, RUserRole):
+            field = str(cell["field"])
+            if row is None and field == "asset_id":
+                return False
+            meta = None if field.startswith("__") or row is None else field_meta(field)
+            if row is not None and field == "asset_id":
+                # The asset assignment is not a form column: any editor may redo it.
+                meta = None
+            if (
+                not field.startswith("__")
+                and field != "asset_id"
+                and (meta is None or meta.is_calculated or meta.is_read_only)
+            ):
+                return False
+            if admin:
+                continue
+            if not isinstance(link, RUserRole):
+                return False
+            if meta is None:
+                # A row lifecycle change («__created»/«__deleted»/«asset_id»):
+                # any editor of the plan who may write it now; the plan-state
+                # guard above already refused an archived/pending plan.
+                if link.role == RProjectRole.APPROVER:
                     return False
-                if (
-                    link.role == RProjectRole.APPROVER
-                    or link.block is None
-                    or meta.responsibility_block != link.block.value
-                ):
+                continue
+            if (
+                link.role == RProjectRole.APPROVER
+                or link.block is None
+                or meta.responsibility_block != link.block.value
+            ):
+                return False
+            if link.role == RProjectRole.ASSET_WORKER:
+                if row is None:
+                    # A restored row has no live asset to grant-check against.
+                    continue
+                grant = await session.get(RUserAsset, (user.id, link.project_id, row.asset_id))
+                if grant is None:
                     return False
-                if link.role == RProjectRole.ASSET_WORKER:
-                    grant = await session.get(RUserAsset, (user.id, link.project_id, row.asset_id))
-                    if grant is None:
-                        return False
         elif not renovation and table in {"rm_material_movements", "rm_raw_material_prices"}:
             model = MaterialMovement if table == "rm_material_movements" else RawMaterialPrice
             row = await session.get(model, row_id, populate_existing=True)
@@ -375,6 +450,8 @@ async def _authorize_action(session: AsyncSession, user: User, action: dict, cel
             arm = await session.get(AssetRawMaterial, row.asset_raw_material_id)
             if arm is None or (not admin and await session.get(RawMaterialUserAsset, (user.id, arm.asset_id)) is None):
                 return False
-        elif not admin:
+        elif not await _dictionary_writable(user=user, link=link, section=action.get("section") or ""):
+            # A stale dictionary action of a member is not replayed while the
+            # dictionary is admin-only (the rule lives in `section_policy`).
             return False
     return True

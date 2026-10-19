@@ -1365,24 +1365,20 @@ async def test_export_working_plan_renders_merged_header(client: AsyncClient) ->
     assert filename.endswith(".xlsx")
 
     worksheet = load_workbook(BytesIO(response.content)).active
-    assert worksheet["A1"].value == "№"
-    assert any(str(r) == "A1:A11" for r in worksheet.merged_cells.ranges)
-    assert any(str(r) == "D1:AE1" for r in worksheet.merged_cells.ranges)
-    assert worksheet["B2"].value == "Предприятие"
-    assert worksheet.freeze_panes == "C14"
+    # No row-number column: the sheet starts with «Предприятие» (A), the first
+    # form column (col_003) is B, the data rows still start dense at 14.
+    assert worksheet["A2"].value == "Предприятие"
+    assert worksheet.freeze_panes == "B14"
     # Two aggregating rows after the 11 header levels: the number row (12) and
-    # the «Итог» totals row (13); a column without a total merges its number over
-    # both (B12:B13), and the data rows start dense at 14.
-    assert worksheet["A12"].value == "№"
-    assert str(worksheet["B12"].value).startswith("1")
-    assert any(str(r) == "B12:B13" for r in worksheet.merged_cells.ranges)
-    assert worksheet["A13"].value == "Итог"
-    assert worksheet["A14"].value == 1
-    assert worksheet["B14"].value == "АО «БСК»"
-    assert worksheet["C14"].value == "2027_BSKR_1.1.1_1382467"
-    # 217 kept fields (col_218 hidden) + the row-number column = 218; the
-    # hidden column leaves a one-column gap on the last level.
-    assert worksheet.max_column == 217
+    # the totals row (13); a column without a total merges its number over
+    # both — there are no «№»/«Итог» corner labels any more.
+    assert str(worksheet["A12"].value).startswith("1")
+    assert any(str(r) == "A12:A13" for r in worksheet.merged_cells.ranges)
+    assert worksheet["A14"].value == "АО «БСК»"
+    assert worksheet["B14"].value == "2027_BSKR_1.1.1_1382467"
+    # 216 kept fields (col_218 hidden, no row-number column); the hidden
+    # column leaves a one-column gap on the last level.
+    assert worksheet.max_column == 216
     assert worksheet.max_row == 15
 
 
@@ -1404,9 +1400,10 @@ async def test_export_job_file_streams_whole_workbook(client: AsyncClient, db_se
     with target.open("wb") as sink:
         writer = RenovationWorkbookWriter(
             cast("IO[bytes]", sink),
-            build_plan_sheet_layout(None),
+            build_plan_sheet_layout(None, meta.totals),
             meta.reference_labels,
             totals=meta.totals,
+            row_total=1,
         )
         writer.write_rows([(1, "Test asset", "CODE", {"col_005": "Value"})])
         writer.close()
@@ -1535,14 +1532,14 @@ async def test_export_recalculates_derived_columns(
     response = await client.get("/api/renovation/plan/export", headers=ADMIN_HEADERS)
     assert response.status_code == 200
     worksheet = load_workbook(BytesIO(response.content)).active
-    # Hiding col_218 shifts every later field one column left: col_024/col_025
-    # now land on X/Y (26); col_026 on Z.
-    assert worksheet["X14"].value.date() == date(2027, 1, 10)
-    assert worksheet["Y14"].value.date() == date(2027, 1, 25)
+    # Hiding col_218 shifts every later field one column left (and the dropped
+    # row-number column one more): col_024/col_025 land on W/X; col_026 on Y.
+    assert worksheet["W14"].value.date() == date(2027, 1, 10)
+    assert worksheet["X14"].value.date() == date(2027, 1, 25)
     # The calculated column keeps its Excel formula, with the recomputed value cached.
-    assert worksheet["Z14"].value == "=Y14 - X14"
+    assert worksheet["Y14"].value == "=X14 - W14"
     cached = load_workbook(BytesIO(response.content), data_only=True).active
-    assert cached["Z14"].value == 15
+    assert cached["Y14"].value == 15
 
 
 async def test_export_block_filters_columns(client: AsyncClient) -> None:
@@ -1554,9 +1551,9 @@ async def test_export_block_filters_columns(client: AsyncClient) -> None:
     )
     assert response.status_code == 200
     worksheet = load_workbook(BytesIO(response.content)).active
-    # mto fields + col_002 + col_003 + col_217, plus the row-number column.
-    assert worksheet.max_column == 1 + 15 + 3
-    assert worksheet.max_column < 218
+    # mto fields + col_002 + col_003 + col_217 (no row-number column).
+    assert worksheet.max_column == 15 + 3
+    assert worksheet.max_column < 216
 
 
 async def test_export_visible_filters_asset_and_block(client: AsyncClient) -> None:
@@ -1568,9 +1565,9 @@ async def test_export_visible_filters_asset_and_block(client: AsyncClient) -> No
     )
     assert response.status_code == 200
     worksheet = load_workbook(BytesIO(response.content)).active
-    assert worksheet["B14"].value == "АО «БСК»"
+    assert worksheet["A14"].value == "АО «БСК»"
     # Only the asset's rows: the seed has rows for other assets, all dropped.
-    assets = {worksheet.cell(row=row, column=2).value for row in range(14, worksheet.max_row + 1)}
+    assets = {worksheet.cell(row=row, column=1).value for row in range(14, worksheet.max_row + 1)}
     assert assets == {"АО «БСК»"}
 
 

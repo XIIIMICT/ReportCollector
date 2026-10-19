@@ -17,7 +17,14 @@ export type SectionId =
     | "users"
     | "renovationAssets"
     | "renovationUsers"
-    | `renovationCatalog:${string}`;
+    | `renovationCatalog:${string}`
+    // «КППК»: the source-copy dictionaries and the «Реализация» main form
+    // (the sections are per storage: the plan slices share the plan copy).
+    | "kppkPositions"
+    | "kppkRaws"
+    | "kppkOrgs"
+    | "kppkRealizationPlan"
+    | "kppkRealizationFact";
 
 export type GridRow = Record<string, unknown> & {
     id: string;
@@ -61,6 +68,12 @@ export type ColumnDescriptor = {
     exportable?: boolean;
     /** Read-only in every row (e.g. an email that is only set at creation). */
     readOnly?: boolean;
+    /**
+     * A NULL value is a legal state of the field (the renovation plan's
+     * «Наличие МТР»), so its checkbox cycles пусто → Да → Нет → пусто.
+     * Without the flag the checkbox is a plain binary toggle (dictionaries).
+     */
+    allowsNull?: boolean;
 };
 
 export type GridColumnContext = {
@@ -77,7 +90,11 @@ export type GridColumnContext = {
     remoteLocks: ReadonlyMap<string, { fullname: string; email: string }>;
     /** Cell key → the member currently on it (presence/lease). */
     remoteCellInfo: ReadonlyMap<string, { name: string; label: string | null }>;
-    onBooleanChange: (row: GridRow, field: string, value: boolean) => void;
+    /**
+     * A boolean cell was toggled: `value` is the next state, and `null` means
+     * "clear it" — only sent for a descriptor with `allowsNull`.
+     */
+    onBooleanChange: (row: GridRow, field: string, value: boolean | null) => void;
     /** Custom column set — overrides the built-in descriptors for the section. */
     descriptors?: ColumnDescriptor[];
 };
@@ -101,6 +118,11 @@ export const SECTION_LABELS: Record<StaticSectionId, string> & Partial<Record<Se
         users: "Пользователи",
         renovationAssets: "Предприятия",
         renovationUsers: "Пользователи",
+        kppkPositions: "Продуктовые позиции",
+        kppkRaws: "Сырьевые позиции",
+        kppkOrgs: "ДЗО",
+        kppkRealizationPlan: "Реализация",
+        kppkRealizationFact: "Реализация",
     };
 
 export const MAIN_SECTIONS = new Set<SectionId>(["materialMovement", "rawMaterialPrices"]);
@@ -190,6 +212,27 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
         // the working plan's rows for this asset.
         calculated("totalCost", "Стоимость итого, руб. без НДС", 220),
     ],
+    // «КППК» dictionaries of the source-copy phase: the normalized copies of
+    // the source tables. Editing is admin-only (enforced server-side); the
+    // tabs are visible to every project member.
+    kppkPositions: [
+        // «Продуктовые позиции» follow the «Сырьевые позиции» form: the source
+        // number «№» leads (editable — uniqueness is enforced server-side),
+        // then the product and its ДЗО multi-select column.
+        number("productNum", "№", 90),
+        text("name", "Продукт", 430),
+        { key: "orgNames", label: "ДЗО", width: 360, kind: "assetsMulti" },
+    ],
+    kppkRaws: [number("rawNum", "№", 90), text("name", "Сырьевая позиция", 430)],
+    kppkOrgs: [
+        // Ordered by the full name server-side; only the code and the name.
+        text("code", "Код", 140),
+        text("name", "Наименование", 380),
+    ],
+    // «Реализация» has no static descriptors: the layout follows the template
+    // (Продукция | Рынок сбыта | Выкуп{Объем, Цена FCA} | Реализация{Объем,
+    // Цена FCA}), and the editable columns come from the active slice pasted
+    // as `columnDescriptors` by the section component.
     renovationUsers: [
         // The email identifies the user and cannot be changed after creation
         // (no email in the PATCH schema) — users are created through the
@@ -594,6 +637,29 @@ function cellProperties(
     };
 }
 
+/**
+ * The ONE boolean cell for every grid (dictionaries and the renovation plan).
+ *
+ * A native checkbox, so the whole app reads the same:
+ * - `true` / `false` — a normal checkbox, checked or unchecked;
+ * - `null` in an `allowsNull` column (the plan's «Наличие МТР») — NOTHING at
+ *   all: an empty cell, no box, no frame. The click cycle is
+ *   пусто → Да → Нет → пусто, and «Нет» behaves like Delete: clicking the
+ *   unchecked box clears the value instead of toggling it to `true`;
+ * - a plain column (`allowsNull` off — «Доступ к проекту», «Админ») has no
+ *   empty state: an empty cell still renders an unchecked box and the click
+ *   cycle is `false ⇄ true`.
+ */
+export function nextBooleanValue(
+    current: boolean | null | undefined,
+    allowsNull: boolean,
+): boolean | null {
+    if (!allowsNull) return current !== true;
+    if (current === true) return false;
+    if (current === false) return null;
+    return true;
+}
+
 function booleanCellTemplate(
     h: HyperFunc<VNode>,
     props: CellTemplateProp,
@@ -603,22 +669,41 @@ function booleanCellTemplate(
 ): VNode {
     const row = props.model as GridRow;
     const disabled = isCellReadOnly(descriptor, context, row, section);
+    const allowsNull = descriptor.allowsNull === true;
+    const value = props.value === true ? true : props.value === false ? false : null;
+    // A nullable field with no value is a genuinely EMPTY cell: no checkbox.
+    // The label still fills the whole cell (100% width/height), so the first
+    // click sets «Да».
+    if (allowsNull && value === null) {
+        return h("label", {
+            class: "report-cell__checkbox report-cell__checkbox--empty",
+            "aria-label": descriptor.label,
+            onClick: (event: MouseEvent) => {
+                event.stopPropagation();
+                if (disabled) return;
+                context.onBooleanChange(row, descriptor.key, true);
+            },
+        });
+    }
     return h(
         "label",
         { class: "report-cell__checkbox" },
         h("input", {
             type: "checkbox",
-            checked: props.value === true,
+            checked: value === true,
             disabled,
             ariaLabel: descriptor.label,
-            onClick: (event: MouseEvent) => event.stopPropagation(),
-            onChange: (event: Event) => {
+            onClick: (event: MouseEvent) => {
                 event.stopPropagation();
-                context.onBooleanChange(
-                    row,
-                    descriptor.key,
-                    (event.target as HTMLInputElement).checked,
-                );
+                if (disabled) return;
+                // Commit on CLICK with the toggle cancelled: the browser would
+                // first flip the box to the next native state and only then
+                // `onChange` would reach us — a cleared «Нет» flashed a checked
+                // box for one frame. `preventDefault()` suppresses the native
+                // flip (and therefore `onChange`); the value arrives from the
+                // server round-trip like any other edit.
+                event.preventDefault();
+                context.onBooleanChange(row, descriptor.key, nextBooleanValue(value, allowsNull));
             },
         }),
     );

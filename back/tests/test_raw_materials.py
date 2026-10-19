@@ -528,26 +528,43 @@ async def test_admin_crud_project_user(client) -> None:
     assert updated.status_code == 200
     assert updated.json()["assetNames"] == ["ВОС", "СНХЗ"]
 
+    refused = await client.delete(
+        f"/api/raw-materials/users/{row['id']}",
+        headers=signed_identity_headers(**admin_headers()),
+    )
+    assert refused.status_code == 409
+
+    revoked = await client.patch(
+        f"/api/raw-materials/users/{row['id']}",
+        params={"session_id": TEST_SESSION_ID},
+        headers=signed_identity_headers(**admin_headers()),
+        json={"isActive": False},
+    )
+    assert revoked.status_code == 200
+
     deleted = await client.delete(
         f"/api/raw-materials/users/{row['id']}",
         params={"session_id": TEST_SESSION_ID},
         headers=signed_identity_headers(**admin_headers()),
     )
-    assert deleted.status_code == 409
-    assert "Активен" in deleted.json()["detail"]
-
+    # The link really goes; the account is soft-deleted when it has no other
+    # project, so the user disappears from every dictionary.
+    assert deleted.status_code == 204
     listing = await client.get(
         "/api/raw-materials/users",
         headers=signed_identity_headers(**admin_headers()),
     )
     assert listing.status_code == 200
-    assert any(user["id"] == row["id"] for user in listing.json())
+    assert all(user["id"] != row["id"] for user in listing.json())
 
 
 async def test_create_user_is_provisioned_to_all_projects(client, db_session) -> None:
     """A new user appears in all projects."""
-    db_session.add(Project(key="kppk", name="КППК"))
-    await db_session.commit()
+    # The kppk project already exists (conftest seeds it) — only add when missing.
+    kppk_project = (await db_session.exec(select(Project).where(col(Project.key) == "kppk"))).first()
+    if kppk_project is None:
+        db_session.add(Project(key="kppk", name="КППК"))
+        await db_session.commit()
 
     created = await client.post(
         "/api/raw-materials/users",

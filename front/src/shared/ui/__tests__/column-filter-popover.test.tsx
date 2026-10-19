@@ -2,28 +2,41 @@ import { afterEach, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+let facetHandler: (
+    column: string,
+    params?: { offset?: number; limit?: number },
+) => Promise<{
+    column: string;
+    values: { value: string; count: number }[];
+    total: number;
+    hasNulls: boolean;
+}>;
+
 mock.module("@/shared/api/renovation", () => ({
-    getRenovationPlanFacets: async (column: string) =>
-        column === "col_003"
-            ? {
-                  column,
-                  // The two-bucket ID filter: no value list, no «Пустые».
-                  values: [
-                      { value: "Корректные", count: 10 },
-                      { value: "Некорректные", count: 2 },
-                  ],
-                  total: 2,
-                  hasNulls: false,
-              }
-            : {
-                  column,
-                  values: [
-                      { value: "Насос", count: 3 },
-                      { value: "Шкаф", count: 2 },
-                  ],
-                  total: 2,
-                  hasNulls: true,
-              },
+    getRenovationPlanFacets: (column: string, params?: { offset?: number; limit?: number }) => {
+        if (facetHandler) return facetHandler(column, params);
+        if (column === "col_003") {
+            return Promise.resolve({
+                column,
+                // The two-bucket ID filter: no value list, no «Пустые».
+                values: [
+                    { value: "Корректные", count: 10 },
+                    { value: "Некорректные", count: 2 },
+                ],
+                total: 2,
+                hasNulls: false,
+            });
+        }
+        return Promise.resolve({
+            column,
+            values: [
+                { value: "Насос", count: 3 },
+                { value: "Шкаф", count: 2 },
+            ],
+            total: 2,
+            hasNulls: true,
+        });
+    },
 }));
 
 const { ColumnFilterPopover } = await import("../column-filter-popover");
@@ -53,7 +66,7 @@ function master() {
 
 test("separator sits between «Пустые» and the values", async () => {
     await openFilter();
-    const separator = document.querySelector(".column-filter__separator");
+    const separator = document.querySelector(".smart-select__separator");
     expect(separator).toBeTruthy();
     const nullOption = screen.getByRole("option", { name: "Пустые" });
     const firstValue = screen.getByRole("option", { name: "Насос" });
@@ -119,4 +132,54 @@ test("ID column: checking both buckets back checks «Выбрать все»", a
     fireEvent.click(correct());
     fireEvent.click(incorrect());
     await waitFor(() => expect(master().getAttribute("aria-selected")).toBe("true"));
+});
+
+test("paged column: no «Загрузка…» caption, and new windows arrive checked", async () => {
+    // A column with more values than one window, served with the real
+    // offset/limit contract: the popover must NOT print a progress caption and
+    // every value a later window brings has to render as CHECKED (the master
+    // «Выбрать все» is on, so the whole column is kept).
+    const all = Array.from(
+        { length: 500 },
+        (_, index) => `Значение ${String(index).padStart(3, "0")}`,
+    );
+    const requested: number[] = [];
+    facetHandler = (column, params = {}) => {
+        const offset = params.offset ?? 0;
+        requested.push(offset);
+        return Promise.resolve({
+            column,
+            values: all
+                .slice(offset, offset + (params.limit ?? 200))
+                .map((value) => ({ value, count: 1 })),
+            total: all.length,
+            hasNulls: false,
+        });
+    };
+
+    await openFilter("col_022", "Значение 000");
+    // The old implementation printed «Загрузка…» under the list and never
+    // cleared it (a missed setLoadingMore(false) in the tail fetch), and the
+    // caption is gone for good now.
+    expect(document.querySelector(".column-filter__status")).toBeNull();
+    expect(screen.queryByText(/Загрузка/)).toBeNull();
+
+    // Windows keep arriving while the list fits (jsdom reports zero heights, so
+    // the short-list effect pulls every page), and each tail value is checked.
+    await waitFor(() => expect(requested.length).toBeGreaterThan(1), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Значение 499" })).toBeTruthy(), {
+        timeout: 3000,
+    });
+
+    expect(screen.getByRole("option", { name: "Значение 200" }).getAttribute("aria-selected")).toBe(
+        "true",
+    );
+    expect(screen.getByRole("option", { name: "Значение 499" }).getAttribute("aria-selected")).toBe(
+        "true",
+    );
+    expect(master().getAttribute("aria-selected")).toBe("true");
+    // Every window was requested once, in order, and never re-fetched.
+    expect(requested).toEqual([...new Set(requested)]);
+    expect(screen.queryByText(/Загрузка/)).toBeNull();
+    facetHandler = undefined as never;
 });

@@ -149,10 +149,14 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         before = (await conn.execute(text("SELECT id, col_011 FROM renovation_plan_rows ORDER BY id"))).all()
         await conn.run_sync(upgrade)
         await conn.run_sync(upgrade)
-        assert await conn.run_sync(business_snapshot) == all_business_data
+        # Tables created by migrations that run after the baseline
+        # (since 0008_kppk_source_tables) do not exist on the legacy schema;
+        # the pre-existing tables must keep their data unchanged.
+        after = await conn.run_sync(business_snapshot)
+        assert {table: after[table] for table in all_business_data} == all_business_data
         assert (
             await conn.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalar_one() == "0007_drop_plan_correction"
+        ).scalar_one() == "0011_kppk_realization_buyout"
         assert (await conn.execute(text("SELECT id, col_011 FROM renovation_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
         assert (
@@ -347,7 +351,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) ->
             await conn.run_sync(upgrade)
             assert (
                 await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "0007_drop_plan_correction"
+            ).scalar_one() == "0011_kppk_realization_buyout"
         assert all(not path.exists() for path in stale)
     finally:
         for path in stale:

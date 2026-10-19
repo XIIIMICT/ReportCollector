@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { parsePastedText } from "@/shared/grid/grid-clipboard";
 import type { ColumnDescriptor, GridRow } from "@/shared/grid/grid-config";
 import { extractEdits } from "@/shared/grid/grid-edit";
 
@@ -145,5 +146,50 @@ describe("extractEdits (range paste)", () => {
             descriptorByKey,
         );
         expect(result.updates).toEqual([{ rowId: "row-2", field: "quantity", value: "42" }]);
+    });
+});
+
+describe("parsePastedText (Excel buffer)", () => {
+    test("таблица разбивается по табам и переводам строк", () => {
+        expect(parsePastedText("1\t2\n3\t4")).toEqual([
+            ["1", "2"],
+            ["3", "4"],
+        ]);
+    });
+
+    test("хвостовой перевод строки не добавляет пустую строку (ловушка 4)", () => {
+        // Excel always terminates the last row: without the trim the empty
+        // tail row is pasted and overwrites the cell below the selection.
+        expect(parsePastedText("1\t2\n3\t4\n")).toEqual([
+            ["1", "2"],
+            ["3", "4"],
+        ]);
+    });
+
+    test("Windows и старый Mac переводы строк", () => {
+        expect(parsePastedText("1\t2\r\n3\t4\r\n")).toEqual([
+            ["1", "2"],
+            ["3", "4"],
+        ]);
+        expect(parsePastedText("1\t2\r3\t4")).toEqual([
+            ["1", "2"],
+            ["3", "4"],
+        ]);
+    });
+
+    test("хвостовые пустые колонки обрезаются, внутренние — нет", () => {
+        expect(parsePastedText("1\t\t\n2\t5\t\n")).toEqual([
+            ["1", ""],
+            ["2", "5"],
+        ]);
+    });
+
+    test("пробельная строка в конце считается пустой", () => {
+        expect(parsePastedText("1\n   \n\t\n")).toEqual([["1"]]);
+    });
+
+    test("пустой и пробельный буфер дают пустой результат", () => {
+        expect(parsePastedText("")).toEqual([]);
+        expect(parsePastedText("\n\n")).toEqual([]);
     });
 });

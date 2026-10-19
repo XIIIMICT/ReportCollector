@@ -71,6 +71,54 @@ Domain — `back/src/raw_materials/models.py` (prefix `rm_`):
 - **«Цены»** (rawMaterialPrices) — no months; the only place the business plan is edited.
 - **Dictionaries** (rawMaterials, assets, deliveryBases, users) — project admin only. Editing assets of a raw-material item = diff link replacement: removed assets deleted, new ones added; if movement/prices exist → a clear business error (409), RESTRICT never leaks out.
 
+## Data model (project «КППК», key `kppk`)
+
+Phase 1 copies the source tables of the corporate КППК database into the program
+schema and exposes the four dictionaries the «Таблицы.xlsx» phase builds on.
+Sources are the dumps in `docs/kppk/` (`ddl.sql` + `kppk_*_<timestamp>.sql` +
+«Матрица продуктов.xlsx»).
+
+- **Source schemas** `raw` (`raw.kppk_d_org`, `raw.kppk_d_period`,
+  `raw.kppk_d_product_seq`, `raw.kppk_d_raw_seq`, `raw.kppk_f_realization`,
+  `raw.kppk_f_realization_plan`) and `dict` — created + filled by the seeder
+  **only when missing**; on prod installations they already exist and are never
+  touched.
+- **Program copies** (`back/src/kppk/models.py`, prefix `kppk_`): `kppk_orgs`,
+  `kppk_periods`, `kppk_products`, `kppk_raws` (the dictionaries),
+  `kppk_org_products` («Продуктовые позиции»: product × ДЗО links from the
+  matrix), and the verbatim read-only `kppk_realization` /
+  `kppk_realization_plan` copies for the next phase. Every copy is uuid-keyed;
+  the source integer id stays as a unique column (`org_id`, `period_id`,
+  `product_num`, `raw_num`) — the seeder's re-copy key and the join key the
+  fact/plan copies reference. `product_num`/`raw_num` are admin-editable in the
+  UI and stay unique; the dictionary names are unique as well
+  (`kppk_orgs.code`/`name`, `kppk_products.name`, `kppk_raws.name`,
+  `kppk_periods` by `(month_name, year_num)`); several NULL source numbers stay
+  allowed (PostgreSQL treats NULLs as distinct) — the matrix brings in products
+  without a number.
+- **Seeder** `just seed-kppk` (`back/src/scripts/seed_kppk.py`, one
+  transaction): re-copies the source tables on every run (truncate + re-insert,
+  audit stamps on the four dictionaries) and rebuilds `kppk_org_products` from
+  the matrix; products and ДЗО are matched by exact display name — no
+  normalization (spaces stay significant). The ДЗО copy keeps the source id,
+  code and name only — `raw.kppk_d_org.time_zone` is not copied. A matrix
+  product missing in the source dictionary is created without a `product_num`
+  under an `@`-prefixed name; a dictionary product missing in the matrix keeps
+  an empty ДЗО. The `kppk` project row and its user links are owned by
+  `just seed` / self-provisioning, not by this seeder.
+- **Workspace** `front/src/features/kppk/kppk-workspace.tsx`: three static tabs
+  over the copies («Продуктовые позиции» follow the «Сырьевые позиции» form —
+  the source number «№» leads (editable, unique server-side), then the product
+  with its ДЗО multi-select column, values comma-separated; «ДЗО» keeps the
+  code and the full name only — ordered by the name, no number, no time
+  zone). The «Периоды» dictionary is backend-only in this phase — its tab is
+  hidden until «Таблицы.xlsx». Tabs are visible to every project member,
+  editing is admin-only (mirrored by a read-only grid). No realtime
+  collaboration (no WS room) and no fixing in this phase, but the shared
+  action-bar mechanics are in place: undo/redo through the server-side
+  collaboration journal (page `session_id`, history per tab) and Excel export
+  of the whole/visible table through the common dictionary renderer.
+
 ## Authentication
 
 Two modes by `KEYCLOAK_ENABLED`:
@@ -96,6 +144,7 @@ Project URLs — `/raw-materials`, `/renovation`, `/kppk` (root redirects to the
   - Fixing: `POST /movement/fix` (admin) — see "Landmines" in AGENTS.md.
   - `POST /export` — Excel (openpyxl): whole/visible selection, for «Движение» — archive versions.
   - Renovation plan export — **background jobs**: `POST /plan/export/jobs` (202 + job id), `GET /plan/export/jobs/{id}` (status/progress), `GET /plan/export/jobs/{id}/file` (download). The legacy synchronous `GET/POST /plan/export` endpoints remain for tests/compat but the UI never uses them (they materialize the whole plan in the API process).
+- `kppk` (signed identity; reads for every project member, mutations admin-only): dictionary CRUD — `GET/POST/PATCH/DELETE /product-positions[/{id}]` (PATCH `{field, value}`, `field` = `name` | `orgNames` | `productNum`; create accepts `productNum`; delete removes the product with its links), `/raws` (PATCH `{field, value}` for `name`/`rawNum`), `/orgs` (PATCH `{field, value}` for `code`/`name`), `/periods` (PATCH `{field, value}`; no UI in this phase). The source number («№», `productNum`/`rawNum`) is editable and unique — an occupied number is rejected with a clear `400`; `null` stands for a row added by hand (several NULLs are allowed); positions/raws are returned in the source-number order (unnumbered rows last). The «ДЗО» list is ordered by the full name and exposes no number. Undo/redo join the shared collaboration journal: every mutation carries the page-lifetime `session_id` (query) and is journaled as one action scoped to the tab (`scope = f"{section}/"`, no report month; `collab/undo.py` dispatches `kppk_products`/`kppk_raws`/`kppk_orgs` to `apply_kppk_cell_value`) — `GET /undo-state?section=&session_id=`, `POST /undo`, `POST /redo` (body `{skipActionId, section}`, admin; no WebSocket room and no `cell:changed` — the front refreshes the grid itself after undo/redo). `POST /export` streams the tab as XLSX (whole/visible via `rowIds`, `columns` from the grid). Deletes follow RESTRICT: a ДЗО/period referenced by the fact/plan copies is rejected with a clear `400`.
 - `ws`: `WS /ws/raw-materials` — collaboration (see `docs/COLLAB.md`).
 - Service: `GET /health` (process liveness), `GET /ready` (PostgreSQL/Valkey readiness, including the required outbox migration), rate-limit and log middlewares in `back/src/main.py`. HTTP responses carry `X-Request-ID`, also recorded in structured request logs. Uvicorn access/handshake logs redact credential query parameters (`ticket`, `access_token`, `token`); the external reverse proxy must apply its own redaction policy.
 
@@ -110,6 +159,31 @@ Errors: `CellValidationError` → 422, `DictionaryReferenceError` → 409, `Valu
 nginx is **not in Docker**, config `/etc/nginx/conf.d/reportcollector.conf`: `location /` → front `127.0.0.1:5000`; `location /api/ws/` → back `127.0.0.1:8000` with `Upgrade`/`Connection "Upgrade"` and large timeouts (`proxy_read_timeout 86400s`). HTTPS/WSS terminated by nginx (cert in SAN). Prod address: `https://m2v-form-1.h2-group.ru`. Details and WS diagnostics — `docs/COLLAB.md`, "Deployment and diagnostics" section.
 
 ## Renovation plan export jobs
+
+Excel-export plumbing is shared by every project in `back/src/common/`:
+`xlsx_stream.py` carries the raw-XML streaming mechanics (static package parts,
+the sheet prefix with the frozen pane, cell builders, `merge_cells_xml` with
+first-writer-wins range dedup), `xlsx_table.py` renders the standard table
+workbook (multi-level `headerPath` headers with merges, live deviation
+formulas, datetimes in the shared format, «Да»/«Нет» booleans, dropdown lists
+from a hidden «Списки» sheet — the exact semantics the openpyxl renderer had),
+and `export.py` carries the request validation (limits, uniqueness, header
+shape, file name, per-section allowlists). A project module keeps only its
+vocabulary — sheet names, allowed keys, which column references which list —
+and calls into here (`src/raw_materials/export.py`, `src/kppk/export.py`,
+`src/renovation/export.py`). The renovation PLAN keeps its specialized
+sheet-layout writer (the 11-level Excel header, the aggregating band, 59 live
+formula columns) built on the same `xlsx_stream`.
+
+Every table export is **dual-mode behind one endpoint** (`export_table_or_job`
+in `src/common/export_jobs.py`): up to `INLINE_EXPORT_MAX_ROWS` (5 000) rows
+the workbook renders right in the request and returns as an attachment; past
+the threshold the response is `202` + a job description and the shared
+background worker builds the same workbook — the front hands the job's file
+URL to the browser, which downloads the file WHILE it is still being
+generated (the append-only container makes the served bytes valid from the
+first byte). The plan export runs its own specialized generator on the same
+shared `ExportJobManager` queue; both workers start in the app lifespan.
 
 A full plan export is ~306k rows × 216 columns: minutes of CPU and ~500 MB of
 XLSX (the sheet XML exceeds 4 GB uncompressed → ZIP64). Doing that in the
@@ -159,13 +233,49 @@ The exported `.xlsx` mirrors the grid exactly: 11 merged header rows, then the
 **aggregating band of two rows** — the **number row** (12) carrying each exported
 column's workbook ordinal − 1 (so «Предприятие» = 1) and the **totals row** (13)
 carrying «Итог» plus a live `SUM` over the exported data rows for every
-additive numeric column. A column with no total **merges its number over both
-rows** (`B12:B13`), exactly like the grid's number-over-empty cell; a column with a
-total keeps the two rows separate. Data rows start dense at row 14: a filtered
+additive numeric column (the exact range `first..first+row_total−1`; with no
+promised rows the totals carry the cached value only, without `<f>`). A column
+with no total **merges its number over both rows** (`B12:B13`), exactly like the
+grid's number-over-empty cell; a column with a total keeps the two rows separate.
+Data rows start dense at row 14: a filtered
 export keeps each surviving row's stored plan position in column A, but the
 workbook row is a compact output index, so a filter never leaves thousands of
 blank rows after the header. The pane freezes the top 13 rows (header + the two
 aggregating rows) like the grid.
+
+Excel repair-dialogs («файл повреждён») on duplicate `<mergeCell ref>` or on
+`<row>` elements out of ascending `r` order. The row layout is therefore
+**canonical**: static parts → header rows → number row → totals row → data rows,
+all written into `RenovationWorkbookWriter.__init__` before the first data
+batch. The writer also carries a `row_total` **promise** of the data-row count
+given by the caller (the job passes `read_plan_export_meta`'s `total`, the
+streaming endpoint the materialized `len(plan.rows)`): more rows than promised
+fail the write at once, fewer fail at `close()` — both raise
+`ExportRowCountMismatchError` («…количество строк плана изменилось во время
+выгрузки…»), and the worker deletes its `.part` instead of renaming a broken
+file — the totals' live `SUM` needs the exact range, so the count is checked,
+not assumed.
+
+The container matters just as much as the XML. `zipfile` on a seekable sink
+writes each entry a **draft local header** (zero CRC and sizes) and patches it
+by seeking back at `close()`. The download streamer tails the growing `.part`
+(see below), so the browser receives the draft bytes and never the patch — the
+downloaded archive is born invalid and Excel repair-dialogs it with a bare
+«проверка на уровне файла» (a full 520 MB production export hit exactly this).
+The writer therefore wraps its sink in `xlsx_stream.UnseekableSink`: the
+non-seekable proxy switches `zipfile` to **data-descriptor entries** (bit 3 —
+"sizes follow the data"), so every byte is written exactly once, in order, and
+the served stream equals the finalized file. It deliberately stays on plain
+ZIP, not zip64: a streamed zip64 entry's local header carries an all-zero
+zip64 extra field, which real Excel rejects outright (COM-verified: a
+descriptor entry without zip64 opens clean, with zip64 fails; the re-zipped
+3.5 GB production sheet — 306k rows — opens in ~3 min). CPython 3.14 lowered
+`zipfile.ZIP64_LIMIT` from 4 GiB to 2 GiB out of caution, which would push the
+~3.3 GiB real sheet into zip64; `xlsx_stream` restores the format's true
+4 GiB − 1 ceiling on import. Past that ceiling the write cannot be streamed
+safely at all, and `close()` raises `ExportTooLargeError` («Выгрузка
+превышает 4 ГБ — Excel не сможет открыть такой файл…») — the job fails with a
+user-facing message instead of producing a workbook Excel would repair.
 
 ## Transactional collaboration
 

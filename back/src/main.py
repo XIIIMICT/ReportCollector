@@ -19,6 +19,7 @@ from .api import api_router
 from .app_logging import configure_application_logging, log_error, log_event, log_warning, monotonic_ms
 from .collab.outbox import run_outbox
 from .collab.store import get_collab_store
+from .common.export_jobs import table_export_jobs
 from .config import get_settings
 from .database import async_session_factory
 from .renovation.export_jobs import export_jobs
@@ -78,6 +79,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     dispatcher = asyncio.create_task(run_outbox())
     await export_jobs.start()
+    await table_export_jobs.start()
     try:
         yield
     finally:
@@ -85,6 +87,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         with suppress(asyncio.CancelledError):
             await dispatcher
         await export_jobs.stop()
+        await table_export_jobs.stop()
         await get_collab_store().close()
     log_event(LOGGER, "application_stopped", "Приложение ReportCollector остановлено.")
 

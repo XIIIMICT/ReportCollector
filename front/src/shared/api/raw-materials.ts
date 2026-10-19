@@ -1,5 +1,6 @@
 import { requestJson, requestWrite } from "@/shared/api/api-error";
-import { ReportCollectorApiError } from "@/shared/api/report-collector";
+import { downloadTableExport, tableExportJobFileUrl } from "@/shared/api/table-export";
+import type { ExportJobDescriptor } from "@/shared/api/table-export";
 import { getCollabSessionId } from "@/shared/collab/ws-client";
 import type { ExportColumn, SectionId } from "@/shared/grid/grid-config";
 
@@ -348,7 +349,12 @@ export async function deleteDictionaryRecord(
               : section === "deliveryBases"
                 ? "delivery-bases"
                 : "users";
-    return requestWrite(`/api/raw-materials/${endpoint}/${rowId}`, "DELETE");
+    // The session id makes the deletion undoable: the backend journals an
+    // «__deleted» snapshot only when it knows the page-lifetime history scope.
+    return requestWrite(
+        `/api/raw-materials/${endpoint}/${rowId}?session_id=${getCollabSessionId()}`,
+        "DELETE",
+    );
 }
 
 export type ExportViewRequest = {
@@ -361,24 +367,21 @@ export type ExportViewRequest = {
     fileName: string;
 };
 
-export async function exportTableToExcel(request: ExportViewRequest): Promise<Blob> {
-    const response = await fetch("/api/raw-materials/export", {
-        cache: "no-store",
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-    });
-    if (!response.ok) {
-        let detail = `Запрос завершился ошибкой ${response.status}.`;
-        try {
-            const payload = (await response.json()) as { detail?: string };
-            if (typeof payload.detail === "string") {
-                detail = payload.detail;
-            }
-        } catch {
-            // For a non-JSON response keep the generic message prepared above.
-        }
-        throw new ReportCollectorApiError(detail, response.status);
-    }
-    return response.blob();
+export type ExportJobDownload = {
+    job: ExportJobDescriptor;
+    fileUrl: string;
+};
+
+/**
+ * Download an Excel export — inline (a Blob) for small tables, or a
+ * background job (returns the job + its streaming file URL) past the inline
+ * row limit; the caller triggers the browser's native download for jobs.
+ */
+export async function exportTableToExcel(
+    request: ExportViewRequest,
+): Promise<Blob | ExportJobDownload> {
+    return downloadTableExport("/api/raw-materials/export", request, (job, base) => ({
+        job,
+        fileUrl: tableExportJobFileUrl(base, job.id),
+    }));
 }

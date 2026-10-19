@@ -2,7 +2,7 @@
 
 from collections.abc import Awaitable, Callable
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlmodel import col, select
@@ -10,6 +10,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.models import User
 from src.collab.models import CellState
+from src.common.section_policy import admin_room_section
+from src.kppk.constants import (
+    KPPK_PROJECT_KEY,
+    KPPK_REALIZATION_FACT_FIELDS,
+    KPPK_REALIZATION_PLAN_FIELDS,
+)
+from src.kppk.models import KppkOrg, KppkProduct, KppkRaw, KppkRealization, KppkRealizationPlan
 from src.raw_materials.models import (
     AssetRawMaterial,
     DeliveryBasis,
@@ -56,6 +63,25 @@ RENOVATION_SECTIONS = {
         for catalog in RReferenceCatalog
     },
 }
+# The «КППК» dictionaries: admin-edited copies, every member may read them.
+KPPK_SECTIONS = {
+    "kppkPositions": (KppkProduct, frozenset({"name", "productNum", "orgNames"})),
+    "kppkRaws": (KppkRaw, frozenset({"name", "rawNum"})),
+    "kppkOrgs": (KppkOrg, frozenset({"code", "name"})),
+    # «Реализация» (Таблицы.xlsx): one section per slice storage — the plan
+    # slices (Бизнес-план / Оперплан) share the plan copy, the fact slice is
+    # its own room. The room cell keys carry the table name, the fields are
+    # the camelCase DB attributes of the slice columns.
+    "kppkRealizationPlan": (KppkRealizationPlan, frozenset(KPPK_REALIZATION_PLAN_FIELDS)),
+    "kppkRealizationFact": (KppkRealization, frozenset(KPPK_REALIZATION_FACT_FIELDS)),
+}
+
+
+def _sections_for_project(project: str) -> dict[str, Any]:
+    """Return the section table map of a project (КППК has its own copies)."""
+    if project == KPPK_PROJECT_KEY:
+        return KPPK_SECTIONS
+    return RAW_SECTIONS if project == "raw_materials" else RENOVATION_SECTIONS
 
 
 class RoomAccess:
@@ -76,7 +102,7 @@ class RoomAccess:
         self.project = project
         self.section = section
         self.report_month = report_month
-        sections = RAW_SECTIONS if project == "raw_materials" else RENOVATION_SECTIONS
+        sections = _sections_for_project(project)
         if section not in sections:
             raise RoomAccessDeniedError
         self.model, self.fields = sections[section]
@@ -93,9 +119,7 @@ class RoomAccess:
     async def resolve(self, session: AsyncSession) -> tuple:
         result = await self.resolver(session, self.identity)
         _, roles, _, _ = result
-        if self.section not in {"materialMovement", "rawMaterialPrices", "renovationPlan"} and not any(
-            role.value == "admin" for role in roles
-        ):
+        if admin_room_section(self.section) and not any(role.value == "admin" for role in roles):
             raise RoomAccessDeniedError
         return result
 

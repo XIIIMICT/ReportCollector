@@ -1,40 +1,33 @@
 """
 Фоновые задания выгрузки пообъектного плана в XLSX.
 
-Зачем: полная выгрузка (≈306k строк × 216 столбцов) занимает минуты и сотни
-мегабайт. Раньше она читалась и готовилась прямо в обработчике запроса — на
-event loop — и один пользователь замораживал весь сайт, а несколько
-параллельных выгрузок приводили к OOM. Теперь:
-
-- POST создаёт задание и сразу отвечает; файл собирает один фоновый worker
-  (строго последовательно, поэтому нагрузка ограничена и API остаётся живым);
-- строки читаются батчами через серверный курсор — память не растёт с планом;
-- готовый файл лежит на диске и переиспользуется: одинаковый запрос (тот же
-  план, фильтры и метка времени) не пересобирается;
-- старые задания и файлы вычищаются по TTL.
-
-Очередь в памяти процесса: приложение запускается одним uvicorn-воркером
-(см. back/Dockerfile), поэтому отдельная таблица/брокер не нужны. После
-перезапуска незавершённые задания теряются — клиент создаёт новое.
+Полная выгрузка (≈306k строк × 216 столбцов) занимает минуты и сотни
+мегабайт, поэтому она идёт через общий менеджер заданий
+(``src.common.export_jobs``): очередь, единственный worker, TTL готовых
+файлов и хвостовая отдача растущего файла. Этот модуль держит только
+реновационную специфику — спецификацию скоупа выгрузки и сам генератор
+файла (чтение строк батчами через серверный курсор, запись — стриминговым
+writer'ом в отдельном потоке, чтобы API отвечал во время сборки).
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import logging
-import os
-import tempfile
-import time
-from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import TYPE_CHECKING, Literal
-from uuid import UUID, uuid4
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+from uuid import UUID
 
-from sqlmodel.ext.asyncio.session import AsyncSession
-
-from src.app_logging import log_error
+from src.common.export_jobs import (
+    JOB_TTL_SECONDS,  # noqa: F401  # re-exported for tests/back-compat
+    MAX_ACTIVE_JOBS,  # noqa: F401
+    MAX_ACTIVE_JOBS_PER_USER,  # noqa: F401
+    ExportJob,
+    ExportJobManager,
+    ExportQueueFullError,  # noqa: F401
+    export_dir,  # noqa: F401
+    final_path,
+    part_path,
+)
 from src.database import async_session_factory
 
 from .export import RenovationWorkbookWriter, build_plan_sheet_layout
@@ -44,26 +37,6 @@ if TYPE_CHECKING:
     from .models import RBlock
     from .plan import RPlanState
     from .schemas import RenovationColumnFilter
-
-LOGGER = logging.getLogger("reportcollector.application")
-
-# Готовые файлы живут час: этого хватает, чтобы скачать повторно, и не даёт
-# диску расти. Переопределяется EXPORT_DIR (например, на volume в prod).
-JOB_TTL_SECONDS = 3600.0
-# Сколько заданий может стоять в очереди/выполняться одновременно.
-MAX_ACTIVE_JOBS = 8
-MAX_ACTIVE_JOBS_PER_USER = 2
-
-
-class ExportQueueFullError(RuntimeError):
-    """Очередь выгрузок переполнена (HTTP 429)."""
-
-
-def _export_dir() -> Path:
-    configured = os.environ.get("EXPORT_DIR")
-    base = Path(configured) if configured else Path(tempfile.gettempdir()) / "reportcollector-exports"
-    base.mkdir(parents=True, exist_ok=True)
-    return base
 
 
 @dataclass(slots=True)
@@ -78,244 +51,55 @@ class ExportJobSpec:
     file_name: str
     total: int
     cache_key: str
-    # The grid's active header filters (the «видимая таблица» scope) and whether
-    # the not-yet-assigned draft rows belong to it.
+    # Активные заголовочные фильтры сетки («видимая таблица») и входят ли в
+    # скоуп ещё не распределённые черновые строки.
     filters: list[RenovationColumnFilter] | None = None
     include_unassigned: bool = False
 
 
-@dataclass(slots=True)
-class ExportJob:
-    id: str
-    user_id: str
-    spec: ExportJobSpec
-    status: Literal["pending", "running", "done", "failed"] = "pending"
-    progress: int = 0
-    path: Path | None = None
-    error: str | None = None
-    created_at: float = field(default_factory=time.monotonic)
-    # Final file size in bytes (known only once done; a live download that
-    # streamed the growing file does not need it).
-    size: int | None = None
-
-
-class ExportJobManager:
-    """Очередь заданий и единственный worker, собирающий файлы по очереди."""
-
-    def __init__(self, session_factory: Callable[[], AsyncSession] | None = None) -> None:
-        # Фабрика сессий инжектится тестами; в приложении — глобальная.
-        self._session_factory: Callable[[], AsyncSession] = session_factory or async_session_factory
-        self._jobs: dict[str, ExportJob] = {}
-        self._queue: asyncio.Queue[str] | None = None
-        self._worker: asyncio.Task[None] | None = None
-
-    async def start(self) -> None:
-        if self._worker is not None:
-            return
-        self._queue = asyncio.Queue()
-        self._worker = asyncio.create_task(self._run(), name="renovation-export-worker")
-
-    async def stop(self) -> None:
-        worker = self._worker
-        self._worker = None
-        self._queue = None
-        if worker is not None:
-            worker.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await worker
-
-    def _prune(self) -> None:
-        cutoff = time.monotonic() - JOB_TTL_SECONDS
-        for job_id in [job_id for job_id, job in self._jobs.items() if job.created_at < cutoff]:
-            job = self._jobs.pop(job_id)
-            for path in (job.path, self._part_path(job_id)):
-                if path is not None:
-                    path.unlink(missing_ok=True)
-
-    def _part_path(self, job_id: str) -> Path:
-        return _export_dir() / f"{job_id}.part"
-
-    def _final_path(self, job_id: str) -> Path:
-        return _export_dir() / f"{job_id}.xlsx"
-
-    def _active(self) -> list[ExportJob]:
-        return [job for job in self._jobs.values() if job.status in ("pending", "running")]
-
-    async def create(self, spec: ExportJobSpec, user_id: str) -> ExportJob:
-        """Создать задание; одинаковый готовый файл переиспользуется."""
-        self._prune()
-        # Готовый файл для того же scope+версии: отдаём его же, не собирая
-        # заново. Заводим новую запись, чтобы проверка владельца работала.
-        for job in self._jobs.values():
-            if (
-                job.status == "done"
-                and job.spec.cache_key == spec.cache_key
-                and job.path is not None
-                and job.path.exists()
-            ):
-                reused = ExportJob(
-                    id=str(uuid4()),
-                    user_id=user_id,
-                    spec=spec,
-                    status="done",
-                    progress=spec.total,
-                    path=job.path,
-                )
-                self._jobs[reused.id] = reused
-                return reused
-        active = self._active()
-        if len(active) >= MAX_ACTIVE_JOBS:
-            message = "Очередь выгрузок заполнена. Попробуйте через минуту."
-            raise ExportQueueFullError(message)
-        if sum(1 for job in active if job.user_id == user_id) >= MAX_ACTIVE_JOBS_PER_USER:
-            message = "У вас уже формируются выгрузки. Дождитесь их завершения."
-            raise ExportQueueFullError(message)
-        job = ExportJob(id=str(uuid4()), user_id=user_id, spec=spec)
-        self._jobs[job.id] = job
-        await self.start()
-        assert self._queue is not None  # noqa: S101 - start() создал очередь
-        await self._queue.put(job.id)
-        return job
-
-    def get(self, job_id: str, user_id: str) -> ExportJob:
-        self._prune()
-        job = self._jobs.get(job_id)
-        if job is None or job.user_id != user_id:
-            raise KeyError(job_id)
-        return job
-
-    def file(self, job_id: str, user_id: str) -> ExportJob:
-        job = self.get(job_id, user_id)
-        if job.status != "done" or job.path is None or not job.path.exists():
-            raise KeyError(job_id)
-        return job
-
-    async def _run(self) -> None:
-        assert self._queue is not None  # noqa: S101
-        while True:
-            job_id = await self._queue.get()
-            job = self._jobs.get(job_id)
-            if job is None or job.status != "pending":
-                continue
-            job.status = "running"
-            try:
-                await self._generate(job)
-                job.status = "done"
-            except asyncio.CancelledError:
-                raise
-            except BaseException as error:  # noqa: BLE001
-                job.status = "failed"
-                job.error = str(error) or "Не удалось сформировать файл."
-                log_error(
-                    LOGGER,
-                    "renovation.export_job_failed",
-                    "Не удалось сформировать выгрузку плана.",
-                    error=str(error),
-                    job_id=job.id,
-                )
-            finally:
-                self._part_path(job_id).unlink(missing_ok=True)
-
-    async def _generate(self, job: ExportJob) -> None:
-        """Собрать XLSX: чтение батчами, запись — в отдельном потоке."""
-        spec = job.spec
-        async with self._session_factory() as session:
-            meta = await read_plan_export_meta(
-                session,
-                spec.asset_ids,
-                plan_id=spec.plan_id,
-                state=spec.state,
-                row_ids=spec.row_ids,
-                block=spec.block,
-                filters=spec.filters,
-                include_unassigned=spec.include_unassigned,
+async def _generate_plan_file(job: ExportJob) -> None:
+    """Собрать XLSX: чтение батчами, запись — в отдельном потоке."""
+    spec = job.spec
+    assert isinstance(spec, ExportJobSpec)  # noqa: S101
+    async with async_session_factory() as session:
+        meta = await read_plan_export_meta(
+            session,
+            spec.asset_ids,
+            plan_id=spec.plan_id,
+            state=spec.state,
+            row_ids=spec.row_ids,
+            block=spec.block,
+            filters=spec.filters,
+            include_unassigned=spec.include_unassigned,
+        )
+        partial = part_path(job.id)
+        final = final_path(job.id)
+        with partial.open("wb") as sink:
+            writer = RenovationWorkbookWriter(
+                sink,
+                build_plan_sheet_layout(spec.block, meta.totals),
+                meta.reference_labels,
+                totals=meta.totals,
+                row_total=meta.total,
             )
-            partial = self._part_path(job.id)
-            final = self._final_path(job.id)
-            with partial.open("wb") as sink:
-                writer = RenovationWorkbookWriter(
-                    sink,
-                    build_plan_sheet_layout(spec.block, meta.totals),
-                    meta.reference_labels,
-                    totals=meta.totals,
-                )
-                try:
-                    async for batch in iter_plan_export_rows(
-                        session,
-                        plan_id=meta.plan_id,
-                        asset_ids=spec.asset_ids,
-                        row_ids=spec.row_ids,
-                        filters=spec.filters,
-                        include_unassigned=spec.include_unassigned,
-                    ):
-                        # Подготовка строк и сборка XML — CPU-bound: уводим из
-                        # event loop, чтобы API отвечал во время выгрузки.
-                        await asyncio.to_thread(writer.write_rows, batch)
-                        job.progress += len(batch)
-                finally:
-                    await asyncio.to_thread(writer.close)
-            partial.replace(final)
-            job.path = final
-            job.size = final.stat().st_size
-
-    async def stream_growing(self, job_id: str, user_id: str) -> AsyncIterator[bytes]:
-        """
-        Yield the export file's bytes AS it is being written by the worker.
-
-        The browser downloads this URL directly, so its native download UI shows
-        progress from the first byte (not only once generation finishes, which for a
-        300k-row plan is minutes of silence). We tail the growing `.part` file the
-        worker thread writes, flush it to the client, and finish when the job is
-        done (the `.part` is then renamed to the final `.xlsx`). If the job fails
-        mid-stream we cannot retract the bytes already sent, so the connection just
-        ends (the browser keeps the partial file); the client surfaces a toast when
-        it later reads the failed status. A finished (cached) job is streamed in one
-        shot.
-        """
-        job = self.get(job_id, user_id)
-        # Fast path: already done (a reused cache hit) - just stream the file.
-        if job.status == "done" and job.path is not None:
-            with job.path.open("rb") as handle:
-                while chunk := handle.read(64 * 1024):
-                    yield chunk
-            return
-        part = self._part_path(job_id)
-        offset = 0
-        idle = 0.0
-        # Open the response immediately (Starlette sends the headers on the first
-        # yielded chunk). While the job is merely QUEUED behind another export the
-        # worker has not written a single byte, so without this the browser would
-        # sit on "waiting for the server" with no download at all; a zero-length
-        # flush makes the download appear at once and the bytes then follow.
-        yield b""
-        while True:
-            job = self.get(job_id, user_id)
-            if job.status == "failed":
-                # Nothing more will be written; end the stream.
-                return
-            written = part.stat().st_size if part.exists() else 0
-            if written > offset:
-                idle = 0.0
-                with part.open("rb") as handle:
-                    handle.seek(offset)
-                    data = handle.read(written - offset)
-                offset = written
-                if data:
-                    yield data
-            elif job.status == "done":
-                # Renamed: the final file carries the tail (the zip end record).
-                final = self._final_path(job_id)
-                with final.open("rb") as handle:
-                    handle.seek(offset)
-                    while tail := handle.read(64 * 1024):
-                        yield tail
-                return
-            else:
-                idle += 1.0
-                if idle > 120.0:
-                    # Nothing written for two minutes: the worker is stuck or died.
-                    return
-            await asyncio.sleep(0.25)
+            try:
+                async for batch in iter_plan_export_rows(
+                    session,
+                    plan_id=meta.plan_id,
+                    asset_ids=spec.asset_ids,
+                    row_ids=spec.row_ids,
+                    filters=spec.filters,
+                    include_unassigned=spec.include_unassigned,
+                ):
+                    # Подготовка строк и сборка XML — CPU-bound: уводим из
+                    # event loop, чтобы API отвечал во время выгрузки.
+                    await asyncio.to_thread(writer.write_rows, batch)
+                    job.progress += len(batch)
+            finally:
+                await asyncio.to_thread(writer.close)
+        partial.replace(final)
+        job.path = final
+        job.size = final.stat().st_size
 
 
-export_jobs = ExportJobManager()
+export_jobs = ExportJobManager(_generate_plan_file)

@@ -109,7 +109,7 @@ function toMembers(raw: unknown): CollabMember[] {
 const COLLAB_WS_PATHS: Record<string, string> = {
     raw_materials: "/api/ws/raw-materials",
     renovation: "/api/ws/renovation",
-    kppk: "/api/ws/raw-materials",
+    kppk: "/api/ws/kppk",
 };
 const DEFAULT_COLLAB_WS_PATH = "/api/ws/raw-materials";
 

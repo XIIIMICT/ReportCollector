@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Tooltip } from "@heroui/react";
 import {
@@ -37,7 +37,7 @@ import type {
     RenovationField,
     RenovationHeaderCell,
 } from "@/shared/api/renovation";
-import { serializeCellValue } from "@/shared/grid";
+import { parsePastedText, serializeCellValue } from "@/shared/grid";
 import { SERVICE_DESCRIPTORS } from "@/shared/grid/grid-config";
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
@@ -618,6 +618,8 @@ function RenovationGridInner(
     // top level down («1) Техническая дирекция ↓ … ↓ Всего»).
     const [numberTooltip, setNumberTooltip] = useState<{
         lines: string[];
+        /** The hovered column's prop — remounts the popover on every switch. */
+        column: string;
         left: number;
         top: number;
     } | null>(null);
@@ -985,7 +987,7 @@ function RenovationGridInner(
     );
 
     const columns = useMemo<ColumnRegular[]>(() => {
-        const commitBoolean = (rowId: string, field: string, value: boolean) => {
+        const commitBoolean = (rowId: string, field: string, value: boolean | null) => {
             void onCommit([{ rowId, field, value }]).then((ok) => {
                 if (!ok) onCommitFailed();
             });
@@ -1106,31 +1108,59 @@ function RenovationGridInner(
                     column.cellTemplate = dateTimeTemplate;
                 }
                 if (field.cellType === "boolean") {
+                    // The same native checkbox as every other grid. The plan's
+                    // boolean fields are nullable (the form schema marks
+                    // `allowNull`): a NULL is an EMPTY cell — no box at all —
+                    // and the click cycle is пусто → Да → Нет → пусто, with a
+                    // click on the unchecked box clearing the value (the same
+                    // as Delete). No indeterminate state: only true/false show
+                    // a checkbox.
                     column.cellTemplate = (h, props) => {
                         const row = props.model as RenovationGridRow;
-                        const checked = props.value === true;
                         const disabled = !editableCell(field, row);
-                        return h(
-                            "button",
-                            {
-                                type: "button",
-                                class: {
-                                    "report-cell__boolean": true,
-                                    "report-cell__boolean--checked": checked,
-                                    "report-cell__boolean--disabled": disabled,
-                                },
-                                role: "checkbox",
-                                "aria-checked": checked,
+                        const allowsNull = field.allowNull !== false;
+                        const value =
+                            props.value === true ? true : props.value === false ? false : null;
+                        const next: boolean | null = allowsNull
+                            ? value === true
+                                ? false
+                                : value === false
+                                  ? null
+                                  : true
+                            : value !== true;
+                        if (allowsNull && value === null) {
+                            return h("label", {
+                                class: "report-cell__checkbox report-cell__checkbox--empty",
                                 "aria-label": field.label,
-                                disabled,
                                 onPointerDown: (event: PointerEvent) => event.stopPropagation(),
                                 onClick: (event: MouseEvent) => {
                                     event.stopPropagation();
                                     if (disabled) return;
-                                    commitBoolean(row.__id, field.dbName, !checked);
+                                    commitBoolean(row.__id, field.dbName, true);
                                 },
-                            },
-                            checked ? "✓" : "",
+                            });
+                        }
+                        return h(
+                            "label",
+                            { class: "report-cell__checkbox" },
+                            h("input", {
+                                type: "checkbox",
+                                checked: value === true,
+                                disabled,
+                                ariaLabel: field.label,
+                                onPointerDown: (event: PointerEvent) => event.stopPropagation(),
+                                onClick: (event: MouseEvent) => {
+                                    event.stopPropagation();
+                                    if (disabled) return;
+                                    // Commit on CLICK with the native toggle
+                                    // cancelled: otherwise the browser flips the
+                                    // box first and a clearing click (false →
+                                    // пусто) flashes a checked box before the
+                                    // server round-trip empties the cell.
+                                    event.preventDefault();
+                                    commitBoolean(row.__id, field.dbName, next);
+                                },
+                            }),
                         );
                     };
                 }
@@ -2071,26 +2101,10 @@ function RenovationGridInner(
             }
             if (!text) return;
             // Excel leaves a trailing line break (and trailing tabs) in the
-            // buffer — without trimming, an extra empty cell below overwrites
-            // a neighbor nobody asked for.
-            const split = text.split(/\r\n|\n|\r/).map((row) => row.split("\t"));
-            while (split.length > 0) {
-                const lastRow = split[split.length - 1];
-                if (!lastRow || !lastRow.every((cell) => cell.trim() === "")) break;
-                split.pop();
-            }
-            if (split.length === 0) return;
-            let width = Math.max(...split.map((cells) => cells.length));
-            while (
-                width > 0 &&
-                split.every((cells) => {
-                    const cell = cells[width - 1];
-                    return width - 1 >= cells.length || (cell !== undefined && cell.trim() === "");
-                })
-            ) {
-                width -= 1;
-            }
-            const parsed = split.map((cells) => cells.slice(0, width));
+            // buffer — the parser trims them, otherwise an extra empty cell
+            // below overwrites a neighbor nobody asked for (landmine 4).
+            const parsed = parsePastedText(text);
+            if (parsed.length === 0) return;
             const range = selectionRangeRef.current;
             if (!range) return;
 
@@ -2231,11 +2245,16 @@ function RenovationGridInner(
             if (event.key === "Escape" && !document.fullscreenElement) {
                 if (isFromTextEditor(event)) return;
                 const grid = gridRef.current;
-                // Escape is only swallowed for the grid itself: with the
-                // event target outside the grid (menus, dialogs, body) the
-                // key belongs to whoever has focus, and a page-wide
-                // stopImmediatePropagation would break every Escape consumer.
-                if (!grid || !isGridTarget(event, grid)) return;
+                if (!grid) return;
+                // Escape is only swallowed when it can mean "clear the grid
+                // selection": the target is the grid itself OR the grid still
+                // holds a live range (a cell click can leave the focus on body
+                // after revo-grid's re-render — requiring a grid target made Esc
+                // dead in exactly that case). With the target outside and no
+                // range, the key belongs to whoever has focus (menus, dialogs).
+                const hasRange =
+                    selectionRangeRef.current !== null || lastRangeRef.current !== null;
+                if (!isGridTarget(event, grid) && !hasRange) return;
                 // Swallow the event so revo-grid's built-in Escape (which
                 // collapses the range to a single cell) never runs: the row
                 // selection must clear completely, not shrink to one cell.
@@ -2375,7 +2394,16 @@ function RenovationGridInner(
             selectionRange.x === selectionRange.x1 && firstColumnInfo?.prop
                 ? headerChainByProp.get(firstColumnInfo.prop)
                 : undefined;
-        const detail = chain && chain.length > 0 ? [chain.join(" → "), rowText].join(", ") : null;
+        // The tooltip spells the full header chain out, then names the column
+        // by its strip number in brackets: «… → Всего (столбец 2), строка 3».
+        const columnSuffix =
+            firstColumnInfo && firstColumnInfo.number !== null
+                ? ` (столбец ${firstColumnInfo.number})`
+                : "";
+        const detail =
+            chain && chain.length > 0
+                ? [`${chain.join(" → ")}${columnSuffix}`, rowText].join(", ")
+                : null;
         const cellKeys: string[] = [];
         for (let y = selectionRange.y; y <= lastRow; y += 1) {
             const row = rowsByIndex.get(y);
@@ -3013,25 +3041,38 @@ function RenovationGridInner(
             }
             onPointerMove={(event) => {
                 // The column-number tooltip first: it only exists while the
-                // pointer is over a numbered strip cell.
+                // pointer is over a numbered strip cell. Switching cells FAST
+                // (dragging along the strip) used to leave the previous tooltip
+                // visible with the NEW content: react-aria keeps its own
+                // open/anchor state, so moving the invisible trigger and
+                // swapping the text in one commit re-anchors unreliably. Close
+                // first, then open on the next frame — a stale box can never
+                // survive a target change.
                 const numberCell =
                     (event.target as Element).closest?.(
                         ".renovation-grid__number-cell[data-column]",
                     ) ?? null;
                 if (numberCell !== numberTooltipTargetRef.current) {
                     numberTooltipTargetRef.current = numberCell;
+                    setNumberTooltip(null);
                     const chain = numberCell
                         ? headerChainByProp.get(numberCell.getAttribute("data-column") ?? "")
                         : undefined;
                     if (numberCell && chain && chain.length > 0) {
                         const rect = numberCell.getBoundingClientRect();
-                        setNumberTooltip({
+                        const next = {
                             lines: chain,
+                            column: numberCell.getAttribute("data-column") ?? "",
                             left: rect.left + rect.width / 2,
                             top: rect.bottom,
+                        };
+                        // Next frame: the trigger has re-rendered at the new
+                        // spot and the closed popover re-anchors cleanly.
+                        window.requestAnimationFrame(() => {
+                            if (numberTooltipTargetRef.current === numberCell) {
+                                setNumberTooltip(next);
+                            }
                         });
-                    } else {
-                        setNumberTooltip(null);
                     }
                 }
                 const target = (event.target as Element).closest?.("[data-remote-lock]") ?? null;
@@ -3056,6 +3097,17 @@ function RenovationGridInner(
                     top: rect.top,
                 });
             }}
+            onPointerOut={(event) => {
+                // Leaving the strip (or the whole grid) closes the tooltip at
+                // once, even when no `pointermove` lands on a non-number cell —
+                // a fast diagonal exit otherwise skipped `pointermove` entirely.
+                const next = event.relatedTarget as Element | null;
+                if (next && event.currentTarget.contains(next)) return;
+                remoteTooltipTargetRef.current = null;
+                numberTooltipTargetRef.current = null;
+                setRemoteTooltip(null);
+                setNumberTooltip(null);
+            }}
             onPointerLeave={() => {
                 remoteTooltipTargetRef.current = null;
                 setRemoteTooltip(null);
@@ -3077,7 +3129,10 @@ function RenovationGridInner(
             >
                 {headerOverlay}
             </div>
-            <Tooltip isOpen={remoteTooltip !== null}>
+            <Tooltip
+                isOpen={remoteTooltip !== null}
+                key={`lock:${remoteTooltip?.left ?? "closed"}:${remoteTooltip?.top ?? ""}:${remoteTooltip?.name ?? ""}`}
+            >
                 <Tooltip.Trigger
                     className="remote-cell-tooltip-trigger"
                     style={{
@@ -3099,8 +3154,15 @@ function RenovationGridInner(
                     </span>
                 </Tooltip.Content>
             </Tooltip>
-            {/* The column number's header chain, top level first. */}
-            <Tooltip isOpen={numberTooltip !== null}>
+            {/* The column number's header chain, top level first. `keyedBy`
+                remounts the whole Tooltip whenever the hovered column changes:
+                react-aria's popover keeps its own anchor/open state, and a
+                remount is the only way to guarantee the previous box is gone
+                even when the pointer jumps between strip cells mid-frame. */}
+            <Tooltip
+                isOpen={numberTooltip !== null}
+                key={`number:${numberTooltip?.column ?? "closed"}`}
+            >
                 <Tooltip.Trigger
                     className="remote-cell-tooltip-trigger"
                     style={{

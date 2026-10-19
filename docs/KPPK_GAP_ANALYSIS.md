@@ -1,6 +1,7 @@
 # КППК: what the source document requires vs what the codebase has
 
 **Status:** research result, 2026-09-29. Basis for the further КППК work — not a plan of record yet.
+**Implementation update (2026-10-16):** phase 1 is now in the codebase — `back/src/kppk/` (models, service, API), the `raw`/`dict` source copies with the `just seed-kppk` seeder, and the four admin-edited dictionaries in the «КППК» workspace (`front/src/features/kppk/`) — see `docs/ARCHITECTURE.md`, "Data model (project «КППК»)". Statements below about the codebase ("no module", "empty shell") describe the 2026-09-29 state; the open client questions (section 7) still stand.
 **Source:** `docs/Дополнения форм.docx` — «Постановка задачи на разработку веб-приложения для ввода данных к совещаниям финансового блока АО «Росхим»» (created 2026-06-04, 10 pages, 2133 words, 185 paragraphs, 11 headings, 9 figures + the Росхим letterhead logo on the first paragraph).
 **Method:** the OOXML package was parsed with ElementTree (paragraph, style, list level, image relationship; text boxes included) and all 11 PNGs were extracted and read. RegEx text extraction is unreliable on this file — it produced cross-tag matches; use ElementTree if the document is re-read.
 

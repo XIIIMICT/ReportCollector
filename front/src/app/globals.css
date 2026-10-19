@@ -1,4 +1,4 @@
-@import "tailwindcss";
+﻿@import "tailwindcss";
 @import "@heroui/styles";
 
 @theme {
@@ -138,15 +138,13 @@ html {
     transition:
         background-color 200ms ease,
         color 200ms ease;
-}
-
-/* The app is a fixed shell (`.app-shell` = 100dvh) that scrolls internally.
-   HeroUI portals overlays (tooltips, popovers) into `document.body` as
-   absolutely-positioned boxes; with `body { min-height: 100% }` a box anchored
-   near the footer grew the document and a stray page scrollbar appeared. Clip
-   the document root instead: `html` owns the no-scroll, while `body` stays
-   `overflow: visible` so the owned-by-body portal is not cut off. */
-html {
+    /* The app is a fixed shell (`.app-shell` = 100dvh) that scrolls
+       internally. HeroUI portals overlays (tooltips, popovers) into
+       `document.body` as absolutely-positioned boxes; with
+       `body { min-height: 100% }` a box anchored near the footer grew the
+       document and a stray page scrollbar appeared. Clip the document root
+       instead: `html` owns the no-scroll, while `body` stays
+       `overflow: visible` so the owned-by-body portal is not cut off. */
     height: 100%;
     overflow: hidden;
 }
@@ -193,8 +191,9 @@ body {
 
 .app-header .brand {
     min-width: 0;
-    align-self: center;
-    justify-self: start;
+    /* `place-self: center start` — the brand is centered on the block axis and
+       pinned to the start of the inline axis. */
+    place-self: center start;
 }
 
 .app-header__actions {
@@ -372,6 +371,40 @@ body {
     margin-right: 0;
 }
 
+/* A toolbar that stacks extra rows under its main one (КППК «Реализация»
+   period filters). The main row keeps the single-row toolbar's rhythm; the
+   extra rows animate their height, so the panel below grows/shrinks smoothly. */
+.table-toolbar--stacked {
+    min-height: 3.8rem;
+    max-height: none;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0;
+}
+
+.table-toolbar__row {
+    display: flex;
+    min-height: 3.8rem;
+    max-height: 3.8rem;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0;
+    padding: 0.52rem 0;
+}
+
+.table-toolbar__row > * {
+    flex: 0 0 auto;
+    margin-right: 0.75rem;
+}
+
+.table-toolbar__row > :last-child {
+    margin-right: 0;
+}
+
+.table-toolbar__row > .table-toolbar__controls {
+    flex: 1 1 auto;
+}
+
 .table-toolbar__controls {
     display: flex;
     min-width: 0;
@@ -388,6 +421,60 @@ body {
     width: 100%;
     min-width: 0;
     flex: 1;
+}
+
+/* «Реализация» — полоса фильтров ПОД вкладками (обязательное ДЗО + срез +
+   период). The readable sentence «<Срез> по <ДЗО> за <месяц> <год>>: plain
+   text between the controls, no reservation beyond what each trigger needs. */
+.kppk-realization-filter-asset {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.kppk-realization-filter-text {
+    flex: 0 0 auto;
+    color: var(--heroui-default-500);
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+/* The filters own a SECOND row of the stacked toolbar (`.table-toolbar--row`).
+   They appear by GROWING downwards — a height + fade transition of the row
+   itself, so the toolbar (and the grid beneath it) grows/shrinks as one block
+   instead of a control sliding in from the left. `overflow: hidden` clips the
+   controls while the height animates. */
+.kppk-realization-filters-row {
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.8rem;
+    overflow: hidden;
+    opacity: 1;
+    transition:
+        max-height 220ms cubic-bezier(0.22, 1, 0.36, 1),
+        margin-top 220ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 140ms ease;
+    /* Tall enough for the tallest trigger (the two-line «Рабочая версия»
+       shares this row in other projects); a taller control would be clipped. */
+    max-height: 3rem;
+    /* Half the usual rhythm between the tabs row above and these filters. */
+    margin-top: 0.26rem;
+}
+
+.kppk-realization-filters-row--hidden {
+    max-height: 0;
+    margin-top: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.kppk-realization-period {
+    margin-left: auto;
+    padding-right: 0.4rem;
+    font-weight: 600;
+    color: var(--heroui-default-600);
+    white-space: nowrap;
 }
 
 /* Override the fixed-size `flex` the toolbar's blanket child rule applies:
@@ -415,6 +502,13 @@ body {
     flex: 1;
     overflow: hidden;
     background: var(--surface);
+}
+
+/* The stacked toolbar's second row («Реализация» filters) ends with the same
+   breathing room a filterless toolbar leaves before its grid — the row's own
+   padding only fills the gap to the tabs (half of the usual rhythm). */
+.table-toolbar--stacked > .kppk-realization-filters-row {
+    margin-bottom: 0.52rem;
 }
 
 /* The «Добавить строку» dialog: the asset picker fills the body width. */
@@ -564,6 +658,12 @@ body {
 .form-status__rows {
     color: var(--text);
     font-size: 0.8rem;
+}
+
+/* While collaboration is off or still connecting there is no member list —
+   only the state itself, emphasised. */
+.form-status__presence--bold {
+    font-weight: 600;
 }
 
 .form-status__dot {
@@ -770,7 +870,7 @@ body {
     transform: translate(-50%, calc(-100% - 0.5rem));
     padding: 0.3rem 0.55rem;
     border: 1px solid var(--border);
-    border-radius: 0.45rem;
+    border-radius: var(--radius);
     background: var(--surface);
     color: var(--foreground);
     box-shadow: 0 0.35rem 1rem rgb(22 25 24 / 18%);
@@ -778,6 +878,19 @@ body {
     line-height: 1.2;
     white-space: nowrap;
     pointer-events: none;
+}
+
+/* The keys of a shortcut hint («Ctrl» «Y»), side by side, no words. */
+.action-bar__hint-keys {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.action-bar__hint-keys .kbd {
+    background: var(--surface-secondary);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 0 var(--border);
 }
 
 .action-button {
@@ -795,6 +908,16 @@ body {
 
 .action-button:hover {
     gap: 0.45rem;
+}
+
+/* A disabled action still has to explain itself: HeroUI's disabled state sets
+   `pointer-events: none`, which would swallow the hover that shows the reason.
+   The button stays non-clickable (it keeps `disabled` and `aria-disabled`), we
+   only let the pointer through so the action bar can show its hint. */
+.action-button:disabled[data-action-tooltip],
+.action-button[aria-disabled="true"][data-action-tooltip] {
+    pointer-events: auto;
+    cursor: not-allowed;
 }
 
 /* While a HoverDropdown trigger's menu is open the button loses :hover
@@ -1047,12 +1170,13 @@ body {
     overflow-y: auto;
 }
 
-/* The external horizontal scrollbar's height is reserved only when it's
-   actually shown (no overflow — no strip, no dead gap under the last row). */
-.revo-grid-shell:not(.revo-grid-shell--pinned):not(.revo-grid-shell--no-hscroll)
-    .revo-grid-vertical-scroller,
-.renovation-grid-shell.revo-grid-shell--pinned:not(.revo-grid-shell--no-hscroll)
-    .revo-grid-vertical-scroller {
+/* The external horizontal scrollbar's height is reserved only in the PINNED
+   shell, where the bar is absolutely positioned over the last row and would
+   cover it otherwise (the renovation dictionaries needed exactly this: their
+   shell is pinned, but they are not the plan). The unpinned mode scrolls the
+   whole shell externally, so the bar sits below the content and needs no
+   reservation — keeping it there left a dead 17px gap under the last row. */
+.revo-grid-shell--pinned:not(.revo-grid-shell--no-hscroll) .revo-grid-vertical-scroller {
     padding-bottom: 17px;
 }
 
@@ -1320,16 +1444,12 @@ body {
 .raw-materials-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content,
 .renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content {
     margin-left: 24px;
-}
-
-/* Keep the label's centering basis IDENTICAL in both sort states: RevoGrid
-   flips `.header-content` from `position: absolute; inset: 0` (unsorted) to
-   `position: relative; flex: 1 1 0` (sorted), which happens instantly while
-   `margin-left` eases — the label would jump to the flex-centered spot and only
-   then slide (the "jerk"). Pin the sorted state to the absolute model so only
-   `margin-left` ever moves. */
-.raw-materials-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content,
-.renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content {
+    /* Keep the label's centering basis IDENTICAL in both sort states: RevoGrid
+       flips `.header-content` from `position: absolute; inset: 0` (unsorted) to
+       `position: relative; flex: 1 1 0` (sorted), which happens instantly while
+       `margin-left` eases — the label would jump to the flex-centered spot and
+       only then slide (the "jerk"). Pin the sorted state to the absolute model
+       so only `margin-left` ever moves. */
     position: absolute;
     inset: 0;
     flex: none;
@@ -1421,6 +1541,18 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
+/* A CellMergePlugin span (the «Реализация» product column: one cell across
+   all of the product's region rows) is as tall as the whole run, and the
+   plugin renders the label at its top edge. Center it vertically against the
+   merged height — `flex` makes the label a centered flex item in browsers
+   where the cell is a container, and `line-height` alone keeps single-row
+   cells unchanged. */
+.raw-materials-grid revogr-data .rgCell[merged]:not(.report-row-header) {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
 .raw-materials-grid revogr-data .rgCell.report-cell--selected {
     background-image: linear-gradient(rgb(0 120 99 / 10%), rgb(0 120 99 / 10%)) !important;
 }
@@ -1434,6 +1566,87 @@ body {
     background: transparent;
     cursor: pointer;
     font: inherit;
+}
+
+/* THE SmartSelect panel width rule, in one place.
+   HeroUI sizes the open list to `--trigger-width` (`.autocomplete__popover` is
+   `w-(--trigger-width)`) — which is why a compact «Блок» / «Архив» /
+   «Бизнес-план» trigger used to squeeze every option (and wrap «Бизнес-план»
+   onto two lines). SmartSelect therefore measures its longest option and
+   publishes it as `--smart-select-width`; this rule wins over HeroUI's width
+   utility by specificity (`.smart-select-popover` ≥ `[data-slot]…` and both are
+   single-class chains, so the compound selector wins), and `!important`-free
+   `max-width: none` lifts Tailwind's `max-w-(--trigger-width)` cap.
+   The optional `--smart-select-max-width` (the `maxPopoverWidth` prop) is the
+   only cap a caller may add — for lists of user data, never for curated ones. */
+.smart-select-popover {
+    width: min(var(--smart-select-width, 22rem), 100vw - 2rem);
+    max-width: min(var(--smart-select-max-width, 100vw), 100vw - 2rem);
+}
+
+.smart-select-popover .list-box,
+.smart-select-popover .autocomplete__list-box {
+    /* One line per option: the panel is already wide enough. */
+    white-space: nowrap;
+}
+
+/* Every dropdown option in SmartSelect: the tick indicator sits FIRST, in the
+   normal flow, and the label follows after a fixed gap. HeroUI's default draws
+   the indicator absolutely at the right edge with only `pe-7` reserved — a long
+   value then runs under the tick. Non-selectable rows («Выбрать все»/«Пустые»)
+   have no indicator, so they are unaffected.
+   `top`/`translate` come from the absolute-positioning rule: in the flow they
+   lift the box above the text baseline. HeroUI sets the modern `translate`
+   property (NOT `transform`), so both have to be reset. */
+.smart-select-popover .list-box-item__indicator,
+.column-filter__popover .list-box-item__indicator {
+    position: static;
+    order: -1;
+    top: auto;
+    inset-inline: auto;
+    /* The item's own `gap` separates the tick from the label — no extra margin. */
+    margin: 0;
+    /* HeroUI centers the tick with the modern `translate` property fed by two
+       Tailwind variables; a bare `translate: none` is not enough when a later
+       rule re-assembles the value, so zero the variables too. */
+    --tw-translate-x: 0;
+    --tw-translate-y: 0;
+    translate: none;
+    transform: none;
+    align-self: center;
+}
+
+/* The item's default `gap-3` (12px) is tuned for icon rows; a checkbox-to-text
+   gap of 8px reads tighter here. */
+.smart-select-popover .list-box-item,
+.column-filter__popover .list-box-item {
+    gap: 0.5rem;
+    /* Pull the left edge in: the row's own `px-2` plus the tick's box made the
+       indicator look inset relative to the popover edge. */
+    padding-inline-start: 0.25rem;
+}
+
+/* With the indicator back in the flow the reserved right padding is dead
+   space — drop it so the label uses the full row width. */
+.smart-select-popover .list-box-item:has(.list-box-item__indicator),
+.column-filter__popover .list-box-item:has(.list-box-item__indicator) {
+    padding-inline-end: 0.5rem;
+}
+
+/* The rule between the pinned rows («Все варианты»/«Пустые») and the real
+   values of a SmartSelect. */
+.smart-select-popover .smart-select__separator {
+    margin-block: 0.25rem;
+}
+
+/* A pinned row selected («Все блоки», «Все варианты») is a REAL value: our
+   trigger renders its label, but react-aria still flags `data-placeholder`
+   because the stored value is the owner's sentinel, not an option id — and the
+   placeholder style greys the text. */
+.smart-select--has-value [data-slot="select-value"],
+.smart-select--has-value [data-slot="autocomplete-value"] {
+    color: var(--foreground);
+    opacity: 1;
 }
 
 /* The sequential number of a not-yet-loaded slot: same geometry as the
@@ -1457,6 +1670,13 @@ body {
     place-items: center;
 }
 
+/* A nullable boolean with NO value (the plan's «Наличие МТР»): an empty cell —
+   no checkbox at all. The label still covers the whole cell, so the first
+   click sets «Да». */
+.report-cell__checkbox--empty {
+    cursor: pointer;
+}
+
 .report-cell__checkbox input {
     width: 1rem;
     height: 1rem;
@@ -1471,14 +1691,6 @@ body {
 
 .raw-materials-grid revogr-data .rgCell.report-cell--readonly {
     color: var(--muted);
-}
-
-.raw-materials-grid revogr-data .rgCell.report-cell--remote-locked {
-    z-index: 2;
-    background: color-mix(in srgb, var(--warning) 28%, transparent) !important;
-    color: var(--muted) !important;
-    outline: 2px solid var(--warning);
-    outline-offset: -2px;
 }
 
 /* Невидимая точка привязки плавающего Tooltip над занятой ячейкой. */
@@ -1544,6 +1756,69 @@ body {
 .search-autocomplete-popover {
     width: max(var(--trigger-width, 0px), 22rem);
     max-width: max(var(--trigger-width, 0px), 22rem);
+}
+
+/* ── The shared grid loading skeleton ─────────────────────────────────────
+   A miniature of the table: «number | wide cell» pairs in a grid whose 1px
+   `gap` on the cell border colour IS the rule between the blocks. The header
+   row is taller (a header is taller than a row), the data rows share one
+   height — so the grid mounts into the same shape and nothing jumps. */
+.grid-loading-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 1px;
+    background: var(--cell-border);
+}
+
+.grid-loading-skeleton__row {
+    display: grid;
+    grid-template-columns: 4rem minmax(0, 1fr);
+    gap: 1px;
+    background: var(--cell-border);
+}
+
+.grid-loading-skeleton__row--head {
+    /* The header block: 2.6rem matches the grid's header height. */
+    grid-template-rows: 2.6rem;
+}
+
+.grid-loading-skeleton__row:not(.grid-loading-skeleton__row--head) {
+    grid-template-rows: 2.2rem;
+}
+
+.grid-loading-skeleton__cell {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    padding: 0 0.6rem;
+    background: var(--surface);
+}
+
+.grid-loading-skeleton__block {
+    width: 100%;
+    height: 0.75rem;
+    border-radius: 0.25rem;
+}
+
+.grid-loading-skeleton__row--head .grid-loading-skeleton__block {
+    height: 0.9rem;
+    opacity: 0.7;
+}
+
+/* The whole block below the header stays quiet: one muted tone, no shimmer
+   race between rows. */
+.grid-loading-skeleton__row:not(.grid-loading-skeleton__row--head) .grid-loading-skeleton__block {
+    opacity: 0.45;
+}
+
+/* The «№» column reads narrower than the data one. */
+.grid-loading-skeleton__cell--head {
+    justify-content: center;
+}
+
+.grid-loading-skeleton__cell--head .grid-loading-skeleton__block {
+    width: 1.5rem;
 }
 
 /* The «№» corner header above the row numbers (rendered by the shared grid's
@@ -1779,7 +2054,11 @@ body {
     color: var(--muted);
 }
 
-.renovation-grid revogr-data .rgCell.report-cell--remote-locked {
+/* A cell occupied by ANOTHER member (their selection or an active lease).
+   ONE rule for every grid: the tiles are independent of the project — the
+   class comes from the shared grid code (`report-cell--remote-locked`), so a
+   new grid gets the same look without a per-project copy. */
+.rgCell.report-cell--remote-locked {
     z-index: 2;
     background: color-mix(in srgb, var(--warning) 28%, transparent) !important;
     color: var(--muted) !important;
@@ -2085,28 +2364,8 @@ body {
     background: var(--surface-secondary);
 }
 
-/* The boolean cell: a toggle button (checked cells show «✓»). */
-.report-cell__boolean {
-    display: block;
-    width: 100%;
-    height: 100%;
-    border: 0;
-    padding: 0 9px;
-    color: inherit;
-    background: transparent;
-    cursor: pointer;
-    font: inherit;
-    text-align: center;
-}
-
-.report-cell__boolean--checked {
-    color: var(--foreground);
-    font-weight: 700;
-}
-
-.report-cell__boolean--disabled {
-    cursor: default;
-}
+/* The boolean cell: ONE native checkbox everywhere (`report-cell__checkbox`
+   above). A nullable field with no value renders NO checkbox at all. */
 
 .toolbar-filter-button {
     font-size: 0.8rem;
@@ -2148,9 +2407,13 @@ body {
         padding: 0.5rem;
     }
 
+    /* Keep the base rule's zero gap: the toolbar spaces its children with
+       margins, so a collapsed control (the archive picker at zero width) adds
+       nothing. A `gap` here would push the block filter 8px away from the
+       grid's left edge — the toolbar and the grid must start on the same line. */
     .table-toolbar {
-        gap: 0.5rem;
-        padding: 0.52rem 0.5rem;
+        gap: 0;
+        padding: 0.52rem 0;
     }
 
     /* Status summary keeps its full-width layout on every breakpoint — it never
@@ -2189,9 +2452,12 @@ body {
         flex: 0 0 auto;
     }
 
+    /* The footer keeps its horizontal padding at zero — the toolbar and the
+       status line must align with the grid edge (no extra left inset beyond
+       what `.app-body` already provides on narrow screens). */
     .table-footer {
         gap: 0.5rem;
-        padding: 0.35rem 0.6rem;
+        padding: 0.35rem 0;
     }
 }
 
@@ -2434,16 +2700,6 @@ body {
 .column-filter__separator {
     margin: 0.25rem 0;
     background: var(--border);
-}
-
-/* The paged window: how much of a many-valued column is on screen, and that
-   scrolling keeps loading the rest. */
-.column-filter__status {
-    margin: 0;
-    padding: 0.25rem 0.15rem 0;
-    color: var(--muted-foreground);
-    font-size: 0.75rem;
-    text-align: center;
 }
 
 /* ─── Row/column-number («№») go-to popover ───────────────────────── */

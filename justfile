@@ -56,6 +56,12 @@ seed-renovation:
 seed-renovation-plan:
     uv run --directory back -m src.scripts.seed_database --renovation-plan
 
+# seed-kppk — перекопирует исходные таблицы КППК (docs/kppk) в схему программы
+# и пересобирает «Продуктовые позиции» из «Матрицы продуктов»; другие проекты
+# не трогает.
+seed-kppk:
+    uv run --directory back -m src.scripts.seed_kppk
+
 # recompute-renovation-plan — разово пересчитывает и сохраняет расчётные поля
 # (и идентификаторы) рабочего плана реновации. Нужно после импорта/адопции
 # данных и после изменения формул; на PostgreSQL 14 схему менять не нужно.

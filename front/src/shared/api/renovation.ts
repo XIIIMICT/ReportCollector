@@ -1,6 +1,8 @@
 import { requestJson, requestWrite } from "@/shared/api/api-error";
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import { ReportCollectorApiError } from "@/shared/api/report-collector";
+import { downloadTableExport, tableExportJobFileUrl } from "@/shared/api/table-export";
+import type { ExportJobDescriptor } from "@/shared/api/table-export";
 import { getCollabSessionId } from "@/shared/collab/ws-client";
 
 export const RENOVATION_SECTION = "renovationPlan";
@@ -535,6 +537,14 @@ export async function deleteRenovationAsset(assetId: string): Promise<void> {
     );
 }
 
+/** Remove a user from «Ремонт» (only possible once their access is revoked). */
+export async function deleteRenovationUser(userId: string): Promise<void> {
+    return requestWrite(
+        `/api/renovation/dictionary/users/${encodeURIComponent(userId)}?session_id=${getCollabSessionId()}`,
+        "DELETE",
+    );
+}
+
 export async function getRenovationCatalogOptions(
     catalogId: string,
 ): Promise<RenovationCatalogOptionRow[]> {
@@ -602,32 +612,23 @@ export type RenovationExportColumn = {
     numberFormat: string | null;
 };
 
+export type RenovationExportJobDownload = {
+    job: ExportJobDescriptor;
+    fileUrl: string;
+};
+
+/** Download a renovation dictionary export — inline, or as a background job past the inline row limit. */
 export async function exportRenovationDictionary(request: {
     section: string;
     headerPinned: boolean;
     columns: RenovationExportColumn[];
     rowIds: string[] | null;
     fileName: string;
-}): Promise<Blob> {
-    const response = await fetch("/api/renovation/dictionary/export", {
-        cache: "no-store",
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-    });
-    if (!response.ok) {
-        let detail = `Запрос завершился ошибкой ${response.status}.`;
-        try {
-            const payload = (await response.json()) as { detail?: string };
-            if (typeof payload.detail === "string") {
-                detail = payload.detail;
-            }
-        } catch {
-            // For a non-JSON response keep the generic message prepared above.
-        }
-        throw new ReportCollectorApiError(detail, response.status);
-    }
-    return response.blob();
+}): Promise<Blob | RenovationExportJobDownload> {
+    return downloadTableExport("/api/renovation/dictionary/export", request, (job, base) => ({
+        job,
+        fileUrl: tableExportJobFileUrl(base, job.id),
+    }));
 }
 
 // ─── Section-scoped undo/redo (plan and dictionaries) ─────────────────────

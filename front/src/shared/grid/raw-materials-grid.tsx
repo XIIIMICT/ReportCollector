@@ -1,4 +1,4 @@
-import { Tooltip } from "@heroui/react";
+﻿import { Tooltip } from "@heroui/react";
 import {
     Editor,
     RevoGrid,
@@ -12,6 +12,8 @@ import {
     type RowHeaders,
     type VNode,
 } from "@revolist/react-datagrid";
+import type { GridPlugin } from "@revolist/revogrid";
+import type { MergeData } from "@revolist/rv-pro-trial";
 import {
     useCallback,
     useEffect,
@@ -42,7 +44,8 @@ import {
 } from "./grid-config";
 import { extractEdits, parseNumericText } from "./grid-edit";
 import { MultiAssetEditor, ReferenceEditor, SelectEditor } from "./grid-editors";
-import { serializeCellValue } from "./index";
+import { parsePastedText, serializeCellValue } from "./index";
+import { describeSelection } from "./selection-label";
 
 /** The pinned summary row's id (revo-grid `pinnedTopSource`) — never a real record. */
 export const SUMMARY_ROW_ID = "__summary__";
@@ -56,6 +59,9 @@ export const SUMMARY_ROW_ID = "__summary__";
  * option either: Stencil's `@Watch` fires on every reference change.
  */
 const EMPTY_PINNED_SOURCE: Record<string, unknown>[] = [];
+
+/** Stable empty plugin/merge lists: a fresh array would reset the plugin setup on every render. */
+const EMPTY_PLUGIN_LIST: GridPlugin[] = [];
 
 export type RawMaterialsGridState = {
     columns: ExportColumn[];
@@ -109,6 +115,18 @@ type Props = {
     columnDescriptors?: ColumnDescriptor[];
     /** Distinguishes width/sorting persistence when several grids share a section id. */
     namespace?: string;
+    /**
+     * RevoGrid pro plugins (trial build) — the «Реализация» form passes
+     * CellMergePlugin for its merged product cells.
+     */
+    plugins?: GridPlugin[] | undefined;
+    /**
+     * Merged-cell ranges (rowSpan) of the visible data — the «Реализация»
+     * product column folds each product's region rows into one cell. Always
+     * assigned (empty by default) so the prop never lingers after a section
+     * switch — same trick as `pinnedTopSource`.
+     */
+    cellMerge?: MergeData[];
     onCommit: (updates: CellUpdate[]) => Promise<boolean>;
     onPlaceholderCommit: (patch: Record<string, unknown>) => Promise<boolean>;
     /** The server rejected the edits: the source must be restored (optimistic rollback). */
@@ -128,7 +146,12 @@ type Props = {
     onViewStatsChange?: (stats: GridViewStats) => void;
     onClipboardStateChange?: (state: { canPaste: boolean }) => void;
     /** Completed selection (for presence): label and cell keys of the range. */
-    onSelectionChange?: (selection: { label: string | null; cellKeys: string[] }) => void;
+    onSelectionChange?: (selection: {
+        label: string | null;
+        cellKeys: string[];
+        /** The selection spelled out for the status tooltip (header chain). */
+        detail?: string | null;
+    }) => void;
     /** Keys of cells where other members are (highlight + tooltip). */
     remoteCellInfo?: ReadonlyMap<string, { name: string; label: string | null }>;
 };
@@ -178,45 +201,6 @@ function selectionCellKeys(
         }
     }
     return keys;
-}
-
-/**
- * Column label with the nested header: «Потребность / План, т».
- */
-function columnLabel(
-    column: ColumnRegular | undefined,
-    descriptorByKey: Map<string, ColumnDescriptor>,
-): string | null {
-    if (!column) return null;
-    const descriptor = descriptorByKey.get(String(column.prop));
-    if (descriptor) {
-        return `«${[...(descriptor.path ?? []), descriptor.label].join(" / ")}»`;
-    }
-    const fallback = String(column.name ?? column.prop ?? "");
-    return fallback ? `«${fallback}»` : null;
-}
-
-/**
- * Human-readable description of the selected range, e.g.
- * «Бизнес-план, т» – «Факт, т», строки 3–5 or «Потребность / План, т», строка 2.
- * Column names are quoted; ranges are written with a dash.
- * null — no selection.
- */
-export function selectionLabelForRange(
-    range: RangeArea | null,
-    columns: ColumnRegular[],
-    descriptorByKey: Map<string, ColumnDescriptor>,
-    rowCount: number,
-): string | null {
-    if (!range || range.x1 < range.x || range.y1 < range.y) return null;
-    const firstLabel = columnLabel(columns[range.x], descriptorByKey);
-    const lastLabel = columnLabel(columns[range.x1], descriptorByKey);
-    if (!firstLabel || !lastLabel) return null;
-    const columnText = firstLabel === lastLabel ? firstLabel : `${firstLabel} – ${lastLabel}`;
-    const startRow = range.y + 1;
-    const endRow = Math.min(range.y1 + 1, rowCount);
-    const rowText = startRow === endRow ? `строка ${startRow}` : `строки ${startRow}–${endRow}`;
-    return `${columnText}, ${rowText}`;
 }
 
 /**
@@ -271,6 +255,8 @@ function RawMaterialsGridInner(
         deliveryBases,
         columnDescriptors,
         namespace,
+        plugins,
+        cellMerge,
         onCommit,
         onPlaceholderCommit,
         onCommitFailed,
@@ -291,6 +277,16 @@ function RawMaterialsGridInner(
     forwardedRef: Ref<RawMaterialsGridHandle>,
 ) {
     const gridRef = useRef<HTMLRevoGridElement>(null);
+    // CellMergePlugin binds its config to the grid's `cellMerge` DOM property
+    // through the same property watcher as `hideColumns` (the plugin's setter
+    // interceptor fires on any later assignment too), but the React wrapper's
+    // typings don't know the prop — so it's assigned directly on the element.
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (grid && cellMerge !== undefined) {
+            grid.cellMerge = cellMerge;
+        }
+    }, [cellMerge]);
     const shellRef = useRef<HTMLDivElement>(null);
     const verticalScrollRef = useRef<HTMLDivElement>(null);
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
@@ -572,28 +568,37 @@ function RawMaterialsGridInner(
                 // others, so it must not appear in the footer status or in presence.
                 const anyDataRow = coveredIndexes.some((index) => !visible[index]?.isPlaceholder);
                 if (coveredIndexes.length > 0 && !anyDataRow) {
-                    onSelectionChange?.({ label: null, cellKeys: [] });
+                    onSelectionChange?.({ label: null, cellKeys: [], detail: null });
                     return;
                 }
                 const firstIndex = rowIndexes[0];
                 const lastIndex = rowIndexes[rowIndexes.length - 1];
+                const described = selectionRange
+                    ? describeSelection(
+                          selectionRange,
+                          flatColumns,
+                          descriptorByKey,
+                          visible.length,
+                      )
+                    : null;
                 const label =
                     rowIndexes.length && firstIndex !== undefined && lastIndex !== undefined
                         ? firstIndex === lastIndex
                             ? `строка ${firstIndex + 1}`
                             : `строки ${firstIndex + 1}–${lastIndex + 1}`
-                        : selectionLabelForRange(
-                              selectionRange,
-                              flatColumns,
-                              descriptorByKey,
-                              visible.length,
-                          );
+                        : (described?.label ?? null);
                 const keys = rowIndexes.length
                     ? rowIndexes.flatMap((index) =>
                           selectionRowCellKeys(visible, index, index, flatColumns),
                       )
                     : selectionCellKeys(selectionRange, visible, flatColumns);
-                onSelectionChange?.({ label, cellKeys: keys });
+                // Row selection names rows only; the column details belong to a
+                // cell range (the renovation plan behaves the same way).
+                onSelectionChange?.({
+                    label,
+                    cellKeys: keys,
+                    detail: rowIndexes.length ? null : (described?.detail ?? null),
+                });
             })();
         }, PRESENCE_DEBOUNCE_MS);
         return () => clearTimeout(timer);
@@ -1082,7 +1087,10 @@ function RawMaterialsGridInner(
         const scrollbarGutter = verticalScroller
             ? verticalScroller.offsetWidth - verticalScroller.clientWidth
             : 0;
-        const width = size.x + scrollbarGutter + 52;
+        // `size.x` already includes the row-header column («№») — adding its
+        // width again produced a phantom horizontal scrollbar on tables that
+        // fit the viewport, and that bar overlapped the last visible row.
+        const width = size.x + scrollbarGutter;
         setHorizontalContentWidth(width);
         const shell = shellRef.current;
         setHasHorizontalOverflow(width > (shell?.clientWidth ?? 0));
@@ -1418,28 +1426,11 @@ function RawMaterialsGridInner(
                 }
             }
             if (!text) return;
-            // Excel and other apps put a trailing line break (and trailing tabs)
-            // in the buffer — without trimming, an extra empty cell below gets
-            // captured and overwrites a neighbor nobody asked for.
-            const split = text.split(/\r\n|\n|\r/).map((row) => row.split("\t"));
-            while (
-                split.length > 0 &&
-                split[split.length - 1]?.every((cell) => cell.trim() === "")
-            ) {
-                split.pop();
-            }
-            if (split.length === 0) return;
-            let width = Math.max(...split.map((cells) => cells.length));
-            while (
-                width > 0 &&
-                split.every((cells) => {
-                    const cell = cells[width - 1];
-                    return width - 1 >= cells.length || (cell !== undefined && cell.trim() === "");
-                })
-            ) {
-                width -= 1;
-            }
-            const parsed = split.map((cells) => cells.slice(0, width));
+            // Excel leaves a trailing line break (and trailing tabs) in the
+            // buffer — the parser trims them, otherwise an extra empty cell
+            // below overwrites a neighbor nobody asked for (landmine 4).
+            const parsed = parsePastedText(text);
+            if (parsed.length === 0) return;
             const range = selectionRangeRef.current;
             if (!range) return;
 
@@ -1791,6 +1782,7 @@ function RawMaterialsGridInner(
                     columns={columns}
                     source={rows}
                     pinnedTopSource={pinnedTopSource ?? EMPTY_PINNED_SOURCE}
+                    plugins={plugins ?? EMPTY_PLUGIN_LIST}
                     theme="compact"
                     range
                     useClipboard={false}

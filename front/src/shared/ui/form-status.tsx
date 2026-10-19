@@ -67,8 +67,24 @@ export function FormStatus({
                     ) : null}
                     <div className="form-status__body">
                         {presenceText !== null ? (
-                            <div className="form-status__presence">
-                                <b>На форме:</b> {presenceText}
+                            <div
+                                className={
+                                    hasPresence
+                                        ? "form-status__presence"
+                                        : "form-status__presence form-status__presence--bold"
+                                }
+                            >
+                                {hasPresence ? (
+                                    <>
+                                        <b>На форме:</b> {presenceText}
+                                    </>
+                                ) : (
+                                    // No live collaboration: the state itself
+                                    // («Совместное редактирование отключено»,
+                                    // «Подключение…») stands alone, bold, with
+                                    // no «На форме» prefix.
+                                    <b>{presenceText}</b>
+                                )}
                             </div>
                         ) : null}
                         {selectionLabel ? (

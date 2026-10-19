@@ -3,13 +3,13 @@
 import { toast } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { DeleteRecordDialog, downloadBlob } from "@/features/raw-materials/raw-materials-workspace";
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import {
     createRenovationAsset,
     createRenovationCatalogOption,
     createRenovationUser,
     deleteRenovationAsset,
+    deleteRenovationUser,
     deleteRenovationCatalogOption,
     exportRenovationDictionary,
     getRenovationCatalogOptions,
@@ -27,20 +27,30 @@ import {
     updateRenovationUserCells,
 } from "@/shared/api/renovation";
 import { canonicalCellKey, type CollabRoom } from "@/shared/collab/use-collab-room";
+import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import { isValidEmail } from "@/shared/email";
 import { getEditableKeys, type ColumnDescriptor, type GridRow } from "@/shared/grid/grid-config";
 import {
     RawMaterialsGrid,
     SUMMARY_ROW_ID,
+    type GridViewStats,
     type RawMaterialsGridHandle,
 } from "@/shared/grid/raw-materials-grid";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
-import { isFromTextEditor } from "@/shared/keyboard";
+import { DeleteRecordDialog } from "@/shared/ui/action-items";
 import {
     AddRecordModal,
     type AddRecordField,
     type AddRecordValues,
 } from "@/shared/ui/add-record-modal";
+import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
+import { runTableExport } from "@/shared/ui/table-export-action";
+import { errorMessage, recordLabel, trimmedText } from "@/shared/ui/text-helpers";
+import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useDeleteShortcut } from "@/shared/ui/workspace-shortcuts";
+
+/** Standard grid toasts: see `gridWarningHandlers`. */
+const gridWarnings = gridWarningHandlers({});
 
 const R_ASSETS_TABLE = "r_assets";
 const R_REFERENCE_VALUES_TABLE = "renovation_reference_values";
@@ -135,36 +145,21 @@ function placeholderRow(section: DictionarySection, draft: Record<string, unknow
     };
 }
 
-function placeholderText(value: unknown): string {
-    return typeof value === "string" ? value.trim() : "";
-}
-
 function placeholderPayload(
     section: DictionarySection,
     draft: Record<string, unknown>,
 ): Record<string, unknown> | null {
     if (section === RENOVATION_ASSETS_SECTION) {
-        const name = placeholderText(draft.name);
-        const repairCode = placeholderText(draft.repairCode);
+        const name = trimmedText(draft.name);
+        const repairCode = trimmedText(draft.repairCode);
         if (!name || !repairCode) return null;
         return { name, repairCode };
     }
     if (section.startsWith("renovationCatalog:")) {
-        const label = placeholderText(draft.label);
+        const label = trimmedText(draft.label);
         return label ? { label } : null;
     }
     return null;
-}
-
-function recordLabel(row: Record<string, unknown> | undefined): string | null {
-    if (!row) return null;
-    const candidates = [row.name, row.fullname, row.email, row.label];
-    const value = candidates.find((candidate) => typeof candidate === "string" && candidate.trim());
-    return typeof value === "string" ? value : null;
-}
-
-function errorMessage(reason: unknown): string {
-    return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
 }
 
 function stampFileName(base: string, now = new Date()): string {
@@ -208,6 +203,8 @@ export function RenovationDictionarySection({
     onClipboardStateChange,
     onUndoHistoryChanged,
     onAssetsChanged,
+    onSelectionLabelChange,
+    onGridStatsChange,
 }: {
     section: string;
     room: CollabRoom;
@@ -217,7 +214,11 @@ export function RenovationDictionarySection({
     /** Bumped by the workspace when rows change elsewhere (collab rows_changed). */
     refreshKey: number;
     remoteCellValues: ReadonlyMap<string, unknown>;
-    onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
+    onDeleteState: (state: {
+        canDelete: boolean;
+        blockedReason: string | null;
+        onDelete: () => void;
+    }) => void;
     onExportState: (state: { onExport: (scope: "all" | "visible") => void }) => void;
     /** Registers the display-reset handlers of the active dictionary grid. */
     onResetState: (state: {
@@ -237,6 +238,10 @@ export function RenovationDictionarySection({
     /** A dictionary mutation landed: undo/redo counters must be re-read. */
     onUndoHistoryChanged: () => void;
     onAssetsChanged: () => void;
+    /** The completed selection of the footer status (same as in every grid). */
+    onSelectionLabelChange?: (label: string | null) => void;
+    /** Row/column statistics of the footer status (same as in every grid). */
+    onGridStatsChange: (stats: GridViewStats) => void;
 }) {
     const gridRef = useRef<RawMaterialsGridHandle>(null);
     const [reloadKey, setReloadKey] = useState(0);
@@ -369,81 +374,41 @@ export function RenovationDictionarySection({
         () => gridRows.filter((row) => selectedRowIds.includes(row.id)),
         [gridRows, selectedRowIds],
     );
-    const canDelete = dictSection !== RENOVATION_USERS_SECTION && selectedRows.length > 0;
+    // Users are deletable too, but only once their access to the project is
+    // revoked (the «Активен» flag off) — the same protective rule as in the
+    // other projects, enforced by the backend (409).
+    const rowsDeletable = selectedRows.filter(
+        (row) => dictSection !== RENOVATION_USERS_SECTION || row.isActive !== true,
+    );
+    const canDelete = rowsDeletable.length > 0;
+    const deleteBlockedReason =
+        selectedRows.length === 0
+            ? "Выберите строку для удаления."
+            : canDelete
+              ? null
+              : "Сначала снимите доступ пользователя к проекту, затем удаляйте.";
 
     // Ctrl+Delete — the shortcut advertised on the action-bar delete button:
     // opens the same confirmation dialog as the button press.
-    useEffect(() => {
-        if (!canDelete) return;
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.code !== "Delete" || !(event.ctrlKey || event.metaKey)) return;
-            if (isFromTextEditor(event)) return;
-            event.preventDefault();
-            setDeleteOpen(true);
-        };
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [canDelete]);
+    // Ctrl+Delete opens the same dialog as the action-bar button.
+    const openDeleteDialog = useCallback(() => setDeleteOpen(true), []);
+    useDeleteShortcut(canDelete, openDeleteDialog);
 
     const readOnly = isMutationPending || (collabEnabled && room.status === "offline");
 
-    const remoteLocks = useMemo(() => {
-        const result = new Map<string, { fullname: string; email: string }>();
-        for (const [key, user] of room.lockedCells) {
-            result.set(key, { fullname: user.name || "", email: user.email || "" });
-        }
-        return result;
-    }, [room.lockedCells]);
-
-    const remotePresence = useMemo(() => {
-        const meId = room.me?.userId ?? null;
-        const result = new Map<string, { fullname: string; email: string }>();
-        for (const member of room.members) {
-            if (member.userId === meId) continue;
-            const selection = member.selection as { cellKeys?: unknown } | null | undefined;
-            const cellKeys = Array.isArray(selection?.cellKeys)
-                ? selection.cellKeys.filter((key): key is string => typeof key === "string")
-                : [];
-            for (const key of cellKeys) {
-                if (!result.has(key)) {
-                    result.set(key, { fullname: member.name || "", email: member.email || "" });
-                }
-            }
-        }
-        return result;
-    }, [room.me?.userId, room.members]);
-
-    const remoteCellInfo = useMemo(() => {
-        const meId = room.me?.userId ?? null;
-        const result = new Map<string, { name: string; label: string | null }>();
-        for (const member of room.members) {
-            if (member.userId === meId) continue;
-            const selection = member.selection as
-                | { label?: unknown; cellKeys?: unknown }
-                | null
-                | undefined;
-            const cellKeys = Array.isArray(selection?.cellKeys)
-                ? selection.cellKeys.filter((key): key is string => typeof key === "string")
-                : [];
-            if (cellKeys.length === 0) continue;
-            const name = member.name || member.email || "";
-            const label =
-                typeof selection?.label === "string" && selection.label ? selection.label : null;
-            for (const key of cellKeys) {
-                if (!result.has(key)) result.set(key, { name, label });
-            }
-        }
-        for (const [key, user] of room.lockedCells) {
-            if (!result.has(key)) {
-                result.set(key, { name: user.name || "", label: null });
-            }
-        }
-        return result;
-    }, [room.lockedCells, room.me?.userId, room.members]);
+    // The three remote maps come from the SHARED hook: it keeps their identity
+    // stable across presence heartbeats (`stabilized`), while the inline copy
+    // that lived here rebuilt the maps on every tick and re-created the grid's
+    // columns with them.
+    const { remoteLocks, remotePresence, remoteCellInfo } = useRemoteCellMaps(room);
 
     useEffect(() => {
-        onDeleteState({ canDelete, onDelete: () => setDeleteOpen(true) });
-    }, [canDelete, onDeleteState]);
+        onDeleteState({
+            canDelete,
+            blockedReason: deleteBlockedReason,
+            onDelete: () => setDeleteOpen(true),
+        });
+    }, [canDelete, deleteBlockedReason, onDeleteState]);
 
     const commit = useCallback(
         async (updates: CellUpdate[]): Promise<boolean> => {
@@ -594,6 +559,9 @@ export function RenovationDictionarySection({
             for (const row of selectedRows) {
                 if (dictSection === RENOVATION_ASSETS_SECTION) {
                     await deleteRenovationAsset(row.id);
+                } else if (dictSection === RENOVATION_USERS_SECTION) {
+                    if (row.isActive === true) continue;
+                    await deleteRenovationUser(row.id);
                 } else if (catalogId) {
                     await deleteRenovationCatalogOption(catalogId, row.id);
                 }
@@ -611,30 +579,23 @@ export function RenovationDictionarySection({
     }
 
     const exportTable = useCallback(
-        async (scope: "all" | "visible") => {
-            if (exportPending) return;
-            const state = await gridRef.current?.getExportState();
-            if (!state) return;
-            setExportPending(true);
-            const fileName = stampFileName(sectionLabel);
-            try {
-                const blob = await exportRenovationDictionary({
-                    section: dictSection,
-                    headerPinned,
-                    columns: state.columns,
-                    // «Видимая таблица» — the rows currently on screen
-                    // (filters/sorting applied), same as the raw project.
-                    rowIds: scope === "visible" ? (state.rowIds ?? null) : null,
-                    fileName,
-                });
-                downloadBlob(blob, fileName);
-                toast.success("Файл выгружен", { description: fileName });
-            } catch (reason) {
-                toast.danger("Не удалось выгрузить файл", { description: errorMessage(reason) });
-            } finally {
-                setExportPending(false);
-            }
-        },
+        (scope: "all" | "visible") =>
+            runTableExport({
+                pending: exportPending,
+                gridRef,
+                setPending: setExportPending,
+                fileName: () => stampFileName(sectionLabel),
+                request: (state, fileName) =>
+                    exportRenovationDictionary({
+                        section: dictSection,
+                        headerPinned,
+                        columns: state.columns,
+                        // «Видимая таблица» — the rows currently on screen
+                        // (filters/sorting applied), same as the raw project.
+                        rowIds: scope === "visible" ? (state.rowIds ?? null) : null,
+                        fileName,
+                    }),
+            }),
         [dictSection, exportPending, headerPinned, sectionLabel],
     );
 
@@ -658,16 +619,7 @@ export function RenovationDictionarySection({
         onUserCreateState({ canCreate: canCreateUser, onCreate: openUserCreate });
     }, [canCreateUser, onUserCreateState, openUserCreate]);
 
-    const handleClipboardState = useCallback(
-        (state: { canPaste: boolean }) => {
-            onClipboardStateChange({
-                canPaste: state.canPaste,
-                onCopy: () => void gridRef.current?.copySelection(),
-                onPaste: () => void gridRef.current?.pasteIntoSelection(),
-            });
-        },
-        [onClipboardStateChange],
-    );
+    const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
 
     if (error) {
         return <div className="grid-empty">Не удалось загрузить справочник: {String(error)}</div>;
@@ -737,20 +689,18 @@ export function RenovationDictionarySection({
                 onPlaceholderCommit={commitPlaceholderPatch}
                 onCommitFailed={refresh}
                 onSelectedRowsChange={handleSelectedRowsChange}
-                onValidationError={(message) =>
-                    toast.warning("Некорректное значение", { description: message })
-                }
+                onValidationError={gridWarnings.onValidationError}
                 onClipboardStateChange={handleClipboardState}
-                onLockedCellEdit={(_, ownerName) =>
-                    toast.warning("Ячейка занята", {
-                        description: `Сейчас её занимает ${ownerName}.`,
-                    })
-                }
+                onLockedCellEdit={gridWarnings.onLockedCellEdit}
                 onAcquireLease={room.acquireLeases}
                 onReleaseLease={room.releaseLeases}
                 remoteLocks={remoteLocks}
                 remotePresence={remotePresence}
                 remoteCellInfo={remoteCellInfo}
+                onViewStatsChange={onGridStatsChange}
+                onSelectionChange={({ label }) =>
+                    onSelectionLabelChange?.(label && label.length > 0 ? label : null)
+                }
             />
             <DeleteRecordDialog
                 isOpen={deleteOpen}

@@ -7,10 +7,14 @@ template, shifted up so the header starts at row 1), column A as the row
 number, then the 216 form fields (col_002..col_217) in columns B..HI.
 Reference fields are written as display labels, numbers keep their
 decimal count, dates as DD.MM.YYYY, booleans as Да/Нет.
+
+The package mechanics (static parts, cell XML, merges) are shared from
+``src.common.xlsx_stream``; this module owns the plan's layout and the
+aggregating band only.
 """
 
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from io import BytesIO, UnsupportedOperation
@@ -18,34 +22,31 @@ from queue import Queue
 from threading import Thread
 from typing import IO, TYPE_CHECKING, cast
 from uuid import UUID
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape as xml_specials_escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import range_boundaries
-from openpyxl.worksheet.worksheet import Worksheet
+from pydantic import BaseModel
 
-from src.renovation.form_schema import RenovationFieldMeta, field_metas, header_rows
+from src.common import xlsx_stream
+from src.common.export import (
+    ExportValidationError,
+    safe_sheet_name,
+    validate_columns_allowed,
+    validate_export_shape,
+)
+from src.common.xlsx_table import TableWorkbookWriter
+from src.renovation.form_schema import RenovationFieldMeta, catalog_labels, field_metas, header_rows
 from src.renovation.plan import RPlanState
 
 if TYPE_CHECKING:
+    from src.renovation.schemas import RenovationExportViewRequest
     from src.renovation.service import RenovationPlanExportData
 
 # The headerCells excelRange rows are the template's (6..16); the export
 # starts the header at row 1, so every range shifts up by this amount.
 HEADER_ROW_SHIFT = 5
-NUMBER_FORMAT_DEFAULT = "General"
-
-_HEADER_FONT = Font(bold=True)
-_HEADER_ALIGNMENT = Alignment(horizontal="center", vertical="center", wrap_text=True)
-_THIN_BORDER = Border(
-    left=Side(style="thin"),
-    right=Side(style="thin"),
-    top=Side(style="thin"),
-    bottom=Side(style="thin"),
-)
 
 
 def stream_renovation_workbook(plan: RenovationPlanExportData) -> Iterator[bytes]:
@@ -60,6 +61,7 @@ def stream_renovation_workbook(plan: RenovationPlanExportData) -> Iterator[bytes
                 build_plan_sheet_layout(plan.block, plan.totals),
                 plan.reference_labels,
                 totals=plan.totals,
+                row_total=len(plan.rows),
             )
             writer.write_rows(plan.rows)
             writer.close()
@@ -103,6 +105,30 @@ class _QueueWriter:
 
 _ALWAYS_VISIBLE_FIELDS = frozenset({"col_003", "col_217"})
 _ASSET_FIELD = "col_002"
+
+# May surface to the user through the export job's status - hence Russian.
+_ROW_COUNT_MISMATCH_MESSAGE = (
+    "Не удалось сформировать файл: количество строк плана изменилось во время выгрузки. Повторите попытку."
+)
+_EXPORT_TOO_LARGE_MESSAGE = (
+    "Выгрузка превышает 4 ГБ — Excel не сможет открыть такой файл. "
+    "Сузьте область выгрузки (блок, предприятие или набор строк)."
+)
+
+
+class ExportRowCountMismatchError(ValueError):
+    """The plan's exported row count changed while the file was generated."""
+
+
+class ExportTooLargeError(RuntimeError):
+    """
+    The sheet part outgrew the plain-ZIP entry ceiling (4 GiB uncompressed).
+
+    The append-only container deliberately stays off zip64: a streamed zip64
+    entry's zeroed local-header extra is rejected by real Excel. A sheet past
+    the ceiling therefore cannot be streamed at all — the write fails cleanly
+    instead of producing a file Excel would repair.
+    """
 
 
 def plan_export_filename(state: RPlanState, stamp: datetime) -> str:
@@ -180,24 +206,34 @@ class PlanSheetLayout:
 
 
 def build_plan_sheet_layout(block: object, totals: dict[str, float] | None = None) -> PlanSheetLayout:
-    """Precompute the static sheet parts for a block-filtered export."""
+    """
+    Precompute the static sheet parts for a block-filtered export.
+
+    The sheet has NO row-number column (the grid's «№» stays on screen; the
+    exported workbook starts directly with the «Предприятие» column, like
+    every other table export).
+    """
     fields = _export_fields(block)
-    column_by_field = {meta.db_name: 2 + index for index, meta in enumerate(fields)}
-    letters = {column: get_column_letter(column) for column in range(1, len(fields) + 2)}
+    column_by_field = {meta.db_name: 1 + index for index, meta in enumerate(fields)}
+    letters = {column: get_column_letter(column) for column in range(1, len(fields) + 1)}
     formulas: dict[str, str] = {}
     for meta in fields:
         if not (meta.is_calculated and meta.formula):
             continue
         template = _compile_formula_template(meta.formula, column_by_field, letters)
         if template is not None:
-            # Escaped once: the row loop only substitutes the row number.
-            formulas[meta.db_name] = escape(template)
+            # Escaped once - and with plain specials escaping (&, <, >), NOT
+            # `xlsx_stream.xml_escape`: that would strip the \x00 row
+            # placeholders the template still carries (NUL is illegal in the
+            # FINAL XML but is substituted with the row number before writing).
+            # The row loop only substitutes the row number afterwards.
+            formulas[meta.db_name] = xml_specials_escape(template)
     return PlanSheetLayout(
         fields=fields,
         column_by_field=column_by_field,
         letters=letters,
         formulas=formulas,
-        widths_xml=_column_widths_xml(fields),
+        widths_xml=_column_widths_xml(fields, column_by_field),
         header_xml=_header_rows_xml(fields, column_by_field, letters),
         merged_xml=_merged_ranges_xml(fields, column_by_field, totals),
         header_rows=len(header_rows()),
@@ -219,9 +255,9 @@ def _header_rows_xml(
             # bordered style, or Excel draws the frame only around the top-left
             # cell and the grid looks underdrawn down and right.
             if value is None:
-                xml.append(_styled_cell_xml(ref, style=1))
+                xml.append(xlsx_stream.styled_cell_xml(ref, style=1))
             else:
-                xml.append(_text_cell_xml(ref, value, style=1))
+                xml.append(xlsx_stream.text_cell_xml(ref, value, style=1))
         xml.append("</row>")
         parts.append("".join(xml))
     return "".join(parts)
@@ -232,63 +268,73 @@ def _number_row_xml(layout: PlanSheetLayout) -> str:
     Render the column-number strip (sheet row 12) - the grid's numbering.
 
     Every exported column carries its workbook ordinal shifted so the asset
-    column («Предприятие») is 1 - the same number the grid's strip shows. Column A
-    repeats the «№» corner label.
+    column («Предприятие») is 1 - the same number the grid's strip shows.
+    There is no corner cell: the sheet starts with the asset column, whose
+    number cell merges down over the totals row like every non-aggregating
+    column (see `_merged_ranges_xml`).
     """
     row_number = layout.header_rows + 1
-    cells = [_text_cell_xml(f"A{row_number}", "№", style=5)]
+    cells = []
     for index, meta in enumerate(layout.fields):
-        ref = f"{layout.letters[index + 2]}{row_number}"
-        cells.append(_text_cell_xml(ref, str(meta.ordinal - 1), style=5))
+        ref = f"{layout.letters[index + 1]}{row_number}"
+        cells.append(xlsx_stream.text_cell_xml(ref, str(meta.ordinal - 1), style=5))
     return f'<row r="{row_number}" ht="20" customHeight="1">{"".join(cells)}</row>'
 
 
 def _totals_row_xml(
     layout: PlanSheetLayout,
     totals: dict[str, float],
+    row_total: int | None,
     data_from: int,
-    data_to: int,
 ) -> str:
     """
     Render the aggregating totals row (sheet row 13) - the grid's pinned summary row.
 
-    Every additive numeric column carries a live `SUM` over the exported data rows
-    (the same numbers as the cached sum, but as a formula so the workbook
-    recalculates). Columns with no sum stay empty - their number cell above spans
-    both rows (see `_aggregate_merges_xml`).
+    Every additive numeric column carries a live `SUM` over the EXACT data
+    range (``row_total`` rows starting at ``data_from``) - the same numbers as
+    the cached sum, but as a formula so the workbook recalculates. An empty
+    (0) or unknown (None) row count keeps the cached value only: there is no
+    range worth summing yet, and the range must be final anyway because the
+    totals row is WRITTEN BEFORE the data (rows out of `r` order are rejected
+    by Excel). Columns with no sum stay empty - their number cell above spans
+    both rows (see `_merged_ranges_xml`). The asset column (col_002) carries
+    no aggregate either: like the grid's summary band, its number cell spans
+    both rows too.
     """
     row_number = layout.header_rows + 2
-    cells = [_text_cell_xml(f"A{row_number}", "Итог", style=5)]
+    cells = []
     for index, meta in enumerate(layout.fields):
-        ref = f"{layout.letters[index + 2]}{row_number}"
+        letter = layout.letters[index + 1]
+        ref = f"{letter}{row_number}"
         if meta.db_name not in totals:
-            cells.append(_styled_cell_xml(ref, style=1))
+            cells.append(xlsx_stream.styled_cell_xml(ref, style=1))
             continue
-        letter = layout.letters[index + 2]
-        formula = f"SUM({letter}{data_from}:{letter}{data_to})"
-        # A live SUM over the exported rows, bold and bordered (style 7), with
-        # the cached sum so a reader sees the number before recalculation.
-        cells.append(f'<c r="{ref}" s="7"><f>{formula}</f><v>{totals[meta.db_name]}</v></c>')
+        cached = totals[meta.db_name]
+        if row_total:
+            formula = f"SUM({letter}{data_from}:{letter}{data_from + row_total - 1})"
+            # A live SUM over the exact exported range, bold and bordered
+            # (style 7), with the cached sum so a reader sees it at once.
+            cells.append(xlsx_stream.formula_cell_xml(ref, formula, style=7, cached=cached))
+        else:
+            cells.append(xlsx_stream.number_cell_xml(ref, cached, style=7))
     return f'<row r="{row_number}" ht="22" customHeight="1">{"".join(cells)}</row>'
 
 
 def _row_xml(
-    position: int,
     asset_name: str,
     values: dict[str, object],
     layout: PlanSheetLayout,
     reference_labels: dict[UUID, str],
     row_number: int,
 ) -> str:
-    """One <row> element for a prepared export row."""
+    """One <row> element for a prepared export row (no row-number column)."""
     letters = layout.letters
     formulas = layout.formulas
     column_by_field = layout.column_by_field
     row_text = str(row_number)
     xml = [
         f'<row r="{row_number}">',
-        f'<c r="{letters[1]}{row_number}"><v>{position}</v></c>',
-        _text_cell_xml(f"{letters[2]}{row_number}", asset_name),
+        xlsx_stream.text_cell_xml(f"{letters[1]}{row_number}", asset_name),
     ]
     # Every kept field gets a cell when it has a value, so a reader sees the
     # full column set even when a value (often a derived field whose inputs are
@@ -318,10 +364,19 @@ def _row_xml(
 
 class RenovationWorkbookWriter:
     """
-    Write the XLSX incrementally: static parts and the header once, rows in batches.
+    Write the XLSX incrementally: static parts and the aggregating band once.
 
-    Memory stays bounded regardless of the plan size — used by the export-job
-    worker and the synchronous streaming endpoint alike.
+    Rows are then appended in batches; memory stays bounded regardless of the
+    plan size — used by the export-job worker and the synchronous streaming
+    endpoint alike.
+
+    ``row_total`` is the EXPECTED number of data rows, promised upfront: the
+    totals row sits after the number row and BEFORE the data, because `<row>`
+    elements out of `r` order are rejected by Excel (repair dialog — the old
+    totals-after-data layout did exactly that), and the totals' live SUM needs
+    the exact data range. A mismatch — e.g. the plan edited between the meta
+    and the rows reads of a background export — raises `ExportRowCountMismatchError`
+    and the caller fails fast instead of producing a broken file.
     """
 
     def __init__(
@@ -330,34 +385,57 @@ class RenovationWorkbookWriter:
         layout: PlanSheetLayout,
         reference_labels: dict[UUID, str],
         totals: dict[str, float] | None = None,
+        *,
+        row_total: int | None,
     ) -> None:
         self.layout = layout
         self.reference_labels = reference_labels
         self.header_rows_count = len(header_rows())
-        self.archive = ZipFile(sink, "w", compression=ZIP_DEFLATED, compresslevel=1)
-        self.archive.writestr("[Content_Types].xml", _CONTENT_TYPES_XML)
-        self.archive.writestr("_rels/.rels", _ROOT_RELS_XML)
-        self.archive.writestr("xl/workbook.xml", _WORKBOOK_XML)
-        self.archive.writestr("xl/_rels/workbook.xml.rels", _WORKBOOK_RELS_XML)
-        self.archive.writestr("xl/styles.xml", _STYLES_XML)
-        # The sheet XML of a 300k-row plan exceeds 4 GB uncompressed: the entry
-        # must opt into ZIP64 explicitly when written through a seekable sink
-        # (the streaming queue sink used data descriptors and did it implicitly).
-        self.sheet = self.archive.open("xl/worksheets/sheet1.xml", "w", force_zip64=True)
-        self.sheet.write(_SHEET_XML_PREFIX)
+        self.totals = totals or {}
+        self.row_total = row_total
+        # The sink is wrapped append-only (see UnseekableSink); the cast mirrors
+        # the streaming queue sink: zipfile accepts any writable binary stream,
+        # the static protocol just cannot express it.
+        self.archive = ZipFile(
+            cast("IO[bytes]", xlsx_stream.UnseekableSink(sink)), "w", compression=ZIP_DEFLATED, compresslevel=1
+        )
+        self.archive.writestr("[Content_Types].xml", xlsx_stream.content_types_xml())
+        self.archive.writestr("_rels/.rels", xlsx_stream.ROOT_RELS_XML)
+        self.archive.writestr("xl/workbook.xml", xlsx_stream.workbook_xml("Ремонт"))
+        self.archive.writestr("xl/_rels/workbook.xml.rels", xlsx_stream.workbook_rels_xml())
+        self.archive.writestr("xl/styles.xml", xlsx_stream.STYLES_XML)
+        # The sheet entry is written APPEND-ONLY (UnseekableSink above): a seekable
+        # sink would make zipfile emit a draft local header (zero CRC/sizes) that
+        # it patches by seeking back at close() — after the download streamer has
+        # already served those draft bytes to the browser, so the downloaded file
+        # carried an invalid local header and Excel repair-dialoged it. The
+        # non-seekable sink switches zipfile to data descriptors (the honest
+        # "sizes follow the data" flag) — and forces plain ZIP: a streaming
+        # ZIP64 entry carries an all-zero zip64 extra field in its header,
+        # which real Excel rejects outright (verified via COM: a descriptor
+        # entry without zip64 opens clean, with zip64 fails). The trade-off is
+        # the 4 GiB uncompressed part limit — the plan sheet is ~3.5 GB and
+        # stays well under it; a sheet that grows past 4 GiB would need a
+        # buffered (non-tailed) write path.
+        self.sheet = self.archive.open("xl/worksheets/sheet1.xml", "w")
+        # The frozen pane sits below the aggregating band (11 header levels +
+        # the number and totals rows), exactly like the grid's freeze; the
+        # horizontal split pins the «Предприятие» column (column 1 — there is
+        # no row-number column any more).
+        self.sheet.write(xlsx_stream.sheet_prefix_xml(x_split=1, y_split=self.header_rows_count + 2).encode())
         self.sheet.write(layout.widths_xml.encode())
         self.sheet.write(b"<sheetData>")
         self.sheet.write(layout.header_xml.encode())
         # The aggregating band sits directly under the 11 header levels, exactly
         # like the grid: the column-number row (12), then the totals row (13)
-        # written at close() once the data range is known, then the data rows.
-        self.totals = totals or {}
+        # written canonically BEFORE the data, then the data rows.
         self.sheet.write(_number_row_xml(layout).encode())
-        self._number_row_written = True
-        # Rows already emitted above the data: the 11 header levels + the
-        # number row. The totals row lands between them and the data.
-        self._strip_and_totals_rows = self.header_rows_count + 2
-        # Output rows written so far. The workbook row is
+        self._data_from = self.header_rows_count + 3
+        self.sheet.write(_totals_row_xml(layout, self.totals, row_total, self._data_from).encode())
+        # Rows already emitted above the data: the 11 header levels, the
+        # number row (12) and the totals row (13).
+        self._above_data_rows = self.header_rows_count + 2
+        # Data rows written so far. The workbook row is
         # `above + this`, NOT `above + position`: `position` is the plan's stored
         # row position, so a filtered export (surviving rows keep their original
         # positions, e.g. 232729) used to place the first data row at row 232740 -
@@ -370,33 +448,42 @@ class RenovationWorkbookWriter:
         rows: Iterable[tuple[int, str, str, dict[str, object]]],
     ) -> None:
         """Write one batch of prepared rows; call repeatedly for the whole plan."""
-        for position, asset_name, _repair_code, values in rows:
+        for _position, asset_name, _repair_code, values in rows:
+            if self.row_total is not None and self._written >= self.row_total:
+                raise ExportRowCountMismatchError(_ROW_COUNT_MISMATCH_MESSAGE)
             self._written += 1
             self.sheet.write(
                 _row_xml(
-                    position,
                     asset_name,
                     values,
                     self.layout,
                     self.reference_labels,
-                    self._strip_and_totals_rows + self._written,
+                    self._above_data_rows + self._written,
                 ).encode()
             )
 
     def close(self) -> None:
-        # The totals row (13) needs the final data range, so it is written here,
-        # between the number row (12) and the data (13+..) that are already in the
-        # stream. Its cells carry a live SUM over the exported rows.
-        if self._number_row_written:
-            data_from = self._strip_and_totals_rows
-            data_to = data_from + max(0, self._written - 1)
-            self.sheet.write(_totals_row_xml(self.layout, self.totals, data_from, data_to).encode())
+        """
+        Finalize the sheet and the archive.
+
+        Raises `ExportRowCountMismatchError` when fewer rows were written than
+        promised: the live SUM over the promised data range would not match
+        the data actually written.
+        """
+        if self.row_total is not None and self._written != self.row_total:
+            raise ExportRowCountMismatchError(_ROW_COUNT_MISMATCH_MESSAGE)
         self.sheet.write(b"</sheetData>")
         # Header merges plus the aggregate band's number-over-empty ranges are
         # all folded into the layout's single <mergeCells> block.
         self.sheet.write(self.layout.merged_xml.encode())
         self.sheet.write(b"</worksheet>")
-        self.sheet.close()
+        try:
+            self.sheet.close()
+        except RuntimeError as error:
+            # zipfile's ceiling hit: the sheet part cannot be a plain entry any
+            # more, and a streamed zip64 entry is not Excel-readable. Fail with
+            # the user-facing wording instead of the raw RuntimeError.
+            raise ExportTooLargeError(_EXPORT_TOO_LARGE_MESSAGE) from error
         self.archive.close()
 
 
@@ -426,9 +513,8 @@ def _header_matrix(
 ) -> list[list[str | None]]:
     rows = header_rows()
     position_by_column = {_column_offset(meta): column_by_field[meta.db_name] for meta in fields}
-    width = len(fields) + 1
+    width = len(fields)
     matrix: list[list[str | None]] = [[None for _ in range(width)] for _ in rows]
-    matrix[0][0] = "№"
     for _, cells in rows:
         for cell in cells:
             start_column, start_row, end_column, _ = _shifted_range(cell.excel_range)
@@ -445,8 +531,17 @@ def _merged_ranges_xml(
     column_by_field: dict[str, int],
     totals: dict[str, float] | None = None,
 ) -> str:
-    ranges = ["A1:A11"]
+    """
+    Fold every merged range of the plan sheet into ONE ``<mergeCells>`` block.
+
+    The block carries the header merges plus the aggregating band's ranges;
+    the shared `merge_cells_xml` drops accidental duplicates (Excel rejects
+    duplicate refs with the repair dialog), and the loop below also skips the
+    asset column explicitly — its band merge is named once, right before it.
+    There is no corner column: the sheet starts with the «Предприятие» column.
+    """
     position_by_column = {_column_offset(meta): column_by_field[meta.db_name] for meta in fields}
+    range_refs: list[str] = []
     for _, cells in header_rows():
         for cell in cells:
             start_column, start_row, end_column, end_row = _shifted_range(cell.excel_range)
@@ -455,45 +550,41 @@ def _merged_ranges_xml(
                 continue
             first_column, last_column = clipped
             if start_row != end_row or first_column != last_column:
-                ranges.append(f"{get_column_letter(first_column)}{start_row}:{get_column_letter(last_column)}{end_row}")
+                range_refs.append(
+                    f"{get_column_letter(first_column)}{start_row}:{get_column_letter(last_column)}{end_row}"
+                )
     # The aggregate band: a column whose totals cell is empty merges its number
     # over the totals row (the grid does the same), so the strip reads as one
     # band. The header merge rows are 1..11; the band is rows 12..13.
     top = len(header_rows()) + 1
     bottom = top + 1
-    # The asset column (B) never totals, so its number spans the band too.
-    ranges.append(f"B{top}:B{bottom}")
     for meta in fields:
         if totals and meta.db_name in totals:
             continue
         letter = get_column_letter(column_by_field[meta.db_name])
-        ranges.append(f"{letter}{top}:{letter}{bottom}")
-    refs = "".join(f'<mergeCell ref="{cell_range}"/>' for cell_range in ranges)
-    return f'<mergeCells count="{len(ranges)}">{refs}</mergeCells>'
+        range_refs.append(f"{letter}{top}:{letter}{bottom}")
+    return xlsx_stream.merge_cells_xml(range_refs)
 
 
-def _column_widths_xml(fields: tuple[RenovationFieldMeta, ...]) -> str:
-    # Column 1 is the synthetic row number, column 2 the asset name; the form
-    # fields start at column 3.
-    columns = [
-        '<col min="1" max="1" width="6" customWidth="1"/>',
-        '<col min="2" max="2" width="34" customWidth="1"/>',
-    ]
-    for index, meta in enumerate(fields, start=3):
-        columns.append(f'<col min="{index}" max="{index}" width="{_column_width(meta.cell_type)}" customWidth="1"/>')
+def _column_widths_xml(fields: tuple[RenovationFieldMeta, ...], column_by_field: dict[str, int]) -> str:
+    # The «Предприятие» column (col_002) is column 1; the form fields follow.
+    columns = []
+    for meta in fields:
+        index = column_by_field[meta.db_name]
+        width = "34" if meta.db_name == _ASSET_FIELD else str(_column_width(meta.cell_type))
+        columns.append(f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>')
     return f"<cols>{''.join(columns)}</cols>"
 
 
 def _data_cell_xml(ref: str, value: object, meta: RenovationFieldMeta) -> str:
     if meta.cell_type == "boolean":
-        return _text_cell_xml(ref, "Да" if value else "Нет")
+        return xlsx_stream.text_cell_xml(ref, "Да" if value else "Нет")
     if meta.cell_type == "date":
         parsed = value if isinstance(value, date) else date.fromisoformat(str(value))
-        serial = (parsed - date(1899, 12, 30)).days
-        return _number_cell_xml(ref, serial, style=2)
+        return xlsx_stream.number_cell_xml(ref, xlsx_stream.date_serial(parsed), style=2)
     if meta.cell_type == "number":
-        return _number_cell_xml(ref, value, style=3 if meta.decimals else 0)
-    return _text_cell_xml(ref, str(value))
+        return xlsx_stream.number_cell_xml(ref, value, style=3 if meta.decimals else 0)
+    return xlsx_stream.text_cell_xml(ref, str(value))
 
 
 _FIELD_REFERENCE = re.compile(r"col_\d+")
@@ -532,33 +623,15 @@ def _formula_cell_xml(
     value: object,
     meta: RenovationFieldMeta,
 ) -> str:
-    """Build a cell carrying an Excel formula (pre-escaped) plus its cached value."""
-    inner = f"<f>{formula}</f>"
+    """Build a cell with the field's live formula (pre-escaped) plus its cached value."""
     if meta.cell_type == "date":
         parsed = value if isinstance(value, date) else date.fromisoformat(str(value))
-        serial = (parsed - date(1899, 12, 30)).days
-        return f'<c r="{ref}" s="2">{inner}<v>{serial}</v></c>'
+        return xlsx_stream.formula_cell_xml(ref, formula, style=2, cached=xlsx_stream.date_serial(parsed))
     if meta.cell_type == "number":
-        style = 3 if meta.decimals else 0
-        style_attr = f' s="{style}"' if style else ""
-        return f'<c r="{ref}"{style_attr}>{inner}<v>{value}</v></c>'
-    return f'<c r="{ref}">{inner}</c>'
-
-
-def _text_cell_xml(ref: str, value: str, *, style: int = 0) -> str:
-    style_attr = f' s="{style}"' if style else ""
-    return f'<c r="{ref}" t="inlineStr"{style_attr}><is><t>{escape(value)}</t></is></c>'
-
-
-def _styled_cell_xml(ref: str, *, style: int = 0) -> str:
-    """Build an empty styled cell, carrying the header border in merge cells."""
-    style_attr = f' s="{style}"' if style else ""
-    return f'<c r="{ref}"{style_attr}/>'
-
-
-def _number_cell_xml(ref: str, value: object, *, style: int = 0) -> str:
-    style_attr = f' s="{style}"' if style else ""
-    return f'<c r="{ref}"{style_attr}><v>{value}</v></c>'
+        # Stored cols are floats; the engine may hand back an int for a calculated one.
+        cached = value if isinstance(value, float) else float(str(value))
+        return xlsx_stream.formula_cell_xml(ref, formula, style=3 if meta.decimals else 0, cached=cached)
+    return xlsx_stream.formula_cell_xml(ref, formula)
 
 
 def _shifted_range(excel_range: str) -> tuple[int, int, int, int]:
@@ -579,32 +652,7 @@ def _column_width(cell_type: str) -> float:
     return 34.0
 
 
-_CONTENT_TYPES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>"""
-_ROOT_RELS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"""
-_WORKBOOK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Ремонт" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="0" fullCalcOnLoad="1"/></workbook>"""
-_WORKBOOK_RELS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"""
-_STYLES_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="DD.MM.YYYY"/><numFmt numFmtId="165" formatCode="0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="2"><border/><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="165" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyNumberFormat="1"/><xf numFmtId="165" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>"""
-_SHEET_XML_PREFIX = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="13" topLeftCell="C14" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>"""
-
-
 # ─── Dictionary exports (assets, catalog options, users) ────────────────
-
-from collections.abc import Sequence
-
-from openpyxl.worksheet.datavalidation import DataValidation
-from pydantic import BaseModel
-
-from src.raw_materials import export as raw_export
-from src.renovation.form_schema import catalog_labels
-
-if TYPE_CHECKING:
-    from src.renovation.schemas import RenovationExportViewRequest
 
 SECTION_SHEET_NAMES: dict[str, str] = {
     "renovationAssets": "Активы",
@@ -642,51 +690,20 @@ REFERENCE_LISTS: dict[str, str] = {
     "assetNames": "assets",
 }
 
-LISTS_SHEET_NAME = "Списки"
-
-ExportValidationError = raw_export.ExportValidationError
-
-_ERROR_UNKNOWN_SECTION = ExportValidationError("Некорректная секция экспорта.")
-_ERROR_COLUMN_COUNT = ExportValidationError("Некорректное количество экспортируемых столбцов.")
-_ERROR_TOO_MANY_ROWS = ExportValidationError("Слишком много строк для экспорта.")
-_ERROR_DUPLICATE_ROWS = ExportValidationError("Список экспортируемых строк содержит дубли.")
-_ERROR_BAD_HEADERS = ExportValidationError("Некорректное описание заголовков экспорта.")
-_ERROR_HIDDEN_COLUMN = ExportValidationError("Экспорт содержит скрытый или недоступный столбец.")
-_ERROR_BAD_FILENAME = ExportValidationError("Имя файла должно заканчиваться на .xlsx и не содержать путей.")
-
 
 def validate_export_request(request: RenovationExportViewRequest) -> None:
-    """Validate the request: limits, uniqueness, column availability, file name."""
+    """Validate the request: section, limits, uniqueness, column availability, file name."""
     if request.section not in ALLOWED_KEYS and not request.section.startswith(CATALOG_SECTION_PREFIX):
-        raise _ERROR_UNKNOWN_SECTION
-    if not request.columns or len(request.columns) > raw_export.MAX_EXPORT_COLUMNS:
-        raise _ERROR_COLUMN_COUNT
-    if request.rowIds is not None:
-        if len(request.rowIds) > raw_export.MAX_EXPORT_ROWS:
-            raise _ERROR_TOO_MANY_ROWS
-        if len(set(request.rowIds)) != len(request.rowIds):
-            raise _ERROR_DUPLICATE_ROWS
-    seen: set[str] = set()
-    for column in request.columns:
-        if (
-            not column.key.strip()
-            or not column.headerPath
-            or any(not part.strip() for part in column.headerPath)
-            or column.key in seen
-        ):
-            raise _ERROR_BAD_HEADERS
-        seen.add(column.key)
+        message = "Некорректная секция экспорта."
+        raise ExportValidationError(message)
+    validate_export_shape(request)
     allowed = (
         CATALOG_ALLOWED_KEYS if request.section.startswith(CATALOG_SECTION_PREFIX) else ALLOWED_KEYS[request.section]
     )
-    if any(column.key not in allowed for column in request.columns):
-        raise _ERROR_HIDDEN_COLUMN
-    filename = request.fileName.strip()
-    if not filename.lower().endswith(".xlsx") or any(char in filename for char in "/\\"):
-        raise _ERROR_BAD_FILENAME
+    validate_columns_allowed(request.columns, allowed)
 
 
-def _section_sheet_name(section: str) -> str:
+def section_sheet_name(section: str) -> str:
     """Worksheet title of an export section (catalog sections use the catalog label)."""
     if section in SECTION_SHEET_NAMES:
         return SECTION_SHEET_NAMES[section]
@@ -702,87 +719,18 @@ def render_workbook(
     asset_names: Sequence[str],
 ) -> bytes:
     """Build the dictionary Excel workbook and return its bytes (no disk write)."""
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = raw_export.safe_sheet_name(_section_sheet_name(request.section))
-    worksheet.freeze_panes = None
-    _write_headers(worksheet, request)
-    if request.headerPinned:
-        worksheet.freeze_panes = "A2"
-    for index, column in enumerate(request.columns):
-        worksheet.column_dimensions[get_column_letter(index + 1)].width = min(60.0, max(8.0, column.width))
-    if any(column.key in REFERENCE_LISTS for column in request.columns):
-        reference_sheet, reference_count = _reference_sheet(workbook, asset_names)
-        _apply_reference_validation(worksheet, reference_sheet, reference_count, request, len(rows))
-    for row_index, row in enumerate(rows):
-        excel_row = row_index + 2
-        values = row.model_dump()
-        for column_index, column in enumerate(request.columns):
-            _write_cell(worksheet, excel_row, column_index + 1, values.get(column.key), column.numberFormat)
-    buffer = BytesIO()
-    workbook.save(buffer)
-    return buffer.getvalue()
-
-
-def _write_headers(worksheet: Worksheet, request: RenovationExportViewRequest) -> None:
-    for index, column in enumerate(request.columns):
-        cell = worksheet.cell(row=1, column=index + 1)
-        cell.value = column.headerPath[-1]
-        cell.font = _HEADER_FONT
-        cell.alignment = _HEADER_ALIGNMENT
-        cell.border = _THIN_BORDER
-    worksheet.row_dimensions[1].height = 34.0
-
-
-def _write_cell(worksheet: Worksheet, row: int, column: int, value: object, number_format: str | None) -> None:
-    cell = worksheet.cell(row=row, column=column)
-    if isinstance(value, datetime):
-        cell.value = value.replace(tzinfo=None) if value.tzinfo is not None else value
-        cell.number_format = raw_export.DATETIME_FORMAT
-    elif isinstance(value, bool):
-        cell.value = value
-    elif isinstance(value, int | float):
-        cell.value = value
-        cell.number_format = number_format or NUMBER_FORMAT_DEFAULT
-    elif isinstance(value, list | tuple):
-        cell.value = _truncate(", ".join(str(item) for item in value if item is not None))
-    elif value is not None:
-        cell.value = _truncate(str(value))
-    cell.border = _THIN_BORDER
-
-
-def _reference_sheet(workbook: Workbook, asset_names: Sequence[str]) -> tuple[Worksheet, int]:
-    sheet = workbook.create_sheet(LISTS_SHEET_NAME)
-    sheet.sheet_state = "hidden"
-    for row_index, item in enumerate(asset_names, start=1):
-        sheet.cell(row=row_index, column=1).value = item
-    return sheet, len(asset_names)
-
-
-def _apply_reference_validation(
-    worksheet: Worksheet,
-    reference_sheet: Worksheet,
-    item_count: int,
-    request: RenovationExportViewRequest,
-    row_count: int,
-) -> None:
-    if row_count == 0 or item_count == 0:
-        return
-    lists_sheet_name = reference_sheet.title
-    for column_index, column in enumerate(request.columns):
-        if column.key not in REFERENCE_LISTS:
-            continue
-        validation = DataValidation(
-            type="list",
-            formula1=f"={lists_sheet_name}!$A$1:$A${item_count}",
-            allow_blank=True,
-        )
-        worksheet.add_data_validation(validation)
-        data_letter = get_column_letter(column_index + 1)
-        validation.add(f"{data_letter}2:{data_letter}{row_count + 1}")
-
-
-def _truncate(value: str) -> str:
-    if len(value) > raw_export.MAX_CELL_CHARS:
-        return value[: raw_export.MAX_CELL_CHARS]
-    return value
+    needs_lists = any(column.key in REFERENCE_LISTS for column in request.columns)
+    lists = {"assets": asset_names} if needs_lists else None
+    sink = BytesIO()
+    writer = TableWorkbookWriter(
+        sink,
+        safe_sheet_name(section_sheet_name(request.section)),
+        request.columns,
+        header_pinned=request.headerPinned,
+        lists=lists,
+        column_lists=REFERENCE_LISTS,
+        row_total=len(rows),
+    )
+    writer.write_rows(rows)
+    writer.close()
+    return sink.getvalue()

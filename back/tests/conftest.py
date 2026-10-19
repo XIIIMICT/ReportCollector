@@ -204,6 +204,7 @@ async def _seed_session(session: AsyncSession) -> None:
             )
         )
     await _seed_renovation(session, now=now, admin=admin)
+    await _seed_kppk(session, now=now, admin=admin)
     await session.commit()
 
 
@@ -383,6 +384,110 @@ async def isolated_store():
         await instance.close()
         get_collab_store.cache_clear()
         get_room_manager.cache_clear()
+
+
+async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> None:
+    """КППК seed: project, admin role, ДЗО and a few products/links for the matrix."""
+    from src.auth.models import Project, ProjectRole, UserRole
+    from src.kppk.constants import KPPK_PROJECT_KEY, KPPK_PROJECT_NAME
+    from src.kppk.models import KppkOrg, KppkOrgProduct, KppkPeriod, KppkProduct, KppkRaw
+
+    project = Project(key=KPPK_PROJECT_KEY, name=KPPK_PROJECT_NAME, created_at=now)
+    session.add(project)
+    await session.flush()
+    session.add(
+        UserRole(
+            user_id=admin.id,
+            project_id=project.id,
+            role=ProjectRole.ADMIN,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    # Source numbers stand for raw.kppk_d_org.id; reads sort by name, so
+    # «Березниковский…» (1) leads «СНХЗ» (2).
+    orgs = {
+        name: KppkOrg(code=code, name=name, org_id=num, created_at=now, updated_at=now, updated_by="seed")
+        for code, name, num in [
+            ("БСЗ", "АО «Березниковский содовый завод»", 1),
+            ("СНХЗ", "АО «СНХЗ»", 2),
+        ]
+    }
+    for org in orgs.values():
+        session.add(org)
+    await session.flush()
+    # Source numbers mirror the dictionary order; «Сода ... А» stands for a
+    # product the matrix brought in without a number (NULL sorts last).
+    products = {
+        name: KppkProduct(
+            name=name,
+            product_num=num,
+            created_at=now,
+            updated_at=now,
+            updated_by="seed",
+        )
+        for name, num in [
+            ("Сода кальцинированная марки А", None),
+            ("Сода кальцинированная марки Б", 2),
+            ("Сульфат натрия", 1),
+        ]
+    }
+    for product in products.values():
+        session.add(product)
+    await session.flush()
+    org_products = [
+        KppkOrgProduct(
+            org_id=orgs["АО «СНХЗ»"].id,
+            product_id=products["Сульфат натрия"].id,
+            created_at=now,
+            updated_at=now,
+            updated_by="seed",
+        ),
+        KppkOrgProduct(
+            org_id=orgs["АО «Березниковский содовый завод»"].id,
+            product_id=products["Сода кальцинированная марки Б"].id,
+            created_at=now,
+            updated_at=now,
+            updated_by="seed",
+        ),
+    ]
+    for link in org_products:
+        session.add(link)
+    for month, first, last in [
+        ("Июнь", date(2026, 6, 1), date(2026, 6, 30)),
+        ("Июль", date(2026, 7, 1), date(2026, 7, 31)),
+    ]:
+        session.add(
+            KppkPeriod(
+                month_name=month,
+                year_num=2026,
+                first_date=first,
+                last_date=last,
+                created_at=now,
+                updated_at=now,
+                updated_by="seed",
+            )
+        )
+    session.add(KppkRaw(name="Резина", raw_num=2, created_at=now, updated_at=now, updated_by="seed"))
+    session.add(KppkRaw(name="Каучук", raw_num=1, created_at=now, updated_at=now, updated_by="seed"))
+    await session.flush()
+
+
+async def raw_materials_role(db_session: AsyncSession):
+    """Return the admin's raw_materials UserRole (the admin now also holds a kppk link)."""
+    from sqlmodel import col, select
+
+    from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
+    from src.auth.models import Project, UserRole
+
+    return (
+        await db_session.exec(
+            select(UserRole)
+            .join(Project, col(Project.id) == col(UserRole.project_id))
+            .where(col(Project.key) == RAW_MATERIALS_PROJECT_KEY)
+        )
+    ).one()
 
 
 @pytest.fixture

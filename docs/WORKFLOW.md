@@ -9,6 +9,7 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 
 3. DB and services: `just db` (postgres+valkey), Keycloak if needed — `just keycloak`.
 4. Migrations: `just migrate`. The migration connection runs with `lock_timeout=30s` (`back/migrations/env.py`) — if the app holds a lock (classic idle-in-transaction pool connection), the migration aborts with "canceling statement due to lock timeout" after 30s instead of hanging forever. On prod prefer running migrations with the app stopped/idle. Seed: `just seed` (**recreates the schema!** only with consent, never on prod).
    - The renovation plan comes from the per-enterprise «РБ ПОФ_2027_*» workbooks in `docs/seed/Планы/` (each ships one «РБ…» sheet; header on row 1, data on row 3). `just seed-renovation-plan` (`uv run --directory back -m src.scripts.seed_database --renovation-plan`) rebuilds **only** the plan (truncates `renovation_plans`/`renovation_plan_rows`) while keeping the asset dictionary, the reference catalogs and the users — the importer resolves the enterprise by its «Наименование ДО» code against the existing `r_assets` ids. `just seed-renovation` (`--renovation`) additionally rebuilds the catalogs. Columns are matched by header text; a small **closed alias list** maps the workbooks' differing names to the form fields (e.g. «Лот» → the direction code `col_189`, the third segment of the work id, which the «РБ ПОФ» files name «Лот» rather than the form's «Код направления деятельности»). Values not in a catalog are added as marked options (label prefixed «@») that an admin can review and delete afterwards. Run seeds on the host with `POSTGRES_HOST=127.0.0.1` (the `.env` value `host.docker.internal` only resolves inside containers).
+   - The «КППК» copies come from the source dumps in `docs/kppk/` (`ddl.sql` + `kppk_*_<timestamp>.sql` + «Матрица продуктов.xlsx»). `just seed-kppk` (`uv run --directory back -m src.scripts.seed_kppk`) creates the `raw`/`dict` source schemas **only when missing** (a prod installation keeps its own), then re-copies the source tables into the program schema (truncate + re-insert, one transaction) and rebuilds «Продуктовые позиции» from the matrix — products missing in the source dictionary are created without a `product_num` under an `@`-prefixed name, ДЗО/products are matched by exact display name (spaces stay significant). It touches no other project; the `kppk` project row and its user links come from `just seed` / self-provisioning, so a fresh install runs `just seed` → `just seed-kppk`. Dictionary edits — the editable unique «№» included — are reconciled from the source on the next run.
 5. Run: `just dev` (compose + hot-reload) or on the host `just back` / `just front`.
 
 About `POSTGRES_HOST`: on the server it's the real DB address (not localhost); `just migrate` uses whatever is in `.env`. In the compose network — `host.docker.internal` or the service name.
@@ -22,7 +23,7 @@ About `POSTGRES_HOST`: on the server it's the real DB address (not localhost); `
 | Side | Lint | Format | Typecheck | Tests |
 |---|---|---|---|---|
 | back | `uv run --directory back ruff check --fix` | `uv run --directory back ruff format` | `uv run --directory back ty check` | `uv run --directory back pytest -q` |
-| front | `bun run --cwd front lint` (oxlint --fix) | `bun run --cwd front format` (oxfmt) | `bun run --cwd front typecheck` (tsc --noEmit) | `bun run --cwd front test` (bun test, happy-dom) |
+| front | `bun run --cwd front lint` (oxlint --fix + stylelint --fix) | `bun run --cwd front format` (oxfmt) | `bun run --cwd front typecheck` (tsc --noEmit) | `bun run --cwd front test` (bun test, happy-dom) |
 | e2e | — | — | — | `bun run --cwd front test:e2e` (Playwright, chromium, workers=1) |
 
 Aggregators: `just lint`, `just typecheck`, `just test`, `just e2e`.
@@ -38,7 +39,9 @@ Aggregators: `just lint`, `just typecheck`, `just test`, `just e2e`.
 
 ### Front
 
-- `oxlint --fix`, `oxfmt` (oxc formatter), `tsc --noEmit`.
+- `oxlint --fix`, `stylelint --fix` (CSS), `oxfmt` (oxc formatter), `tsc --noEmit`.
+- **Stylelint** covers the hand-written CSS (`src/app/globals.css`): wrong/duplicate declarations, unknown properties, broken selectors, longhand pairs that silently collapse. Config — `front/stylelint.config.mjs`. It is `.mjs` rather than `.ts` on purpose: stylelint reads a TypeScript config through cosmiconfig, which calls `typescript.findConfigFile` and `typescript.transpileModule`, and this project runs **TypeScript 7** — the native port, whose JS entry point exposes only `{ version }`. A `.ts` config therefore dies with `typescript.findConfigFile is not a function`; making it work needed a shim faking four TypeScript APIs before every run, which is not worth it for a config file. `oxfmt` owns formatting, so the rules do not police style. `bun run lint` / `lint:check`, `just lint` and CI (`bun run lint:check`) run it together with oxlint, and `front/prek.toml` has a CSS-only hook so a stylesheet commit is checked too.
+- **A new file directly in `front/` needs a `!` line in `front/.gitignore`** — that file is deny-all (`*` then explicit whitelists), so an unlisted config silently never reaches the repo (this is how a `stylelint.config.*` spent a while "not running" while being ignored).
 - **Attention:** `bun format` (oxfmt) may rewrite line breaks in untouched files (regularly touches `src/shared/collab/use-collab-room.ts`, `ws-client.ts`). After format: `git status`/`git diff` — if the diff on foreign files is empty, restore them with `git checkout -- <file>`.
 - **A11y label rule (dev-log noise):** every HeroUI/react-aria form control **without a visible `Label` must have an `aria-label`** — `SearchField`, `Autocomplete`, the `SearchAutocomplete` pre-mount `TextField` fallback, etc. Missing it makes react-aria warn on every mount ("If you do not provide a visible label…"). The warning exists only in dev builds (`NODE_ENV !== 'production'`), but it floods `docker logs` and drowns real errors. The label is user-facing → Russian, short (`aria-label="Найти актив"`). Don't chase other a11y rules — only this label rule; visible `Label`s (e.g. in `profile-modal`) and buttons with text are already fine.
 - Unit tests — bun test (happy-dom), in `__tests__` next to the code.
@@ -63,7 +66,7 @@ Both projects require a running stack and seed. `just e2e` selects smoke; its de
 `.github/workflows/ci.yaml` is the single CI entry point (PRs to main/dev, pushes to main/dev, manual runs and reusable release checks). Configure **CI required** as the required branch-protection check. There are no workflow path filters that could leave that check pending.
 
 - Backend: locked dependencies, Ruff lint/format, ty and the **entire pytest suite in a memory/valkey matrix**, with PostgreSQL 18 and Valkey 8. Each matrix job owns its disposable services. XML/JUnit and raw coverage data are uploaded separately. A required coverage job merges both runs and enforces 80% combined statement/branch coverage; neither individual transport run exercises the other implementation. Dedicated cross-connection tests additionally exercise server TTL, pub/sub and lease ownership. Missing Valkey is a CI failure, not a fallback to MemoryStore.
-- Frontend: Bun 1.4, generated Next route types, TypeScript, oxlint, oxfmt and Bun tests with LCOV. Next type generation is required before typecheck in a fresh checkout.
+- Frontend: Bun 1.4, generated Next route types, TypeScript, oxlint, stylelint, oxfmt and Bun tests with LCOV. Next type generation is required before typecheck in a fresh checkout.
 - Configuration: actionlint with ShellCheck plus semantic Compose validation (including custom `!override` tags).
 - Production: build each image once, load it, migrate PostgreSQL from the host with uv, insert the small seed using `--data-only` (no schema creation), start the same images with two backend workers and run Chromium regressions. The image contains no local Excel workbook. `infra/compose.ci.yaml` never loads the developer's `.env` or log directories; localhost ports are 15000/18000 for front/back and 15432/16379 for PostgreSQL/Valkey. Browsers connect directly to the backend WS port.
 - All jobs have timeouts; reports and container logs are retained for seven days. The stack is removed even on failure.
@@ -124,7 +127,13 @@ The plan import is a generator (`iter_renovation_plan_rows`) inserted in batches
 
 ## Pre-commit (prek)
 
-Root `prek.toml` — builtin hooks (large files, merge-conflict, yaml, eof, trailing, mixed-line-ending `--fix=lf`, fix-byte-order-marker); `back/prek.toml` — ruff format, ruff check --fix, ty check, uv lock; `front/prek.toml` — bun lock, oxfmt, oxlint, bun test, tsc. Run on `git commit` (`prek install`). If pre-commit fixed something itself — recheck the diff and commit again.
+Root `prek.toml` - builtin hooks (large files, merge-conflict, yaml, eof, trailing, mixed-line-ending `--fix=lf`, fix-byte-order-marker); `back/prek.toml` - ruff format, ruff check --fix, ty check, uv lock; `front/prek.toml` - bun lock, oxfmt, oxlint, stylelint (CSS only), bun test, tsc. Run on `git commit` (`prek install`). If pre-commit fixed something itself - recheck the diff and commit again.
+
+The frontend JS/TS hook calls `bunx oxlint --fix` directly so prek's file list
+cannot be forwarded to stylelint as CSS. The separate stylelint hook accepts
+only CSS files. The root large-file guard excludes exactly the two versioned
+`docs/kppk/kppk_f_realization[_plan]_202610160910.sql` seed dumps; all other new
+files retain the default limit.
 
 ### Line endings & encoding (LF, UTF-8, no BOM)
 

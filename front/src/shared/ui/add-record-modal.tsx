@@ -1,22 +1,11 @@
 "use client";
 
-import {
-    Autocomplete,
-    Button,
-    EmptyState,
-    InputGroup,
-    Label,
-    ListBox,
-    Modal,
-    SearchField,
-    Select,
-    Spinner,
-    Switch,
-    TextField,
-    useFilter,
-} from "@heroui/react";
+import { Button, InputGroup, Label, Modal, Spinner, Switch, TextField } from "@heroui/react";
 import { Check, Plus } from "iconoir-react";
-import { useEffect, useMemo, useRef, useState, type Key } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { SmartSelect } from "@/shared/ui/smart-select";
+import { errorMessage } from "@/shared/ui/text-helpers";
 
 export type AddRecordFieldOption = {
     id: string;
@@ -204,37 +193,21 @@ function FieldControl({
     }
 
     if (field.kind === "select") {
+        // The shared dropdown: ≤5 options render a plain Select, more a
+        // searchable Autocomplete (hover opens either).
         return (
-            <Select
-                fullWidth
-                variant="secondary"
-                placeholder={field.placeholder ?? "Выберите значение"}
+            <SmartSelect
+                label={field.label}
+                options={field.options.map((option) => ({
+                    id: option.id,
+                    name: option.name,
+                    ...(option.description && { description: option.description }),
+                }))}
                 value={typeof value === "string" && value ? value : null}
                 isDisabled={isDisabled}
-                onChange={(key) => onChange(key === null ? "" : String(key))}
-            >
-                <Label>{field.label}</Label>
-                <Select.Trigger>
-                    <Select.Value />
-                    <Select.Indicator />
-                </Select.Trigger>
-                <Select.Popover>
-                    <ListBox>
-                        {field.options.map((option) => (
-                            <ListBox.Item
-                                key={option.id}
-                                id={option.id}
-                                textValue={[option.name, option.description]
-                                    .filter(Boolean)
-                                    .join(" ")}
-                            >
-                                {option.name}
-                                <ListBox.ItemIndicator />
-                            </ListBox.Item>
-                        ))}
-                    </ListBox>
-                </Select.Popover>
-            </Select>
+                placeholder={field.placeholder ?? "Выберите значение"}
+                onChange={(next) => onChange(typeof next === "string" ? next : "")}
+            />
         );
     }
 
@@ -278,54 +251,17 @@ function MultiField({
     isDisabled: boolean;
     onChange: (value: unknown) => void;
 }) {
-    const { contains } = useFilter({ sensitivity: "base" });
-    const selectedKeys = useMemo(() => value, [value]);
-
+    // One shared dropdown: a short list becomes a plain Select, a long one a
+    // searchable Autocomplete — `multiple` works in both.
     return (
-        <Autocomplete
-            fullWidth
-            variant="secondary"
+        <SmartSelect
+            label={field.label}
+            options={field.options.map((option) => ({ id: option.id, name: option.name }))}
+            value={value}
+            multiple
             isDisabled={isDisabled}
             placeholder={field.placeholder ?? "Выберите значения"}
-            selectionMode="multiple"
-            value={selectedKeys}
-            onChange={(keys) => onChange((keys as Key[]).map(String))}
-        >
-            <Label>{field.label}</Label>
-            <Autocomplete.Trigger>
-                <Autocomplete.Value />
-                <Autocomplete.Indicator />
-            </Autocomplete.Trigger>
-            <Autocomplete.Popover>
-                <Autocomplete.Filter filter={contains}>
-                    <SearchField
-                        autoFocus
-                        name={`${field.key}-search`}
-                        aria-label={field.label}
-                        variant="secondary"
-                    >
-                        <SearchField.Group>
-                            <SearchField.SearchIcon />
-                            <SearchField.Input placeholder="Найти…" />
-                            <SearchField.ClearButton />
-                        </SearchField.Group>
-                    </SearchField>
-                    <ListBox renderEmptyState={() => <EmptyState>Ничего не найдено</EmptyState>}>
-                        {field.options.map((option) => (
-                            <ListBox.Item key={option.id} id={option.id} textValue={option.name}>
-                                {option.name}
-                                <ListBox.ItemIndicator />
-                            </ListBox.Item>
-                        ))}
-                    </ListBox>
-                </Autocomplete.Filter>
-            </Autocomplete.Popover>
-        </Autocomplete>
+            onChange={(next) => onChange(Array.isArray(next) ? next : [])}
+        />
     );
-}
-
-function errorMessage(reason: unknown): string {
-    if (reason instanceof Error) return reason.message;
-    if (typeof reason === "string") return reason;
-    return "Не удалось выполнить действие.";
 }

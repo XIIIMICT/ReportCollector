@@ -1,28 +1,9 @@
 "use client";
 
-import {
-    AlertDialog,
-    Avatar,
-    Button,
-    Card,
-    Dropdown,
-    Skeleton,
-    Spinner,
-    toast,
-    Typography,
-} from "@heroui/react";
-import {
-    CheckCircle,
-    Copy,
-    Download,
-    PasteClipboard,
-    Plus,
-    Redo,
-    Trash,
-    Undo,
-} from "iconoir-react";
+import { AlertDialog, Avatar, Button, Dropdown, Spinner, toast, Typography } from "@heroui/react";
+import { CheckCircle } from "iconoir-react";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
     createDictionaryRecord,
@@ -92,21 +73,51 @@ import {
 } from "@/shared/grid/raw-materials-grid";
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
-import { isFromTextEditor } from "@/shared/keyboard";
 import { ActionBar as SharedActionBar, type ActionItem } from "@/shared/ui/action-bar";
+import {
+    buildAddRowAction,
+    buildClipboardActions,
+    buildDeleteAction,
+    buildExportAction,
+    buildHistoryActions,
+    buildPrimaryAction,
+    DeleteRecordDialog,
+} from "@/shared/ui/action-items";
 import {
     AddRecordModal,
     type AddRecordField,
     type AddRecordValues,
 } from "@/shared/ui/add-record-modal";
+import { downloadBlob as sharedDownloadBlob } from "@/shared/ui/download";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
+import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
+import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
+import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
+import { runTableExport } from "@/shared/ui/table-export-action";
+import {
+    errorMessage,
+    recordLabel,
+    trimmedText,
+    publishSelection,
+    type GridSelectionInfo,
+    updateClipboardActions,
+} from "@/shared/ui/text-helpers";
+import { refreshUndoCounters } from "@/shared/ui/undo-counters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
+import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
+import { GridLoadError, WorkspaceLoadError } from "@/shared/ui/workspace-feedback";
+import { WorkspaceContent, WorkspaceFullscreenPanels } from "@/shared/ui/workspace-layout";
+import { useDeleteShortcut, useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
 
 import { ProfileModal } from "./profile-modal";
+
+/** Standard grid toasts: see `gridWarningHandlers`. */
+const gridWarnings = gridWarningHandlers({});
 
 type RawMaterialsWorkspaceProps = {
     currentUser: CurrentUser;
@@ -121,6 +132,16 @@ type RawMaterialsWorkspaceProps = {
 
 type DictionarySection = "rawMaterials" | "assets" | "deliveryBases" | "users";
 
+/**
+ * The action-bar delete state. `blockedReason` is set when the button must
+ * stay visible but disabled (deleting yourself, or a user whose access to the
+ * project is still enabled) — the tooltip explains why.
+ */
+type DeleteActions = {
+    canDelete: boolean;
+    blockedReason: string | null;
+    onDelete: () => void;
+};
 const SECTION_COLLAB_TABLE: Partial<Record<SectionId, string>> = {
     materialMovement: MOVEMENT_TABLE,
     rawMaterialPrices: PRICE_TABLE,
@@ -218,11 +239,11 @@ function placeholderPayload(
     assets: ReferenceOption[],
 ): CreateDictionaryPayload | null {
     if (section === "assets" || section === "deliveryBases") {
-        const name = placeholderText(draft.name);
+        const name = trimmedText(draft.name);
         return name ? { name } : null;
     }
     if (section === "rawMaterials") {
-        const name = placeholderText(draft.name);
+        const name = trimmedText(draft.name);
         if (!name) return null;
         const assetIdsByName = new Map(
             assets.map(({ id, name: assetName }) => [
@@ -239,27 +260,11 @@ function placeholderPayload(
     return null;
 }
 
-function placeholderText(value: unknown): string {
-    return typeof value === "string" ? value.trim() : "";
-}
-
-function recordLabel(row: Record<string, unknown> | undefined): string | null {
-    if (!row) return null;
-    const candidates = [row.name, row.fullname, row.email];
-    const value = candidates.find((candidate) => typeof candidate === "string" && candidate.trim());
-    return typeof value === "string" ? value : null;
-}
-
-function errorMessage(reason: unknown): string {
-    return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
-}
-
 export type ExportMode = "all" | "visible";
 
-export type ExportState = {
-    pending: boolean;
-    onExport: (mode: ExportMode) => Promise<void>;
-};
+import type { ExportState } from "@/shared/ui/action-items";
+
+export type { ExportState };
 
 export type UndoState = {
     enabled: boolean;
@@ -289,16 +294,7 @@ export type ArchiveState = {
 };
 
 export function downloadBlob(blob: Blob, fileName: string): void {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    // Defer the revoke: revoking synchronously right after click() can cancel
-    // an in-progress download in some browsers (notably Safari, and big files).
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    sharedDownloadBlob(blob, fileName);
 }
 
 export type ClipboardActions = {
@@ -326,6 +322,7 @@ function SectionContent({
     onExportState,
     onResetState,
     onUserCreateState,
+    currentUserEmail,
     headerPinned,
     showServiceColumns,
     onUndoState,
@@ -335,11 +332,14 @@ function SectionContent({
     onGridStatsChange,
     onClipboardStateChange,
     onSelectionLabelChange,
+    onSelectionDetailChange,
     onRegisterSelectionPreempt,
 }: {
     section: SectionId;
     reportMonth: string | null;
     isAdmin: boolean;
+    /** The signed-in user's email: the delete guard refuses to remove them. */
+    currentUserEmail: string | undefined;
     assets: ReferenceOption[];
     deliveryBases: ReferenceOption[];
     collabEnabled: boolean;
@@ -347,7 +347,7 @@ function SectionContent({
     firstOpenMonth: string | null;
     room: CollabRoom;
     remoteCellValues: Map<string, unknown>;
-    onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
+    onDeleteState: (state: DeleteActions) => void;
     onExportState: (state: ExportState) => void;
     /** Registers the display-reset handlers of the active section grid. */
     onResetState: (state: {
@@ -367,6 +367,8 @@ function SectionContent({
     onClipboardStateChange: (state: ClipboardActions) => void;
     /** Completed selection label of the current user (same as in presence). */
     onSelectionLabelChange: (label: string | null) => void;
+    /** The same selection spelled out for the status tooltip (header chain). */
+    onSelectionDetailChange?: (detail: string | null) => void;
     /**
      * Registers the handler that clears the local selection when another tab
      * of the same account takes over the user's selection. One handler at a
@@ -484,12 +486,11 @@ function SectionContent({
     // on form switch the counters are re-read from the right stack.
     useEffect(() => {
         if (!collabEnabled) return;
-        void getUndoState(section, reportMonth)
-            .then((state) => {
-                setUndoCount(state.canUndo ? 1 : 0);
-                setRedoCount(state.canRedo ? 1 : 0);
-            })
-            .catch(() => {});
+        void refreshUndoCounters(
+            () => getUndoState(section, reportMonth),
+            setUndoCount,
+            setRedoCount,
+        );
     }, [collabEnabled, reportMonth, section]);
 
     const canManageReferences = isAdmin && !MAIN_SECTIONS.has(section);
@@ -501,20 +502,33 @@ function SectionContent({
         [rows, selectedRowIds],
     );
     const canDelete = canManageReferences && selectedRows.length > 0;
+    // The delete button stays visible but disabled in two protective cases:
+    //  • the row is the signed-in user themselves — nobody removes themselves;
+    //  • the row is a user whose access to the project is still enabled — the
+    //    admin has to revoke access first, so a live member can never be erased
+    //    by a single click. The backend enforces both rules (409).
+    const deleteBlockedReason =
+        selectedRows.length === 0
+            ? "Выберите запись для удаления."
+            : section !== "users"
+              ? null
+              : selectedRows.some(
+                      (row) =>
+                          !!currentUserEmail &&
+                          String((row as { email?: unknown }).email ?? "").toLowerCase() ===
+                              currentUserEmail.toLowerCase(),
+                  )
+                ? "Нельзя удалить себя из проекта."
+                : selectedRows.some((row) => (row as { isActive?: boolean }).isActive === true)
+                  ? "Сначала снимите доступ пользователя к проекту (колонка «Доступ»), затем удаляйте."
+                  : null;
+    const deleteAllowed = canDelete && deleteBlockedReason === null;
 
     // Ctrl+Delete — the shortcut advertised on the action-bar delete button:
     // opens the same confirmation dialog as the button press.
-    useEffect(() => {
-        if (!canDelete) return;
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.code !== "Delete" || !(event.ctrlKey || event.metaKey)) return;
-            if (isFromTextEditor(event)) return;
-            event.preventDefault();
-            setDeleteOpen(true);
-        };
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [canDelete]);
+    // Ctrl+Delete opens the same dialog as the action-bar button.
+    const openDeleteDialog = useCallback(() => setDeleteOpen(true), []);
+    useDeleteShortcut(canDelete, openDeleteDialog);
     const isArchive = selectedSnapshotId !== null;
 
     const collabTable = SECTION_COLLAB_TABLE[section] ?? MOVEMENT_TABLE;
@@ -530,8 +544,12 @@ function SectionContent({
     const readOnly = isMutationPending || isArchive || (collabEnabled && room.status === "offline");
 
     useEffect(() => {
-        onDeleteState({ canDelete, onDelete: () => setDeleteOpen(true) });
-    }, [canDelete, onDeleteState]);
+        onDeleteState({
+            canDelete: deleteAllowed,
+            blockedReason: deleteBlockedReason,
+            onDelete: () => setDeleteOpen(true),
+        });
+    }, [deleteAllowed, deleteBlockedReason, onDeleteState]);
 
     useEffect(() => {
         onResetState({
@@ -649,12 +667,11 @@ function SectionContent({
             refresh();
             // The create is journaled server-side as an undoable action:
             // re-read the undo state so Ctrl+Z is offered immediately.
-            void getUndoState(section, reportMonth)
-                .then((state) => {
-                    setUndoCount(state.canUndo ? 1 : 0);
-                    setRedoCount(state.canRedo ? 1 : 0);
-                })
-                .catch(() => {});
+            void refreshUndoCounters(
+                () => getUndoState(section, reportMonth),
+                setUndoCount,
+                setRedoCount,
+            );
             if (section !== "users") {
                 const next = initialPlaceholderDraft(section);
                 placeholderDraftRef.current = next;
@@ -738,34 +755,34 @@ function SectionContent({
             toast.danger("Не удалось удалить запись", { description: errorMessage(reason) });
         } finally {
             setIsMutationPending(false);
+            // The deletion is journaled like any cell edit: re-read the stack so
+            // «Отменить действие» lights up straight away.
+            void refreshUndoCounters(
+                () => getUndoState(section, reportMonth),
+                setUndoCount,
+                setRedoCount,
+            );
         }
     }
 
     const exportTable = useCallback(
-        async (mode: ExportMode) => {
-            if (exportPending) return;
-            const state = await gridRef.current?.getExportState();
-            if (!state) return;
-            setExportPending(true);
-            const fileName = exportFileName(section, reportMonth);
-            try {
-                const blob = await exportTableToExcel({
-                    section,
-                    reportMonth,
-                    headerPinned,
-                    columns: state.columns,
-                    rowIds: mode === "visible" ? state.rowIds : null,
-                    snapshotId: isArchive ? selectedSnapshotId : null,
-                    fileName,
-                });
-                downloadBlob(blob, fileName);
-                toast.success("Файл выгружен", { description: fileName });
-            } catch (reason) {
-                toast.danger("Не удалось выгрузить файл", { description: errorMessage(reason) });
-            } finally {
-                setExportPending(false);
-            }
-        },
+        (mode: ExportMode) =>
+            runTableExport({
+                pending: exportPending,
+                gridRef,
+                setPending: setExportPending,
+                fileName: () => exportFileName(section, reportMonth),
+                request: (state, fileName) =>
+                    exportTableToExcel({
+                        section,
+                        reportMonth,
+                        headerPinned,
+                        columns: state.columns,
+                        rowIds: mode === "visible" ? state.rowIds : null,
+                        snapshotId: isArchive ? selectedSnapshotId : null,
+                        fileName,
+                    }),
+            }),
         [exportPending, isArchive, section, selectedSnapshotId, reportMonth, headerPinned],
     );
 
@@ -773,15 +790,22 @@ function SectionContent({
         onExportState({ pending: exportPending, onExport: exportTable });
     }, [exportPending, exportTable, onExportState]);
 
-    const handleClipboardState = useCallback(
-        (state: { canPaste: boolean }) => {
-            onClipboardStateChange({
-                canPaste: state.canPaste,
-                onCopy: () => void gridRef.current?.copySelection(),
-                onPaste: () => void gridRef.current?.pasteIntoSelection(),
-            });
-        },
-        [onClipboardStateChange],
+    // Stable identity: the grid's clipboard effect runs on every prop change
+    // and publishes back through this handler — an inline one would re-trigger
+    // it on every render (setState in the parent -> new handler -> effect
+    // again) and overflow the React update-depth guard.
+    const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
+
+    const handleSelectionChange = useCallback(
+        (selection: GridSelectionInfo) =>
+            publishSelection({
+                selection,
+                room,
+                onLabel: onSelectionLabelChange,
+                onDetail: onSelectionDetailChange,
+                suppressNextClear: suppressSelectionSendRef,
+            }),
+        [onSelectionDetailChange, onSelectionLabelChange, room],
     );
 
     const [pendingSkip, setPendingSkip] = useState<{
@@ -791,108 +815,48 @@ function SectionContent({
 
     const applyUndoResult = useCallback(
         (result: UndoResult, direction: "undo" | "redo") => {
-            if (result.applied) {
-                setPendingSkip(null);
-                // Re-read the stack state from the server instead of local ±1:
-                // the counters only track presence (canUndo/canRedo), and a
-                // locally decremented count died after a single undo even when
-                // the server stack still had actions.
-                void getUndoState(section, reportMonth)
-                    .then((state) => {
-                        setUndoCount(state.canUndo ? 1 : 0);
-                        setRedoCount(state.canRedo ? 1 : 0);
-                    })
-                    .catch(() => {});
-                refresh();
-                toast.success(direction === "undo" ? "Действие отменено" : "Действие возвращено");
-                return;
-            }
-            if (result.reason === "empty") {
-                setPendingSkip(null);
-                // The counters drifted from the actual stack — re-sync.
-                void getUndoState(section, reportMonth)
-                    .then((state) => {
-                        setUndoCount(state.canUndo ? 1 : 0);
-                        setRedoCount(state.canRedo ? 1 : 0);
-                    })
-                    .catch(() => {});
-                return;
-            }
-            const conflict = result.conflicts[0];
-            if (conflict) {
-                setPendingSkip({ actionId: conflict.actionId, direction });
-                const owner = conflict.user || "другой пользователь";
-                const description =
-                    conflict.reason === "locked"
-                        ? `Ячейку сейчас редактирует ${owner}. Нажмите ещё раз, чтобы пропустить действие.`
-                        : conflict.field === "__created"
-                          ? // A business rule rejected reverting the creation
-                            // (e.g. the record is now referenced elsewhere) —
-                            // the message is the backend's own explanation.
-                            `${owner} Нажмите ещё раз, чтобы пропустить действие.`
-                          : `Данные изменил ${owner}. Нажмите ещё раз, чтобы пропустить это действие.`;
-                toast.warning("Действие не выполнено", { description });
-                return;
-            }
-            setPendingSkip(null);
+            applyHistoryResult({
+                result,
+                direction,
+                setPendingSkip,
+                refresh,
+                businessRuleFields: ["__created"],
+                refreshState: () =>
+                    void refreshUndoCounters(
+                        () => getUndoState(section, reportMonth),
+                        setUndoCount,
+                        setRedoCount,
+                    ),
+            });
         },
         [refresh, reportMonth, section],
     );
 
     const runUndo = useCallback(async () => {
-        await pendingCommitRef.current;
-        try {
-            const result = await undoCells(
-                pendingSkip?.direction === "undo" ? pendingSkip.actionId : null,
-                section,
-                reportMonth,
-            );
-            applyUndoResult(result, "undo");
-        } catch (reason) {
-            toast.danger("Не удалось отменить действие", { description: errorMessage(reason) });
-        }
+        await runHistoryAction({
+            direction: "undo",
+            pendingWrite: pendingCommitRef.current,
+            pendingSkip,
+            request: (skip) => undoCells(skip, section, reportMonth),
+            apply: applyUndoResult,
+        });
     }, [applyUndoResult, pendingSkip, reportMonth, section]);
 
     const runRedo = useCallback(async () => {
-        await pendingCommitRef.current;
-        try {
-            const result = await redoCells(
-                pendingSkip?.direction === "redo" ? pendingSkip.actionId : null,
-                section,
-                reportMonth,
-            );
-            applyUndoResult(result, "redo");
-        } catch (reason) {
-            toast.danger("Не удалось вернуть действие", { description: errorMessage(reason) });
-        }
+        await runHistoryAction({
+            direction: "redo",
+            pendingWrite: pendingCommitRef.current,
+            pendingSkip,
+            request: (skip) => redoCells(skip, section, reportMonth),
+            apply: applyUndoResult,
+        });
     }, [applyUndoResult, pendingSkip, reportMonth, section]);
 
-    useEffect(() => {
-        if (!collabEnabled) return;
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (!(event.ctrlKey || event.metaKey)) return;
-            // event.code — the physical key: works in any layout
-            // (in Russian event.key gives «я»/«н»).
-            if (event.code !== "KeyZ" && event.code !== "KeyY") return;
-            const target = event.target as HTMLElement | null;
-            if (
-                target &&
-                (target.tagName === "INPUT" ||
-                    target.tagName === "TEXTAREA" ||
-                    target.isContentEditable)
-            )
-                return;
-            event.preventDefault();
-            if (event.code === "KeyZ") {
-                if (event.shiftKey) void runRedo();
-                else void runUndo();
-            } else {
-                void runRedo();
-            }
-        };
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [collabEnabled, runRedo, runUndo]);
+    useUndoRedoShortcuts({
+        enabled: collabEnabled,
+        onUndo: () => void runUndo(),
+        onRedo: () => void runRedo(),
+    });
 
     useEffect(() => {
         onUndoState({
@@ -1029,13 +993,7 @@ function SectionContent({
     ]);
 
     if (error) {
-        return (
-            <div className="grid-empty">
-                <Card>
-                    <Card.Content className="text-danger p-4 text-sm">{error}</Card.Content>
-                </Card>
-            </div>
-        );
+        return <GridLoadError error={error} />;
     }
 
     // Initial load only — the skeleton replaces the grid until the first rows
@@ -1043,17 +1001,7 @@ function SectionContent({
     // grid mounted: unmounting it here would reset the scroll to the top on
     // every edit.
     if (rows === null) {
-        return (
-            <div className="grid-viewport" aria-busy>
-                <div className="grid-empty">
-                    <div className="flex items-center gap-3">
-                        <Spinner size="sm" />
-                        <Typography>Загрузка таблицы...</Typography>
-                    </div>
-                    <Skeleton className="h-full w-full rounded-none opacity-30" />
-                </div>
-            </div>
-        );
+        return <GridLoadingSkeleton />;
     }
 
     return (
@@ -1075,43 +1023,20 @@ function SectionContent({
                         deliveryBases={deliveryBases}
                         remoteLocks={remoteLocks}
                         remotePresence={remotePresence}
-                        onLockedCellEdit={(_, ownerName) =>
-                            toast.warning("Ячейка занята", {
-                                description: `Сейчас её занимает ${ownerName}.`,
-                            })
-                        }
+                        onLockedCellEdit={gridWarnings.onLockedCellEdit}
                         onAcquireLease={room.acquireLeases}
                         onReleaseLease={room.releaseLeases}
                         onCommit={commit}
                         onPlaceholderCommit={commitPlaceholderPatch}
                         onCommitFailed={refresh}
                         onSelectedRowsChange={(selection) => setSelectedRowIds(selection.ids)}
-                        onValidationError={(message) =>
-                            toast.warning("Некорректное значение", { description: message })
-                        }
-                        onPasteSkipped={(description) =>
-                            toast.warning("Вставка выполнена не полностью", { description })
-                        }
-                        onPasteTruncated={() =>
-                            toast.warning("Вставка обрезана", {
-                                description:
-                                    "Вставляемый диапазон больше выделенного — значения вставлены только в выделенные ячейки.",
-                            })
-                        }
+                        onValidationError={gridWarnings.onValidationError}
+                        onPasteSkipped={gridWarnings.onPasteSkipped}
+                        onPasteTruncated={gridWarnings.onPasteTruncated}
                         onViewStatsChange={onGridStatsChange}
                         onClipboardStateChange={handleClipboardState}
                         remoteCellInfo={remoteCellInfo}
-                        onSelectionChange={({ label, cellKeys }) => {
-                            onSelectionLabelChange(label && label.length > 0 ? label : null);
-                            if (suppressSelectionSendRef.current) {
-                                // The clear following a preemption from another tab
-                                // of the same account is not sent — the server
-                                // entry belongs to the other tab.
-                                suppressSelectionSendRef.current = false;
-                                if (!label || label.length === 0) return;
-                            }
-                            room.setSelection({ label: label ?? "", cellKeys });
-                        }}
+                        onSelectionChange={handleSelectionChange}
                     />
                 </GridErrorBoundary>
                 {displayRows.length === 0 && !canManageReferences ? (
@@ -1163,6 +1088,7 @@ function SectionFooter({
     exportPending,
     onExport,
     onDelete,
+    deleteBlockedReason,
     onCreateUser,
     onCopy,
     onPaste,
@@ -1170,6 +1096,8 @@ function SectionFooter({
 }: {
     section: SectionId;
     canDelete: boolean;
+    /** Why delete is disabled (deleting yourself / a user with access). */
+    deleteBlockedReason: string | null;
     /** «Пользователи» is created through the modal, so the action is shown. */
     canCreateUser: boolean;
     undoState: UndoState;
@@ -1199,6 +1127,7 @@ function SectionFooter({
                 exportPending={exportPending}
                 onExport={onExport}
                 onDelete={onDelete}
+                deleteBlockedReason={deleteBlockedReason}
                 onCreateUser={onCreateUser}
                 onCopy={onCopy}
                 onPaste={onPaste}
@@ -1236,15 +1165,23 @@ export function RawMaterialsWorkspace({
     // Reported by the grid itself (onSelectionChange), not via the presence
     // echo — so it works even when collaboration is offline.
     const [selectionLabel, setSelectionLabel] = useState<string | null>(null);
+    // The same selection spelled out for the status tooltip: the header chain of
+    // a single-column selection («Потребность → План, т») — the renovation style.
+    const [selectionDetail, setSelectionDetail] = useState<string | null>(null);
     const [clipboardState, setClipboardState] = useState<ClipboardActions>({
         canPaste: false,
         onCopy: () => {},
         onPaste: () => {},
     });
+    const handleClipboardActions = useCallback(
+        (next: ClipboardActions) => updateClipboardActions(setClipboardState, next),
+        [],
+    );
     const [profileOpen, setProfileOpen] = useState(false);
     const [user, setUser] = useState(currentUser);
-    const [deleteState, setDeleteState] = useState<{ canDelete: boolean; onDelete: () => void }>({
+    const [deleteState, setDeleteState] = useState<DeleteActions>({
         canDelete: false,
+        blockedReason: null,
         onDelete: () => {},
     });
     const [exportState, setExportState] = useState<ExportState>({
@@ -1255,9 +1192,8 @@ export function RawMaterialsWorkspace({
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
     }>({ resetColumnWidths: () => {}, resetFiltersSorting: () => {} });
-    // Display toggles for the active grid (rendered in the view strip).
-    const [headerPinned, setHeaderPinned] = useState(true);
-    const [showServiceColumns, setShowServiceColumns] = useState(false);
+    // Display toggles for the active grid (rendered in the view strip) —
+    // shared by every project and remembered between sessions.
     // Declared before the early returns below: hooks must run unconditionally.
     const handleStripReset = useCallback(
         (scope: "columnWidths" | "filtersSorting") => {
@@ -1298,11 +1234,10 @@ export function RawMaterialsWorkspace({
     // its own internal switcher state.
     const activeProjectKey = controlledProjectKey ?? internalProjectKey;
     const { setTheme } = useTheme();
+    const { headerPinned, showServiceColumns, setHeaderPinned, setShowServiceColumns } =
+        useViewState(activeProjectKey);
 
-    const handleDeleteState = useCallback(
-        (state: { canDelete: boolean; onDelete: () => void }) => setDeleteState(state),
-        [],
-    );
+    const handleDeleteState = useCallback((state: DeleteActions) => setDeleteState(state), []);
 
     const handleExportState = useCallback((state: ExportState) => setExportState(state), []);
 
@@ -1459,20 +1394,7 @@ export function RawMaterialsWorkspace({
     }, [selectedTabId]);
 
     if (error) {
-        return (
-            <div className="app-shell">
-                <div className="app-body">
-                    <Card className="startup-error-card">
-                        <Card.Content className="p-8">
-                            <h2 className="mb-2 text-lg font-semibold">
-                                Не удалось открыть рабочее пространство
-                            </h2>
-                            <p className="text-danger text-sm">{error}</p>
-                        </Card.Content>
-                    </Card>
-                </div>
-            </div>
-        );
+        return <WorkspaceLoadError error={error} />;
     }
 
     if (!isRawMaterials) {
@@ -1503,11 +1425,7 @@ export function RawMaterialsWorkspace({
             <div className="app-shell">
                 {header}
                 <div className="app-body">
-                    <div className="flex items-center gap-3 p-8">
-                        <Spinner size="sm" />
-                        <Typography>Загрузка справочников...</Typography>
-                    </div>
-                    <Skeleton className="h-48 rounded-xl" />
+                    <GridLoadingSkeleton />
                 </div>
             </div>
         );
@@ -1537,7 +1455,7 @@ export function RawMaterialsWorkspace({
         >
             <SearchAutocomplete
                 placeholder="Выберите версию"
-                compactLabel="Версия"
+                compactLabel="Архив"
                 isDisabled={!showVersionPicker}
                 onOpenChange={setToolbarControlOpen}
                 items={[
@@ -1583,6 +1501,7 @@ export function RawMaterialsWorkspace({
                 isFullscreenPending={isFullscreenPending}
                 onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
                 onDropdownOpenChange={setToolbarControlOpen}
+                columnResetLabel="Сбросить ширину столбцов и высоту заголовка"
             />
         </div>
     );
@@ -1590,7 +1509,12 @@ export function RawMaterialsWorkspace({
     const footer = (
         <div className="table-footer">
             <div className="table-footer__status">
-                <FormStatus room={room} selectionLabel={selectionLabel} gridStats={gridStats} />
+                <FormStatus
+                    room={room}
+                    selectionLabel={selectionLabel}
+                    selectionDetail={selectionDetail}
+                    gridStats={gridStats}
+                />
             </div>
             <SectionFooter
                 section={selectedTab.section}
@@ -1603,6 +1527,7 @@ export function RawMaterialsWorkspace({
                 exportPending={exportState.pending}
                 onExport={(scope) => void exportState.onExport(scope)}
                 onDelete={deleteState.onDelete}
+                deleteBlockedReason={deleteState.blockedReason}
                 onCreateUser={userCreateState.onCreate}
                 onCopy={clipboardState.onCopy}
                 onPaste={clipboardState.onPaste}
@@ -1614,56 +1539,43 @@ export function RawMaterialsWorkspace({
     return (
         <main className={isFullscreen ? "app-shell app-shell--fullscreen" : "app-shell"}>
             {header}
-            <div className="app-body">
-                <section className="workspace">
-                    <Card className="workspace-card">
-                        <Card.Content className="workspace-card__content">
-                            {toolbar}
-                            <SectionContent
-                                key={collabGeneration}
-                                section={selectedTab.section}
-                                reportMonth={selectedTab.reportMonth}
-                                isAdmin={isAdmin}
-                                assets={assets}
-                                deliveryBases={deliveryBases}
-                                collabEnabled={collabEnabled}
-                                firstOpenMonth={meta?.movementPeriods[0] ?? null}
-                                room={room}
-                                remoteCellValues={remoteCellValues}
-                                onDeleteState={handleDeleteState}
-                                onExportState={handleExportState}
-                                onResetState={setGridResetState}
-                                onUserCreateState={handleUserCreateState}
-                                headerPinned={headerPinned}
-                                showServiceColumns={showServiceColumns}
-                                onUndoState={handleUndoState}
-                                onApproveState={handleApproveState}
-                                onArchiveState={handleArchiveState}
-                                onFixed={handleFixed}
-                                onGridStatsChange={setGridStats}
-                                onClipboardStateChange={setClipboardState}
-                                onSelectionLabelChange={setSelectionLabel}
-                                onRegisterSelectionPreempt={registerSelectionPreempt}
-                            />
-                            {footer}
-                        </Card.Content>
-                    </Card>
-                </section>
-            </div>
-
-            {isFullscreen && !isFullscreenPending ? (
-                <>
-                    <div className={revealClass("top")}>
-                        <div className="fullscreen-panel fullscreen-panel--top">
-                            {header}
-                            {toolbar}
-                        </div>
-                    </div>
-                    <div className={revealClass("bottom")}>
-                        <div className="fullscreen-panel fullscreen-panel--bottom">{footer}</div>
-                    </div>
-                </>
-            ) : null}
+            <WorkspaceContent toolbar={toolbar} footer={footer}>
+                <SectionContent
+                    key={collabGeneration}
+                    section={selectedTab.section}
+                    reportMonth={selectedTab.reportMonth}
+                    isAdmin={isAdmin}
+                    assets={assets}
+                    deliveryBases={deliveryBases}
+                    collabEnabled={collabEnabled}
+                    firstOpenMonth={meta?.movementPeriods[0] ?? null}
+                    room={room}
+                    remoteCellValues={remoteCellValues}
+                    onDeleteState={handleDeleteState}
+                    onExportState={handleExportState}
+                    onResetState={setGridResetState}
+                    onUserCreateState={handleUserCreateState}
+                    headerPinned={headerPinned}
+                    showServiceColumns={showServiceColumns}
+                    onUndoState={handleUndoState}
+                    onApproveState={handleApproveState}
+                    onArchiveState={handleArchiveState}
+                    onFixed={handleFixed}
+                    onGridStatsChange={setGridStats}
+                    onClipboardStateChange={handleClipboardActions}
+                    onSelectionLabelChange={setSelectionLabel}
+                    onSelectionDetailChange={setSelectionDetail}
+                    onRegisterSelectionPreempt={registerSelectionPreempt}
+                    currentUserEmail={user.email}
+                />
+            </WorkspaceContent>
+            <WorkspaceFullscreenPanels
+                visible={isFullscreen && !isFullscreenPending}
+                revealClass={revealClass}
+                header={header}
+                toolbar={toolbar}
+                footer={footer}
+            />
 
             <ProfileModal
                 isOpen={profileOpen}
@@ -1835,6 +1747,7 @@ function ActionBar({
     exportPending,
     onExport,
     onDelete,
+    deleteBlockedReason,
     onCreateUser,
     onCopy,
     onPaste,
@@ -1842,6 +1755,8 @@ function ActionBar({
 }: {
     section: SectionId;
     canDelete: boolean;
+    /** Why delete is disabled (deleting yourself / a user with access). */
+    deleteBlockedReason: string | null;
     canCreateUser: boolean;
     undoState: UndoState;
     approveState: ApproveState;
@@ -1857,171 +1772,58 @@ function ActionBar({
     /** Holds the fullscreen panels open while an action menu is expanded. */
     onDropdownOpenChange?: (open: boolean) => void;
 }) {
-    const showDelete = !MAIN_SECTIONS.has(section) && section !== "users";
     const showApprove = section === "materialMovement" && !isArchive;
     const showPaste = !isArchive;
-    // Only the action list is section-specific; rendering lives in the shared
-    // ActionBar (already the single implementation for both workspaces).
+    // The button set is the shared vocabulary of `action-items.ts`: every
+    // project composes the same builders, so a label, an icon or a protective
+    // hint can't drift between forms. What differs per section is only whether
+    // a button shows and whether it is enabled.
     const trailingActions: ActionItem[] = [
-        {
-            id: "copy",
-            label: "Копировать",
-            icon: <Copy />,
-            onPress: onCopy,
+        ...buildClipboardActions({
+            show: true,
+            showPaste,
             disabled: isFullscreenPending,
-            shortcut: { key: "C", aria: "Control+C" },
-            group: "clipboard",
-        } satisfies ActionItem,
-        ...(showPaste
-            ? [
-                  {
-                      id: "paste",
-                      label: "Вставить",
-                      icon: <PasteClipboard />,
-                      onPress: onPaste,
-                      disabled: isFullscreenPending || !clipboardState.canPaste,
-                      shortcut: { key: "V", aria: "Control+V" },
-                      group: "clipboard",
-                  } satisfies ActionItem,
-              ]
-            : []),
-        ...(undoState.enabled
-            ? [
-                  {
-                      id: "undo",
-                      label: "Отменить действие",
-                      icon: <Undo />,
-                      onPress: undoState.onUndo,
-                      disabled: undoState.offline || !undoState.canUndo,
-                      shortcut: { key: "Z", aria: "Control+Z" },
-                      group: "history",
-                  } satisfies ActionItem,
-                  {
-                      id: "redo",
-                      label: "Вернуть действие",
-                      icon: <Redo />,
-                      onPress: undoState.onRedo,
-                      disabled: undoState.offline || !undoState.canRedo,
-                      shortcut: { key: "Y", aria: "Control+Shift+Z" },
-                      group: "history",
-                  } satisfies ActionItem,
-              ]
-            : []),
-        {
-            id: "export",
-            label: "Скачать в Excel",
-            icon: <Download />,
-            onPress: () => onExport("all"),
-            disabled: exportPending || isFullscreenPending,
+            canPaste: clipboardState.canPaste,
+            onCopy,
+            onPaste,
+        }),
+        ...buildHistoryActions({
+            show: undoState.enabled,
+            offline: undoState.offline,
+            canUndo: undoState.canUndo,
+            canRedo: undoState.canRedo,
+            onUndo: undoState.onUndo,
+            onRedo: undoState.onRedo,
+        }),
+        buildExportAction({
             pending: exportPending,
-            group: "download",
-            menu: [
-                {
-                    id: "all",
-                    label: "Скачать всю таблицу",
-                    icon: <Download aria-hidden="true" />,
-                    onPress: () => onExport("all"),
-                },
-                {
-                    id: "visible",
-                    label: "Скачать видимую таблицу",
-                    icon: <Download aria-hidden="true" />,
-                    onPress: () => onExport("visible"),
-                },
-            ],
-        } satisfies ActionItem,
-        ...(showDelete
-            ? [
-                  {
-                      id: "delete",
-                      label: "Удалить запись",
-                      icon: <Trash />,
-                      onPress: onDelete,
-                      variant: "danger",
-                      disabled: !canDelete || isFullscreenPending,
-                      shortcut: { key: "Del", aria: "Control+Delete" },
-                  } satisfies ActionItem,
-              ]
-            : []),
-        ...(canCreateUser
-            ? [
-                  {
-                      id: "create-user",
-                      label: "Добавить пользователя",
-                      icon: <Plus />,
-                      onPress: onCreateUser,
-                      disabled: isFullscreenPending,
-                  } satisfies ActionItem,
-              ]
-            : []),
-        ...(showApprove
-            ? [
-                  {
-                      id: "approve",
-                      label: "Зафиксировать",
-                      icon: <CheckCircle />,
-                      onPress: approveState.onApprove,
-                      variant: "primary",
-                      disabled: approveState.pending || !approveState.canApprove,
-                  } satisfies ActionItem,
-              ]
-            : []),
+            disabled: exportPending || isFullscreenPending,
+            onExport,
+        }),
+        ...buildDeleteAction({
+            show: !MAIN_SECTIONS.has(section),
+            label: "Удалить запись",
+            disabled: !canDelete || isFullscreenPending,
+            blockedReason: deleteBlockedReason,
+            onDelete,
+            shortcut: { key: "Del", aria: "Control+Delete" },
+        }),
+        ...buildAddRowAction({
+            show: canCreateUser,
+            label: "Добавить пользователя",
+            disabled: isFullscreenPending,
+            onAdd: onCreateUser,
+        }),
+        ...buildPrimaryAction({
+            show: showApprove,
+            id: "fix",
+            label: "Зафиксировать",
+            icon: createElement(CheckCircle),
+            disabled: approveState.pending || !approveState.canApprove,
+            onPress: approveState.onApprove,
+        }),
     ];
     return <SharedActionBar items={trailingActions} onDropdownOpenChange={onDropdownOpenChange} />;
-}
-
-export function DeleteRecordDialog({
-    isOpen,
-    isPending,
-    label,
-    count,
-    onOpenChange,
-    onConfirm,
-}: {
-    isOpen: boolean;
-    isPending: boolean;
-    label: string | null;
-    count: number;
-    onOpenChange: (open: boolean) => void;
-    onConfirm: () => void;
-}) {
-    return (
-        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialog.Backdrop>
-                <AlertDialog.Container>
-                    <AlertDialog.Dialog>
-                        <AlertDialog.Header>
-                            <AlertDialog.Icon status="danger">
-                                <Trash />
-                            </AlertDialog.Icon>
-                            <AlertDialog.Heading>
-                                {count === 1 ? "Удалить запись?" : `Удалить записи (${count})?`}
-                            </AlertDialog.Heading>
-                        </AlertDialog.Header>
-                        <AlertDialog.Body>
-                            {count === 1 && label ? `Будет удалена запись «${label}». ` : null}
-                            {count > 1 ? `Будут удалены записи в количестве ${count}. ` : null}
-                            Операция выполняется только в том случае, если на удаляемые записи ничто
-                            не ссылается. Иначе ни одна запись не будет удалена.
-                        </AlertDialog.Body>
-                        <AlertDialog.Footer>
-                            <Button
-                                variant="tertiary"
-                                onPress={() => onOpenChange(false)}
-                                isDisabled={isPending}
-                            >
-                                Отмена
-                            </Button>
-                            <Button variant="danger" onPress={onConfirm} isDisabled={isPending}>
-                                {isPending ? <Spinner color="current" size="sm" /> : <Trash />}
-                                Удалить
-                            </Button>
-                        </AlertDialog.Footer>
-                    </AlertDialog.Dialog>
-                </AlertDialog.Container>
-            </AlertDialog.Backdrop>
-        </AlertDialog>
-    );
 }
 
 function ApproveDialog({

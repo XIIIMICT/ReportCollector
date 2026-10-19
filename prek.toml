@@ -8,6 +8,8 @@ repo = "builtin"
 
 [[repos.hooks]]
 id = "check-added-large-files"
+# Versioned seed inputs; keep the size guard for every other new file.
+exclude = '^docs/kppk/kppk_f_realization(_plan)?_202610160910\.sql$'
 
 [[repos.hooks]]
 id = "check-merge-conflict"

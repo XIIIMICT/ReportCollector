@@ -1,17 +1,10 @@
 "use client";
 
-import {
-    Autocomplete,
-    EmptyState,
-    ListBox,
-    SearchField,
-    Separator,
-    useFilter,
-    type Key,
-} from "@heroui/react";
+import { EmptyState, ListBox, Separator, type Key } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getRenovationPlanFacets, type RenovationColumnFilter } from "@/shared/api/renovation";
+import { SmartSelect } from "@/shared/ui/smart-select";
 
 /** Sentinel keys for the two pinned options (never plan values). */
 const ALL_KEY = "__all__";
@@ -60,34 +53,36 @@ export function ColumnFilterPopover({
     // Distinct value count across the whole filtered plan — shown on the
     // master item as «Выбрать все (N)» and it doubles as the "load more" guard.
     const [total, setTotal] = useState(0);
-    const [query, setQuery] = useState("");
     const [allActive, setAllActive] = useState(true);
     // «Пустые» is on by default so the default state really is "everything".
     const [kept, setKept] = useState<Set<string>>(new Set(initial?.values ?? []));
     const [includeNulls, setIncludeNulls] = useState(initial?.includeNulls ?? true);
-    // No prior filter (or one that already keeps everything) starts as "all".
-    const keepAllOnLoad = useRef(initial === null);
-    const { contains } = useFilter({ sensitivity: "base" });
+    // Until the user EXCLUDES something, every newly loaded window joins the
+    // kept set: the master «Выбрать все» promises the whole column, not just
+    // the window that happened to be loaded when the popover opened. It also
+    // seeds the very first window (`initial === null` means "no filter").
+    const allStillSelectedRef = useRef(initial === null);
     // The value list is paged: a column can hold tens of thousands of distinct
     // values (col_003 — the renovation ID — has ~248k, col_022 ~85k), so only
     // the first window arrives with the popover and the rest follow as the user
-    // scrolls to the bottom (`/plan/facets` pages by offset/limit).
-    const [loading, setLoading] = useState(true);
-    // Distinguishes the first window from a tail fetch: only the latter should
-    // print «Загрузка…» over the already visible values.
-    const [loadingMore, setLoadingMore] = useState(false);
+    // scrolls to the bottom (`/plan/facets` pages by offset/limit). The loading
+    // state is a ref only: the popover shows no progress text — new windows
+    // simply appear as they arrive.
     const listRef = useRef<HTMLDivElement>(null);
     const loadingRef = useRef(false);
     const exhaustedRef = useRef(false);
     // Distinct values rendered so far; also the next page's offset.
     const loadedCountRef = useRef(0);
+    // A ref mirror of `values` for the paging callbacks: reading the state
+    // inside a callback memoized without it would see a stale window.
+    const valuesRef = useRef<string[]>([]);
+    valuesRef.current = values;
 
     useEffect(() => {
         let cancelled = false;
         loadingRef.current = true;
         exhaustedRef.current = false;
         loadedCountRef.current = 0;
-        setLoading(true);
         void getRenovationPlanFacets(column, { planId, asset, offset: 0, limit: FACET_PAGE })
             .then((facets) => {
                 if (cancelled) return;
@@ -95,13 +90,16 @@ export function ColumnFilterPopover({
                     .map((entry) => entry.value)
                     .filter((value): value is string => value !== null);
                 setValues(loaded);
+                // Keep the paging refs in step with the FIRST window at once:
+                // the short-list effect may fire before React commits the
+                // state, and a stale (empty) window would ask for offset 0..n.
+                valuesRef.current = loaded;
                 setHasNulls(facets.hasNulls);
                 setTotal(facets.total);
                 loadedCountRef.current = loaded.length;
                 exhaustedRef.current = loaded.length >= facets.total;
-                if (keepAllOnLoad.current) {
+                if (allStillSelectedRef.current) {
                     setKept(new Set(loaded));
-                    keepAllOnLoad.current = false;
                 }
             })
             .catch(() => {
@@ -113,7 +111,6 @@ export function ColumnFilterPopover({
             .finally(() => {
                 if (cancelled) return;
                 loadingRef.current = false;
-                setLoading(false);
             });
         return () => {
             cancelled = true;
@@ -130,7 +127,6 @@ export function ColumnFilterPopover({
     const loadNextPage = useCallback(async () => {
         if (loadingRef.current || exhaustedRef.current) return;
         loadingRef.current = true;
-        setLoadingMore(true);
         try {
             const facets = await getRenovationPlanFacets(column, {
                 planId,
@@ -146,6 +142,12 @@ export function ColumnFilterPopover({
             if (loaded.length === 0) {
                 exhaustedRef.current = true;
             }
+            // The offset must advance HERE, synchronously: the state updater
+            // below may run later (or twice under StrictMode), and a concurrent
+            // tail request would otherwise re-read the stale offset.
+            const seenBefore = new Set(valuesRef.current);
+            const appended = loaded.filter((value) => !seenBefore.has(value));
+            loadedCountRef.current = valuesRef.current.length + appended.length;
             setValues((previous) => {
                 const seen = new Set(previous);
                 const merged = [...previous];
@@ -155,20 +157,20 @@ export function ColumnFilterPopover({
                         merged.push(value);
                     }
                 }
-                loadedCountRef.current = merged.length;
                 return merged;
             });
             // Freshly loaded values must join the kept set while the user has
-            // not excluded anything: otherwise applying the filter would send a
-            // positive list missing every value beyond this window.
-            if (keepAllOnLoad.current) {
+            // excluded nothing: otherwise applying the filter would send a
+            // positive list missing every value beyond this window (and the
+            // new items would render with an empty checkbox although the
+            // master «Выбрать все» is checked).
+            if (allStillSelectedRef.current) {
                 setKept((previous) => new Set([...previous, ...loaded]));
             }
         } catch {
             // Keep what is loaded; the next scroll or the button retries.
         } finally {
             loadingRef.current = false;
-            setLoading(false);
         }
     }, [column, planId, asset]);
 
@@ -183,9 +185,14 @@ export function ColumnFilterPopover({
 
     // A short list never scrolls, so the tail is requested once after each
     // render: either the list still fits (keep filling) or it overflows and the
-    // scroll handler takes over.
+    // scroll handler takes over. `listRef` points AT the list element (HeroUI's
+    // ListBox root carries the class), so match the node itself as well.
     useEffect(() => {
-        const element = listRef.current?.querySelector(".column-filter__list");
+        const root = listRef.current;
+        if (!root) return;
+        const element =
+            root.querySelector(".column-filter__list") ??
+            (root.classList.contains("column-filter__list") ? root : null);
         if (!element) return;
         if (element.scrollHeight <= element.clientHeight + 8) void loadNextPage();
     }, [loadNextPage, values.length]);
@@ -212,6 +219,9 @@ export function ColumnFilterPopover({
             setAllActive(hasAll);
             setKept(hasAll ? new Set(values) : new Set());
             setIncludeNulls(hasAll);
+            // Re-checking the master re-arms the tail top-up: the windows that
+            // load later join the kept set again.
+            allStillSelectedRef.current = hasAll;
             return;
         }
         const nextKept = new Set<string>();
@@ -223,16 +233,24 @@ export function ColumnFilterPopover({
         // «Выбрать все» mirrors the extremes: unchecking the last kept option
         // unchecks it, selecting everything again checks it back. In between it
         // keeps whatever the user left (so «всё, кроме некоторых» stays checked).
+        // The comparison is against the window loaded SO FAR: a window that
+        // arrives right after a selection only widens `values`, and the master
+        // must not flip on its own — the `allStillSelectedRef` guard below owns
+        // the tail top-up instead.
         const keepsNulls = hasNulls && next.has(NULL_KEY);
         const keepsNothing = nextKept.size === 0 && !keepsNulls;
         const keepsEverything =
             values.length > 0 && nextKept.size === values.length && (keepsNulls || !hasNulls);
         if (keepsNothing) setAllActive(false);
         else if (keepsEverything) setAllActive(true);
+        // Only a selection that still keeps EVERYTHING leaves the tail top-up
+        // armed (it also re-arms after the user unchecks something and then
+        // restores every option by hand).
+        allStillSelectedRef.current = keepsEverything;
         setIncludeNulls(next.has(NULL_KEY));
     };
 
-    const filteredValues = query ? values.filter((value) => contains(value, query)) : values;
+    const filteredValues = values;
 
     const applied = useMemo(() => {
         const keptValues = values.filter((value) => kept.has(value));
@@ -264,35 +282,24 @@ export function ColumnFilterPopover({
     };
 
     return (
-        <Autocomplete
-            selectionMode="multiple"
-            value={selectedKeys}
-            onChange={(keys) => onSelectionChange(keys as Key[])}
-            aria-label={`Фильтр: ${columnLabel}`}
+        <SmartSelect
+            multiple
+            forceSearchable
             defaultOpen
+            value={selectedKeys.map(String)}
+            onChange={(next) => {
+                const keys = Array.isArray(next) ? (next as Key[]) : [];
+                onSelectionChange(keys);
+            }}
             onOpenChange={(open) => {
+                // The filter applies and closes when the popover dismisses.
                 if (!open) close();
             }}
-        >
-            <Autocomplete.Trigger
-                className="column-filter__anchor"
-                style={{ left: anchor.left, top: anchor.top, width: anchor.width }}
-            >
-                <Autocomplete.Value />
-                <Autocomplete.Indicator />
-            </Autocomplete.Trigger>
-            <Autocomplete.Popover className="column-filter__popover">
-                <SearchField autoFocus aria-label="Поиск значения" variant="secondary">
-                    <SearchField.Group>
-                        <SearchField.SearchIcon />
-                        <SearchField.Input
-                            placeholder="Поиск..."
-                            value={query}
-                            onChange={(event) => setQuery(event.target.value)}
-                        />
-                        <SearchField.ClearButton />
-                    </SearchField.Group>
-                </SearchField>
+            ariaLabel={`Фильтр: ${columnLabel}`}
+            placeholder="Поиск..."
+            anchor={{ left: anchor.left, top: anchor.top, width: anchor.width }}
+            popoverClassName="column-filter__popover"
+            renderListbox={() => (
                 <ListBox
                     ref={listRef}
                     className="column-filter__list"
@@ -313,7 +320,7 @@ export function ColumnFilterPopover({
                     {/* Separate the pinned options from the values; when «Пустые»
                         is absent the separator follows «Выбрать все». */}
                     {filteredValues.length > 0 ? (
-                        <Separator className="column-filter__separator" />
+                        <Separator className="smart-select__separator" />
                     ) : null}
                     {filteredValues.map((value) => (
                         <ListBox.Item key={value} id={value} textValue={value}>
@@ -322,17 +329,7 @@ export function ColumnFilterPopover({
                         </ListBox.Item>
                     ))}
                 </ListBox>
-                {/* The window is paged: tell the user how much of the column is
-                    on screen (a master-toggle count is meaningless for 248k
-                    values without it) and that scrolling keeps loading. */}
-                {!query && total > values.length ? (
-                    <p className="column-filter__status" role="status">
-                        {loading || loadingMore
-                            ? "Загрузка…"
-                            : `Показано ${values.length} из ${total}`}
-                    </p>
-                ) : null}
-            </Autocomplete.Popover>
-        </Autocomplete>
+            )}
+        />
     );
 }

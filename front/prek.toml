@@ -24,11 +24,20 @@ files = '\.(cjs|css|cts|js|json|jsonc|jsx|mjs|mts|scss|ts|tsx)$'
 [[repos.hooks]]
 id = "oxlint"
 name = "oxlint"
-entry = "bun lint"
+entry = "bunx oxlint --fix"
 language = "system"
 # JS/TS only: oxlint can't lint CSS/SCSS/JSON and fails when given only
 # those files (a CSS-only commit would be blocked).
 files = '\.(cjs|cts|js|jsx|mjs|mts|ts|tsx)$'
+
+[[repos.hooks]]
+id = "stylelint"
+name = "stylelint"
+entry = "bunx stylelint --fix"
+language = "system"
+# CSS only — the counterpart of the note above: oxlint handles JS/TS, stylelint
+# handles the stylesheets, so a CSS-only commit runs just this one.
+files = '\.css$'
 
 [[repos.hooks]]
 id = "bun-test"
@@ -39,8 +48,8 @@ pass_filenames = false
 files = '^(package\.json|bunfig\.toml|tsconfig.*\.json|.*\.(cts|mts|ts|tsx))$'
 
 [[repos.hooks]]
-id = "tsc-typecheck"
-name = "tsc typecheck"
+id = "bun-typecheck"
+name = "bun check"
 entry = "bun typecheck"
 language = "system"
 pass_filenames = false

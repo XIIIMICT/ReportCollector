@@ -42,6 +42,8 @@ from src.collab.locking import lock_project, lock_rows
 from src.collab.store import CollabStore, get_collab_store, lease_key
 from src.config import get_settings
 from src.database import get_session
+from src.kppk.constants import KPPK_PROJECT_KEY
+from src.kppk.service import NoKppkAccessError, resolve_kppk_access
 from src.raw_materials.service import NoRawMaterialsAccessError, resolve_raw_materials_access
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.models import RBlock
@@ -178,7 +180,7 @@ class RoomManager:
                     await websocket.send_json(message)
         except asyncio.CancelledError:
             return
-        except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError:
+        except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError, NoKppkAccessError:
             await self._close(websocket, 4403)
         except Exception:
             logger.exception("Collaboration writer failed; closing connection")
@@ -220,6 +222,21 @@ async def renovation_ws(
     )
 
 
+@router.websocket("/ws/kppk")
+async def kppk_ws(
+    websocket: WebSocket,
+    session: SessionDependency,
+) -> None:
+    """Collaboration room for the «КППК» dictionaries (admin-edited)."""
+    await _serve_room(
+        websocket,
+        session,
+        resolve_access=_resolve_kppk_access,
+        default_section="kppkPositions",
+        default_project=KPPK_PROJECT_KEY,
+    )
+
+
 async def _resolve_raw_materials_access(
     session: AsyncSession,
     identity: CurrentUserIdentity,
@@ -234,6 +251,15 @@ async def _resolve_renovation_access(
     identity: CurrentUserIdentity,
 ) -> tuple[User, list[Any], list[Any], RBlock | None]:
     return await resolve_renovation_access(session, identity)
+
+
+async def _resolve_kppk_access(
+    session: AsyncSession,
+    identity: CurrentUserIdentity,
+) -> tuple[User, list[Any], list[Any], None]:
+    """КППК access: no per-asset grants, every member reads the dictionaries."""
+    user, roles = await resolve_kppk_access(session, identity)
+    return user, roles, [], None
 
 
 async def _serve_room(
@@ -280,7 +306,7 @@ async def _serve_room(
             report_month,
         )
         user, roles, assets, block = await access.resolve(session)
-    except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError:
+    except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError, NoKppkAccessError:
         log_warning(
             logger,
             "collab.ws_access_rejected",
@@ -380,7 +406,7 @@ async def _serve_room(
                     owned_leases=owned_leases,
                     access=access,
                 )
-            except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError:
+            except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError, NoKppkAccessError:
                 await websocket.close(code=4403)
                 break
             except ValidationError as error:

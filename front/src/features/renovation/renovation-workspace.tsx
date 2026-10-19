@@ -1,25 +1,21 @@
 "use client";
 
-import { AlertDialog, Button, Card, Skeleton, Spinner, toast, Typography } from "@heroui/react";
-import {
-    CheckCircle,
-    Copy,
-    Download,
-    PasteClipboard,
-    Plus,
-    Redo,
-    Send,
-    Trash,
-    Undo,
-    WarningTriangle,
-} from "iconoir-react";
+import { AlertDialog, Button, Spinner, toast } from "@heroui/react";
+import { CheckCircle, Plus, Send, WarningTriangle } from "iconoir-react";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
+import {
+    createElement,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    startTransition,
+} from "react";
 
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
 import {
     AppHeader,
-    DeleteRecordDialog,
     type ArchiveItem,
     type ArchiveState,
     type ClipboardActions,
@@ -65,15 +61,34 @@ import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { SectionTabs } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
-import { isFromTextEditor } from "@/shared/keyboard";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
+import {
+    NO_ROW_SELECTED_REASON,
+    buildAddRowAction,
+    buildClipboardActions,
+    buildDeleteAction,
+    buildExportAction,
+    buildHistoryActions,
+    buildPrimaryAction,
+    DeleteRecordDialog,
+} from "@/shared/ui/action-items";
 import { ColumnFilterPopover } from "@/shared/ui/column-filter-popover";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
+import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
+import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
+import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
 import { RowGoToFilter } from "@/shared/ui/row-go-to-filter";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
+import { errorMessage, updateClipboardActions } from "@/shared/ui/text-helpers";
+import { refreshUndoCounters } from "@/shared/ui/undo-counters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
+import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
+import { WorkspaceLoadError } from "@/shared/ui/workspace-feedback";
+import { WorkspaceContent, WorkspaceFullscreenPanels } from "@/shared/ui/workspace-layout";
+import { useDeleteShortcut, useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
 
 import {
     RenovationDictionarySection,
@@ -86,6 +101,9 @@ import {
     type RenovationGridRow,
     type RenovationRowPatch,
 } from "./renovation-grid";
+
+/** Standard grid toasts: see `gridWarningHandlers`. */
+const gridWarnings = gridWarningHandlers({});
 
 export type RenovationWorkspaceProps = {
     currentUser: CurrentUser;
@@ -148,10 +166,6 @@ function toGridRow(
         __missingComponents: row.missingComponents,
         __invalidFields: row.invalidFields ?? [],
     };
-}
-
-function errorMessage(reason: unknown): string {
-    return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
 }
 
 /**
@@ -503,6 +517,9 @@ export function RenovationWorkspace({
         revealClass,
     } = useFullscreenPanels();
     const [gridStats, setGridStats] = useState<GridViewStats | null>(null);
+    // The dictionaries report their own stats: the plan's chunk-loaded numbers
+    // must not stick in the footer after switching tabs.
+    const [dictGridStats, setDictGridStats] = useState<GridViewStats | null>(null);
     const [selection, setSelection] = useState<{
         label: string | null;
         detail: string | null;
@@ -539,8 +556,9 @@ export function RenovationWorkspace({
     // Dictionary tab actions are delegated by the active dictionary section.
     const [dictDeleteState, setDictDeleteState] = useState<{
         canDelete: boolean;
+        blockedReason: string | null;
         onDelete: () => void;
-    }>({ canDelete: false, onDelete: () => {} });
+    }>({ canDelete: false, blockedReason: null, onDelete: () => {} });
     const [dictExportState, setDictExportState] = useState<{
         onExport: (scope: "all" | "visible") => void;
     }>({ onExport: () => {} });
@@ -554,18 +572,20 @@ export function RenovationWorkspace({
         canCreate: boolean;
         onCreate: () => void;
     }>({ canCreate: false, onCreate: () => {} });
-    // Display toggles for the active grid (rendered in the view strip). The
-    // Header pinning defaults on everywhere (plan and dictionaries).
-    const [planHeaderPinned, setPlanHeaderPinned] = useState(true);
-    const [planServiceColumns, setPlanServiceColumns] = useState(false);
-    const [dictHeaderPinned, setDictHeaderPinned] = useState(true);
-    const [dictServiceColumns, setDictServiceColumns] = useState(false);
+    // Display toggles of the project's grids (rendered in the view strip): one
+    // pair for the plan and the dictionaries, remembered between sessions —
+    // the same mechanism as every other project (`useViewState`).
+    const { headerPinned, showServiceColumns, setHeaderPinned, setShowServiceColumns } =
+        useViewState(activeProjectKey);
     const [pendingSkip, setPendingSkip] = useState<{
         actionId: number;
         direction: "undo" | "redo";
     } | null>(null);
     const pendingCommitRef = useRef<Promise<boolean> | null>(null);
     const gridRef = useRef<RenovationGridHandle>(null);
+    // The dictionaries report their completed selection here; the plan keeps
+    // its own richer `selection` (column numbers + header chain).
+    const [dictSelectionLabel, setDictSelectionLabel] = useState<string | null>(null);
     // When another tab of the same account takes over the selection, the grid
     // is cleared programmatically; the resulting empty presence update must be
     // swallowed (the server entry belongs to the other tab).
@@ -758,7 +778,11 @@ export function RenovationWorkspace({
         section: collabSection,
         reportMonth: null,
         enabled: collabEnabled,
-        visibleAssets: visibleAssetNames,
+        // Only the plan has an asset scope: its rows belong to assets, so a
+        // member is shown to colleagues whose assets overlap. The dictionaries
+        // have no asset dimension — there everyone sees everyone, like the
+        // «Сырьё» dictionaries and «КППК».
+        visibleAssets: isPlanSection ? visibleAssetNames : null,
         onCellChanged: handleCellChanged,
         onRowsChanged: refresh,
         onReconnect: refresh,
@@ -901,112 +925,53 @@ export function RenovationWorkspace({
     // re-read from the server on every version or tab switch.
     useEffect(() => {
         if (!collabEnabled) return;
-        void getUndoState(collabSection)
-            .then((state) => {
-                setUndoCount(state.canUndo ? 1 : 0);
-                setRedoCount(state.canRedo ? 1 : 0);
-            })
-            .catch(() => {});
+        void refreshUndoCounters(() => getUndoState(collabSection), setUndoCount, setRedoCount);
     }, [collabEnabled, collabSection, reloadKey, viewPlanId]);
 
     const applyUndoResult = useCallback(
         (result: RenovationUndoResult, direction: "undo" | "redo") => {
-            if (result.applied) {
-                setPendingSkip(null);
-                // Re-read the stack state from the server instead of local ±1:
-                // the counters only track presence (canUndo/canRedo), and a
-                // locally decremented count died after a single undo even when
-                // the server stack still had actions.
-                void getUndoState(collabSection)
-                    .then((state) => {
-                        setUndoCount(state.canUndo ? 1 : 0);
-                        setRedoCount(state.canRedo ? 1 : 0);
-                    })
-                    .catch(() => {});
-                refresh();
-                toast.success(direction === "undo" ? "Действие отменено" : "Действие возвращено");
-                return;
-            }
-            if (result.reason === "empty") {
-                setPendingSkip(null);
-                // The counters drifted from the actual stack — re-sync.
-                void getUndoState(collabSection)
-                    .then((state) => {
-                        setUndoCount(state.canUndo ? 1 : 0);
-                        setRedoCount(state.canRedo ? 1 : 0);
-                    })
-                    .catch(() => {});
-                return;
-            }
-            const conflict = result.conflicts[0];
-            if (conflict) {
-                setPendingSkip({ actionId: conflict.actionId, direction });
-                const owner = conflict.user || "другой пользователь";
-                const description =
-                    conflict.reason === "locked"
-                        ? `Ячейку сейчас редактирует ${owner}. Нажмите ещё раз, чтобы пропустить действие.`
-                        : `Данные изменил ${owner}. Нажмите ещё раз, чтобы пропустить это действие.`;
-                toast.warning("Действие не выполнено", { description });
-                return;
-            }
-            setPendingSkip(null);
+            applyHistoryResult({
+                result,
+                direction,
+                setPendingSkip,
+                refresh,
+                refreshState: () =>
+                    void refreshUndoCounters(
+                        () => getUndoState(collabSection),
+                        setUndoCount,
+                        setRedoCount,
+                    ),
+            });
         },
         [collabSection, refresh],
     );
 
     const runUndo = useCallback(async () => {
-        await pendingCommitRef.current;
-        try {
-            const result = await undoCells(
-                pendingSkip?.direction === "undo" ? pendingSkip.actionId : null,
-                collabSection,
-            );
-            applyUndoResult(result, "undo");
-        } catch (reason) {
-            toast.danger("Не удалось отменить действие", { description: errorMessage(reason) });
-        }
+        await runHistoryAction({
+            direction: "undo",
+            pendingWrite: pendingCommitRef.current,
+            pendingSkip,
+            request: (skip) => undoCells(skip, collabSection),
+            apply: applyUndoResult,
+        });
     }, [applyUndoResult, collabSection, pendingSkip]);
 
     const runRedo = useCallback(async () => {
-        await pendingCommitRef.current;
-        try {
-            const result = await redoCells(
-                pendingSkip?.direction === "redo" ? pendingSkip.actionId : null,
-                collabSection,
-            );
-            applyUndoResult(result, "redo");
-        } catch (reason) {
-            toast.danger("Не удалось вернуть действие", { description: errorMessage(reason) });
-        }
+        await runHistoryAction({
+            direction: "redo",
+            pendingWrite: pendingCommitRef.current,
+            pendingSkip,
+            request: (skip) => redoCells(skip, collabSection),
+            apply: applyUndoResult,
+        });
     }, [applyUndoResult, collabSection, pendingSkip]);
 
-    useEffect(() => {
-        // An approver cannot edit the plan — no undo/redo shortcuts either.
-        if (!collabEnabled || isApprover) return;
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (!(event.ctrlKey || event.metaKey)) return;
-            // event.code — the physical key: works in any layout
-            // (in Russian event.key gives «я»/«н»).
-            if (event.code !== "KeyZ" && event.code !== "KeyY") return;
-            const target = event.target as HTMLElement | null;
-            if (
-                target &&
-                (target.tagName === "INPUT" ||
-                    target.tagName === "TEXTAREA" ||
-                    target.isContentEditable)
-            )
-                return;
-            event.preventDefault();
-            if (event.code === "KeyZ") {
-                if (event.shiftKey) void runRedo();
-                else void runUndo();
-            } else {
-                void runRedo();
-            }
-        };
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [collabEnabled, isApprover, runRedo, runUndo]);
+    // An approver cannot edit the plan — no undo/redo shortcuts either.
+    useUndoRedoShortcuts({
+        enabled: collabEnabled && !isApprover,
+        onUndo: () => void runUndo(),
+        onRedo: () => void runRedo(),
+    });
 
     useEffect(() => {
         setUndoState({
@@ -1189,17 +1154,9 @@ export function RenovationWorkspace({
 
     // Ctrl+Delete — the shortcut advertised on the action-bar delete button:
     // opens the same confirmation dialog as the button press.
-    useEffect(() => {
-        if (!canDeleteRow) return;
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (event.code !== "Delete" || !(event.ctrlKey || event.metaKey)) return;
-            if (isFromTextEditor(event)) return;
-            event.preventDefault();
-            setDeleteOpen(true);
-        };
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [canDeleteRow]);
+    // Ctrl+Delete opens the same dialog as the action-bar button.
+    const openDeleteDialog = useCallback(() => setDeleteOpen(true), []);
+    useDeleteShortcut(canDeleteRow, openDeleteDialog);
 
     async function deleteSelectedRow() {
         const rowId = selection?.rowId;
@@ -1337,21 +1294,14 @@ export function RenovationWorkspace({
         [archiveItems, isArchive, refresh, viewPlanId],
     );
 
-    const handleClipboardState = useCallback((state: { canPaste: boolean }) => {
-        setClipboardState({
-            canPaste: state.canPaste,
-            onCopy: () => void gridRef.current?.copySelection(),
-            onPaste: () => void gridRef.current?.pasteIntoSelection(),
-        });
-    }, []);
-
     // The dictionary grid binds the copy/paste actions to its own handle.
     const handleDictClipboardState = useCallback(
         (state: { canPaste: boolean; onCopy: () => void; onPaste: () => void }) => {
-            setClipboardState(state);
+            updateClipboardActions(setClipboardState, state);
         },
         [],
     );
+    const handleClipboardState = useGridClipboardActions(gridRef, handleDictClipboardState);
 
     // Stable identity: the grid's selection effect runs on every prop change
     // and calls onClipboardStateChange — an inline handler would re-trigger it
@@ -1406,43 +1356,24 @@ export function RenovationWorkspace({
     );
 
     if (error || versionsError) {
-        return (
-            <div className="app-shell">
-                <div className="app-body">
-                    <Card className="startup-error-card">
-                        <Card.Content className="p-8">
-                            <h2 className="mb-2 text-lg font-semibold">
-                                Не удалось открыть рабочее пространство
-                            </h2>
-                            <p className="text-danger text-sm">{error ?? versionsError}</p>
-                        </Card.Content>
-                    </Card>
-                </div>
-            </div>
-        );
+        return <WorkspaceLoadError error={error ?? versionsError ?? "Неизвестная ошибка."} />;
     }
 
     if (isPlanSection && planError) {
         return (
-            <div className="app-shell">
-                <AppHeader
-                    user={user}
-                    projects={user.access ?? []}
-                    activeProjectKey={activeProjectKey}
-                    onProjectChange={onProjectChange}
-                    onOpenProfile={() => setProfileOpen(true)}
-                />
-                <div className="app-body">
-                    <Card className="startup-error-card">
-                        <Card.Content className="p-8">
-                            <h2 className="mb-2 text-lg font-semibold">
-                                Не удалось загрузить план
-                            </h2>
-                            <p className="text-danger text-sm">{planError}</p>
-                        </Card.Content>
-                    </Card>
-                </div>
-            </div>
+            <WorkspaceLoadError
+                error={planError}
+                title="Не удалось загрузить план"
+                header={
+                    <AppHeader
+                        user={user}
+                        projects={user.access ?? []}
+                        activeProjectKey={activeProjectKey}
+                        onProjectChange={onProjectChange}
+                        onOpenProfile={() => setProfileOpen(true)}
+                    />
+                }
+            />
         );
     }
 
@@ -1460,11 +1391,7 @@ export function RenovationWorkspace({
                     onOpenProfile={() => setProfileOpen(true)}
                 />
                 <div className="app-body">
-                    <div className="flex items-center gap-3 p-8">
-                        <Spinner size="sm" />
-                        <Typography>Загрузка...</Typography>
-                    </div>
-                    <Skeleton className="h-48 rounded-xl" />
+                    <GridLoadingSkeleton />
                 </div>
             </div>
         );
@@ -1532,13 +1459,12 @@ export function RenovationWorkspace({
                 compactLabel="Блок"
                 isDisabled={!showBlockFilter}
                 onOpenChange={setToolbarControlOpen}
-                items={[
-                    { id: "__all", name: "Все блоки" },
-                    ...blocks.map((block) => ({
-                        id: block,
-                        name: BLOCK_LABELS[block] ?? block,
-                    })),
-                ]}
+                allOption={{ label: "Все блоки", present: true }}
+                allValue="__all"
+                items={blocks.map((block) => ({
+                    id: block,
+                    name: BLOCK_LABELS[block] ?? block,
+                }))}
                 selectedKey={blockFilter ?? "__all"}
                 onSelectionChange={(key) =>
                     setBlockFilter(key && key !== "__all" ? String(key) : null)
@@ -1572,15 +1498,13 @@ export function RenovationWorkspace({
             {blockFilterSelect}
             {sectionTabsStrip}
             <ViewStrip
-                headerPinned={isPlanSection ? planHeaderPinned : dictHeaderPinned}
-                onHeaderPinnedChange={isPlanSection ? setPlanHeaderPinned : setDictHeaderPinned}
-                showServiceColumns={isPlanSection ? planServiceColumns : dictServiceColumns}
-                onShowServiceColumnsChange={
-                    isPlanSection ? setPlanServiceColumns : setDictServiceColumns
-                }
+                headerPinned={headerPinned}
+                onHeaderPinnedChange={setHeaderPinned}
+                showServiceColumns={showServiceColumns}
+                onShowServiceColumnsChange={setShowServiceColumns}
                 // The plan's reset also drops the header level heights.
                 {...(isPlanSection && {
-                    columnResetLabel: "Сброс ширины столбцов и высоты заголовка",
+                    columnResetLabel: "Сбросить ширину столбцов и высоту заголовка",
                 })}
                 exportPending={exportPending}
                 onExport={handleStripExport}
@@ -1594,49 +1518,22 @@ export function RenovationWorkspace({
         </div>
     );
 
-    const undoRedoActions: ActionItem[] = undoState.enabled
-        ? [
-              {
-                  id: "undo",
-                  label: "Отменить действие",
-                  icon: <Undo />,
-                  onPress: undoState.onUndo,
-                  disabled: undoState.offline || !undoState.canUndo,
-                  shortcut: { key: "Z", aria: "Control+Z" },
-                  group: "history",
-              } satisfies ActionItem,
-              {
-                  id: "redo",
-                  label: "Вернуть действие",
-                  icon: <Redo />,
-                  onPress: undoState.onRedo,
-                  disabled: undoState.offline || !undoState.canRedo,
-                  shortcut: { key: "Y", aria: "Control+Shift+Z" },
-                  group: "history",
-              } satisfies ActionItem,
-          ]
-        : [];
+    const undoRedoActions: ActionItem[] = buildHistoryActions({
+        show: undoState.enabled,
+        offline: undoState.offline,
+        canUndo: undoState.canUndo,
+        canRedo: undoState.canRedo,
+        onUndo: undoState.onUndo,
+        onRedo: undoState.onRedo,
+    });
 
-    const clipboardActions: ActionItem[] = [
-        {
-            id: "copy",
-            label: "Копировать",
-            icon: <Copy />,
-            onPress: clipboardState.onCopy,
-            disabled: isFullscreenPending,
-            shortcut: { key: "C", aria: "Control+C" },
-            group: "clipboard",
-        } satisfies ActionItem,
-        {
-            id: "paste",
-            label: "Вставить",
-            icon: <PasteClipboard />,
-            onPress: clipboardState.onPaste,
-            disabled: isFullscreenPending || !clipboardState.canPaste,
-            shortcut: { key: "V", aria: "Control+V" },
-            group: "clipboard",
-        } satisfies ActionItem,
-    ];
+    const clipboardActions: ActionItem[] = buildClipboardActions({
+        show: true,
+        disabled: isFullscreenPending,
+        canPaste: clipboardState.canPaste,
+        onCopy: clipboardState.onCopy,
+        onPaste: clipboardState.onPaste,
+    });
 
     // An approver cannot edit the table at all, so the row-editing and history
     // actions are removed (not merely disabled) for that role: no add/delete,
@@ -1653,81 +1550,46 @@ export function RenovationWorkspace({
     const actions: ActionItem[] = [
         ...planClipboardActions,
         ...(canEditRows ? undoRedoActions : []),
-        {
-            id: "export",
-            label: "Скачать в Excel",
-            icon: <Download />,
-            onPress: () => void handleStripExport("all"),
-            disabled: exportPending || isFullscreenPending,
+        buildExportAction({
             pending: exportPending,
-            group: "download",
-            menu: [
-                {
-                    id: "all",
-                    label: "Скачать всю таблицу",
-                    icon: <Download aria-hidden="true" />,
-                    onPress: () => void handleStripExport("all"),
-                },
-                {
-                    id: "visible",
-                    label: "Скачать видимую таблицу",
-                    icon: <Download aria-hidden="true" />,
-                    onPress: () => void handleStripExport("visible"),
-                },
-            ],
-        } satisfies ActionItem,
+            disabled: exportPending || isFullscreenPending,
+            onExport: (mode) => void handleStripExport(mode),
+        }),
         ...(!isArchive && canAddRows
-            ? [
-                  {
-                      id: "add",
-                      label: "Добавить строку",
-                      icon: <Plus />,
-                      onPress: () => {
-                          setAddAssetKey(null);
-                          setAddOpen(true);
-                      },
-                      disabled: readOnly || isFullscreenPending,
-                      group: "row" as const,
-                  } satisfies ActionItem,
-              ]
+            ? buildAddRowAction({
+                  show: true,
+                  label: "Добавить строку",
+                  disabled: readOnly || isFullscreenPending,
+                  onAdd: () => {
+                      setAddAssetKey(null);
+                      setAddOpen(true);
+                  },
+              })
             : []),
         ...(!isArchive && canEditRows
-            ? [
-                  {
-                      id: "delete",
-                      label: "Удалить строку",
-                      icon: <Trash />,
-                      onPress: () => setDeleteOpen(true),
-                      variant: "danger" as const,
-                      disabled: !canDeleteRow || isFullscreenPending,
-                      group: "row" as const,
-                  } satisfies ActionItem,
-              ]
+            ? buildDeleteAction({
+                  disabled: !canDeleteRow || isFullscreenPending,
+                  blockedReason:
+                      canDeleteRow && !isFullscreenPending ? null : NO_ROW_SELECTED_REASON,
+                  onDelete: () => setDeleteOpen(true),
+              })
             : []),
-        ...(canSubmit && !isArchive
-            ? [
-                  {
-                      id: "submit",
-                      label: "Отправить на согласование",
-                      icon: <Send />,
-                      onPress: () => setSubmitOpen(true),
-                      variant: "primary" as const,
-                      disabled: isMutationPending || !canSubmitPlan || isFullscreenPending,
-                  } satisfies ActionItem,
-              ]
-            : []),
-        ...(canApprovePlan && !isArchive
-            ? [
-                  {
-                      id: "approve",
-                      label: "Согласовать",
-                      icon: <CheckCircle />,
-                      onPress: () => setApproveOpen(true),
-                      variant: "primary" as const,
-                      disabled: isMutationPending || isFullscreenPending,
-                  } satisfies ActionItem,
-              ]
-            : []),
+        ...buildPrimaryAction({
+            show: canSubmit && !isArchive,
+            id: "submit",
+            label: "Отправить на согласование",
+            icon: createElement(Send),
+            disabled: isMutationPending || !canSubmitPlan || isFullscreenPending,
+            onPress: () => setSubmitOpen(true),
+        }),
+        ...buildPrimaryAction({
+            show: canApprovePlan && !isArchive,
+            id: "approve",
+            label: "Согласовать",
+            icon: createElement(CheckCircle),
+            disabled: isMutationPending || isFullscreenPending,
+            onPress: () => setApproveOpen(true),
+        }),
     ];
 
     // Dictionary tabs: export/undo/redo/copy/paste act on the dictionary grid;
@@ -1735,50 +1597,24 @@ export function RenovationWorkspace({
     const dictActions: ActionItem[] = [
         ...clipboardActions,
         ...undoRedoActions,
-        {
-            id: "export",
-            label: "Скачать в Excel",
-            icon: <Download />,
-            onPress: () => dictExportState.onExport("all"),
-            disabled: exportPending || isFullscreenPending,
+        buildExportAction({
             pending: exportPending,
-            group: "download",
-            menu: [
-                {
-                    id: "all",
-                    label: "Скачать всю таблицу",
-                    onPress: () => dictExportState.onExport("all"),
-                },
-                {
-                    id: "visible",
-                    label: "Скачать видимую таблицу",
-                    onPress: () => dictExportState.onExport("visible"),
-                },
-            ],
-        } satisfies ActionItem,
+            disabled: exportPending || isFullscreenPending,
+            onExport: dictExportState.onExport,
+        }),
         ...(dictUserCreateState.canCreate
-            ? [
-                  {
-                      id: "create-user",
-                      label: "Добавить пользователя",
-                      icon: <Plus />,
-                      onPress: dictUserCreateState.onCreate,
-                      disabled: isFullscreenPending,
-                  } satisfies ActionItem,
-              ]
+            ? buildAddRowAction({
+                  show: true,
+                  label: "Добавить пользователя",
+                  disabled: isFullscreenPending,
+                  onAdd: dictUserCreateState.onCreate,
+              })
             : []),
-        ...(dictDeleteState.canDelete
-            ? [
-                  {
-                      id: "delete",
-                      label: "Удалить строку",
-                      icon: <Trash />,
-                      onPress: dictDeleteState.onDelete,
-                      variant: "danger" as const,
-                      disabled: isFullscreenPending,
-                  } satisfies ActionItem,
-              ]
-            : []),
+        ...buildDeleteAction({
+            disabled: !dictDeleteState.canDelete || isFullscreenPending,
+            blockedReason: dictDeleteState.blockedReason,
+            onDelete: dictDeleteState.onDelete,
+        }),
     ];
 
     const footer = (
@@ -1787,9 +1623,11 @@ export function RenovationWorkspace({
                 {collabEnabled ? (
                     <FormStatus
                         room={room}
-                        selectionLabel={isPlanSection ? (selection?.label ?? null) : null}
+                        selectionLabel={
+                            isPlanSection ? (selection?.label ?? null) : dictSelectionLabel
+                        }
                         selectionDetail={isPlanSection ? (selection?.detail ?? null) : null}
-                        gridStats={isPlanSection ? gridStats : null}
+                        gridStats={isPlanSection ? gridStats : dictGridStats}
                     />
                 ) : null}
             </div>
@@ -1813,139 +1651,103 @@ export function RenovationWorkspace({
     return (
         <main className={isFullscreen ? "app-shell app-shell--fullscreen" : "app-shell"}>
             {header}
-            <div className="app-body">
-                <section className="workspace">
-                    <Card className="workspace-card">
-                        <Card.Content className="workspace-card__content">
-                            {toolbar}
-                            <div className="grid-viewport" aria-busy={isMutationPending}>
-                                {isPlanSection ? (
-                                    planTotals ? (
-                                        <>
-                                            <GridErrorBoundary>
-                                                <RenovationGrid
-                                                    ref={gridRef}
-                                                    fields={meta.fields}
-                                                    headerCells={meta.headerCells}
-                                                    catalogs={meta.catalogs}
-                                                    scopeKey={scopeKey}
-                                                    totalRows={planTotals.total}
-                                                    loadRows={loadRows}
-                                                    loadedRows={loadedRows}
-                                                    assetFilter={assetFilterSet}
-                                                    blockFilter={blockFilter}
-                                                    baselineBoundary={baselineBoundary}
-                                                    readOnly={readOnly}
-                                                    canEdit={canEditRows}
-                                                    editableFieldKeys={editableFieldKeys}
-                                                    userAssetIds={userAssetIds}
-                                                    remoteLocks={remoteLocks}
-                                                    remotePresence={remotePresence}
-                                                    remoteCellInfo={remoteCellInfo}
-                                                    onAcquireLease={room.acquireLeases}
-                                                    onReleaseLease={room.releaseLeases}
-                                                    onLockedCellEdit={(_, ownerName) =>
-                                                        toast.warning("Ячейка занята", {
-                                                            description: `Сейчас её занимает ${ownerName}.`,
-                                                        })
-                                                    }
-                                                    onCommit={commit}
-                                                    onCommitFailed={refresh}
-                                                    onValidationError={(message) =>
-                                                        toast.warning("Некорректное значение", {
-                                                            description: message,
-                                                        })
-                                                    }
-                                                    onPasteSkipped={(description) =>
-                                                        toast.warning(
-                                                            "Вставка выполнена не полностью",
-                                                            {
-                                                                description,
-                                                            },
-                                                        )
-                                                    }
-                                                    onSelectionChange={handleSelectionChange}
-                                                    onViewStatsChange={setGridStats}
-                                                    onClipboardStateChange={handleClipboardState}
-                                                    onLoadedRowsChange={handleLoadedRowsChange}
-                                                    onCenterPositionChange={
-                                                        handleCenterPositionChange
-                                                    }
-                                                    headerPinned={planHeaderPinned}
-                                                    showServiceColumns={planServiceColumns}
-                                                    summaryValues={summaryValues}
-                                                    rowPatches={rowPatches}
-                                                    scrollToPosition={scrollToPosition}
-                                                    activeFilterColumns={activeFilterColumns}
-                                                    onOpenColumnFilter={(column, anchor) =>
-                                                        setColumnFilterTarget({
-                                                            column,
-                                                            label:
-                                                                meta.fields.find(
-                                                                    (field) =>
-                                                                        field.dbName === column,
-                                                                )?.label ?? column,
-                                                            anchor,
-                                                        })
-                                                    }
-                                                    onOpenRowFilter={setRowFilterTarget}
-                                                />
-                                            </GridErrorBoundary>
-                                            {planTotals.total === 0 ? (
-                                                <div className="grid-empty">
-                                                    В этом плане пока нет строк.
-                                                </div>
-                                            ) : null}
-                                        </>
-                                    ) : (
-                                        <div className="grid-empty">
-                                            <Spinner size="sm" />
-                                            <Typography>Загрузка плана ремонта...</Typography>
-                                        </div>
-                                    )
-                                ) : (
-                                    <RenovationDictionarySection
-                                        section={dictSection ?? RENOVATION_ASSETS_SECTION}
-                                        room={room}
-                                        assets={meta.assets}
+            <WorkspaceContent toolbar={toolbar} footer={footer}>
+                <div className="grid-viewport" aria-busy={isMutationPending}>
+                    {isPlanSection ? (
+                        planTotals ? (
+                            <>
+                                <GridErrorBoundary>
+                                    <RenovationGrid
+                                        ref={gridRef}
+                                        fields={meta.fields}
+                                        headerCells={meta.headerCells}
                                         catalogs={meta.catalogs}
-                                        collabEnabled={collabEnabled}
-                                        refreshKey={reloadKey}
-                                        remoteCellValues={remoteCellValues}
-                                        onDeleteState={setDictDeleteState}
-                                        onExportState={setDictExportState}
-                                        onResetState={setDictResetState}
-                                        onUserCreateState={setDictUserCreateState}
-                                        headerPinned={dictHeaderPinned}
-                                        showServiceColumns={dictServiceColumns}
-                                        onClipboardStateChange={handleDictClipboardState}
-                                        onUndoHistoryChanged={() => {
-                                            setUndoCount((count) => count + 1);
-                                            setRedoCount(0);
-                                        }}
-                                        onAssetsChanged={refreshMeta}
+                                        scopeKey={scopeKey}
+                                        totalRows={planTotals.total}
+                                        loadRows={loadRows}
+                                        loadedRows={loadedRows}
+                                        assetFilter={assetFilterSet}
+                                        blockFilter={blockFilter}
+                                        baselineBoundary={baselineBoundary}
+                                        readOnly={readOnly}
+                                        canEdit={canEditRows}
+                                        editableFieldKeys={editableFieldKeys}
+                                        userAssetIds={userAssetIds}
+                                        remoteLocks={remoteLocks}
+                                        remotePresence={remotePresence}
+                                        remoteCellInfo={remoteCellInfo}
+                                        onAcquireLease={room.acquireLeases}
+                                        onReleaseLease={room.releaseLeases}
+                                        onLockedCellEdit={gridWarnings.onLockedCellEdit}
+                                        onCommit={commit}
+                                        onCommitFailed={refresh}
+                                        onValidationError={gridWarnings.onValidationError}
+                                        onPasteSkipped={gridWarnings.onPasteSkipped}
+                                        onSelectionChange={handleSelectionChange}
+                                        onViewStatsChange={setGridStats}
+                                        onClipboardStateChange={handleClipboardState}
+                                        onLoadedRowsChange={handleLoadedRowsChange}
+                                        onCenterPositionChange={handleCenterPositionChange}
+                                        headerPinned={headerPinned}
+                                        showServiceColumns={showServiceColumns}
+                                        summaryValues={summaryValues}
+                                        rowPatches={rowPatches}
+                                        scrollToPosition={scrollToPosition}
+                                        activeFilterColumns={activeFilterColumns}
+                                        onOpenColumnFilter={(column, anchor) =>
+                                            setColumnFilterTarget({
+                                                column,
+                                                label:
+                                                    meta.fields.find(
+                                                        (field) => field.dbName === column,
+                                                    )?.label ?? column,
+                                                anchor,
+                                            })
+                                        }
+                                        onOpenRowFilter={setRowFilterTarget}
                                     />
-                                )}
-                            </div>
-                            {footer}
-                        </Card.Content>
-                    </Card>
-                </section>
-            </div>
-
-            {isFullscreen && !isFullscreenPending ? (
-                <>
-                    <div className={revealClass("top")}>
-                        <div className="fullscreen-panel fullscreen-panel--top">
-                            {header}
-                            {toolbar}
-                        </div>
-                    </div>
-                    <div className={revealClass("bottom")}>
-                        <div className="fullscreen-panel fullscreen-panel--bottom">{footer}</div>
-                    </div>
-                </>
-            ) : null}
+                                </GridErrorBoundary>
+                                {planTotals.total === 0 ? (
+                                    <div className="grid-empty">В этом плане пока нет строк.</div>
+                                ) : null}
+                            </>
+                        ) : (
+                            <GridLoadingSkeleton />
+                        )
+                    ) : (
+                        <RenovationDictionarySection
+                            section={dictSection ?? RENOVATION_ASSETS_SECTION}
+                            room={room}
+                            assets={meta.assets}
+                            catalogs={meta.catalogs}
+                            collabEnabled={collabEnabled}
+                            refreshKey={reloadKey}
+                            remoteCellValues={remoteCellValues}
+                            onDeleteState={setDictDeleteState}
+                            onExportState={setDictExportState}
+                            onResetState={setDictResetState}
+                            onUserCreateState={setDictUserCreateState}
+                            headerPinned={headerPinned}
+                            showServiceColumns={showServiceColumns}
+                            onClipboardStateChange={handleDictClipboardState}
+                            onUndoHistoryChanged={() => {
+                                setUndoCount((count) => count + 1);
+                                setRedoCount(0);
+                            }}
+                            onAssetsChanged={refreshMeta}
+                            onSelectionLabelChange={setDictSelectionLabel}
+                            onGridStatsChange={setDictGridStats}
+                        />
+                    )}
+                </div>
+            </WorkspaceContent>
+            <WorkspaceFullscreenPanels
+                visible={isFullscreen && !isFullscreenPending}
+                revealClass={revealClass}
+                header={header}
+                toolbar={toolbar}
+                footer={footer}
+            />
 
             <DeleteRecordDialog
                 isOpen={deleteOpen}

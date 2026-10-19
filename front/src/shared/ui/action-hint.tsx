@@ -5,12 +5,12 @@ import { createPortal } from "react-dom";
 
 type Modifier = "ctrl" | "shift" | "alt" | "meta";
 
-/** HeroUI `KbdKey`-compatible labels for our modifiers. */
-const KBD_KEY: Record<Modifier, "ctrl" | "shift" | "alt" | "command"> = {
-    ctrl: "ctrl",
-    shift: "shift",
-    alt: "alt",
-    meta: "command",
+/** Written-out modifier labels — clearer than the ⌃⌥⇧ glyphs. */
+const MODIFIER_LABEL: Record<Modifier, string> = {
+    ctrl: "Ctrl",
+    shift: "Shift",
+    alt: "Alt",
+    meta: "⌘",
 };
 
 /** Parse an `aria-keyshortcuts` value («Control+Shift+Z») into Kbd parts. */
@@ -41,8 +41,14 @@ export function parseShortcut(aria: string): { modifiers: Modifier[]; keyLabel: 
  * deliberately: react-aria's tooltip portals an `absolute` box against the
  * body, which grows the document and flashes a stray page scrollbar.
  *
- * `modifiers` are rendered as `Kbd.Abbr` keys (`ctrl`, `shift`) and `key` as the
- * final `Kbd.Content`; both are omitted when the action has no shortcut.
+ * Two kinds of hints share this box:
+ *  • a shortcut — only the keys («Ctrl Z»), no words: the label is already on
+ *    the button and a repetition only adds noise;
+ *  • a blocked action — the reason in words (there are no keys to show).
+ *
+ * Modifiers are written out (`Ctrl`, `Shift`, `Alt`) instead of HeroUI's Kbd
+ * glyphs («⌃», «⇧»): the glyphs are not universally understood, and mixing a
+ * glyph with a letter reads worse than «Ctrl Z».
  */
 export function ActionHint({
     left,
@@ -58,17 +64,39 @@ export function ActionHint({
     modifiers?: Modifier[];
 }) {
     if (typeof document === "undefined") return null;
+    // The hint is centered over the hovered button, which pushes half of it
+    // off-screen for the rightmost actions (delete sits at the bar's end).
+    // Clamp the whole box to the viewport: the anchor is corrected by the
+    // measured overflow, so a long reason never gets cut by the screen edge.
+    const margin = 12;
+    const viewport = window.innerWidth;
     return createPortal(
-        <div className="shortcut-tooltip action-bar__hint" role="tooltip" style={{ left, top }}>
-            <span>{label}</span>
+        <div
+            ref={(node) => {
+                if (!node) return;
+                const width = node.getBoundingClientRect().width;
+                const half = width / 2;
+                const minLeft = half + margin;
+                const maxLeft = viewport - half - margin;
+                const clamped = Math.min(Math.max(left, minLeft), Math.max(minLeft, maxLeft));
+                if (Math.abs(clamped - left) > 0.5) {
+                    node.style.left = `${clamped}px`;
+                }
+            }}
+            className="shortcut-tooltip action-bar__hint"
+            role="tooltip"
+            style={{ left, top }}
+        >
             {keyLabel ? (
-                <Kbd variant="light">
+                <span className="action-bar__hint-keys">
                     {modifiers.map((modifier) => (
-                        <Kbd.Abbr key={modifier} keyValue={KBD_KEY[modifier]} />
+                        <Kbd key={modifier}>{MODIFIER_LABEL[modifier]}</Kbd>
                     ))}
-                    <Kbd.Content>{keyLabel}</Kbd.Content>
-                </Kbd>
-            ) : null}
+                    <Kbd>{keyLabel}</Kbd>
+                </span>
+            ) : (
+                <span>{label}</span>
+            )}
         </div>,
         document.body,
     );

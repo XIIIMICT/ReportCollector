@@ -724,6 +724,12 @@ async def apply_cell_value(
     if field == "__created":
         await _apply_created_record(session, target_table=target_table, row_id=row_id, snapshot=value, user=user)
         return
+    if field == "__deleted":
+        if target_table == User.__tablename__:
+            await _apply_deleted_user(session, row_id=row_id, snapshot=value)
+            return
+        await _apply_deleted_record(session, target_table=target_table, row_id=row_id, snapshot=value)
+        return
     if target_table == MOVEMENT_TABLE:
         movement = await session.get(MaterialMovement, row_id)
         if movement is None:
@@ -950,6 +956,244 @@ async def _apply_created_record(
         return
     message = f"Неизвестная таблица «{target_table}»."
     raise CellValidationError(message)
+
+
+async def _apply_deleted_user(session: AsyncSession, *, row_id: UUID, snapshot: object) -> None:
+    """
+    Undo/redo of a deleted «Сырьё» user: the project link and the asset grants.
+
+    The account follows the snapshot: restoring it clears the orphan soft-delete,
+    redo removes the link again (and soft-deletes the account when it is the
+    last one).
+    """
+    project_id = (
+        await session.exec(select(col(Project.id)).where(col(Project.key) == RAW_MATERIALS_PROJECT_KEY))
+    ).first()
+    if project_id is None:
+        return
+    link = await session.get(UserRole, (row_id, project_id))
+    if snapshot is None:
+        if link is None:
+            return
+        grants = (await session.exec(select(RawMaterialUserAsset).where(RawMaterialUserAsset.user_id == row_id))).all()
+        for grant in grants:
+            await session.delete(grant)
+        await session.delete(link)
+        await session.flush()
+        await _soft_delete_if_orphaned(session, row_id)
+        return
+    if not isinstance(snapshot, dict):
+        raise _DICT_CREATED_SNAPSHOT_INVALID
+    user = await session.get(User, row_id)
+    if user is None:
+        return
+    if user.is_deleted:
+        user.is_deleted = False
+        user.updated_at = datetime.now(UTC)
+        session.add(user)
+    fullname = snapshot.get("fullname")
+    if isinstance(fullname, str) and fullname:
+        user.name = fullname
+        session.add(user)
+    now = datetime.now(UTC)
+    if link is None:
+        link = UserRole(
+            user_id=row_id,
+            project_id=project_id,
+            role=ProjectRole.ADMIN if snapshot.get("isAdmin") else ProjectRole.ASSET_WORKER,
+            is_active=bool(snapshot.get("isActive", True)),
+            created_at=now,
+            updated_at=now,
+        )
+    else:
+        link.role = ProjectRole.ADMIN if snapshot.get("isAdmin") else ProjectRole.ASSET_WORKER
+        link.is_active = bool(snapshot.get("isActive", True))
+        link.updated_at = now
+    session.add(link)
+    await session.flush()
+    asset_ids = snapshot.get("assetIds")
+    for asset_id in asset_ids if isinstance(asset_ids, list) else []:
+        grant = await session.get(RawMaterialUserAsset, (row_id, UUID(str(asset_id))))
+        if grant is None:
+            session.add(
+                RawMaterialUserAsset(
+                    user_id=row_id,
+                    asset_id=UUID(str(asset_id)),
+                    created_at=now,
+                )
+            )
+
+
+async def delete_raw_project_user(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    user_id: UUID,
+) -> list[AppliedCell]:
+    """
+    Delete a user from the «Сырьё» project.
+
+    The «Сырьё» link and the per-asset grants go; the account itself is
+    soft-deleted only when no project link is left, so the person really
+    disappears from the dictionaries. Journaled as an undoable «__deleted».
+    """
+    user = await session.get(User, user_id)
+    if user is None or user.is_deleted:
+        raise _DICT_REF_USER_NOT_FOUND
+    link = await session.get(UserRole, (user_id, project_id))
+    if link is None:
+        raise _DICT_REF_USER_NOT_FOUND
+    asset_rows = (await session.exec(select(RawMaterialUserAsset).where(RawMaterialUserAsset.user_id == user_id))).all()
+    snapshot = {
+        "email": str(user.email or ""),
+        "fullname": user.name or "",
+        "isAdmin": link.role == ProjectRole.ADMIN,
+        "isActive": link.is_active,
+        "assetIds": [str(row.asset_id) for row in asset_rows],
+    }
+    for row in asset_rows:
+        await session.delete(row)
+    await session.delete(link)
+    await session.flush()
+    await _soft_delete_if_orphaned(session, user_id)
+    return [
+        AppliedCell(
+            target_table=User.__tablename__,
+            row_id=user_id,
+            field="__deleted",
+            old_value=snapshot,
+            new_value=None,
+        )
+    ]
+
+
+async def _soft_delete_if_orphaned(session: AsyncSession, user_id: UUID) -> None:
+    """
+    Close the account once it has no project link left.
+
+    A user is visible in «Пользователи» through a link; with the last one gone
+    the account would linger as a ghost, so it is soft-deleted instead. The
+    row and its history stay for the journal/undo.
+    """
+    raw_link = (await session.exec(select(UserRole).where(col(UserRole.user_id) == user_id))).first()
+    user = await session.get(User, user_id)
+    if user is None or raw_link is not None:
+        return
+    user.is_deleted = True
+    user.updated_at = datetime.now(UTC)
+    session.add(user)
+    await session.flush()
+
+
+async def _apply_deleted_record(
+    session: AsyncSession,
+    *,
+    target_table: str,
+    row_id: UUID,
+    snapshot: object,
+) -> None:
+    """
+    Undo/redo of a dictionary record deletion.
+
+    The delete endpoints journal an «__deleted» pseudo-cell whose old value is
+    the record snapshot and whose new value is `None`. Undo (value=snapshot)
+    restores the row with its original id and links; redo (value=None) deletes
+    it again through the same service path, so the business rules (a row used
+    by «Движение»/«Цены» can't be deleted) still apply.
+
+    A stale state is a no-op, not an error: restoring an existing row does
+    nothing, deleting an already-deleted one does nothing.
+    """
+    if snapshot is None:
+        if target_table == RawMaterialAsset.__tablename__:
+            if await session.get(RawMaterialAsset, row_id) is None:
+                return
+            await delete_asset(session, asset_id=row_id)
+            return
+        if target_table == DeliveryBasis.__tablename__:
+            if await session.get(DeliveryBasis, row_id) is None:
+                return
+            await delete_delivery_basis(session, basis_id=row_id)
+            return
+        if target_table == RawMaterial.__tablename__:
+            if await session.get(RawMaterial, row_id) is None:
+                return
+            await delete_raw_material(session, raw_material_id=row_id)
+            return
+        message = f"Неизвестная таблица «{target_table}»."
+        raise CellValidationError(message)
+    if not isinstance(snapshot, dict):
+        raise _DICT_CREATED_SNAPSHOT_INVALID
+    name = snapshot.get("name")
+    created_at = _snapshot_datetime(snapshot.get("createdAt"))
+    updated_at = _snapshot_datetime(snapshot.get("updatedAt")) or created_at
+    updated_by = str(snapshot.get("updatedBy") or "")
+    if target_table == RawMaterialAsset.__tablename__:
+        if await session.get(RawMaterialAsset, row_id) is not None:
+            return
+        session.add(
+            RawMaterialAsset(
+                id=row_id,
+                name=str(name),
+                created_at=created_at,
+                updated_at=updated_at,
+                updated_by=updated_by,
+            )
+        )
+        for user_id in snapshot.get("userLinks") or []:
+            session.add(RawMaterialUserAsset(user_id=UUID(str(user_id)), asset_id=row_id))
+        return
+    if target_table == DeliveryBasis.__tablename__:
+        if await session.get(DeliveryBasis, row_id) is not None:
+            return
+        session.add(
+            DeliveryBasis(
+                id=row_id,
+                name=str(name),
+                created_at=created_at,
+                updated_at=updated_at,
+                updated_by=updated_by,
+            )
+        )
+        return
+    if target_table == RawMaterial.__tablename__:
+        if await session.get(RawMaterial, row_id) is not None:
+            return
+        session.add(
+            RawMaterial(
+                id=row_id,
+                name=str(name),
+                created_at=created_at,
+                updated_at=updated_at,
+                updated_by=updated_by,
+            )
+        )
+        await session.flush()
+        raw_asset_ids = snapshot.get("assetIds")
+        for asset_id in raw_asset_ids if isinstance(raw_asset_ids, list) else []:
+            session.add(
+                AssetRawMaterial(
+                    asset_id=UUID(str(asset_id)),
+                    raw_material_id=row_id,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                    updated_by=updated_by,
+                )
+            )
+        return
+    message = f"Неизвестная таблица «{target_table}»."
+    raise CellValidationError(message)
+
+
+def _snapshot_datetime(value: object) -> datetime:
+    """Parse a journaled ISO timestamp; the current time when it is unusable."""
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return datetime.now(UTC)
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    return datetime.now(UTC)
 
 
 async def _arms_by_id(session: AsyncSession, arm_ids: set[UUID]) -> dict[UUID, AssetRawMaterial]:
@@ -1200,7 +1444,14 @@ async def update_raw_material(
 
 
 @project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
-async def delete_raw_material(session: AsyncSession, *, raw_material_id: UUID) -> None:
+async def delete_raw_material(session: AsyncSession, *, raw_material_id: UUID) -> list[AppliedCell]:
+    """
+    Delete a raw-material item and journal it as an undoable «__deleted» cell.
+
+    The snapshot keeps the row and the assets it was linked to, so the undo
+    restores both (the links carry no data — an item is only deletable while
+    its movement/price rows are empty).
+    """
     raw_material = await session.get(RawMaterial, raw_material_id)
     if raw_material is None:
         raise _DICT_REF_RAW_MATERIAL_NOT_FOUND
@@ -1213,8 +1464,24 @@ async def delete_raw_material(session: AsyncSession, *, raw_material_id: UUID) -
             raise _DICT_REF_RAW_MATERIAL_USED
         await _delete_arm_rows(session, link.id)
         await session.delete(link)
+    snapshot = {
+        "name": raw_material.name,
+        "assetIds": [str(link.asset_id) for link in links],
+        "createdAt": raw_material.created_at.isoformat(),
+        "updatedAt": raw_material.updated_at.isoformat(),
+        "updatedBy": raw_material.updated_by,
+    }
     await session.delete(raw_material)
     await session.flush()
+    return [
+        AppliedCell(
+            target_table=RawMaterial.__tablename__,
+            row_id=raw_material_id,
+            field="__deleted",
+            old_value=snapshot,
+            new_value=None,
+        )
+    ]
 
 
 @project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
@@ -1264,7 +1531,12 @@ async def update_asset(
 
 
 @project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
-async def delete_asset(session: AsyncSession, *, asset_id: UUID) -> None:
+async def delete_asset(session: AsyncSession, *, asset_id: UUID) -> list[AppliedCell]:
+    """
+    Delete an asset and journal it as an undoable «__deleted» cell.
+
+    The snapshot keeps the row and its per-user grants; the undo restores both.
+    """
     asset = await session.get(RawMaterialAsset, asset_id)
     if asset is None:
         raise _DICT_REF_ASSET_NOT_FOUND
@@ -1278,6 +1550,13 @@ async def delete_asset(session: AsyncSession, *, asset_id: UUID) -> None:
     user_links = (
         await session.exec(select(RawMaterialUserAsset).where(col(RawMaterialUserAsset.asset_id) == asset_id))
     ).all()
+    snapshot = {
+        "name": asset.name,
+        "userLinks": [str(link.user_id) for link in user_links],
+        "createdAt": asset.created_at.isoformat(),
+        "updatedAt": asset.updated_at.isoformat(),
+        "updatedBy": asset.updated_by,
+    }
     for link in user_links:
         await session.delete(link)
     await session.delete(asset)
@@ -1288,6 +1567,15 @@ async def delete_asset(session: AsyncSession, *, asset_id: UUID) -> None:
         # (a race) — surface a clean 409, never a 500.
         await session.rollback()
         raise _DICT_REF_ASSET_USED from error
+    return [
+        AppliedCell(
+            target_table=RawMaterialAsset.__tablename__,
+            row_id=asset_id,
+            field="__deleted",
+            old_value=snapshot,
+            new_value=None,
+        )
+    ]
 
 
 @project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
@@ -1337,7 +1625,8 @@ async def update_delivery_basis(
 
 
 @project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
-async def delete_delivery_basis(session: AsyncSession, *, basis_id: UUID) -> None:
+async def delete_delivery_basis(session: AsyncSession, *, basis_id: UUID) -> list[AppliedCell]:
+    """Delete a delivery basis and journal it as an undoable «__deleted» cell."""
     basis = await session.get(DeliveryBasis, basis_id)
     if basis is None:
         raise _DICT_REF_BASIS_NOT_FOUND
@@ -1346,6 +1635,12 @@ async def delete_delivery_basis(session: AsyncSession, *, basis_id: UUID) -> Non
     ).first()
     if price is not None:
         raise _DICT_REF_BASIS_USED
+    snapshot = {
+        "name": basis.name,
+        "createdAt": basis.created_at.isoformat(),
+        "updatedAt": basis.updated_at.isoformat(),
+        "updatedBy": basis.updated_by,
+    }
     await session.delete(basis)
     try:
         await session.flush()
@@ -1355,6 +1650,15 @@ async def delete_delivery_basis(session: AsyncSession, *, basis_id: UUID) -> Non
         # never a 500.
         await session.rollback()
         raise _DICT_REF_BASIS_USED from error
+    return [
+        AppliedCell(
+            target_table=DeliveryBasis.__tablename__,
+            row_id=basis_id,
+            field="__deleted",
+            old_value=snapshot,
+            new_value=None,
+        )
+    ]
 
 
 @project_write(RAW_MATERIALS_PROJECT_KEY, exclusive=True)
