@@ -1579,10 +1579,31 @@ body {
 
 /* Override both HeroUI branches: Select has a trigger-based min-width,
    Autocomplete a trigger-based width/max-width. Size by rendered content only. */
+/*
+ * Width of an open SmartSelect list.
+ *
+ * The list sizes to its CONTENT (`max-content`) — a narrow «Блок» / «Архив» /
+ * «Бизнес-план» trigger must not squeeze its options. A long text value would
+ * then stretch the panel across the whole screen, so the content is capped and
+ * the item text WRAPS inside the cap instead of being cut.
+ *
+ * The cap is responsive: on a wide screen it is 25% of the viewport, with a
+ * 45rem ceiling — so the widest it ever gets is 720px, which lands exactly at
+ * 2880px wide (the requested 25%). The 22rem floor takes over below ~88rem, so
+ * on a laptop the list is a comfortable 352px rather than a sliver; phones
+ * fall back to `100vw - 2rem`.
+ */
 .smart-select-popover {
     width: max-content;
     min-width: 0;
-    max-width: calc(100vw - 2rem);
+    max-width: clamp(22rem, 25vw, 45rem);
+}
+
+/* Narrow screens: the clamp's floor and the viewport bound decide. */
+@media (width < 64rem) {
+    .smart-select-popover {
+        max-width: calc(100vw - 2rem);
+    }
 }
 
 .smart-select-popover .list-box,
@@ -1633,12 +1654,22 @@ body {
    gap of 8px reads tighter here. */
 .smart-select-popover .list-box-item,
 .column-filter__popover .list-box-item {
+    /* `max-content` makes the row as wide as its text so the panel can size
+       to the longest option; `max-width: 100%` lets it shrink back to the
+       panel's cap, where the label wraps instead of overflowing. */
     width: max-content;
+    max-width: 100%;
     min-width: 100%;
     gap: 0.5rem;
     /* Pull the left edge in: the row's own `px-2` plus the tick's box made the
        indicator look inset relative to the popover edge. */
     padding-inline-start: 0.25rem;
+    /* Wrapping labels: a long value breaks inside the capped panel rather than
+       being clipped. `overflow-wrap: anywhere` also splits an unbroken token
+       (a pasted code, a URL), which would otherwise widen the row past the
+       cap. */
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 /* With the indicator back in the flow the reserved right padding is dead
