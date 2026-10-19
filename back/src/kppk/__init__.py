@@ -1,9 +1,9 @@
 """«КППК» project: source-table copies, dictionaries and «Продуктовые позиции»."""
 
 from .models import (
+    KppkCost,
     KppkOrg,
     KppkOrgProduct,
-    KppkPeriod,
     KppkProduct,
     KppkRaw,
     KppkRealization,
@@ -11,9 +11,9 @@ from .models import (
 )
 
 __all__ = [
+    "KppkCost",
     "KppkOrg",
     "KppkOrgProduct",
-    "KppkPeriod",
     "KppkProduct",
     "KppkRaw",
     "KppkRealization",

@@ -1,21 +1,34 @@
 """Read/write operations for the КППК «Реализация» slices."""
 
-from collections.abc import Sequence
+from calendar import monthrange
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.collab.locking import project_write
 from src.config import get_settings
 from src.kppk.constants import KPPK_PROJECT_KEY
-from src.kppk.models import KppkOrg, KppkPeriod, KppkProduct, KppkRealization, KppkRealizationPlan
+from src.kppk.models import KppkCost, KppkOrg, KppkProduct, KppkRealization, KppkRealizationPlan
 
 from .core import KppkNotFoundError, KppkValidationError
-from .schemas import KppkRealizationRowRead
+from .schemas import KppkCostRowRead, KppkCostViewRead, KppkRealizationPeriodRead, KppkRealizationRowRead
+
+COST_ATTRIBUTES = {
+    "fullCostBp": "full_cost_bp",
+    "productionCostBp": "production_cost_bp",
+    "variableCostBp": "variable_cost_bp",
+    "fullCostOp": "full_cost_op",
+    "productionCostOp": "production_cost_op",
+    "variableCostOp": "variable_cost_op",
+    "fullCostFact": "full_cost_fact",
+    "productionCostFact": "production_cost_fact",
+    "variableCostFact": "variable_cost_fact",
+}
 
 if TYPE_CHECKING:
     from src.auth.models import User
@@ -25,9 +38,9 @@ if TYPE_CHECKING:
 MAX_PRODUCT_NUMBER = 1_000_000
 
 REALIZATION_SLICE_FIELDS: dict[str, tuple[str, ...]] = {
-    "bp": ("buyoutBpPlan", "fcaPriceBpPlan", "monthBpPlan", "fcaPriceMarketBpPlan"),
-    "op": ("buyoutMaxPlan", "fcaPriceMaxPlan", "monthMaxPlan", "fcaPriceMarketMaxPlan"),
-    "fact": ("buyoutFact", "fcaPriceFact", "fact", "fcaPriceMarketFact"),
+    "bp": ("buyoutBpPlan", "fcaPriceBpPlan", "monthBpPlan", "fcaPriceMarketBpPlan", "exciseBp"),
+    "op": ("buyoutMaxPlan", "fcaPriceMaxPlan", "monthMaxPlan", "fcaPriceMarketMaxPlan", "exciseMaxPlan"),
+    "fact": ("buyoutFact", "fcaPriceFact", "fact", "fcaPriceMarketFact", "exciseFact"),
 }
 
 _REALIZATION_FIELD_ATTRIBUTES: dict[str, str] = {
@@ -43,41 +56,49 @@ _REALIZATION_FIELD_ATTRIBUTES: dict[str, str] = {
     "fcaPriceFact": "fca_price_fact",
     "fact": "fact",
     "fcaPriceMarketFact": "fca_price_market_fact",
+    "exciseBp": "excise_bp",
+    "exciseMaxPlan": "excise_max_plan",
+    "exciseFact": "excise_fact",
 }
 
-
-def _realization_period_from_rows(
-    periods: Sequence[KppkPeriod],
-    plan_period_ids: set[int],
-) -> KppkPeriod:
-    """Pick the newest period among those referenced, else the newest row."""
-    referenced = [period for period in periods if period.period_id is not None and period.period_id in plan_period_ids]
-    pool = referenced or periods
-    return max(pool, key=lambda period: (period.first_date, period.period_id or 0))
+MONTH_NAMES = (
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
+)
 
 
 async def read_current_period(
     session: AsyncSession, *, month: int | None = None, year: int | None = None
-) -> KppkPeriod:
+) -> KppkRealizationPeriodRead:
     """Return the period the «Реализация» form works on."""
-    periods = (await session.exec(select(KppkPeriod))).all()
-    if not periods:
-        message = "Периоды не заведены — заведите справочник «Периоды»."
+    if (month is None) != (year is None):
+        message = "Укажите месяц и год вместе."
         raise KppkValidationError(message)
     if month is not None and year is not None:
-        named = [
-            period
-            for period in periods
-            if period.first_date is not None and period.first_date.year == year and period.first_date.month == month
-        ]
-        if not named:
-            message = f"Период {month:02d}.{year} в справочнике «Периоды» не найден."
-            raise KppkValidationError(message)
-        return max(named, key=lambda period: period.period_id or 0)
-    plan_period_ids = {
-        row for row in (await session.exec(select(col(KppkRealizationPlan.period_id)).distinct())).all() if row
-    }
-    return _realization_period_from_rows(list(periods), plan_period_ids)
+        period = date(year, month, 1)
+    else:
+        period = (await session.exec(select(func.max(col(KppkRealizationPlan.period_date))))).one()
+        if period is None:
+            period = (await session.exec(select(func.max(col(KppkRealization.period_date))))).one()
+        if period is None:
+            period = (await session.exec(select(func.max(col(KppkCost.period_date))))).one()
+        period = period or datetime.now(UTC).date().replace(day=1)
+    return KppkRealizationPeriodRead(
+        periodDate=period,
+        monthName=MONTH_NAMES[period.month - 1],
+        yearNum=period.year,
+        repDate=date(period.year, period.month, monthrange(period.year, period.month)[1]),
+    )
 
 
 async def read_market_codes(session: AsyncSession) -> list[str]:
@@ -122,6 +143,8 @@ def _plan_realization_row_read(
         fcaPriceMaxPlan=row.fca_price_max_plan,
         monthMaxPlan=row.month_max_plan,
         fcaPriceMarketMaxPlan=row.fca_price_market_max_plan,
+        exciseBp=row.excise_bp,
+        exciseMaxPlan=row.excise_max_plan,
     )
 
 
@@ -139,7 +162,52 @@ def _fact_realization_row_read(
         fcaPriceFact=row.fca_price_fact,
         fact=row.fact,
         fcaPriceMarketFact=row.fca_price_market_fact,
+        exciseFact=row.excise_fact,
     )
+
+
+def _cost_row_read(row: KppkCost, number: int | None) -> KppkCostRowRead:
+    return KppkCostRowRead(
+        id=row.id,
+        product=row.product,
+        productNum=number,
+        fullCostBp=row.full_cost_bp,
+        productionCostBp=row.production_cost_bp,
+        variableCostBp=row.variable_cost_bp,
+        fullCostOp=row.full_cost_op,
+        productionCostOp=row.production_cost_op,
+        variableCostOp=row.variable_cost_op,
+        fullCostFact=row.full_cost_fact,
+        productionCostFact=row.production_cost_fact,
+        variableCostFact=row.variable_cost_fact,
+    )
+
+
+async def read_cost_rows(
+    session: AsyncSession, *, org_id: UUID, month: int | None = None, year: int | None = None
+) -> KppkCostViewRead:
+    if await session.get(KppkOrg, org_id) is None:
+        message = "ДЗО не найдено."
+        raise KppkNotFoundError(message)
+    period = await read_current_period(session, month=month, year=year)
+    rows = list(
+        (
+            await session.exec(
+                select(KppkCost).where(col(KppkCost.org_id) == org_id, col(KppkCost.period_date) == period.periodDate)
+            )
+        ).all()
+    )
+    numbers = await read_product_numbers(session)
+    rows.sort(
+        key=lambda row: (
+            _product_number(numbers, row.product)
+            if _product_number(numbers, row.product) is not None
+            else MAX_PRODUCT_NUMBER,
+            row.product,
+        )
+    )
+    result = [_cost_row_read(row, _product_number(numbers, row.product)) for row in rows]
+    return KppkCostViewRead(period=period, rows=result)
 
 
 async def read_product_numbers(session: AsyncSession) -> dict[str, int]:
@@ -183,8 +251,6 @@ async def read_realization_rows(
     if org is None:
         message = "ДЗО не найдено."
         raise KppkNotFoundError(message)
-    if org.org_id is None:
-        return []
     period = await read_current_period(session, month=month, year=year)
     markets = await read_market_codes(session)
     region_order = {code: index for index, code in enumerate(markets)}
@@ -207,9 +273,9 @@ async def read_realization_rows(
             (
                 await session.exec(
                     select(KppkRealization).where(
-                        col(KppkRealization.org_id) == org.org_id,
-                        col(KppkRealization.period_id) == period.period_id,
-                        col(KppkRealization.rep_date) == period.last_date,
+                        col(KppkRealization.org_id) == org.id,
+                        col(KppkRealization.period_date) == period.periodDate,
+                        col(KppkRealization.rep_date) == period.repDate,
                     )
                 )
             ).all()
@@ -220,9 +286,9 @@ async def read_realization_rows(
         (
             await session.exec(
                 select(KppkRealizationPlan).where(
-                    col(KppkRealizationPlan.org_id) == org.org_id,
-                    col(KppkRealizationPlan.period_id) == period.period_id,
-                    col(KppkRealizationPlan.rep_date) == period.last_date,
+                    col(KppkRealizationPlan.org_id) == org.id,
+                    col(KppkRealizationPlan.period_date) == period.periodDate,
+                    col(KppkRealizationPlan.rep_date) == period.repDate,
                 )
             )
         ).all()
@@ -285,6 +351,18 @@ async def _apply_realization_cell(
         raise KppkNotFoundError(message)
     old_value = getattr(row, attribute)
     stored = _check_realization_decimal(value)
+    if stored is None and field in {
+        "buyoutBpPlan",
+        "buyoutMaxPlan",
+        "buyoutFact",
+        "monthBpPlan",
+        "monthMaxPlan",
+        "fact",
+        "exciseBp",
+        "exciseMaxPlan",
+        "exciseFact",
+    }:
+        stored = Decimal(0)
     setattr(row, attribute, stored)
     await session.flush()
     return old_value, stored
@@ -322,3 +400,22 @@ async def apply_kppk_realization_cell_value(
         message = f"Неизвестная таблица реализации «{target_table}»."
         raise KppkValidationError(message)
     await _apply_realization_cell(session, slice_id=slice_id, row_id=row_id, field=field, value=value)
+
+
+@project_write(KPPK_PROJECT_KEY, exclusive=False)
+async def update_cost_cell(
+    session: AsyncSession, *, row_id: UUID, field: str, value: object
+) -> tuple[Decimal | None, Decimal | None]:
+    attribute = COST_ATTRIBUTES.get(field)
+    if attribute is None:
+        message = "Неизвестное поле себестоимости."
+        raise KppkValidationError(message)
+    row = await session.get(KppkCost, row_id)
+    if row is None:
+        message = "Строка себестоимости не найдена."
+        raise KppkNotFoundError(message)
+    old = getattr(row, attribute)
+    stored = _check_realization_decimal(value)
+    setattr(row, attribute, stored)
+    await session.flush()
+    return old, stored

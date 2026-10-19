@@ -10,7 +10,15 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.collab.journal import AppliedCell
 from src.collab.locking import project_write
 from src.kppk.constants import KPPK_PROJECT_KEY
-from src.kppk.models import KppkOrg, KppkOrgProduct, KppkProduct, KppkRaw, KppkRealization, KppkRealizationPlan
+from src.kppk.models import (
+    KppkCost,
+    KppkOrg,
+    KppkOrgProduct,
+    KppkProduct,
+    KppkRaw,
+    KppkRealization,
+    KppkRealizationPlan,
+)
 from src.kppk.schemas import (
     KppkOrgRowRead,
     KppkProductPositionCreateRequest,
@@ -19,7 +27,7 @@ from src.kppk.schemas import (
 )
 
 from .core import KppkNotFoundError, KppkValidationError, _audit_name, _now
-from .realization import apply_kppk_realization_cell_value
+from .realization import apply_kppk_realization_cell_value, update_cost_cell
 
 if TYPE_CHECKING:
     from src.auth.models import User
@@ -594,7 +602,7 @@ async def _check_org_deletable(session: AsyncSession, org: KppkOrg) -> None:
     if links:
         message = "У этого ДЗО есть продуктовые позиции — сначала удалите их."
         raise KppkValidationError(message)
-    if org.org_id is not None:
+    if org.num is not None:
         message = "Это ДЗО из исходной выгрузки — на него ссылается копия данных факта/плана."
         raise KppkValidationError(message)
 
@@ -900,6 +908,9 @@ async def apply_kppk_cell_value(
             field=field,
             value=value,
         )
+        return
+    if target_table == KppkCost.__tablename__:
+        await update_cost_cell(session, row_id=row_id, field=field, value=value)
         return
     message = f"Неизвестная таблица «{target_table}»."
     raise KppkValidationError(message)

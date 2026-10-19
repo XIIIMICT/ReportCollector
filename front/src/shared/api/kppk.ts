@@ -60,7 +60,7 @@ export async function deleteKppkUser(id: string): Promise<void> {
  * (`kppkRealizationFact`). The undo scope and the collaboration room are
  * named by them.
  */
-export type KppkRealizationSectionId = "kppkRealizationPlan" | "kppkRealizationFact";
+export type KppkRealizationSectionId = "kppkRealizationPlan" | "kppkRealizationFact" | "kppkCost";
 export type KppkJournalSectionId = KppkSectionId | KppkRealizationSectionId;
 
 /** The «Реализация» slices (Таблицы.xlsx sheet «Реализация»). */
@@ -68,7 +68,7 @@ export type KppkRealizationSlice = "bp" | "op" | "fact";
 
 /** The banner period of the «Реализация» view (fixed server-side for now). */
 export type KppkRealizationPeriod = {
-    id: string;
+    periodDate: string;
     monthName: string;
     yearNum: number;
     repDate: string | null;
@@ -99,6 +99,9 @@ export type KppkRealizationRow = {
     fcaPriceFact: number | null;
     fact: number | null;
     fcaPriceMarketFact: number | null;
+    exciseBp: number;
+    exciseMaxPlan: number;
+    exciseFact: number;
 };
 
 export type KppkRealizationView = {
@@ -237,10 +240,63 @@ export async function deleteOrg(orgId: string): Promise<void> {
 
 /** The slice's editable fields (camelCase DB attributes of its columns). */
 export const KPPK_REALIZATION_SLICE_FIELDS: Record<KppkRealizationSlice, readonly string[]> = {
-    bp: ["buyoutBpPlan", "fcaPriceBpPlan", "monthBpPlan", "fcaPriceMarketBpPlan"],
-    op: ["buyoutMaxPlan", "fcaPriceMaxPlan", "monthMaxPlan", "fcaPriceMarketMaxPlan"],
-    fact: ["buyoutFact", "fcaPriceFact", "fact", "fcaPriceMarketFact"],
+    bp: ["buyoutBpPlan", "fcaPriceBpPlan", "monthBpPlan", "fcaPriceMarketBpPlan", "exciseBp"],
+    op: [
+        "buyoutMaxPlan",
+        "fcaPriceMaxPlan",
+        "monthMaxPlan",
+        "fcaPriceMarketMaxPlan",
+        "exciseMaxPlan",
+    ],
+    fact: ["buyoutFact", "fcaPriceFact", "fact", "fcaPriceMarketFact", "exciseFact"],
 };
+
+export const KPPK_COST_SLICE_FIELDS: Record<KppkRealizationSlice, readonly string[]> = {
+    bp: ["fullCostBp", "productionCostBp", "variableCostBp"],
+    op: ["fullCostOp", "productionCostOp", "variableCostOp"],
+    fact: ["fullCostFact", "productionCostFact", "variableCostFact"],
+};
+
+export type KppkCostRow = {
+    id: string;
+    product: string;
+    productNum: number | null;
+    fullCostBp: number | null;
+    productionCostBp: number | null;
+    variableCostBp: number | null;
+    fullCostOp: number | null;
+    productionCostOp: number | null;
+    variableCostOp: number | null;
+    fullCostFact: number | null;
+    productionCostFact: number | null;
+    variableCostFact: number | null;
+};
+
+export type KppkCostView = { period: KppkRealizationPeriod; rows: KppkCostRow[] };
+
+export function getCostView(
+    orgId: string,
+    month: string | null,
+    year: string | null,
+): Promise<KppkCostView> {
+    const params = new URLSearchParams({ orgId });
+    if (month && year) {
+        params.set("month", month);
+        params.set("year", year);
+    }
+    return requestJson(`/api/kppk/cost?${params}`);
+}
+
+export function updateCostCell(
+    rowId: string,
+    field: string,
+    value: unknown,
+): Promise<{ applied: boolean }> {
+    return requestWrite(`/api/kppk/cost/${rowId}?session_id=${getCollabSessionId()}`, "PATCH", {
+        field,
+        value,
+    });
+}
 
 /**
  * The «Реализация» view of one period. Without the period arguments the
@@ -390,4 +446,20 @@ export async function exportKppkTable(
         job,
         fileUrl: tableExportJobFileUrl(base, job.id),
     }));
+}
+
+export async function exportKppkCost(
+    request: KppkRealizationExportRequest & { rowIds: string[] | null },
+): Promise<Blob> {
+    return downloadTableExport<never>(
+        "/api/kppk/cost/export",
+        {
+            ...request,
+            month: request.month === null ? null : Number(request.month),
+            year: request.year === null ? null : Number(request.year),
+        },
+        () => {
+            throw new Error("Фоновая выгрузка себестоимости недоступна.");
+        },
+    );
 }

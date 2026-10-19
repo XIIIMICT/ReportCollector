@@ -1522,11 +1522,7 @@ export function RawMaterialsWorkspace({
                 onHeaderPinnedChange={setHeaderPinned}
                 showServiceColumns={showServiceColumns}
                 onShowServiceColumnsChange={setShowServiceColumns}
-                exportPending={exportState.pending}
-                exportRowCount={exportState.rowCount}
-                onExport={(scope) => void exportState.onExport(scope)}
                 onReset={handleStripReset}
-                hideExport
                 isFullscreen={isFullscreen}
                 isFullscreenPending={isFullscreenPending}
                 onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}

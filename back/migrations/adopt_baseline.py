@@ -89,7 +89,14 @@ _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
 # they are created by migrations that run AFTER the baseline during adoption
 # (0005_user_role_project_indexes), so their absence on the pre-adoption schema
 # is expected, not drift. A closed list — anything else still fails closed.
-_LEGACY_MISSING_INDEXES: frozenset[str] = frozenset({"ix_user_roles_project", "ix_r_user_roles_project"})
+_LEGACY_MISSING_INDEXES: frozenset[str] = frozenset(
+    {
+        "ix_user_roles_project",
+        "ix_r_user_roles_project",
+        "ix_kppk_cost_scope",
+        "ix_kppk_production_plan_scope",
+    }
+)
 
 # Tables the models declare that a legacy-0015 installation does not have yet:
 # they are created by migrations running AFTER the baseline during adoption
@@ -104,6 +111,8 @@ _LEGACY_MISSING_TABLES: frozenset[str] = frozenset(
         "kppk_raws",
         "kppk_realization",
         "kppk_realization_plan",
+        "kppk_cost",
+        "kppk_production_plan",
     }
 )
 

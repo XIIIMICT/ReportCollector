@@ -53,6 +53,7 @@ SECTION_POLICIES: dict[str, SectionPolicy] = {
     "kppkRaws": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="placeholder"),
     "kppkOrgs": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="placeholder"),
     "kppkUsers": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="dialog"),
+    "kppkCost": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="none"),
     # «Реализация»: the rows come from the source copies (no placeholders),
     # the editing and undo stay admin-only like every «КППК» surface.
     "kppkRealizationPlan": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="none"),

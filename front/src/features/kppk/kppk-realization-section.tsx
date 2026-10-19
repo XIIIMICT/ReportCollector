@@ -6,15 +6,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
     exportKppkRealization,
+    exportKppkCost,
+    getCostView,
+    updateCostCell,
+    KPPK_COST_SLICE_FIELDS,
     getKppkUndoState,
     getRealizationView,
     KPPK_REALIZATION_SLICE_FIELDS,
     redoKppkCells,
     undoKppkCells,
     updateRealizationCell,
-    type KppkRealizationRow,
     type KppkRealizationSectionId,
     type KppkRealizationSlice,
+    type KppkRealizationView,
+    type KppkCostView,
     type KppkUndoResult,
 } from "@/shared/api/kppk";
 import type { CellUpdate } from "@/shared/api/raw-materials";
@@ -149,6 +154,8 @@ function errorMessage(reason: unknown): string {
 export { KPPK_REALIZATION_SLICES, realizationRoomSection, type KppkRealizationSectionProps };
 
 type KppkRealizationSectionProps = {
+    mode?: "realization" | "cost";
+    includeExcise?: boolean;
     isAdmin: boolean;
     /** The selected ДЗО: the workspace toolbar always provides one. */
     orgId: string | null;
@@ -183,6 +190,8 @@ type KppkRealizationSectionProps = {
 };
 
 export function KppkRealizationSection({
+    mode = "realization",
+    includeExcise = false,
     isAdmin,
     orgId,
     slice,
@@ -201,18 +210,65 @@ export function KppkRealizationSection({
     onRoomChange,
     onPeriodTextChange,
 }: KppkRealizationSectionProps) {
-    const roomSection = realizationRoomSection(slice);
+    const isCost = mode === "cost";
+    const roomSection = isCost ? "kppkCost" : realizationRoomSection(slice);
+    const descriptors = useMemo<ColumnDescriptor[]>(() => {
+        const exciseKey =
+            slice === "bp" ? "exciseBp" : slice === "op" ? "exciseMaxPlan" : "exciseFact";
+        if (!isCost)
+            return [
+                ...KPPK_REALIZATION_DESCRIPTORS[slice],
+                ...(includeExcise
+                    ? [{ key: exciseKey, label: "Акциз", width: 130, kind: "number" as const }]
+                    : []),
+            ];
+        const fields = KPPK_COST_SLICE_FIELDS[slice];
+        const labels = [
+            "Полная себестоимость, руб./т",
+            "Производственная себестоимость, руб./т",
+            "Переменные затраты, руб./т",
+        ];
+        return [
+            {
+                key: "productNum",
+                label: "№",
+                width: 70,
+                kind: "number",
+                fixed: true,
+                readOnly: true,
+            },
+            {
+                key: "product",
+                label: "Продукция",
+                width: 320,
+                kind: "text",
+                fixed: true,
+                readOnly: true,
+            },
+            ...fields.map((key, index): ColumnDescriptor => ({
+                key,
+                label: labels[index]!,
+                width: 220,
+                kind: "number",
+            })),
+        ];
+    }, [includeExcise, isCost, slice]);
 
     const [reloadKey, setReloadKey] = useState(0);
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
     const loader = useCallback(
         () =>
             orgId !== null
-                ? getRealizationView(orgId, slice, periodMonth, periodYear)
+                ? isCost
+                    ? getCostView(orgId, periodMonth, periodYear)
+                    : getRealizationView(orgId, slice, periodMonth, periodYear)
                 : Promise.resolve(null),
-        [orgId, periodMonth, periodYear, slice],
+        [isCost, orgId, periodMonth, periodYear, slice],
     );
-    const { data: view, error } = useAsyncData(loader, [loader, reloadKey]);
+    const { data: view, error } = useAsyncData<KppkRealizationView | KppkCostView | null>(loader, [
+        loader,
+        reloadKey,
+    ]);
 
     // Collaboration room per slice storage; the section the room is keyed by
     // also carries the undo history scope.
@@ -307,7 +363,8 @@ export function KppkRealizationSection({
         setPendingSkip(null);
         const write = (async () => {
             for (const update of updates) {
-                await updateRealizationCell(update.rowId, slice, update.field, update.value);
+                if (isCost) await updateCostCell(update.rowId, update.field, update.value);
+                else await updateRealizationCell(update.rowId, slice, update.field, update.value);
             }
         })();
         try {
@@ -321,18 +378,25 @@ export function KppkRealizationSection({
             refreshUndoState();
         }
     }
+    const commitRef = useRef(commit);
+    commitRef.current = commit;
+    const stableCommit = useCallback((updates: CellUpdate[]) => commitRef.current(updates), []);
+    const stablePlaceholderCommit = useCallback(async () => true, []);
+    const stableSelectedRowsChange = useCallback(() => {}, []);
 
     // ── Grid rows: the group lead carries the product name; then merge ranges ──
     const gridRows = useMemo<GridRow[]>(() => {
-        const rows: KppkRealizationRow[] = view?.rows ?? [];
-        const fields = KPPK_REALIZATION_SLICE_FIELDS[slice];
+        const rows = view?.rows ?? [];
+        const fields = isCost
+            ? KPPK_COST_SLICE_FIELDS[slice]
+            : KPPK_REALIZATION_SLICE_FIELDS[slice];
         let previous: string | null = null;
         return rows.map((row) => {
             const isGroupStart = row.product !== previous;
             previous = row.product;
             const gridRow: GridRow = {
                 ...row,
-                product: isGroupStart ? row.product : "",
+                product: isCost || isGroupStart ? row.product : "",
                 rowState: "unchanged",
                 changedFields: [],
                 isDeleted: false,
@@ -350,14 +414,15 @@ export function KppkRealizationSection({
             }
             return gridRow;
         });
-    }, [isAdmin, remoteCellValues, roomSection, slice, view?.rows]);
+    }, [isAdmin, isCost, remoteCellValues, roomSection, slice, view?.rows]);
 
     // The template folds each product's region rows into one merged cell: one
     // rowSpan range per run of rows sharing the product. The merge covers the
     // leading `productNum` + `product` leaves (indexes 0 and 1): the «№» of a
     // product is one block spanning all of its market rows, like its name.
     const cellMerge = useMemo<MergeData[]>(() => {
-        const rows: KppkRealizationRow[] = view?.rows ?? [];
+        if (isCost) return [];
+        const rows = view?.rows ?? [];
         const sweeps: MergeData[] = [];
         let start = -1;
         const push = (from: number, to: number) => {
@@ -374,7 +439,7 @@ export function KppkRealizationSection({
         }
         if (start >= 0) push(start, rows.length);
         return sweeps;
-    }, [view?.rows]);
+    }, [isCost, view?.rows]);
 
     // ── Workspace wiring (footer actions, strip handlers) ──
     const gridRef = useRef<RawMaterialsGridHandle>(null);
@@ -406,18 +471,19 @@ export function KppkRealizationSection({
                 setPending: setExportPending,
                 fileName: () => exportFileName(roomSection, null),
                 request: (view, fileName) =>
-                    exportKppkRealization({
+                    (isCost ? exportKppkCost : exportKppkRealization)({
                         slice,
                         orgId,
                         month: periodMonth,
                         year: periodYear,
                         headerPinned,
                         columns: view.columns,
+                        rowIds: isCost ? view.rowIds : null,
                         fileName,
                     }),
             });
         },
-        [exportPending, headerPinned, orgId, periodMonth, periodYear, roomSection, slice],
+        [exportPending, headerPinned, isCost, orgId, periodMonth, periodYear, roomSection, slice],
     );
     useEffect(() => {
         onExportState({
@@ -509,16 +575,16 @@ export function KppkRealizationSection({
                 hasBaseline={false}
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}
-                columnDescriptors={KPPK_REALIZATION_DESCRIPTORS[slice]}
+                columnDescriptors={descriptors}
                 // The rows follow the server order (product number → market):
                 // a header click must not reshuffle the view.
-                sortable={false}
-                plugins={[CellMergePlugin]}
+                sortable={isCost}
+                plugins={isCost ? [] : [CellMergePlugin]}
                 cellMerge={cellMerge}
                 assets={[]}
                 deliveryBases={[]}
-                onCommit={commit}
-                onPlaceholderCommit={async () => true}
+                onCommit={stableCommit}
+                onPlaceholderCommit={stablePlaceholderCommit}
                 onCommitFailed={refresh}
                 remoteLocks={remoteLocks}
                 remotePresence={remotePresence}
@@ -530,7 +596,7 @@ export function KppkRealizationSection({
                 onViewStatsChange={handleViewStats}
                 // Row operations are disabled on this form (the rows come from
                 // the source copies) — the grid just requires the handler.
-                onSelectedRowsChange={() => {}}
+                onSelectedRowsChange={stableSelectedRowsChange}
                 onClipboardStateChange={handleClipboardState}
                 onSelectionChange={handleSelectionChange}
             />

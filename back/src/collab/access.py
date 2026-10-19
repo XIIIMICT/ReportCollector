@@ -12,11 +12,12 @@ from src.auth.models import Project, User, UserRole
 from src.collab.models import CellState
 from src.common.section_policy import admin_room_section
 from src.kppk.constants import (
+    COST_FIELDS,
     KPPK_PROJECT_KEY,
     KPPK_REALIZATION_FACT_FIELDS,
     KPPK_REALIZATION_PLAN_FIELDS,
 )
-from src.kppk.models import KppkOrg, KppkProduct, KppkRaw, KppkRealization, KppkRealizationPlan
+from src.kppk.models import KppkCost, KppkOrg, KppkProduct, KppkRaw, KppkRealization, KppkRealizationPlan
 from src.raw_materials.models import (
     AssetRawMaterial,
     DeliveryBasis,
@@ -75,6 +76,7 @@ KPPK_SECTIONS = {
     # the camelCase DB attributes of the slice columns.
     "kppkRealizationPlan": (KppkRealizationPlan, frozenset(KPPK_REALIZATION_PLAN_FIELDS)),
     "kppkRealizationFact": (KppkRealization, frozenset(KPPK_REALIZATION_FACT_FIELDS)),
+    "kppkCost": (KppkCost, frozenset(COST_FIELDS)),
 }
 
 

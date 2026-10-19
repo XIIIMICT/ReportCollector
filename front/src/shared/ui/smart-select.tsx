@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
     Autocomplete,
@@ -130,6 +130,14 @@ export type SmartSelectProps = {
 
 const DEFAULT_THRESHOLD = 5;
 const HOVER_CLOSE_DELAY_MS = 200;
+/**
+ * Placement of an ANCHORED popover (the column filter: the anchor is the header
+ * cell). `end` aligns the panel's RIGHT edge with the cell's right edge — the
+ * header funnel sits at the header's end, so the pointer travels straight down
+ * from the button into the filter. The default react-aria centering would push
+ * the panel sideways whenever it is wider than the cell. RTL would mirror it.
+ */
+const ANCHOR_PLACEMENT = "bottom end" as const;
 /** Sentinels for the pinned rows (never real option ids). */
 const NULL_OPTION_ID = "__null_option__";
 const ALL_OPTION_ID = "__all_option__";
@@ -327,14 +335,17 @@ export function SmartSelect({
                     textValue={[option.name, option.description].filter(Boolean).join(" ")}
                 >
                     {option.description ? (
-                        <div className="flex min-w-0 flex-col">
-                            <span className="truncate">{option.name}</span>
-                            <span className="text-muted truncate text-xs">
+                        <div className="flex min-w-0 flex-1 flex-col">
+                            {/* Wrapping labels: the panel's width is capped,
+                                so a long value continues on the next line
+                                instead of being clipped. */}
+                            <span className="wrap-anywhere">{option.name}</span>
+                            <span className="text-muted text-xs wrap-anywhere">
                                 {option.description}
                             </span>
                         </div>
                     ) : (
-                        option.name
+                        <span className="min-w-0 flex-1 wrap-anywhere">{option.name}</span>
                     )}
                     <ListBox.ItemIndicator />
                 </ListBox.Item>
@@ -438,6 +449,7 @@ export function SmartSelect({
                     </Autocomplete.Trigger>
                     <Autocomplete.Popover
                         ref={popoverRef}
+                        {...(anchor && { placement: ANCHOR_PLACEMENT })}
                         className={["smart-select-popover", popoverClassName]
                             .filter(Boolean)
                             .join(" ")}
@@ -518,6 +530,7 @@ export function SmartSelect({
                     </Select.Trigger>
                     <Select.Popover
                         ref={popoverRef}
+                        {...(anchor && { placement: ANCHOR_PLACEMENT })}
                         className={["smart-select-popover", popoverClassName]
                             .filter(Boolean)
                             .join(" ")}

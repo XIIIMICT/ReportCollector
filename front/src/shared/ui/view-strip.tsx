@@ -1,42 +1,28 @@
-﻿"use client";
+"use client";
 
-import { Button, Dropdown, Label, Spinner } from "@heroui/react";
-import {
-    Collapse,
-    Download,
-    Expand,
-    Eye,
-    EyeClosed,
-    MoreHoriz,
-    Pin,
-    PinSlash,
-    Refresh,
-} from "iconoir-react";
+import { Button, Dropdown, Label } from "@heroui/react";
+import { Collapse, Expand, Eye, EyeClosed, MoreHoriz, Pin, PinSlash, Refresh } from "iconoir-react";
 import { type Key, type ReactNode } from "react";
 
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 
 /**
- * The right-aligned control cluster of the toolbar: an expanded-on-hover
- * download button (hover-open «всю таблицу» / «видимую таблицу») and a
- * «Вид таблицы» button whose hover menu carries the display toggles (pin
- * the header, show service columns — as checked entries), the resets and the
- * fullscreen action (success). Both buttons start collapsed (icon only) and
- * expand on hover; the expand state is held while their dropdown is open.
+ * The right-aligned control cluster of the toolbar: the «Вид таблицы» button
+ * whose hover menu carries the display toggles (pin the header, show service
+ * columns — as checked entries), the resets and the fullscreen action
+ * (success). Excel export is NOT here: it lives in the bottom action bar, one
+ * button per form. The button starts collapsed (icon only) and expands on
+ * hover; the expand state is held while its dropdown is open.
  */
 export function ViewStrip({
     headerPinned,
     onHeaderPinnedChange,
     showServiceColumns,
     onShowServiceColumnsChange,
-    exportPending,
-    exportRowCount,
-    onExport,
     onReset,
     isFullscreen,
     isFullscreenPending,
     onToggleFullscreen,
-    hideExport = false,
     onDropdownOpenChange,
     columnResetLabel = "Сбросить ширину столбцов",
 }: {
@@ -44,16 +30,10 @@ export function ViewStrip({
     onHeaderPinnedChange?: (value: boolean) => void;
     showServiceColumns?: boolean;
     onShowServiceColumnsChange?: (value: boolean) => void;
-    exportPending: boolean;
-    /** Rows the current view holds — 0 disables the export (nothing to save). */
-    exportRowCount?: number | undefined;
-    onExport: (scope: "all" | "visible") => void;
     onReset: (scope: "columnWidths" | "filtersSorting") => void;
     isFullscreen: boolean;
     isFullscreenPending: boolean;
     onToggleFullscreen: () => void;
-    /** Hide the download button (its action moved into the footer action bar). */
-    hideExport?: boolean;
     /** Notifies the owner when a hover dropdown opens/closes (holds the
         fullscreen toolbar panels open while its menu is expanded). */
     onDropdownOpenChange?: (open: boolean) => void;
@@ -65,39 +45,6 @@ export function ViewStrip({
         onHeaderPinnedChange !== undefined &&
         showServiceColumns !== undefined &&
         onShowServiceColumnsChange !== undefined;
-
-    /** Down-arrow glyph shown for a disabled-spinner download trigger. */
-    const collapsedDownloadButton = (
-        isOpen: boolean,
-        pending: boolean,
-        handlers: {
-            ref: React.Ref<HTMLButtonElement>;
-            onMouseEnter: () => void;
-            onPress: () => void;
-        },
-    ) => (
-        <Button
-            ref={handlers.ref}
-            onMouseEnter={handlers.onMouseEnter}
-            onPress={handlers.onPress}
-            className={isOpen ? "action-button action-button--open" : "action-button"}
-            variant="tertiary"
-            // An empty table has nothing to export — the same rule as the action
-            // bar's button.
-            isDisabled={pending || isFullscreenPending || exportRowCount === 0}
-            data-action-tooltip={
-                exportRowCount === 0 ? "Нечего выгружать: таблица пуста." : undefined
-            }
-            aria-label="Скачать в Excel"
-        >
-            <span className="action-button__icon">
-                {pending ? <Spinner size="sm" /> : <Download aria-hidden="true" />}
-            </span>
-            <span className="action-button__label">
-                {pending ? "Выгрузка..." : "Скачать в Excel"}
-            </span>
-        </Button>
-    );
 
     const collapsedViewButton = (
         isOpen: boolean,
@@ -124,36 +71,6 @@ export function ViewStrip({
 
     return (
         <div className="view-strip__actions">
-            {hideExport ? null : (
-                <HoverDropdown
-                    className="view-strip-popover"
-                    {...(onDropdownOpenChange && { onOpenChange: onDropdownOpenChange })}
-                    trigger={({ ref, onMouseEnter, isOpen, onPress }) =>
-                        collapsedDownloadButton(isOpen, exportPending, {
-                            ref,
-                            onMouseEnter,
-                            onPress,
-                        })
-                    }
-                    content={
-                        <Dropdown.Menu
-                            aria-label="Формат выгрузки"
-                            onAction={(key) => {
-                                if (key === "all" || key === "visible") {
-                                    onExport(key);
-                                }
-                            }}
-                        >
-                            <Dropdown.Item id="all" textValue="Скачать всю таблицу">
-                                Скачать всю таблицу
-                            </Dropdown.Item>
-                            <Dropdown.Item id="visible" textValue="Скачать видимую таблицу">
-                                Скачать видимую таблицу
-                            </Dropdown.Item>
-                        </Dropdown.Menu>
-                    }
-                />
-            )}
             <HoverDropdown
                 className="view-strip-popover"
                 {...(onDropdownOpenChange && { onOpenChange: onDropdownOpenChange })}

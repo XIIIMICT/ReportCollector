@@ -140,3 +140,31 @@ CREATE TABLE dict.markets (
 	CONSTRAINT markets_name_key UNIQUE (name),
 	CONSTRAINT markets_pkey PRIMARY KEY (id)
 );
+
+
+-- raw.kppk_f_production_plan definition
+
+-- Drop table
+
+-- DROP TABLE raw.kppk_f_production_plan;
+
+CREATE TABLE raw.kppk_f_production_plan (
+	org_id int4 NOT NULL,
+	rep_date date NOT NULL,
+	load_id int4 NULL,
+	period_id int4 NOT NULL,
+	product varchar(255) NOT NULL,
+	month_bp_plan numeric(20, 3) NULL,
+	month_plan numeric(20, 3) NULL,
+	goods numeric(20, 3) NULL,
+	full_cost_bp numeric(20, 2) NULL,
+	full_cost_plan numeric(20, 2) NULL,
+	stock numeric(20, 3) NULL,
+	stock_current numeric(20, 3) NULL,
+	goods_bp_plan numeric(20, 2) NULL,
+	lastdate timestamp NULL,
+	stock_region numeric(20, 3) NULL,
+	stock_current_region numeric(20, 3) NULL,
+	stock_plant numeric(20, 3) NULL,
+	stock_current_plant numeric(20, 3) NULL
+);

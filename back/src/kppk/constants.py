@@ -23,6 +23,29 @@ KPPK_DICTIONARY_SECTIONS = (KPPK_SECTION_PRODUCT_POSITIONS, KPPK_SECTION_RAWS, K
 # its own cell keys (`kppk_realization/<row>/<field>` etc.).
 KPPK_SECTION_REALIZATION_PLAN = "kppkRealizationPlan"
 KPPK_SECTION_REALIZATION_FACT = "kppkRealizationFact"
+KPPK_SECTION_COST = "kppkCost"
+COST_FIELDS = (
+    "fullCostBp",
+    "productionCostBp",
+    "variableCostBp",
+    "fullCostOp",
+    "productionCostOp",
+    "variableCostOp",
+    "fullCostFact",
+    "productionCostFact",
+    "variableCostFact",
+)
+COST_FIELDS = (
+    "fullCostBp",
+    "productionCostBp",
+    "variableCostBp",
+    "fullCostOp",
+    "productionCostOp",
+    "variableCostOp",
+    "fullCostFact",
+    "productionCostFact",
+    "variableCostFact",
+)
 
 # The «Реализация» slices by their template label: Бизнес-план and Оперплан
 # read the plan copy (the `_bp_plan` / `_max_plan` column families), Факт the
@@ -49,12 +72,15 @@ KPPK_REALIZATION_PLAN_FIELDS: tuple[str, ...] = (
     "fcaPriceMaxPlan",
     "monthMaxPlan",
     "fcaPriceMarketMaxPlan",
+    "exciseBp",
+    "exciseMaxPlan",
 )
 KPPK_REALIZATION_FACT_FIELDS: tuple[str, ...] = (
     "buyoutFact",
     "fcaPriceFact",
     "fact",
     "fcaPriceMarketFact",
+    "exciseFact",
 )
 
 # The slice → (journal section, editable fields, DB decimal column per field).
@@ -69,11 +95,11 @@ KPPK_REALIZATION_SLICE_CONFIG: dict[str, str] = {
 # Source tables copied into the program schema by the seeder.
 KPPK_SOURCE_TABLES: dict[str, str] = {
     "kppk_d_org": "kppk_orgs",
-    "kppk_d_period": "kppk_periods",
     "kppk_d_product_seq": "kppk_products",
     "kppk_d_raw_seq": "kppk_raws",
     "kppk_f_realization": "kppk_realization",
     "kppk_f_realization_plan": "kppk_realization_plan",
+    "kppk_f_production_plan": "kppk_production_plan",
 }
 
 # The markets dictionary keeps its prod structure (dict.markets): the seeder

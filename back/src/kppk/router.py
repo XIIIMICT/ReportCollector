@@ -31,7 +31,7 @@ from src.kppk.constants import (
     KPPK_SECTION_USERS,
 )
 
-from .core import kppk_project_id
+from .core import KppkNotFoundError, KppkValidationError, kppk_project_id
 from .dictionaries import (
     create_org,
     create_product_position,
@@ -50,27 +50,28 @@ from .dictionaries import (
 from .export import (
     REFERENCE_LISTS,
     SECTION_SHEET_NAMES,
+    render_cost_workbook,
     render_realization_workbook,
     validate_export_request,
     validate_realization_export,
 )
-from .models import KppkRealization, KppkRealizationPlan
+from .models import KppkCost, KppkRealization, KppkRealizationPlan
 from .realization import (
+    read_cost_rows,
     read_current_period,
     read_market_codes,
     read_realization_row_by_id,
     read_realization_rows,
+    update_cost_cell,
     update_realization_cell,
 )
 from .schemas import (
     KppkAppliedRead,
+    KppkCostViewRead,
     KppkExportViewRequest,
     KppkOrgCellUpdate,
     KppkOrgCreateRequest,
     KppkOrgRowRead,
-    KppkPeriodCellUpdate,
-    KppkPeriodCreateRequest,
-    KppkPeriodRowRead,
     KppkProductPositionCellUpdate,
     KppkProductPositionCreateRequest,
     KppkProductPositionRowRead,
@@ -79,22 +80,15 @@ from .schemas import (
     KppkRawRowRead,
     KppkRealizationCellUpdate,
     KppkRealizationExportRequest,
-    KppkRealizationPeriodRead,
     KppkRealizationViewRead,
     KppkUserCreateRequest,
     KppkUserRowRead,
     KppkUserUpdateRequest,
 )
 from .service import (
-    KppkNotFoundError,
-    KppkValidationError,
     NoKppkAccessError,
-    create_period,
-    delete_period,
     is_kppk_admin,
-    read_period_rows,
     resolve_kppk_access,
-    update_period_cell,
 )
 from .users import create_kppk_user, delete_kppk_project_user, read_kppk_user_rows, update_kppk_user
 
@@ -597,12 +591,7 @@ async def get_realization(
         status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=str(error)) from error
     return KppkRealizationViewRead(
-        period=KppkRealizationPeriodRead(
-            id=period.id,
-            monthName=period.month_name,
-            yearNum=period.year_num,
-            repDate=period.last_date,
-        ),
+        period=period,
         markets=await read_market_codes(session),
         rows=rows,
     )
@@ -651,70 +640,74 @@ async def patch_realization(
     return KppkAppliedRead(row=row)
 
 
-# ─── «Периоды» (backend-only in this phase) ───────────────────────────────
-
-
-@router.get("/periods", response_model=list[KppkPeriodRowRead])
-async def get_periods(
+@router.get("/cost", response_model=KppkCostViewRead)
+async def get_cost(
     session: SessionDependency,
     _access: AccessDependency,
-) -> list[KppkPeriodRowRead]:
-    """«Периоды»: the report months of the source dictionary."""
-    return await read_period_rows(session)
-
-
-@router.post("/periods", response_model=KppkAppliedRead, status_code=status.HTTP_201_CREATED)
-async def post_periods(
-    request: KppkPeriodCreateRequest,
-    session: SessionDependency,
-    access: AdminDependency,
-) -> KppkAppliedRead:
-    """Create a report month."""
+    org_id: Annotated[UUID, Query(alias="orgId")],
+    month: Annotated[int | None, Query(ge=1, le=12)] = None,
+    year: Annotated[int | None, Query(ge=2000, le=2100)] = None,
+) -> KppkCostViewRead:
     try:
-        row = await create_period(
-            session,
-            month_name=request.monthName,
-            year_num=request.yearNum,
-            first_date=request.firstDate,
-            last_date=request.lastDate,
-            user=access.user,
-        )
-    except KppkValidationError as error:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
-    return KppkAppliedRead(row=row)
-
-
-@router.patch("/periods/{period_id}", response_model=KppkAppliedRead)
-async def patch_period(
-    period_id: UUID,
-    request: KppkPeriodCellUpdate,
-    session: SessionDependency,
-    access: AdminDependency,
-) -> KppkAppliedRead:
-    """Edit one cell of a period row."""
-    try:
-        await update_period_cell(
-            session, period_id=period_id, field=request.field, value=request.value, user=access.user
-        )
-        updated = next(row for row in await read_period_rows(session) if row.id == period_id)
-    except (KppkValidationError, KppkNotFoundError) as error:
-        status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
-        raise HTTPException(status_code=status_code, detail=str(error)) from error
-    return KppkAppliedRead(row=updated)
-
-
-@router.delete("/periods/{period_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def drop_period(
-    period_id: UUID,
-    session: SessionDependency,
-    _access: AdminDependency,
-) -> None:
-    """Delete a period that is not referenced by the source copies."""
-    try:
-        await delete_period(session, period_id=period_id)
+        return await read_cost_rows(session, org_id=org_id, month=month, year=year)
     except (KppkNotFoundError, KppkValidationError) as error:
-        status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
-        raise HTTPException(status_code=status_code, detail=str(error)) from error
+        raise HTTPException(
+            status_code=404 if isinstance(error, KppkNotFoundError) else 400, detail=str(error)
+        ) from error
+
+
+@router.patch("/cost/{row_id}")
+async def patch_cost(
+    row_id: UUID,
+    request: KppkRealizationCellUpdate,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+) -> dict[str, bool]:
+    try:
+        old, stored = await update_cost_cell(session, row_id=row_id, field=request.field, value=request.value)
+    except (KppkNotFoundError, KppkValidationError) as error:
+        raise HTTPException(
+            status_code=404 if isinstance(error, KppkNotFoundError) else 400, detail=str(error)
+        ) from error
+    await _record_kppk_updates(
+        session,
+        access=access,
+        section="kppkCost",
+        session_id=session_id,
+        applied=[
+            AppliedCell(
+                target_table=KppkCost.__tablename__,
+                row_id=row_id,
+                field=request.field,
+                old_value=None if old is None else float(old),
+                new_value=None if stored is None else float(stored),
+            )
+        ],
+    )
+    return {"applied": True}
+
+
+@router.post("/cost/export")
+async def export_cost(
+    request: KppkRealizationExportRequest, session: SessionDependency, _access: AccessDependency
+) -> Response:
+    try:
+        view = await read_cost_rows(session, org_id=request.orgId, month=request.month, year=request.year)
+        rows = view.rows
+        if request.rowIds is not None:
+            by_id = {row.id: row for row in rows}
+            rows = [by_id[row_id] for row_id in request.rowIds if row_id in by_id]
+        payload = render_cost_workbook(request, rows)
+    except (ExportValidationError, KppkValidationError, KppkNotFoundError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return Response(
+        content=payload,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(request.fileName)}",
+        },
+    )
 
 
 # ─── Участники проекта ────────────────────────────────────────────────────

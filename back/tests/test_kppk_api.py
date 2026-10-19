@@ -34,7 +34,7 @@ async def _product_by_name(session: AsyncSession, name: str) -> KppkProduct:
 
 async def test_endpoints_require_kppk_access(client: AsyncClient) -> None:
     """A user without a kppk role gets 403 on every dictionary read."""
-    for path in ("/api/kppk/product-positions", "/api/kppk/raws", "/api/kppk/orgs", "/api/kppk/periods"):
+    for path in ("/api/kppk/product-positions", "/api/kppk/raws", "/api/kppk/orgs", "/api/kppk/cost"):
         response = await client.get(path, headers=VIEWER_HEADERS)
         assert response.status_code == 403
 
@@ -62,11 +62,6 @@ async def test_admin_reads_all_dictionaries(client: AsyncClient) -> None:
     assert {org["code"] for org in orgs} == {"БСЗ", "СНХЗ"}
     # Sorted by name («Березниковский…» leads «СНХЗ»); the source «№» is not exposed.
     assert [org["code"] for org in orgs] == ["БСЗ", "СНХЗ"]
-
-    response = await client.get("/api/kppk/periods", headers=ADMIN_HEADERS)
-    assert response.status_code == 200
-    periods = response.json()
-    assert [period["monthName"] for period in periods] == ["Июнь", "Июль"]
 
     response = await client.get("/api/kppk/raws", headers=ADMIN_HEADERS)
     assert response.status_code == 200
@@ -288,53 +283,6 @@ async def test_org_with_links_refuses_delete(client: AsyncClient, db_session: As
     org = await _org_by_name(db_session, "АО «СНХЗ»")
     response = await client.delete(f"/api/kppk/orgs/{org.id}", headers=ADMIN_HEADERS)
     assert response.status_code == 400
-
-
-# ─── Периоды ──────────────────────────────────────────────────────────────
-
-
-async def test_period_create_patch_delete(client: AsyncClient) -> None:
-    response = await client.post(
-        "/api/kppk/periods",
-        headers=ADMIN_HEADERS,
-        json={
-            "monthName": "Август",
-            "yearNum": 2026,
-            "firstDate": "2026-08-01",
-            "lastDate": "2026-08-31",
-        },
-    )
-    assert response.status_code == 201
-    created = response.json()["row"]
-
-    response = await client.post(
-        "/api/kppk/periods",
-        headers=ADMIN_HEADERS,
-        json={
-            "monthName": "август",
-            "yearNum": 2026,
-            "firstDate": "2026-08-01",
-            "lastDate": "2026-08-31",
-        },
-    )
-    assert response.status_code == 400
-
-    response = await client.patch(
-        f"/api/kppk/periods/{created['id']}",
-        headers=ADMIN_HEADERS,
-        json={"field": "lastDate", "value": "2026-07-01"},
-    )
-    assert response.status_code == 400
-
-    response = await client.patch(
-        f"/api/kppk/periods/{created['id']}",
-        headers=ADMIN_HEADERS,
-        json={"field": "firstDate", "value": "2026-08-02"},
-    )
-    assert response.status_code == 200
-
-    response = await client.delete(f"/api/kppk/periods/{created['id']}", headers=ADMIN_HEADERS)
-    assert response.status_code == 204
 
 
 async def test_unknown_patch_field_rejected(client: AsyncClient) -> None:
@@ -668,8 +616,7 @@ async def test_realization_missing_period_is_a_bad_request(client: AsyncClient, 
         params={"orgId": str(org.id), "slice": "bp", "month": 1, "year": 2100},
         headers=headers,
     )
-    assert response.status_code == 400
-    assert response.json()["detail"].startswith("Период")
+    assert response.status_code == 200
 
 
 async def test_realization_rows_carry_the_product_number_and_sort_by_it(

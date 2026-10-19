@@ -69,12 +69,42 @@ REALIZATION_MERGE_BY = ("productNum", "product")
 # slice's four numeric leaves (keep in sync with the grid descriptors).
 REALIZATION_FIXED_KEYS = ("productNum", "product", "region")
 REALIZATION_KEYS: dict[str, frozenset[str]] = {
-    "bp": frozenset({*REALIZATION_FIXED_KEYS, "buyoutBpPlan", "fcaPriceBpPlan", "monthBpPlan", "fcaPriceMarketBpPlan"}),
-    "op": frozenset(
-        {*REALIZATION_FIXED_KEYS, "buyoutMaxPlan", "fcaPriceMaxPlan", "monthMaxPlan", "fcaPriceMarketMaxPlan"}
+    "bp": frozenset(
+        {*REALIZATION_FIXED_KEYS, "buyoutBpPlan", "fcaPriceBpPlan", "monthBpPlan", "fcaPriceMarketBpPlan", "exciseBp"}
     ),
-    "fact": frozenset({*REALIZATION_FIXED_KEYS, "buyoutFact", "fcaPriceFact", "fact", "fcaPriceMarketFact"}),
+    "op": frozenset(
+        {
+            *REALIZATION_FIXED_KEYS,
+            "buyoutMaxPlan",
+            "fcaPriceMaxPlan",
+            "monthMaxPlan",
+            "fcaPriceMarketMaxPlan",
+            "exciseMaxPlan",
+        }
+    ),
+    "fact": frozenset(
+        {*REALIZATION_FIXED_KEYS, "buyoutFact", "fcaPriceFact", "fact", "fcaPriceMarketFact", "exciseFact"}
+    ),
 }
+
+COST_KEYS = {
+    "bp": frozenset({"productNum", "product", "fullCostBp", "productionCostBp", "variableCostBp"}),
+    "op": frozenset({"productNum", "product", "fullCostOp", "productionCostOp", "variableCostOp"}),
+    "fact": frozenset({"productNum", "product", "fullCostFact", "productionCostFact", "variableCostFact"}),
+}
+
+
+def render_cost_workbook(request: KppkRealizationExportRequest, rows: Sequence[BaseModel]) -> bytes:
+    """Render the selected cost columns without product or market merges."""
+    validate_export_shape(request)
+    validate_columns_allowed(request.columns, COST_KEYS[request.slice])
+    sink = BytesIO()
+    writer = TableWorkbookWriter(
+        sink, "Себестоимость", request.columns, header_pinned=request.headerPinned, row_total=len(rows)
+    )
+    writer.write_rows(rows)
+    writer.close()
+    return sink.getvalue()
 
 
 def validate_export_request(request: KppkExportViewRequest) -> None:

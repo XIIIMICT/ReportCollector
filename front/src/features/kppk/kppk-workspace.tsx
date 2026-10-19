@@ -1,6 +1,6 @@
 "use client";
 
-import { toast, Typography } from "@heroui/react";
+import { Checkbox, toast, Typography } from "@heroui/react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
@@ -122,6 +122,7 @@ const KPPK_PROJECT_KEY = "kppk";
 // per-slice scope is decided by the section), the dictionaries the grid id.
 type KppkTab =
     | (WorkspaceTab & { id: "kppkRealization"; section: KppkRealizationSectionId })
+    | (WorkspaceTab & { id: "kppkCost"; section: "kppkCost" })
     | (WorkspaceTab & { id: KppkSectionId; section: KppkSectionId });
 
 const KPPK_TABS: readonly KppkTab[] = [
@@ -133,6 +134,7 @@ const KPPK_TABS: readonly KppkTab[] = [
         label: "Реализация",
         reportMonth: null,
     },
+    { id: "kppkCost", section: "kppkCost", label: "Себестоимость", reportMonth: null },
     {
         id: "kppkPositions",
         section: "kppkPositions",
@@ -928,6 +930,15 @@ export function KppkWorkspace({
                 : state,
         );
     }, []);
+    const handleGridStats = useCallback((state: GridViewStats) => {
+        setGridStats((current) => {
+            if (current && JSON.stringify(current) === JSON.stringify(state)) return current;
+            return state;
+        });
+    }, []);
+    const handleSectionRoom = useCallback((room: CollabRoom | null) => {
+        setSectionRoom((current) => (current === room ? current : room));
+    }, []);
     const handleExportState = useCallback((state: ExportState) => {
         setExportState((current) =>
             current.pending === state.pending && current.onExport === state.onExport
@@ -1068,6 +1079,9 @@ export function KppkWorkspace({
     // `toolbar-collapse` mechanics, like the «Ремонт» block filter) — one
     // transition for the entire block, not per-control.
     const isRealizationTab = selectedTab?.id === "kppkRealization";
+    const isCostTab = selectedTab?.id === "kppkCost";
+    const isMainTab = isRealizationTab || isCostTab;
+    const [includeExcise, setIncludeExcise] = useState(false);
     const MONTH_OPTIONS = REALIZATION_MONTH_OPTIONS;
     const yearOptions = useMemo(() => {
         const current = new Date().getFullYear();
@@ -1078,11 +1092,11 @@ export function KppkWorkspace({
     const realizationFilters = (
         <div
             className={
-                isRealizationTab
+                isMainTab
                     ? "kppk-realization-filters-row"
                     : "kppk-realization-filters-row kppk-realization-filters-row--hidden"
             }
-            aria-hidden={isRealizationTab ? undefined : true}
+            aria-hidden={isMainTab ? undefined : true}
         >
             <SmartSelect
                 options={REALIZATION_SLICE_OPTIONS}
@@ -1091,7 +1105,7 @@ export function KppkWorkspace({
                 compactBelow="sm"
                 ariaLabel="Срез"
                 fullWidth={false}
-                isDisabled={!isRealizationTab}
+                isDisabled={!isMainTab}
                 onOpenChange={setToolbarControlOpen}
                 onChange={(value) => {
                     if (typeof value !== "string") return;
@@ -1106,7 +1120,7 @@ export function KppkWorkspace({
                     compactBelow="sm"
                     items={orgOptions}
                     selectedKey={realizationOrgId}
-                    isDisabled={!isRealizationTab || orgOptions.length === 0}
+                    isDisabled={!isMainTab || orgOptions.length === 0}
                     onOpenChange={setToolbarControlOpen}
                     onSelectionChange={(key) => {
                         if (key === null) return;
@@ -1124,7 +1138,7 @@ export function KppkWorkspace({
                 compactBelow="sm"
                 ariaLabel="Месяц периода"
                 fullWidth={false}
-                isDisabled={!isRealizationTab}
+                isDisabled={!isMainTab}
                 onOpenChange={setToolbarControlOpen}
                 onChange={(value) => {
                     if (typeof value !== "string") return;
@@ -1139,13 +1153,23 @@ export function KppkWorkspace({
                 compactBelow="sm"
                 ariaLabel="Год периода"
                 fullWidth={false}
-                isDisabled={!isRealizationTab}
+                isDisabled={!isMainTab}
                 onOpenChange={setToolbarControlOpen}
                 onChange={(value) => {
                     if (typeof value !== "string") return;
                     setRealizationYear(value);
                 }}
             />
+            {isRealizationTab ? (
+                <Checkbox isSelected={includeExcise} onChange={setIncludeExcise}>
+                    <Checkbox.Content>
+                        <Checkbox.Control>
+                            <Checkbox.Indicator />
+                        </Checkbox.Control>
+                        с учётом акциза
+                    </Checkbox.Content>
+                </Checkbox>
+            ) : null}
         </div>
     );
 
@@ -1177,9 +1201,8 @@ export function KppkWorkspace({
                     onHeaderPinnedChange={setHeaderPinned}
                     showServiceColumns={showServiceColumns}
                     onShowServiceColumnsChange={setShowServiceColumns}
-                    exportPending={exportState.pending}
-                    exportRowCount={exportState.rowCount}
-                    onExport={(scope) => exportState.onExport(scope)}
+                    // Excel export is not part of the strip at all: it lives in
+                    // the bottom action bar, one button per form.
                     onReset={handleStripReset}
                     columnResetLabel="Сбросить ширину столбцов и высоту заголовка"
                     isFullscreen={isFullscreen}
@@ -1234,8 +1257,11 @@ export function KppkWorkspace({
             {header}
             <WorkspaceContent toolbar={toolbar} footer={footer}>
                 {selectedTab ? (
-                    selectedTab.id === "kppkRealization" ? (
+                    selectedTab.id === "kppkRealization" || selectedTab.id === "kppkCost" ? (
                         <KppkRealizationSection
+                            key={selectedTab.id}
+                            mode={selectedTab.id === "kppkCost" ? "cost" : "realization"}
+                            includeExcise={includeExcise}
                             isAdmin={isAdmin}
                             orgId={realizationOrgId}
                             slice={realizationSlice}
@@ -1245,10 +1271,10 @@ export function KppkWorkspace({
                             showServiceColumns={showServiceColumns}
                             onDeleteState={setDeleteState}
                             onClipboardStateChange={handleClipboardActions}
-                            onGridStatsChange={setGridStats}
+                            onGridStatsChange={handleGridStats}
                             onSelectionLabelChange={setSelectionLabel}
                             onSelectionDetailChange={setSelectionDetail}
-                            onRoomChange={setSectionRoom}
+                            onRoomChange={handleSectionRoom}
                             onResetState={setGridResetState}
                             onUndoStateChange={handleUndoActions}
                             onExportState={handleExportState}
@@ -1264,10 +1290,10 @@ export function KppkWorkspace({
                             showServiceColumns={showServiceColumns}
                             onDeleteState={setDeleteState}
                             onClipboardStateChange={handleClipboardActions}
-                            onGridStatsChange={setGridStats}
+                            onGridStatsChange={handleGridStats}
                             onSelectionLabelChange={setSelectionLabel}
                             onSelectionDetailChange={setSelectionDetail}
-                            onRoomChange={setSectionRoom}
+                            onRoomChange={handleSectionRoom}
                             onResetState={setGridResetState}
                             onUndoStateChange={handleUndoActions}
                             onExportState={handleExportState}

@@ -176,10 +176,10 @@ class KppkPeriodCellUpdate(BaseModel):
 class KppkRealizationPeriodRead(BaseModel):
     """The banner period of the «Реализация» view (месяц/год of the form header)."""
 
-    id: UUID
+    periodDate: date
     monthName: str
     yearNum: int
-    repDate: date | None
+    repDate: date
 
 
 class KppkRealizationRowRead(BaseModel):
@@ -197,16 +197,19 @@ class KppkRealizationRowRead(BaseModel):
     fcaPriceBpPlan: float | None = None
     monthBpPlan: float | None = None
     fcaPriceMarketBpPlan: float | None = None
+    exciseBp: float = 0
     # ── Срез «Оперплан» (`_max_plan` columns) ──
     buyoutMaxPlan: float | None = None
     fcaPriceMaxPlan: float | None = None
     monthMaxPlan: float | None = None
     fcaPriceMarketMaxPlan: float | None = None
+    exciseMaxPlan: float = 0
     # ── Срез «Факт» (kppk_realization) ──
     buyoutFact: float | None = None
     fcaPriceFact: float | None = None
     fact: float | None = None
     fcaPriceMarketFact: float | None = None
+    exciseFact: float = 0
 
 
 class KppkRealizationViewRead(BaseModel):
@@ -215,6 +218,28 @@ class KppkRealizationViewRead(BaseModel):
     period: KppkRealizationPeriodRead
     markets: list[str]
     rows: list[KppkRealizationRowRead]
+
+
+class KppkCostRowRead(BaseModel):
+    """One product's production costs; no market dimension."""
+
+    id: UUID
+    product: str
+    productNum: int | None = None
+    fullCostBp: float | None = None
+    productionCostBp: float | None = None
+    variableCostBp: float | None = None
+    fullCostOp: float | None = None
+    productionCostOp: float | None = None
+    variableCostOp: float | None = None
+    fullCostFact: float | None = None
+    productionCostFact: float | None = None
+    variableCostFact: float | None = None
+
+
+class KppkCostViewRead(BaseModel):
+    period: KppkRealizationPeriodRead
+    rows: list[KppkCostRowRead]
 
 
 class KppkRealizationCellUpdate(BaseModel):
@@ -248,7 +273,7 @@ class KppkRealizationExportRequest(BaseModel):
 class KppkAppliedRead(BaseModel):
     """Mutation result with the new row payload (grid-friendly)."""
 
-    row: KppkProductPositionRowRead | KppkRawRowRead | KppkOrgRowRead | KppkPeriodRowRead | KppkRealizationRowRead
+    row: KppkProductPositionRowRead | KppkRawRowRead | KppkOrgRowRead | KppkRealizationRowRead | KppkCostRowRead
 
 
 class KppkExportViewRequest(BaseModel):

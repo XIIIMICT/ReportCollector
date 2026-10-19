@@ -389,11 +389,9 @@ async def isolated_store():
 
 async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> None:
     """КППК seed: project, admin role, ДЗО and a few products/links for the matrix."""
-    from sqlmodel import col, select
-
     from src.auth.models import Project, ProjectRole, UserRole
     from src.kppk.constants import KPPK_PROJECT_KEY, KPPK_PROJECT_NAME
-    from src.kppk.models import KppkOrg, KppkOrgProduct, KppkPeriod, KppkProduct, KppkRaw
+    from src.kppk.models import KppkOrg, KppkOrgProduct, KppkProduct, KppkRaw
 
     project = Project(key=KPPK_PROJECT_KEY, name=KPPK_PROJECT_NAME, created_at=now)
     session.add(project)
@@ -411,7 +409,7 @@ async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> No
     # Source numbers stand for raw.kppk_d_org.id; reads sort by name, so
     # «Березниковский…» (1) leads «СНХЗ» (2).
     orgs = {
-        name: KppkOrg(code=code, name=name, org_id=num, created_at=now, updated_at=now, updated_by="seed")
+        name: KppkOrg(code=code, name=name, num=num, created_at=now, updated_at=now, updated_by="seed")
         for code, name, num in [
             ("БСЗ", "АО «Березниковский содовый завод»", 1),
             ("СНХЗ", "АО «СНХЗ»", 2),
@@ -457,32 +455,11 @@ async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> No
     ]
     for link in org_products:
         session.add(link)
-    for period_num, (month, first, last) in enumerate(
-        [
-            ("Июнь", date(2026, 6, 1), date(2026, 6, 30)),
-            ("Июль", date(2026, 7, 1), date(2026, 7, 31)),
-        ],
-        start=1,
-    ):
-        session.add(
-            KppkPeriod(
-                # A source id: the realization copies reference the period by it.
-                period_id=period_num,
-                month_name=month,
-                year_num=2026,
-                first_date=first,
-                last_date=last,
-                created_at=now,
-                updated_at=now,
-                updated_by="seed",
-            )
-        )
     session.add(KppkRaw(name="Резина", raw_num=2, created_at=now, updated_at=now, updated_by="seed"))
     session.add(KppkRaw(name="Каучук", raw_num=1, created_at=now, updated_at=now, updated_by="seed"))
     # «Реализация» rows for the June period of «СНХЗ» (source org id 2). The
     # products are seeded in a deliberately WRONG insertion order: the read must
     # sort them by the «Продуктовые позиции» number, not by the copy's text.
-    period = (await session.exec(select(KppkPeriod).where(col(KppkPeriod.month_name) == "Июнь"))).one()
 
     from src.kppk.models import KppkRealization, KppkRealizationPlan
 
@@ -495,10 +472,9 @@ async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> No
     ]:
         session.add(
             KppkRealizationPlan(
-                org_id=2,
-                # The June period carries the source id 1 (seeded above).
-                period_id=period.period_id or 1,
-                rep_date=period.last_date,
+                org_id=orgs["АО «СНХЗ»"].id,
+                period_date=date(2026, 6, 1),
+                rep_date=date(2026, 6, 30),
                 product=product,
                 region=region,
                 month_bp_plan=Decimal("10.000"),
@@ -506,10 +482,9 @@ async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> No
         )
         session.add(
             KppkRealization(
-                org_id=2,
-                # The June period carries the source id 1 (seeded above).
-                period_id=period.period_id or 1,
-                rep_date=period.last_date,
+                org_id=orgs["АО «СНХЗ»"].id,
+                period_date=date(2026, 6, 1),
+                rep_date=date(2026, 6, 30),
                 product=product,
                 region=region,
                 fact=Decimal("1.000"),

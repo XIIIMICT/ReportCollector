@@ -58,6 +58,7 @@ def test_kppk_declares_its_sections() -> None:
         "kppkOrgs",
         "kppkRealizationPlan",
         "kppkRealizationFact",
+        "kppkCost",
         "kppkUsers",
     }
     assert KPPK_SECTIONS["kppkOrgs"][0] is KppkOrg

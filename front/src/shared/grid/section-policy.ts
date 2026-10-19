@@ -117,6 +117,7 @@ const SECTION_POLICIES: Record<PolicySectionId, SectionPolicy> = {
     // no placeholders; the editing stays admin-only like every «КППК» surface.
     kppkRealizationPlan: { ...DICTIONARY, rowOps: "none" },
     kppkRealizationFact: { ...DICTIONARY, rowOps: "none" },
+    kppkCost: { ...DICTIONARY, rowOps: "none" },
 };
 
 const CATALOG_POLICY: SectionPolicy = DICTIONARY;

@@ -25,7 +25,8 @@ export type SectionId =
     | "kppkOrgs"
     | "kppkUsers"
     | "kppkRealizationPlan"
-    | "kppkRealizationFact";
+    | "kppkRealizationFact"
+    | "kppkCost";
 
 export type GridRow = Record<string, unknown> & {
     id: string;
@@ -127,6 +128,7 @@ export const SECTION_LABELS: Record<StaticSectionId, string> & Partial<Record<Se
         kppkUsers: "Пользователи",
         kppkRealizationPlan: "Реализация",
         kppkRealizationFact: "Реализация",
+        kppkCost: "Себестоимость",
     };
 
 export const MAIN_SECTIONS = new Set<SectionId>(["materialMovement", "rawMaterialPrices"]);

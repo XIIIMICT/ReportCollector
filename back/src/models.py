@@ -1,9 +1,10 @@
 from .auth.models import Project, ProjectRole, User, UserRole
 from .kppk.models import (
+    KppkCost,
     KppkOrg,
     KppkOrgProduct,
-    KppkPeriod,
     KppkProduct,
+    KppkProductionPlan,
     KppkRaw,
     KppkRealization,
     KppkRealizationPlan,
@@ -30,10 +31,11 @@ from .renovation.plan import (
 __all__ = [
     "AssetRawMaterial",
     "DeliveryBasis",
+    "KppkCost",
     "KppkOrg",
     "KppkOrgProduct",
-    "KppkPeriod",
     "KppkProduct",
+    "KppkProductionPlan",
     "KppkRaw",
     "KppkRealization",
     "KppkRealizationPlan",

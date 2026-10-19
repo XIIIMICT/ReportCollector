@@ -44,21 +44,12 @@ MATCH_COLUMN_VALUE: Final[str] = "да"
 KPPK_ADMIN_EMAILS: Final[tuple[str, ...]] = ("evtushenko.sn@ruschem.ru", "lavrova.mg@ruschem.ru")
 # Only the four dictionary copies get audit stamps; the fact/plan copies stay
 # verbatim (the migration does not create audit columns for them).
-STAMPED_COPY_TABLES: Final[frozenset[str]] = frozenset(
-    {"kppk_d_org", "kppk_d_period", "kppk_d_product_seq", "kppk_d_raw_seq"}
-)
+STAMPED_COPY_TABLES: Final[frozenset[str]] = frozenset({"kppk_d_org", "kppk_d_product_seq", "kppk_d_raw_seq"})
 
 # Column mapping of every copied table: (source column, rc copy column).
 SOURCE_COPY_COLUMNS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
     # The source time zone is not copied: the program keeps id, code and name.
-    "kppk_d_org": (("id", "org_id"), ("code", "code"), ("name", "name")),
-    "kppk_d_period": (
-        ("id", "period_id"),
-        ("month_name", "month_name"),
-        ("year_num", "year_num"),
-        ("first_date", "first_date"),
-        ("last_date", "last_date"),
-    ),
+    "kppk_d_org": (("id", "num"), ("code", "code"), ("name", "name")),
     "kppk_d_product_seq": (("num", "product_num"), ("product", "name")),
     "kppk_d_raw_seq": (("num", "raw_num"), ("raw", "name")),
     "kppk_f_realization": tuple(
@@ -123,6 +114,29 @@ SOURCE_COPY_COLUMNS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
             "fca_price_market_max_plan",
             "fca_price_market_opt_plan",
             "lastdate",
+        )
+    ),
+    "kppk_f_production_plan": tuple(
+        (name, name)
+        for name in (
+            "org_id",
+            "rep_date",
+            "load_id",
+            "period_id",
+            "product",
+            "month_bp_plan",
+            "month_plan",
+            "goods",
+            "full_cost_bp",
+            "full_cost_plan",
+            "stock",
+            "stock_current",
+            "goods_bp_plan",
+            "lastdate",
+            "stock_region",
+            "stock_current_region",
+            "stock_plant",
+            "stock_current_plant",
         )
     ),
 }
@@ -283,15 +297,117 @@ async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[st
         stamped = source in STAMPED_COPY_TABLES
         stamp_columns = ", created_at, updated_at, updated_by" if stamped else ""
         stamp_values = ", now(), now(), 'seed'" if stamped else ""
-        result = await connection.execute(
-            text(
-                f"INSERT INTO {_qualified(app_schema, target)} (id, {target_columns}{stamp_columns}) "  # noqa: S608 — table/column names are seeder constants
-                f"SELECT gen_random_uuid(), {source_columns}{stamp_values} "
-                f"FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)}"
+        if source in {"kppk_f_realization", "kppk_f_realization_plan", "kppk_f_production_plan"}:
+            copied = [column for column, _ in columns if column not in {"org_id", "period_id"}]
+            target_columns = ", ".join(copied)
+            zero_fields = {"fact", "month_bp_plan", "month_max_plan", "excise_bp", "excise_max_plan", "excise_fact"}
+            source_columns = ", ".join(
+                f"coalesce(s.{column}, 0)" if column in zero_fields else f"s.{column}" for column in copied
             )
-        )
+            missing = (
+                await connection.execute(
+                    text(
+                        f"SELECT count(*) FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)} s "  # noqa: S608 — server-owned identifiers
+                        f"LEFT JOIN {_qualified(KPPK_SOURCE_SCHEMA_RAW, 'kppk_d_period')} p ON p.id = s.period_id "
+                        f"LEFT JOIN {_qualified(app_schema, 'kppk_orgs')} o ON o.num = s.org_id "
+                        "WHERE p.id IS NULL OR o.id IS NULL"
+                    )
+                )
+            ).scalar_one()
+            if missing:
+                message = f"Источник {source}: {missing} строк с неизвестным ДЗО или периодом."
+                raise CommandError(message)
+            result = await connection.execute(
+                text(
+                    f"INSERT INTO {_qualified(app_schema, target)} (id, org_id, period_date, {target_columns}) "  # noqa: S608 — server-owned identifiers
+                    f"SELECT gen_random_uuid(), o.id, date_trunc('month', p.first_date)::date, {source_columns} "
+                    f"FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)} s "
+                    f"JOIN {_qualified(KPPK_SOURCE_SCHEMA_RAW, 'kppk_d_period')} p ON p.id = s.period_id "
+                    f"JOIN {_qualified(app_schema, 'kppk_orgs')} o ON o.num = s.org_id"
+                )
+            )
+        else:
+            result = await connection.execute(
+                text(
+                    f"INSERT INTO {_qualified(app_schema, target)} (id, {target_columns}{stamp_columns}) "  # noqa: S608 — server-owned identifiers
+                    f"SELECT gen_random_uuid(), {source_columns}{stamp_values} "
+                    f"FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)}"
+                )
+            )
         per_table[target] = int(result.rowcount or 0) if isinstance(result, CursorResult) else 0
     return per_table
+
+
+async def _rebuild_costs(connection: AsyncConnection, app_schema: str) -> int:
+    """
+    Rebuild production costs without the realization market dimension.
+
+    Prefer markets with nonzero realization in the corresponding slice. If a
+    product has no sales at all, preserve its only nonzero cost anyway: costs
+    belong to production and do not disappear when the sales volume is zero.
+    Reject different nonzero values among the candidate rows atomically.
+    """
+    cost = _qualified(app_schema, "kppk_cost")
+    await connection.execute(text(f"TRUNCATE TABLE {cost}"))
+    sources = (
+        (
+            "kppk_realization",
+            {
+                "full_cost_fact": "full_cost_fact",
+                "input_cost_fact": "production_cost_fact",
+                "var_exp_fact": "variable_cost_fact",
+            },
+            "fact",
+        ),
+        (
+            "kppk_realization_plan",
+            {
+                "input_cost_bp": "production_cost_bp",
+                "var_exp_bp_plan": "variable_cost_bp",
+            },
+            "month_bp_plan",
+        ),
+        (
+            "kppk_realization_plan",
+            {"input_cost_plan": "production_cost_op", "var_exp_plan": "variable_cost_op"},
+            "month_max_plan",
+        ),
+        ("kppk_production_plan", {"full_cost_bp": "full_cost_bp", "full_cost_plan": "full_cost_op"}, None),
+    )
+    for table, mapping, volume in sources:
+        qualified = _qualified(app_schema, table)
+        scope = "rep_date = (period_date + interval '1 month - 1 day')::date"
+        # All identifiers are module-owned constants and a server schema setting;
+        # no request data reaches this SQL. Windowing keeps no-sales products.
+        active = f"coalesce({volume}, 0) <> 0" if volume else "true"
+        candidates = (
+            f"WITH scoped AS (SELECT *, bool_or({active}) OVER "  # noqa: S608 — server-owned identifiers
+            f"(PARTITION BY org_id, period_date, product) AS has_sales FROM {qualified} WHERE {scope}), "
+            f"candidates AS (SELECT * FROM scoped WHERE NOT has_sales OR {active}) "
+        )
+        for field in mapping:
+            conflict = (
+                await connection.execute(
+                    text(
+                        candidates + "SELECT org_id, period_date, product FROM candidates "  # noqa: S608 — server-owned identifiers
+                        f"GROUP BY org_id, period_date, product HAVING count(DISTINCT nullif({field}, 0)) > 1 LIMIT 1"
+                    )
+                )
+            ).first()
+            if conflict is not None:
+                message = f"Разные ненулевые значения {table}.{field}: ДЗО {conflict.org_id}, {conflict.period_date}, {conflict.product}."
+                raise CommandError(message)
+        columns = ", ".join(mapping.values())
+        aggregates = ", ".join(f"coalesce(max(nullif({field}, 0)), 0)" for field in mapping)
+        updates = ", ".join(f"{column} = excluded.{column}" for column in mapping.values())
+        await connection.execute(
+            text(
+                candidates + f"INSERT INTO {cost} (id, org_id, period_date, product, {columns}) "  # noqa: S608 — server-owned identifiers
+                f"SELECT gen_random_uuid(), org_id, period_date, product, {aggregates} FROM candidates "
+                f"GROUP BY org_id, period_date, product ON CONFLICT (org_id, period_date, product) DO UPDATE SET {updates}"
+            )
+        )
+    return int((await connection.execute(text(f"SELECT count(*) FROM {cost}"))).scalar_one())  # noqa: S608 — server-owned identifier
 
 
 def _matrix_matches() -> list[MatrixMatch]:
@@ -419,10 +535,12 @@ async def seed(session: AsyncSession) -> dict[str, int]:
     await _truncate_copies(connection, app_schema)
     per_table = await _copy_sources(connection, app_schema)
     org_products = await _rebuild_org_products(connection, app_schema)
+    costs = await _rebuild_costs(connection, app_schema)
     administrators = await seed_administrators(session)
     return {
         **per_table,
         **org_products,
+        "kppk_cost": costs,
         "schemas_created": len(schemas_created),
         "source_tables_created": source_tables_created,
         "administrators": administrators,

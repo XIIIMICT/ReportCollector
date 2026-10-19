@@ -1528,15 +1528,7 @@ export function RenovationWorkspace({
                 {...(isPlanSection && {
                     columnResetLabel: "Сбросить ширину столбцов и высоту заголовка",
                 })}
-                exportPending={isPlanSection ? exportPending : dictExportState.pending}
-                exportRowCount={
-                    isPlanSection
-                        ? (gridStats?.filteredRows ?? 0)
-                        : (dictGridStats?.filteredRows ?? 0)
-                }
-                onExport={handleStripExport}
                 onReset={handleStripReset}
-                hideExport
                 isFullscreen={isFullscreen}
                 isFullscreenPending={isFullscreenPending}
                 onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
