@@ -40,7 +40,7 @@ similarity is structural, but their contracts differ:
 already have a stable contract (`common export`, `collab journal/events`,
 `section policy`). Do not create a universal `ProjectDictionaryRouter`.
 
-### High — largest modules need future seams, not mechanical splitting
+### High — largest modules now have explicit domain seams
 
 Current largest modules include:
 
@@ -49,26 +49,23 @@ Current largest modules include:
 - `kppk/service.py` ~1.7k;
 - renovation/raw/KPPK routers ~0.9–1.5k.
 
-The first safe seams are now implemented: KPPK user administration moved to
-`kppk/users.py`, realization reads/edits/replay moved to `kppk/realization.py`,
-and `kppk/core.py` owns shared KPPK errors/audit/project-id primitives.
-Routers and undo use the domain modules directly; no service-wide generic CRUD
-abstraction was added. `kppk/service.py` dropped roughly 600 lines while the
-API behavior remains covered by user, realization, WebSocket and undo tests.
+The planned domain seams are implemented: KPPK user administration is in
+`kppk/users.py`, source dictionaries and replay are in `kppk/dictionaries.py`,
+realization reads/edits/replay are in `kppk/realization.py`, and `kppk/core.py`
+owns shared KPPK errors/audit/project-id primitives. Routers and undo use the
+domain modules directly; no service-wide generic CRUD abstraction was added.
 
 The remaining safe seams are domain-specific modules:
 
-1. renovation plan read/edit/lifecycle vs renovation assets;
-2. raw movement/prices vs raw reference dictionaries;
-3. KPPK source dictionaries vs realization vs project users.
+1. Keep plan/calculation/lifecycle services separate from domain dictionaries.
+2. Do not extract generic cross-project CRUD without a new contract need.
 
 Renovation reference catalogs live in `renovation/catalogs.py`; project users
 and their replay live in `renovation/users.py`. Shared exception types live in
 `renovation/errors.py`. Both modules depend on lower-level models/auth helpers,
 not on the plan service. The service retains the explicit replay dispatcher.
 All extracted and retained functions/classes match their pre-refactor ASTs,
-including decorators. Asset reads still include working-plan aggregates and
-remain a separate extraction task.
+including decorators.
 
 Raw-material user reads, mutations, grants and deletion replay now live in
 `raw_materials/users.py`; reference dictionaries and asset-link lifecycle live
@@ -144,12 +141,11 @@ latency targets rather than further static deduplication.
 ## Verification
 
 - Ruff check/format and ty pass.
-- Full backend suite: 403 passed, 4 skipped in the current review state.
-- Targeted KPPK users/policy/self-edit tests pass.
+- Full backend suite: 405 passed, 4 skipped after the completed backend seams.
+- Targeted KPPK users/source-dictionary/realization/WebSocket tests pass.
 
 ## Recommended next work
 
-1. Keep this audit and split only after adding contract tests per proposed seam.
-2. Add API contract tests for KPPK user update/export/undo as the UI is reviewed.
-3. Measure slow plan/realization queries with EXPLAIN and production-like data.
-4. Revisit router boilerplate only after the project API contracts stabilize.
+1. Add API contract tests for KPPK user update/export/undo as the UI is reviewed.
+2. Measure slow plan/realization queries with EXPLAIN and production-like data.
+3. Revisit router boilerplate only after the project API contracts stabilize.
