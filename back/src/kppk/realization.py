@@ -230,7 +230,12 @@ async def read_product_numbers(session: AsyncSession) -> dict[str, int]:
 
 
 def _product_number(number_map: dict[str, int], product: str) -> int | None:
-    return number_map.get(" ".join(product.casefold().split()))
+    key = " ".join(product.casefold().split())
+    exact = number_map.get(key)
+    if exact is not None:
+        return exact
+    prefix_matches = [number for name, number in number_map.items() if key.startswith(name + " ")]
+    return prefix_matches[0] if len(prefix_matches) == 1 else None
 
 
 async def read_realization_rows(

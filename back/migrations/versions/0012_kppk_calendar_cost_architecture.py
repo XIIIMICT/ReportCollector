@@ -230,7 +230,7 @@ def downgrade() -> None:
             sa.text(f"""
             UPDATE {table} r SET source_org_id = o.num, period_id = p.period_id
             FROM kppk_orgs o, kppk_periods p WHERE o.id = r.org_id AND p.first_date = r.period_date
-        """)
+        """)  # noqa: S608 — migration-owned identifiers
         )
         op.alter_column(table, "source_org_id", nullable=False)
         op.alter_column(table, "period_id", nullable=False)
