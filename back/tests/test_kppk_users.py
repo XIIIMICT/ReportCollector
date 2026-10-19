@@ -28,14 +28,14 @@ async def test_create_update_delete_and_replay_kppk_user(client: AsyncClient) ->
     assert response.status_code == 200, response.text
     response = await client.post("/api/kppk/undo?session_id=kppk-users", headers=HEADERS, json={"section": "kppkUsers"})
     assert response.status_code == 200, response.text
-    assert response.json()["applied"] is True
+    assert response.json()["applied"] is True, response.text
     rows = (await client.get("/api/kppk/users", headers=HEADERS)).json()
     assert next(item for item in rows if item["id"] == user_id)["isActive"] is True
     await client.patch(f"/api/kppk/users/{user_id}?session_id=kppk-users", headers=HEADERS, json={"isActive": False})
     response = await client.delete(f"/api/kppk/users/{user_id}?session_id=kppk-users", headers=HEADERS)
     assert response.status_code == 204, response.text
     response = await client.post("/api/kppk/undo?session_id=kppk-users", headers=HEADERS, json={"section": "kppkUsers"})
-    assert response.json()["applied"] is True
+    assert response.json()["applied"] is True, response.text
     rows = (await client.get("/api/kppk/users", headers=HEADERS)).json()
     assert any(item["id"] == user_id for item in rows)
 
@@ -79,7 +79,7 @@ async def test_kppk_user_role_change_preserves_other_project_link(
     assert response.status_code == 200, response.text
     assert response.json()["isAdmin"] is True
     response = await client.post("/api/kppk/undo?session_id=role-scope", headers=HEADERS, json={"section": "kppkUsers"})
-    assert response.json()["applied"] is True
+    assert response.json()["applied"] is True, response.text
     await db_session.refresh(raw_link)
     assert (raw_link.role, raw_link.is_active) == original
     kppk_link = await db_session.get(UserRole, (person.id, projects["kppk"]), populate_existing=True)

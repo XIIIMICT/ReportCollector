@@ -31,6 +31,7 @@ from src.kppk.constants import (
     KPPK_SECTION_USERS,
 )
 
+from .core import kppk_project_id
 from .export import REFERENCE_LISTS, SECTION_SHEET_NAMES, validate_export_request
 from .models import KppkRealization, KppkRealizationPlan
 from .schemas import (
@@ -59,20 +60,16 @@ from .service import (
     KppkNotFoundError,
     KppkValidationError,
     NoKppkAccessError,
-    create_kppk_user,
     create_org,
     create_period,
     create_product_position,
     create_raw,
-    delete_kppk_project_user,
     delete_org,
     delete_period,
     delete_product_position,
     delete_raw,
     is_kppk_admin,
-    kppk_project_id,
     read_current_period,
-    read_kppk_user_rows,
     read_market_codes,
     read_org_names,
     read_org_rows,
@@ -82,13 +79,13 @@ from .service import (
     read_realization_row_by_id,
     read_realization_rows,
     resolve_kppk_access,
-    update_kppk_user,
     update_org_cell,
     update_period_cell,
     update_product_position_cell,
     update_raw_cell,
     update_realization_cell,
 )
+from .users import create_kppk_user, delete_kppk_project_user, read_kppk_user_rows, update_kppk_user
 
 if TYPE_CHECKING:
     from src.auth.models import ProjectRole, User

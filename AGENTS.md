@@ -74,6 +74,7 @@ editing a KPPK membership.
 - `docs/ARCHITECTURE.md` — system diagram, environment variables, data model, API, auth, deploy.
 - `docs/COLLAB.md` — WebSocket protocol, leases, presence, undo/redo, locks.
 - `docs/GRID.md` — revo-grid: forms and columns, clipboard, selection, coordinates, tooltips.
+- `docs/BACKEND_DEDUP_AUDIT.md` — backend duplication/seam audit, shared platform boundaries and follow-up recommendations.
 - `docs/WORKFLOW.md` — environment, quality, languages standard, pre-commit (prek), branching/commits, working principles.
 - `docs/KEYCLOAK.md` — corporate Keycloak: OIDC flow, prod config, claims→user, provisioning, local stand, diagnostics. Prod artifacts — `docs/keycloak/` (OIDC discovery, access token example).
 

@@ -26,7 +26,8 @@ from src.collab.models import RENOVATION_PLAN_ROWS_TABLE, canonical_key
 from src.collab.store import lease_key
 from src.common.section_policy import section_policy
 from src.kppk.models import KppkOrg, KppkProduct, KppkRaw, KppkRealization, KppkRealizationPlan
-from src.kppk.service import apply_kppk_cell_value, apply_kppk_user_value
+from src.kppk.service import apply_kppk_cell_value
+from src.kppk.users import apply_kppk_user_value
 from src.raw_materials.models import (
     AssetRawMaterial,
     MaterialMovement,
