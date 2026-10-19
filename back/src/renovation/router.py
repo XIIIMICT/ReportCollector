@@ -32,7 +32,14 @@ from src.common.export import safe_sheet_name
 from src.common.export_jobs import ExportJobRead, export_table_or_job, table_export_jobs
 from src.database import get_session
 from src.downloads import XLSX_MEDIA_TYPE
+from src.renovation.catalogs import (
+    create_renovation_catalog_option,
+    delete_renovation_catalog_option,
+    read_renovation_catalog_rows,
+    update_renovation_catalog_option,
+)
 from src.renovation.constants import RENOVATION_PROJECT_KEY
+from src.renovation.errors import RenovationDictionaryError
 from src.renovation.export import (
     REFERENCE_LISTS,
     ExportValidationError,
@@ -76,7 +83,6 @@ from src.renovation.schemas import (
 from src.renovation.service import (
     CellValidationError,
     NoRenovationAccessError,
-    RenovationDictionaryError,
     RenovationPermissionError,
     RenovationPlanExportData,
     RenovationPlanNotFoundError,
@@ -85,11 +91,9 @@ from src.renovation.service import (
     approve_plan,
     assign_plan_row_asset,
     create_renovation_asset,
-    create_renovation_catalog_option,
     create_renovation_user,
     delete_plan_row,
     delete_renovation_asset,
-    delete_renovation_catalog_option,
     delete_renovation_user,
     read_meta,
     read_plan,
@@ -101,13 +105,11 @@ from src.renovation.service import (
     read_plan_summary,
     read_plan_versions,
     read_renovation_asset_rows,
-    read_renovation_catalog_rows,
     read_renovation_user_rows,
     resolve_renovation_access,
     submit_plan,
     update_plan_cells,
     update_renovation_asset,
-    update_renovation_catalog_option,
     update_renovation_user,
 )
 
