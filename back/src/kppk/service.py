@@ -20,12 +20,10 @@ journal (the «Сырьё»/«Ремонт» mechanism): one cell edit, a creati
 `apply_kppk_cell_value` replays them through the same validators.
 """
 
-from collections.abc import Sequence
 from datetime import date
-from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
-from sqlalchemy import func, text
+from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -33,7 +31,6 @@ from src.auth.models import Project, ProjectRole, User, UserRole
 from src.auth.service import CurrentUserIdentity, get_user_by_identity
 from src.collab.journal import AppliedCell
 from src.collab.locking import project_write
-from src.config import get_settings
 from src.kppk.constants import KPPK_PROJECT_KEY
 from src.kppk.models import (
     KppkOrg,
@@ -46,13 +43,15 @@ from src.kppk.models import (
 )
 
 from .core import KppkNotFoundError, KppkValidationError, NoKppkAccessError, _audit_name, _now
+from .realization import (
+    apply_kppk_realization_cell_value,
+)
 from .schemas import (
     KppkOrgRowRead,
     KppkPeriodRowRead,
     KppkProductPositionCreateRequest,
     KppkProductPositionRowRead,
     KppkRawRowRead,
-    KppkRealizationRowRead,
 )
 
 
@@ -1128,304 +1127,6 @@ async def update_period_cell(
     await session.flush()
 
 
-# ─── «Реализация» (Таблицы.xlsx sheet «Реализация») ───────────────────────
-
-
-REALIZATION_SLICE_FIELDS: dict[str, tuple[str, ...]] = {
-    "bp": ("buyoutBpPlan", "fcaPriceBpPlan", "monthBpPlan", "fcaPriceMarketBpPlan"),
-    "op": ("buyoutMaxPlan", "fcaPriceMaxPlan", "monthMaxPlan", "fcaPriceMarketMaxPlan"),
-    "fact": ("buyoutFact", "fcaPriceFact", "fact", "fcaPriceMarketFact"),
-}
-
-_REALIZATION_FIELD_ATTRIBUTES: dict[str, str] = {
-    "buyoutBpPlan": "buyout_bp_plan",
-    "fcaPriceBpPlan": "fca_price_bp_plan",
-    "monthBpPlan": "month_bp_plan",
-    "fcaPriceMarketBpPlan": "fca_price_market_bp_plan",
-    "buyoutMaxPlan": "buyout_max_plan",
-    "fcaPriceMaxPlan": "fca_price_max_plan",
-    "monthMaxPlan": "month_max_plan",
-    "fcaPriceMarketMaxPlan": "fca_price_market_max_plan",
-    "buyoutFact": "buyout_fact",
-    "fcaPriceFact": "fca_price_fact",
-    "fact": "fact",
-    "fcaPriceMarketFact": "fca_price_market_fact",
-}
-
-
-# The «Реализация» view works on one fixed period until the period filter
-# appears: the newest period by first_date that has plan data (the form is
-# filled month by month, the fact copy lands the current month last).
-def _realization_period_from_rows(
-    periods: Sequence[KppkPeriod],
-    plan_period_ids: set[int],
-) -> KppkPeriod:
-    """Pick the newest period among those referenced, else the newest row."""
-    referenced = [period for period in periods if period.period_id is not None and period.period_id in plan_period_ids]
-    pool = referenced or periods
-    return max(pool, key=lambda period: (period.first_date, period.period_id or 0))
-
-
-async def read_current_period(
-    session: AsyncSession, *, month: int | None = None, year: int | None = None
-) -> KppkPeriod:
-    """
-    Return the period the «Реализация» form works on.
-
-    With `month`+`year` (both required, 1-based) — the named calendar period;
-    otherwise the newest period the form data references (the default until
-    the user picks an explicit month/year in the toolbar).
-    """
-    periods = (await session.exec(select(KppkPeriod))).all()
-    if not periods:
-        message = "Периоды не заведены — заведите справочник «Периоды»."
-        raise KppkValidationError(message)
-    if month is not None and year is not None:
-        named = [
-            period
-            for period in periods
-            if period.first_date is not None and period.first_date.year == year and period.first_date.month == month
-        ]
-        if not named:
-            message = f"Период {month:02d}.{year} в справочнике «Периоды» не найден."
-            raise KppkValidationError(message)
-        return max(named, key=lambda period: period.period_id or 0)
-    plan_period_ids = {
-        row for row in (await session.exec(select(col(KppkRealizationPlan.period_id)).distinct())).all() if row
-    }
-    return _realization_period_from_rows(list(periods), plan_period_ids)
-
-
-async def read_market_codes(session: AsyncSession) -> list[str]:
-    """
-    Return the рынок codes («Рынок сбыта», distinct `code` of dict.markets).
-
-    The markets dictionary is prod-owned (`dict.markets`); the seeder creates
-    it only when missing, so the test database can lack the schema — the codes
-    of the data copies are the fallback then (the same РФ/БЗ/ДЗ vocabulary,
-    per the template).
-    """
-    connection = await session.connection()
-    has_markets = (
-        await connection.execute(
-            text("SELECT 1 FROM information_schema.tables WHERE table_schema = 'dict' AND table_name = 'markets'")
-        )
-    ).first() is not None
-    if has_markets:
-        # The insertion order is a stable display order; DISTINCT by code keeps
-        # the «Экспорт ТС»/«Экспорт СНГ» names behind their shared БЗ code.
-        rows = (
-            await connection.execute(
-                text(
-                    # UUID has no min() — the key casts to text. It's only the
-                    # stable display order (РФ, БЗ, ДЗ by first insertion).
-                    "SELECT code FROM dict.markets GROUP BY code ORDER BY min(created_at), min(id::text)"
-                )
-            )
-        ).all()
-        if rows:
-            return [row[0] for row in rows]
-    # Without dict.markets (the disposable test databases): the distinct codes
-    # of the data copies themselves (identical vocabulary). The schema name is
-    # a seeder-constant setting, not user input.
-    schema = get_settings().postgres_schema
-    # `kppk_realization` / `kppk_realization_plan` are seeder-owned constant
-    # names and `schema` is a server setting — no user input reaches this SQL.
-    region_query: str = (
-        f'SELECT region FROM "{schema}"."kppk_realization" UNION SELECT region FROM "{schema}"."kppk_realization_plan"'  # noqa: S608 — constant table names, no user input
-    )
-    regions = (await connection.execute(text(region_query))).all()
-    return sorted({row[0] for row in regions if row[0]})
-
-
-def _plan_realization_row_read(row: KppkRealizationPlan) -> KppkRealizationRowRead:
-    """Build the API shape of a plan-copy row (the two plan slices' columns)."""
-    return KppkRealizationRowRead(
-        id=row.id,
-        product=row.product,
-        region=row.region,
-        buyoutBpPlan=row.buyout_bp_plan,
-        fcaPriceBpPlan=row.fca_price_bp_plan,
-        monthBpPlan=row.month_bp_plan,
-        fcaPriceMarketBpPlan=row.fca_price_market_bp_plan,
-        buyoutMaxPlan=row.buyout_max_plan,
-        fcaPriceMaxPlan=row.fca_price_max_plan,
-        monthMaxPlan=row.month_max_plan,
-        fcaPriceMarketMaxPlan=row.fca_price_market_max_plan,
-    )
-
-
-def _fact_realization_row_read(row: KppkRealization) -> KppkRealizationRowRead:
-    """Build the API shape of a fact-copy row (the fact slice's columns)."""
-    return KppkRealizationRowRead(
-        id=row.id,
-        product=row.product,
-        region=row.region,
-        buyoutFact=row.buyout_fact,
-        fcaPriceFact=row.fca_price_fact,
-        fact=row.fact,
-        fcaPriceMarketFact=row.fca_price_market_fact,
-    )
-
-
-async def read_realization_rows(
-    session: AsyncSession,
-    *,
-    slice_id: str,
-    org_id: UUID,
-) -> list[KppkRealizationRowRead]:
-    """List the rows of one «Реализация» slice (period × ДЗО, product/region ordered)."""
-    fields = REALIZATION_SLICE_FIELDS.get(slice_id)
-    if fields is None:
-        message = "Неизвестный срез «Реализации»."
-        raise KppkValidationError(message)
-    org = await session.get(KppkOrg, org_id)
-    if org is None:
-        message = "ДЗО не найдено."
-        raise KppkNotFoundError(message)
-    if org.org_id is None:
-        # A hand-added ДЗО without a source id holds no copies' rows.
-        return []
-    period = await read_current_period(session)
-    markets = await read_market_codes(session)
-    region_order = {code: index for index, code in enumerate(markets)}
-
-    # The Заказчик задал порядок рынка как в справочнике markets (РФ, БЗ, ДЗ);
-    # внутри продукта строки группируются по нему.
-    def region_key(row: KppkRealization | KppkRealizationPlan) -> tuple[str, int]:
-        return (row.product, region_order.get(row.region, len(region_order)))
-
-    if slice_id == "fact":
-        fact_rows = list(
-            (
-                await session.exec(
-                    select(KppkRealization)
-                    .where(
-                        col(KppkRealization.org_id) == org.org_id,
-                        col(KppkRealization.period_id) == period.period_id,
-                        col(KppkRealization.rep_date) == period.last_date,
-                    )
-                    .order_by(col(KppkRealization.product))
-                )
-            ).all()
-        )
-        fact_rows.sort(key=region_key)
-        return [_fact_realization_row_read(row) for row in fact_rows]
-    plan_rows = list(
-        (
-            await session.exec(
-                select(KppkRealizationPlan)
-                .where(
-                    col(KppkRealizationPlan.org_id) == org.org_id,
-                    col(KppkRealizationPlan.period_id) == period.period_id,
-                    col(KppkRealizationPlan.rep_date) == period.last_date,
-                )
-                .order_by(col(KppkRealizationPlan.product))
-            )
-        ).all()
-    )
-    plan_rows.sort(key=region_key)
-    return [_plan_realization_row_read(row) for row in plan_rows]
-
-
-async def read_realization_row_by_id(
-    session: AsyncSession,
-    *,
-    slice_id: str,
-    row_id: UUID,
-) -> KppkRealizationRowRead | None:
-    """Read one realization row after a PATCH (slice decides the copy table)."""
-    if slice_id == "fact":
-        row = await session.get(KppkRealization, row_id)
-        return None if row is None else _fact_realization_row_read(row)
-    if slice_id in {"bp", "op"}:
-        row = await session.get(KppkRealizationPlan, row_id)
-        return None if row is None else _plan_realization_row_read(row)
-    message = "Неизвестный срез «Реализации»."
-    raise KppkValidationError(message)
-
-
-def _check_realization_decimal(value: object) -> Decimal | None:
-    """Parse a numeric cell of «Реализации»; empty clears it (NULL)."""
-    if value is None or (isinstance(value, str) and not str(value).strip()):
-        return None
-    try:
-        number = Decimal(str(value).strip().replace(",", "."))
-    except (InvalidOperation, ValueError) as error:
-        message = "Значение должно быть числом."
-        raise KppkValidationError(message) from error
-    if not number.is_finite():
-        message = "Значение должно быть числом."
-        raise KppkValidationError(message)
-    return number
-
-
-async def _apply_realization_cell(
-    session: AsyncSession,
-    *,
-    slice_id: str,
-    row_id: UUID,
-    field: str,
-    value: object,
-) -> tuple[Decimal | None, Decimal | None]:
-    """Validate one numeric cell and store it; returns the (old, new) journal values."""
-    fields = REALIZATION_SLICE_FIELDS.get(slice_id)
-    if fields is None or field not in fields:
-        message = f"Поле «{field}» нельзя изменить на этом срезе."
-        raise KppkValidationError(message)
-    attribute = _REALIZATION_FIELD_ATTRIBUTES[field]
-    model = KppkRealization if slice_id == "fact" else KppkRealizationPlan
-    row = await session.get(model, row_id)
-    if row is None:
-        message = "Строка не найдена — обновите вид (период или ДЗО изменились)."
-        raise KppkNotFoundError(message)
-    old_value = getattr(row, attribute)
-    stored = _check_realization_decimal(value)
-    setattr(row, attribute, stored)
-    await session.flush()
-    return old_value, stored
-
-
-@project_write(KPPK_PROJECT_KEY, exclusive=False)
-async def update_realization_cell(
-    session: AsyncSession,
-    *,
-    slice_id: str,
-    row_id: UUID,
-    field: str,
-    value: object,
-    user: User,
-) -> tuple[Decimal | None, Decimal | None]:
-    """
-    Edit one numeric cell of a «Реализация» row under the shared project lock.
-
-    The slice names the table and the editable fields; the returned pair is
-    the journal-replayable (old, new) values — the grid records carry the
-    same camelCase DB attributes, so the redo applies the same vocabulary.
-    """
-    del user  # the realization copies keep no audit stamps (the seeder re-copies)
-    return await _apply_realization_cell(session, slice_id=slice_id, row_id=row_id, field=field, value=value)
-
-
-async def apply_kppk_realization_cell_value(
-    session: AsyncSession,
-    *,
-    target_table: str,
-    row_id: UUID,
-    field: str,
-    value: object,
-) -> None:
-    """Replay a journaled «Реализация» cell value (undo/redo), no audit stamp."""
-    if target_table == KppkRealization.__tablename__:
-        slice_id = "fact"
-    elif target_table == KppkRealizationPlan.__tablename__:
-        slice_id = "bp" if field in REALIZATION_SLICE_FIELDS["bp"] else "op"
-    else:
-        message = f"Неизвестная таблица реализации «{target_table}»."
-        raise KppkValidationError(message)
-    await _apply_realization_cell(session, slice_id=slice_id, row_id=row_id, field=field, value=value)
-
-
 @project_write(KPPK_PROJECT_KEY, exclusive=True)
 async def delete_period(session: AsyncSession, *, period_id: UUID) -> None:
     """Delete a period that is not referenced by the fact/plan copies."""
@@ -1438,8 +1139,3 @@ async def delete_period(session: AsyncSession, *, period_id: UUID) -> None:
         raise KppkValidationError(message)
     await session.delete(period)
     await session.flush()
-
-
-# NOTE: «Реализация» (Таблицы.xlsx) endpoints live in `realization_router.py`;
-# cell edits replay through `apply_kppk_realization_cell_value` from the shared
-# undo/redo stack (`src.collab.undo`).

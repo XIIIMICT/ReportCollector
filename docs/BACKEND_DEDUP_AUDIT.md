@@ -49,11 +49,12 @@ Current largest modules include:
 - `kppk/service.py` ~1.7k;
 - renovation/raw/KPPK routers ~0.9–1.5k.
 
-The first safe seam is now implemented: KPPK user administration moved to
-`kppk/users.py`, while `kppk/core.py` owns shared KPPK errors/audit/project-id
-primitives. Routers and undo import the new module directly; no compatibility
-cycle or service-wide generic CRUD abstraction was added. `kppk/service.py`
-dropped roughly 247 lines with the same API behavior and replay tests.
+The first safe seams are now implemented: KPPK user administration moved to
+`kppk/users.py`, realization reads/edits/replay moved to `kppk/realization.py`,
+and `kppk/core.py` owns shared KPPK errors/audit/project-id primitives.
+Routers and undo use the domain modules directly; no service-wide generic CRUD
+abstraction was added. `kppk/service.py` dropped roughly 600 lines while the
+API behavior remains covered by user, realization, WebSocket and undo tests.
 
 The remaining safe seams are domain-specific modules:
 
