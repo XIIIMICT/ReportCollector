@@ -32,6 +32,12 @@ from src.common.export import safe_sheet_name
 from src.common.export_jobs import ExportJobRead, export_table_or_job, table_export_jobs
 from src.database import get_session
 from src.downloads import XLSX_MEDIA_TYPE
+from src.renovation.assets import (
+    create_renovation_asset,
+    delete_renovation_asset,
+    read_renovation_asset_rows,
+    update_renovation_asset,
+)
 from src.renovation.catalogs import (
     create_renovation_catalog_option,
     delete_renovation_catalog_option,
@@ -90,9 +96,7 @@ from src.renovation.service import (
     add_plan_row,
     approve_plan,
     assign_plan_row_asset,
-    create_renovation_asset,
     delete_plan_row,
-    delete_renovation_asset,
     read_meta,
     read_plan,
     read_plan_diff,
@@ -102,11 +106,9 @@ from src.renovation.service import (
     read_plan_rows,
     read_plan_summary,
     read_plan_versions,
-    read_renovation_asset_rows,
     resolve_renovation_access,
     submit_plan,
     update_plan_cells,
-    update_renovation_asset,
 )
 from src.renovation.users import (
     create_renovation_user,

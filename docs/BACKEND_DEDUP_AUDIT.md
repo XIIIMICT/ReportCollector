@@ -77,6 +77,12 @@ snapshot-validation error live in `raw_materials/errors.py`. The form/replay
 service imports these lower layers without a reverse import. All raw-material
 function/class ASTs match the pre-extraction baseline; targeted raw tests pass.
 
+Renovation assets and their working-plan aggregate read model now live in
+`renovation/assets.py`; plan-state/project lookups live in
+`renovation/plan_queries.py`. Catalogs and users are separate modules as well,
+leaving the main renovation service focused on plan reads, edits, calculation
+and lifecycle transitions.
+
 Each seam must preserve transaction decorators, project locks, session ids,
 journal target tables and API error mapping. A broad extraction without
 contract tests is higher risk than the current duplication.
