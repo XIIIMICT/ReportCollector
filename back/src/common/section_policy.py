@@ -52,7 +52,7 @@ SECTION_POLICIES: dict[str, SectionPolicy] = {
     "kppkPositions": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="placeholder"),
     "kppkRaws": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="placeholder"),
     "kppkOrgs": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="placeholder"),
-    "kppkUsers": SectionPolicy(collab="admin", undo="admin", export="admin", row_ops="dialog"),
+    "kppkUsers": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="dialog"),
     # «Реализация»: the rows come from the source copies (no placeholders),
     # the editing and undo stay admin-only like every «КППК» surface.
     "kppkRealizationPlan": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="none"),

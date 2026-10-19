@@ -281,7 +281,7 @@ async def test_read_plan_reports_calculated_rule_violations(
     # Start after end → col_026 becomes negative. The edit is applied and the
     # row recalced by the same PATCH; the dates themselves have no minimum
     # rule, so only the derived duration breaks one.
-    status, _ = await _patch(
+    status, body = await _patch(
         client,
         [
             {"rowId": str(row.id), "field": "col_024", "value": "2027-03-01"},
@@ -289,6 +289,13 @@ async def test_read_plan_reports_calculated_rule_violations(
         ],
     )
     assert status == 200
+
+    # The PATCH reports the recalculated VALUE only — the grid derives the red
+    # tint from it against the field's rules (a live recalculation carries no
+    # metadata, and a `cell:changed` broadcast reaches other users the same
+    # way). Pinning the shape here keeps that contract honest.
+    recalculated = {(cell["rowId"], cell["field"]): cell["value"] for cell in body["calculated"]}
+    assert recalculated[(str(row.id), "col_026")] < 0
 
     response = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
     assert response.status_code == 200

@@ -1,4 +1,4 @@
-﻿import type { SectionId } from "@/shared/grid/grid-config";
+import type { SectionId } from "@/shared/grid/grid-config";
 
 /**
  * The per-section rules that used to be scattered across both sides of the
@@ -112,7 +112,7 @@ const SECTION_POLICIES: Record<PolicySectionId, SectionPolicy> = {
     kppkPositions: DICTIONARY,
     kppkRaws: DICTIONARY,
     kppkOrgs: DICTIONARY,
-    kppkUsers: { ...DICTIONARY, rowOps: "dialog", export: "admin" },
+    kppkUsers: { ...DICTIONARY, rowOps: "dialog" },
     // «Реализация» (Таблицы.xlsx): the rows come from the source copies —
     // no placeholders; the editing stays admin-only like every «КППК» surface.
     kppkRealizationPlan: { ...DICTIONARY, rowOps: "none" },

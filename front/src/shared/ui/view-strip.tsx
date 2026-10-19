@@ -30,6 +30,7 @@ export function ViewStrip({
     showServiceColumns,
     onShowServiceColumnsChange,
     exportPending,
+    exportRowCount,
     onExport,
     onReset,
     isFullscreen,
@@ -44,6 +45,8 @@ export function ViewStrip({
     showServiceColumns?: boolean;
     onShowServiceColumnsChange?: (value: boolean) => void;
     exportPending: boolean;
+    /** Rows the current view holds — 0 disables the export (nothing to save). */
+    exportRowCount?: number | undefined;
     onExport: (scope: "all" | "visible") => void;
     onReset: (scope: "columnWidths" | "filtersSorting") => void;
     isFullscreen: boolean;
@@ -79,7 +82,12 @@ export function ViewStrip({
             onPress={handlers.onPress}
             className={isOpen ? "action-button action-button--open" : "action-button"}
             variant="tertiary"
-            isDisabled={pending || isFullscreenPending}
+            // An empty table has nothing to export — the same rule as the action
+            // bar's button.
+            isDisabled={pending || isFullscreenPending || exportRowCount === 0}
+            data-action-tooltip={
+                exportRowCount === 0 ? "Нечего выгружать: таблица пуста." : undefined
+            }
             aria-label="Скачать в Excel"
         >
             <span className="action-button__icon">

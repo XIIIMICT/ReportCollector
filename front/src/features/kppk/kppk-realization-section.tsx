@@ -5,6 +5,7 @@ import { CellMergePlugin, type MergeData } from "@revolist/rv-pro-trial";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+    exportKppkRealization,
     getKppkUndoState,
     getRealizationView,
     KPPK_REALIZATION_SLICE_FIELDS,
@@ -20,7 +21,7 @@ import type { CellUpdate } from "@/shared/api/raw-materials";
 import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
-import type { ColumnDescriptor, GridRow } from "@/shared/grid/grid-config";
+import { exportFileName, type ColumnDescriptor, type GridRow } from "@/shared/grid/grid-config";
 import {
     RawMaterialsGrid,
     type GridViewStats,
@@ -31,6 +32,7 @@ import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
+import { runTableExport } from "@/shared/ui/table-export-action";
 import { publishSelection, type GridSelectionInfo } from "@/shared/ui/text-helpers";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
 import { useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
@@ -68,6 +70,7 @@ const KPPK_REALIZATION_SLICES: { id: KppkRealizationSlice; label: string }[] = [
  */
 const KPPK_REALIZATION_DESCRIPTORS: Record<KppkRealizationSlice, ColumnDescriptor[]> = {
     bp: [
+        { key: "productNum", label: "№", width: 70, kind: "number", fixed: true, readOnly: true },
         { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
         { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
         { key: "buyoutBpPlan", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
@@ -82,6 +85,7 @@ const KPPK_REALIZATION_DESCRIPTORS: Record<KppkRealizationSlice, ColumnDescripto
         },
     ],
     op: [
+        { key: "productNum", label: "№", width: 70, kind: "number", fixed: true, readOnly: true },
         { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
         { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
         { key: "buyoutMaxPlan", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
@@ -96,6 +100,7 @@ const KPPK_REALIZATION_DESCRIPTORS: Record<KppkRealizationSlice, ColumnDescripto
         },
     ],
     fact: [
+        { key: "productNum", label: "№", width: 70, kind: "number", fixed: true, readOnly: true },
         { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
         { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
         { key: "buyoutFact", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
@@ -160,6 +165,12 @@ type KppkRealizationSectionProps = {
     onSelectionDetailChange?: (detail: string | null) => void;
     onClipboardStateChange: (state: ClipboardActions) => void;
     onUndoStateChange: (state: KppkUndoActions) => void;
+    /** Publishes the Excel export state (the workspace action bar renders it). */
+    onExportState: (state: {
+        pending: boolean;
+        rowCount?: number | undefined;
+        onExport: (mode: "all" | "visible") => void;
+    }) => void;
     onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
     onResetState: (state: {
         resetColumnWidths: () => void;
@@ -184,6 +195,7 @@ export function KppkRealizationSection({
     onSelectionDetailChange,
     onClipboardStateChange,
     onUndoStateChange,
+    onExportState,
     onDeleteState,
     onResetState,
     onRoomChange,
@@ -340,29 +352,80 @@ export function KppkRealizationSection({
         });
     }, [isAdmin, remoteCellValues, roomSection, slice, view?.rows]);
 
-    // The template folds each product's region rows into one merged product
-    // cell: one rowSpan range per run of rows sharing the product. The merge
-    // column is the leading `product` leaf (index 0).
+    // The template folds each product's region rows into one merged cell: one
+    // rowSpan range per run of rows sharing the product. The merge covers the
+    // leading `productNum` + `product` leaves (indexes 0 and 1): the «№» of a
+    // product is one block spanning all of its market rows, like its name.
     const cellMerge = useMemo<MergeData[]>(() => {
         const rows: KppkRealizationRow[] = view?.rows ?? [];
         const sweeps: MergeData[] = [];
         let start = -1;
+        const push = (from: number, to: number) => {
+            if (from < 0 || to - from < 2) return;
+            for (const column of [0, 1]) {
+                sweeps.push({ row: from, column, rowSpan: to - from });
+            }
+        };
         for (let i = 0; i < rows.length; i += 1) {
             const isGroupStart = i === 0 || rows[i]!.product !== rows[i - 1]!.product;
             if (!isGroupStart) continue;
-            if (start >= 0 && i - start > 1) {
-                sweeps.push({ row: start, column: 0, rowSpan: i - start });
-            }
+            if (start >= 0) push(start, i);
             start = i;
         }
-        if (start >= 0 && rows.length - start > 1) {
-            sweeps.push({ row: start, column: 0, rowSpan: rows.length - start });
-        }
+        if (start >= 0) push(start, rows.length);
         return sweeps;
     }, [view?.rows]);
 
     // ── Workspace wiring (footer actions, strip handlers) ──
     const gridRef = useRef<RawMaterialsGridHandle>(null);
+    // The exported row count is the one the footer status shows: the grid
+    // measures it (filters applied, placeholders dropped) and publishes it
+    // through `onViewStatsChange`. Deriving it here instead kept the two
+    // numbers apart — the status said «N строк», the export button stayed
+    // disabled because the section counted its own pre-render list.
+    const [viewStats, setViewStats] = useState<GridViewStats | null>(null);
+    const handleViewStats = useCallback(
+        (stats: GridViewStats) => {
+            setViewStats(stats);
+            onGridStatsChange(stats);
+        },
+        [onGridStatsChange],
+    );
+    // The Excel export replays this form's toolbar selection (slice × ДЗО ×
+    // period) and its column shape; the server re-reads the same ordered view.
+    const [exportPending, setExportPending] = useState(false);
+    const onExport = useCallback(
+        (mode: "all" | "visible") => {
+            // «Видимая» equals «вся» here: the form has no client-side filters
+            // — the ДЗО/slice/period selection has already narrowed the view.
+            void mode;
+            if (orgId === null) return;
+            void runTableExport({
+                pending: exportPending,
+                gridRef,
+                setPending: setExportPending,
+                fileName: () => exportFileName(roomSection, null),
+                request: (view, fileName) =>
+                    exportKppkRealization({
+                        slice,
+                        orgId,
+                        month: periodMonth,
+                        year: periodYear,
+                        headerPinned,
+                        columns: view.columns,
+                        fileName,
+                    }),
+            });
+        },
+        [exportPending, headerPinned, orgId, periodMonth, periodYear, roomSection, slice],
+    );
+    useEffect(() => {
+        onExportState({
+            pending: exportPending,
+            rowCount: viewStats?.filteredRows ?? 0,
+            onExport,
+        });
+    }, [exportPending, onExport, onExportState, viewStats]);
     useEffect(() => {
         onUndoStateChange(
             undoCounts.canUndo || undoCounts.canRedo
@@ -447,6 +510,9 @@ export function KppkRealizationSection({
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}
                 columnDescriptors={KPPK_REALIZATION_DESCRIPTORS[slice]}
+                // The rows follow the server order (product number → market):
+                // a header click must not reshuffle the view.
+                sortable={false}
                 plugins={[CellMergePlugin]}
                 cellMerge={cellMerge}
                 assets={[]}
@@ -461,7 +527,7 @@ export function KppkRealizationSection({
                 onReleaseLease={(keys) => room.releaseLeases(keys)}
                 onLockedCellEdit={gridWarnings.onLockedCellEdit}
                 onValidationError={gridWarnings.onValidationError}
-                onViewStatsChange={onGridStatsChange}
+                onViewStatsChange={handleViewStats}
                 // Row operations are disabled on this form (the rows come from
                 // the source copies) — the grid just requires the handler.
                 onSelectedRowsChange={() => {}}

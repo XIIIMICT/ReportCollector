@@ -220,7 +220,10 @@ export function RenovationDictionarySection({
         blockedReason: string | null;
         onDelete: () => void;
     }) => void;
-    onExportState: (state: { onExport: (scope: "all" | "visible") => void }) => void;
+    onExportState: (state: {
+        pending: boolean;
+        onExport: (scope: "all" | "visible") => void;
+    }) => void;
     /** Registers the display-reset handlers of the active dictionary grid. */
     onResetState: (state: {
         resetColumnWidths: () => void;
@@ -605,8 +608,8 @@ export function RenovationDictionarySection({
     );
 
     useEffect(() => {
-        onExportState({ onExport: (scope) => void exportTable(scope) });
-    }, [exportTable, onExportState]);
+        onExportState({ pending: exportPending, onExport: (scope) => void exportTable(scope) });
+    }, [exportPending, exportTable, onExportState]);
 
     useEffect(() => {
         onResetState({

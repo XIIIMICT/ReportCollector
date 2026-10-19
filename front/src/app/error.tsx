@@ -29,7 +29,7 @@ export default function ErrorPage({
                             Код ошибки: {error.digest}
                         </Typography>
                     ) : null}
-                    <ButtonGroup>
+                    <ButtonGroup className="self-start">
                         <Button variant="primary" onPress={reset}>
                             Обновить
                         </Button>

@@ -44,6 +44,8 @@ import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/raw-materials-
 import { isChunkedSection } from "@/shared/grid/section-policy";
 import { isFromTextEditor } from "@/shared/keyboard";
 
+import { breaksValueRules } from "./renovation-rules";
+
 /**
  * The «Ремонт» plan grid.
  *
@@ -1049,15 +1051,20 @@ function RenovationGridInner(
                         // The «Идентификационный код ремонта» (col_003) is red when it's
                         // incomplete — a component is missing (replaced with
                         // <NULL>) or the code was never computed. Any other
-                        // field whose stored value breaks a form rule (e.g. a
+                        // field whose current value breaks a form rule (e.g. a
                         // negative «Продолжительность, дни» = col_025 − col_024)
-                        // is red too; the backend reports the offending fields.
+                        // is red too. The rule is re-evaluated against the value
+                        // being rendered NOW, so a recalculated cell turns red in
+                        // the same render as its new number instead of waiting
+                        // for the next server read; the backend's list adds what
+                        // this side cannot tell on its own.
                         const invalid =
                             calculated &&
                             (field.dbName === "col_003"
                                 ? (row.__missingComponents?.length ?? 0) > 0 ||
                                   String(row.col_003 ?? "").includes(MISSING_COMPONENT)
-                                : (row.__invalidFields?.includes(field.dbName) ?? false));
+                                : breaksValueRules(field, value) ||
+                                  (row.__invalidFields?.includes(field.dbName) ?? false));
                         return {
                             className: {
                                 "report-cell": true,

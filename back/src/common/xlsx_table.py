@@ -78,6 +78,7 @@ class TableWorkbookWriter:
         calculated: Mapping[str, tuple[str, ...]] | None = None,
         row_total: int | None = None,
         totals_row: Mapping[str, float] | None = None,
+        merge_rows_by: Sequence[str] | None = None,
     ) -> None:
         """
         Open the archive and write everything except the data rows.
@@ -103,6 +104,17 @@ class TableWorkbookWriter:
         """
         self.columns = list(columns)
         self.calculated = dict(calculated or {})
+        # ── vertical merges of the DATA block ──
+        # Column keys whose value decides a run: consecutive rows with the same
+        # value(s) in ALL of them are merged vertically, each of the columns in
+        # its own range (the «Реализация» product block). Empty cells never
+        # merge; a run of one row is not a merge either.
+        self._merge_columns: tuple[str, ...] = tuple(merge_rows_by or ())
+        self._merge_column_indexes: tuple[int, ...] = tuple(
+            index for index, column in enumerate(self.columns) if column.key in self._merge_columns
+        )
+        # [key tuple, first written row (1-based), last written row].
+        self._run: list[object] | None = None
         self.row_total = row_total
         self.totals_row = dict(totals_row) if totals_row else None
         self._written = 0
@@ -308,12 +320,60 @@ class TableWorkbookWriter:
             self._written += 1
             row_number = self._first_data_row + self._written - 1
             cells = [f'<row r="{row_number}" ht="22" customHeight="1">']
+            # One model dump per row, shared by the cells and the run detection
+            # below — the values are read twice and a model dump is not free.
             values = row.model_dump()
             for index, column in enumerate(self.columns):
                 ref = f"{self._column_letters[index]}{row_number}"
                 cells.append(self._data_cell_xml(ref, values.get(column.key), column))
             cells.append("</row>")
+            if self._merge_columns:
+                self._track_runs(values)
             self._sheet.write("".join(cells).encode())
+
+    def _track_runs(self, values: Mapping[str, object]) -> None:
+        """
+        Extend the vertical merge runs of the configured columns.
+
+        A run is a maximal block of consecutive data rows whose values in EVERY
+        merge column are equal — that is how the «Реализация» sheet folds one
+        product's market rows into a single «№» + «Продукция» block. Rows arrive
+        in batches, so an open run may continue into the next ``write_rows``
+        call; ``close()`` flushes whatever is still open.
+        """
+        key = tuple(self._run_key(values.get(name)) for name in self._merge_columns)
+        if self._run is not None and self._run[0] == key:
+            self._run[2] = self._written
+            return
+        self._flush_run()
+        # A single row is not merged (a one-row range is not a merge), and an
+        # all-empty block is left alone: the template keeps empty cells apart.
+        if all(value is None for value in key):
+            return
+        self._run = [key, self._written, self._written]
+
+    def _flush_run(self) -> None:
+        """Turn the open run into ``mergeCell`` ranges (one per merge column)."""
+        run = self._run
+        self._run = None
+        if run is None:
+            return
+        _, first, last = run
+        if not isinstance(first, int) or not isinstance(last, int) or last <= first:
+            return
+        top = self._first_data_row + first - 1
+        bottom = self._first_data_row + last - 1
+        for index in self._merge_column_indexes:
+            letter = self._column_letters[index]
+            self._merges.append(f"{letter}{top}:{letter}{bottom}")
+
+    @staticmethod
+    def _run_key(value: object) -> str | None:
+        """Return the normalized key of a value (empty cells never merge)."""
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
     def _data_cell_xml(self, ref: str, value: object, column: ExportColumnLike) -> str:
         """One data cell with the value semantics of the old renderer."""
@@ -363,6 +423,7 @@ class TableWorkbookWriter:
         promised ``row_total`` pins the validation ranges. Raises
         ``ExportTooLargeError`` when the sheet outgrew the plain-ZIP ceiling.
         """
+        self._flush_run()
         self._sheet.write(
             (
                 "</sheetData>"

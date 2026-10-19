@@ -1,6 +1,15 @@
 "use client";
 
-import { AlertDialog, Avatar, Button, Dropdown, Spinner, toast, Typography } from "@heroui/react";
+import {
+    AlertDialog,
+    Avatar,
+    Button,
+    ButtonGroup,
+    Dropdown,
+    Spinner,
+    toast,
+    Typography,
+} from "@heroui/react";
 import { CheckCircle } from "iconoir-react";
 import { useTheme } from "next-themes";
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -798,8 +807,12 @@ function SectionContent({
     );
 
     useEffect(() => {
-        onExportState({ pending: exportPending, onExport: exportTable });
-    }, [exportPending, exportTable, onExportState]);
+        onExportState({
+            pending: exportPending,
+            rowCount: rows?.length ?? 0,
+            onExport: exportTable,
+        });
+    }, [exportPending, exportTable, rows, onExportState]);
 
     // Stable identity: the grid's clipboard effect runs on every prop change
     // and publishes back through this handler — an inline one would re-trigger
@@ -1098,6 +1111,7 @@ function SectionFooter({
     clipboardState,
     isFullscreenPending,
     exportPending,
+    exportRowCount,
     onExport,
     onDelete,
     deleteBlockedReason,
@@ -1117,6 +1131,7 @@ function SectionFooter({
     clipboardState: { canPaste: boolean };
     isFullscreenPending: boolean;
     exportPending: boolean;
+    exportRowCount?: number | undefined;
     onExport: (scope: "all" | "visible") => void;
     onDelete: () => void;
     onCreateUser: () => void;
@@ -1137,6 +1152,7 @@ function SectionFooter({
                 clipboardState={clipboardState}
                 isFullscreenPending={isFullscreenPending}
                 exportPending={exportPending}
+                exportRowCount={exportRowCount}
                 onExport={onExport}
                 onDelete={onDelete}
                 deleteBlockedReason={deleteBlockedReason}
@@ -1507,6 +1523,7 @@ export function RawMaterialsWorkspace({
                 showServiceColumns={showServiceColumns}
                 onShowServiceColumnsChange={setShowServiceColumns}
                 exportPending={exportState.pending}
+                exportRowCount={exportState.rowCount}
                 onExport={(scope) => void exportState.onExport(scope)}
                 onReset={handleStripReset}
                 hideExport
@@ -1538,6 +1555,7 @@ export function RawMaterialsWorkspace({
                 clipboardState={clipboardState}
                 isFullscreenPending={isFullscreenPending}
                 exportPending={exportState.pending}
+                exportRowCount={exportState.rowCount}
                 onExport={(scope) => void exportState.onExport(scope)}
                 onDelete={deleteState.onDelete}
                 deleteBlockedReason={deleteState.blockedReason}
@@ -1758,6 +1776,7 @@ function ActionBar({
     clipboardState,
     isFullscreenPending,
     exportPending,
+    exportRowCount,
     onExport,
     onDelete,
     deleteBlockedReason,
@@ -1777,6 +1796,7 @@ function ActionBar({
     clipboardState: { canPaste: boolean };
     isFullscreenPending: boolean;
     exportPending: boolean;
+    exportRowCount?: number | undefined;
     onExport: (scope: "all" | "visible") => void;
     onDelete: () => void;
     onCreateUser: () => void;
@@ -1811,6 +1831,7 @@ function ActionBar({
         buildExportAction({
             pending: exportPending,
             disabled: exportPending || isFullscreenPending,
+            rowCount: exportRowCount,
             onExport,
         }),
         ...buildDeleteAction({
@@ -1869,21 +1890,28 @@ function ApproveDialog({
                                 : "Это предварительная фиксация текущего месяца. Повторная фиксация этого же месяца заменит предыдущую архивную версию."}
                         </AlertDialog.Body>
                         <AlertDialog.Footer>
-                            <Button
-                                variant="tertiary"
-                                onPress={() => onOpenChange(false)}
-                                isDisabled={isPending}
-                            >
-                                Отмена
-                            </Button>
-                            <Button variant="primary" onPress={onConfirm} isDisabled={isPending}>
-                                {isPending ? (
-                                    <Spinner color="current" size="sm" />
-                                ) : (
-                                    <CheckCircle />
-                                )}
-                                Зафиксировать
-                            </Button>
+                            <ButtonGroup>
+                                <Button
+                                    variant="tertiary"
+                                    onPress={() => onOpenChange(false)}
+                                    isDisabled={isPending}
+                                >
+                                    Отмена
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    onPress={onConfirm}
+                                    isDisabled={isPending}
+                                >
+                                    <ButtonGroup.Separator />
+                                    {isPending ? (
+                                        <Spinner color="current" size="sm" />
+                                    ) : (
+                                        <CheckCircle />
+                                    )}
+                                    Зафиксировать
+                                </Button>
+                            </ButtonGroup>
                         </AlertDialog.Footer>
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>

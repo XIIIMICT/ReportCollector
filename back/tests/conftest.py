@@ -3,6 +3,7 @@
 import json
 import os
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, AsyncGenerator
 from urllib.parse import urlparse
@@ -388,6 +389,8 @@ async def isolated_store():
 
 async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> None:
     """КППК seed: project, admin role, ДЗО and a few products/links for the matrix."""
+    from sqlmodel import col, select
+
     from src.auth.models import Project, ProjectRole, UserRole
     from src.kppk.constants import KPPK_PROJECT_KEY, KPPK_PROJECT_NAME
     from src.kppk.models import KppkOrg, KppkOrgProduct, KppkPeriod, KppkProduct, KppkRaw
@@ -454,12 +457,17 @@ async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> No
     ]
     for link in org_products:
         session.add(link)
-    for month, first, last in [
-        ("Июнь", date(2026, 6, 1), date(2026, 6, 30)),
-        ("Июль", date(2026, 7, 1), date(2026, 7, 31)),
-    ]:
+    for period_num, (month, first, last) in enumerate(
+        [
+            ("Июнь", date(2026, 6, 1), date(2026, 6, 30)),
+            ("Июль", date(2026, 7, 1), date(2026, 7, 31)),
+        ],
+        start=1,
+    ):
         session.add(
             KppkPeriod(
+                # A source id: the realization copies reference the period by it.
+                period_id=period_num,
                 month_name=month,
                 year_num=2026,
                 first_date=first,
@@ -471,6 +479,42 @@ async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> No
         )
     session.add(KppkRaw(name="Резина", raw_num=2, created_at=now, updated_at=now, updated_by="seed"))
     session.add(KppkRaw(name="Каучук", raw_num=1, created_at=now, updated_at=now, updated_by="seed"))
+    # «Реализация» rows for the June period of «СНХЗ» (source org id 2). The
+    # products are seeded in a deliberately WRONG insertion order: the read must
+    # sort them by the «Продуктовые позиции» number, not by the copy's text.
+    period = (await session.exec(select(KppkPeriod).where(col(KppkPeriod.month_name) == "Июнь"))).one()
+
+    from src.kppk.models import KppkRealization, KppkRealizationPlan
+
+    for product, region in [
+        ("Сода кальцинированная марки Б", "RU"),
+        ("Сульфат натрия", "RU"),
+        ("Сода кальцинированная марки Б", "KZ"),
+        # A name the dictionary does not hold: it sorts last.
+        ("Неизвестный продукт", "RU"),
+    ]:
+        session.add(
+            KppkRealizationPlan(
+                org_id=2,
+                # The June period carries the source id 1 (seeded above).
+                period_id=period.period_id or 1,
+                rep_date=period.last_date,
+                product=product,
+                region=region,
+                month_bp_plan=Decimal("10.000"),
+            )
+        )
+        session.add(
+            KppkRealization(
+                org_id=2,
+                # The June period carries the source id 1 (seeded above).
+                period_id=period.period_id or 1,
+                rep_date=period.last_date,
+                product=product,
+                region=region,
+                fact=Decimal("1.000"),
+            )
+        )
     await session.flush()
 
 

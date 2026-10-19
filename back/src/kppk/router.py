@@ -47,7 +47,13 @@ from .dictionaries import (
     update_product_position_cell,
     update_raw_cell,
 )
-from .export import REFERENCE_LISTS, SECTION_SHEET_NAMES, validate_export_request
+from .export import (
+    REFERENCE_LISTS,
+    SECTION_SHEET_NAMES,
+    render_realization_workbook,
+    validate_export_request,
+    validate_realization_export,
+)
 from .models import KppkRealization, KppkRealizationPlan
 from .realization import (
     read_current_period,
@@ -72,6 +78,7 @@ from .schemas import (
     KppkRawCreateRequest,
     KppkRawRowRead,
     KppkRealizationCellUpdate,
+    KppkRealizationExportRequest,
     KppkRealizationPeriodRead,
     KppkRealizationViewRead,
     KppkUserCreateRequest,
@@ -585,7 +592,7 @@ async def get_realization(
     # a crash: the picker offers future years (e.g. 2027) that may be absent.
     try:
         period = await read_current_period(session, month=month, year=year)
-        rows = await read_realization_rows(session, slice_id=slice_id, org_id=org_id)
+        rows = await read_realization_rows(session, slice_id=slice_id, org_id=org_id, month=month, year=year)
     except (KppkValidationError, KppkNotFoundError) as error:
         status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=str(error)) from error
@@ -859,8 +866,9 @@ async def export_kppk_table(
     elif request.section == KPPK_SECTION_RAWS:
         rows = list(await read_raw_rows(session))
     elif request.section == KPPK_SECTION_USERS:
-        if not access.is_admin:
-            raise HTTPException(status_code=403, detail="Требуются права администратора проекта «КППК».")
+        # Every project member reads this dictionary (GET /kppk/users), so the
+        # export of the same rows needs no admin gate — the shared rule is
+        # «export is available to everyone».
         rows = list(await read_kppk_user_rows(session))
     else:
         rows = list(await read_org_rows(session))
@@ -878,6 +886,45 @@ async def export_kppk_table(
         user_id=str(access.user.id),
         lists={"orgs": org_names} if needs_lists else None,
         column_lists=REFERENCE_LISTS,
+    )
+
+
+@router.post("/realization/export")
+async def export_kppk_realization(
+    request: KppkRealizationExportRequest,
+    session: SessionDependency,
+    _access: AccessDependency,
+) -> Response:
+    """
+    Excel export of the «Реализация» view (one slice × ДЗО × period).
+
+    The request replays the toolbar's selection — the server re-reads the same
+    rows in the same order, so «вся таблица» means the whole view. «Видимая» is
+    the same thing here: the form has no client-side column filters.
+    """
+    try:
+        validate_realization_export(request)
+        rows = await read_realization_rows(
+            session,
+            slice_id=request.slice,
+            org_id=request.orgId,
+            month=request.month,
+            year=request.year,
+        )
+    except ExportValidationError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+    except (KppkValidationError, KppkNotFoundError) as error:
+        status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=str(error)) from error
+    payload = render_realization_workbook(request, rows)
+    quoted = quote(request.fileName)
+    return Response(
+        content=payload,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quoted}",
+            "Content-Length": str(len(payload)),
+        },
     )
 
 

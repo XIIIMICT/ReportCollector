@@ -12,13 +12,17 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.collab.locking import project_write
 from src.config import get_settings
 from src.kppk.constants import KPPK_PROJECT_KEY
-from src.kppk.models import KppkOrg, KppkPeriod, KppkRealization, KppkRealizationPlan
+from src.kppk.models import KppkOrg, KppkPeriod, KppkProduct, KppkRealization, KppkRealizationPlan
 
 from .core import KppkNotFoundError, KppkValidationError
 from .schemas import KppkRealizationRowRead
 
 if TYPE_CHECKING:
     from src.auth.models import User
+
+# Sort key for a product the <Продуктовые позиции> dictionary does not hold: it
+# follows every numbered product (numbers start at 1).
+MAX_PRODUCT_NUMBER = 1_000_000
 
 REALIZATION_SLICE_FIELDS: dict[str, tuple[str, ...]] = {
     "bp": ("buyoutBpPlan", "fcaPriceBpPlan", "monthBpPlan", "fcaPriceMarketBpPlan"),
@@ -100,11 +104,15 @@ async def read_market_codes(session: AsyncSession) -> list[str]:
     return sorted({row[0] for row in regions if row[0]})
 
 
-def _plan_realization_row_read(row: KppkRealizationPlan) -> KppkRealizationRowRead:
+def _plan_realization_row_read(
+    row: KppkRealizationPlan,
+    product_num: int | None = None,
+) -> KppkRealizationRowRead:
     """Build the API shape of a plan-copy row."""
     return KppkRealizationRowRead(
         id=row.id,
         product=row.product,
+        productNum=product_num,
         region=row.region,
         buyoutBpPlan=row.buyout_bp_plan,
         fcaPriceBpPlan=row.fca_price_bp_plan,
@@ -117,11 +125,15 @@ def _plan_realization_row_read(row: KppkRealizationPlan) -> KppkRealizationRowRe
     )
 
 
-def _fact_realization_row_read(row: KppkRealization) -> KppkRealizationRowRead:
+def _fact_realization_row_read(
+    row: KppkRealization,
+    product_num: int | None = None,
+) -> KppkRealizationRowRead:
     """Build the API shape of a fact-copy row."""
     return KppkRealizationRowRead(
         id=row.id,
         product=row.product,
+        productNum=product_num,
         region=row.region,
         buyoutFact=row.buyout_fact,
         fcaPriceFact=row.fca_price_fact,
@@ -130,13 +142,38 @@ def _fact_realization_row_read(row: KppkRealization) -> KppkRealizationRowRead:
     )
 
 
+async def read_product_numbers(session: AsyncSession) -> dict[str, int]:
+    """
+    Return the «№» of every «Продуктовые позиции» product, keyed by its name.
+
+    The realization copies carry only the product name, so the dictionary is the
+    only place the number can come from. The lookup is by lowercased trimmed
+    name (the copies were seeded from the same matrix, but casing and stray
+    spaces have drifted); a product the dictionary does not hold keeps NULL.
+    """
+    products = (await session.exec(select(KppkProduct))).all()
+    numbers: dict[str, int] = {}
+    for product in products:
+        if product.product_num is None:
+            continue
+        key = " ".join(product.name.casefold().split())
+        numbers.setdefault(key, int(product.product_num))
+    return numbers
+
+
+def _product_number(number_map: dict[str, int], product: str) -> int | None:
+    return number_map.get(" ".join(product.casefold().split()))
+
+
 async def read_realization_rows(
     session: AsyncSession,
     *,
     slice_id: str,
     org_id: UUID,
+    month: int | None = None,
+    year: int | None = None,
 ) -> list[KppkRealizationRowRead]:
-    """List one «Реализация» slice for a period and ДЗО."""
+    """List one «Реализация» slice for a period and ДЗО, ordered by product number."""
     fields = REALIZATION_SLICE_FIELDS.get(slice_id)
     if fields is None:
         message = "Неизвестный срез «Реализации»."
@@ -148,44 +185,50 @@ async def read_realization_rows(
         raise KppkNotFoundError(message)
     if org.org_id is None:
         return []
-    period = await read_current_period(session)
+    period = await read_current_period(session, month=month, year=year)
     markets = await read_market_codes(session)
     region_order = {code: index for index, code in enumerate(markets)}
+    number_map = await read_product_numbers(session)
 
-    def region_key(row: KppkRealization | KppkRealizationPlan) -> tuple[str, int]:
-        return (row.product, region_order.get(row.region, len(region_order)))
+    def region_key(row: KppkRealization | KppkRealizationPlan) -> tuple[int, str, int]:
+        # Products follow their «№» (the dictionary's order, the same as the
+        # «Продуктовые позиции» tab); a name the dictionary does not hold sorts
+        # last, alphabetically. The markets keep their own order inside a
+        # product.
+        number = _product_number(number_map, row.product)
+        return (
+            number if number is not None else MAX_PRODUCT_NUMBER,
+            row.product,
+            region_order.get(row.region, len(region_order)),
+        )
 
     if slice_id == "fact":
         fact_rows = list(
             (
                 await session.exec(
-                    select(KppkRealization)
-                    .where(
+                    select(KppkRealization).where(
                         col(KppkRealization.org_id) == org.org_id,
                         col(KppkRealization.period_id) == period.period_id,
                         col(KppkRealization.rep_date) == period.last_date,
                     )
-                    .order_by(col(KppkRealization.product))
                 )
             ).all()
         )
         fact_rows.sort(key=region_key)
-        return [_fact_realization_row_read(row) for row in fact_rows]
+        return [_fact_realization_row_read(row, _product_number(number_map, row.product)) for row in fact_rows]
     plan_rows = list(
         (
             await session.exec(
-                select(KppkRealizationPlan)
-                .where(
+                select(KppkRealizationPlan).where(
                     col(KppkRealizationPlan.org_id) == org.org_id,
                     col(KppkRealizationPlan.period_id) == period.period_id,
                     col(KppkRealizationPlan.rep_date) == period.last_date,
                 )
-                .order_by(col(KppkRealizationPlan.product))
             )
         ).all()
     )
     plan_rows.sort(key=region_key)
-    return [_plan_realization_row_read(row) for row in plan_rows]
+    return [_plan_realization_row_read(row, _product_number(number_map, row.product)) for row in plan_rows]
 
 
 async def read_realization_row_by_id(
@@ -195,12 +238,13 @@ async def read_realization_row_by_id(
     row_id: UUID,
 ) -> KppkRealizationRowRead | None:
     """Read one realization row after a PATCH."""
+    number_map = await read_product_numbers(session)
     if slice_id == "fact":
         row = await session.get(KppkRealization, row_id)
-        return None if row is None else _fact_realization_row_read(row)
+        return None if row is None else _fact_realization_row_read(row, _product_number(number_map, row.product))
     if slice_id in {"bp", "op"}:
         row = await session.get(KppkRealizationPlan, row_id)
-        return None if row is None else _plan_realization_row_read(row)
+        return None if row is None else _plan_realization_row_read(row, _product_number(number_map, row.product))
     message = "Неизвестный срез «Реализации»."
     raise KppkValidationError(message)
 

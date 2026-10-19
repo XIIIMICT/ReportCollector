@@ -114,6 +114,12 @@ type Props = {
     deliveryBases: ReferenceOption[];
     /** Custom column set — overrides the built-in descriptors for the section. */
     columnDescriptors?: ColumnDescriptor[];
+    /**
+     * Whether the header sorts on click (default true). A form whose rows come
+     * in a server-defined order (the «Реализация» view: by product number, then
+     * by market) turns it off, like the renovation plan's grid never offered it.
+     */
+    sortable?: boolean;
     /** Distinguishes width/sorting persistence when several grids share a section id. */
     namespace?: string;
     /**
@@ -255,6 +261,7 @@ function RawMaterialsGridInner(
         assets,
         deliveryBases,
         columnDescriptors,
+        sortable = true,
         namespace,
         plugins,
         cellMerge,
@@ -390,6 +397,17 @@ function RawMaterialsGridInner(
             },
         });
         const summaryRow = pinnedTopSource?.[0];
+        // Rendering-only columns (no header sort): the «Реализация» view keeps
+        // its server order (product number → market), so a click on a header
+        // must not reshuffle it. RevoGrid reads `sortable` per leaf column.
+        if (!sortable) {
+            for (const column of next) {
+                const leaves = (column as ColumnGrouping).children?.length
+                    ? ((column as ColumnGrouping).children as ColumnRegular[])
+                    : [column as ColumnRegular];
+                for (const leaf of leaves) leaf.sortable = false;
+            }
+        }
         // Tag the pinned summary row's cells so CSS can draw them like the
         // plan's summary (one vertical + one bottom border, white empty cells,
         // a green numeric cell) and the row header can hide its number.
@@ -466,6 +484,7 @@ function RawMaterialsGridInner(
         selectedRowIdSet,
         section,
         showServiceColumns,
+        sortable,
         widthKeySection,
         widthsVersion,
     ]);

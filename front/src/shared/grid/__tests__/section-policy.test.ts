@@ -61,11 +61,13 @@ describe("section policy", () => {
         expect(archive.export).toBe("member");
     });
 
-    test("users require admin for room, history and export; realization has no row operations", () => {
+    test("users require admin for room and history; export is for everyone", () => {
         expect(collaborationAvailableFor("kppkUsers", false)).toBe(false);
         expect(collaborationAvailableFor("kppkUsers", true)).toBe(true);
         expect(undoAvailableFor("kppkUsers", false)).toBe(false);
-        expect(exportAvailableFor("kppkUsers", false)).toBe(false);
+        // The shared rule: export is available to every member, dictionaries
+        // included — the member reads the same rows the export renders.
+        expect(exportAvailableFor("kppkUsers", false)).toBe(true);
         expect(sectionPolicy("kppkUsers").rowOps).toBe("dialog");
         expect(sectionPolicy("kppkRealizationPlan").rowOps).toBe("none");
         expect(sectionPolicy("kppkRealizationFact").rowOps).toBe("none");

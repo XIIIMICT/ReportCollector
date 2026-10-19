@@ -181,7 +181,7 @@ const EMPTY_UNDO_ACTIONS: KppkUndoActions = {
     onUndo: () => {},
     onRedo: () => {},
 };
-const EMPTY_EXPORT_STATE: ExportState = { pending: false, onExport: async () => {} };
+const EMPTY_EXPORT_STATE: ExportState = { pending: false, rowCount: 0, onExport: async () => {} };
 
 type KppkRow = KppkProductPositionRow | KppkRawRow | KppkOrgRow | KppkUserRow;
 
@@ -557,8 +557,12 @@ function KppkSection({
     );
 
     useEffect(() => {
-        onExportState({ pending: exportPending, onExport: exportTable });
-    }, [exportPending, exportTable, onExportState]);
+        onExportState({
+            pending: exportPending,
+            rowCount: rows?.length ?? 0,
+            onExport: exportTable,
+        });
+    }, [exportPending, exportTable, rows, onExportState]);
 
     useEffect(() => {
         onUndoStateChange({
@@ -1029,14 +1033,13 @@ export function KppkWorkspace({
             onUndo: undoActions.onUndo,
             onRedo: undoActions.onRedo,
         }),
-        ...(selectedTab?.id === "kppkRealization" ||
-        !selectedTab ||
-        !exportAvailableFor(selectedTab.section, isAdmin)
+        ...(selectedTab && !exportAvailableFor(selectedTab.section, isAdmin)
             ? []
             : [
                   buildExportAction({
                       pending: exportState.pending,
                       disabled: exportState.pending || isFullscreenPending,
+                      rowCount: exportState.rowCount,
                       onExport: (mode) => exportState.onExport(mode),
                   }),
               ]),
@@ -1174,10 +1177,10 @@ export function KppkWorkspace({
                     onHeaderPinnedChange={setHeaderPinned}
                     showServiceColumns={showServiceColumns}
                     onShowServiceColumnsChange={setShowServiceColumns}
-                    exportPending={false}
-                    onExport={() => {}}
+                    exportPending={exportState.pending}
+                    exportRowCount={exportState.rowCount}
+                    onExport={(scope) => exportState.onExport(scope)}
                     onReset={handleStripReset}
-                    hideExport
                     columnResetLabel="Сбросить ширину столбцов и высоту заголовка"
                     isFullscreen={isFullscreen}
                     isFullscreenPending={isFullscreenPending}
@@ -1248,6 +1251,7 @@ export function KppkWorkspace({
                             onRoomChange={setSectionRoom}
                             onResetState={setGridResetState}
                             onUndoStateChange={handleUndoActions}
+                            onExportState={handleExportState}
                             onPeriodTextChange={setRealizationPeriodText}
                         />
                     ) : (

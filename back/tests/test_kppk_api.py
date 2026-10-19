@@ -13,6 +13,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.models import ProjectRole, User
 from src.auth.service import activate_project_user, grant_project_role
+from src.downloads import XLSX_MEDIA_TYPE
 from src.kppk.constants import KPPK_PROJECT_KEY
 from src.kppk.models import KppkOrg, KppkOrgProduct, KppkProduct
 
@@ -669,3 +670,84 @@ async def test_realization_missing_period_is_a_bad_request(client: AsyncClient, 
     )
     assert response.status_code == 400
     assert response.json()["detail"].startswith("Период")
+
+
+async def test_realization_rows_carry_the_product_number_and_sort_by_it(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """«Реализация» resolves each product's «№» by name and orders by it.
+
+    The copies hold only the product NAME, so the number comes from
+    «Продуктовые позиции». The seeded rows are inserted out of order on
+    purpose: the view must follow the dictionary numbering, and a name the
+    dictionary does not hold must sort last with a NULL number.
+    """
+    org = await _org_by_name(db_session, "АО «СНХЗ»")
+    response = await client.get(
+        "/api/kppk/realization",
+        params={"orgId": str(org.id), "slice": "bp", "month": 6, "year": 2026},
+        headers=ADMIN_HEADERS,
+    )
+    assert response.status_code == 200
+    rows = response.json()["rows"]
+    assert [row["product"] for row in rows] == [
+        # number 1
+        "Сульфат натрия",
+        # number 2 — both markets of one product stay together
+        "Сода кальцинированная марки Б",
+        "Сода кальцинированная марки Б",
+        # no dictionary entry
+        "Неизвестный продукт",
+    ]
+    assert [row["productNum"] for row in rows] == [1, 2, 2, None]
+    # The markets keep the market order inside a product.
+    assert [row["region"] for row in rows] == ["RU", "RU", "KZ", "RU"]
+
+
+async def test_realization_export_renders_the_selected_view(client: AsyncClient, db_session: AsyncSession) -> None:
+    """The «Реализация» export replays the view: same rows, same order, the sent columns."""
+    org = await _org_by_name(db_session, "АО «СНХЗ»")
+    response = await client.post(
+        "/api/kppk/realization/export",
+        headers=ADMIN_HEADERS,
+        json={
+            "slice": "bp",
+            "orgId": str(org.id),
+            "month": 6,
+            "year": 2026,
+            "headerPinned": True,
+            "columns": [
+                {"key": "productNum", "headerPath": ["№"], "width": 8},
+                {"key": "product", "headerPath": ["Продукция"], "width": 40},
+                {"key": "monthBpPlan", "headerPath": ["Реализация", "Объем"], "width": 12},
+            ],
+            "fileName": "Реализация.xlsx",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(XLSX_MEDIA_TYPE)
+    sheet = load_workbook(BytesIO(response.content)).worksheets[0]
+    values = [list(row) for row in sheet.iter_rows(values_only=True)]
+    # The header is two levels deep («Реализация» / «Объем»), so the leaf
+    # labels live on the second row; the data follows the header.
+    assert values[0] == ["№", "Продукция", "Реализация"]
+    data = values[2:]
+    # A merged block keeps its label in the ANCHOR cell only; openpyxl reads the
+    # covered cells as None — that is the merge working, not missing data.
+    assert [row[1] for row in data] == [
+        "Сульфат натрия",
+        "Сода кальцинированная марки Б",
+        None,
+        "Неизвестный продукт",
+    ]
+    assert [row[0] for row in data] == [1, 2, None, None]
+    # The template folds a product's market rows into ONE block: the name and
+    # the number are each merged down over the run (the grid renders the same
+    # with CellMergePlugin). The header's own merges (A1:A2, C1:C2) stay apart.
+    # Rows: the header ends at 2, the data runs 3..6.
+    data_merges = sorted(str(span) for span in sheet.merged_cells.ranges if span.min_row >= 3)
+    assert data_merges == [
+        "A4:A5",  # «Сода … Б» — one product, two markets
+        "B4:B5",
+    ]

@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertDialog, Button, Spinner, toast } from "@heroui/react";
+import { AlertDialog, Button, ButtonGroup, Spinner, toast } from "@heroui/react";
 import { CheckCircle, Plus, Send, WarningTriangle } from "iconoir-react";
 import { useTheme } from "next-themes";
 import {
@@ -561,8 +561,9 @@ export function RenovationWorkspace({
         onDelete: () => void;
     }>({ canDelete: false, blockedReason: null, onDelete: () => {} });
     const [dictExportState, setDictExportState] = useState<{
+        pending: boolean;
         onExport: (scope: "all" | "visible") => void;
-    }>({ onExport: () => {} });
+    }>({ pending: false, onExport: () => {} });
     const [dictResetState, setDictResetState] = useState<{
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
@@ -872,6 +873,11 @@ export function RenovationWorkspace({
                         updatedBy: row.updatedBy,
                         __renovationId: row.renovationId,
                         __missingComponents: row.missingComponents,
+                        // The rule violations are recomputed server-side on
+                        // every read: a recalculated cell (e.g. a negative
+                        // «Продолжительность, дни» after the dates were swapped)
+                        // must tint red immediately, not only after a reload.
+                        __invalidFields: row.invalidFields ?? [],
                     },
                 })),
             );
@@ -1522,7 +1528,12 @@ export function RenovationWorkspace({
                 {...(isPlanSection && {
                     columnResetLabel: "Сбросить ширину столбцов и высоту заголовка",
                 })}
-                exportPending={exportPending}
+                exportPending={isPlanSection ? exportPending : dictExportState.pending}
+                exportRowCount={
+                    isPlanSection
+                        ? (gridStats?.filteredRows ?? 0)
+                        : (dictGridStats?.filteredRows ?? 0)
+                }
                 onExport={handleStripExport}
                 onReset={handleStripReset}
                 hideExport
@@ -1569,6 +1580,7 @@ export function RenovationWorkspace({
         buildExportAction({
             pending: exportPending,
             disabled: exportPending || isFullscreenPending,
+            rowCount: gridStats?.filteredRows ?? 0,
             onExport: (mode) => void handleStripExport(mode),
         }),
         ...(!isArchive && canAddRows
@@ -1614,8 +1626,9 @@ export function RenovationWorkspace({
         ...clipboardActions,
         ...undoRedoActions,
         buildExportAction({
-            pending: exportPending,
-            disabled: exportPending || isFullscreenPending,
+            pending: dictExportState.pending,
+            disabled: dictExportState.pending || isFullscreenPending,
+            rowCount: dictGridStats?.filteredRows ?? 0,
             onExport: dictExportState.onExport,
         }),
         ...(dictUserCreateState.canCreate
@@ -1884,21 +1897,24 @@ function AddRowDialog({
                             </div>
                         </AlertDialog.Body>
                         <AlertDialog.Footer>
-                            <Button
-                                variant="tertiary"
-                                onPress={() => onOpenChange(false)}
-                                isDisabled={isPending}
-                            >
-                                Отмена
-                            </Button>
-                            <Button
-                                variant="primary"
-                                onPress={onConfirm}
-                                isDisabled={isPending || selectedKey === null}
-                            >
-                                {isPending ? <Spinner color="current" size="sm" /> : <Plus />}
-                                Добавить
-                            </Button>
+                            <ButtonGroup>
+                                <Button
+                                    variant="tertiary"
+                                    onPress={() => onOpenChange(false)}
+                                    isDisabled={isPending}
+                                >
+                                    Отмена
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    onPress={onConfirm}
+                                    isDisabled={isPending || selectedKey === null}
+                                >
+                                    <ButtonGroup.Separator />
+                                    {isPending ? <Spinner color="current" size="sm" /> : <Plus />}
+                                    Добавить
+                                </Button>
+                            </ButtonGroup>
                         </AlertDialog.Footer>
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>
@@ -1936,17 +1952,24 @@ function SubmitPlanDialog({
                             Правки в неё будут недоступны до завершения согласования.
                         </AlertDialog.Body>
                         <AlertDialog.Footer>
-                            <Button
-                                variant="tertiary"
-                                onPress={() => onOpenChange(false)}
-                                isDisabled={isPending}
-                            >
-                                Отмена
-                            </Button>
-                            <Button variant="primary" onPress={onConfirm} isDisabled={isPending}>
-                                {isPending ? <Spinner color="current" size="sm" /> : <Send />}
-                                Отправить
-                            </Button>
+                            <ButtonGroup>
+                                <Button
+                                    variant="tertiary"
+                                    onPress={() => onOpenChange(false)}
+                                    isDisabled={isPending}
+                                >
+                                    Отмена
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    onPress={onConfirm}
+                                    isDisabled={isPending}
+                                >
+                                    <ButtonGroup.Separator />
+                                    {isPending ? <Spinner color="current" size="sm" /> : <Send />}
+                                    Отправить
+                                </Button>
+                            </ButtonGroup>
                         </AlertDialog.Footer>
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>
@@ -2020,21 +2043,28 @@ function ApprovePlanDialog({
                                 : "Версия будет утверждена и заархивирована, после чего откроется новый рабочий план."}
                         </AlertDialog.Body>
                         <AlertDialog.Footer>
-                            <Button
-                                variant="tertiary"
-                                onPress={() => onOpenChange(false)}
-                                isDisabled={isPending}
-                            >
-                                Отмена
-                            </Button>
-                            <Button variant="primary" onPress={onConfirm} isDisabled={isPending}>
-                                {isPending ? (
-                                    <Spinner color="current" size="sm" />
-                                ) : (
-                                    <CheckCircle />
-                                )}
-                                Согласовать
-                            </Button>
+                            <ButtonGroup>
+                                <Button
+                                    variant="tertiary"
+                                    onPress={() => onOpenChange(false)}
+                                    isDisabled={isPending}
+                                >
+                                    Отмена
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    onPress={onConfirm}
+                                    isDisabled={isPending}
+                                >
+                                    <ButtonGroup.Separator />
+                                    {isPending ? (
+                                        <Spinner color="current" size="sm" />
+                                    ) : (
+                                        <CheckCircle />
+                                    )}
+                                    Согласовать
+                                </Button>
+                            </ButtonGroup>
                         </AlertDialog.Footer>
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>

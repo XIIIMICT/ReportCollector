@@ -187,6 +187,10 @@ class KppkRealizationRowRead(BaseModel):
 
     id: UUID
     product: str
+    # The «№» of the product in «Продуктовые позиции», resolved by name; NULL
+    # when the name has no dictionary entry (hand-added names). Read-only —
+    # it is the dictionary's number, not a property of the realization row.
+    productNum: int | None = None
     region: str
     # ── Срез «Бизнес-план» (kppk_realization_plan, `_bp_plan` columns) ──
     buyoutBpPlan: float | None = None
@@ -218,6 +222,27 @@ class KppkRealizationCellUpdate(BaseModel):
 
     field: str
     value: object = None
+
+
+class KppkRealizationExportRequest(BaseModel):
+    """
+    Excel export of the «Реализация» view.
+
+    The form is not a dictionary row list but one slice × ДЗО × period, so the
+    export replays the toolbar's selection instead of sending row ids: the
+    server re-reads the same view (and therefore the same ordering).
+    """
+
+    slice: Literal["bp", "op", "fact"]
+    orgId: UUID
+    month: int | None = Field(default=None, ge=1, le=12)
+    year: int | None = Field(default=None, ge=2000, le=2100)
+    # The view has no row selection to narrow, so this is always None; it exists
+    # because the shared export-shape validator speaks in terms of it.
+    rowIds: list[UUID] | None = None
+    headerPinned: bool = True
+    columns: list[ExportColumnRequest] = Field(min_length=1, max_length=16)
+    fileName: str = Field(min_length=1, max_length=255)
 
 
 class KppkAppliedRead(BaseModel):

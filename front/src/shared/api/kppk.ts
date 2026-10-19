@@ -84,6 +84,8 @@ export type KppkRealizationPeriod = {
 export type KppkRealizationRow = {
     id: string;
     product: string;
+    /** The «№» of the product in «Продуктовые позиции» (by name); null when the dictionary lacks it. */
+    productNum: number | null;
     region: string;
     buyoutBpPlan: number | null;
     fcaPriceBpPlan: number | null;
@@ -340,6 +342,45 @@ export type KppkExportJobDownload = {
     job: ExportJobDescriptor;
     fileUrl: string;
 };
+
+/** The «Реализация» export replays the toolbar's slice × ДЗО × period selection. */
+export type KppkRealizationExportRequest = {
+    slice: KppkRealizationSlice;
+    orgId: string;
+    month: string | null;
+    year: string | null;
+    headerPinned: boolean;
+    columns: ExportColumn[];
+    fileName: string;
+};
+
+/**
+ * Download the «Реализация» view as one sheet.
+ *
+ * The form is not a dictionary row list but a view, so the request carries the
+ * toolbar selection and the server re-reads the same rows in the same order.
+ */
+export async function exportKppkRealization(request: KppkRealizationExportRequest): Promise<Blob> {
+    const result = await downloadTableExport<never>(
+        "/api/kppk/realization/export",
+        {
+            slice: request.slice,
+            orgId: request.orgId,
+            month: request.month === null ? null : Number(request.month),
+            year: request.year === null ? null : Number(request.year),
+            rowIds: null,
+            headerPinned: request.headerPinned,
+            columns: request.columns,
+            fileName: request.fileName,
+        },
+        () => {
+            // The view is bounded by one period and one ДЗО — it always renders
+            // inline; a job response would mean the server changed that.
+            throw new Error("Выгрузка «Реализации» не поддерживает фоновые задания.");
+        },
+    );
+    return result;
+}
 
 /** Download a КППК dictionary export — inline, or as a background job past the inline row limit. */
 export async function exportKppkTable(

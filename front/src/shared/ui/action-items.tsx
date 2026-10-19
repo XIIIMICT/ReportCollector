@@ -7,7 +7,7 @@
  * (one menu entry had an icon, the others did not).
  */
 
-import { AlertDialog, Button, Spinner } from "@heroui/react";
+import { AlertDialog, Button, ButtonGroup, Spinner } from "@heroui/react";
 import { Copy, Download, PasteClipboard, Plus, Redo, Trash, Undo } from "iconoir-react";
 import { createElement, type ReactElement, type ReactNode } from "react";
 
@@ -19,8 +19,17 @@ export type ExportMode = "all" | "visible";
 /** What a workspace publishes to the action bar for the export button. */
 export type ExportState = {
     pending: boolean;
+    /**
+     * Rows the CURRENT view can export (after filters, as the grid counts
+     * them). An empty table has nothing to download, so the button is disabled
+     * and says why — the rule is the same in every project.
+     */
+    rowCount?: number | undefined;
     onExport: (mode: ExportMode) => void;
 };
+
+/** The reason shown on an export button over an empty table. */
+export const NOTHING_TO_EXPORT_REASON = "Нечего выгружать: таблица пуста.";
 
 /**
  * The Excel export button with its two-entry dropdown.
@@ -31,18 +40,25 @@ export type ExportState = {
 export function buildExportAction({
     pending,
     disabled,
+    rowCount,
     onExport,
 }: {
     pending: boolean;
     disabled: boolean;
+    /** Rows the current view holds — 0 disables the export (nothing to save). */
+    rowCount?: number | undefined;
     onExport: (mode: ExportMode) => void;
 }): ActionItem {
+    // An empty table has nothing to export: the button stays visible but
+    // disabled and explains itself, like every other disabled action.
+    const empty = rowCount === 0;
     return {
         id: "export",
         label: "Скачать в Excel",
         icon: createElement(Download),
         onPress: () => onExport("all"),
-        disabled,
+        disabled: disabled || empty,
+        disabledReason: empty && !disabled ? NOTHING_TO_EXPORT_REASON : null,
         pending,
         group: "download",
         menu: [
@@ -231,17 +247,20 @@ export function DeleteRecordDialog({
                             не ссылается. Иначе ни одна запись не будет удалена.
                         </AlertDialog.Body>
                         <AlertDialog.Footer>
-                            <Button
-                                variant="tertiary"
-                                onPress={() => onOpenChange(false)}
-                                isDisabled={isPending}
-                            >
-                                Отмена
-                            </Button>
-                            <Button variant="danger" onPress={onConfirm} isDisabled={isPending}>
-                                {isPending ? <Spinner color="current" size="sm" /> : <Trash />}
-                                Удалить
-                            </Button>
+                            <ButtonGroup>
+                                <Button
+                                    variant="tertiary"
+                                    onPress={() => onOpenChange(false)}
+                                    isDisabled={isPending}
+                                >
+                                    Отмена
+                                </Button>
+                                <Button variant="danger" onPress={onConfirm} isDisabled={isPending}>
+                                    <ButtonGroup.Separator />
+                                    {isPending ? <Spinner color="current" size="sm" /> : <Trash />}
+                                    Удалить
+                                </Button>
+                            </ButtonGroup>
                         </AlertDialog.Footer>
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>
