@@ -31,6 +31,9 @@ Stack: `@revolist/react-datagrid` 4.27 (revo-grid), React 19, HeroUI (tooltips, 
 
 ## Clipboard
 
+KPPK realization rows are derived from dictionaries/source data: its action bar
+does not render row deletion (including in the compact action menu).
+
 Workspace bindings use `shared/ui/use-grid-clipboard-actions.ts`: publication,
 copy and paste handlers keep stable identities and resolve the current grid ref
 at click time. Parent state accepts a publication only when `canPaste` or its

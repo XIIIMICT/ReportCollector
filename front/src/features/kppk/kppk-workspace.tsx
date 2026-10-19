@@ -918,7 +918,7 @@ export function KppkWorkspace({
                   }),
               ]),
         ...buildDeleteAction({
-            show: isAdmin,
+            show: isAdmin && selectedTab?.id !== "kppkRealization",
             label: "Удалить запись",
             disabled: !deleteState.canDelete || isFullscreenPending,
             blockedReason: deleteState.canDelete ? null : NO_ROW_SELECTED_REASON,
