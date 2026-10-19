@@ -71,10 +71,11 @@ including decorators. Asset reads still include working-plan aggregates and
 remain a separate extraction task.
 
 Raw-material user reads, mutations, grants and deletion replay now live in
-`raw_materials/users.py`; shared error types and the snapshot-validation error
-live in `raw_materials/errors.py`. The form/replay service imports these lower
-layers without a reverse import. All raw-material function/class ASTs match
-the pre-extraction baseline; the complete suite passes (403 passed, 4 skipped).
+`raw_materials/users.py`; reference dictionaries and asset-link lifecycle live
+in `raw_materials/dictionaries.py`; shared error types and the
+snapshot-validation error live in `raw_materials/errors.py`. The form/replay
+service imports these lower layers without a reverse import. All raw-material
+function/class ASTs match the pre-extraction baseline; targeted raw tests pass.
 
 Each seam must preserve transaction decorators, project locks, session ids,
 journal target tables and API error mapping. A broad extraction without
