@@ -18,6 +18,8 @@ from src.auth.emails import normalize_email
 from src.auth.models import Project, ProjectRole, Theme, User, UserRole
 from src.auth.passwords import hash_password, validate_new_password, verify_password
 from src.auth.schemas import AssetAccessRead, CurrentUserRead, ProjectAccessCheckRead, ProjectAccessRead
+from src.collab.events import publish_rows_changed
+from src.collab.persistence import JournalStore
 from src.config import get_settings
 from src.raw_materials.models import RawMaterialAsset, RawMaterialUserAsset
 
@@ -428,6 +430,7 @@ async def request_project_access(
     link = (
         await session.exec(select(UserRole).where(UserRole.user_id == user.id, UserRole.project_id == project.id))
     ).one_or_none()
+    created_membership = link is None
     if link is None:
         now = datetime.now(UTC)
         session.add(
@@ -468,6 +471,19 @@ async def request_project_access(
                 )
             )
     await session.commit()
+    if created_membership and project_key == "kppk":
+        # The КППК users dictionary is an admin collaboration room. Notify
+        # connected admins immediately; the row is now committed and the
+        # frontend refetch is authoritative.
+        await publish_rows_changed(
+            JournalStore(session),
+            project_key="kppk",
+            section="kppkUsers",
+            report_month=None,
+            user_id=user.id,
+            user_name=user.name or "",
+            user_email=user.email or "",
+        )
     return ProjectAccessCheckRead(hasAccess=bool(link.is_active))
 
 

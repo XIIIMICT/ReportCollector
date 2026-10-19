@@ -39,7 +39,9 @@ async def _member(db_session, *, active: bool = True) -> User:
     return user
 
 
-def _access(db_session, *, section: str, email: str = "admin@example.ru") -> RoomAccess:
+def _access(
+    db_session, *, section: str, email: str = "admin@example.ru", report_month: str | None = None
+) -> RoomAccess:
     headers = signed_identity_headers(email=email, name="Kppk User")
     return RoomAccess(
         lambda: AsyncSession(db_session.bind, expire_on_commit=False),
@@ -47,7 +49,7 @@ def _access(db_session, *, section: str, email: str = "admin@example.ru") -> Roo
         _resolve_kppk_access,
         "kppk",
         section,
-        None,
+        report_month,
     )
 
 
@@ -66,7 +68,8 @@ def test_kppk_declares_its_sections() -> None:
 
 async def test_admin_joins_every_kppk_room(db_session) -> None:
     for section in KPPK_SECTIONS:
-        policy = _access(db_session, section=section)
+        report_month = "2026-06-01" if section in {"kppkRealizationPlan", "kppkRealizationFact", "kppkCost"} else None
+        policy = _access(db_session, section=section, report_month=report_month)
         async with policy.session_factory() as session:
             user, _roles, assets, block = await policy.resolve(session)
         assert user.email == "admin@example.ru"

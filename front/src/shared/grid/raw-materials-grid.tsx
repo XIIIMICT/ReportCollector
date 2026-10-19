@@ -347,7 +347,19 @@ function RawMaterialsGridInner(
         rowValuesRef.current = new Map(rows.map((row) => [row.id, { ...row }]));
     }, [rows]);
 
-    const sorting = sortingBySectionRef.current.get(section);
+    const sorting =
+        sortingBySectionRef.current.get(section) ??
+        (["users", "renovationUsers", "kppkUsers"].includes(section)
+            ? {
+                  columns: [
+                      {
+                          prop: "fullname",
+                          order: "asc" as const,
+                          cellCompare: placeholderLastCellCompare,
+                      },
+                  ],
+              }
+            : undefined);
 
     const descriptors = useMemo(
         () =>

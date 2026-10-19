@@ -6,8 +6,8 @@
 
 CREATE TABLE raw.kppk_d_org (
 	id int4 NOT NULL,
-	code varchar(20) NOT NULL,
-	"name" varchar(200) NOT NULL,
+	code text NOT NULL,
+	"name" text NOT NULL,
 	time_zone int2 NOT NULL
 );
 
@@ -20,7 +20,7 @@ CREATE TABLE raw.kppk_d_org (
 
 CREATE TABLE raw.kppk_d_period (
 	id int4 NOT NULL,
-	month_name varchar(20) NOT NULL,
+	month_name text NOT NULL,
 	year_num int4 NOT NULL,
 	first_date date NOT NULL,
 	last_date date NOT NULL
@@ -35,7 +35,7 @@ CREATE TABLE raw.kppk_d_period (
 
 CREATE TABLE raw.kppk_d_product_seq (
 	num int4 NOT NULL,
-	product varchar(255) NOT NULL
+	product text NOT NULL
 );
 
 
@@ -47,7 +47,7 @@ CREATE TABLE raw.kppk_d_product_seq (
 
 CREATE TABLE raw.kppk_d_raw_seq (
 	num int4 NOT NULL,
-	raw varchar(2000) NOT NULL
+	raw text NOT NULL
 );
 
 
@@ -62,8 +62,8 @@ CREATE TABLE raw.kppk_f_realization (
 	rep_date date NOT NULL,
 	load_id int4 NULL,
 	period_id int4 NOT NULL,
-	product varchar(200) NOT NULL,
-	region varchar(10) NOT NULL,
+	product text NOT NULL,
+	region text NOT NULL,
 	month_plan numeric(20, 3) NULL,
 	month_part_plan numeric(20, 3) NULL,
 	fca_price_plan numeric(20, 2) NULL,
@@ -100,8 +100,8 @@ CREATE TABLE raw.kppk_f_realization_plan (
 	rep_date date NOT NULL,
 	load_id int4 NULL,
 	period_id int4 NOT NULL,
-	product varchar(255) NOT NULL,
-	region varchar(10) NOT NULL,
+	product text NOT NULL,
+	region text NOT NULL,
 	month_bp_plan numeric(20, 3) NULL,
 	month_max_plan numeric(20, 3) NULL,
 	month_opt_plan numeric(20, 3) NULL,
@@ -153,7 +153,7 @@ CREATE TABLE raw.kppk_f_production_plan (
 	rep_date date NOT NULL,
 	load_id int4 NULL,
 	period_id int4 NOT NULL,
-	product varchar(255) NOT NULL,
+	product text NOT NULL,
 	month_bp_plan numeric(20, 3) NULL,
 	month_plan numeric(20, 3) NULL,
 	goods numeric(20, 3) NULL,

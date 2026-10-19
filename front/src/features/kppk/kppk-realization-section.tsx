@@ -277,8 +277,13 @@ export function KppkRealizationSection({
     const room = useCollabRoom({
         projectKey: KPPK_PROJECT_KEY,
         section: roomSection,
-        reportMonth: null,
-        enabled: collaborationAvailableFor(roomSection, isAdmin) && orgId !== null,
+        reportMonth:
+            periodMonth && periodYear ? `${periodYear}-${periodMonth.padStart(2, "0")}-01` : null,
+        enabled:
+            collaborationAvailableFor(roomSection, isAdmin) &&
+            orgId !== null &&
+            periodMonth !== null &&
+            periodYear !== null,
         onCellChanged: (event) => selfCellHandlerRef.current(event),
         onRowsChanged: () => refresh(),
         onReconnect: () => {

@@ -116,6 +116,15 @@ class RoomAccess:
                 raise RoomAccessDeniedError from error
             if month.day != 1 or month.isoformat() != report_month:
                 raise RoomAccessDeniedError
+        elif project == "kppk" and section in {"kppkRealizationPlan", "kppkRealizationFact", "kppkCost"}:
+            if report_month is None:
+                raise RoomAccessDeniedError
+            try:
+                month = date.fromisoformat(report_month)
+            except ValueError as error:
+                raise RoomAccessDeniedError from error
+            if month.day != 1:
+                raise RoomAccessDeniedError
         elif report_month is not None:
             raise RoomAccessDeniedError
 
