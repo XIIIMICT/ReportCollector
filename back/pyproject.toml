@@ -22,7 +22,7 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "pyxlsb>=1.0.10",
-    "ruff>=0.16.10",
+    "ruff>=0.17.1",
     "ty>=0.0.84",
 ]
 
