@@ -91,10 +91,8 @@ from src.renovation.service import (
     approve_plan,
     assign_plan_row_asset,
     create_renovation_asset,
-    create_renovation_user,
     delete_plan_row,
     delete_renovation_asset,
-    delete_renovation_user,
     read_meta,
     read_plan,
     read_plan_diff,
@@ -105,11 +103,15 @@ from src.renovation.service import (
     read_plan_summary,
     read_plan_versions,
     read_renovation_asset_rows,
-    read_renovation_user_rows,
     resolve_renovation_access,
     submit_plan,
     update_plan_cells,
     update_renovation_asset,
+)
+from src.renovation.users import (
+    create_renovation_user,
+    delete_renovation_user,
+    read_renovation_user_rows,
     update_renovation_user,
 )
 

@@ -58,15 +58,17 @@ API behavior remains covered by user, realization, WebSocket and undo tests.
 
 The remaining safe seams are domain-specific modules:
 
-1. renovation plan read/edit/lifecycle vs renovation assets and users;
+1. renovation plan read/edit/lifecycle vs renovation assets;
 2. raw movement/prices vs raw dictionaries/users;
 3. KPPK source dictionaries vs realization vs project users.
 
-The renovation reference-catalog seam is also implemented in
-`renovation/catalogs.py`; catalog deletion replay stays with that module and
-the service keeps the plan replay dispatcher explicit. The remaining
-renovation dictionary seam is assets/users because asset reads include working
-plan aggregates and user changes synchronize project access.
+Renovation reference catalogs live in `renovation/catalogs.py`; project users
+and their replay live in `renovation/users.py`. Shared exception types live in
+`renovation/errors.py`. Both modules depend on lower-level models/auth helpers,
+not on the plan service. The service retains the explicit replay dispatcher.
+All extracted and retained functions/classes match their pre-refactor ASTs,
+including decorators. Asset reads still include working-plan aggregates and
+remain a separate extraction task.
 
 Each seam must preserve transaction decorators, project locks, session ids,
 journal target tables and API error mapping. A broad extraction without
