@@ -3,8 +3,8 @@ Per-section rules shared by the API, the collaboration rooms and the journal.
 
 This is the backend half of the single source of truth; the front half is
 `front/src/shared/grid/section-policy.ts`. Both must declare the same section
-ids and agree on the modes — `back/tests/test_section_policy.py` and the front
-unit test guard that, and `docs/UNIFICATION_PLAN.md` records the rules.
+ids and agree on the modes — `back/tests/test_section_policy.py` checks parity.
+The durable rules are recorded in `docs/COLLAB.md` and `docs/GRID.md`.
 
 Why a module and not scattered constants: the "is this an admin-only room"
 decision used to live in `collab/access.py` while the undo gate lived in
@@ -52,6 +52,7 @@ SECTION_POLICIES: dict[str, SectionPolicy] = {
     "kppkPositions": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="placeholder"),
     "kppkRaws": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="placeholder"),
     "kppkOrgs": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="placeholder"),
+    "kppkUsers": SectionPolicy(collab="admin", undo="admin", export="admin", row_ops="dialog"),
     # «Реализация»: the rows come from the source copies (no placeholders),
     # the editing and undo stay admin-only like every «КППК» surface.
     "kppkRealizationPlan": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="none"),

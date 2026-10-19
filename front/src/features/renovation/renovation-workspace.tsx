@@ -59,6 +59,7 @@ import { canonicalCellKey, useCollabRoom } from "@/shared/collab/use-collab-room
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
+import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { SectionTabs } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
@@ -752,7 +753,7 @@ export function RenovationWorkspace({
         (versions?.find((version) => version.id === viewPlanId)?.state ?? "archived") ===
             "archived";
     const isArchive = isArchivedView;
-    const collabEnabled = !isArchivedView;
+    const collabEnabled = !isArchivedView && collaborationAvailableFor(collabSection, isAdmin);
 
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
     const refreshMeta = useCallback(() => {
@@ -968,21 +969,36 @@ export function RenovationWorkspace({
 
     // An approver cannot edit the plan — no undo/redo shortcuts either.
     useUndoRedoShortcuts({
-        enabled: collabEnabled && !isApprover,
+        enabled: collabEnabled && !isApprover && undoAvailableFor(collabSection, isAdmin),
         onUndo: () => void runUndo(),
         onRedo: () => void runRedo(),
     });
 
     useEffect(() => {
         setUndoState({
-            enabled: collabEnabled && !isArchive && !isApprover,
+            enabled:
+                collabEnabled &&
+                !isArchive &&
+                !isApprover &&
+                undoAvailableFor(collabSection, isAdmin),
             offline: collabEnabled && room.status !== "online",
             canUndo: undoCount > 0,
             canRedo: redoCount > 0,
             onUndo: runUndo,
             onRedo: runRedo,
         });
-    }, [collabEnabled, isApprover, isArchive, redoCount, room.status, runRedo, runUndo, undoCount]);
+    }, [
+        collabEnabled,
+        collabSection,
+        isAdmin,
+        isApprover,
+        isArchive,
+        redoCount,
+        room.status,
+        runRedo,
+        runUndo,
+        undoCount,
+    ]);
 
     // Stable identity: `commit` feeds the grid's `columns` memo, which the
     // selection effect depends on — an inline function would re-trigger the
@@ -1716,6 +1732,7 @@ export function RenovationWorkspace({
                         )
                     ) : (
                         <RenovationDictionarySection
+                            currentUserEmail={user.email}
                             section={dictSection ?? RENOVATION_ASSETS_SECTION}
                             room={room}
                             assets={meta.assets}

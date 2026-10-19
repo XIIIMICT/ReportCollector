@@ -23,6 +23,7 @@ export type SectionId =
     | "kppkPositions"
     | "kppkRaws"
     | "kppkOrgs"
+    | "kppkUsers"
     | "kppkRealizationPlan"
     | "kppkRealizationFact";
 
@@ -33,6 +34,8 @@ export type GridRow = Record<string, unknown> & {
     isDeleted: boolean;
     canonicalCells?: Record<string, string>;
     isPlaceholder?: boolean;
+    /** View-only row (for example, the signed-in user's administration row). */
+    readOnlyRow?: boolean;
 };
 
 export type ReferenceOption = {
@@ -121,6 +124,7 @@ export const SECTION_LABELS: Record<StaticSectionId, string> & Partial<Record<Se
         kppkPositions: "Продуктовые позиции",
         kppkRaws: "Сырьевые позиции",
         kppkOrgs: "ДЗО",
+        kppkUsers: "Пользователи",
         kppkRealizationPlan: "Реализация",
         kppkRealizationFact: "Реализация",
     };
@@ -229,6 +233,27 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
         text("code", "Код", 140),
         text("name", "Наименование", 380),
     ],
+    kppkUsers: [
+        text("email", "Email", 220),
+        text("fullname", "ФИО", 250),
+        { key: "isAdmin", label: "Администратор", width: 150, kind: "boolean" },
+        { key: "orgNames", label: "ДЗО", width: 200, kind: "assetsMulti", readOnly: true },
+        { key: "isActive", label: "Доступ к проекту", width: 120, kind: "boolean" },
+        {
+            key: "lastAuthenticatedAt",
+            label: "Время последнего входа",
+            width: 190,
+            kind: "datetime",
+            readOnly: true,
+        },
+        {
+            key: "resetPassword",
+            label: "Сбросить пароль",
+            width: 190,
+            kind: "boolean",
+            exportable: false,
+        },
+    ],
     // «Реализация» has no static descriptors: the layout follows the template
     // (Продукция | Рынок сбыта | Выкуп{Объем, Цена FCA} | Реализация{Объем,
     // Цена FCA}), and the editable columns come from the active slice pasted
@@ -318,7 +343,11 @@ export function getVisibleDescriptors(
         (column) =>
             (!column.adminOnly || showAssetColumn) &&
             // With Keycloak enabled local passwords don't exist — the reset column is meaningless.
-            !(options.keycloakEnabled && section === "users" && column.key === "resetPassword"),
+            !(
+                options.keycloakEnabled &&
+                (section === "users" || section === "kppkUsers") &&
+                column.key === "resetPassword"
+            ),
     );
     return showServiceColumns ? [...visible, ...SERVICE_DESCRIPTORS] : visible;
 }
@@ -579,7 +608,11 @@ function isCellReadOnly(
             section === "rawMaterialPrices" &&
             descriptor.key === "deliveryBasisName") ||
         Boolean(row.isDeleted) ||
+        row.readOnlyRow === true ||
         descriptor.readOnly === true ||
+        (context.keycloakEnabled &&
+            (section === "users" || section === "kppkUsers") &&
+            (descriptor.key === "email" || descriptor.key === "fullname")) ||
         (descriptor.key === "resetPassword" && row.resetPassword === true)
     );
 }

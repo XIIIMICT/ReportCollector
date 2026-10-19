@@ -2,6 +2,14 @@
 
 ## Environment
 
+Both the full seeder and `seed_kppk.seed_administrators` ensure active KPPK
+administrator memberships for `evtushenko.sn@ruschem.ru` and
+`lavrova.mg@ruschem.ru`. The operation is idempotent, keeps existing identities
+and other projects' roles/grants unchanged, and does not invent Lavrova's full
+name (Keycloak supplies it on first login). Updating the seeder does not apply
+it to a running database: do not run the full/schema-recreating seed or the
+KPPK source-copy seed without approval.
+
 Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 for the production frontend runtime.
 
 1. Copy the config: `cp .env.example .env` (root — single source). To run the front on the host additionally `cp .env.example front/.env.local`.

@@ -3,6 +3,24 @@
 Backend: `back/src/collab/` (`ws.py` — WebSocket, `store.py` — storage, `undo.py` — undo/redo, `events.py` — broadcasting, `journal.py` — action journal, `models.py` — canonical_key, `schemas.py`).
 Frontend: `front/src/shared/collab/` (`ws-client.ts` — connection/heartbeat/idle, `use-collab-room.ts` — reactive room state).
 
+## Section policy and UI gates
+
+`back/src/common/section_policy.py` and `front/src/shared/grid/section-policy.ts`
+declare static room/history/export/row-authoring/loading modes. Backend tests
+compare every section and mode across the two files, including KPPK users.
+Workspaces use `collaborationAvailableFor`, `undoAvailableFor` and row-operation
+policy; grid Ctrl+A uses `chunked`. These are capability gates, not substitutes
+for live server authorization, row/asset/column rules or lifecycle checks.
+Immutable archive viewers do not join rooms. Pending renovation behavior follows
+the existing lifecycle implementation; historical migration notes do not override
+the current API. Copy and export remain available for readable forms, except
+the realization export which has not been implemented (its action stays hidden).
+
+KPPK users share `app_users` identities but edit only their `user_roles` link for
+the KPPK project. Their history uses `kppkUsers` and dispatches replay by project,
+not just table name: it must never replay a KPPK link through raw-materials user
+services. ДЗО grants are not implemented; `orgNames` remains empty/read-only.
+
 ## Room
 
 `WS /api/ws/raw-materials?project=raw_materials&section=<section>&reportMonth=<month|empty>&clientId=&sessionId=&ticket=`

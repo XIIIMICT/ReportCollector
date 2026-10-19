@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Card, Typography } from "@heroui/react";
+import { Button, ButtonGroup, Card, Typography } from "@heroui/react";
 
 /**
  * Route-level error boundary: renders instead of the default Next.js crash
@@ -29,14 +29,15 @@ export default function ErrorPage({
                             Код ошибки: {error.digest}
                         </Typography>
                     ) : null}
-                    <div className="flex gap-3">
+                    <ButtonGroup>
                         <Button variant="primary" onPress={reset}>
                             Обновить
                         </Button>
-                        <a href="/">
-                            <Button variant="tertiary">На главную</Button>
-                        </a>
-                    </div>
+                        <Button variant="tertiary" onPress={() => window.location.assign("/")}>
+                            <ButtonGroup.Separator />
+                            На главную
+                        </Button>
+                    </ButtonGroup>
                 </Card.Content>
             </Card>
         </main>

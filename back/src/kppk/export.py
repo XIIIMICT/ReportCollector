@@ -31,6 +31,7 @@ SECTION_SHEET_NAMES: dict[str, str] = {
     "kppkPositions": "Продуктовые позиции",
     "kppkRaws": "Сырьевые позиции",
     "kppkOrgs": "ДЗО",
+    "kppkUsers": "Пользователи",
 }
 
 # Keep in sync with the grid descriptors of the КППК sections.
@@ -38,6 +39,19 @@ ALLOWED_KEYS: dict[str, frozenset[str]] = {
     "kppkPositions": frozenset({"productNum", "name", "orgNames", "createdAt", "updatedAt", "updatedBy"}),
     "kppkRaws": frozenset({"rawNum", "name", "createdAt", "updatedAt", "updatedBy"}),
     "kppkOrgs": frozenset({"code", "name", "createdAt", "updatedAt", "updatedBy"}),
+    "kppkUsers": frozenset(
+        {
+            "email",
+            "fullname",
+            "isAdmin",
+            "orgNames",
+            "isActive",
+            "lastAuthenticatedAt",
+            "createdAt",
+            "updatedAt",
+            "updatedBy",
+        }
+    ),
 }
 
 # Dictionary columns: column key -> list name on the hidden sheet.

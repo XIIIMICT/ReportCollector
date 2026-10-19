@@ -1031,6 +1031,10 @@ async def patch_user(
     session_id: str,
 ) -> UserRowRead:
     """«Сырьё» project user edit (project admin only)."""
+    if user_id == user.id:
+        raise HTTPException(
+            status_code=409, detail="Нельзя редактировать собственную запись в справочнике пользователей."
+        )
     project_id = await _raw_materials_project_id(session)
     try:
         _, applied = await update_project_user(
@@ -1114,6 +1118,10 @@ async def patch_dictionary_batch(
                 _, row_applied = await update_delivery_basis(session, basis_id=row_id, name=basis.name, user=user)
             else:
                 user_update = UserUpdateRequest.model_validate(fields)
+                if row_id == user.id:
+                    raise HTTPException(
+                        status_code=409, detail="Нельзя редактировать собственную запись в справочнике пользователей."
+                    )
                 _, row_applied = await update_project_user(
                     session,
                     project_id=project_id,

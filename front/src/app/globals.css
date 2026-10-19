@@ -726,13 +726,12 @@ body {
     display: grid;
     gap: 0.4rem;
     margin: 0;
-    padding: 0;
-    list-style: none;
+    padding-inline-start: 1.2em;
+    list-style: disc outside;
 }
 
 .form-status-detail__presence-item {
-    display: grid;
-    gap: 0.15rem;
+    display: list-item;
     font-size: 0.8rem;
     line-height: 1.4;
 }
@@ -750,6 +749,16 @@ body {
 .form-status-detail__role,
 .form-status-detail__cells {
     opacity: 0.75;
+}
+
+.form-status-detail__cells {
+    display: block;
+    margin-top: 0.15rem;
+}
+
+/* Match the blank-line separation before the statistics group. */
+.form-status-detail__presence + .form-status-detail__row {
+    margin-top: 0.6rem;
 }
 
 @keyframes collab-pulse {

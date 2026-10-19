@@ -1,4 +1,4 @@
-import { Button, Calendar, DatePicker } from "@heroui/react";
+import { Button, ButtonGroup, Calendar, DatePicker } from "@heroui/react";
 import { CalendarDate, parseDate } from "@internationalized/date";
 import type { EditorType } from "@revolist/react-datagrid";
 import { useMemo, useRef, useState } from "react";
@@ -70,18 +70,21 @@ export function MultiAssetEditor({ column, save, close }: EditorType) {
                 onDismiss={close}
                 popoverFooter={
                     <div className="grid-autocomplete-editor__actions">
-                        <Button size="sm" variant="tertiary" onPress={() => close()}>
-                            Отмена
-                        </Button>
-                        <Button
-                            size="sm"
-                            variant="primary"
-                            onPress={() =>
-                                save(options.filter((option) => selected.includes(option)))
-                            }
-                        >
-                            Применить
-                        </Button>
+                        <ButtonGroup size="sm">
+                            <Button size="sm" variant="tertiary" onPress={() => close()}>
+                                Отмена
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="primary"
+                                onPress={() =>
+                                    save(options.filter((option) => selected.includes(option)))
+                                }
+                            >
+                                <ButtonGroup.Separator />
+                                Применить
+                            </Button>
+                        </ButtonGroup>
                     </div>
                 }
             />

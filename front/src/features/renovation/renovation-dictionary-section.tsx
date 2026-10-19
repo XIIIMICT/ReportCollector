@@ -205,6 +205,7 @@ export function RenovationDictionarySection({
     onAssetsChanged,
     onSelectionLabelChange,
     onGridStatsChange,
+    currentUserEmail,
 }: {
     section: string;
     room: CollabRoom;
@@ -242,6 +243,7 @@ export function RenovationDictionarySection({
     onSelectionLabelChange?: (label: string | null) => void;
     /** Row/column statistics of the footer status (same as in every grid). */
     onGridStatsChange: (stats: GridViewStats) => void;
+    currentUserEmail: string | undefined;
 }) {
     const gridRef = useRef<RawMaterialsGridHandle>(null);
     const [reloadKey, setReloadKey] = useState(0);
@@ -341,6 +343,9 @@ export function RenovationDictionarySection({
                         ? source.id
                         : source.valueId,
             });
+            gridRow.readOnlyRow =
+                dictSection === RENOVATION_USERS_SECTION &&
+                String(source.email ?? "").toLowerCase() === currentUserEmail?.toLowerCase();
             if (!collabEnabled) return gridRow;
             gridRow.canonicalCells = {};
             for (const field of editableFieldKeys) {
@@ -352,7 +357,7 @@ export function RenovationDictionarySection({
             base.push(placeholderRow(dictSection, placeholderDraftRef.current));
         }
         return base;
-    }, [collabEnabled, dictSection, editableFieldKeys, rows]);
+    }, [currentUserEmail, collabEnabled, dictSection, editableFieldKeys, rows]);
 
     // Remote cell values (live edits of other users) override the local ones.
     const displayRows = useMemo(() => {

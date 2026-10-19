@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.auth.models import User
+from src.auth.models import Project, User, UserRole
 from src.collab.models import CellState
 from src.common.section_policy import admin_room_section
 from src.kppk.constants import (
@@ -68,6 +68,7 @@ KPPK_SECTIONS = {
     "kppkPositions": (KppkProduct, frozenset({"name", "productNum", "orgNames"})),
     "kppkRaws": (KppkRaw, frozenset({"name", "rawNum"})),
     "kppkOrgs": (KppkOrg, frozenset({"code", "name"})),
+    "kppkUsers": (User, frozenset({"email", "fullname", "isAdmin", "isActive"})),
     # «Реализация» (Таблицы.xlsx): one section per slice storage — the plan
     # slices (Бизнес-план / Оперплан) share the plan copy, the fact slice is
     # its own room. The room cell keys carry the table name, the fields are
@@ -138,6 +139,8 @@ class RoomAccess:
             if table != self.model.__tablename__:
                 continue
             if write:
+                if self.model is User and row_id == access[0].id:
+                    continue
                 if self.model is RenovationPlanRow:
                     meta = field_meta(field)
                     if meta is None or meta.is_read_only or meta.is_calculated:
@@ -188,6 +191,15 @@ class RoomAccess:
                 query = query.where(col(RenovationPlan.state) == RPlanState.WORKING)
         elif model is RenovationReferenceValue:
             query = query.where(col(RenovationReferenceValue.catalog) == self.section.split(":", 1)[1])
+        elif model is User and self.project == KPPK_PROJECT_KEY:
+            query = (
+                query.join(UserRole, col(UserRole.user_id) == col(User.id))
+                .join(
+                    Project,
+                    col(Project.id) == col(UserRole.project_id),
+                )
+                .where(col(Project.key) == KPPK_PROJECT_KEY, col(User.is_deleted).is_(False))
+            )
         allowed_ids = set((await session.exec(query)).all())
         return {key for key, (row_id, _) in parsed.items() if row_id in allowed_ids}
 

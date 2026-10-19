@@ -4,6 +4,9 @@ Front parity: `front/src/shared/grid/section-policy.ts` — the two files must
 declare the same sections with the same modes.
 """
 
+import re
+from pathlib import Path
+
 from src.common.section_policy import (
     SECTION_POLICIES,
     admin_room_section,
@@ -27,6 +30,7 @@ def test_every_project_section_declares_a_policy() -> None:
         "kppkPositions",
         "kppkRaws",
         "kppkOrgs",
+        "kppkUsers",
         "kppkRealizationPlan",
         "kppkRealizationFact",
     }
@@ -62,3 +66,35 @@ def test_undo_mirrors_the_edit_rights() -> None:
     # Admin-edited dictionaries: only an admin can undo there.
     assert undo_mode("rawMaterials") == "admin"
     assert undo_mode("kppkRaws") == "admin"
+
+
+def test_frontend_policy_matches_every_backend_mode() -> None:
+    source = (Path(__file__).parents[2] / "front/src/shared/grid/section-policy.ts").read_text(encoding="utf-8")
+    definitions: dict[str, dict[str, str | bool]] = {}
+
+    def properties(body: str) -> dict[str, str | bool]:
+        result: dict[str, str | bool] = {}
+        inherited = re.search(r"\.\.\.(\w+)", body)
+        if inherited:
+            result.update(definitions[inherited.group(1)])
+        for key, quoted, boolean in re.findall(
+            r'(collab|undo|export|rowOps|chunked)\s*:\s*(?:"([^"]+)"|(true|false))',
+            body,
+        ):
+            result[key] = quoted or boolean == "true"
+        return result
+
+    for name, body in re.findall(r"const (\w+): SectionPolicy = \{(.*?)\};", source, re.DOTALL):
+        definitions[name] = properties(body)
+    section = source.split("const SECTION_POLICIES:", 1)[1].split("\n};", 1)[0]
+    entries = dict(re.findall(r"^\s+(\w+): (\{[^\n]+\}|\w+),", section, re.MULTILINE))
+    assert entries.keys() == SECTION_POLICIES.keys()
+    for key, backend in SECTION_POLICIES.items():
+        frontend = properties(entries[key]) if entries[key].startswith("{") else definitions[entries[key]]
+        assert frontend == {
+            "collab": backend.collab,
+            "undo": backend.undo,
+            "export": backend.export,
+            "rowOps": backend.row_ops,
+            "chunked": backend.chunked,
+        }, key

@@ -15,7 +15,8 @@ The source tables ship as SQL dumps in `docs/kppk/` (`kppk_*` tables + the
 
 Re-copying on every run keeps the behavior deterministic: any manual dictionary
 edit is reconciled from the source at the next seed. The kppk project row and
-its user links are owned by `seed_database` / self-provisioning — not here.
+its administrator links are ensured by `seed_administrators` (also called by
+the full seeder). Other projects' memberships and grants are left untouched.
 
 Usage: uv run --directory back -m src.scripts.seed_kppk
 """
@@ -26,18 +27,21 @@ from pathlib import Path
 from typing import Final, TypedDict
 
 import openpyxl
-from sqlalchemy import CursorResult, text
+from sqlalchemy import CursorResult, func, text
 from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from src.auth.models import Project, ProjectRole, User, UserRole
 from src.config import get_settings
 from src.database import async_session_factory
-from src.kppk.constants import KPPK_SOURCE_SCHEMA_DICT, KPPK_SOURCE_SCHEMA_RAW, KPPK_SOURCE_TABLES
+from src.kppk.constants import KPPK_PROJECT_KEY, KPPK_SOURCE_SCHEMA_DICT, KPPK_SOURCE_SCHEMA_RAW, KPPK_SOURCE_TABLES
 
 # docs/kppk/ of the repository (`back/src/scripts/seed_kppk.py` → 3 levels up).
 KPPK_DOCS_DIR: Final[Path] = Path(__file__).resolve().parents[3] / "docs" / "kppk"
 MATRIX_XLSX_NAME: Final[str] = "Матрица продуктов.xlsx"
 MATCH_COLUMN_VALUE: Final[str] = "да"
+KPPK_ADMIN_EMAILS: Final[tuple[str, ...]] = ("evtushenko.sn@ruschem.ru", "lavrova.mg@ruschem.ru")
 # Only the four dictionary copies get audit stamps; the fact/plan copies stay
 # verbatim (the migration does not create audit columns for them).
 STAMPED_COPY_TABLES: Final[frozenset[str]] = frozenset(
@@ -377,6 +381,29 @@ async def _rebuild_org_products(connection: AsyncConnection, app_schema: str) ->
     return {"matrix_products_created": created_products, "matrix_links": len(matrix_matches)}
 
 
+async def seed_administrators(session: AsyncSession) -> int:
+    """Ensure the two KPPK admins without altering identity or other projects."""
+    project = (await session.exec(select(Project).where(col(Project.key) == KPPK_PROJECT_KEY))).one_or_none()
+    if project is None:
+        message = "Проект «КППК» не найден. Сначала выполните миграции и основной сидер."
+        raise CommandError(message)
+    for email in KPPK_ADMIN_EMAILS:
+        user = (await session.exec(select(User).where(func.lower(col(User.email)) == email))).one_or_none()
+        if user is None:
+            # Keycloak supplies the authoritative full name on first login.
+            user = User(email=email, name=email)
+            session.add(user)
+            await session.flush()
+        link = await session.get(UserRole, (user.id, project.id))
+        if link is None:
+            link = UserRole(user_id=user.id, project_id=project.id, role=ProjectRole.ADMIN)
+        link.role = ProjectRole.ADMIN
+        link.is_active = True
+        session.add(link)
+    await session.flush()
+    return len(KPPK_ADMIN_EMAILS)
+
+
 async def seed(session: AsyncSession) -> dict[str, int]:
     """Seed the КППК source copies; returns the counters printed by `run`."""
     settings = get_settings()
@@ -392,11 +419,13 @@ async def seed(session: AsyncSession) -> dict[str, int]:
     await _truncate_copies(connection, app_schema)
     per_table = await _copy_sources(connection, app_schema)
     org_products = await _rebuild_org_products(connection, app_schema)
+    administrators = await seed_administrators(session)
     return {
         **per_table,
         **org_products,
         "schemas_created": len(schemas_created),
         "source_tables_created": source_tables_created,
+        "administrators": administrators,
     }
 
 

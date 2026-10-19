@@ -4,8 +4,9 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from src.auth.emails import normalize_email
 from src.raw_materials.schemas import ExportColumnRequest  # noqa: TC001
 
 
@@ -101,6 +102,43 @@ class KppkUserRowRead(BaseModel):
     fullname: str
     isAdmin: bool
     isActive: bool
+    orgNames: list[str] = Field(default_factory=list)
+    lastAuthenticatedAt: datetime | None = None
+    createdAt: datetime
+    updatedAt: datetime
+    updatedBy: str
+
+
+class KppkUserCreateRequest(BaseModel):
+    """Create an administrator; organization grants are not implemented yet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    fullname: str = Field(min_length=1, max_length=255)
+    isAdmin: bool = True
+
+    @field_validator("email")
+    @classmethod
+    def normalize_address(cls, value: EmailStr) -> str:
+        return normalize_email(str(value))
+
+
+class KppkUserUpdateRequest(BaseModel):
+    """User fields shared with the raw-materials grid, without asset grants."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr | None = None
+    fullname: str | None = Field(default=None, min_length=1, max_length=255)
+    isAdmin: bool | None = None
+    isActive: bool | None = None
+    resetPassword: bool = False
+
+    @field_validator("email")
+    @classmethod
+    def normalize_address(cls, value: EmailStr | None) -> str | None:
+        return None if value is None else normalize_email(str(value))
 
 
 class KppkPeriodRowRead(BaseModel):
@@ -191,7 +229,7 @@ class KppkAppliedRead(BaseModel):
 class KppkExportViewRequest(BaseModel):
     """Excel export of a «КППК» dictionary grid («вся» / «видимая»)."""
 
-    section: Literal["kppkPositions", "kppkRaws", "kppkOrgs"]
+    section: Literal["kppkPositions", "kppkRaws", "kppkOrgs", "kppkUsers"]
     headerPinned: bool = True
     columns: list[ExportColumnRequest] = Field(min_length=1, max_length=64)
     rowIds: list[UUID] | None = None

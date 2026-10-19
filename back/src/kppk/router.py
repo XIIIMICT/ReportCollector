@@ -51,12 +51,15 @@ from .schemas import (
     KppkRealizationCellUpdate,
     KppkRealizationPeriodRead,
     KppkRealizationViewRead,
+    KppkUserCreateRequest,
     KppkUserRowRead,
+    KppkUserUpdateRequest,
 )
 from .service import (
     KppkNotFoundError,
     KppkValidationError,
     NoKppkAccessError,
+    create_kppk_user,
     create_org,
     create_period,
     create_product_position,
@@ -79,6 +82,7 @@ from .service import (
     read_realization_row_by_id,
     read_realization_rows,
     resolve_kppk_access,
+    update_kppk_user,
     update_org_cell,
     update_period_cell,
     update_product_position_cell,
@@ -262,6 +266,18 @@ async def _undo_response(
             user_email=access.user.email or "",
             cells=outcome.applied_cells,
         )
+        if outcome.section == KPPK_SECTION_USERS and any(
+            cell.field in {"__created", "__deleted"} for cell in outcome.applied_cells
+        ):
+            await publish_rows_changed(
+                JournalStore(session),
+                project_key=KPPK_PROJECT_KEY,
+                section=KPPK_SECTION_USERS,
+                report_month=None,
+                user_id=access.user.id,
+                user_name=access.user.name or "",
+                user_email=access.user.email or "",
+            )
     if not outcome.applied:
         conflict = outcome.conflict
         return UndoResponse(
@@ -705,11 +721,58 @@ async def get_kppk_users(
     return await read_kppk_user_rows(session)
 
 
+@router.post("/users", response_model=KppkUserRowRead, status_code=status.HTTP_201_CREATED)
+async def post_kppk_user(
+    request: KppkUserCreateRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+) -> KppkUserRowRead:
+    try:
+        person, applied = await create_kppk_user(session, request=request, editor=access.user)
+    except KppkValidationError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    await _record_kppk_updates(
+        session, access=access, section=KPPK_SECTION_USERS, session_id=session_id, applied=applied
+    )
+    await publish_rows_changed(
+        JournalStore(session),
+        project_key=KPPK_PROJECT_KEY,
+        section=KPPK_SECTION_USERS,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+    )
+    return next(row for row in await read_kppk_user_rows(session) if row.id == person.id)
+
+
+@router.patch("/users/{user_id}", response_model=KppkUserRowRead)
+async def patch_kppk_user(
+    user_id: UUID,
+    request: KppkUserUpdateRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+) -> KppkUserRowRead:
+    try:
+        applied = await update_kppk_user(session, user_id=user_id, request=request, editor=access.user)
+    except KppkNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except KppkValidationError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    await _record_kppk_updates(
+        session, access=access, section=KPPK_SECTION_USERS, session_id=session_id, applied=applied
+    )
+    return next(row for row in await read_kppk_user_rows(session) if row.id == user_id)
+
+
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_kppk_user(
     user_id: UUID,
     session: SessionDependency,
     access: AdminDependency,
+    session_id: str = "",
 ) -> None:
     """
     Remove a user from the «КППК» project (admin only).
@@ -732,6 +795,7 @@ async def delete_kppk_user(
             detail="Сначала снимите доступ пользователя к проекту, затем удаляйте.",
         )
     try:
+        before = next((row for row in await read_kppk_user_rows(session) if row.id == user_id), None)
         await delete_kppk_project_user(session, user_id=user_id)
     except KppkNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
@@ -740,6 +804,22 @@ async def delete_kppk_user(
             status_code=status.HTTP_409_CONFLICT,
             detail="Пользователя нельзя удалить: на нём другие данные проекта.",
         ) from error
+    if before is not None:
+        await _record_kppk_updates(
+            session,
+            access=access,
+            section=KPPK_SECTION_USERS,
+            session_id=session_id,
+            applied=[
+                AppliedCell(
+                    target_table="app_users",
+                    row_id=user_id,
+                    field="__deleted",
+                    old_value={"role": "admin" if before.isAdmin else "asset_worker", "isActive": before.isActive},
+                    new_value=None,
+                )
+            ],
+        )
     await publish_rows_changed(
         JournalStore(session),
         project_key=KPPK_PROJECT_KEY,
@@ -772,11 +852,15 @@ async def export_kppk_table(
     except ExportValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
     if request.section == KPPK_SECTION_PRODUCT_POSITIONS:
-        rows: list[KppkProductPositionRowRead | KppkRawRowRead | KppkOrgRowRead] = list(
+        rows: list[KppkProductPositionRowRead | KppkRawRowRead | KppkOrgRowRead | KppkUserRowRead] = list(
             await read_product_position_rows(session)
         )
     elif request.section == KPPK_SECTION_RAWS:
         rows = list(await read_raw_rows(session))
+    elif request.section == KPPK_SECTION_USERS:
+        if not access.is_admin:
+            raise HTTPException(status_code=403, detail="Требуются права администратора проекта «КППК».")
+        rows = list(await read_kppk_user_rows(session))
     else:
         rows = list(await read_org_rows(session))
     if request.rowIds is not None:

@@ -71,6 +71,11 @@ import {
     type GridViewStats,
     type RawMaterialsGridHandle,
 } from "@/shared/grid/raw-materials-grid";
+import {
+    collaborationAvailableFor,
+    undoAvailableFor,
+    sectionPolicy,
+} from "@/shared/grid/section-policy";
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { ActionBar as SharedActionBar, type ActionItem } from "@/shared/ui/action-bar";
@@ -493,9 +498,10 @@ function SectionContent({
         );
     }, [collabEnabled, reportMonth, section]);
 
-    const canManageReferences = isAdmin && !MAIN_SECTIONS.has(section);
+    const canManageReferences = isAdmin && sectionPolicy(section).rowOps !== "none";
     // Users are created via the modal instead of the trailing placeholder row.
-    const showPlaceholderRow = canManageReferences && section !== "users";
+    const showPlaceholderRow =
+        canManageReferences && sectionPolicy(section).rowOps === "placeholder";
     const showAssetColumn = isAdmin || assets.length > 1;
     const selectedRows = useMemo(
         () => (rows ?? []).filter((row) => selectedRowIds.includes(row.id)),
@@ -570,6 +576,10 @@ function SectionContent({
     const gridRows = useMemo(() => {
         const base = (rows ?? []).map((row) => {
             const gridRow = toGridRow(row);
+            gridRow.readOnlyRow =
+                section === "users" &&
+                "email" in row &&
+                String(row.email).toLowerCase() === currentUserEmail?.toLowerCase();
             if (!collabEnabled || typeof row.id !== "string") return gridRow;
             gridRow.canonicalCells = {};
             for (const field of editableFieldKeys) {
@@ -584,6 +594,7 @@ function SectionContent({
     }, [
         collabEnabled,
         collabTable,
+        currentUserEmail,
         editableFieldKeys,
         placeholderDraft,
         remoteCellValues,
@@ -853,7 +864,7 @@ function SectionContent({
     }, [applyUndoResult, pendingSkip, reportMonth, section]);
 
     useUndoRedoShortcuts({
-        enabled: collabEnabled,
+        enabled: collabEnabled && !isArchive && undoAvailableFor(section, isAdmin),
         onUndo: () => void runUndo(),
         onRedo: () => void runRedo(),
     });
@@ -862,7 +873,7 @@ function SectionContent({
         onUndoState({
             // Undo/redo works on all sections: on «Движение»/«Цены» and on the
             // dictionaries (name, asset-set and user edits).
-            enabled: collabEnabled && !isArchive,
+            enabled: collabEnabled && !isArchive && undoAvailableFor(section, isAdmin),
             offline: collabEnabled && room.status !== "online",
             canUndo: undoCount > 0,
             canRedo: redoCount > 0,
@@ -871,6 +882,7 @@ function SectionContent({
         });
     }, [
         collabEnabled,
+        isAdmin,
         isArchive,
         MAIN_SECTIONS,
         onUndoState,
@@ -1336,7 +1348,8 @@ export function RawMaterialsWorkspace({
 
     const selectedTab = tabs.find((tab) => tab.id === selectedTabId) ?? tabs[0] ?? null;
 
-    const collabEnabled = selectedTab !== null;
+    const collabEnabled =
+        selectedTab !== null && collaborationAvailableFor(selectedTab.section, isAdmin);
     const visibleAssetNames = useMemo(
         () => (meta?.assets ?? []).map((asset) => asset.name),
         [meta],
@@ -1801,7 +1814,7 @@ function ActionBar({
             onExport,
         }),
         ...buildDeleteAction({
-            show: !MAIN_SECTIONS.has(section),
+            show: sectionPolicy(section).rowOps !== "none",
             label: "Удалить запись",
             disabled: !canDelete || isFullscreenPending,
             blockedReason: deleteBlockedReason,

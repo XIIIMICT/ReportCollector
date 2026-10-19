@@ -7,6 +7,7 @@ import {
     readOnlyPolicy,
     sectionPolicy,
     undoAvailableFor,
+    collaborationAvailableFor,
 } from "@/shared/grid/section-policy";
 
 describe("section policy", () => {
@@ -25,6 +26,7 @@ describe("section policy", () => {
             "kppkPositions",
             "kppkRaws",
             "kppkOrgs",
+            "kppkUsers",
         ] as const) {
             expect(ids).toContain(section);
         }
@@ -57,5 +59,15 @@ describe("section policy", () => {
         expect(archive.collab).toBe("none");
         expect(archive.undo).toBe("none");
         expect(archive.export).toBe("member");
+    });
+
+    test("users require admin for room, history and export; realization has no row operations", () => {
+        expect(collaborationAvailableFor("kppkUsers", false)).toBe(false);
+        expect(collaborationAvailableFor("kppkUsers", true)).toBe(true);
+        expect(undoAvailableFor("kppkUsers", false)).toBe(false);
+        expect(exportAvailableFor("kppkUsers", false)).toBe(false);
+        expect(sectionPolicy("kppkUsers").rowOps).toBe("dialog");
+        expect(sectionPolicy("kppkRealizationPlan").rowOps).toBe("none");
+        expect(sectionPolicy("kppkRealizationFact").rowOps).toBe("none");
     });
 });

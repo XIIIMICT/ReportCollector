@@ -19,7 +19,7 @@ import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
  *
  * Inline (the trigger) it reads top-to-bottom «На форме» → «Выделено» with the
  * status badge centered between them; the hover tooltip spells out the
- * selection breakdown first, then the member presence list. Presence is
+ * member presence list first, then the selection/statistics breakdown. Presence is
  * optional — pass `room={null}` and only the selection summary renders.
  */
 export function FormStatus({
@@ -47,7 +47,8 @@ export function FormStatus({
     const others = members
         .filter((member) => member.userId !== selfId)
         .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email, "ru"));
-    const me = members.find((member) => member.userId === selfId) ?? null;
+    const me: CollabMember | null =
+        members.find((member) => member.userId === selfId) ?? room?.me ?? null;
     const hasOthers = others.length > 0;
     const presenceText = hasPresence
         ? membershipSummary(members, selfId)
@@ -106,7 +107,7 @@ export function FormStatus({
                     {hasPresence ? (
                         <div className="form-status-detail__presence">
                             <div className="form-status-detail__presence-summary">
-                                {hasOthers ? (
+                                {hasOthers || me ? (
                                     <b>На форме:</b>
                                 ) : (
                                     <>
@@ -114,7 +115,7 @@ export function FormStatus({
                                     </>
                                 )}
                             </div>
-                            {hasOthers ? (
+                            {hasOthers || me ? (
                                 <ul className="form-status-detail__presence-list">
                                     {others.map((member) => (
                                         <PresenceRow member={member} key={member.userId} />

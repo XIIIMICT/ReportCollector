@@ -3,6 +3,7 @@
 import {
     AlertDialog,
     Button,
+    ButtonGroup,
     InputGroup,
     Label,
     Modal,
@@ -186,22 +187,25 @@ export function ProfileModal({ isOpen, user, onOpenChange, onProfileSaved }: Pro
                             ) : null}
                         </Modal.Body>
                         <Modal.Footer>
-                            <Button
-                                variant="danger"
-                                onPress={() => setConfirmation("logout")}
-                                isDisabled={isPending}
-                            >
-                                <LogOut />
-                                Выйти
-                            </Button>
-                            <Button
-                                variant="primary"
-                                onPress={requestSave}
-                                isDisabled={!hasChanges || isPending}
-                            >
-                                {isPending ? <Spinner color="current" size="sm" /> : <Check />}
-                                Сохранить
-                            </Button>
+                            <ButtonGroup>
+                                <Button
+                                    variant="danger"
+                                    onPress={() => setConfirmation("logout")}
+                                    isDisabled={isPending}
+                                >
+                                    <LogOut />
+                                    Выйти
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    onPress={requestSave}
+                                    isDisabled={!hasChanges || isPending}
+                                >
+                                    <ButtonGroup.Separator />
+                                    {isPending ? <Spinner color="current" size="sm" /> : <Check />}
+                                    Сохранить
+                                </Button>
+                            </ButtonGroup>
                         </Modal.Footer>
                     </Modal.Dialog>
                 </Modal.Container>

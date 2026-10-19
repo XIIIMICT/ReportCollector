@@ -45,6 +45,7 @@ import {
 import { extractEdits, parseNumericText } from "./grid-edit";
 import { MultiAssetEditor, ReferenceEditor, SelectEditor } from "./grid-editors";
 import { parsePastedText, serializeCellValue } from "./index";
+import { isChunkedSection } from "./section-policy";
 import { describeSelection } from "./selection-label";
 
 /** The pinned summary row's id (revo-grid `pinnedTopSource`) — never a real record. */
@@ -788,11 +789,12 @@ function RawMaterialsGridInner(
     function canEditDescriptor(descriptor: ColumnDescriptor, row: GridRow): boolean {
         return !(
             readOnly ||
+            row.readOnlyRow === true ||
             row.isDeleted ||
             descriptor.fixed ||
             descriptor.kind === "calculated" ||
             (keycloakEnabled &&
-                section === "users" &&
+                (section === "users" || section === "kppkUsers") &&
                 !row.isPlaceholder &&
                 (descriptor.key === "email" || descriptor.key === "fullname"))
         );
@@ -1661,7 +1663,7 @@ function RawMaterialsGridInner(
                 // stopImmediatePropagation — reliably silences other
                 // document listeners (incl. revo-grid itself), in any order.
                 event.stopImmediatePropagation();
-                void selectAllCells();
+                if (!isChunkedSection(section)) void selectAllCells();
             } else if (event.code === "KeyC") {
                 void copySelection();
             } else {
@@ -1671,7 +1673,7 @@ function RawMaterialsGridInner(
         // capture: intercept Ctrl+A before revo-grid.
         document.addEventListener("keydown", handleKeyDown, true);
         return () => document.removeEventListener("keydown", handleKeyDown, true);
-    }, [clearGridSelection, copySelection, cutSelection, selectAllCells]);
+    }, [clearGridSelection, copySelection, cutSelection, selectAllCells, section]);
 
     useEffect(() => {
         const frame = requestAnimationFrame(() => {

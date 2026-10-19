@@ -8,12 +8,11 @@
  *
  * This module is the front side of the single source of truth. The backend
  * mirrors it in `back/src/common/section_policy.py`; the two must stay in sync
- * and `back/tests/test_section_policy.py` + the front unit test compare the
- * section ids both declare.
+ * and `back/tests/test_section_policy.py` checks the frontend/backend parity.
  *
- * The rules (agreed with the product owner, see `docs/UNIFICATION_PLAN.md`):
+ * The rules (see `docs/COLLAB.md` and `docs/GRID.md`):
  *   - collaboration is on for every editable form and off for the non-editable
- *     ones (fixed month, archive, submitted/approved plan);
+ *     ones (fixed month and immutable archive; pending-plan rules stay local);
  *   - clipboard, undo/redo and export work the same in every project;
  *   - Ctrl+A is disabled on chunked (large) tables;
  *   - the pin/service-columns controls are common to every project.
@@ -113,6 +112,7 @@ const SECTION_POLICIES: Record<PolicySectionId, SectionPolicy> = {
     kppkPositions: DICTIONARY,
     kppkRaws: DICTIONARY,
     kppkOrgs: DICTIONARY,
+    kppkUsers: { ...DICTIONARY, rowOps: "dialog", export: "admin" },
     // «Реализация» (Таблицы.xlsx): the rows come from the source copies —
     // no placeholders; the editing stays admin-only like every «КППК» surface.
     kppkRealizationPlan: { ...DICTIONARY, rowOps: "none" },
@@ -137,6 +137,12 @@ export function isChunkedSection(section: PolicySectionId): boolean {
 /** Whether the section takes part in real-time collaboration at all. */
 export function isCollabSection(section: PolicySectionId): boolean {
     return sectionPolicy(section).collab !== "none";
+}
+
+/** Lifecycle/read-only and column permissions remain additional guards. */
+export function collaborationAvailableFor(section: PolicySectionId, isAdmin: boolean): boolean {
+    const mode = sectionPolicy(section).collab;
+    return mode === "full" || (mode === "admin" && isAdmin);
 }
 
 /** Whether undo/redo is offered to the current user on an editable section. */

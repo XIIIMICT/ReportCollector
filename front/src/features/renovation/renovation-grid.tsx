@@ -16,8 +16,6 @@ import {
     type VNode,
 } from "@revolist/react-datagrid";
 import { InfinityScrollPlugin } from "@revolist/rv-pro-trial";
-
-import "@revolist/rv-pro-trial/styles.css";
 import {
     forwardRef,
     Fragment,
@@ -31,6 +29,7 @@ import {
     type Ref,
 } from "react";
 
+import "@revolist/rv-pro-trial/styles.css";
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import type {
     RenovationCatalog,
@@ -42,6 +41,7 @@ import { SERVICE_DESCRIPTORS } from "@/shared/grid/grid-config";
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/raw-materials-grid";
+import { isChunkedSection } from "@/shared/grid/section-policy";
 import { isFromTextEditor } from "@/shared/keyboard";
 
 /**
@@ -2278,7 +2278,7 @@ function RenovationGridInner(
             const grid = gridRef.current;
             if (!grid) return;
             if (isFromTextEditor(event)) return;
-            if (event.code === "KeyA") {
+            if (event.code === "KeyA" && isChunkedSection("renovationPlan")) {
                 // Select-all is disabled on the plan: the full form holds
                 // ~94k rows and a whole-form copy would overflow the
                 // clipboard. Swallow the event so revo-grid's built-in

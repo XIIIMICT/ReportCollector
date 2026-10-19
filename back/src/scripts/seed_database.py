@@ -51,6 +51,7 @@ from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUse
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
 from src.renovation.reference_data import REFERENCE_OPTIONS
 from src.renovation.service import recompute_plan_rows
+from src.scripts.seed_kppk import seed_administrators
 
 # ─── Seed data (first version) ───────────────────────────────────────────
 
@@ -1298,6 +1299,9 @@ async def seed(session: AsyncSession) -> None:
     # renovation seed already uses, so the admin's cross-project links are never
     # hand-written in two places. (Idempotent when the renovation seed ran first.)
     await sync_project_memberships(session, user.id, activate_admin=True)
+
+    # Share the administrator seed with the standalone KPPK seeder.
+    await seed_administrators(session)
 
     # Extra users: a second admin and asset workers.
     for extra in SEED_EXTRA_USERS:

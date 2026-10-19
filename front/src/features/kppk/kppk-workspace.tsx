@@ -3,6 +3,7 @@
 import { toast, Typography } from "@heroui/react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { z } from "zod";
 
 import {
     KPPK_REALIZATION_SLICES,
@@ -18,6 +19,11 @@ import {
     createOrg,
     createProductPosition,
     createRaw,
+    createKppkUser,
+    deleteKppkUser,
+    getKppkUsers,
+    updateKppkUserCell,
+    type KppkUserRow,
     deleteOrg,
     deleteProductPosition,
     deleteRaw,
@@ -51,6 +57,12 @@ import {
     type GridViewStats,
     type RawMaterialsGridHandle,
 } from "@/shared/grid/raw-materials-grid";
+import {
+    collaborationAvailableFor,
+    undoAvailableFor,
+    exportAvailableFor,
+    sectionPolicy,
+} from "@/shared/grid/section-policy";
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
@@ -60,8 +72,14 @@ import {
     buildDeleteAction,
     buildExportAction,
     buildHistoryActions,
+    buildAddRowAction,
     DeleteRecordDialog,
 } from "@/shared/ui/action-items";
+import {
+    AddRecordModal,
+    type AddRecordField,
+    type AddRecordValues,
+} from "@/shared/ui/add-record-modal";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
@@ -120,9 +138,11 @@ const KPPK_TABS: readonly KppkTab[] = [
         section: "kppkPositions",
         label: "Продуктовые позиции",
         reportMonth: null,
+        separatorBefore: true,
     },
     { id: "kppkRaws", section: "kppkRaws", label: "Сырьевые позиции", reportMonth: null },
     { id: "kppkOrgs", section: "kppkOrgs", label: "ДЗО", reportMonth: null },
+    { id: "kppkUsers", section: "kppkUsers", label: "Пользователи", reportMonth: null },
 ];
 
 /** The «Реализация» slice filter's options (the workspace toolbar's select). */
@@ -163,7 +183,19 @@ const EMPTY_UNDO_ACTIONS: KppkUndoActions = {
 };
 const EMPTY_EXPORT_STATE: ExportState = { pending: false, onExport: async () => {} };
 
-type KppkRow = KppkProductPositionRow | KppkRawRow | KppkOrgRow;
+type KppkRow = KppkProductPositionRow | KppkRawRow | KppkOrgRow | KppkUserRow;
+
+const USER_FIELDS: AddRecordField[] = [
+    { key: "email", label: "Email", kind: "text" },
+    { key: "fullname", label: "ФИО", kind: "text" },
+    {
+        key: "role",
+        label: "Роль",
+        kind: "select",
+        options: [{ id: "admin", name: "Администратор" }],
+    },
+];
+const USER_DEFAULTS: AddRecordValues = { email: "", fullname: "", role: "admin" };
 
 type KppkDraft = Record<string, unknown>;
 
@@ -196,6 +228,7 @@ const KPPK_EDITABLE_FIELDS: Record<KppkSectionId, readonly string[]> = {
     kppkPositions: ["productNum", "name", "orgNames"],
     kppkRaws: ["rawNum", "name"],
     kppkOrgs: ["code", "name"],
+    kppkUsers: ["email", "fullname", "isAdmin", "isActive"],
 };
 
 /** The empty draft behind the trailing placeholder row of each dictionary. */
@@ -207,6 +240,8 @@ function initialDraft(section: KppkSectionId): KppkDraft {
             return { rawNum: null, name: "" };
         case "kppkOrgs":
             return { code: "", name: "" };
+        case "kppkUsers":
+            return {};
     }
 }
 
@@ -262,6 +297,8 @@ function placeholderCreate(
             if (!code || !name) return null;
             return () => createOrg({ code, name });
         }
+        case "kppkUsers":
+            return null;
     }
 }
 
@@ -280,6 +317,9 @@ async function updateCells(section: KppkSectionId, updates: CellUpdate[]): Promi
             case "kppkOrgs":
                 await updateOrgCell(update.rowId, update.field, update.value);
                 break;
+            case "kppkUsers":
+                await updateKppkUserCell(update.rowId, update.field, update.value);
+                break;
         }
     }
 }
@@ -294,6 +334,9 @@ async function deleteRecord(section: KppkSectionId, id: string): Promise<void> {
             break;
         case "kppkOrgs":
             await deleteOrg(id);
+            break;
+        case "kppkUsers":
+            await deleteKppkUser(id);
             break;
     }
 }
@@ -313,6 +356,8 @@ function KppkSection({
     onResetState,
     onUndoStateChange,
     onExportState,
+    onUserCreateState,
+    currentUserEmail,
 }: {
     section: KppkSectionId;
     isAdmin: boolean;
@@ -337,6 +382,8 @@ function KppkSection({
     onUndoStateChange: (state: KppkUndoActions) => void;
     /** Registers the Excel export action of this tab in the footer bar. */
     onExportState: (state: ExportState) => void;
+    currentUserEmail: string | undefined;
+    onUserCreateState: (state: { canCreate: boolean; onCreate: () => void }) => void;
 }) {
     const loader = useMemo<() => Promise<KppkRow[]>>(() => {
         switch (section) {
@@ -346,6 +393,8 @@ function KppkSection({
                 return getRawRows;
             case "kppkOrgs":
                 return getOrgRows;
+            case "kppkUsers":
+                return getKppkUsers;
         }
     }, [section]);
     const [reloadKey, setReloadKey] = useState(0);
@@ -359,7 +408,7 @@ function KppkSection({
         projectKey: KPPK_PROJECT_KEY,
         section,
         reportMonth: null,
-        enabled: isAdmin,
+        enabled: collaborationAvailableFor(section, isAdmin),
         onCellChanged: (event) => selfCellHandlerRef.current(event),
         onRowsChanged: () => refresh(),
         onReconnect: () => {
@@ -372,12 +421,28 @@ function KppkSection({
     const meId = room.me?.userId ?? null;
     selfCellHandlerRef.current = (event) => {
         if (event.user.userId === meId) return;
-        const key = `${section}/${event.rowId}/${event.field}`;
+        const key = `${section === "kppkUsers" ? "app_users" : section}/${event.rowId}/${event.field}`;
         setRemoteCellValues((current) => new Map(current).set(key, event.value));
     };
     const { remoteLocks, remotePresence, remoteCellInfo } = useRemoteCellMaps(room);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [userCreateOpen, setUserCreateOpen] = useState(false);
+    const { data: authConfig } = useAsyncData<{ keycloakEnabled: boolean } | null>(
+        () =>
+            fetch("/api/auth/config")
+                .then((response) => (response.ok ? response.json() : null))
+                .catch(() => null),
+        [],
+    );
+    const keycloakEnabled = authConfig?.keycloakEnabled === true;
+    const openUserCreate = useCallback(() => setUserCreateOpen(true), []);
+    useEffect(() => {
+        onUserCreateState({
+            canCreate: isAdmin && section === "kppkUsers",
+            onCreate: openUserCreate,
+        });
+    }, [isAdmin, section, openUserCreate, onUserCreateState]);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const [placeholderDraft, setPlaceholderDraft] = useState<KppkDraft>(() =>
         initialDraft(section),
@@ -465,7 +530,7 @@ function KppkSection({
     // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z): event.code — the physical key, works in
     // the Russian layout. Non-admins have nothing to undo — no listener.
     useUndoRedoShortcuts({
-        enabled: isAdmin,
+        enabled: undoAvailableFor(section, isAdmin),
         onUndo: () => void runUndo(),
         onRedo: () => void runRedo(),
     });
@@ -508,7 +573,13 @@ function KppkSection({
         () => (rows ?? []).filter((row) => selectedRowIds.includes(row.id)),
         [rows, selectedRowIds],
     );
-    const canDelete = isAdmin && selectedRows.length > 0;
+    const canDelete =
+        isAdmin &&
+        selectedRows.length > 0 &&
+        (section !== "kppkUsers" ||
+            selectedRows.every(
+                (row) => "isActive" in row && !row.isActive && row.email !== currentUserEmail,
+            ));
 
     // Ctrl+Delete — the shortcut advertised on the action-bar delete button:
     // opens the same confirmation dialog as the button press.
@@ -543,20 +614,26 @@ function KppkSection({
         const fields = KPPK_EDITABLE_FIELDS[section];
         const base = (rows ?? []).map((row) => {
             const gridRow = toGridRow(row);
+            gridRow.readOnlyRow =
+                section === "kppkUsers" &&
+                "email" in row &&
+                row.email.toLowerCase() === currentUserEmail?.toLowerCase();
             if (!isAdmin) return gridRow;
             // Cell keys make the row reachable by the room's leases/presence;
             // the remote values applied here come from another admin's PATCH.
             gridRow.canonicalCells = {};
             for (const field of fields) {
-                const key = `${section}/${row.id}/${field}`;
+                const key = `${section === "kppkUsers" ? "app_users" : section}/${row.id}/${field}`;
                 gridRow.canonicalCells[field] = key;
                 const remote = remoteCellValues.get(key);
                 if (remote !== undefined) gridRow[field] = remote;
             }
             return gridRow;
         });
-        return isAdmin ? [...base, placeholderRow(section, placeholderDraft)] : base;
-    }, [isAdmin, placeholderDraft, remoteCellValues, rows, section]);
+        return isAdmin && section !== "kppkUsers"
+            ? [...base, placeholderRow(section, placeholderDraft)]
+            : base;
+    }, [currentUserEmail, isAdmin, placeholderDraft, remoteCellValues, rows, section]);
 
     const readOnly = isMutationPending || !isAdmin;
 
@@ -641,6 +718,7 @@ function KppkSection({
                         section={section}
                         rows={gridRows}
                         isAdmin={isAdmin}
+                        keycloakEnabled={keycloakEnabled}
                         showAssetColumn={false}
                         readOnly={readOnly}
                         hasBaseline={false}
@@ -678,6 +756,41 @@ function KppkSection({
                 onOpenChange={setDeleteOpen}
                 onConfirm={() => void deleteRecords()}
             />
+            {section === "kppkUsers" && (
+                <AddRecordModal
+                    isOpen={userCreateOpen}
+                    onOpenChange={setUserCreateOpen}
+                    title="Добавить пользователя"
+                    description="Роль — администратор. Связка с ДЗО пока не задаётся."
+                    fields={USER_FIELDS}
+                    defaults={USER_DEFAULTS}
+                    isPending={isMutationPending}
+                    validate={(values) =>
+                        !z.email().safeParse(draftText(values.email)).success
+                            ? "Введите корректный email."
+                            : !draftText(values.fullname)
+                              ? "Введите ФИО."
+                              : null
+                    }
+                    onSubmit={async (values) => {
+                        setIsMutationPending(true);
+                        try {
+                            await track(
+                                createKppkUser({
+                                    email: draftText(values.email).toLowerCase(),
+                                    fullname: draftText(values.fullname),
+                                    isAdmin: true,
+                                }),
+                            );
+                            setUserCreateOpen(false);
+                            refresh();
+                            refreshUndoState();
+                        } finally {
+                            setIsMutationPending(false);
+                        }
+                    }}
+                />
+            )}
         </>
     );
 }
@@ -714,6 +827,10 @@ export function KppkWorkspace({
     onSectionChange?: (section: string | null) => void;
 }) {
     const [user, setUser] = useState(currentUser);
+    const [userCreateState, setUserCreateState] = useState({
+        canCreate: false,
+        onCreate: () => {},
+    });
     const [profileOpen, setProfileOpen] = useState(false);
     const [selectedTabId, setSelectedTabId] = useState<string | null>(initialSection);
     const [internalProjectKey, setInternalProjectKey] = useState<string>(
@@ -772,6 +889,14 @@ export function KppkWorkspace({
     const activeProjectKey = controlledProjectKey ?? internalProjectKey;
     const { headerPinned, showServiceColumns, setHeaderPinned, setShowServiceColumns } =
         useViewState(activeProjectKey);
+    const projects = user.access ?? [];
+    const activeProject = projects.find((project) => project.key === activeProjectKey);
+    const isAdmin = isProjectAdmin(activeProject);
+    const isKppk = activeProjectKey === KPPK_PROJECT_KEY;
+    const visibleTabs = useMemo(
+        () => KPPK_TABS.filter((tab) => tab.id !== "kppkUsers" || isAdmin),
+        [isAdmin],
+    );
 
     const handleProjectChange = useCallback(
         (key: string) => {
@@ -810,34 +935,29 @@ export function KppkWorkspace({
     useEffect(() => {
         // No selection yet, or a stale `?section=` that has no tab — fall back
         // to the first dictionary.
-        const firstTab = KPPK_TABS[0];
+        const firstTab = visibleTabs[0];
         if (
             firstTab &&
-            (selectedTabId === null || !KPPK_TABS.some((tab) => tab.id === selectedTabId))
+            (selectedTabId === null || !visibleTabs.some((tab) => tab.id === selectedTabId))
         ) {
             setSelectedTabId(firstTab.id);
             onSectionChange?.(firstTab.id);
         }
-    }, [selectedTabId, onSectionChange]);
+    }, [selectedTabId, onSectionChange, visibleTabs]);
 
     // Browser back/forward changes `?section=` without remounting this
     // component, so follow the prop.
     useEffect(() => {
-        if (initialSection && KPPK_TABS.some((tab) => tab.id === initialSection)) {
+        if (initialSection && visibleTabs.some((tab) => tab.id === initialSection)) {
             setSelectedTabId(initialSection);
         }
-    }, [initialSection]);
+    }, [initialSection, visibleTabs]);
 
     // A new tab is a new selection context — a label from the previous grid
     // must not linger in the footer.
     useEffect(() => {
         setSelectionLabel(null);
     }, [selectedTabId]);
-
-    const projects = user.access ?? [];
-    const activeProject = projects.find((project) => project.key === activeProjectKey);
-    const isAdmin = isProjectAdmin(activeProject);
-    const isKppk = activeProjectKey === KPPK_PROJECT_KEY;
 
     // The ДЗО list feeds the «Продуктовые позиции» multi-column. It is
     // re-fetched on every tab switch so a just-created ДЗО appears in the
@@ -880,7 +1000,8 @@ export function KppkWorkspace({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const selectedTab = KPPK_TABS.find((tab) => tab.id === selectedTabId) ?? KPPK_TABS[0] ?? null;
+    const selectedTab =
+        visibleTabs.find((tab) => tab.id === selectedTabId) ?? visibleTabs[0] ?? null;
 
     const header = (
         <AppHeader
@@ -901,14 +1022,16 @@ export function KppkWorkspace({
             onPaste: clipboardState.onPaste,
         }),
         ...buildHistoryActions({
-            show: isAdmin,
+            show: selectedTab !== null && undoAvailableFor(selectedTab.section, isAdmin),
             offline: false,
             canUndo: undoActions.canUndo,
             canRedo: undoActions.canRedo,
             onUndo: undoActions.onUndo,
             onRedo: undoActions.onRedo,
         }),
-        ...(selectedTab?.id === "kppkRealization"
+        ...(selectedTab?.id === "kppkRealization" ||
+        !selectedTab ||
+        !exportAvailableFor(selectedTab.section, isAdmin)
             ? []
             : [
                   buildExportAction({
@@ -918,12 +1041,21 @@ export function KppkWorkspace({
                   }),
               ]),
         ...buildDeleteAction({
-            show: isAdmin && selectedTab?.id !== "kppkRealization",
+            show:
+                isAdmin &&
+                selectedTab !== null &&
+                sectionPolicy(selectedTab.section).rowOps !== "none",
             label: "Удалить запись",
             disabled: !deleteState.canDelete || isFullscreenPending,
             blockedReason: deleteState.canDelete ? null : NO_ROW_SELECTED_REASON,
             onDelete: deleteState.onDelete,
             shortcut: { key: "Del", aria: "Control+Delete" },
+        }),
+        ...buildAddRowAction({
+            show: isAdmin && selectedTab?.id === "kppkUsers" && userCreateState.canCreate,
+            label: "Добавить пользователя",
+            disabled: isFullscreenPending,
+            onAdd: userCreateState.onCreate,
         }),
     ];
 
@@ -1023,7 +1155,7 @@ export function KppkWorkspace({
             <div className="table-toolbar__row">
                 <div className="table-toolbar__controls">
                     <SectionTabs
-                        tabs={KPPK_TABS}
+                        tabs={visibleTabs}
                         value={selectedTab?.id ?? ""}
                         onChange={(tab) => {
                             setSelectedTabId(tab.id);
@@ -1135,6 +1267,8 @@ export function KppkWorkspace({
                             onResetState={setGridResetState}
                             onUndoStateChange={handleUndoActions}
                             onExportState={handleExportState}
+                            currentUserEmail={user.email}
+                            onUserCreateState={setUserCreateState}
                         />
                     )
                 ) : null}

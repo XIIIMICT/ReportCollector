@@ -3,6 +3,19 @@
 
 # Renovation Project Migration Context
 
+Status: **historical domain/migration record** (reviewed 2026-10-19), not the
+current implementation specification. The port is implemented; the active
+contracts live in `docs/ARCHITECTURE.md`, `docs/COLLAB.md`, `docs/GRID.md` and
+`docs/WORKFLOW.md`. This file is retained because it records legacy behavior,
+source-data questions and decisions that are not safe to silently discard.
+
+Later product decisions supersede several passages below: the current plan
+uses the consolidated migration chain; `col_218` has been removed; submitted
+and archived plans are read-only with collaboration disabled; durable history
+uses the shared PostgreSQL journal and its current retention limit; import is
+an operator/seed workflow rather than the staged user-facing upload described
+here. Do not implement an old passage without checking the active docs/code.
+
 ## Purpose
 
 This document is a handoff for an agent adding the renovation/object-plan project to the consolidated ReportCollector web application. It records the reusable domain behavior, spreadsheet contract, workflow, permissions, and grid lessons from the legacy `ReportCollector-Renovation` application.

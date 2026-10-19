@@ -43,6 +43,32 @@ Both grids use `parsePastedText` for trailing Excel buffer cleanup. Shared
 event-only history/export flows live in `history-action.ts` and
 `table-export-action.ts`; they do not own form/session scope or parent effects.
 
+Shared UI boundaries: `workspace-layout.tsx` owns layout only (card/body and
+fullscreen reveal panels); `workspace-feedback.tsx` and `grid-loading-skeleton.tsx`
+own common error/initial-loading views. Keep lifecycle, permissions, virtualized
+grid geometry and pending-write serialization project-local. Preserve callback
+identities feeding grid effects/columns; tests must cover rerenders and tab
+switches, not only equal boolean values.
+
+KPPK «Пользователи» is admin-only. It uses the shared grid and add-record modal:
+email/FIO, administrator role, empty read-only ДЗО association, project access,
+last sign-in and audit columns. Keycloak owns identity/password fields in SSO
+mode. Creation provisions inactive memberships in other projects, without
+touching their roles/assets. Self-deletion and deletion before access revocation
+are refused. Changes and lifecycle undo are scoped to `kppkUsers`.
+
+In all three users dictionaries the signed-in person's own row is view-only
+(`GridRow.readOnlyRow`): text editors, checkbox changes and paste are disabled;
+the HTTP endpoints, lease authorization and journal replay refuse self-edits
+too. This does not disable the separate profile form. KPPK's tab strip places
+the shared `Tabs.Separator` between «Реализация» and its dictionaries.
+
+The form-status tooltip renders participants as an unordered list (including
+the current user even when alone), with the current user last. The standalone
+«Выделено» block has the same blank-line spacing after presence as before the
+row/column statistics group; a participant's remote selection stays beneath
+their name inside the same list item.
+
 `raw-materials-grid.tsx`, "clipboard" section (functions `copySelection`, `pasteIntoSelection`, `cutSelection`, `buildCopyText`).
 
 - **Copy (Ctrl+C)** — by value: numbers as-is (`,` for decimals), multi-dictionaries — joined with `,`; the copy goes to the system clipboard (`navigator.clipboard`).

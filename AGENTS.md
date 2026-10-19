@@ -6,7 +6,15 @@ Cheat sheet for agents. Entry point: read only the section you need; details —
 
 Corporate raw-material planning system («Сырьё»): Excel-like **«Движение»** and **«Цены»** forms + dictionaries (Сырьевые позиции, Активы, Базисы поставки, Пользователи), real-time collaborative editing (cell leases, presence), report-month fixing with a version archive and Excel export.
 
-The «КППК» project (`/kppk`) is a separate phase: the seeder copies the source `raw.kppk_*` tables (dumps in `docs/kppk/`) into the program schema; the workspace (`front/src/features/kppk/`) exposes three admin-edited dictionaries — «Продуктовые позиции» (product × ДЗО from «Матрица продуктов.xlsx»; a matrix product missing in the source dictionary is added without a number under an «@»-prefixed name; the «№» is editable and unique), «Сырьевые позиции» (same editable unique «№») and «ДЗО» (ordered by the full name; no number, no time zone). The «Периоды» copy is backend-only for now — no UI tab. No WS collaboration (no room/leases/presence), but undo/redo run through the shared server-side journal (page-lifetime `session_id`, history scoped per tab) and the action bar exports the grid to Excel; the `kppk_realization*` copies are read-only groundwork for the later «Таблицы.xlsx» phase.
+The «КППК» project (`/kppk`) copies `raw.kppk_*` seed inputs from `docs/kppk/`.
+Its workspace exposes product positions, raw positions, ДЗО, realization slices
+and an admin-only users dictionary. Product/raw numbers are editable and unique;
+missing matrix products use an unnumbered `@`-prefixed name. Periods remain
+backend-only. Editable tabs use shared collaboration, leases and session-scoped
+undo/redo. Realization rows are dictionary-derived (no row deletion). KPPK users
+currently have only the administrator assignment; their ДЗО column is empty and
+read-only. Other projects' memberships and asset grants must not change when
+editing a KPPK membership.
 
 - `front/` — Next.js 16 (App Router, React 19, revo-grid 4.27, HeroUI, Tailwind 4, Zod 4), package manager **Bun 1.4.x**.
 - `back/` — FastAPI + SQLModel + Alembic (Python 3.14, **uv**), asyncpg, Redis/Valkey for collaboration.
@@ -67,7 +75,6 @@ The «КППК» project (`/kppk`) is a separate phase: the seeder copies the so
 - `docs/COLLAB.md` — WebSocket protocol, leases, presence, undo/redo, locks.
 - `docs/GRID.md` — revo-grid: forms and columns, clipboard, selection, coordinates, tooltips.
 - `docs/WORKFLOW.md` — environment, quality, languages standard, pre-commit (prek), branching/commits, working principles.
-- `docs/FRONTEND_DEDUP.md` — the front-end duplication audit: what was already extracted into `front/src/shared/`, what remains (with measured payoff and risk), and the rules that keep the big workspace files from drifting apart again.
 - `docs/KEYCLOAK.md` — corporate Keycloak: OIDC flow, prod config, claims→user, provisioning, local stand, diagnostics. Prod artifacts — `docs/keycloak/` (OIDC discovery, access token example).
 
 **When behavior changes — update the corresponding file in `docs/`.** That's a requirement, not a wish: the docs are the only source of context for future agents.

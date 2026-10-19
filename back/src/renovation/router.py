@@ -1037,6 +1037,10 @@ async def patch_renovation_user(
     session_id: str,
 ) -> RenovationUserRowRead:
     """Renovation project user edit (project admin only)."""
+    if user_id == access.user.id:
+        raise HTTPException(
+            status_code=409, detail="Нельзя редактировать собственную запись в справочнике пользователей."
+        )
     project_id = await _renovation_project_id_or_error(session)
     try:
         # `block` is only sent when the client explicitly sets it (null = clear);
@@ -1176,6 +1180,10 @@ async def patch_renovation_dictionary_batch(
                     user=access.user,
                 )
             elif request.section == "users":
+                if row_id == access.user.id:
+                    raise HTTPException(
+                        status_code=409, detail="Нельзя редактировать собственную запись в справочнике пользователей."
+                    )
                 user_update = RenovationUserUpdateRequest.model_validate(fields)
                 # `block` is only applied when the client sent it (null = clear).
                 block_kwargs: dict[str, RBlock | None] = {}

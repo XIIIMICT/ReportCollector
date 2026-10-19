@@ -26,6 +26,7 @@ import {
     type GridViewStats,
     type RawMaterialsGridHandle,
 } from "@/shared/grid/raw-materials-grid";
+import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
@@ -209,7 +210,7 @@ export function KppkRealizationSection({
         projectKey: KPPK_PROJECT_KEY,
         section: roomSection,
         reportMonth: null,
-        enabled: isAdmin && orgId !== null,
+        enabled: collaborationAvailableFor(roomSection, isAdmin) && orgId !== null,
         onCellChanged: (event) => selfCellHandlerRef.current(event),
         onRowsChanged: () => refresh(),
         onReconnect: () => {
@@ -283,7 +284,7 @@ export function KppkRealizationSection({
     }, [applyUndoResult, pendingSkip, roomSection]);
 
     useUndoRedoShortcuts({
-        enabled: isAdmin,
+        enabled: undoAvailableFor(roomSection, isAdmin),
         onUndo: () => void runUndo(),
         onRedo: () => void runRedo(),
     });

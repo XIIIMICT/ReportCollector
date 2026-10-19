@@ -13,7 +13,46 @@ import type { ExportColumn } from "@/shared/grid/grid-config";
  * carries the page-lifetime session id, and the history is scoped per tab.
  */
 
-export type KppkSectionId = "kppkPositions" | "kppkRaws" | "kppkOrgs";
+export type KppkSectionId = "kppkPositions" | "kppkRaws" | "kppkOrgs" | "kppkUsers";
+
+export type KppkUserRow = {
+    id: string;
+    email: string;
+    fullname: string;
+    isAdmin: boolean;
+    isActive: boolean;
+    orgNames: string[];
+    lastAuthenticatedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+    updatedBy: string;
+};
+
+export async function getKppkUsers(): Promise<KppkUserRow[]> {
+    return requestJson("/api/kppk/users");
+}
+
+export async function createKppkUser(payload: {
+    email: string;
+    fullname: string;
+    isAdmin: boolean;
+}): Promise<KppkUserRow> {
+    return requestWrite(`/api/kppk/users?session_id=${getCollabSessionId()}`, "POST", payload);
+}
+
+export async function updateKppkUserCell(
+    id: string,
+    field: string,
+    value: unknown,
+): Promise<KppkUserRow> {
+    return requestWrite(`/api/kppk/users/${id}?session_id=${getCollabSessionId()}`, "PATCH", {
+        [field]: value,
+    });
+}
+
+export async function deleteKppkUser(id: string): Promise<void> {
+    await requestWrite(`/api/kppk/users/${id}?session_id=${getCollabSessionId()}`, "DELETE");
+}
 
 /**
  * The journal/room section of a «Реализация» slice: Бизнес-план and Оперплан
