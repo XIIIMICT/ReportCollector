@@ -973,10 +973,6 @@ export function KppkWorkspace({
                     selectedKey={realizationOrgId}
                     isDisabled={!isRealizationTab || orgOptions.length === 0}
                     onOpenChange={setToolbarControlOpen}
-                    // A ДЗО name is user data: the panel fits the longest one
-                    // (SmartSelect's default) but a pathological name may not
-                    // stretch it wider than 30rem.
-                    maxPopoverWidth={30}
                     onSelectionChange={(key) => {
                         if (key === null) return;
                         setRealizationOrgId(String(key));

@@ -41,8 +41,6 @@ type SearchAutocompleteProps = {
     allValue?: string;
     /** The pinned «Пустые» / «Не задан» row. */
     nullOption?: SpecialOption;
-    /** An optional cap on the opened list's width, in `rem` (see `SmartSelect`). */
-    maxPopoverWidth?: number;
 };
 
 /**
@@ -66,7 +64,6 @@ export function SearchAutocomplete({
     allOption,
     allValue,
     nullOption,
-    maxPopoverWidth,
     compactBelow,
 }: SearchAutocompleteProps) {
     // The compact trigger label only applies below lg; SmartSelect handles that
@@ -85,7 +82,6 @@ export function SearchAutocomplete({
             {...(allOption !== undefined && { allOption })}
             {...(allValue !== undefined && { allValue })}
             {...(nullOption !== undefined && { nullOption })}
-            {...(maxPopoverWidth !== undefined && { maxPopoverWidth })}
             {...(compactBelow !== undefined && { compactBelow })}
         />
     );

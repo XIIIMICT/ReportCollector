@@ -10,7 +10,7 @@ import {
     Separator,
     useFilter,
 } from "@heroui/react";
-import type { CSSProperties, Key, ReactNode } from "react";
+import type { Key, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
@@ -124,13 +124,6 @@ export type SmartSelectProps = {
     anchor?: { left: number; top: number; width: number };
     /** Extra class on the popover. */
     popoverClassName?: string;
-    /**
-     * An optional cap on the opened list's width. By default the list is as
-     * wide as its longest option (see `optionsWidth`); a control whose labels
-     * are user data (a ДЗО name, a free-text value) passes a cap in `rem` so a
-     * pathological string can't produce a panel wider than the screen.
-     */
-    maxPopoverWidth?: number;
     /** Open the popover on mount (the column filter's anchor popover). */
     defaultOpen?: boolean;
 };
@@ -167,7 +160,6 @@ export function SmartSelect({
     forceSearchable = false,
     anchor,
     popoverClassName,
-    maxPopoverWidth,
     defaultOpen = false,
 }: SmartSelectProps) {
     const { contains } = useFilter({ sensitivity: "base" });
@@ -365,44 +357,6 @@ export function SmartSelect({
         return renderFullValue();
     };
 
-    /**
-     * The popover is as wide as its LONGEST option, never as the collapsed
-     * trigger: a narrow «Блок» / «Архив» / «Бизнес-план» button would otherwise
-     * wrap every value in the list. Measured with a canvas (the DOM is not
-     * laid out yet when the popover opens); a tiny inline style is needed on
-     * top of that because HeroUI's own `.autocomplete__popover` sets
-     * `w-(--trigger-width)`, which a class rule can't outrank. `maxPopoverWidth`
-     * caps it (the caller knows whether its labels are curated or user data).
-     */
-    const optionsWidth = useMemo(() => {
-        if (typeof document === "undefined") return 0;
-        const context = document.createElement("canvas").getContext("2d");
-        if (!context) return 0;
-        // The list renders at 0.8rem with a 0.25rem start padding + 0.5rem end
-        // padding + the tick column; 2.5rem covers all of it with headroom.
-        const style = getComputedStyle(document.body);
-        context.font = `400 0.8rem ${style.fontFamily || "sans-serif"}`;
-        let widest = 0;
-        for (const option of options) {
-            const text = option.description
-                ? `${option.name} — ${option.description}`
-                : option.name;
-            widest = Math.max(widest, context.measureText(text).width);
-        }
-        // A floor at the 14rem of the toolbar filters: a two-item list of short
-        // labels («Январь»…«Декабрь») should not shrink to a stamp.
-        return Math.max(224, Math.ceil(widest + 40));
-    }, [options]);
-
-    // Both branches share the measured width; only the searchable one carries
-    // the extra search field inset.
-    const popoverStyle = {
-        "--smart-select-width": `${optionsWidth}px`,
-        ...(maxPopoverWidth !== undefined && {
-            "--smart-select-max-width": `${maxPopoverWidth}rem`,
-        }),
-    } as CSSProperties;
-
     const renderFullValue = () => {
         // The pinned rows are values too when selected: a sentinel value
         // («__all» = «Все блоки») matches no option, yet the trigger must show
@@ -487,7 +441,6 @@ export function SmartSelect({
                         className={["smart-select-popover", popoverClassName]
                             .filter(Boolean)
                             .join(" ")}
-                        style={popoverStyle}
                     >
                         {renderListbox ? (
                             <Autocomplete.Filter filter={contains}>
@@ -568,7 +521,6 @@ export function SmartSelect({
                         className={["smart-select-popover", popoverClassName]
                             .filter(Boolean)
                             .join(" ")}
-                        style={popoverStyle}
                     >
                         {renderListbox ? (
                             renderListbox({ searchable: false })

@@ -1568,26 +1568,30 @@ body {
     font: inherit;
 }
 
-/* THE SmartSelect panel width rule, in one place.
-   HeroUI sizes the open list to `--trigger-width` (`.autocomplete__popover` is
-   `w-(--trigger-width)`) — which is why a compact «Блок» / «Архив» /
-   «Бизнес-план» trigger used to squeeze every option (and wrap «Бизнес-план»
-   onto two lines). SmartSelect therefore measures its longest option and
-   publishes it as `--smart-select-width`; this rule wins over HeroUI's width
-   utility by specificity (`.smart-select-popover` ≥ `[data-slot]…` and both are
-   single-class chains, so the compound selector wins), and `!important`-free
-   `max-width: none` lifts Tailwind's `max-w-(--trigger-width)` cap.
-   The optional `--smart-select-max-width` (the `maxPopoverWidth` prop) is the
-   only cap a caller may add — for lists of user data, never for curated ones. */
+/* Override both HeroUI branches: Select has a trigger-based min-width,
+   Autocomplete a trigger-based width/max-width. Size by rendered content only. */
 .smart-select-popover {
-    width: min(var(--smart-select-width, 22rem), 100vw - 2rem);
-    max-width: min(var(--smart-select-max-width, 100vw), 100vw - 2rem);
+    width: max-content;
+    min-width: 0;
+    max-width: calc(100vw - 2rem);
 }
 
 .smart-select-popover .list-box,
 .smart-select-popover .autocomplete__list-box {
-    /* One line per option: the panel is already wide enough. */
+    width: auto;
+    /* Search input's intrinsic width must not set the panel's minimum size. */
     white-space: nowrap;
+}
+
+.smart-select-popover [data-slot="search-field"],
+.smart-select-popover [data-slot="search-field-group"] {
+    min-width: 0;
+}
+
+.smart-select-popover [data-slot="search-field-input"] {
+    width: 0;
+    min-width: 0;
+    flex: 1;
 }
 
 /* Every dropdown option in SmartSelect: the tick indicator sits FIRST, in the
@@ -1620,6 +1624,8 @@ body {
    gap of 8px reads tighter here. */
 .smart-select-popover .list-box-item,
 .column-filter__popover .list-box-item {
+    width: max-content;
+    min-width: 100%;
     gap: 0.5rem;
     /* Pull the left edge in: the row's own `px-2` plus the tick's box made the
        indicator look inset relative to the popover edge. */
