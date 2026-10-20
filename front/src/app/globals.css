@@ -317,13 +317,15 @@ body {
  */
 .support-link {
     display: inline-flex;
-    height: auto;
-    min-width: 0;
+    min-width: 2.65rem;
+    height: 2.25rem;
     align-items: center;
+    justify-content: center;
     gap: 0;
-    padding: 0.5rem;
+    overflow: hidden;
+    padding-inline: 0.7rem;
     border-radius: 999px;
-    color: var(--text-secondary);
+    color: var(--button-fg, currentColor);
     cursor: pointer;
     /* The control is button-shaped, so it never underlines — the Link's own
        hover rule is nested inside `.link` and would otherwise win. */
@@ -331,7 +333,7 @@ body {
     transition:
         gap 180ms cubic-bezier(0.22, 1, 0.36, 1),
         color 140ms ease,
-        background-color 140ms ease;
+        background-color 100ms ease;
 }
 
 .support-link > svg {
@@ -356,8 +358,8 @@ body {
 .support-link:focus-visible,
 .support-link--pinned {
     gap: 0.45rem;
-    background: var(--surface-secondary, var(--default));
-    color: var(--foreground);
+    background: var(--button-bg-hover, var(--button-bg));
+    color: var(--button-fg, currentColor);
 }
 
 .support-link:hover .support-link__label,
