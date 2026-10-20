@@ -117,6 +117,15 @@ their name inside the same list item.
 
 ## Coordinates: sorting and filtering (the most important landmine)
 
+Plan facet responses include `nullCount` on every page. During mixed-version
+deployments, an absent/non-finite count is hidden (not replaced with a fabricated
+zero); later pages cannot turn the displayed count into `NaN`.
+Selection details quote the entire header hierarchy, leaving coordinates outside:
+`«Идентификационный код работы/ремонта» (столбец 2), строка 42`.
+The internally scrolling renovation plan reserves 17px for the external horizontal
+scrollbar in both pinned and unpinned header modes, preventing Chrome from
+covering the final row. Unpinned dictionaries retain their external scroll layout.
+
 Under sorting/filtering the screen row index **doesn't match** the `rows` index (the source array is unsorted). Anything mapping "index → row" must use **`getVisibleRows()`** (`grid.getVisibleSource("rgRow")` — the current sorted/filtered source): paste (building `models`), cut, copy (including the context menu), presence (my selected keys), `canPasteRange`. Otherwise values are committed to the wrong row → fake asset "deletions" → RESTRICT error (symptom: «ошибка удаления актива» when pasting on a sorted sheet).
 
 ## Presence and tooltips («На форме»)

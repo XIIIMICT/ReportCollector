@@ -183,6 +183,27 @@ async def test_read_plan_facets_shared_value(client: AsyncClient) -> None:
     assert body["hasNulls"] is False
 
 
+async def test_read_plan_facets_reports_empty_count_on_every_page(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    first = await _row_by_asset_code(db_session, "bsk")
+    second = await _row_by_asset_code(db_session, "vos")
+    first.col_011 = None
+    second.col_011 = ""
+    await db_session.commit()
+    for offset in (0, 200):
+        response = await client.get(
+            "/api/renovation/plan/facets",
+            headers=ADMIN_HEADERS,
+            params={"column": "col_011", "offset": offset},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["hasNulls"] is True
+        assert body["nullCount"] == 2
+        assert body["values"] == []
+
+
 async def test_read_plan_facets_asset_column(client: AsyncClient) -> None:
     """The synthetic asset column facets by the joined asset name."""
     response = await client.get(

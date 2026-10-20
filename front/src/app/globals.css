@@ -1331,13 +1331,12 @@ body {
     overflow-y: auto;
 }
 
-/* The external horizontal scrollbar's height is reserved only in the PINNED
-   shell, where the bar is absolutely positioned over the last row and would
-   cover it otherwise (the renovation dictionaries needed exactly this: their
-   shell is pinned, but they are not the plan). The unpinned mode scrolls the
-   whole shell externally, so the bar sits below the content and needs no
-   reservation — keeping it there left a dead 17px gap under the last row. */
-.revo-grid-shell--pinned:not(.revo-grid-shell--no-hscroll) .revo-grid-vertical-scroller {
+/* Reserve the external horizontal strip in pinned dictionaries and in BOTH
+   pin states of the plan (which always scrolls internally). Without the latter,
+   Chrome lets the unpinned plan's final row slide under the absolute strip.
+   Ordinary unpinned dictionaries use an external vertical scroller instead. */
+.revo-grid-shell--pinned:not(.revo-grid-shell--no-hscroll) .revo-grid-vertical-scroller,
+.renovation-grid-shell:not(.revo-grid-shell--no-hscroll) .revo-grid-vertical-scroller {
     padding-bottom: 17px;
 }
 

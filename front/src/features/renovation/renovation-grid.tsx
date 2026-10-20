@@ -42,6 +42,7 @@ import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { isChunkedSection } from "@/shared/grid/section-policy";
+import { selectionDetailForColumn } from "@/shared/grid/selection-label";
 import { isFromTextEditor } from "@/shared/keyboard";
 
 import { breaksValueRules } from "./renovation-rules";
@@ -2411,16 +2412,7 @@ function RenovationGridInner(
             selectionRange.x === selectionRange.x1 && firstColumnInfo?.prop
                 ? headerChainByProp.get(firstColumnInfo.prop)
                 : undefined;
-        // The tooltip spells the full header chain out, then names the column
-        // by its strip number in brackets: «… → Всего (столбец 2), строка 3».
-        const columnSuffix =
-            firstColumnInfo && firstColumnInfo.number !== null
-                ? ` (столбец ${firstColumnInfo.number})`
-                : "";
-        const detail =
-            chain && chain.length > 0
-                ? [`${chain.join(" → ")}${columnSuffix}`, rowText].join(", ")
-                : null;
+        const detail = selectionDetailForColumn(chain ?? [], rowText, firstColumnInfo?.number);
         const cellKeys: string[] = [];
         for (let y = selectionRange.y; y <= lastRow; y += 1) {
             const row = rowsByIndex.get(y);

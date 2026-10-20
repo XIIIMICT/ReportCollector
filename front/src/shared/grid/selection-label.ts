@@ -15,6 +15,17 @@ export type SelectionRange = { x: number; y: number; x1: number; y1: number };
 
 type ColumnLike = { prop?: unknown; name?: unknown };
 
+/** Quote the whole header hierarchy, leaving coordinates outside the quotes. */
+export function selectionDetailForColumn(
+    chain: readonly string[],
+    rowText: string,
+    columnNumber?: number | null,
+): string | null {
+    if (chain.length === 0) return null;
+    const suffix = columnNumber != null ? ` (столбец ${columnNumber})` : "";
+    return `«${chain.join(" → ")}»${suffix}, ${rowText}`;
+}
+
 function columnLabel(
     column: ColumnLike | undefined,
     descriptorByKey: Map<string, ColumnDescriptor>,
@@ -72,7 +83,9 @@ export function describeSelection(
     const endRow = Math.min(range.y1 + 1, rowCount);
     const rowText = startRow === endRow ? `строка ${startRow}` : `строки ${startRow}–${endRow}`;
     const detail =
-        range.x === range.x1 && firstColumn.chain ? `${firstColumn.chain}, ${rowText}` : null;
+        range.x === range.x1 && firstColumn.chain
+            ? selectionDetailForColumn([firstColumn.chain], rowText)
+            : null;
     return { label: `${columnText}, ${rowText}`, detail };
 }
 

@@ -3,7 +3,11 @@ import { describe, expect, test } from "bun:test";
 import type { ColumnRegular } from "@revolist/react-datagrid";
 
 import type { ColumnDescriptor } from "@/shared/grid/grid-config";
-import { describeSelection, selectionLabelForRange } from "@/shared/grid/selection-label";
+import {
+    describeSelection,
+    selectionDetailForColumn,
+    selectionLabelForRange,
+} from "@/shared/grid/selection-label";
 
 const columns = [
     { prop: "name", name: "Сырьевая позиция" },
@@ -36,10 +40,19 @@ const descriptors = new Map<string, ColumnDescriptor>([
 ]);
 
 describe("describeSelection", () => {
+    test("plan detail quotes the hierarchy, not the column and row coordinates", () => {
+        expect(
+            selectionDetailForColumn(["Идентификационный код работы/ремонта"], "строка 42", 2),
+        ).toBe("«Идентификационный код работы/ремонта» (столбец 2), строка 42");
+        expect(selectionDetailForColumn(["Дирекция", "Всего"], "строки 1–5", 3)).toBe(
+            "«Дирекция → Всего» (столбец 3), строки 1–5",
+        );
+        expect(selectionDetailForColumn([], "строка 42", 2)).toBeNull();
+    });
     test("names a single column by its number, the chain goes to the detail", () => {
         const result = describeSelection({ x: 1, y: 2, x1: 1, y1: 2 }, columns, descriptors, 10);
         expect(result?.label).toBe("столбец 2, строка 3");
-        expect(result?.detail).toBe("Потребность → План, т, строка 3");
+        expect(result?.detail).toBe("«Потребность → План, т», строка 3");
     });
 
     test("a cell range names both column numbers and the row range", () => {

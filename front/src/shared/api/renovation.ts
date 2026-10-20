@@ -251,7 +251,8 @@ export type RenovationFacets = {
     total: number;
     /** Whether the column has a NULL/empty bucket (the «Пустые» option). */
     hasNulls: boolean;
-    nullCount: number;
+    /** Missing on older backend workers during a rolling deployment. */
+    nullCount?: number;
 };
 
 export async function getRenovationPlanFacets(

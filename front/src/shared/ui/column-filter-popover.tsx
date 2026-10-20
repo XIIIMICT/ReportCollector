@@ -51,7 +51,7 @@ export function ColumnFilterPopover({
     const [values, setValues] = useState<string[]>([]);
     const [counts, setCounts] = useState<Map<string, number>>(new Map());
     const [hasNulls, setHasNulls] = useState(false);
-    const [nullCount, setNullCount] = useState(0);
+    const [nullCount, setNullCount] = useState<number | undefined>();
     // Distinct value count across the whole filtered plan — shown on the
     // master item as «Выбрать все (N)» and it doubles as the "load more" guard.
     const [total, setTotal] = useState(0);
@@ -107,7 +107,11 @@ export function ColumnFilterPopover({
                 // state, and a stale (empty) window would ask for offset 0..n.
                 valuesRef.current = loaded;
                 setHasNulls(facets.hasNulls);
-                setNullCount(facets.nullCount);
+                setNullCount(
+                    typeof facets.nullCount === "number" && Number.isFinite(facets.nullCount)
+                        ? facets.nullCount
+                        : undefined,
+                );
                 setTotal(facets.total);
                 loadedCountRef.current = loaded.length;
                 exhaustedRef.current = loaded.length >= facets.total;
@@ -158,7 +162,10 @@ export function ColumnFilterPopover({
                 return next;
             });
             setHasNulls((previous) => previous || facets.hasNulls);
-            setNullCount((previous) => Math.max(previous, facets.nullCount));
+            const nextNullCount = facets.nullCount;
+            if (typeof nextNullCount === "number" && Number.isFinite(nextNullCount)) {
+                setNullCount((previous) => Math.max(previous ?? 0, nextNullCount));
+            }
             setTotal(facets.total);
             if (loaded.length === 0) {
                 exhaustedRef.current = true;
@@ -336,7 +343,9 @@ export function ColumnFilterPopover({
                     {hasNulls ? (
                         <ListBox.Item key={NULL_KEY} id={NULL_KEY} textValue="Пустые">
                             <span>Пустые</span>
-                            <span className="text-muted ms-1">{nullCount}</span>
+                            {nullCount !== undefined ? (
+                                <span className="text-muted ms-1">{nullCount}</span>
+                            ) : null}
                             <ListBox.ItemIndicator />
                         </ListBox.Item>
                     ) : null}

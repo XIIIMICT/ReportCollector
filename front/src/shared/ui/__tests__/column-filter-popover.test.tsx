@@ -10,6 +10,7 @@ let facetHandler: (
     values: { value: string; count: number }[];
     total: number;
     hasNulls: boolean;
+    nullCount?: number;
 }>;
 
 mock.module("@/shared/api/renovation", () => ({
@@ -41,7 +42,10 @@ mock.module("@/shared/api/renovation", () => ({
 
 const { ColumnFilterPopover } = await import("../column-filter-popover");
 
-afterEach(cleanup);
+afterEach(() => {
+    cleanup();
+    facetHandler = undefined as never;
+});
 
 const anchor = { left: 0, top: 0, width: 100 } as DOMRect;
 
@@ -78,6 +82,45 @@ test("separator sits between «Пустые» and the values", async () => {
     expect(
         separator!.compareDocumentPosition(firstValue) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+});
+
+test.each([undefined, Number.NaN])(
+    "missing or invalid nullCount %s never renders NaN across pages",
+    async (nullCount) => {
+        const requested: number[] = [];
+        facetHandler = (column, params = {}) => {
+            const offset = params.offset ?? 0;
+            requested.push(offset);
+            return Promise.resolve({
+                column,
+                values: offset < 2 ? [{ value: offset === 0 ? "Насос" : "Шкаф", count: 2 }] : [],
+                total: 2,
+                hasNulls: true,
+                ...(nullCount !== undefined && { nullCount }),
+            });
+        };
+        await openFilter();
+        await waitFor(() => expect(requested).toContain(1));
+        await waitFor(() => expect(screen.getByRole("option", { name: /^Шкаф/ })).toBeTruthy());
+        const empty = screen.getByRole("option", { name: "Пустые" });
+        expect(empty.querySelector(".text-muted")).toBeNull();
+        expect(screen.queryByText("NaN")).toBeNull();
+    },
+);
+
+test("a valid empty count survives a legacy response on the next page", async () => {
+    facetHandler = (column, params = {}) =>
+        Promise.resolve({
+            column,
+            values: [{ value: params.offset ? "Шкаф" : "Насос", count: 2 }],
+            total: 2,
+            hasNulls: true,
+            ...(!params.offset && { nullCount: 12 }),
+        });
+    await openFilter();
+    await waitFor(() => expect(screen.getByRole("option", { name: /^Шкаф/ })).toBeTruthy());
+    expect(screen.getByRole("option", { name: "Пустые 12" })).toBeTruthy();
+    expect(screen.queryByText("NaN")).toBeNull();
 });
 
 test("unchecking the last option unchecks «Выбрать все»", async () => {
