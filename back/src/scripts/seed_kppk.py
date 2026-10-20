@@ -6,8 +6,8 @@ The source tables ship as SQL dumps in `docs/kppk/` (`kppk_*` tables + the
 
 1. creates the `raw` / `dict` schemas and the source tables **only when
    missing** — on prod installations they already exist and are never touched;
-2. re-copies the source data into the rc copies on every run (the migration
-   owns the schema), so the program always works on a fresh, consistent copy;
+2. restores missing application tables from the current models, then re-copies
+   source data on every run; existing tables still evolve through migrations;
 3. rebuilds «Продуктовые позиции» (`kppk_org_products`) from
    «Матрица продуктов.xlsx»: products and ДЗО are matched by exact display
    name, and a matrix product missing in the source dictionary is created
@@ -27,14 +27,15 @@ from pathlib import Path
 from typing import Final, TypedDict
 
 import openpyxl
-from sqlalchemy import CursorResult, func, text
+from sqlalchemy import CursorResult, MetaData, func, text
 from sqlalchemy.ext.asyncio import AsyncConnection
-from sqlmodel import col, select
+from sqlmodel import SQLModel, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.models import Project, ProjectRole, User, UserRole
 from src.config import get_settings
 from src.database import async_session_factory
+from src.kppk import models as _kppk_models  # noqa: F401 — register current application table definitions
 from src.kppk.constants import KPPK_PROJECT_KEY, KPPK_SOURCE_SCHEMA_DICT, KPPK_SOURCE_SCHEMA_RAW, KPPK_SOURCE_TABLES
 
 # docs/kppk/ of the repository (`back/src/scripts/seed_kppk.py` → 3 levels up).
@@ -285,6 +286,22 @@ async def _truncate_copies(connection: AsyncConnection, app_schema: str) -> None
     await connection.execute(text(f"TRUNCATE TABLE {tables} CASCADE"))
 
 
+async def _ensure_copy_tables(connection: AsyncConnection, app_schema: str) -> int:
+    """Restore only missing КППК application tables; never alter existing tables."""
+    names = (*KPPK_SOURCE_TABLES.values(), "kppk_org_products", "kppk_cost")
+    metadata = MetaData()
+    missing = 0
+    for name in names:
+        SQLModel.metadata.tables[name].to_metadata(metadata, schema=app_schema)
+        if not await _table_exists(connection, app_schema, name):
+            missing += 1
+    # The private metadata contains only КППК tables. SQLAlchemy orders their
+    # CREATEs by foreign-key dependencies and targets the explicit app schema,
+    # independent of the connection's search_path. No shared metadata mutation.
+    await connection.run_sync(lambda sync: metadata.create_all(sync, checkfirst=True))
+    return missing
+
+
 async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[str, int]:
     """Re-copy every source table into its rc copy; returns per-table counters."""
     per_table: dict[str, int] = {}
@@ -530,6 +547,7 @@ async def seed(session: AsyncSession) -> dict[str, int]:
     # The seeder runs raw SQL only: SQLModel's `exec` is typed for ORM selects,
     # its `execute` is deprecated — the session's connection is the clean path.
     connection = await session.connection()
+    copy_tables_created = await _ensure_copy_tables(connection, app_schema)
     schemas_created = await _ensure_schemas(connection)
     source_tables_created = await _ensure_source_tables(connection)
     await _truncate_copies(connection, app_schema)
@@ -543,6 +561,7 @@ async def seed(session: AsyncSession) -> dict[str, int]:
         "kppk_cost": costs,
         "schemas_created": len(schemas_created),
         "source_tables_created": source_tables_created,
+        "copy_tables_created": copy_tables_created,
         "administrators": administrators,
     }
 
