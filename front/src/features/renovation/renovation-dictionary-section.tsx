@@ -200,6 +200,7 @@ export function RenovationDictionarySection({
     onUserCreateState,
     headerPinned,
     showServiceColumns,
+    rowHeight,
     onClipboardStateChange,
     onUndoHistoryChanged,
     onAssetsChanged,
@@ -234,6 +235,7 @@ export function RenovationDictionarySection({
     /** Controlled display toggles (rendered in the workspace view strip). */
     headerPinned: boolean;
     showServiceColumns: boolean;
+    rowHeight: number;
     onClipboardStateChange: (state: {
         canPaste: boolean;
         onCopy: () => void;
@@ -688,6 +690,7 @@ export function RenovationDictionarySection({
                 hasBaseline={false}
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}
+                rowHeight={rowHeight}
                 pinnedTopSource={pinnedTopSource}
                 assets={assetOptions}
                 deliveryBases={deliveryBasisOptions}

@@ -79,6 +79,7 @@ import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
+import { readWorkspaceQuery, writeWorkspaceQuery } from "@/shared/ui/query-state";
 import { RowGoToFilter } from "@/shared/ui/row-go-to-filter";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { errorMessage, updateClipboardActions } from "@/shared/ui/text-helpers";
@@ -114,6 +115,8 @@ export type RenovationWorkspaceProps = {
     initialSection?: string | null;
     /** Mirrors the active form into the URL so a reload keeps it. */
     onSectionChange?: (section: string | null) => void;
+    /** `SUPPORT_MAIL` - the mailbox of the header support control. */
+    supportMail: string;
 };
 
 const WORKING_VERSION_ID = "__working";
@@ -224,15 +227,30 @@ export function RenovationWorkspace({
     onProjectChange,
     initialSection = null,
     onSectionChange,
+    supportMail,
 }: RenovationWorkspaceProps) {
     const [metaReloadKey, setMetaReloadKey] = useState(0);
     const [reloadKey, setReloadKey] = useState(0);
-    const [assetFilter, setAssetFilter] = useState<string | null>(null);
-    const [blockFilter, setBlockFilter] = useState<string | null>(null);
+    const [assetFilter, setAssetFilter] = useState<string | null>(() =>
+        readWorkspaceQuery("asset"),
+    );
+    const [blockFilter, setBlockFilter] = useState<string | null>(() =>
+        readWorkspaceQuery("block"),
+    );
     // Active header filters, keyed by column prop (field dbName or the synthetic
     // asset column). A column keeps display values + the «Пустые» bucket; all
     // columns combine with AND (server-side).
-    const [columnFilters, setColumnFilters] = useState<Record<string, RenovationColumnFilter>>({});
+    const [columnFilters, setColumnFilters] = useState<Record<string, RenovationColumnFilter>>(
+        () => {
+            const raw = readWorkspaceQuery("filters");
+            if (!raw) return {};
+            try {
+                return JSON.parse(raw) as Record<string, RenovationColumnFilter>;
+            } catch {
+                return {};
+            }
+        },
+    );
     // Flat filter list for the rows API; a column with nothing kept selects
     // nothing, which the server treats as "no rows" (never "all").
     const activeColumnFilters = useMemo(
@@ -258,6 +276,7 @@ export function RenovationWorkspace({
             const next = { ...current };
             if (filter === null) delete next[column];
             else next[column] = filter;
+            writeWorkspaceQuery("filters", Object.keys(next).length ? JSON.stringify(next) : null);
             return next;
         });
     // Active section (plan vs dictionary) — declared early because the
@@ -577,8 +596,15 @@ export function RenovationWorkspace({
     // Display toggles of the project's grids (rendered in the view strip): one
     // pair for the plan and the dictionaries, remembered between sessions —
     // the same mechanism as every other project (`useViewState`).
-    const { headerPinned, showServiceColumns, setHeaderPinned, setShowServiceColumns } =
-        useViewState(activeProjectKey);
+    const {
+        headerPinned,
+        showServiceColumns,
+        rowHeight,
+        setHeaderPinned,
+        setShowServiceColumns,
+        setRowHeight,
+        resetRowHeight,
+    } = useViewState(activeProjectKey);
     const [pendingSkip, setPendingSkip] = useState<{
         actionId: number;
         direction: "undo" | "redo";
@@ -1393,6 +1419,7 @@ export function RenovationWorkspace({
                         activeProjectKey={activeProjectKey}
                         onProjectChange={onProjectChange}
                         onOpenProfile={() => setProfileOpen(true)}
+                        supportMail={supportMail}
                     />
                 }
             />
@@ -1411,6 +1438,7 @@ export function RenovationWorkspace({
                     activeProjectKey={activeProjectKey}
                     onProjectChange={onProjectChange}
                     onOpenProfile={() => setProfileOpen(true)}
+                    supportMail={supportMail}
                 />
                 <div className="app-body">
                     <GridLoadingSkeleton />
@@ -1488,9 +1516,11 @@ export function RenovationWorkspace({
                     name: BLOCK_LABELS[block] ?? block,
                 }))}
                 selectedKey={blockFilter ?? "__all"}
-                onSelectionChange={(key) =>
-                    setBlockFilter(key && key !== "__all" ? String(key) : null)
-                }
+                onSelectionChange={(key) => {
+                    const value = key && key !== "__all" ? String(key) : null;
+                    setBlockFilter(value);
+                    writeWorkspaceQuery("block", value);
+                }}
             />
         </div>
     );
@@ -1524,9 +1554,12 @@ export function RenovationWorkspace({
                 onHeaderPinnedChange={setHeaderPinned}
                 showServiceColumns={showServiceColumns}
                 onShowServiceColumnsChange={setShowServiceColumns}
+                rowHeight={rowHeight}
+                onRowHeightChange={setRowHeight}
+                onResetRowHeight={resetRowHeight}
                 // The plan's reset also drops the header level heights.
                 {...(isPlanSection && {
-                    columnResetLabel: "Сбросить ширину столбцов и высоту заголовка",
+                    columnResetLabel: "Сбросить ширину столбцов и высоту строк",
                 })}
                 onReset={handleStripReset}
                 isFullscreen={isFullscreen}
@@ -1666,6 +1699,7 @@ export function RenovationWorkspace({
             activeProjectKey={activeProjectKey}
             onProjectChange={onProjectChange}
             onOpenProfile={() => setProfileOpen(true)}
+            supportMail={supportMail}
         />
     );
 
@@ -1711,6 +1745,7 @@ export function RenovationWorkspace({
                                         onCenterPositionChange={handleCenterPositionChange}
                                         headerPinned={headerPinned}
                                         showServiceColumns={showServiceColumns}
+                                        rowHeight={rowHeight}
                                         summaryValues={summaryValues}
                                         rowPatches={rowPatches}
                                         scrollToPosition={scrollToPosition}
@@ -1751,6 +1786,7 @@ export function RenovationWorkspace({
                             onUserCreateState={setDictUserCreateState}
                             headerPinned={headerPinned}
                             showServiceColumns={showServiceColumns}
+                            rowHeight={rowHeight}
                             onClipboardStateChange={handleDictClipboardState}
                             onUndoHistoryChanged={() => {
                                 setUndoCount((count) => count + 1);

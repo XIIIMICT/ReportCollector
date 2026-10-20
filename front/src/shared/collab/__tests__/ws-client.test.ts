@@ -49,7 +49,7 @@ afterEach(() => {
 
 async function connected(handlers: ConstructorParameters<typeof CollabWsClient>[1] = {}) {
     client = new CollabWsClient(
-        { projectKey: "renovation", section: "plan", reportMonth: null },
+        { projectKey: "renovation", section: "plan", reportMonth: null, scope: null },
         handlers,
     );
     client.connect();
@@ -139,7 +139,7 @@ test("disconnect during ticket fetch does not open a leaked socket", async () =>
         { preconnect: originalFetch.preconnect },
     );
     client = new CollabWsClient(
-        { projectKey: "raw_materials", section: "prices", reportMonth: null },
+        { projectKey: "raw_materials", section: "prices", reportMonth: null, scope: null },
         {},
     );
     client.connect();

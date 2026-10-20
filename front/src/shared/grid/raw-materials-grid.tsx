@@ -108,6 +108,8 @@ type Props = {
     headerPinned: boolean;
     /** Controlled «Показать служебные столбцы» toggle (lives in the view strip). */
     showServiceColumns: boolean;
+    /** Controlled RevoGrid data row height. */
+    rowHeight: number;
     /** Pinned summary row(s) rendered above the data (revo-grid `pinnedTopSource`). */
     pinnedTopSource?: Record<string, unknown>[] | undefined;
     assets: ReferenceOption[];
@@ -257,6 +259,7 @@ function RawMaterialsGridInner(
         hasBaseline,
         headerPinned,
         showServiceColumns,
+        rowHeight,
         pinnedTopSource,
         assets,
         deliveryBases,
@@ -511,8 +514,9 @@ function RawMaterialsGridInner(
         [columns],
     );
 
-    const headerHeight = descriptors.some((descriptor) => descriptor.path?.length) ? 88 : 44;
-    const contentHeight = headerHeight + rows.length * 36 + 18;
+    const headerRowCount = descriptors.some((descriptor) => descriptor.path?.length) ? 2 : 1;
+    const headerHeight = headerRowCount * rowHeight;
+    const contentHeight = headerHeight + rows.length * rowHeight + 18;
 
     const selectionRangeRef = useRef<RangeArea | null>(null);
     const updateSelectionRange = useCallback((range: RangeArea | null) => {
@@ -1764,6 +1768,8 @@ function RawMaterialsGridInner(
                 {
                     "--grid-content-height": `${contentHeight}px`,
                     "--grid-header-height": `${headerHeight}px`,
+                    "--grid-header-row-height": `${rowHeight}px`,
+                    "--rm-summary-row-height": `${rowHeight}px`,
                 } as CSSProperties
             }
             onPointerMove={(event) => {
@@ -1805,7 +1811,7 @@ function RawMaterialsGridInner(
                     ref={gridRef}
                     className={[
                         "raw-materials-grid",
-                        headerHeight > 44 && "raw-materials-grid--merged-header",
+                        headerRowCount > 1 && "raw-materials-grid--merged-header",
                         Boolean(pinnedTopSource?.length) && "raw-materials-grid--summary",
                         userSortedSectionsRef.current.has(section) &&
                             "raw-materials-grid--user-sorted",
@@ -1826,7 +1832,7 @@ function RawMaterialsGridInner(
                     {...(sorting ? { sorting } : {})}
                     hideAttribution
                     readonly={readOnly}
-                    rowSize={36}
+                    rowSize={rowHeight}
                     colSize={150}
                     accessible
                     onAftersourceset={() => {

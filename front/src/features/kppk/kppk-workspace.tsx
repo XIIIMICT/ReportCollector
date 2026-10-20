@@ -85,6 +85,7 @@ import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
+import { readWorkspaceQuery, writeWorkspaceQuery } from "@/shared/ui/query-state";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { SmartSelect } from "@/shared/ui/smart-select";
 import { runTableExport } from "@/shared/ui/table-export-action";
@@ -349,6 +350,7 @@ function KppkSection({
     assets,
     headerPinned,
     showServiceColumns,
+    rowHeight,
     onDeleteState,
     onClipboardStateChange,
     onGridStatsChange,
@@ -367,6 +369,7 @@ function KppkSection({
     assets: ReferenceOption[];
     headerPinned: boolean;
     showServiceColumns: boolean;
+    rowHeight: number;
     onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
     onClipboardStateChange: (state: ClipboardActions) => void;
     onGridStatsChange: (stats: GridViewStats) => void;
@@ -730,6 +733,7 @@ function KppkSection({
                         hasBaseline={false}
                         headerPinned={headerPinned}
                         showServiceColumns={showServiceColumns}
+                        rowHeight={rowHeight}
                         assets={assets}
                         deliveryBases={NO_REFERENCES}
                         onCommit={commit}
@@ -822,6 +826,7 @@ export function KppkWorkspace({
     onProjectChange,
     initialSection = null,
     onSectionChange,
+    supportMail,
 }: {
     currentUser: CurrentUser;
     /** Controlled project key (used by the report-workspace project switcher). */
@@ -831,6 +836,8 @@ export function KppkWorkspace({
     initialSection?: string | null;
     /** Mirrors the active tab into the URL so a reload keeps it. */
     onSectionChange?: (section: string | null) => void;
+    /** `SUPPORT_MAIL` - the mailbox of the header support control. */
+    supportMail: string;
 }) {
     const [user, setUser] = useState(currentUser);
     const [userCreateState, setUserCreateState] = useState({
@@ -878,10 +885,18 @@ export function KppkWorkspace({
     // other subproject. A ДЗО is always selected — the first dictionary row
     // until the user picks one; the period defaults to the loaded view's
     // (server-fixed) month/year until a selection is made.
-    const [realizationOrgId, setRealizationOrgId] = useState<string | null>(null);
-    const [realizationSlice, setRealizationSlice] = useState<KppkRealizationSlice>("bp");
-    const [realizationMonth, setRealizationMonth] = useState<string | null>(null);
-    const [realizationYear, setRealizationYear] = useState<string | null>(null);
+    const [realizationOrgId, setRealizationOrgId] = useState<string | null>(() =>
+        readWorkspaceQuery("org"),
+    );
+    const [realizationSlice, setRealizationSlice] = useState<KppkRealizationSlice>(
+        () => (readWorkspaceQuery("slice") as KppkRealizationSlice) || "bp",
+    );
+    const [realizationMonth, setRealizationMonth] = useState<string | null>(() =>
+        readWorkspaceQuery("month"),
+    );
+    const [realizationYear, setRealizationYear] = useState<string | null>(() =>
+        readWorkspaceQuery("year"),
+    );
     const [realizationPeriodText, setRealizationPeriodText] = useState<string | null>(null);
     const [gridResetState, setGridResetState] = useState<{
         resetColumnWidths: () => void;
@@ -893,8 +908,15 @@ export function KppkWorkspace({
     // through props; without them the KPPK workspace falls back to its own
     // internal switcher state.
     const activeProjectKey = controlledProjectKey ?? internalProjectKey;
-    const { headerPinned, showServiceColumns, setHeaderPinned, setShowServiceColumns } =
-        useViewState(activeProjectKey);
+    const {
+        headerPinned,
+        showServiceColumns,
+        rowHeight,
+        setHeaderPinned,
+        setShowServiceColumns,
+        setRowHeight,
+        resetRowHeight,
+    } = useViewState(activeProjectKey);
     const projects = user.access ?? [];
     const activeProject = projects.find((project) => project.key === activeProjectKey);
     const isAdmin = isProjectAdmin(activeProject);
@@ -1025,6 +1047,7 @@ export function KppkWorkspace({
             activeProjectKey={activeProjectKey}
             onProjectChange={handleProjectChange}
             onOpenProfile={() => setProfileOpen(true)}
+            supportMail={supportMail}
         />
     );
 
@@ -1110,6 +1133,7 @@ export function KppkWorkspace({
                 onChange={(value) => {
                     if (typeof value !== "string") return;
                     setRealizationSlice(value as KppkRealizationSlice);
+                    writeWorkspaceQuery("slice", value);
                 }}
             />
             <span className="kppk-realization-filter-text">по</span>
@@ -1125,6 +1149,7 @@ export function KppkWorkspace({
                     onSelectionChange={(key) => {
                         if (key === null) return;
                         setRealizationOrgId(String(key));
+                        writeWorkspaceQuery("org", String(key));
                     }}
                 />
             </div>
@@ -1143,6 +1168,7 @@ export function KppkWorkspace({
                 onChange={(value) => {
                     if (typeof value !== "string") return;
                     setRealizationMonth(value);
+                    writeWorkspaceQuery("month", value);
                 }}
             />
             <SmartSelect
@@ -1158,10 +1184,15 @@ export function KppkWorkspace({
                 onChange={(value) => {
                     if (typeof value !== "string") return;
                     setRealizationYear(value);
+                    writeWorkspaceQuery("year", value);
                 }}
             />
             {isRealizationTab ? (
-                <Checkbox isSelected={includeExcise} onChange={setIncludeExcise}>
+                <Checkbox
+                    isSelected={includeExcise}
+                    onChange={setIncludeExcise}
+                    variant="secondary"
+                >
                     <Checkbox.Content>
                         <Checkbox.Control>
                             <Checkbox.Indicator />
@@ -1201,6 +1232,9 @@ export function KppkWorkspace({
                     onHeaderPinnedChange={setHeaderPinned}
                     showServiceColumns={showServiceColumns}
                     onShowServiceColumnsChange={setShowServiceColumns}
+                    rowHeight={rowHeight}
+                    onRowHeightChange={setRowHeight}
+                    onResetRowHeight={resetRowHeight}
                     // Excel export is not part of the strip at all: it lives in
                     // the bottom action bar, one button per form.
                     onReset={handleStripReset}
@@ -1269,6 +1303,7 @@ export function KppkWorkspace({
                             periodYear={realizationYear}
                             headerPinned={headerPinned}
                             showServiceColumns={showServiceColumns}
+                            rowHeight={rowHeight}
                             onDeleteState={setDeleteState}
                             onClipboardStateChange={handleClipboardActions}
                             onGridStatsChange={handleGridStats}
@@ -1288,6 +1323,7 @@ export function KppkWorkspace({
                             assets={orgOptions}
                             headerPinned={headerPinned}
                             showServiceColumns={showServiceColumns}
+                            rowHeight={rowHeight}
                             onDeleteState={setDeleteState}
                             onClipboardStateChange={handleClipboardActions}
                             onGridStatsChange={handleGridStats}

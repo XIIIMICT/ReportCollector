@@ -13,6 +13,7 @@ export async function GET(request: Request) {
     }
     const url = new URL(request.url);
     const project = url.searchParams.get("project") ?? "";
+    const scope = url.searchParams.get("scope") ?? "";
     const headers = buildIdentityHeaders(session);
     const ticket = {
         h: Object.fromEntries(headers.entries()),
@@ -24,5 +25,6 @@ export async function GET(request: Request) {
         expiresIn: TICKET_TTL_SECONDS,
         wsUrl,
         project,
+        scope,
     });
 }

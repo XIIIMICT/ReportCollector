@@ -223,6 +223,7 @@ class RenovationFacetsRead(BaseModel):
     total: int
     # Whether the column has any NULL/empty value (the «Пустые» option exists).
     hasNulls: bool
+    nullCount: int = 0
 
 
 class RenovationDiffCellRead(BaseModel):

@@ -49,7 +49,9 @@ export function ColumnFilterPopover({
     onClose: () => void;
 }) {
     const [values, setValues] = useState<string[]>([]);
+    const [counts, setCounts] = useState<Map<string, number>>(new Map());
     const [hasNulls, setHasNulls] = useState(false);
+    const [nullCount, setNullCount] = useState(0);
     // Distinct value count across the whole filtered plan — shown on the
     // master item as «Выбрать все (N)» and it doubles as the "load more" guard.
     const [total, setTotal] = useState(0);
@@ -89,12 +91,23 @@ export function ColumnFilterPopover({
                 const loaded = facets.values
                     .map((entry) => entry.value)
                     .filter((value): value is string => value !== null);
+                setCounts(
+                    new Map(
+                        facets.values
+                            .filter(
+                                (entry): entry is { value: string; count: number } =>
+                                    entry.value !== null,
+                            )
+                            .map((entry) => [entry.value, entry.count]),
+                    ),
+                );
                 setValues(loaded);
                 // Keep the paging refs in step with the FIRST window at once:
                 // the short-list effect may fire before React commits the
                 // state, and a stale (empty) window would ask for offset 0..n.
                 valuesRef.current = loaded;
                 setHasNulls(facets.hasNulls);
+                setNullCount(facets.nullCount);
                 setTotal(facets.total);
                 loadedCountRef.current = loaded.length;
                 exhaustedRef.current = loaded.length >= facets.total;
@@ -137,7 +150,15 @@ export function ColumnFilterPopover({
             const loaded = facets.values
                 .map((entry) => entry.value)
                 .filter((value): value is string => value !== null);
+            setCounts((previous) => {
+                const next = new Map(previous);
+                for (const entry of facets.values) {
+                    if (entry.value !== null) next.set(entry.value, entry.count);
+                }
+                return next;
+            });
             setHasNulls((previous) => previous || facets.hasNulls);
+            setNullCount((previous) => Math.max(previous, facets.nullCount));
             setTotal(facets.total);
             if (loaded.length === 0) {
                 exhaustedRef.current = true;
@@ -308,12 +329,14 @@ export function ColumnFilterPopover({
                     onScroll={onListScroll}
                 >
                     <ListBox.Item key={ALL_KEY} id={ALL_KEY} textValue="Выбрать все">
-                        {total > 0 ? `Выбрать все (${total})` : "Выбрать все"}
+                        <span>Выбрать все</span>
+                        {total > 0 ? <span className="text-muted ms-1">{total}</span> : null}
                         <ListBox.ItemIndicator />
                     </ListBox.Item>
                     {hasNulls ? (
                         <ListBox.Item key={NULL_KEY} id={NULL_KEY} textValue="Пустые">
-                            Пустые
+                            <span>Пустые</span>
+                            <span className="text-muted ms-1">{nullCount}</span>
                             <ListBox.ItemIndicator />
                         </ListBox.Item>
                     ) : null}
@@ -324,7 +347,10 @@ export function ColumnFilterPopover({
                     ) : null}
                     {filteredValues.map((value) => (
                         <ListBox.Item key={value} id={value} textValue={value}>
-                            {value}
+                            <span>{value}</span>
+                            {counts.get(value) !== undefined ? (
+                                <span className="text-muted ms-1">{counts.get(value)}</span>
+                            ) : null}
                             <ListBox.ItemIndicator />
                         </ListBox.Item>
                     ))}

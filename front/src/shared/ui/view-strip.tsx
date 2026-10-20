@@ -1,35 +1,42 @@
 "use client";
 
-import { Button, Dropdown, Label } from "@heroui/react";
+import { Button, Dropdown, Label, NumberField } from "@heroui/react";
 import { Collapse, Expand, Eye, EyeClosed, MoreHoriz, Pin, PinSlash, Refresh } from "iconoir-react";
 import { type Key, type ReactNode } from "react";
 
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
+import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT } from "@/shared/ui/use-view-state";
 
 /**
  * The right-aligned control cluster of the toolbar: the «Вид таблицы» button
- * whose hover menu carries the display toggles (pin the header, show service
+ * whose menu carries the display toggles (pin the header, show service
  * columns — as checked entries), the resets and the fullscreen action
  * (success). Excel export is NOT here: it lives in the bottom action bar, one
- * button per form. The button starts collapsed (icon only) and expands on
- * hover; the expand state is held while its dropdown is open.
+ * button per form. The button is expanded by default and collapses at the same
+ * breakpoint as the bottom action bar.
  */
 export function ViewStrip({
     headerPinned,
     onHeaderPinnedChange,
     showServiceColumns,
     onShowServiceColumnsChange,
+    rowHeight,
+    onRowHeightChange,
+    onResetRowHeight,
     onReset,
     isFullscreen,
     isFullscreenPending,
     onToggleFullscreen,
     onDropdownOpenChange,
-    columnResetLabel = "Сбросить ширину столбцов",
+    columnResetLabel = "Сбросить ширину столбцов и высоту строк",
 }: {
     headerPinned?: boolean;
     onHeaderPinnedChange?: (value: boolean) => void;
     showServiceColumns?: boolean;
     onShowServiceColumnsChange?: (value: boolean) => void;
+    rowHeight?: number;
+    onRowHeightChange?: (value: number) => void;
+    onResetRowHeight?: () => void;
     onReset: (scope: "columnWidths" | "filtersSorting") => void;
     isFullscreen: boolean;
     isFullscreenPending: boolean;
@@ -45,8 +52,9 @@ export function ViewStrip({
         onHeaderPinnedChange !== undefined &&
         showServiceColumns !== undefined &&
         onShowServiceColumnsChange !== undefined;
+    const hasRowHeight = rowHeight !== undefined && onRowHeightChange !== undefined;
 
-    const collapsedViewButton = (
+    const viewButton = (
         isOpen: boolean,
         handlers: {
             ref: React.Ref<HTMLButtonElement>;
@@ -58,7 +66,11 @@ export function ViewStrip({
             ref={handlers.ref}
             onMouseEnter={handlers.onMouseEnter}
             onPress={handlers.onPress}
-            className={isOpen ? "action-button action-button--open" : "action-button"}
+            className={
+                isOpen
+                    ? "action-button action-button--open view-strip__view-button"
+                    : "action-button view-strip__view-button"
+            }
             variant="tertiary"
             aria-label="Вид таблицы"
         >
@@ -75,70 +87,101 @@ export function ViewStrip({
                 className="view-strip-popover"
                 {...(onDropdownOpenChange && { onOpenChange: onDropdownOpenChange })}
                 trigger={({ ref, onMouseEnter, isOpen, onPress }) =>
-                    collapsedViewButton(isOpen, { ref, onMouseEnter, onPress })
+                    viewButton(isOpen, { ref, onMouseEnter, onPress })
                 }
                 content={
-                    <Dropdown.Menu
-                        aria-label="Вид таблицы"
-                        onAction={handleMenuAction}
-                        className="action-more-menu"
-                    >
-                        {hasToggles
-                            ? menuItem(
-                                  "pin-header",
-                                  headerPinned
-                                      ? "Открепить шапку таблицы"
-                                      : "Закрепить шапку таблицы",
-                                  false,
-                                  headerPinned ? (
-                                      <PinSlash aria-hidden="true" />
-                                  ) : (
-                                      <Pin aria-hidden="true" />
-                                  ),
-                              )
-                            : null}
-                        {hasToggles
-                            ? menuItem(
-                                  "service-columns",
-                                  showServiceColumns
-                                      ? "Скрыть данные о редактировании строк"
-                                      : "Показать данные о редактировании строк",
-                                  false,
-                                  showServiceColumns ? (
-                                      <EyeClosed aria-hidden="true" />
-                                  ) : (
-                                      <Eye aria-hidden="true" />
-                                  ),
-                              )
-                            : null}
-                        {menuItem(
-                            "reset-column-widths",
-                            columnResetLabel,
-                            true,
-                            <Refresh aria-hidden="true" />,
-                        )}
-                        {menuItem(
-                            "reset-filters-sorting",
-                            "Сбросить все фильтры и сортировки",
-                            true,
-                            <Refresh aria-hidden="true" />,
-                        )}
-                        <Dropdown.Item
-                            id="fullscreen"
-                            textValue={isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
+                    <div className="view-strip-popover__content">
+                        {hasRowHeight ? (
+                            <div
+                                className="view-strip__row-height"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={(event) => event.stopPropagation()}
+                                onKeyDown={(event) => event.stopPropagation()}
+                            >
+                                <Label>Высота строки:</Label>
+                                <NumberField
+                                    value={rowHeight}
+                                    minValue={MIN_ROW_HEIGHT}
+                                    maxValue={MAX_ROW_HEIGHT}
+                                    onChange={(value) => {
+                                        if (value !== undefined) onRowHeightChange?.(value);
+                                    }}
+                                    variant="secondary"
+                                    className="view-strip__row-height-field"
+                                    aria-label="Высота строки"
+                                >
+                                    <NumberField.Group className="view-strip__row-height-group">
+                                        <NumberField.DecrementButton />
+                                        <NumberField.Input />
+                                        <NumberField.IncrementButton />
+                                    </NumberField.Group>
+                                </NumberField>
+                            </div>
+                        ) : null}
+                        <Dropdown.Menu
+                            aria-label="Вид таблицы"
+                            onAction={handleMenuAction}
+                            className="action-more-menu"
                         >
-                            <span className="view-strip-menu-check">
-                                {isFullscreen ? (
-                                    <Collapse aria-hidden="true" />
-                                ) : (
-                                    <Expand aria-hidden="true" />
-                                )}
-                            </span>
-                            <Label>
-                                {isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
-                            </Label>
-                        </Dropdown.Item>
-                    </Dropdown.Menu>
+                            {hasToggles
+                                ? menuItem(
+                                      "pin-header",
+                                      headerPinned
+                                          ? "Открепить шапку таблицы"
+                                          : "Закрепить шапку таблицы",
+                                      false,
+                                      headerPinned ? (
+                                          <PinSlash aria-hidden="true" />
+                                      ) : (
+                                          <Pin aria-hidden="true" />
+                                      ),
+                                  )
+                                : null}
+                            {hasToggles
+                                ? menuItem(
+                                      "service-columns",
+                                      showServiceColumns
+                                          ? "Скрыть данные о редактировании строк"
+                                          : "Показать данные о редактировании строк",
+                                      false,
+                                      showServiceColumns ? (
+                                          <EyeClosed aria-hidden="true" />
+                                      ) : (
+                                          <Eye aria-hidden="true" />
+                                      ),
+                                  )
+                                : null}
+                            {menuItem(
+                                "reset-column-widths",
+                                columnResetLabel,
+                                true,
+                                <Refresh aria-hidden="true" />,
+                            )}
+                            {menuItem(
+                                "reset-filters-sorting",
+                                "Сбросить все фильтры и сортировки",
+                                true,
+                                <Refresh aria-hidden="true" />,
+                            )}
+                            <Dropdown.Item
+                                id="fullscreen"
+                                textValue={
+                                    isFullscreen ? "Выйти из полного экрана" : "В полный экран"
+                                }
+                            >
+                                <span className="view-strip-menu-check">
+                                    {isFullscreen ? (
+                                        <Collapse aria-hidden="true" />
+                                    ) : (
+                                        <Expand aria-hidden="true" />
+                                    )}
+                                </span>
+                                <Label>
+                                    {isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
+                                </Label>
+                            </Dropdown.Item>
+                        </Dropdown.Menu>
+                    </div>
                 }
             />
         </div>
@@ -166,8 +209,11 @@ export function ViewStrip({
             case "service-columns":
                 onShowServiceColumnsChange?.(!showServiceColumns);
                 break;
+            case "row-height":
+                break;
             case "reset-column-widths":
                 onReset("columnWidths");
+                onResetRowHeight?.();
                 break;
             case "reset-filters-sorting":
                 onReset("filtersSorting");

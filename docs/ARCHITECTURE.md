@@ -44,6 +44,7 @@ Optional/derived:
 - `BACKEND_INTERNAL_URL` — derived in compose from `BACKEND_HOST/BACKEND_PORT`; mandatory when running front on the host (`front/.env.local`).
 - `NEXT_PUBLIC_URL` — **alias of `AUTH_APP_ORIGIN`**, derived automatically in compose, don't set manually.
 - `COLLAB_WS_PUBLIC_URL` — empty = the browser connects to its own origin (`/api/ws/` via nginx); set only for a separate WS host (dev without nginx: `ws://127.0.0.1:8000`).
+- `SUPPORT_MAIL` — the mailbox behind the header's «Связаться с разработчиком» control (the subject names the project: «Обращение по РепортКоллектор Ремонт / КППК / Сырьё»). Read **server-side** (`getSupportMail` in `front/src/shared/auth/session.ts`) and passed into the client as a prop, so it is not a `NEXT_PUBLIC_` variable and never has to reach the bundle; empty = the control is not rendered. The same control is rendered on the «нет доступа к проекту» page, always expanded.
 - `AUTH_SESSION_MAX_AGE_SECONDS` — session lifetime, default 43200 (12h), **independent of the short Keycloak ID-token TTL** (otherwise "not authorized").
 - Session cookies require a valid HMAC, exactly two token segments, nonempty subject/issuer and a finite unexpired numeric timestamp; malformed signed payloads are rejected too.
 - `AUTH_SEED_ADMIN_EMAIL` + `AUTH_SEED_ADMIN_PASSWORD` — seed admin (password = hash for local login; the email activates on first Keycloak login).

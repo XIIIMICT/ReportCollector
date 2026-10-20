@@ -167,6 +167,7 @@ type KppkRealizationSectionProps = {
     periodYear: string | null;
     headerPinned: boolean;
     showServiceColumns: boolean;
+    rowHeight: number;
     onGridStatsChange: (stats: GridViewStats) => void;
     onSelectionLabelChange: (label: string | null) => void;
     onSelectionDetailChange?: (detail: string | null) => void;
@@ -199,6 +200,7 @@ export function KppkRealizationSection({
     periodYear,
     headerPinned,
     showServiceColumns,
+    rowHeight,
     onGridStatsChange,
     onSelectionLabelChange,
     onSelectionDetailChange,
@@ -279,6 +281,7 @@ export function KppkRealizationSection({
         section: roomSection,
         reportMonth:
             periodMonth && periodYear ? `${periodYear}-${periodMonth.padStart(2, "0")}-01` : null,
+        scope: orgId,
         enabled:
             collaborationAvailableFor(roomSection, isAdmin) &&
             orgId !== null &&
@@ -580,6 +583,7 @@ export function KppkRealizationSection({
                 hasBaseline={false}
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}
+                rowHeight={rowHeight}
                 columnDescriptors={descriptors}
                 // The rows follow the server order (product number → market):
                 // a header click must not reshuffle the view.

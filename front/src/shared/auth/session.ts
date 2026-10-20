@@ -46,6 +46,18 @@ export function isKeycloakEnabled(): boolean {
     return process.env.KEYCLOAK_ENABLED !== "false";
 }
 
+/**
+ * The mailbox «Связаться с разработчиком» writes to (`SUPPORT_MAIL`).
+ *
+ * Read on the server and passed down as a prop: it is not a `NEXT_PUBLIC_`
+ * variable, so the value never has to be baked into the client bundle, and an
+ * unset value simply hides the control. An empty mailbox is treated as unset —
+ * a `mailto:` with no recipient would open a composer addressed to nobody.
+ */
+export function getSupportMail(): string {
+    return (process.env.SUPPORT_MAIL ?? "").trim();
+}
+
 /** Session lifetime (seconds). Independent of the Keycloak token TTL (5–10 min). */
 export function sessionMaxAgeSeconds(): number {
     const raw = Number(process.env.AUTH_SESSION_MAX_AGE_SECONDS ?? "");

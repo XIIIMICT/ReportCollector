@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
+import { act, cleanup, renderHook } from "@testing-library/react";
+
 import {
     DEFAULT_VIEW_STATE,
     clearStoredViewState,
     readStoredViewState,
+    useViewState,
 } from "@/shared/ui/use-view-state";
 
 describe("view state persistence", () => {
@@ -50,4 +53,26 @@ describe("view state persistence", () => {
         expect(readStoredViewState("kppk")).toEqual(DEFAULT_VIEW_STATE);
         clearStoredViewState("raw_materials");
     });
+});
+
+test("row height accepts 18–72, rejects out-of-range values and resets to 36", () => {
+    const key = "reportcollector:table-dimensions:row-height-test";
+    window.localStorage.removeItem(key);
+    const { result, unmount } = renderHook(() => useViewState("row-height-test"));
+    expect(result.current.rowHeight).toBe(36);
+    act(() => result.current.setRowHeight(18));
+    expect(result.current.rowHeight).toBe(18);
+    act(() => result.current.setRowHeight(17));
+    expect(result.current.rowHeight).toBe(18);
+    act(() => result.current.setRowHeight(72));
+    expect(result.current.rowHeight).toBe(72);
+    act(() => result.current.setRowHeight(73));
+    expect(result.current.rowHeight).toBe(72);
+    act(() => result.current.resetRowHeight());
+    expect(result.current.rowHeight).toBe(36);
+    unmount();
+    const restored = renderHook(() => useViewState("row-height-test"));
+    expect(restored.result.current.rowHeight).toBe(36);
+    cleanup();
+    window.localStorage.removeItem(key);
 });

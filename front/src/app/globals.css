@@ -305,6 +305,107 @@ body {
     font-size: 0.75rem;
 }
 
+/*
+ * «Связаться с разработчиком» — icon-only until hovered, then it expands to
+ * its full label. The mechanics mirror the toolbar's collapsible controls:
+ * the label is a child that animates its `max-width` from 0 to its content
+ * width, so nothing jumps. Focus expands it too (keyboard users would
+ * otherwise face an icon-only control), and `--pinned` keeps it open — the
+ * «no access» screen renders it that way from the start.
+ *
+ * A plain anchor, not a HeroUI Button: this is a `mailto:` link.
+ */
+.support-link {
+    display: inline-flex;
+    height: auto;
+    min-width: 0;
+    align-items: center;
+    gap: 0;
+    padding: 0.5rem;
+    border-radius: 999px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    /* The control is button-shaped, so it never underlines — the Link's own
+       hover rule is nested inside `.link` and would otherwise win. */
+    text-decoration: none;
+    transition:
+        gap 180ms cubic-bezier(0.22, 1, 0.36, 1),
+        color 140ms ease,
+        background-color 140ms ease;
+}
+
+.support-link > svg {
+    flex: 0 0 auto;
+    width: 1.15rem;
+    height: 1.15rem;
+}
+
+.support-link__label {
+    display: inline-block;
+    overflow: hidden;
+    max-width: 0;
+    font-size: 0.84rem;
+    white-space: nowrap;
+    opacity: 0;
+    transition:
+        max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 140ms ease;
+}
+
+.support-link:hover,
+.support-link:focus-visible,
+.support-link--pinned {
+    gap: 0.45rem;
+    background: var(--surface-secondary, var(--default));
+    color: var(--foreground);
+}
+
+.support-link:hover .support-link__label,
+.support-link:focus-visible .support-link__label,
+.support-link--pinned .support-link__label {
+    /* Wide enough for the label's own content, animated rather than snapped. */
+    max-width: 20rem;
+    opacity: 1;
+}
+
+.support-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Never underlined, whatever state the Link is in (hover, focus, pressed). */
+.support-link,
+.support-link:hover,
+.support-link:focus,
+.support-link:focus-visible,
+.support-link[data-hovered="true"],
+.support-link[data-pressed="true"] {
+    text-decoration: none;
+}
+
+/*
+ * The support link as a BUTTON inside a `ButtonGroup` (the crash screen): the
+ * group strips the corners (`.button-group .button`) and squares the shared
+ * edges, so the anchor has to carry HeroUI's `.button` class to take part.
+ * Tinted as the constructive way out — the only "success" action on that card.
+ */
+.support-link--success {
+    --button-bg: color-mix(in oklch, var(--success) 22%, transparent);
+    --button-bg-hover: color-mix(in oklch, var(--success) 30%, transparent);
+    --button-bg-pressed: color-mix(in oklch, var(--success) 34%, transparent);
+    --button-fg: var(--success);
+}
+
+/* The button-shaped variant is a Link too: no underline in any state. */
+.support-link--success,
+.support-link--success:hover,
+.support-link--success:focus,
+.support-link--success:focus-visible,
+.support-link--success[data-hovered="true"],
+.support-link--success[data-pressed="true"] {
+    text-decoration: none;
+}
+
 .app-body {
     display: flex;
     min-height: 0;
@@ -603,6 +704,55 @@ body {
     margin-left: auto;
     align-items: center;
     gap: 0.45rem;
+}
+
+.action-button.view-strip__view-button {
+    gap: 0.45rem;
+}
+
+.view-strip__view-button .action-button__label {
+    max-width: 13rem;
+    opacity: 1;
+}
+
+.view-strip__row-height {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem;
+    white-space: nowrap;
+}
+
+.view-strip__row-height .label {
+    flex: 0 0 auto;
+}
+
+.view-strip__row-height-field {
+    width: 8rem;
+}
+
+.view-strip__row-height-group {
+    width: 8rem;
+}
+
+.view-strip__row-height-group .number-field__input {
+    min-width: 3rem;
+}
+
+.view-strip-popover__content {
+    min-width: 16rem;
+    padding: 0.35rem;
+}
+
+@media (width <= 40rem) {
+    .action-button.view-strip__view-button {
+        gap: 0;
+    }
+
+    .view-strip__view-button .action-button__label {
+        max-width: 0;
+        opacity: 0;
+    }
 }
 
 /* Content-sized filters: no fixed width — each control is as wide as its
@@ -1281,7 +1431,7 @@ body {
 .raw-materials-grid {
     --revo-grid-font-family: var(--font-sans);
     --revo-grid-font-size: 12px;
-    --revo-grid-header-height: 44px;
+    --revo-grid-header-height: var(--grid-header-row-height, 44px);
     --revo-grid-header-font-size: 11.5px;
     --revo-grid-header-font-weight: 650;
     --revo-grid-header-text-transform: none;
@@ -1915,10 +2065,6 @@ body {
    merged column-number cells. The totals columns keep a separate header cell
    and the green totals cell below it. The pinned row is as tall as the grid's
    rowSize (36). */
-.raw-materials-grid--summary {
-    --rm-summary-row-height: 36px;
-}
-
 .raw-materials-grid--summary revogr-header .rgHeaderCell.report-header-cell--summary-merge,
 .raw-materials-grid--summary .rowHeaders revogr-header .rgHeaderCell.report-row-header--heading {
     height: calc(100% + var(--rm-summary-row-height)) !important;

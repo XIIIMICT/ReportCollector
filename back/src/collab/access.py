@@ -98,6 +98,7 @@ class RoomAccess:
         project: str,
         section: str,
         report_month: str | None,
+        scope: str | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.identity = identity
@@ -105,6 +106,7 @@ class RoomAccess:
         self.project = project
         self.section = section
         self.report_month = report_month
+        self.scope = scope
         sections = _sections_for_project(project)
         if section not in sections:
             raise RoomAccessDeniedError
@@ -125,7 +127,13 @@ class RoomAccess:
                 raise RoomAccessDeniedError from error
             if month.day != 1:
                 raise RoomAccessDeniedError
-        elif report_month is not None:
+            if scope is None:
+                raise RoomAccessDeniedError
+            try:
+                self.org_id = UUID(scope)
+            except ValueError as error:
+                raise RoomAccessDeniedError from error
+        elif report_month is not None or scope is not None:
             raise RoomAccessDeniedError
 
     async def resolve(self, session: AsyncSession) -> tuple:
@@ -200,6 +208,15 @@ class RoomAccess:
                 query = query.where(col(RenovationPlanRow.asset_id).in_([asset.id for asset in assets]))
             if write and not admin:
                 query = query.where(col(RenovationPlan.state) == RPlanState.WORKING)
+        elif self.project == KPPK_PROJECT_KEY and model in {
+            KppkRealizationPlan,
+            KppkRealization,
+            KppkCost,
+        }:
+            query = query.where(
+                col(model.org_id) == self.org_id,
+                col(model.period_date) == date.fromisoformat(self.report_month or ""),
+            )
         elif model is RenovationReferenceValue:
             query = query.where(col(RenovationReferenceValue.catalog) == self.section.split(":", 1)[1])
         elif model is User and self.project == KPPK_PROJECT_KEY:

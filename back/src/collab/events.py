@@ -17,8 +17,14 @@ if TYPE_CHECKING:
     from src.collab.persistence import JournalStore
 
 
-def room_key(project_key: str, section: str, report_month: str | None = None) -> str:
-    return f"rm:{project_key}:{section}:{report_month or ''}"
+def room_key(
+    project_key: str,
+    section: str,
+    report_month: str | None = None,
+    scope: str | None = None,
+) -> str:
+    base = f"rm:{project_key}:{section}:{report_month or ''}"
+    return f"{base}:{scope}" if scope else base
 
 
 async def publish_cell_changed(
@@ -31,9 +37,10 @@ async def publish_cell_changed(
     user_name: str,
     user_email: str,
     cells: list[AppliedCell],
+    scope: str | None = None,
 ) -> None:
     """Fans out cell edits after a successful commit."""
-    room = room_key(project_key, section, report_month)
+    room = room_key(project_key, section, report_month, scope)
     for cell in cells:
         await store.publish(
             room,
@@ -42,6 +49,7 @@ async def publish_cell_changed(
                 "project": project_key,
                 "section": section,
                 "reportMonth": report_month,
+                "scope": scope,
                 "rowId": str(cell.row_id),
                 "field": cell.field,
                 "value": cell.new_value,
@@ -62,6 +70,7 @@ async def publish_rows_changed(
     user_id: UUID,
     user_name: str,
     user_email: str,
+    scope: str | None = None,
 ) -> None:
     """
     Notify room clients that the plan row set changed (add/delete/submit/approve).
@@ -69,7 +78,7 @@ async def publish_rows_changed(
     Clients refetch the plan (and meta after lifecycle transitions); the
     event itself carries no payload.
     """
-    room = room_key(project_key, section, report_month)
+    room = room_key(project_key, section, report_month, scope)
     await store.publish(
         room,
         {
@@ -77,6 +86,7 @@ async def publish_rows_changed(
             "project": project_key,
             "section": section,
             "reportMonth": report_month,
+            "scope": scope,
             "user": {"userId": str(user_id), "name": user_name, "email": user_email},
             "at": now_iso(),
         },

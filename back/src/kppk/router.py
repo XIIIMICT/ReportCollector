@@ -23,6 +23,7 @@ from src.database import get_session
 from src.downloads import XLSX_MEDIA_TYPE
 from src.kppk.constants import (
     KPPK_PROJECT_KEY,
+    KPPK_SECTION_COST,
     KPPK_SECTION_ORGS,
     KPPK_SECTION_PRODUCT_POSITIONS,
     KPPK_SECTION_RAWS,
@@ -148,6 +149,8 @@ async def _record_kppk_updates(
     section: str,
     session_id: str,
     applied: list[AppliedCell],
+    scope: str | None = None,
+    report_month: str | None = None,
 ) -> None:
     """
     Journal the applied cells as one undo action and fan them out to the room.
@@ -174,7 +177,8 @@ async def _record_kppk_updates(
         JournalStore(session),
         project_key=KPPK_PROJECT_KEY,
         section=section,
-        report_month=None,
+        report_month=report_month,
+        scope=scope,
         user_id=access.user.id,
         user_name=access.user.name or "",
         user_email=access.user.email or "",
@@ -258,11 +262,27 @@ async def _undo_response(
     the reverted cells live; the client additionally refreshes its grid.
     """
     if outcome.applied and outcome.applied_cells:
+        scope: str | None = None
+        report_month: str | None = None
+        if outcome.applied_cells and outcome.section in {
+            KPPK_SECTION_REALIZATION_PLAN,
+            KPPK_SECTION_REALIZATION_FACT,
+            KPPK_SECTION_COST,
+        }:
+            model = {
+                KPPK_SECTION_REALIZATION_PLAN: KppkRealizationPlan,
+                KPPK_SECTION_REALIZATION_FACT: KppkRealization,
+                KPPK_SECTION_COST: KppkCost,
+            }[outcome.section]
+            changed_row = await session.get(model, outcome.applied_cells[0].row_id)
+            scope = str(changed_row.org_id) if changed_row is not None else None
+            report_month = changed_row.period_date.isoformat() if changed_row is not None else None
         await publish_cell_changed(
             JournalStore(session),
             project_key=KPPK_PROJECT_KEY,
             section=outcome.section or "",
-            report_month=None,
+            report_month=report_month,
+            scope=scope,
             user_id=access.user.id,
             user_name=access.user.name or "",
             user_email=access.user.email or "",
@@ -616,6 +636,7 @@ async def patch_realization(
         user=access.user,
     )
     model = KppkRealization if slice_id == "fact" else KppkRealizationPlan
+    row = await session.get(model, row_id)
     applied = [
         AppliedCell(
             target_table=model.__tablename__,
@@ -632,6 +653,8 @@ async def patch_realization(
         section=_REALIZATION_SLICE_SECTION[slice_id],
         session_id=session_id,
         applied=applied,
+        scope=str(row.org_id) if row is not None else None,
+        report_month=row.period_date.isoformat() if row is not None else None,
     )
     row = await read_realization_row_by_id(session, slice_id=slice_id, row_id=row_id)
     if row is None:
@@ -670,6 +693,7 @@ async def patch_cost(
         raise HTTPException(
             status_code=404 if isinstance(error, KppkNotFoundError) else 400, detail=str(error)
         ) from error
+    cost_row = await session.get(KppkCost, row_id)
     await _record_kppk_updates(
         session,
         access=access,
@@ -684,6 +708,8 @@ async def patch_cost(
                 new_value=None if stored is None else float(stored),
             )
         ],
+        scope=str(cost_row.org_id) if cost_row is not None else None,
+        report_month=cost_row.period_date.isoformat() if cost_row is not None else None,
     )
     return {"applied": True}
 

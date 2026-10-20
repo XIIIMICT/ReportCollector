@@ -38,6 +38,7 @@ export function useCollabRoom({
     projectKey,
     section,
     reportMonth,
+    scope = null,
     enabled,
     visibleAssets,
     onCellChanged,
@@ -48,6 +49,8 @@ export function useCollabRoom({
     projectKey: string;
     section: string;
     reportMonth: string | null;
+    /** Additional room scope, used by КППК to isolate a selected ДЗО. */
+    scope?: string | null;
     enabled: boolean;
     /** The current user's assets: members without an overlap aren't shown. */
     visibleAssets?: string[] | null;
@@ -92,7 +95,7 @@ export function useCollabRoom({
             return;
         }
         const client = new CollabWsClient(
-            { projectKey, section, reportMonth },
+            { projectKey, section, reportMonth, scope },
             {
                 onHello: (me, roomMembers) => {
                     mySessionIdRef.current = me.sessionId;
@@ -139,7 +142,7 @@ export function useCollabRoom({
             client.disconnect();
             clientRef.current = null;
         };
-    }, [enabled, projectKey, reportMonth, section]);
+    }, [enabled, projectKey, reportMonth, scope, section]);
 
     const acquireLeases = useCallback((keys: string[]) => {
         clientRef.current?.acquireLeases(keys);

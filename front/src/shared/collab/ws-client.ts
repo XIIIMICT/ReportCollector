@@ -138,7 +138,12 @@ export class CollabWsClient {
     private readonly activityDetach: Array<() => void> = [];
 
     constructor(
-        private readonly room: { projectKey: string; section: string; reportMonth: string | null },
+        private readonly room: {
+            projectKey: string;
+            section: string;
+            reportMonth: string | null;
+            scope?: string | null;
+        },
         private readonly handlers: CollabHandlers,
     ) {}
 
@@ -176,7 +181,9 @@ export class CollabWsClient {
     private async open(): Promise<void> {
         this.handlers.onConnectionChange?.("connecting");
         try {
-            const ticketPath = `/api/collab/ticket?project=${encodeURIComponent(this.room.projectKey)}`;
+            const ticketParams = new URLSearchParams({ project: this.room.projectKey });
+            if (this.room.scope) ticketParams.set("scope", this.room.scope);
+            const ticketPath = `/api/collab/ticket?${ticketParams}`;
             const response = await fetch(ticketPath, { cache: "no-store" });
             if (!response.ok) {
                 throw new Error(`Тикет не получен: ${response.status}.`);
@@ -188,6 +195,7 @@ export class CollabWsClient {
                 project: this.room.projectKey,
                 section: this.room.section,
                 reportMonth: this.room.reportMonth ?? "",
+                scope: this.room.scope ?? "",
                 clientId: this.clientId,
                 sessionId: this.sessionId,
                 ticket: payload.ticket,

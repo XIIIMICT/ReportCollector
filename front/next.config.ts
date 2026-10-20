@@ -9,6 +9,14 @@ const nextConfig: NextConfig = {
     output: "standalone",
     reactCompiler: true,
     allowedDevOrigins: ["127.0.0.1", "localhost"],
+    // The support mailbox has to be readable from CLIENT components too — the
+    // error boundary («Что-то пошло не так») renders its own support link and
+    // has no server props at all. `env` inlines the value at build time, so the
+    // variable stays single-named (`SUPPORT_MAIL`) in `.env` instead of being
+    // duplicated as a `NEXT_PUBLIC_` twin. It is a public mailbox by nature.
+    env: {
+        NEXT_PUBLIC_SUPPORT_MAIL: process.env.SUPPORT_MAIL ?? "",
+    },
     async headers() {
         return [
             {

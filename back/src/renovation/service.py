@@ -1235,6 +1235,7 @@ async def read_plan_facets(
             ],
             total=2,
             hasNulls=False,
+            nullCount=0,
         )
     if is_asset_column:
         group_column = col(RAsset.name)
@@ -1250,10 +1251,12 @@ async def read_plan_facets(
 
     counts: dict[str, int] = {}
     has_nulls = False
+    null_count = 0
     for raw_value, count in grouped:
         display = _facet_display(raw_value, meta, label_map)
         if display is None:
             has_nulls = True
+            null_count += int(count)
         else:
             counts[display] = counts.get(display, 0) + int(count)
 
@@ -1264,6 +1267,7 @@ async def read_plan_facets(
         values=[RenovationFacetValueRead(value=value, count=count) for value, count in window],
         total=len(ordered),
         hasNulls=has_nulls,
+        nullCount=null_count,
     )
 
 

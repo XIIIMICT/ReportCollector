@@ -110,6 +110,7 @@ import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
+import { SupportButton } from "@/shared/ui/support-button";
 import { runTableExport } from "@/shared/ui/table-export-action";
 import {
     errorMessage,
@@ -142,6 +143,8 @@ type RawMaterialsWorkspaceProps = {
     initialSection?: string | null;
     /** Mirrors the active tab into the URL so a reload keeps it. */
     onSectionChange?: (section: string | null) => void;
+    /** `SUPPORT_MAIL` - the mailbox of the header support control. */
+    supportMail: string;
 };
 
 type DictionarySection = "rawMaterials" | "assets" | "deliveryBases" | "users";
@@ -339,6 +342,7 @@ function SectionContent({
     currentUserEmail,
     headerPinned,
     showServiceColumns,
+    rowHeight,
     onUndoState,
     onApproveState,
     onArchiveState,
@@ -373,6 +377,7 @@ function SectionContent({
     /** Controlled display toggles (rendered in the workspace view strip). */
     headerPinned: boolean;
     showServiceColumns: boolean;
+    rowHeight: number;
     onUndoState: (state: UndoState) => void;
     onApproveState: (state: ApproveState) => void;
     onArchiveState: (state: ArchiveState) => void;
@@ -1044,6 +1049,7 @@ function SectionContent({
                         hasBaseline={false}
                         headerPinned={headerPinned}
                         showServiceColumns={showServiceColumns}
+                        rowHeight={rowHeight}
                         assets={assets}
                         deliveryBases={deliveryBases}
                         remoteLocks={remoteLocks}
@@ -1173,6 +1179,7 @@ export function RawMaterialsWorkspace({
     onProjectChange,
     initialSection = null,
     onSectionChange,
+    supportMail,
 }: RawMaterialsWorkspaceProps) {
     const [metaReloadKey, setMetaReloadKey] = useState(0);
     const { data: meta, error } = useAsyncData<RawMaterialsMeta>(
@@ -1262,8 +1269,15 @@ export function RawMaterialsWorkspace({
     // its own internal switcher state.
     const activeProjectKey = controlledProjectKey ?? internalProjectKey;
     const { setTheme } = useTheme();
-    const { headerPinned, showServiceColumns, setHeaderPinned, setShowServiceColumns } =
-        useViewState(activeProjectKey);
+    const {
+        headerPinned,
+        showServiceColumns,
+        rowHeight,
+        setHeaderPinned,
+        setShowServiceColumns,
+        setRowHeight,
+        resetRowHeight,
+    } = useViewState(activeProjectKey);
 
     const handleDeleteState = useCallback((state: DeleteActions) => setDeleteState(state), []);
 
@@ -1303,6 +1317,7 @@ export function RawMaterialsWorkspace({
             activeProjectKey={activeProjectKey}
             onProjectChange={handleProjectChange}
             onOpenProfile={() => setProfileOpen(true)}
+            supportMail={supportMail}
         />
     );
 
@@ -1522,12 +1537,15 @@ export function RawMaterialsWorkspace({
                 onHeaderPinnedChange={setHeaderPinned}
                 showServiceColumns={showServiceColumns}
                 onShowServiceColumnsChange={setShowServiceColumns}
+                rowHeight={rowHeight}
+                onRowHeightChange={setRowHeight}
+                onResetRowHeight={resetRowHeight}
                 onReset={handleStripReset}
                 isFullscreen={isFullscreen}
                 isFullscreenPending={isFullscreenPending}
                 onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
                 onDropdownOpenChange={setToolbarControlOpen}
-                columnResetLabel="Сбросить ширину столбцов и высоту заголовка"
+                columnResetLabel="Сбросить ширину столбцов и высоту строк"
             />
         </div>
     );
@@ -1584,6 +1602,7 @@ export function RawMaterialsWorkspace({
                     onUserCreateState={handleUserCreateState}
                     headerPinned={headerPinned}
                     showServiceColumns={showServiceColumns}
+                    rowHeight={rowHeight}
                     onUndoState={handleUndoState}
                     onApproveState={handleApproveState}
                     onArchiveState={handleArchiveState}
@@ -1614,7 +1633,7 @@ export function RawMaterialsWorkspace({
     );
 }
 
-function Brand({
+export function Brand({
     compact = false,
     projectName,
     projects,
@@ -1710,12 +1729,15 @@ export function AppHeader({
     activeProjectKey,
     onProjectChange,
     onOpenProfile,
+    supportMail,
 }: {
     user: CurrentUser;
     projects: Array<{ key: string; name: string }>;
     activeProjectKey: string;
     onProjectChange: (key: string) => void;
     onOpenProfile: () => void;
+    /** ``SUPPORT_MAIL`` - the «Связаться с разработчиком» mailbox ('' hides it). */
+    supportMail: string;
 }) {
     const fullname = user.name ?? "";
     const email = user.email ?? "";
@@ -1757,6 +1779,10 @@ export function AppHeader({
                         <small>{email}</small>
                     </span>
                 </Button>
+                {/* The developer contact sits right after the profile: it is
+                    about the same person's account, and it is the last resort
+                    when something is wrong with the app itself. */}
+                <SupportButton projectName={projectName} supportMail={supportMail} />
             </div>
         </header>
     );

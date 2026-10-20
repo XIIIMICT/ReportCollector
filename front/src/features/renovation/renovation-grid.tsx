@@ -78,12 +78,6 @@ const HEADER_LEVEL_HEIGHT_STORAGE_KEY = "renovation:headerLevelHeights";
 const HEADER_LEVEL_COUNT = 11;
 const ROW_HEADER_WIDTH = 52;
 
-/** Height of the column-number strip under the header levels. */
-const COLUMN_NUMBER_ROW_HEIGHT = 24;
-/** Row height of the plan grid (`rowSize` on <RevoGrid>) — the scroll math unit. */
-const ROW_HEIGHT = 36;
-/** Height of the pinned totals row (revo-grid rowSize) — a merged number cell spans both. */
-const SUMMARY_ROW_HEIGHT = 36;
 const MIN_COLUMN_WIDTH = 60;
 const MAX_COLUMN_WIDTH = 600;
 const WIDTH_STORAGE_PREFIX = "renovation:colWidth:";
@@ -227,6 +221,8 @@ export type RenovationGridProps = {
     /** Controlled display toggles (rendered in the view strip). */
     headerPinned: boolean;
     showServiceColumns: boolean;
+    /** Controlled RevoGrid data row height. */
+    rowHeight: number;
     /** Numeric totals of the filtered plan — the pinned summary row (null hides it). */
     summaryValues?: Record<string, number> | null;
     /** Live updates for rows the plugin already holds (edits, undo, remote cells). */
@@ -517,6 +513,7 @@ function RenovationGridInner(
         onViewStatsChange,
         headerPinned,
         showServiceColumns,
+        rowHeight,
         summaryValues = null,
         rowPatches,
         onLoadedRowsChange,
@@ -594,19 +591,20 @@ function RenovationGridInner(
         const offsets: number[] = [0];
         let acc = 0;
         for (const height of levelHeights) {
-            acc += height;
+            acc += (height * rowHeight) / 36;
             offsets.push(acc);
         }
         return offsets;
-    }, [levelHeights]);
+    }, [levelHeights, rowHeight]);
     const headerHeight =
         levelOffsets[HEADER_LEVEL_COUNT] ?? HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT;
     // The totals row is a revo-grid pinned top row (like the assets dictionary).
     // The overlay carries the 11 header levels plus the column-number strip
     // directly above the pinned totals row.
-    const overlayHeight = headerHeight + COLUMN_NUMBER_ROW_HEIGHT;
+    const columnNumberRowHeight = rowHeight;
+    const overlayHeight = headerHeight + columnNumberRowHeight;
     /** The pinned totals row's height (0 when there is no summary). */
-    const summaryHeight = summaryValues === null ? 0 : SUMMARY_ROW_HEIGHT;
+    const summaryHeight = summaryValues === null ? 0 : rowHeight;
     // Floating tooltip over a cell occupied by another participant (lease/presence):
     // the owner's name in bold, then the selected range.
     const [remoteTooltip, setRemoteTooltip] = useState<{
@@ -761,10 +759,10 @@ function RenovationGridInner(
         // spans the strip AND the totals row (no line between the two). Only
         // when the totals band is shown — without it nothing extends below.
         const heightOf = (dbName: string): number => {
-            if (summaryValues === null) return COLUMN_NUMBER_ROW_HEIGHT;
+            if (summaryValues === null) return rowHeight;
             return typeof summaryValues[dbName] === "number"
-                ? COLUMN_NUMBER_ROW_HEIGHT
-                : COLUMN_NUMBER_ROW_HEIGHT + SUMMARY_ROW_HEIGHT;
+                ? rowHeight
+                : rowHeight + summaryHeight;
         };
         const cells: Array<{
             key: string;
@@ -800,7 +798,16 @@ function RenovationGridInner(
             });
         }
         return cells;
-    }, [assetColumnNumber, assetWidth, displayFields, fieldWidth, geometry.offsets, summaryValues]);
+    }, [
+        assetColumnNumber,
+        assetWidth,
+        displayFields,
+        fieldWidth,
+        geometry.offsets,
+        summaryValues,
+        rowHeight,
+        summaryHeight,
+    ]);
 
     // The header is a static grid of cells (text, colSpan/rowSpan from the
     // backend). A cell's startPosition is 0-based (0 = the first field, whose
@@ -1458,52 +1465,55 @@ function RenovationGridInner(
     // until the scroll position matches the row (±5 rows of slack — the plugin
     // may align the chunk slightly differently). Returns a cancel function.
     // Used by the structural tail jump and the «go to row» popover.
-    const jumpToRow = useCallback((target: number, centered = false): (() => void) => {
-        const grid = gridRef.current;
-        if (!grid) return () => {};
-        let cancelled = false;
-        let attempts = 0;
-        // The scroll coordinate the row should end up at: its top, or — for a
-        // centred jump — the middle of the data viewport (the pinned totals row
-        // is not part of the scrollable rows).
-        const targetTop = () => {
-            if (!centered) return target * ROW_HEIGHT;
-            const dataHeight = Math.max(0, grid.clientHeight - summaryHeightRef.current);
-            return Math.max(0, target * ROW_HEIGHT - (dataHeight - ROW_HEIGHT) / 2);
-        };
-        const landed = () => {
-            const internal = grid.querySelector(
-                "revogr-scroll-virtual.vertical",
-            ) as HTMLElement | null;
-            const external = document.querySelector(
-                ".revo-grid-vertical-scroller",
-            ) as HTMLElement | null;
-            const top = internal?.scrollTop || external?.scrollTop || 0;
-            if (target === 0) return top <= ROW_HEIGHT;
-            return Math.abs(top - targetTop()) <= ROW_HEIGHT * 5;
-        };
-        const attempt = () => {
-            if (cancelled || attempts >= 50) return;
-            attempts += 1;
-            void (async () => {
-                try {
-                    if (centered) await grid.scrollToCoordinate({ y: targetTop() });
-                    else await grid.scrollToRow(target);
-                } catch {
-                    // The element may not be upgraded yet — retry below.
-                }
-                if (cancelled) return;
-                window.setTimeout(() => {
-                    if (cancelled || landed()) return;
-                    attempt();
-                }, 150);
-            })();
-        };
-        attempt();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    const jumpToRow = useCallback(
+        (target: number, centered = false): (() => void) => {
+            const grid = gridRef.current;
+            if (!grid) return () => {};
+            let cancelled = false;
+            let attempts = 0;
+            // The scroll coordinate the row should end up at: its top, or — for a
+            // centred jump — the middle of the data viewport (the pinned totals row
+            // is not part of the scrollable rows).
+            const targetTop = () => {
+                if (!centered) return target * rowHeight;
+                const dataHeight = Math.max(0, grid.clientHeight - summaryHeightRef.current);
+                return Math.max(0, target * rowHeight - (dataHeight - rowHeight) / 2);
+            };
+            const landed = () => {
+                const internal = grid.querySelector(
+                    "revogr-scroll-virtual.vertical",
+                ) as HTMLElement | null;
+                const external = document.querySelector(
+                    ".revo-grid-vertical-scroller",
+                ) as HTMLElement | null;
+                const top = internal?.scrollTop || external?.scrollTop || 0;
+                if (target === 0) return top <= rowHeight;
+                return Math.abs(top - targetTop()) <= rowHeight * 5;
+            };
+            const attempt = () => {
+                if (cancelled || attempts >= 50) return;
+                attempts += 1;
+                void (async () => {
+                    try {
+                        if (centered) await grid.scrollToCoordinate({ y: targetTop() });
+                        else await grid.scrollToRow(target);
+                    } catch {
+                        // The element may not be upgraded yet — retry below.
+                    }
+                    if (cancelled) return;
+                    window.setTimeout(() => {
+                        if (cancelled || landed()) return;
+                        attempt();
+                    }, 150);
+                })();
+            };
+            attempt();
+            return () => {
+                cancelled = true;
+            };
+        },
+        [rowHeight],
+    );
 
     /**
      * Scroll horizontally to the column carrying the given strip number.
@@ -1601,7 +1611,7 @@ function RenovationGridInner(
         const dataHeight = Math.max(0, grid.clientHeight - summaryHeightRef.current);
         const centerIndex = Math.max(
             0,
-            Math.min(total - 1, Math.floor((scrollTop + dataHeight / 2) / ROW_HEIGHT)),
+            Math.min(total - 1, Math.floor((scrollTop + dataHeight / 2) / rowHeight)),
         );
         const source = (await grid.getSource("rgRow")) as RenovationGridRow[];
         let row = source[centerIndex];
@@ -1610,7 +1620,7 @@ function RenovationGridInner(
         }
         if (!row || row.__id === undefined) return;
         onCenterPositionChangeRef.current?.(row.__position);
-    }, []);
+    }, [rowHeight]);
 
     // Report the rows the plugin holds. Fires on every chunk load/eviction so
     // the workspace can mirror them (and patch them in place later). Each row
@@ -2798,7 +2808,7 @@ function RenovationGridInner(
                     top: headerPinned ? 0 : headerHeight,
                     height: headerPinned
                         ? overlayHeight + summaryHeight
-                        : COLUMN_NUMBER_ROW_HEIGHT + summaryHeight,
+                        : columnNumberRowHeight + summaryHeight,
                 }}
             >
                 <span className="renovation-grid__corner-label">№</span>
@@ -3211,7 +3221,7 @@ function RenovationGridInner(
                     editors={editors}
                     hideAttribution
                     readonly={readOnly}
-                    rowSize={ROW_HEIGHT}
+                    rowSize={rowHeight}
                     colSize={150}
                     accessible
                     onAftersourceset={() => {

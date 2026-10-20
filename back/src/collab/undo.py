@@ -25,6 +25,7 @@ from src.collab.locking import lock_project, lock_rows
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE, canonical_key
 from src.collab.store import lease_key
 from src.common.section_policy import section_policy
+from src.kppk.constants import KPPK_PROJECT_KEY
 from src.kppk.dictionaries import apply_kppk_cell_value
 from src.kppk.models import KppkCost, KppkOrg, KppkProduct, KppkRaw, KppkRealization, KppkRealizationPlan
 from src.kppk.users import apply_kppk_user_value
@@ -455,6 +456,18 @@ async def _authorize_action(session: AsyncSession, user: User, action: dict, cel
                 return False
             arm = await session.get(AssetRawMaterial, row.asset_raw_material_id)
             if arm is None or (not admin and await session.get(RawMaterialUserAsset, (user.id, arm.asset_id)) is None):
+                return False
+        elif action["project"] == KPPK_PROJECT_KEY and table in {
+            "kppk_realization",
+            "kppk_realization_plan",
+            "kppk_cost",
+        }:
+            model = {
+                "kppk_realization": KppkRealization,
+                "kppk_realization_plan": KppkRealizationPlan,
+                "kppk_cost": KppkCost,
+            }[table]
+            if not admin or await session.get(model, row_id, populate_existing=True) is None:
                 return False
         elif not await _dictionary_writable(user=user, link=link, section=action.get("section") or ""):
             # A stale dictionary action of a member is not replayed while the

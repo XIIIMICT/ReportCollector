@@ -17,12 +17,15 @@ type ReportWorkspaceProps = {
     projectKey: string;
     /** The form/tab picked last time, restored from `?section=`. */
     initialSection?: string | null;
+    /** `SUPPORT_MAIL` — the «Связаться с разработчиком» mailbox ('' hides it). */
+    supportMail: string;
 };
 
 export function ReportWorkspace({
     currentUser,
     projectKey,
     initialSection = null,
+    supportMail,
 }: ReportWorkspaceProps) {
     const router = useRouter();
     const [activeProjectKey, setActiveProjectKey] = useState(projectKey);
@@ -39,7 +42,10 @@ export function ReportWorkspace({
         (section: string | null) => {
             const slug = projectSlugFromKey(activeProjectKey);
             if (slug === null) return;
-            router.replace(section ? `${slug}?section=${encodeURIComponent(section)}` : slug, {
+            const params = new URLSearchParams(window.location.search);
+            if (section) params.set("section", section);
+            else params.delete("section");
+            router.replace(`${slug}${params.toString() ? `?${params.toString()}` : ""}`, {
                 scroll: false,
             });
         },
@@ -64,6 +70,7 @@ export function ReportWorkspace({
         onProjectChange: handleProjectChange,
         initialSection,
         onSectionChange: handleSectionChange,
+        supportMail,
     };
 
     if (activeProjectKey === "renovation") {

@@ -292,6 +292,7 @@ async def _serve_room(
         return
     section = websocket.query_params.get("section") or default_section
     report_month = websocket.query_params.get("reportMonth") or None
+    scope = websocket.query_params.get("scope") or None
     project_key = websocket.query_params.get("project") or default_project
     if project_key != default_project:
         await websocket.close(code=4403)
@@ -304,6 +305,7 @@ async def _serve_room(
             project_key,
             section,
             report_month,
+            scope,
         )
         user, roles, assets, block = await access.resolve(session)
     except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError, NoKppkAccessError:
@@ -334,7 +336,7 @@ async def _serve_room(
         return
 
     client_id = websocket.query_params.get("clientId") or user.email or str(user.id)
-    room = room_key(project_key, section, report_month)
+    room = room_key(project_key, section, report_month, scope)
 
     session_id = websocket.query_params.get("sessionId") or client_id
     owner = {

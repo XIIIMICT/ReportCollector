@@ -56,7 +56,9 @@ async function openFilter(column = "col_011", firstLabel = "Насос") {
             onClose={() => {}}
         />,
     );
-    await waitFor(() => expect(screen.getByRole("option", { name: firstLabel })).toBeTruthy());
+    await waitFor(() =>
+        expect(screen.getByRole("option", { name: new RegExp(`^${firstLabel}`) })).toBeTruthy(),
+    );
     return view;
 }
 
@@ -69,7 +71,7 @@ test("separator sits between «Пустые» and the values", async () => {
     const separator = document.querySelector(".smart-select__separator");
     expect(separator).toBeTruthy();
     const nullOption = screen.getByRole("option", { name: "Пустые" });
-    const firstValue = screen.getByRole("option", { name: "Насос" });
+    const firstValue = screen.getByRole("option", { name: /^Насос/ });
     expect(
         nullOption.compareDocumentPosition(separator!) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -82,8 +84,8 @@ test("unchecking the last option unchecks «Выбрать все»", async () =
     await openFilter();
     expect(master().getAttribute("aria-selected")).toBe("true");
 
-    fireEvent.click(screen.getByRole("option", { name: "Насос" }));
-    fireEvent.click(screen.getByRole("option", { name: "Шкаф" }));
+    fireEvent.click(screen.getByRole("option", { name: /^Насос/ }));
+    fireEvent.click(screen.getByRole("option", { name: /^Шкаф/ }));
     fireEvent.click(screen.getByRole("option", { name: "Пустые" }));
 
     await waitFor(() => expect(master().getAttribute("aria-selected")).toBe("false"));
@@ -102,10 +104,10 @@ test("unchecking «Выбрать все» clears every option, «Пустые»
     expect(screen.getByRole("option", { name: "Пустые" }).getAttribute("aria-selected")).toBe(
         "false",
     );
-    expect(screen.getByRole("option", { name: "Насос" }).getAttribute("aria-selected")).toBe(
+    expect(screen.getByRole("option", { name: /^Насос/ }).getAttribute("aria-selected")).toBe(
         "false",
     );
-    expect(screen.getByRole("option", { name: "Шкаф" }).getAttribute("aria-selected")).toBe(
+    expect(screen.getByRole("option", { name: /^Шкаф/ }).getAttribute("aria-selected")).toBe(
         "false",
     );
 });
@@ -114,16 +116,16 @@ test("ID column: unchecking both buckets unchecks «Выбрать все»", as
     await openFilter("col_003", "Корректные");
     expect(master().getAttribute("aria-selected")).toBe("true");
 
-    fireEvent.click(screen.getByRole("option", { name: "Корректные" }));
-    fireEvent.click(screen.getByRole("option", { name: "Некорректные" }));
+    fireEvent.click(screen.getByRole("option", { name: /^Корректные/ }));
+    fireEvent.click(screen.getByRole("option", { name: /^Некорректные/ }));
 
     await waitFor(() => expect(master().getAttribute("aria-selected")).toBe("false"));
 });
 
 test("ID column: checking both buckets back checks «Выбрать все»", async () => {
     await openFilter("col_003", "Корректные");
-    const correct = () => screen.getByRole("option", { name: "Корректные" });
-    const incorrect = () => screen.getByRole("option", { name: "Некорректные" });
+    const correct = () => screen.getByRole("option", { name: /^Корректные/ });
+    const incorrect = () => screen.getByRole("option", { name: /^Некорректные/ });
 
     fireEvent.click(correct());
     fireEvent.click(incorrect());
@@ -167,16 +169,19 @@ test("paged column: no «Загрузка…» caption, and new windows arrive c
     // Windows keep arriving while the list fits (jsdom reports zero heights, so
     // the short-list effect pulls every page), and each tail value is checked.
     await waitFor(() => expect(requested.length).toBeGreaterThan(1), { timeout: 3000 });
-    await waitFor(() => expect(screen.getByRole("option", { name: "Значение 499" })).toBeTruthy(), {
-        timeout: 3000,
-    });
+    await waitFor(
+        () => expect(screen.getByRole("option", { name: /^Значение 499/ })).toBeTruthy(),
+        {
+            timeout: 3000,
+        },
+    );
 
-    expect(screen.getByRole("option", { name: "Значение 200" }).getAttribute("aria-selected")).toBe(
-        "true",
-    );
-    expect(screen.getByRole("option", { name: "Значение 499" }).getAttribute("aria-selected")).toBe(
-        "true",
-    );
+    expect(
+        screen.getByRole("option", { name: /^Значение 200/ }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(
+        screen.getByRole("option", { name: /^Значение 499/ }).getAttribute("aria-selected"),
+    ).toBe("true");
     expect(master().getAttribute("aria-selected")).toBe("true");
     // Every window was requested once, in order, and never re-fetched.
     expect(requested).toEqual([...new Set(requested)]);
