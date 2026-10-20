@@ -104,7 +104,14 @@ export function ViewStrip({
                                     minValue={MIN_ROW_HEIGHT}
                                     maxValue={MAX_ROW_HEIGHT}
                                     onChange={(value) => {
-                                        if (value !== undefined) onRowHeightChange?.(value);
+                                        if (value !== undefined) {
+                                            // NumberField lives inside HeroUI's portaled
+                                            // Dropdown. Defer the workspace update until
+                                            // React Aria finishes the menu lifecycle;
+                                            // updating the parent synchronously here makes
+                                            // React report a flushSync-during-render error.
+                                            queueMicrotask(() => onRowHeightChange?.(value));
+                                        }
                                     }}
                                     variant="secondary"
                                     className="view-strip__row-height-field"
