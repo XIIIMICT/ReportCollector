@@ -257,6 +257,7 @@ export function KppkRealizationSection({
     }, [includeExcise, isCost, slice]);
 
     const [reloadKey, setReloadKey] = useState(0);
+    const [isGridSorted, setIsGridSorted] = useState(false);
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
     const loader = useCallback(
         () =>
@@ -392,7 +393,8 @@ export function KppkRealizationSection({
     const stablePlaceholderCommit = useCallback(async () => true, []);
     const stableSelectedRowsChange = useCallback(() => {}, []);
 
-    // ── Grid rows: the group lead carries the product name; then merge ranges ──
+    // Keep complete source values: merged cells hide covered labels visually,
+    // but sorting and filtering must always read the real product on every row.
     const gridRows = useMemo<GridRow[]>(() => {
         const rows = view?.rows ?? [];
         const fields = isCost
@@ -404,7 +406,7 @@ export function KppkRealizationSection({
             previous = row.product;
             const gridRow: GridRow = {
                 ...row,
-                product: isCost || isGroupStart ? row.product : "",
+                product: isCost || isGridSorted || isGroupStart ? row.product : "",
                 rowState: "unchanged",
                 changedFields: [],
                 isDeleted: false,
@@ -422,14 +424,14 @@ export function KppkRealizationSection({
             }
             return gridRow;
         });
-    }, [isAdmin, isCost, remoteCellValues, roomSection, slice, view?.rows]);
+    }, [isAdmin, isCost, isGridSorted, remoteCellValues, roomSection, slice, view?.rows]);
 
     // The template folds each product's region rows into one merged cell: one
     // rowSpan range per run of rows sharing the product. The merge covers the
     // leading `productNum` + `product` leaves (indexes 0 and 1): the «№» of a
     // product is one block spanning all of its market rows, like its name.
     const cellMerge = useMemo<MergeData[]>(() => {
-        if (isCost) return [];
+        if (isCost || isGridSorted) return [];
         const rows = view?.rows ?? [];
         const sweeps: MergeData[] = [];
         let start = -1;
@@ -447,7 +449,7 @@ export function KppkRealizationSection({
         }
         if (start >= 0) push(start, rows.length);
         return sweeps;
-    }, [isCost, view?.rows]);
+    }, [isCost, isGridSorted, view?.rows]);
 
     // ── Workspace wiring (footer actions, strip handlers) ──
     const gridRef = useRef<RawMaterialsGridHandle>(null);
@@ -585,9 +587,9 @@ export function KppkRealizationSection({
                 showServiceColumns={showServiceColumns}
                 rowHeight={rowHeight}
                 columnDescriptors={descriptors}
-                // The rows follow the server order (product number → market):
-                // a header click must not reshuffle the view.
-                sortable={isCost}
+                // Merge only in the original product/market order. Keep the
+                // plugin mounted: replacing it would rebuild sorting too.
+                sortable
                 plugins={isCost ? [] : [CellMergePlugin]}
                 cellMerge={cellMerge}
                 assets={[]}
@@ -603,6 +605,7 @@ export function KppkRealizationSection({
                 onLockedCellEdit={gridWarnings.onLockedCellEdit}
                 onValidationError={gridWarnings.onValidationError}
                 onViewStatsChange={handleViewStats}
+                onSortingChange={setIsGridSorted}
                 // Row operations are disabled on this form (the rows come from
                 // the source copies) — the grid just requires the handler.
                 onSelectedRowsChange={stableSelectedRowsChange}

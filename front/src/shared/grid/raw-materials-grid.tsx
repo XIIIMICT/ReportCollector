@@ -117,9 +117,8 @@ type Props = {
     /** Custom column set — overrides the built-in descriptors for the section. */
     columnDescriptors?: ColumnDescriptor[];
     /**
-     * Whether the header sorts on click (default true). A form whose rows come
-     * in a server-defined order (the «Реализация» view: by product number, then
-     * by market) turns it off, like the renovation plan's grid never offered it.
+     * Whether the header sorts on click (default true). The КППК realization
+     * view keeps sorting enabled and temporarily disables product-cell merges.
      */
     sortable?: boolean;
     /** Distinguishes width/sorting persistence when several grids share a section id. */
@@ -153,6 +152,8 @@ type Props = {
     onAcquireLease?: (keys: string[]) => void;
     onReleaseLease?: (keys: string[]) => void;
     onViewStatsChange?: (stats: GridViewStats) => void;
+    /** Reports whether a user sorting is currently active. */
+    onSortingChange?: (active: boolean) => void;
     onClipboardStateChange?: (state: { canPaste: boolean }) => void;
     /** Completed selection (for presence): label and cell keys of the range. */
     onSelectionChange?: (selection: {
@@ -281,6 +282,7 @@ function RawMaterialsGridInner(
         onAcquireLease,
         onReleaseLease,
         onViewStatsChange,
+        onSortingChange,
         onClipboardStateChange,
         onSelectionChange,
         remoteCellInfo = new Map(),
@@ -1321,9 +1323,10 @@ function RawMaterialsGridInner(
             | undefined;
         await filterPlugin?.clearFiltering();
         await grid.clearSorting();
+        onSortingChange?.(false);
         userSortedSectionsRef.current.delete(section);
         gridRef.current?.classList.remove("raw-materials-grid--user-sorted");
-    }, [section]);
+    }, [onSortingChange, section]);
 
     const resetColumnWidths = useCallback(() => {
         resizedWidthsRef.current.clear();
@@ -1840,14 +1843,20 @@ function RawMaterialsGridInner(
                         void measureViewport();
                     }}
                     onBeforesorting={() => {
+                        // Remove index-based merges before RevoGrid reorders
+                        // rows. RevoGrid starts sorting in a debounced job after
+                        // this event; queue the plugin update so it cannot reset
+                        // the sort while the lifecycle event is still running.
+                        queueMicrotask(() => {
+                            if (onSortingChange && gridRef.current) gridRef.current.cellMerge = [];
+                        });
                         userSortedSectionsRef.current.add(section);
                         gridRef.current?.classList.add("raw-materials-grid--user-sorted");
                     }}
                     onAftersortingapply={(event) => {
-                        sortingBySectionRef.current.set(
-                            section,
-                            sortingConfigFromEvent(event.detail),
-                        );
+                        const sorting = sortingConfigFromEvent(event.detail);
+                        sortingBySectionRef.current.set(section, sorting);
+                        onSortingChange?.(sorting.columns.length > 0);
                     }}
                     onBeforefilterapply={(event) => {
                         // Filtering trims the data source synchronously, and there
