@@ -34,7 +34,7 @@ class RReferenceCatalog(StrEnum):
 class RenovationReferenceValue(SQLModel, table=True):
     """A selectable option of a renovation reference catalog."""
 
-    __tablename__ = "renovation_reference_values"
+    __tablename__ = "r_reference_values"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     catalog: RReferenceCatalog = Field(
@@ -59,10 +59,10 @@ class RenovationReferenceValue(SQLModel, table=True):
     )
     updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
     __table_args__ = (
-        Index("ix_renovation_reference_values_catalog_key", "catalog", "value_key", unique=True),
+        Index("ix_r_reference_values_catalog_key", "catalog", "value_key", unique=True),
         # A catalog is a dictionary: one entry per label (case-insensitive).
         Index(
-            "uq_renovation_reference_values_catalog_label",
+            "uq_r_reference_values_catalog_label",
             "catalog",
             text("lower(label)"),
             unique=True,
@@ -73,11 +73,11 @@ class RenovationReferenceValue(SQLModel, table=True):
 class RenovationPlan(SQLModel, table=True):
     """A renovation plan version (working, pending approval, or archived)."""
 
-    __tablename__ = "renovation_plans"
+    __tablename__ = "r_plans"
     __table_args__ = (
-        Index("uq_renovation_plans_one_working", "project_id", unique=True, postgresql_where=text("state = 'working'")),
+        Index("uq_r_plans_one_working", "project_id", unique=True, postgresql_where=text("state = 'working'")),
         Index(
-            "uq_renovation_plans_one_pending",
+            "uq_r_plans_one_pending",
             "project_id",
             unique=True,
             postgresql_where=text("state = 'pending_approval'"),
@@ -103,19 +103,19 @@ class RenovationPlan(SQLModel, table=True):
 class RenovationPlanRow(SQLModel, table=True):
     """A single row of a renovation plan version (flat typed values)."""
 
-    __tablename__ = "renovation_plan_rows"
+    __tablename__ = "r_plan_rows"
     __table_args__ = (
-        Index("uq_renovation_plan_rows_position", "plan_id", "position", unique=True),
-        Index("ix_renovation_plan_rows_asset", "plan_id", "asset_id", "position"),
-        Index("ix_renovation_plan_rows_col_015", "col_015"),
-        Index("ix_renovation_plan_rows_col_017", "col_017"),
-        Index("ix_renovation_plan_rows_col_018", "col_018"),
-        Index("ix_renovation_plan_rows_col_019", "col_019"),
-        Index("ix_renovation_plan_rows_col_020", "col_020"),
+        Index("uq_r_plan_rows_position", "plan_id", "position", unique=True),
+        Index("ix_r_plan_rows_asset", "plan_id", "asset_id", "position"),
+        Index("ix_r_plan_rows_col_015", "col_015"),
+        Index("ix_r_plan_rows_col_017", "col_017"),
+        Index("ix_r_plan_rows_col_018", "col_018"),
+        Index("ix_r_plan_rows_col_019", "col_019"),
+        Index("ix_r_plan_rows_col_020", "col_020"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    plan_id: UUID = Field(foreign_key="renovation_plans.id", ondelete="CASCADE")
+    plan_id: UUID = Field(foreign_key="r_plans.id", ondelete="CASCADE")
     # Nullable: rows may be added as empty drafts before their asset is chosen
     # (see add_plan_row); asset-less rows carry no renovation id and are removed
     # again on submit if still empty.
@@ -140,24 +140,24 @@ class RenovationPlanRow(SQLModel, table=True):
     col_014: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
     col_015: UUID | None = Field(
         default=None,
-        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("renovation_reference_values.id"), nullable=True),
+        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("r_reference_values.id"), nullable=True),
     )
     col_016: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
     col_017: UUID | None = Field(
         default=None,
-        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("renovation_reference_values.id"), nullable=True),
+        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("r_reference_values.id"), nullable=True),
     )
     col_018: UUID | None = Field(
         default=None,
-        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("renovation_reference_values.id"), nullable=True),
+        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("r_reference_values.id"), nullable=True),
     )
     col_019: UUID | None = Field(
         default=None,
-        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("renovation_reference_values.id"), nullable=True),
+        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("r_reference_values.id"), nullable=True),
     )
     col_020: UUID | None = Field(
         default=None,
-        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("renovation_reference_values.id"), nullable=True),
+        sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("r_reference_values.id"), nullable=True),
     )
     col_021: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
     col_022: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))

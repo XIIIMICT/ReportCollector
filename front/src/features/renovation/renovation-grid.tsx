@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Tooltip } from "@heroui/react";
 import {
@@ -67,7 +67,7 @@ import { breaksValueRules } from "./renovation-rules";
  * the row scope) and pushes live cell updates into loaded rows.
  */
 
-export const RENOVATION_PLAN_ROWS_TABLE = "renovation_plan_rows";
+export const RENOVATION_PLAN_ROWS_TABLE = "r_plan_rows";
 
 const HEADER_LEVEL_HEIGHT = 24;
 /** Limits of a header level's height (dragged on the level's bottom boundary). */

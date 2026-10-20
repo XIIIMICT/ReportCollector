@@ -138,6 +138,7 @@ const HOVER_CLOSE_DELAY_MS = 200;
  * the panel sideways whenever it is wider than the cell. RTL would mirror it.
  */
 const ANCHOR_PLACEMENT = "bottom end" as const;
+const ANCHOR_OFFSET = 2;
 /** Sentinels for the pinned rows (never real option ids). */
 const NULL_OPTION_ID = "__null_option__";
 const ALL_OPTION_ID = "__all_option__";
@@ -449,7 +450,7 @@ export function SmartSelect({
                     </Autocomplete.Trigger>
                     <Autocomplete.Popover
                         ref={popoverRef}
-                        {...(anchor && { placement: ANCHOR_PLACEMENT })}
+                        {...(anchor && { placement: ANCHOR_PLACEMENT, offset: ANCHOR_OFFSET })}
                         className={["smart-select-popover", popoverClassName]
                             .filter(Boolean)
                             .join(" ")}
@@ -530,7 +531,7 @@ export function SmartSelect({
                     </Select.Trigger>
                     <Select.Popover
                         ref={popoverRef}
-                        {...(anchor && { placement: ANCHOR_PLACEMENT })}
+                        {...(anchor && { placement: ANCHOR_PLACEMENT, offset: ANCHOR_OFFSET })}
                         className={["smart-select-popover", popoverClassName]
                             .filter(Boolean)
                             .join(" ")}

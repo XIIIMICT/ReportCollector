@@ -389,7 +389,7 @@ async def _authorize_action(session: AsyncSession, user: User, action: dict, cel
         row_id = UUID(cell["rowId"])
         if table == "app_users" and row_id == user.id:
             return False
-        if renovation and table == "renovation_plan_rows":
+        if renovation and table == "r_plan_rows":
             row = await session.get(RenovationPlanRow, row_id, populate_existing=True)
             # «__created»/«__deleted» restore a row that no longer exists (or
             # undo removes the new one): the plan guard uses the snapshot's

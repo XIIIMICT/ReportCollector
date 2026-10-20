@@ -362,7 +362,7 @@ async def _rebuild_costs(connection: AsyncConnection, app_schema: str) -> int:
     Prefer markets with nonzero realization in the corresponding slice. If a
     product has no sales at all, preserve its only nonzero cost anyway: costs
     belong to production and do not disappear when the sales volume is zero.
-    Reject different nonzero values among the candidate rows atomically.
+    Use the maximum nonzero candidate value and report every conflicting group.
     """
     cost = _qualified(app_schema, "kppk_cost")
     await connection.execute(text(f"TRUNCATE TABLE {cost}"))
@@ -403,17 +403,22 @@ async def _rebuild_costs(connection: AsyncConnection, app_schema: str) -> int:
             f"candidates AS (SELECT * FROM scoped WHERE NOT has_sales OR {active}) "
         )
         for field in mapping:
-            conflict = (
+            conflicts = (
                 await connection.execute(
                     text(
-                        candidates + "SELECT org_id, period_date, product FROM candidates "  # noqa: S608 — server-owned identifiers
-                        f"GROUP BY org_id, period_date, product HAVING count(DISTINCT nullif({field}, 0)) > 1 LIMIT 1"
+                        candidates + "SELECT org_id, period_date, product, "  # noqa: S608 — server-owned identifiers
+                        f"array_agg(DISTINCT {field} ORDER BY {field}) FILTER (WHERE {field} <> 0) AS cost_values "
+                        f"FROM candidates GROUP BY org_id, period_date, product "
+                        f"HAVING count(DISTINCT nullif({field}, 0)) > 1"
                     )
                 )
-            ).first()
-            if conflict is not None:
-                message = f"Разные ненулевые значения {table}.{field}: ДЗО {conflict.org_id}, {conflict.period_date}, {conflict.product}."
-                raise CommandError(message)
+            ).all()
+            for conflict in conflicts:
+                print(
+                    f"Предупреждение: разные ненулевые значения {table}.{field}: "
+                    f"ДЗО {conflict.org_id}, {conflict.period_date}, {conflict.product}: "
+                    f"{conflict.cost_values}. Берём максимум {max(conflict.cost_values)}."
+                )
         columns = ", ".join(mapping.values())
         aggregates = ", ".join(f"coalesce(max(nullif({field}, 0)), 0)" for field in mapping)
         updates = ", ".join(f"{column} = excluded.{column}" for column in mapping.values())

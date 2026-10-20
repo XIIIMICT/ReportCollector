@@ -53,7 +53,7 @@ import { useDeleteShortcut } from "@/shared/ui/workspace-shortcuts";
 const gridWarnings = gridWarningHandlers({});
 
 const R_ASSETS_TABLE = "r_assets";
-const R_REFERENCE_VALUES_TABLE = "renovation_reference_values";
+const R_REFERENCE_VALUES_TABLE = "r_reference_values";
 const R_USERS_TABLE = "app_users";
 
 const PLACEHOLDER_ID_PREFIX = "new";
@@ -73,7 +73,7 @@ export function renovationSectionTable(section: string): string {
     if (section === RENOVATION_ASSETS_SECTION) return R_ASSETS_TABLE;
     if (section === RENOVATION_USERS_SECTION) return R_USERS_TABLE;
     if (section.startsWith("renovationCatalog:")) return R_REFERENCE_VALUES_TABLE;
-    return "renovation_plan_rows";
+    return "r_plan_rows";
 }
 
 function collabTableOf(section: DictionarySection): string {

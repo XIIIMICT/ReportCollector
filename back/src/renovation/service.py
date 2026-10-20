@@ -4,7 +4,7 @@ Renovation plan domain service: access, reading, cell edits, recalculation and l
 The «Ремонт» form is the legacy renovation plan: 216 fields (col_002..
 col_217), formula-calculated columns and the composite renovation ID
 (col_003, a text column). Reference fields are stored as
-renovation_reference_values ids and transported over the API as display
+r_reference_values ids and transported over the API as display
 labels (the same pattern as «deliveryBasisName» in the «Цены» form).
 """
 
@@ -2459,7 +2459,7 @@ async def approve_plan(
     session.add(working)
     await session.flush()
     # Copy inside PostgreSQL: no 94k-row ORM graph or millions of Python assignments.
-    table = RenovationPlanRow.metadata.tables["renovation_plan_rows"]
+    table = RenovationPlanRow.metadata.tables["r_plan_rows"]
     overrides = {
         "id": func.gen_random_uuid(),
         "plan_id": literal(working.id),

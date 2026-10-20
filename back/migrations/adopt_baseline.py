@@ -9,9 +9,10 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import Column, DateTime, Enum, Index, inspect, text
+from sqlalchemy import Column, DateTime, Enum, ForeignKeyConstraint, Index, MetaData, inspect, text
 from sqlalchemy.dialects.postgresql.base import PGInspector
 from sqlalchemy.engine import Connection
+from sqlalchemy.sql.elements import quoted_name
 from sqlmodel import SQLModel
 
 from src import models as _models  # noqa: F401
@@ -75,14 +76,16 @@ def prune_legacy_revision_files(directory: Path) -> list[str]:
     return pruned
 
 
-# Legacy-only column the models dropped: `renovation_reference_values.metadata`.
+# Legacy-only column the models dropped: the old `renovation_reference_values.metadata`.
 # It is nullable and unused; the guard tolerates it so old installations adopt.
 # `renovation_plan_rows.col_218` (the retired «Корректировка») is dropped by
 # 0007_drop_plan_correction, which runs after the baseline during adoption, so
 # its presence on the pre-adoption schema is expected too.
 _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
     "renovation_reference_values": {"metadata"},
+    "r_reference_values": {"metadata"},
     "renovation_plan_rows": {"col_218"},
+    "r_plan_rows": {"col_218"},
 }
 
 # Indexes the models declare that a legacy-0015 installation does not carry yet:
@@ -122,6 +125,11 @@ _LEGACY_MISSING_TABLES: frozenset[str] = frozenset(
 # columns are expected, not drift. A closed list — anything else fails closed.
 _LEGACY_PRICE_TIMESTAMPS: frozenset[str] = frozenset({"business_plan_updated_at", "storage_standard_updated_at"})
 _LEGACY_PRICE_TIMESTAMPS_TABLE = "rm_raw_material_prices"
+_RENOVATION_TABLE_RENAMES = {
+    "renovation_reference_values": "r_reference_values",
+    "renovation_plans": "r_plans",
+    "renovation_plan_rows": "r_plan_rows",
+}
 
 
 def compare_adoption_default(
@@ -136,7 +144,7 @@ def compare_adoption_default(
     # Legacy 0008 installed now(); create_all and the frozen baseline omitted it.
     # 0003 converges both variants without modifying existing timestamps.
     if (
-        inspected_column.table.name == "renovation_reference_values"
+        inspected_column.table.name in {"r_reference_values", "renovation_reference_values"}
         and inspected_column.name == "created_at"
         and inspected_default is None
     ):
@@ -203,6 +211,45 @@ def _drop_equivalent_index_changes(diffs: list[tuple]) -> list[tuple]:
             ):
                 consumed.add(position)
     return [diff for position, diff in enumerate(diffs) if position not in consumed]
+
+
+def _adoption_metadata(connection: Connection) -> MetaData:
+    """Compare legacy table names without ignoring structural differences."""
+    live = set(inspect(connection).get_table_names())
+    names = {new: old for old, new in _RENOVATION_TABLE_RENAMES.items() if old in live and new not in live}
+    metadata = MetaData()
+    for table in SQLModel.metadata.sorted_tables:
+        copied = table.to_metadata(metadata, name=names.get(table.name, table.name))
+        for index in copied.indexes:
+            if index.name and table.name in names:
+                index.name = quoted_name(index.name.replace(table.name, names[table.name]), None)
+    # to_metadata remaps self-references, but cross-table references retain
+    # their original names. Rebuild only these constraints in the private copy.
+    for table in list(metadata.tables.values()):
+        for constraint in list(table.foreign_key_constraints):
+            columns = [element.parent.name for element in constraint.elements]
+            targets = []
+            for element in constraint.elements:
+                parts = element.target_fullname.split(".")
+                parts[-2] = names.get(parts[-2], parts[-2])
+                targets.append(".".join(parts))
+            table.constraints.remove(constraint)
+            for element in constraint.elements:
+                table.foreign_keys.discard(element)
+                element.parent.foreign_keys.discard(element)
+            table.append_constraint(
+                ForeignKeyConstraint(
+                    columns,
+                    targets,
+                    name=constraint.name,
+                    ondelete=constraint.ondelete,
+                    onupdate=constraint.onupdate,
+                    deferrable=constraint.deferrable,
+                    initially=constraint.initially,
+                    use_alter=constraint.use_alter,
+                )
+            )
+    return metadata
 
 
 def _is_legacy_price_timestamp_change(diff: object) -> bool:
@@ -297,6 +344,7 @@ def adopt(connection: Connection) -> None:
             return False
         return not (type_ == "table" and reflected and name in {"rm_cell_state", "rm_edit_log"})
 
+    metadata = _adoption_metadata(connection)
     diffs = compare_metadata(
         MigrationContext.configure(
             connection,
@@ -306,7 +354,7 @@ def adopt(connection: Connection) -> None:
                 "include_object": include_object,
             },
         ),
-        SQLModel.metadata,
+        metadata,
     )
     # A legacy DB names some indexes after the model class instead of the table;
     # treat those pure renames as equivalent, then keep only the genuine drift.
@@ -326,7 +374,7 @@ def adopt(connection: Connection) -> None:
     block_legacy = {"tashpaev", "borodiichuk", "babaeva"}
     block_new = {"tech", "ksir", "mto"}
     live_tables = set(inspector.get_table_names())
-    for table in SQLModel.metadata.sorted_tables:
+    for table in metadata.sorted_tables:
         # Absent by design before the upgrade: obsolete journal tables and the
         # tables created by migrations that run after the baseline.
         if table.name in {"collab_edit_stacks", "collab_cell_states", "collab_outbox"} or table.name not in live_tables:

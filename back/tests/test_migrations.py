@@ -32,7 +32,13 @@ _EMPTY_AS_NULL_COLUMNS: dict[str, tuple[str, ...]] = {
 # they exist on the pre-adoption snapshot but not after the upgrade, so the data
 # comparison excludes them.
 _DROPPED_COLUMNS: dict[str, tuple[str, ...]] = {
-    "renovation_plan_rows": ("col_218",),
+    "r_plan_rows": ("col_218",),
+}
+
+_RENOVATION_TABLE_RENAMES = {
+    "renovation_reference_values": "r_reference_values",
+    "renovation_plans": "r_plans",
+    "renovation_plan_rows": "r_plan_rows",
 }
 
 
@@ -50,11 +56,11 @@ def business_snapshot(connection) -> dict[str, list[str]]:
             expression = f"(to_jsonb(t) || jsonb_build_object({patch}))::text"
         else:
             expression = "row_to_json(t)::text"
-        dropped = _DROPPED_COLUMNS.get(table)
+        dropped = _DROPPED_COLUMNS.get(_RENOVATION_TABLE_RENAMES.get(table, table))
         if dropped:
             removal = " - ".join(repr(name) for name in dropped)
             expression = f"(row_to_json(t)::jsonb - {removal})::text"
-        snapshot[table] = list(
+        snapshot[_RENOVATION_TABLE_RENAMES.get(table, table)] = list(
             connection.execute(
                 # Names come from the inspector and are dialect-quoted, never user input.
                 text(f"SELECT {expression} FROM {quote(table)} AS t ORDER BY {expression}")  # noqa: S608
@@ -82,6 +88,7 @@ async def test_adopt_preserves_data_and_refuses_drift(db_session, test_engine, m
     await db_session.commit()
     async with test_engine.begin() as conn:
         config = config_for(conn.sync_connection)
+        await conn.run_sync(lambda _: command.downgrade(config, BASELINE))
         await conn.run_sync(lambda _: command.stamp(config, BASELINE))
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
         await conn.execute(text("CREATE TABLE rm_edit_log (id integer PRIMARY KEY, payload text)"))
@@ -156,11 +163,11 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         assert {table: after[table] for table in all_business_data} == all_business_data
         assert (
             await conn.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalar_one() == "0012_kppk_calendar_cost"
-        assert (await conn.execute(text("SELECT id, col_011 FROM renovation_plan_rows ORDER BY id"))).all() == before
+        ).scalar_one() == "0013_rename_renovation_tables"
+        assert (await conn.execute(text("SELECT id, col_011 FROM r_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
         assert (
-            await conn.execute(text("SELECT id, created_at FROM renovation_reference_values ORDER BY id"))
+            await conn.execute(text("SELECT id, created_at FROM r_reference_values ORDER BY id"))
         ).all() == timestamps
         # 0006: the legacy empty-string audit timestamps are real timestamptz
         # columns now, with '' folded to NULL.
@@ -225,9 +232,7 @@ async def test_adopt_rejects_unexpected_reference_timestamp_default(db_session, 
     async with test_engine.begin() as conn:
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
         await conn.execute(
-            text(
-                "ALTER TABLE renovation_reference_values ALTER COLUMN created_at SET DEFAULT '2000-01-01'::timestamptz"
-            )
+            text("ALTER TABLE r_reference_values ALTER COLUMN created_at SET DEFAULT '2000-01-01'::timestamptz")
         )
         with pytest.raises(ValueError, match="Схема отличается"):
             await conn.run_sync(upgrade)
@@ -261,7 +266,7 @@ async def test_adopt_accepts_legacy_index_names_and_dropped_column(db_session, t
             text("ALTER INDEX ix_rm_report_snapshots_report_month RENAME TO ix_rm_report_snapshot_report_month")
         )
         await conn.execute(text("ALTER INDEX ix_rm_user_assets_asset_id RENAME TO ix_rm_user_asset_asset_id"))
-        await conn.execute(text("ALTER TABLE renovation_reference_values ADD COLUMN metadata TEXT"))
+        await conn.execute(text("ALTER TABLE r_reference_values ADD COLUMN metadata TEXT"))
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
         await conn.run_sync(adopt)
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == BASELINE
@@ -270,7 +275,7 @@ async def test_adopt_accepts_legacy_index_names_and_dropped_column(db_session, t
             await conn.execute(
                 text(
                     "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_schema = current_schema() AND table_name = 'renovation_reference_values' "
+                    "WHERE table_schema = current_schema() AND table_name = 'r_reference_values' "
                     "AND column_name = 'metadata'"
                 )
             )
@@ -351,7 +356,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) ->
             await conn.run_sync(upgrade)
             assert (
                 await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "0012_kppk_calendar_cost"
+            ).scalar_one() == "0013_rename_renovation_tables"
         assert all(not path.exists() for path in stale)
     finally:
         for path in stale:
@@ -367,6 +372,36 @@ async def test_upgrade_fresh_schema(test_engine) -> None:
         await conn.run_sync(upgrade)
         diffs = await conn.run_sync(lambda c: compare_metadata(MigrationContext.configure(c), SQLModel.metadata))
         assert diffs == []
+
+
+async def test_rename_migration_preserves_renovation_collab_state(db_session, test_engine) -> None:
+    await db_session.commit()
+    async with test_engine.begin() as conn:
+        config = config_for(conn.sync_connection)
+        await conn.run_sync(lambda _: command.downgrade(config, "0012_kppk_calendar_cost"))
+        await conn.execute(
+            text(
+                "INSERT INTO collab_cell_states (key, state) VALUES "
+                "('renovation_plan_rows/00000000-0000-0000-0000-000000000001/col_011', '{\"revision\": 1}')"
+            )
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO collab_edit_stacks (user_id, session_id, scope, actions, expires_at) VALUES "
+                "('user', 'session', 'renovationPlan/2026-01-01', "
+                "'[{\"targetTable\":\"renovation_plan_rows\"}]', now() + interval '1 hour')"
+            )
+        )
+        await conn.run_sync(lambda _: command.upgrade(config, "head"))
+        assert (
+            (await conn.execute(text("SELECT key FROM collab_cell_states WHERE key LIKE 'r_plan_rows/%'")))
+            .scalar_one()
+            .startswith("r_plan_rows/")
+        )
+        action = (
+            await conn.execute(text("SELECT actions::text FROM collab_edit_stacks WHERE user_id = 'user'"))
+        ).scalar_one()
+        assert "r_plan_rows" in action
 
 
 async def test_upgrade_failure_rolls_back_legacy_marker(db_session, test_engine, monkeypatch) -> None:

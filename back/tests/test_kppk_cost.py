@@ -4,7 +4,6 @@ from datetime import date
 from decimal import Decimal
 from io import BytesIO
 
-import pytest
 from conftest import TEST_SCHEMA, signed_identity_headers
 from httpx import AsyncClient
 from openpyxl import load_workbook
@@ -13,7 +12,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.kppk.models import KppkCost, KppkOrg, KppkProductionPlan, KppkRealization, KppkRealizationPlan
-from src.scripts.seed_kppk import CommandError, _rebuild_costs
+from src.scripts.seed_kppk import _rebuild_costs
 
 HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
 
@@ -55,7 +54,7 @@ async def test_cost_import_selects_selling_markets_per_slice(db_session: AsyncSe
     assert (row.full_cost_bp, row.full_cost_op) == (Decimal(150), Decimal(170))
 
 
-async def test_cost_import_keeps_no_sales_production_and_reports_conflicts(db_session: AsyncSession) -> None:
+async def test_cost_import_keeps_no_sales_production_and_reports_conflicts(db_session: AsyncSession, capsys) -> None:
     rows = list((await db_session.exec(select(KppkRealizationPlan))).all())
     product_rows = [row for row in rows if row.product == "Сода кальцинированная марки Б"]
     for row in product_rows:
@@ -69,9 +68,19 @@ async def test_cost_import_keeps_no_sales_production_and_reports_conflicts(db_se
     product_rows[0].month_bp_plan = Decimal(1)
     product_rows[1].month_bp_plan = Decimal(2)
     product_rows[1].input_cost_bp = Decimal(26)
+    product_rows[0].var_exp_bp_plan = Decimal(50)
+    product_rows[1].var_exp_bp_plan = Decimal(51)
     await db_session.flush()
-    with pytest.raises(CommandError, match=r"Разные ненулевые значения.*input_cost_bp"):
-        await _rebuild_costs(connection, TEST_SCHEMA)
+    assert await _rebuild_costs(connection, TEST_SCHEMA) > 0
+    cost = (await db_session.exec(select(KppkCost).where(col(KppkCost.product) == product_rows[0].product))).one()
+    assert cost.production_cost_bp == Decimal(26)
+    assert cost.variable_cost_bp == Decimal(51)
+    warnings = capsys.readouterr().out
+    assert warnings.count("Предупреждение:") == 2
+    assert "kppk_realization_plan.input_cost_bp" in warnings
+    assert "kppk_realization_plan.var_exp_bp_plan" in warnings
+    assert "максимум 26" in warnings
+    assert "максимум 51" in warnings
 
 
 async def test_cost_api_number_order_scope_edit_undo_and_export(client: AsyncClient, db_session: AsyncSession) -> None:

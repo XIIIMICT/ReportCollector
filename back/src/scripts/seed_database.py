@@ -1367,17 +1367,17 @@ async def seed(session: AsyncSession) -> None:
 # the enterprise dictionary and the people already exist in the real system and
 # their ids must be preserved (the importer resolves them by code).
 RENOVATION_TABLES: tuple[str, ...] = (
-    "renovation_plan_rows",
-    "renovation_plans",
-    "renovation_reference_values",
+    "r_plan_rows",
+    "r_plans",
+    "r_reference_values",
 )
 
 # Plan-only tables, truncated by `--renovation-plan`: re-reads the plan while
 # keeping the asset dictionary, the reference catalogs, the users and their
 # role/asset links untouched.
 RENOVATION_PLAN_TABLES: tuple[str, ...] = (
-    "renovation_plan_rows",
-    "renovation_plans",
+    "r_plan_rows",
+    "r_plans",
 )
 
 
