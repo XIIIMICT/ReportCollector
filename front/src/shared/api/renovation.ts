@@ -251,6 +251,8 @@ export type RenovationFacets = {
     total: number;
     /** Whether the column has a NULL/empty bucket (the «Пустые» option). */
     hasNulls: boolean;
+    /** Total rows represented by all buckets. */
+    rowCount?: number;
     /** Missing on older backend workers during a rolling deployment. */
     nullCount?: number;
 };

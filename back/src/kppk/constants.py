@@ -102,7 +102,5 @@ KPPK_SOURCE_TABLES: dict[str, str] = {
     "kppk_f_production_plan": "kppk_production_plan",
 }
 
-# The markets dictionary keeps its prod structure (dict.markets): the seeder
-# creates the schema/table only when missing and never copies it — the program
-# connects to it directly. Not exposed in the admin UI yet.
-MARKETS_TABLE = "markets"
+# The realization form has a fixed market order from the source workbook.
+MARKET_CODES: tuple[str, ...] = ("РФ", "ДЗ", "БЗ")

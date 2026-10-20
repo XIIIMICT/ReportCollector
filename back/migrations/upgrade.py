@@ -28,7 +28,39 @@ def upgrade(connection: Connection) -> None:
         versions = list(connection.execute(text("SELECT version_num FROM alembic_version")).scalars())
         if versions == [LEGACY_HEAD]:
             adopt(connection)
+        _adopt_seeded_kppk_calendar_schema(connection, versions)
     command.upgrade(config, "head")
+
+
+def _adopt_seeded_kppk_calendar_schema(connection: Connection, versions: list[str]) -> None:
+    """
+    Stamp 0012 when seed-kppk already restored its post-0012 schema.
+
+    The KPPK-only seed can recreate current application tables after an
+    operator removed them. If the migration marker still says 0011, replaying
+    0012 would treat UUID/date columns as the old integer-id schema and fail.
+    This closed shape check only skips the transformation when all post-0012
+    tables/columns are present; incomplete schemas still fail normally.
+    """
+    if versions != ["0011_kppk_realization_buyout"]:
+        return
+    inspector = inspect(connection)
+    required = {
+        "kppk_orgs": {"id", "num"},
+        "kppk_realization": {"id", "org_id", "period_date"},
+        "kppk_realization_plan": {"id", "org_id", "period_date"},
+        "kppk_cost": {"id", "org_id", "period_date"},
+        "kppk_production_plan": {"id", "org_id", "period_date"},
+    }
+    for table, columns in required.items():
+        if not inspector.has_table(table):
+            return
+        actual = {column["name"] for column in inspector.get_columns(table)}
+        if not columns <= actual:
+            return
+    if inspector.has_table("kppk_periods"):
+        return
+    connection.execute(text("UPDATE alembic_version SET version_num='0012_kppk_calendar_cost'"))
 
 
 async def main() -> None:

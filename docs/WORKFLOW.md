@@ -29,6 +29,17 @@ About `POSTGRES_HOST`: on the server it's the real DB address (not localhost); `
 
 ## Quality (what we check before delivery)
 
+### Renovation table-name migration (0013)
+
+The application now uses `r_plans`, `r_plan_rows` and `r_reference_values`.
+Deploy the matching backend and migration together: stop old workers, back up
+PostgreSQL, run `just migrate`, then start the new workers and reload browser
+tabs (canonical collaboration cell keys changed too). An installation still at
+`0012_kppk_calendar_cost` has only the old `renovation_*` tables and will fail
+renovation reads with `UndefinedTableError: r_plans` until migrated. Do not
+reseed or recreate the schema to resolve this. Verify the migration revision,
+preserved row counts, `/api/renovation/meta` and `/api/renovation/plan/rows`.
+
 | Side | Lint | Format | Typecheck | Tests |
 |---|---|---|---|---|
 | back | `uv run --directory back ruff check --fix` | `uv run --directory back ruff format` | `uv run --directory back ty check` | `uv run --directory back pytest -q` |

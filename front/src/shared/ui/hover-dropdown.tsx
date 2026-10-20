@@ -60,12 +60,7 @@ export function HoverDropdown({
 
     const setOpen = (next: boolean) => {
         setOpenState(next);
-        // React Aria can call the controlled dropdown callback while it is
-        // completing its own lifecycle. Updating workspace state immediately
-        // from there causes React's "flushSync ... inside a lifecycle method"
-        // warning. Keep the local state synchronous, but notify the parent in
-        // the next microtask.
-        queueMicrotask(() => onOpenChangeRef.current?.(next));
+        onOpenChangeRef.current?.(next);
     };
     const triggerRef = useRef<HTMLElement | null>(null);
     const popoverRef = useRef<HTMLDivElement | null>(null);

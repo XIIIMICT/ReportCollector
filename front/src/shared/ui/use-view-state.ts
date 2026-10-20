@@ -30,16 +30,10 @@ export const DEFAULT_VIEW_STATE: ViewState = {
 
 export const DEFAULT_ROW_HEIGHT = 36;
 export const MIN_ROW_HEIGHT = DEFAULT_ROW_HEIGHT / 2;
-export const MAX_ROW_HEIGHT = DEFAULT_ROW_HEIGHT * 2;
 const TABLE_DIMENSIONS_PREFIX = "reportcollector:table-dimensions:";
 
 function validRowHeight(value: unknown): value is number {
-    return (
-        typeof value === "number" &&
-        Number.isFinite(value) &&
-        value >= MIN_ROW_HEIGHT &&
-        value <= MAX_ROW_HEIGHT
-    );
+    return value === MIN_ROW_HEIGHT || value === DEFAULT_ROW_HEIGHT;
 }
 
 function isBoolean(value: unknown): value is boolean {

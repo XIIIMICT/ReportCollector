@@ -1234,6 +1234,7 @@ async def read_plan_facets(
                 RenovationFacetValueRead(value=_RENOVATION_ID_BAD_LABEL, count=int(bad_count)),
             ],
             total=2,
+            rowCount=int(ok_count + bad_count),
             hasNulls=False,
             nullCount=0,
         )
@@ -1266,6 +1267,7 @@ async def read_plan_facets(
         column=column,
         values=[RenovationFacetValueRead(value=value, count=count) for value, count in window],
         total=len(ordered),
+        rowCount=sum(counts.values()) + null_count,
         hasNulls=has_nulls,
         nullCount=null_count,
     )

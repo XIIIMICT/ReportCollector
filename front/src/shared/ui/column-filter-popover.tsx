@@ -55,6 +55,8 @@ export function ColumnFilterPopover({
     // Distinct value count across the whole filtered plan — shown on the
     // master item as «Выбрать все (N)» and it doubles as the "load more" guard.
     const [total, setTotal] = useState(0);
+    const [rowCount, setRowCount] = useState(0);
+    const showUniqueCount = column !== "col_003";
     const [allActive, setAllActive] = useState(true);
     // «Пустые» is on by default so the default state really is "everything".
     const [kept, setKept] = useState<Set<string>>(new Set(initial?.values ?? []));
@@ -113,6 +115,11 @@ export function ColumnFilterPopover({
                         : undefined,
                 );
                 setTotal(facets.total);
+                setRowCount(
+                    typeof facets.rowCount === "number" && Number.isFinite(facets.rowCount)
+                        ? facets.rowCount
+                        : 0,
+                );
                 loadedCountRef.current = loaded.length;
                 exhaustedRef.current = loaded.length >= facets.total;
                 if (allStillSelectedRef.current) {
@@ -167,6 +174,11 @@ export function ColumnFilterPopover({
                 setNullCount((previous) => Math.max(previous ?? 0, nextNullCount));
             }
             setTotal(facets.total);
+            setRowCount(
+                typeof facets.rowCount === "number" && Number.isFinite(facets.rowCount)
+                    ? facets.rowCount
+                    : 0,
+            );
             if (loaded.length === 0) {
                 exhaustedRef.current = true;
             }
@@ -337,9 +349,15 @@ export function ColumnFilterPopover({
                 >
                     <ListBox.Item key={ALL_KEY} id={ALL_KEY} textValue="Выбрать все">
                         <span>Выбрать все</span>
-                        {total > 0 ? <span className="text-muted ms-1">{total}</span> : null}
+                        {rowCount > 0 ? (
+                            <span className="text-muted ms-1">
+                                {rowCount}
+                                {showUniqueCount ? ` (${total} уникальных)` : null}
+                            </span>
+                        ) : null}
                         <ListBox.ItemIndicator />
                     </ListBox.Item>
+                    <Separator className="smart-select__separator" />
                     {hasNulls ? (
                         <ListBox.Item key={NULL_KEY} id={NULL_KEY} textValue="Пустые">
                             <span>Пустые</span>
@@ -348,11 +366,6 @@ export function ColumnFilterPopover({
                             ) : null}
                             <ListBox.ItemIndicator />
                         </ListBox.Item>
-                    ) : null}
-                    {/* Separate the pinned options from the values; when «Пустые»
-                        is absent the separator follows «Выбрать все». */}
-                    {filteredValues.length > 0 ? (
-                        <Separator className="smart-select__separator" />
                     ) : null}
                     {filteredValues.map((value) => (
                         <ListBox.Item key={value} id={value} textValue={value}>

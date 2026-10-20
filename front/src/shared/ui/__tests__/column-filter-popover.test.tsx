@@ -9,6 +9,7 @@ let facetHandler: (
     column: string;
     values: { value: string; count: number }[];
     total: number;
+    rowCount?: number;
     hasNulls: boolean;
     nullCount?: number;
 }>;
@@ -26,6 +27,7 @@ mock.module("@/shared/api/renovation", () => ({
                 ],
                 total: 2,
                 hasNulls: false,
+                rowCount: 12,
             });
         }
         return Promise.resolve({
@@ -36,6 +38,7 @@ mock.module("@/shared/api/renovation", () => ({
             ],
             total: 2,
             hasNulls: true,
+            rowCount: 17,
         });
     },
 }));
@@ -70,18 +73,22 @@ function master() {
     return screen.getByRole("option", { name: /Выбрать все/ });
 }
 
-test("separator sits between «Пустые» and the values", async () => {
+test("separator follows «Выбрать все» before «Пустые» and the values", async () => {
     await openFilter();
     const separator = document.querySelector(".smart-select__separator");
     expect(separator).toBeTruthy();
-    const nullOption = screen.getByRole("option", { name: "Пустые" });
+    const nullOption = screen.getByRole("option", { name: /^Пустые/ });
     const firstValue = screen.getByRole("option", { name: /^Насос/ });
     expect(
-        nullOption.compareDocumentPosition(separator!) & Node.DOCUMENT_POSITION_FOLLOWING,
+        master().compareDocumentPosition(separator!) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-        separator!.compareDocumentPosition(firstValue) & Node.DOCUMENT_POSITION_FOLLOWING,
+        separator!.compareDocumentPosition(nullOption) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    expect(
+        nullOption.compareDocumentPosition(firstValue) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(master().textContent).toContain("17 (2 уникальных)");
 });
 
 test.each([undefined, Number.NaN])(
@@ -163,6 +170,12 @@ test("ID column: unchecking both buckets unchecks «Выбрать все»", as
     fireEvent.click(screen.getByRole("option", { name: /^Некорректные/ }));
 
     await waitFor(() => expect(master().getAttribute("aria-selected")).toBe("false"));
+});
+
+test("ID column: «Выбрать все» shows rows without unique-count suffix", async () => {
+    await openFilter("col_003", "Корректные");
+    expect(master().textContent).toBe("Выбрать все12");
+    expect(master().textContent).not.toContain("уникальных");
 });
 
 test("ID column: checking both buckets back checks «Выбрать все»", async () => {

@@ -221,6 +221,7 @@ class RenovationFacetsRead(BaseModel):
     values: list[RenovationFacetValueRead]
     # Distinct values in total (across the whole filtered plan, not just this window).
     total: int
+    rowCount: int = 0
     # Whether the column has any NULL/empty value (the «Пустые» option exists).
     hasNulls: bool
     nullCount: int = 0

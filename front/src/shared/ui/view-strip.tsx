@@ -1,11 +1,22 @@
 "use client";
 
-import { Button, Dropdown, Label, NumberField } from "@heroui/react";
-import { Collapse, Expand, Eye, EyeClosed, MoreHoriz, Pin, PinSlash, Refresh } from "iconoir-react";
+import { Button, Dropdown, Label } from "@heroui/react";
+import {
+    ArrowSeparateVertical,
+    ArrowUnionVertical,
+    Collapse,
+    Expand,
+    Eye,
+    EyeClosed,
+    MoreHoriz,
+    Pin,
+    PinSlash,
+    Refresh,
+} from "iconoir-react";
 import { type Key, type ReactNode } from "react";
 
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
-import { MAX_ROW_HEIGHT, MIN_ROW_HEIGHT } from "@/shared/ui/use-view-state";
+import { DEFAULT_ROW_HEIGHT, MIN_ROW_HEIGHT } from "@/shared/ui/use-view-state";
 
 /**
  * The right-aligned control cluster of the toolbar: the «Вид таблицы» button
@@ -52,7 +63,7 @@ export function ViewStrip({
         onHeaderPinnedChange !== undefined &&
         showServiceColumns !== undefined &&
         onShowServiceColumnsChange !== undefined;
-    const hasRowHeight = rowHeight !== undefined && onRowHeightChange !== undefined;
+    const hasRowHeight = onRowHeightChange !== undefined;
 
     const viewButton = (
         isOpen: boolean,
@@ -90,105 +101,81 @@ export function ViewStrip({
                     viewButton(isOpen, { ref, onMouseEnter, onPress })
                 }
                 content={
-                    <div className="view-strip-popover__content">
-                        {hasRowHeight ? (
-                            <div
-                                className="view-strip__row-height"
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={(event) => event.stopPropagation()}
-                                onKeyDown={(event) => event.stopPropagation()}
-                            >
-                                <Label>Высота строки:</Label>
-                                <NumberField
-                                    value={rowHeight}
-                                    minValue={MIN_ROW_HEIGHT}
-                                    maxValue={MAX_ROW_HEIGHT}
-                                    onChange={(value) => {
-                                        if (value !== undefined) {
-                                            // NumberField lives inside HeroUI's portaled
-                                            // Dropdown. Defer the workspace update until
-                                            // React Aria finishes the menu lifecycle;
-                                            // updating the parent synchronously here makes
-                                            // React report a flushSync-during-render error.
-                                            queueMicrotask(() => onRowHeightChange?.(value));
-                                        }
-                                    }}
-                                    variant="secondary"
-                                    className="view-strip__row-height-field"
-                                    aria-label="Высота строки"
-                                >
-                                    <NumberField.Group className="view-strip__row-height-group">
-                                        <NumberField.DecrementButton />
-                                        <NumberField.Input />
-                                        <NumberField.IncrementButton />
-                                    </NumberField.Group>
-                                </NumberField>
-                            </div>
-                        ) : null}
-                        <Dropdown.Menu
-                            aria-label="Вид таблицы"
-                            onAction={handleMenuAction}
-                            className="action-more-menu"
+                    <Dropdown.Menu
+                        aria-label="Вид таблицы"
+                        onAction={handleMenuAction}
+                        className="action-more-menu"
+                    >
+                        {hasToggles
+                            ? menuItem(
+                                  "pin-header",
+                                  headerPinned
+                                      ? "Открепить шапку таблицы"
+                                      : "Закрепить шапку таблицы",
+                                  false,
+                                  headerPinned ? (
+                                      <PinSlash aria-hidden="true" />
+                                  ) : (
+                                      <Pin aria-hidden="true" />
+                                  ),
+                              )
+                            : null}
+                        {hasRowHeight
+                            ? menuItem(
+                                  "row-density",
+                                  rowHeight === MIN_ROW_HEIGHT
+                                      ? "Расширить строки"
+                                      : "Сузить строки",
+                                  false,
+                                  rowHeight === MIN_ROW_HEIGHT ? (
+                                      <ArrowSeparateVertical aria-hidden="true" />
+                                  ) : (
+                                      <ArrowUnionVertical aria-hidden="true" />
+                                  ),
+                              )
+                            : null}
+                        {hasToggles
+                            ? menuItem(
+                                  "service-columns",
+                                  showServiceColumns
+                                      ? "Скрыть данные о редактировании строк"
+                                      : "Показать данные о редактировании строк",
+                                  false,
+                                  showServiceColumns ? (
+                                      <EyeClosed aria-hidden="true" />
+                                  ) : (
+                                      <Eye aria-hidden="true" />
+                                  ),
+                              )
+                            : null}
+                        {menuItem(
+                            "reset-column-widths",
+                            columnResetLabel,
+                            true,
+                            <Refresh aria-hidden="true" />,
+                        )}
+                        {menuItem(
+                            "reset-filters-sorting",
+                            "Сбросить все фильтры и сортировки",
+                            true,
+                            <Refresh aria-hidden="true" />,
+                        )}
+                        <Dropdown.Item
+                            id="fullscreen"
+                            textValue={isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
                         >
-                            {hasToggles
-                                ? menuItem(
-                                      "pin-header",
-                                      headerPinned
-                                          ? "Открепить шапку таблицы"
-                                          : "Закрепить шапку таблицы",
-                                      false,
-                                      headerPinned ? (
-                                          <PinSlash aria-hidden="true" />
-                                      ) : (
-                                          <Pin aria-hidden="true" />
-                                      ),
-                                  )
-                                : null}
-                            {hasToggles
-                                ? menuItem(
-                                      "service-columns",
-                                      showServiceColumns
-                                          ? "Скрыть данные о редактировании строк"
-                                          : "Показать данные о редактировании строк",
-                                      false,
-                                      showServiceColumns ? (
-                                          <EyeClosed aria-hidden="true" />
-                                      ) : (
-                                          <Eye aria-hidden="true" />
-                                      ),
-                                  )
-                                : null}
-                            {menuItem(
-                                "reset-column-widths",
-                                columnResetLabel,
-                                true,
-                                <Refresh aria-hidden="true" />,
-                            )}
-                            {menuItem(
-                                "reset-filters-sorting",
-                                "Сбросить все фильтры и сортировки",
-                                true,
-                                <Refresh aria-hidden="true" />,
-                            )}
-                            <Dropdown.Item
-                                id="fullscreen"
-                                textValue={
-                                    isFullscreen ? "Выйти из полного экрана" : "В полный экран"
-                                }
-                            >
-                                <span className="view-strip-menu-check">
-                                    {isFullscreen ? (
-                                        <Collapse aria-hidden="true" />
-                                    ) : (
-                                        <Expand aria-hidden="true" />
-                                    )}
-                                </span>
-                                <Label>
-                                    {isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
-                                </Label>
-                            </Dropdown.Item>
-                        </Dropdown.Menu>
-                    </div>
+                            <span className="view-strip-menu-check">
+                                {isFullscreen ? (
+                                    <Collapse aria-hidden="true" />
+                                ) : (
+                                    <Expand aria-hidden="true" />
+                                )}
+                            </span>
+                            <Label>
+                                {isFullscreen ? "Выйти из полного экрана" : "В полный экран"}
+                            </Label>
+                        </Dropdown.Item>
+                    </Dropdown.Menu>
                 }
             />
         </div>
@@ -216,7 +203,10 @@ export function ViewStrip({
             case "service-columns":
                 onShowServiceColumnsChange?.(!showServiceColumns);
                 break;
-            case "row-height":
+            case "row-density":
+                onRowHeightChange?.(
+                    rowHeight === MIN_ROW_HEIGHT ? DEFAULT_ROW_HEIGHT : MIN_ROW_HEIGHT,
+                );
                 break;
             case "reset-column-widths":
                 onReset("columnWidths");

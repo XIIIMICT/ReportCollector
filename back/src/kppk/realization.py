@@ -6,13 +6,12 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import func, text
+from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.collab.locking import project_write
-from src.config import get_settings
-from src.kppk.constants import KPPK_PROJECT_KEY
+from src.kppk.constants import KPPK_PROJECT_KEY, MARKET_CODES
 from src.kppk.models import KppkCost, KppkOrg, KppkProduct, KppkRealization, KppkRealizationPlan
 
 from .core import KppkNotFoundError, KppkValidationError
@@ -101,28 +100,9 @@ async def read_current_period(
     )
 
 
-async def read_market_codes(session: AsyncSession) -> list[str]:
-    """Return distinct market codes in stable display order."""
-    connection = await session.connection()
-    has_markets = (
-        await connection.execute(
-            text("SELECT 1 FROM information_schema.tables WHERE table_schema = 'dict' AND table_name = 'markets'")
-        )
-    ).first() is not None
-    if has_markets:
-        rows = (
-            await connection.execute(
-                text("SELECT code FROM dict.markets GROUP BY code ORDER BY min(created_at), min(id::text)")
-            )
-        ).all()
-        if rows:
-            return [row[0] for row in rows]
-    schema = get_settings().postgres_schema
-    region_query: str = (
-        f'SELECT region FROM "{schema}"."kppk_realization" UNION SELECT region FROM "{schema}"."kppk_realization_plan"'  # noqa: S608
-    )
-    regions = (await connection.execute(text(region_query))).all()
-    return sorted({row[0] for row in regions if row[0]})
+async def read_market_codes(_session: AsyncSession) -> list[str]:
+    """Return the fixed market order used by the КППК form."""
+    return list(MARKET_CODES)
 
 
 def _plan_realization_row_read(

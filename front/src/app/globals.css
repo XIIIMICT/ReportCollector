@@ -717,35 +717,6 @@ body {
     opacity: 1;
 }
 
-.view-strip__row-height {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.25rem;
-    white-space: nowrap;
-}
-
-.view-strip__row-height .label {
-    flex: 0 0 auto;
-}
-
-.view-strip__row-height-field {
-    width: 8rem;
-}
-
-.view-strip__row-height-group {
-    width: 8rem;
-}
-
-.view-strip__row-height-group .number-field__input {
-    min-width: 3rem;
-}
-
-.view-strip-popover__content {
-    min-width: 16rem;
-    padding: 0.35rem;
-}
-
 @media (width <= 40rem) {
     .action-button.view-strip__view-button {
         gap: 0;
