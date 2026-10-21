@@ -536,13 +536,14 @@ export function SmartSelect({
      * Commit mode's footer: icon-only «По умолчанию / Отменить / Применить»,
      * right-aligned and pinned under the scrolling list.
      *
-     * Every button is a stock HeroUI `Button` in its own `ButtonGroup`, so the
-     * radius, hover/press motion and colours come from the design system
-     * untouched — a cell in ONE group would lose its pill radius (the group
-     * squares it to 0 and rounds only the outer edges). The variants follow
-     * their meaning: `danger` for the destructive reset, `tertiary` for the
-     * dismissive cancel, `primary` (the single forward action) for apply.
-     * `preventFocus` keeps the search field's caret when a button is pressed.
+     * The buttons are DIRECT children of one `ButtonGroup`, exactly like the
+     * action bar: the group squares the shared edges (so the three read as one
+     * control) and rounds only the outer ones, which is the design system's
+     * intent. They carry no class of ours — nothing here overrides HeroUI's
+     * radius, motion or colours. The variants follow their meaning: `danger`
+     * for the destructive reset, `tertiary` for the dismissive cancel, `primary`
+     * (the single forward action) for apply. `preventFocus` keeps the search
+     * field's caret when a button is pressed.
      */
     const commitFooter = isCommitMode ? (
         <div
@@ -556,10 +557,10 @@ export function SmartSelect({
                 if (canConfirm) confirmRef.current();
             }}
         >
-            {onReset ? (
-                <ButtonGroup size="sm">
+            <ButtonGroup size="sm">
+                {/* Direct children only: the group injects props into them. */}
+                {onReset ? (
                     <Button
-                        size="sm"
                         variant="danger"
                         isIconOnly
                         aria-label={resetLabel}
@@ -567,11 +568,8 @@ export function SmartSelect({
                     >
                         <Refresh aria-hidden="true" />
                     </Button>
-                </ButtonGroup>
-            ) : null}
-            <ButtonGroup size="sm">
+                ) : null}
                 <Button
-                    size="sm"
                     variant="tertiary"
                     isIconOnly
                     aria-label="Отменить"
@@ -579,10 +577,7 @@ export function SmartSelect({
                 >
                     <Xmark aria-hidden="true" />
                 </Button>
-            </ButtonGroup>
-            <ButtonGroup size="sm">
                 <Button
-                    size="sm"
                     variant="primary"
                     isIconOnly
                     aria-label="Применить"

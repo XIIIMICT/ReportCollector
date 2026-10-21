@@ -218,9 +218,14 @@ test("«По умолчанию» renders first, icon-only, and calls its handle
     expect(cells[0]!.className).toContain("button--danger");
     expect(cells[1]!.className).toContain("button--tertiary");
     expect(cells[2]!.className).toContain("button--primary");
-    // No custom styling hooks: the buttons are plain HeroUI `Button`s whose
-    // radius/motion/colours come from the design system.
+    // Direct children of ONE ButtonGroup, as in the action bar: the group owns
+    // the corners, the buttons carry no class of ours (no local overrides).
     for (const cell of cells) expect(cell.className).not.toContain("smart-select__");
+    const groups = [...document.querySelectorAll(".smart-select__footer .button-group")];
+    expect(groups.length).toBe(1);
+    expect(
+        [...groups[0]!.children].every((child) => child.getAttribute("data-slot") === "button"),
+    ).toBe(true);
     fireEvent.click(reset);
     expect(events).toEqual(["reset"]);
 });
