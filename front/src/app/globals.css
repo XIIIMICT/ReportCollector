@@ -708,21 +708,21 @@ body {
     gap: 0.45rem;
 }
 
-.action-button.view-strip__view-button {
+.expandable-button.view-strip__view-button {
     gap: 0.45rem;
 }
 
-.view-strip__view-button .action-button__label {
+.view-strip__view-button .expandable-button__label {
     max-width: 13rem;
     opacity: 1;
 }
 
 @media (width <= 40rem) {
-    .action-button.view-strip__view-button {
+    .expandable-button.view-strip__view-button {
         gap: 0;
     }
 
-    .view-strip__view-button .action-button__label {
+    .view-strip__view-button .expandable-button__label {
         max-width: 0;
         opacity: 0;
     }
@@ -1025,7 +1025,8 @@ body {
     box-shadow: 0 1px 0 var(--border);
 }
 
-.action-button {
+.expandable-button {
+    --expandable-button-gap: 0.45rem;
     display: inline-flex;
     min-width: 2.65rem;
     align-items: center;
@@ -1038,16 +1039,16 @@ body {
         padding 180ms ease;
 }
 
-.action-button:hover {
-    gap: 0.45rem;
+.expandable-button:hover {
+    gap: var(--expandable-button-gap);
 }
 
 /* A disabled action still has to explain itself: HeroUI's disabled state sets
    `pointer-events: none`, which would swallow the hover that shows the reason.
    The button stays non-clickable (it keeps `disabled` and `aria-disabled`), we
    only let the pointer through so the action bar can show its hint. */
-.action-button:disabled[data-action-tooltip],
-.action-button[aria-disabled="true"][data-action-tooltip] {
+.expandable-button:disabled[data-action-tooltip],
+.expandable-button[aria-disabled="true"][data-action-tooltip] {
     pointer-events: auto;
     cursor: not-allowed;
 }
@@ -1055,22 +1056,22 @@ body {
 /* While a HoverDropdown trigger's menu is open the button loses :hover
    (react-aria inerts the rest of the page), so keep the label/expanded look
    via an explicit class instead. */
-.action-button--open {
-    gap: 0.45rem;
+.expandable-button--expanded {
+    gap: var(--expandable-button-gap);
 }
 
-.action-button__icon {
+.expandable-button__icon {
     display: inline-grid;
     flex: 0 0 auto;
     place-items: center;
 }
 
-.action-button__icon svg {
+.expandable-button__icon svg {
     width: 1.1rem;
     height: 1.1rem;
 }
 
-.action-button__label {
+.expandable-button__label {
     max-width: 0;
     overflow: hidden;
     opacity: 0;
@@ -1080,18 +1081,29 @@ body {
         opacity 130ms ease;
 }
 
-.action-button:hover .action-button__label,
-.action-button:focus-visible .action-button__label,
-.action-button--open .action-button__label,
-.action-button--primary .action-button__label {
+.expandable-button:hover .expandable-button__label,
+.expandable-button:focus-visible .expandable-button__label,
+.expandable-button[data-focus-visible="true"] .expandable-button__label,
+.expandable-button--expanded .expandable-button__label {
     max-width: 13rem;
     opacity: 1;
 }
 
-/* Primary action buttons (approve/submit) stay expanded — their label is the
-   point of the button. */
-.action-button--primary {
-    gap: 0.45rem;
+.expandable-button:focus-visible,
+.expandable-button[data-focus-visible="true"] {
+    gap: var(--expandable-button-gap);
+}
+
+/* Reserved expansion space belongs before the buttons in right-aligned footers. */
+.expandable-button-group {
+    justify-content: flex-end;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .expandable-button,
+    .expandable-button__label {
+        transition: none;
+    }
 }
 
 /* Compact view menu (< md): fixed-width check column keeps the toggle and
@@ -2882,7 +2894,15 @@ body {
 /* ─── Row/column-number («№») go-to popover ───────────────────────── */
 
 .row-go-to-filter__popover {
-    width: 14rem;
+    width: 17rem;
+    min-width: 0;
+    max-width: calc(100vw - 2rem);
+}
+
+.row-go-to-filter__actions {
+    align-self: flex-end;
+    flex: none;
+    justify-content: flex-end;
 }
 
 .row-go-to-filter {

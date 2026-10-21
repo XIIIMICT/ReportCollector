@@ -2,8 +2,6 @@
 
 import {
     Autocomplete,
-    Button,
-    ButtonGroup,
     EmptyState,
     Label,
     ListBox,
@@ -17,6 +15,8 @@ import type { Key, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
+import { ExpandableButton } from "@/shared/ui/expandable-button";
+import { ExpandableButtonGroup } from "@/shared/ui/expandable-button-group";
 
 /**
  * One dropdown for the whole app: `Select` for a short list, `Autocomplete`
@@ -532,19 +532,7 @@ export function SmartSelect({
         );
     };
 
-    /**
-     * Commit mode's footer: icon-only «По умолчанию / Отменить / Применить»,
-     * right-aligned and pinned under the scrolling list.
-     *
-     * The buttons are DIRECT children of one `ButtonGroup`, exactly like the
-     * action bar: the group squares the shared edges (so the three read as one
-     * control) and rounds only the outer ones, which is the design system's
-     * intent. They carry no class of ours — nothing here overrides HeroUI's
-     * radius, motion or colours. The variants follow their meaning: `danger`
-     * for the destructive reset, `tertiary` for the dismissive cancel, `primary`
-     * (the single forward action) for apply. `preventFocus` keeps the search
-     * field's caret when a button is pressed.
-     */
+    // The same expanding buttons as the action bar, in one native ButtonGroup.
     const commitFooter = isCommitMode ? (
         <div
             className="smart-select__footer"
@@ -557,36 +545,36 @@ export function SmartSelect({
                 if (canConfirm) confirmRef.current();
             }}
         >
-            <ButtonGroup size="sm">
+            <ExpandableButtonGroup size="sm" reserveLast={2}>
                 {/* Direct children only: the group injects props into them. */}
                 {onReset ? (
-                    <Button
+                    <ExpandableButton
                         variant="danger"
-                        isIconOnly
                         aria-label={resetLabel}
+                        icon={<Refresh aria-hidden="true" />}
                         onPress={() => resetRef.current?.()}
                     >
-                        <Refresh aria-hidden="true" />
-                    </Button>
+                        По умолчанию
+                    </ExpandableButton>
                 ) : null}
-                <Button
+                <ExpandableButton
                     variant="tertiary"
-                    isIconOnly
                     aria-label="Отменить"
+                    icon={<Xmark aria-hidden="true" />}
                     onPress={() => cancelRef.current()}
                 >
-                    <Xmark aria-hidden="true" />
-                </Button>
-                <Button
+                    Отменить
+                </ExpandableButton>
+                <ExpandableButton
                     variant="primary"
-                    isIconOnly
                     aria-label="Применить"
+                    icon={<Check aria-hidden="true" />}
                     isDisabled={!canConfirm}
                     onPress={() => confirmRef.current()}
                 >
-                    <Check aria-hidden="true" />
-                </Button>
-            </ButtonGroup>
+                    Применить
+                </ExpandableButton>
+            </ExpandableButtonGroup>
         </div>
     ) : null;
 

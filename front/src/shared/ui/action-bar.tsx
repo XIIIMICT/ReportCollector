@@ -1,11 +1,12 @@
 "use client";
 
-import { Button, ButtonGroup, Dropdown, Kbd, Label, Spinner } from "@heroui/react";
+import { ButtonGroup, Dropdown, Kbd, Label, Spinner } from "@heroui/react";
 import { MoreHoriz } from "iconoir-react";
 import { useCallback, useRef, useState, type Key, type ReactNode } from "react";
 
 import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { ActionHint, parseShortcut } from "@/shared/ui/action-hint";
+import { ExpandableButton } from "@/shared/ui/expandable-button";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 
 export type ActionItem = {
@@ -70,12 +71,7 @@ export function ActionBar({
     const isSm = useMediaQuery("(max-width: 40rem)");
     const isMd = useMediaQuery("(max-width: 48rem)");
     const collapsePrimaryAtMd = isMd && !isSm;
-    const classNameFor = (action: ActionItem) =>
-        collapsePrimaryAtMd && action.variant === "primary"
-            ? "action-button"
-            : action.variant === "primary"
-              ? "action-button action-button--primary"
-              : "action-button";
+    const isExpanded = (action: ActionItem) => action.variant === "primary" && !collapsePrimaryAtMd;
     // Floating hint: shows the label plus a Kbd with the shortcut over every
     // inline action button, including the ones grouped in a ButtonGroup (whose
     // children can't be wrapped in a per-button Tooltip).
@@ -109,23 +105,19 @@ export function ActionBar({
                     className="action-more-popover"
                     {...(onDropdownOpenChange && { onOpenChange: onDropdownOpenChange })}
                     trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
-                        <Button
+                        <ExpandableButton
                             ref={ref}
                             onMouseEnter={onMouseEnter}
                             onPress={onPress}
-                            className={
-                                isOpen
-                                    ? classNameFor(action) + " action-button--open"
-                                    : classNameFor(action)
-                            }
                             variant={action.variant ?? "tertiary"}
                             {...(action.disabled !== undefined && { isDisabled: action.disabled })}
                             aria-label={action.label}
                             {...hintData(action)}
+                            icon={icon}
+                            isExpanded={isOpen || isExpanded(action)}
                         >
-                            <span className="action-button__icon">{icon}</span>
-                            <span className="action-button__label">{action.label}</span>
-                        </Button>
+                            {action.label}
+                        </ExpandableButton>
                     )}
                     content={
                         <Dropdown.Menu
@@ -151,18 +143,18 @@ export function ActionBar({
             );
         }
         return (
-            <Button
-                className={classNameFor(action)}
+            <ExpandableButton
+                isExpanded={isExpanded(action)}
                 variant={action.variant ?? "tertiary"}
                 {...(action.disabled !== undefined && { isDisabled: action.disabled })}
                 aria-label={action.label}
                 aria-keyshortcuts={action.shortcut?.aria}
                 {...hintData(action)}
                 onPress={action.onPress}
+                icon={icon}
             >
-                <span className="action-button__icon">{icon}</span>
-                <span className="action-button__label">{action.label}</span>
-            </Button>
+                {action.label}
+            </ExpandableButton>
         );
     };
 
@@ -208,15 +200,14 @@ export function ActionBar({
                 const firstAction = chunk[0];
                 if (!firstAction) return null;
                 return chunk.length > 1 ? (
-                    // Direct Button children only: ButtonGroup injects props
-                    // into them (`__button_group_child`), which any wrapper
-                    // element would reject. The kbd/disabled hint is the
-                    // floating tooltip of the action bar instead.
+                    // ExpandableButton forwards HeroUI's injected group props
+                    // to its Button, with no intervening DOM wrapper.
                     <ButtonGroup key={`group-${firstAction.id}`}>
                         {chunk.map((action) => (
-                            <Button
+                            <ExpandableButton
                                 key={action.id}
-                                className={classNameFor(action)}
+                                isExpanded={isExpanded(action)}
+                                icon={action.pending ? <Spinner size="sm" /> : action.icon}
                                 variant={action.variant ?? "tertiary"}
                                 {...(action.disabled !== undefined && {
                                     isDisabled: action.disabled,
@@ -226,9 +217,8 @@ export function ActionBar({
                                 {...hintData(action)}
                                 onPress={action.onPress}
                             >
-                                <span className="action-button__icon">{action.icon}</span>
-                                <span className="action-button__label">{action.label}</span>
-                            </Button>
+                                {action.label}
+                            </ExpandableButton>
                         ))}
                     </ButtonGroup>
                 ) : (
@@ -295,19 +285,17 @@ export function CompactActionMenu({
             className="action-more-popover"
             {...(onOpenChange && { onOpenChange })}
             trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
-                <Button
+                <ExpandableButton
                     ref={ref}
                     onMouseEnter={onMouseEnter}
                     onPress={onPress}
-                    className={isOpen ? "action-button action-button--open" : "action-button"}
+                    isExpanded={isOpen}
+                    icon={<MoreHoriz aria-hidden="true" />}
                     variant="tertiary"
                     aria-label="Действия с таблицей"
                 >
-                    <span className="action-button__icon">
-                        <MoreHoriz aria-hidden="true" />
-                    </span>
-                    <span className="action-button__label">Действия</span>
-                </Button>
+                    Действия
+                </ExpandableButton>
             )}
             content={
                 <Dropdown.Menu

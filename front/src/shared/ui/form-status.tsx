@@ -93,7 +93,7 @@ export function FormStatus({
                                 <b>Выделено:</b> {selectionLabel}
                             </div>
                         ) : null}
-                        {gridStats?.filtersApplied ? (
+                        {gridStats ? (
                             <div className="form-status__rows">
                                 <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
                                 {gridStats.totalRows} всего

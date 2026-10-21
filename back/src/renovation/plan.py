@@ -11,6 +11,7 @@ from sqlalchemy.dialects import postgresql
 from sqlmodel import Field, SQLModel
 
 from src.auth.models import utc_now
+from src.common.data_catalog import apply_table_comments
 
 
 class RPlanState(StrEnum):
@@ -356,3 +357,7 @@ class RenovationPlanRow(SQLModel, table=True):
     col_215: bool | None = Field(default=None, sa_column=Column(Boolean(), nullable=True))
     col_216: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
     col_217: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+
+
+for _model in (RenovationReferenceValue, RenovationPlan, RenovationPlanRow):
+    apply_table_comments(SQLModel.metadata.tables[_model.__tablename__])

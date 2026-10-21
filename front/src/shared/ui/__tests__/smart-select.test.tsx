@@ -206,8 +206,8 @@ test("«По умолчанию» renders first, icon-only, and calls its handle
     });
     await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
     const reset = screen.getByRole("button", { name: "По умолчанию: Группа" });
-    // The three cells are icon-only; «По умолчанию» comes before cancel/confirm.
-    expect(reset.textContent).toBe("");
+    // The shared labels are collapsed by CSS, not omitted from the DOM.
+    expect(reset.querySelector(".expandable-button__label")?.textContent).toBe("По умолчанию");
     const cells = [...document.querySelectorAll(".smart-select__footer .button")];
     expect(cells.map((cell) => cell.getAttribute("aria-label"))).toEqual([
         "По умолчанию: Группа",
@@ -218,6 +218,11 @@ test("«По умолчанию» renders first, icon-only, and calls its handle
     expect(cells[0]!.className).toContain("button--danger");
     expect(cells[1]!.className).toContain("button--tertiary");
     expect(cells[2]!.className).toContain("button--primary");
+    for (const cell of cells) {
+        expect(cell.className).toContain("expandable-button");
+        expect(cell.className).not.toContain("button--icon-only");
+        expect(cell.querySelector(".expandable-button__label")).toBeTruthy();
+    }
     // Direct children of ONE ButtonGroup, as in the action bar: the group owns
     // the corners, the buttons carry no class of ours (no local overrides).
     for (const cell of cells) expect(cell.className).not.toContain("smart-select__");

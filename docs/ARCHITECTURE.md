@@ -72,6 +72,20 @@ Domain — `back/src/raw_materials/models.py` (prefix `rm_`):
 - **«Цены»** (rawMaterialPrices) — no months; the only place the business plan is edited.
 - **Dictionaries** (rawMaterials, assets, deliveryBases, users) — project admin only. Editing assets of a raw-material item = diff link replacement: removed assets deleted, new ones added; if movement/prices exist → a clear business error (409), RESTRICT never leaks out.
 
+### Data catalog comments
+
+Migration `0014_data_catalog_comments` documents every application-owned table
+and column in Russian (30 tables, 495 columns). Renovation plan column comments
+reuse the complete normalized header hierarchy shown by the form selection
+status. Source schemas `raw.*`/`dict.*` and `alembic_version` are excluded.
+`back/src/common/data_catalog.py` also attaches comments when each model module
+registers its tables, including tables recreated by the KPPK seeder. The
+migration carries a frozen snapshot, not runtime imports; future comment
+changes need a new migration. Legacy baseline adoption tolerates absent
+catalog comments deferred to 0014, but still rejects unexpected existing
+comments and structural drift. Legacy KPPK fields not exposed by the form
+retain source-field descriptions; undocumented units are not inferred.
+
 ## Data model (project «КППК», key `kppk`)
 
 Phase 1 copies the source tables of the corporate КППК database into the program

@@ -163,7 +163,7 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         assert {table: after[table] for table in all_business_data} == all_business_data
         assert (
             await conn.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalar_one() == "0013_rename_renovation_tables"
+        ).scalar_one() == "0014_data_catalog_comments"
         assert (await conn.execute(text("SELECT id, col_011 FROM r_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
         assert (
@@ -316,6 +316,10 @@ async def test_adopt_still_refuses_a_non_audit_column_type_change(db_session, te
     """The deferred-0006 tolerance is a closed list: any other type change is drift."""
     await db_session.close()
     async with test_engine.begin() as conn:
+        config = config_for(conn.sync_connection)
+        # The grouped Alembic diff contains both a deferred comment and a real
+        # type mismatch: accepting the former must never hide the latter.
+        await conn.run_sync(lambda _: command.downgrade(config, "0013_rename_renovation_tables"))
         await conn.execute(text("ALTER TABLE rm_raw_material_prices ALTER COLUMN fact_2025 TYPE text"))
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
         with pytest.raises(ValueError, match="Схема отличается"):
@@ -356,7 +360,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) ->
             await conn.run_sync(upgrade)
             assert (
                 await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "0013_rename_renovation_tables"
+            ).scalar_one() == "0014_data_catalog_comments"
         assert all(not path.exists() for path in stale)
     finally:
         for path in stale:
@@ -372,6 +376,37 @@ async def test_upgrade_fresh_schema(test_engine) -> None:
         await conn.run_sync(upgrade)
         diffs = await conn.run_sync(lambda c: compare_metadata(MigrationContext.configure(c), SQLModel.metadata))
         assert diffs == []
+
+
+async def test_catalog_migration_only_changes_comments(db_session, test_engine) -> None:
+    await db_session.commit()
+    async with test_engine.begin() as conn:
+        config = config_for(conn.sync_connection)
+        before = await conn.run_sync(business_snapshot)
+        for _ in range(2):
+            await conn.run_sync(lambda _: command.downgrade(config, "0013_rename_renovation_tables"))
+            assert await conn.run_sync(business_snapshot) == before
+
+            def assert_comments(connection, *, present) -> None:
+                inspector = inspect(connection)
+                for table in SQLModel.metadata.tables.values():
+                    assert inspector.get_table_comment(table.name)["text"] == (table.comment if present else None)
+                    assert {column["name"]: column.get("comment") for column in inspector.get_columns(table.name)} == {
+                        column.name: column.comment if present else None for column in table.c
+                    }
+
+            await conn.run_sync(lambda c: assert_comments(c, present=False))
+            await conn.run_sync(lambda _: command.upgrade(config, "0014_data_catalog_comments"))
+            await conn.run_sync(lambda c: assert_comments(c, present=True))
+            assert await conn.run_sync(business_snapshot) == before
+
+
+async def test_adopt_refuses_unexpected_existing_comment(db_session, test_engine) -> None:
+    async with test_engine.begin() as conn:
+        await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
+        await conn.execute(text("COMMENT ON COLUMN rm_assets.name IS 'unexpected legacy comment'"))
+        with pytest.raises(ValueError, match="Схема отличается"):
+            await conn.run_sync(adopt)
 
 
 async def test_rename_migration_preserves_renovation_collab_state(db_session, test_engine) -> None:

@@ -28,6 +28,15 @@ export type ExportState = {
     onExport: (mode: ExportMode) => void;
 };
 
+/** Keep row-count publications even when the download handler is unchanged. */
+export function reconcileExportState(current: ExportState, next: ExportState): ExportState {
+    return current.pending === next.pending &&
+        current.rowCount === next.rowCount &&
+        current.onExport === next.onExport
+        ? current
+        : next;
+}
+
 /** The reason shown on an export button over an empty table. */
 export const NOTHING_TO_EXPORT_REASON = "Нечего выгружать: таблица пуста.";
 

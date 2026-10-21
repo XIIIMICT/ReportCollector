@@ -82,6 +82,12 @@ class ExportColumnLike(Protocol):
     @property
     def numberFormat(self) -> str | None: ...  # noqa: N802  # camelCase is the frontend contract
 
+    @property
+    def horizontalAlignment(self) -> str | None: ...  # noqa: N802
+
+    @property
+    def verticalAlignment(self) -> str | None: ...  # noqa: N802
+
 
 class ExportRequestLike(Protocol):
     """The part of a project's export request the shared validation reads."""

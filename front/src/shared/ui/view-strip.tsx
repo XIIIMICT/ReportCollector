@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Dropdown, Label } from "@heroui/react";
+import { Dropdown, Label } from "@heroui/react";
 import {
     ArrowSeparateVertical,
     ArrowUnionVertical,
@@ -15,6 +15,7 @@ import {
 } from "iconoir-react";
 import { type Key, type ReactNode } from "react";
 
+import { ExpandableButton } from "@/shared/ui/expandable-button";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { DEFAULT_ROW_HEIGHT, MIN_ROW_HEIGHT } from "@/shared/ui/use-view-state";
 
@@ -73,23 +74,18 @@ export function ViewStrip({
             onPress: () => void;
         },
     ) => (
-        <Button
+        <ExpandableButton
             ref={handlers.ref}
             onMouseEnter={handlers.onMouseEnter}
             onPress={handlers.onPress}
-            className={
-                isOpen
-                    ? "action-button action-button--open view-strip__view-button"
-                    : "action-button view-strip__view-button"
-            }
+            className="view-strip__view-button"
             variant="tertiary"
             aria-label="Вид таблицы"
+            icon={<MoreHoriz aria-hidden="true" />}
+            isExpanded={isOpen}
         >
-            <span className="action-button__icon">
-                <MoreHoriz aria-hidden="true" />
-            </span>
-            <span className="action-button__label">Вид таблицы</span>
-        </Button>
+            Вид таблицы
+        </ExpandableButton>
     );
 
     return (

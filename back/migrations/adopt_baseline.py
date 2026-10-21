@@ -271,6 +271,23 @@ def _is_legacy_price_timestamp_change(diff: object) -> bool:
 
 def _is_legacy_equivalent(diff: tuple) -> bool:
     """Match a single known legacy-only difference (a dropped column or index)."""
+    # 0014 adds the catalog after adoption. Only absent comments whose target
+    # matches a documented application object are deferred, never structural edits.
+    if isinstance(diff, tuple) and len(diff) == 3 and diff[0] == "add_table_comment":
+        table = diff[1]
+        name = _RENOVATION_TABLE_RENAMES.get(table.name, table.name)
+        expected = SQLModel.metadata.tables.get(name)
+        return expected is not None and diff[2] is None and table.comment == expected.comment
+    if isinstance(diff, tuple) and len(diff) == 7 and diff[0] == "modify_comment":
+        name = _RENOVATION_TABLE_RENAMES.get(diff[2], diff[2])
+        table = SQLModel.metadata.tables.get(name)
+        column = table.c.get(diff[3]) if table is not None else None
+        if name == "r_plan_rows" and diff[3].startswith("col_"):
+            old_number = int(diff[3][4:])
+            legacy_column = table.c.get(f"col_{old_number - 1:03d}") if table is not None else None
+            if legacy_column is not None and diff[-1] == legacy_column.comment and diff[-2] is None:
+                return True
+        return column is not None and diff[-2] is None and diff[-1] == column.comment
     if isinstance(diff, tuple) and len(diff) >= 4 and diff[0] == "remove_column":
         _schema, table, column = diff[1], diff[2], diff[3]
         return table in _LEGACY_EXTRA_COLUMNS and column.name in _LEGACY_EXTRA_COLUMNS[table]
@@ -283,8 +300,8 @@ def _is_legacy_equivalent(diff: tuple) -> bool:
         return diff[1].name in _LEGACY_MISSING_TABLES
     if isinstance(diff, list):
         # Alembic groups the changes on one column into a nested list; tolerate
-        # it only when every change in the group is a known deferred 0006 edit.
-        return bool(diff) and all(_is_legacy_price_timestamp_change(item) for item in diff)
+        # it only when every change is a known deferred timestamp/comment edit.
+        return bool(diff) and all(_is_legacy_equivalent(item) for item in diff)
     return _is_legacy_price_timestamp_change(diff)
 
 

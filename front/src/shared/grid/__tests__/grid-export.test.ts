@@ -19,6 +19,30 @@ describe("exportFileName", () => {
 });
 
 describe("exportColumnsFromGrid", () => {
+    test("exports descriptor alignment and numeric/text defaults", () => {
+        const columns = exportColumnsFromGrid("kppkCost", false, false, [], false, [
+            { key: "product", label: "Продукция", width: 200, kind: "text" },
+            { key: "fullCostBp", label: "Стоимость", width: 120, kind: "number" },
+            {
+                key: "productNum",
+                label: "№",
+                width: 80,
+                kind: "number",
+                horizontalAlignment: "center",
+                verticalAlignment: "top",
+            },
+        ]);
+        expect(
+            columns.map(({ horizontalAlignment, verticalAlignment }) => [
+                horizontalAlignment,
+                verticalAlignment,
+            ]),
+        ).toEqual([
+            ["left", "center"],
+            ["right", "center"],
+            ["center", "top"],
+        ]);
+    });
     test("служебные столбцы попадают в экспорт при включённом показе", () => {
         const columns = exportColumnsFromGrid("materialMovement", true, true, []);
         const keys = columns.map((column) => column.key);

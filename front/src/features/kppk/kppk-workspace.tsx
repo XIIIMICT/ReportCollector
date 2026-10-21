@@ -65,12 +65,14 @@ import {
 } from "@/shared/grid/section-policy";
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
+import { useRestoredState } from "@/shared/hooks/use-restored-state";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
 import {
     NO_ROW_SELECTED_REASON,
     buildClipboardActions,
     buildDeleteAction,
     buildExportAction,
+    reconcileExportState,
     buildHistoryActions,
     buildAddRowAction,
     DeleteRecordDialog,
@@ -885,16 +887,17 @@ export function KppkWorkspace({
     // other subproject. A ДЗО is always selected — the first dictionary row
     // until the user picks one; the period defaults to the loaded view's
     // (server-fixed) month/year until a selection is made.
-    const [realizationOrgId, setRealizationOrgId] = useState<string | null>(() =>
+    const [realizationOrgId, setRealizationOrgId] = useRestoredState<string | null>(null, () =>
         readWorkspaceQuery("org"),
     );
-    const [realizationSlice, setRealizationSlice] = useState<KppkRealizationSlice>(
+    const [realizationSlice, setRealizationSlice] = useRestoredState<KppkRealizationSlice>(
+        "bp",
         () => (readWorkspaceQuery("slice") as KppkRealizationSlice) || "bp",
     );
-    const [realizationMonth, setRealizationMonth] = useState<string | null>(() =>
+    const [realizationMonth, setRealizationMonth] = useRestoredState<string | null>(null, () =>
         readWorkspaceQuery("month"),
     );
-    const [realizationYear, setRealizationYear] = useState<string | null>(() =>
+    const [realizationYear, setRealizationYear] = useRestoredState<string | null>(null, () =>
         readWorkspaceQuery("year"),
     );
     const [realizationPeriodText, setRealizationPeriodText] = useState<string | null>(null);
@@ -962,11 +965,7 @@ export function KppkWorkspace({
         setSectionRoom((current) => (current === room ? current : room));
     }, []);
     const handleExportState = useCallback((state: ExportState) => {
-        setExportState((current) =>
-            current.pending === state.pending && current.onExport === state.onExport
-                ? current
-                : state,
-        );
+        setExportState((current) => reconcileExportState(current, state));
     }, []);
 
     useEffect(() => {

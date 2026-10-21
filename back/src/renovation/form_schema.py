@@ -65,7 +65,22 @@ class RenovationHeaderCell:
 
 @lru_cache(maxsize=1)
 def _load_form() -> dict:
-    return json.loads(FORM_DATA_PATH.read_text(encoding="utf-8"))
+    form = json.loads(FORM_DATA_PATH.read_text(encoding="utf-8"))
+    # Workbook labels may contain trailing CR/LF, non-breaking spaces or repeated
+    # spaces. Normalize display metadata only, never user-entered plan values.
+    for cell in form["headerCells"]:
+        cell["text"] = normalize_label(cell.get("text", ""))
+    for field in form["fields"]:
+        field["label"] = normalize_label(field["label"])
+        field["categories"] = [normalize_label(part) for part in field.get("categories", [])]
+    for catalog in form["catalogs"]:
+        catalog["label"] = normalize_label(catalog["label"])
+    return form
+
+
+def normalize_label(value: str) -> str:
+    """Collapse whitespace in a form label to single ordinary spaces."""
+    return " ".join(value.split())
 
 
 @lru_cache(maxsize=1)
@@ -160,3 +175,54 @@ def header_rows() -> tuple[tuple[int, tuple[RenovationHeaderCell, ...]], ...]:
         )
         rows.append((int(entry["level"]), cells))
     return tuple(rows)
+
+
+def field_header_paths() -> dict[str, str]:
+    """Full display hierarchies, matching the grid's header-chain traversal."""
+    cells = [cell for _, row in header_rows() for cell in row]
+    fields = field_metas()
+    block_labels = {
+        "tech": "1) Техническая дирекция",
+        "ksir": "2) Дирекция КСиР",
+        "mto": "3) Дирекция МТО",
+    }
+    covered = {
+        position
+        for cell in cells
+        if cell.level == 0
+        for position in range(cell.start_position, cell.start_position + cell.col_span)
+    }
+    result = {}
+    for field in fields:
+        if field.db_name == "col_002":
+            result[field.db_name] = "Предприятие"
+            continue
+        applicable = [
+            cell
+            for cell in cells
+            if cell.start_position + 1 <= field.position < cell.start_position + cell.col_span + 1
+        ]
+        applicable.sort(
+            key=lambda cell: (
+                cell.level if cell.start_position in covered else 0,
+                cell.start_position,
+            )
+        )
+        texts: list[str] = []
+        for cell in applicable:
+            label = cell.text
+            if cell.level == 0 and label.startswith("Блок "):
+                block = next(
+                    (
+                        candidate.responsibility_block
+                        for candidate in fields
+                        if cell.start_position + 1 <= candidate.position < cell.start_position + cell.col_span + 1
+                        and candidate.responsibility_block in block_labels
+                    ),
+                    None,
+                )
+                label = block_labels.get(block or "", label)
+            if label and (not texts or texts[-1] != label):
+                texts.append(label)
+        result[field.db_name] = " → ".join(texts) or field.label
+    return result

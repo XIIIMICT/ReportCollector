@@ -1,7 +1,11 @@
 "use client";
 
 import { Label, NumberField, Popover } from "@heroui/react";
+import { Check, Xmark } from "iconoir-react";
 import { useRef, useState } from "react";
+
+import { ExpandableButton } from "@/shared/ui/expandable-button";
+import { ExpandableButtonGroup } from "@/shared/ui/expandable-button-group";
 
 /**
  * «Перейти к строке/столбцу» — the «№» corner popover.
@@ -13,8 +17,8 @@ import { useRef, useState } from "react";
  * block filter that hides a column resolves the request to the nearest
  * VISIBLE one (the grid owns that fallback, `scrollToColumn`).
  *
- * The jump happens when the popover closes (outside press, Escape or Enter);
- * an empty field closes without a jump for that field.
+ * The footer commits with «Применить»/Enter; «Отменить», outside press and
+ * Escape close without jumping. An empty field applies no jump for that field.
  *
  * Values are read from the inputs on close as well as from `onChange`:
  * react-aria's NumberField only commits typed text on blur/Enter, so closing
@@ -37,20 +41,19 @@ export function RowGoToFilter({
     onGoToColumn: (number: number) => void;
     onClose: () => void;
 }) {
-    const [value, setValue] = useState<number | undefined>(undefined);
-    const [column, setColumn] = useState<number | undefined>(undefined);
+    const [value, setValue] = useState(Number.NaN);
+    const [column, setColumn] = useState(Number.NaN);
     const inputRef = useRef<HTMLInputElement>(null);
     const columnInputRef = useRef<HTMLInputElement>(null);
 
-    const close = () => {
+    const apply = () => {
         const raw = inputRef.current?.value?.trim() ?? "";
-        const parsed = value ?? (raw === "" ? undefined : Number(raw.replace(",", ".")));
+        const parsed = raw === "" ? undefined : Number(raw.replace(",", "."));
         if (parsed !== undefined && Number.isFinite(parsed)) {
             onGoTo(Math.max(1, Math.min(Math.round(parsed), Math.max(1, total))));
         }
         const rawColumn = columnInputRef.current?.value?.trim() ?? "";
-        const parsedColumn =
-            column ?? (rawColumn === "" ? undefined : Number(rawColumn.replace(",", ".")));
+        const parsedColumn = rawColumn === "" ? undefined : Number(rawColumn.replace(",", "."));
         if (parsedColumn !== undefined && Number.isFinite(parsedColumn)) {
             // Columns are fixed, so a number above the last visible one is not
             // clamped but resolved by the grid to the nearest visible column.
@@ -59,11 +62,13 @@ export function RowGoToFilter({
         onClose();
     };
 
+    const cancel = () => onClose();
+
     return (
         <Popover
             defaultOpen
             onOpenChange={(open) => {
-                if (!open) close();
+                if (!open) cancel();
             }}
         >
             <Popover.Trigger
@@ -73,46 +78,81 @@ export function RowGoToFilter({
                 <span />
             </Popover.Trigger>
             <Popover.Content className="row-go-to-filter__popover">
-                <Popover.Dialog>
-                    <div className="row-go-to-filter">
-                        <div className="row-go-to-filter__field">
-                            <Label className="row-go-to-filter__label">Номер строки</Label>
-                            <NumberField
-                                {...(value !== undefined && { value })}
-                                onChange={setValue}
-                                minValue={1}
-                                maxValue={Math.max(1, total)}
-                                variant="secondary"
-                                aria-label="Номер строки"
-                            >
-                                <NumberField.Group>
-                                    <NumberField.Input
-                                        ref={inputRef}
-                                        placeholder={`1…${total}`}
-                                        autoFocus
-                                    />
-                                </NumberField.Group>
-                            </NumberField>
+                <div
+                    data-grid-keyboard-overlay
+                    onKeyDownCapture={(event: React.KeyboardEvent<HTMLDivElement>) => {
+                        if (event.key === "Escape") {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            cancel();
+                        } else if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            apply();
+                        }
+                    }}
+                >
+                    <Popover.Dialog>
+                        <div className="row-go-to-filter">
+                            <div className="row-go-to-filter__field">
+                                <Label className="row-go-to-filter__label">Номер строки</Label>
+                                <NumberField
+                                    value={value}
+                                    onChange={setValue}
+                                    formatOptions={{ useGrouping: false }}
+                                    minValue={1}
+                                    maxValue={Math.max(1, total)}
+                                    variant="secondary"
+                                    aria-label="Номер строки"
+                                >
+                                    <NumberField.Group>
+                                        <NumberField.Input
+                                            ref={inputRef}
+                                            placeholder={`1…${total}`}
+                                            autoFocus
+                                        />
+                                    </NumberField.Group>
+                                </NumberField>
+                            </div>
+                            <div className="row-go-to-filter__field">
+                                <Label className="row-go-to-filter__label">Номер столбца</Label>
+                                <NumberField
+                                    value={column}
+                                    onChange={setColumn}
+                                    formatOptions={{ useGrouping: false }}
+                                    minValue={1}
+                                    variant="secondary"
+                                    aria-label="Номер столбца"
+                                >
+                                    <NumberField.Group>
+                                        <NumberField.Input
+                                            ref={columnInputRef}
+                                            placeholder={`1…${maxColumn}`}
+                                        />
+                                    </NumberField.Group>
+                                </NumberField>
+                            </div>
+                            <ExpandableButtonGroup size="sm" className="row-go-to-filter__actions">
+                                <ExpandableButton
+                                    variant="tertiary"
+                                    aria-label="Отменить"
+                                    icon={<Xmark aria-hidden="true" />}
+                                    onPress={cancel}
+                                >
+                                    Отменить
+                                </ExpandableButton>
+                                <ExpandableButton
+                                    variant="primary"
+                                    aria-label="Применить"
+                                    icon={<Check aria-hidden="true" />}
+                                    onPress={apply}
+                                >
+                                    Применить
+                                </ExpandableButton>
+                            </ExpandableButtonGroup>
                         </div>
-                        <div className="row-go-to-filter__field">
-                            <Label className="row-go-to-filter__label">Номер столбца</Label>
-                            <NumberField
-                                {...(column !== undefined && { value: column })}
-                                onChange={setColumn}
-                                minValue={1}
-                                variant="secondary"
-                                aria-label="Номер столбца"
-                            >
-                                <NumberField.Group>
-                                    <NumberField.Input
-                                        ref={columnInputRef}
-                                        placeholder={`1…${maxColumn}`}
-                                    />
-                                </NumberField.Group>
-                            </NumberField>
-                        </div>
-                    </div>
-                </Popover.Dialog>
+                    </Popover.Dialog>
+                </div>
             </Popover.Content>
         </Popover>
     );

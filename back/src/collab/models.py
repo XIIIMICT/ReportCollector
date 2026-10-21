@@ -7,6 +7,8 @@ from sqlalchemy import BigInteger, Column, DateTime, Sequence
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
+from src.common.data_catalog import apply_table_comments
+
 ACTION_SEQUENCE = Sequence("collab_action_id_seq", metadata=SQLModel.metadata)
 
 
@@ -36,6 +38,10 @@ class OutboxEvent(SQLModel, table=True):
     id: int | None = Field(default=None, sa_column=Column(BigInteger, primary_key=True, autoincrement=True))
     room: str
     payload: dict = Field(sa_column=Column(JSONB, nullable=False))
+
+
+for _model in (EditStack, CellState, OutboxEvent):
+    apply_table_comments(SQLModel.metadata.tables[_model.__tablename__])
 
 
 MOVEMENT_TABLE = "rm_material_movements"

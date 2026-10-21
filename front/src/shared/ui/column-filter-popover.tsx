@@ -67,7 +67,7 @@ export function ColumnFilterPopover({
     // master item as «Выбрать все (N)» and it doubles as the "load more" guard.
     const [total, setTotal] = useState(0);
     const [rowCount, setRowCount] = useState(0);
-    const showUniqueCount = column !== "col_003";
+    const showUniqueCount = column !== "col_002";
     const [allActive, setAllActive] = useState(true);
     // «Пустые» is on by default so the default state really is "everything".
     const [kept, setKept] = useState<Set<string>>(new Set(initial?.values ?? []));
@@ -78,7 +78,7 @@ export function ColumnFilterPopover({
     // seeds the very first window (`initial === null` means "no filter").
     const allStillSelectedRef = useRef(initial === null);
     // The value list is paged: a column can hold tens of thousands of distinct
-    // values (col_003 — the renovation ID — has ~248k, col_022 ~85k), so only
+    // values (col_002 — the renovation ID — has ~248k, col_021 ~85k), so only
     // the first window arrives with the popover and the rest follow as the user
     // scrolls to the bottom (`/plan/facets` pages by offset/limit). The loading
     // state is a ref only: the popover shows no progress text — new windows

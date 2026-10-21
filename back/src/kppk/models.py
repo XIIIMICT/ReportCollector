@@ -36,6 +36,8 @@ from sqlalchemy import (
 )
 from sqlmodel import Field, SQLModel
 
+from src.common.data_catalog import apply_table_comments
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -268,3 +270,16 @@ class KppkProductionPlan(SQLModel, table=True):
     stock_current_region: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     stock_plant: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     stock_current_plant: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
+
+
+for _model in (
+    KppkOrg,
+    KppkProduct,
+    KppkRaw,
+    KppkOrgProduct,
+    KppkRealization,
+    KppkRealizationPlan,
+    KppkCost,
+    KppkProductionPlan,
+):
+    apply_table_comments(SQLModel.metadata.tables[_model.__tablename__])

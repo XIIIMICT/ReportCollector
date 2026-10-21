@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
+
+import { useRestoredState } from "@/shared/hooks/use-restored-state";
 
 import { readWorkspaceQuery, writeWorkspaceQuery } from "./query-state";
 
@@ -131,14 +133,16 @@ function writeRowHeight(projectKey: string, value: number): void {
 /**
  * The project's view state as React state, persisted on every change.
  *
- * `useState(readStored...)` initialises lazily on the client; SSR renders the
- * defaults and the first client render adopts the stored value before paint
- * (the switch is hidden behind the toolbar that mounts together with it, and
- * the grid reads its width from the DOM, so there is no visible jump).
+ * SSR and the first hydration render use defaults; browser values are restored
+ * after hydration so controls never render different server/client markup.
  */
 export function useViewState(projectKey: string): ViewStateControls {
-    const [state, setState] = useState<ViewState>(() => readStoredViewState(projectKey));
-    const [rowHeight, setRowHeightState] = useState(() => readRowHeight(projectKey));
+    const [state, setState] = useRestoredState<ViewState>(DEFAULT_VIEW_STATE, () =>
+        readStoredViewState(projectKey),
+    );
+    const [rowHeight, setRowHeightState] = useRestoredState(DEFAULT_ROW_HEIGHT, () =>
+        readRowHeight(projectKey),
+    );
 
     const setHeaderPinned = useCallback(
         (value: boolean) => {

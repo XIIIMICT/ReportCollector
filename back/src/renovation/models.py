@@ -7,6 +7,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
 
 from src.auth.models import utc_now
+from src.common.data_catalog import apply_table_comments
 
 
 class RProjectRole(StrEnum):
@@ -109,3 +110,7 @@ class RUserRole(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+
+
+for _model in (RAsset, RUserRole, RUserAsset):
+    apply_table_comments(SQLModel.metadata.tables[_model.__tablename__])

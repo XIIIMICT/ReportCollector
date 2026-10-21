@@ -78,6 +78,8 @@ export type ColumnDescriptor = {
      * Without the flag the checkbox is a plain binary toggle (dictionaries).
      */
     allowsNull?: boolean;
+    horizontalAlignment?: "left" | "center" | "right";
+    verticalAlignment?: "top" | "center" | "bottom";
 };
 
 export type GridColumnContext = {
@@ -108,6 +110,8 @@ export type ExportColumn = {
     headerPath: string[];
     width: number;
     numberFormat: string | null;
+    horizontalAlignment?: "left" | "center" | "right";
+    verticalAlignment?: "top" | "center" | "bottom";
 };
 
 type StaticSectionId = Exclude<SectionId, `renovationCatalog:${string}`>;
@@ -402,6 +406,14 @@ export function exportColumnsFromGrid(
         headerPath: [...(descriptor.path ?? []), descriptor.label],
         width: pixelsToExcelWidth(byKey.get(descriptor.key)?.size ?? descriptor.width),
         numberFormat: null,
+        horizontalAlignment:
+            descriptor.horizontalAlignment ??
+            (descriptor.kind === "number" || descriptor.kind === "calculated"
+                ? "right"
+                : descriptor.kind === "boolean"
+                  ? "center"
+                  : "left"),
+        verticalAlignment: descriptor.verticalAlignment ?? "center",
     }));
 }
 

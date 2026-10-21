@@ -34,6 +34,7 @@ Object.defineProperties(globalThis, {
     // react-aria's `focusSafely` constructs a FocusEvent when it moves the
     // virtual focus onto a list option; happy-dom has no such global.
     FocusEvent: { configurable: true, value: domWindow.FocusEvent, writable: true },
+    InputEvent: { configurable: true, value: domWindow.InputEvent, writable: true },
     // react-aria's ListBox re-dispatches a keydown as a synthetic
     // KeyboardEvent on the focused option; without the global constructor
     // every Enter/Space press inside an open list throws.

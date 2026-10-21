@@ -13,6 +13,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Index, Text, UniqueConstraint, Uuid
 from sqlmodel import Field, SQLModel
 
+from src.common.data_catalog import apply_table_comments
+
 
 class RawMaterialAsset(SQLModel, table=True):
     """Asset (site)."""
@@ -216,3 +218,18 @@ class SnapshotMaterialMovement(SQLModel, table=True):
     balance_end_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     storage_standard_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     deviation_reason: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+
+
+for _model in (
+    RawMaterialAsset,
+    RawMaterialUserAsset,
+    RawMaterial,
+    AssetRawMaterial,
+    MovementPeriod,
+    MaterialMovement,
+    DeliveryBasis,
+    RawMaterialPrice,
+    ReportSnapshot,
+    SnapshotMaterialMovement,
+):
+    apply_table_comments(SQLModel.metadata.tables[_model.__tablename__])

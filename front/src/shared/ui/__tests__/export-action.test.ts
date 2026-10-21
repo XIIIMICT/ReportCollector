@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildExportAction, NOTHING_TO_EXPORT_REASON } from "../action-items";
+import { buildExportAction, NOTHING_TO_EXPORT_REASON, reconcileExportState } from "../action-items";
 
 /**
  * The export button follows the shared rule: an empty table has nothing to
@@ -8,6 +8,16 @@ import { buildExportAction, NOTHING_TO_EXPORT_REASON } from "../action-items";
  * through the one builder they all use.
  */
 describe("buildExportAction", () => {
+    test("first row-count publication enables export without changing filters or handler", () => {
+        const onExport = () => {};
+        const initial = { pending: false, rowCount: 0, onExport };
+        const loaded = { ...initial, rowCount: 12 };
+        const next = reconcileExportState(initial, loaded);
+        expect(next).toBe(loaded);
+        expect(buildExportAction({ ...next, disabled: false }).disabled).toBe(false);
+        expect(reconcileExportState(next, { ...loaded })).toBe(next);
+        expect(reconcileExportState(next, initial)).toBe(initial);
+    });
     const disabledFor = (rowCount: number | undefined, disabled = false) =>
         buildExportAction({ pending: false, disabled, rowCount, onExport: () => {} }).disabled;
 

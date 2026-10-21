@@ -47,6 +47,7 @@ import { isFromTextEditor } from "@/shared/keyboard";
 import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
 
 import { breaksValueRules } from "./renovation-rules";
+import { renovationRowStats } from "./renovation-stats";
 
 /**
  * The «Ремонт» plan grid.
@@ -166,8 +167,10 @@ export type RenovationGridProps = {
      * Built by the workspace via `renovationGridScopeKey`.
      */
     scopeKey: string;
-    /** Whole-plan row count — `total` for the remote loader (0 = nothing to load). */
+    /** Filtered row count — `total` for the remote loader (0 = nothing to load). */
     totalRows: number;
+    /** Whole-plan row count, independent of asset/header filters. */
+    totalRowsAll: number;
     /**
      * Loads one chunk of the scope. `offset`/`limit` are rows of the FILTERED
      * plan in the server's «№» order, so a row's grid index equals its offset
@@ -491,6 +494,7 @@ function RenovationGridInner(
         catalogs,
         scopeKey,
         totalRows,
+        totalRowsAll,
         loadRows,
         loadedRows,
         assetFilter,
@@ -1382,10 +1386,13 @@ function RenovationGridInner(
             // «Найдено» — the filtered plan size the server reports for the
             // current scope (never the loaded chunk count: the plugin keeps
             // only a window around the viewport).
-            filteredRows: totalRows,
-            totalRows,
+            ...renovationRowStats(
+                totalRows,
+                totalRowsAll,
+                assetFilter !== null,
+                activeFilterColumns,
+            ),
             totalCols: displayFields.length,
-            filtersApplied: assetFilter !== null,
             immutableCols: displayFields.filter((field) => field.isReadOnly && !field.isCalculated)
                 .length,
             calculatedCols: displayFields.filter((field) => field.isCalculated).length,
@@ -1394,7 +1401,15 @@ function RenovationGridInner(
                     !field.isCalculated && !field.isReadOnly && editableFieldKeys.has(field.dbName),
             ).length,
         });
-    }, [assetFilter, displayFields, editableFieldKeys, onViewStatsChange, totalRows]);
+    }, [
+        activeFilterColumns,
+        assetFilter,
+        displayFields,
+        editableFieldKeys,
+        onViewStatsChange,
+        totalRowsAll,
+        totalRows,
+    ]);
 
     useEffect(() => {
         rowValuesRef.current = new Map(loadedRows.map((row) => [row.__id, { ...row }]));
@@ -2265,6 +2280,11 @@ function RenovationGridInner(
                 // Window capture precedes the select's portal handlers. Leave
                 // this Escape to the popover, preserving the current range.
                 if (hasOpenSmartSelect()) return;
+                if (
+                    event.target instanceof Element &&
+                    event.target.closest("[data-grid-keyboard-overlay]")
+                )
+                    return;
                 if (isFromTextEditor(event)) return;
                 const grid = gridRef.current;
                 if (!grid) return;

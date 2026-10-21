@@ -17,7 +17,7 @@ let facetHandler: (
 mock.module("@/shared/api/renovation", () => ({
     getRenovationPlanFacets: (column: string, params?: { offset?: number; limit?: number }) => {
         if (facetHandler) return facetHandler(column, params);
-        if (column === "col_003") {
+        if (column === "col_002") {
             return Promise.resolve({
                 column,
                 // The two-bucket ID filter: no value list, no «Пустые».
@@ -54,7 +54,7 @@ afterEach(() => {
 
 const anchor = { left: 0, top: 0, width: 100 } as DOMRect;
 
-async function openFilter(column = "col_011", firstLabel = "Насос") {
+async function openFilter(column = "col_010", firstLabel = "Насос") {
     const view = render(
         <ColumnFilterPopover
             column={column}
@@ -101,12 +101,12 @@ async function openRecorded(
     let closes = 0;
     render(
         <ColumnFilterPopover
-            column="col_011"
-            columnLabel="col_011"
+            column="col_010"
+            columnLabel="col_010"
             anchor={anchor}
             initial={
                 initial && {
-                    column: "col_011",
+                    column: "col_010",
                     values: initial.values ?? [],
                     includeNulls: initial.includeNulls ?? true,
                 }
@@ -137,7 +137,7 @@ test("«Применить» hands the pending selection to the owner", async ()
     );
     fireEvent.click(screen.getByRole("button", { name: "Применить" }));
     await waitFor(() => expect(closes()).toBe(1));
-    expect(applied[0]).toEqual({ column: "col_011", values: ["Шкаф"], includeNulls: true });
+    expect(applied[0]).toEqual({ column: "col_010", values: ["Шкаф"], includeNulls: true });
 });
 
 test("«Отменить» restores the filter that was in force before opening", async () => {
@@ -146,7 +146,7 @@ test("«Отменить» restores the filter that was in force before opening"
     fireEvent.click(screen.getByRole("option", { name: /^Шкаф/ }));
     fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
     await waitFor(() => expect(closes()).toBe(1));
-    expect(applied).toEqual([{ column: "col_011", values: ["Насос"], includeNulls: false }]);
+    expect(applied).toEqual([{ column: "col_010", values: ["Насос"], includeNulls: false }]);
 });
 
 test("Escape cancels the pending filter", async () => {
@@ -154,7 +154,7 @@ test("Escape cancels the pending filter", async () => {
     fireEvent.click(screen.getByRole("option", { name: /^Шкаф/ }));
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
     await waitFor(() => expect(closes()).toBe(1));
-    expect(applied).toEqual([{ column: "col_011", values: ["Насос"], includeNulls: false }]);
+    expect(applied).toEqual([{ column: "col_010", values: ["Насос"], includeNulls: false }]);
 });
 
 test("a click outside the filter also cancels it", async () => {
@@ -168,7 +168,7 @@ test("a click outside the filter also cancels it", async () => {
 
 test("«По умолчанию» resets the column to the given default, not to the opening value", async () => {
     const { applied, closes } = await openRecorded({ values: ["Насос"], includeNulls: false });
-    fireEvent.click(screen.getByRole("button", { name: "По умолчанию: col_011" }));
+    fireEvent.click(screen.getByRole("button", { name: "По умолчанию: col_010" }));
     await waitFor(() => expect(closes()).toBe(1));
     // The workspace default is "no constraint" — unlike «Отменить», which keeps
     // the filter that was in force before opening.
@@ -179,7 +179,7 @@ test("Enter applies the pending filter", async () => {
     const { applied, closes } = await openRecorded({ values: ["Насос"], includeNulls: false });
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Enter" });
     await waitFor(() => expect(closes()).toBe(1));
-    expect(applied).toEqual([{ column: "col_011", values: ["Насос"], includeNulls: false }]);
+    expect(applied).toEqual([{ column: "col_010", values: ["Насос"], includeNulls: false }]);
 });
 
 test("the commit footer is pinned after the scrolling list", async () => {
@@ -271,7 +271,7 @@ test("unchecking «Выбрать все» clears every option, «Пустые»
 });
 
 test("ID column: unchecking both buckets unchecks «Выбрать все»", async () => {
-    await openFilter("col_003", "Корректные");
+    await openFilter("col_002", "Корректные");
     expect(master().getAttribute("aria-selected")).toBe("true");
 
     fireEvent.click(screen.getByRole("option", { name: /^Корректные/ }));
@@ -281,13 +281,13 @@ test("ID column: unchecking both buckets unchecks «Выбрать все»", as
 });
 
 test("ID column: «Выбрать все» shows rows without unique-count suffix", async () => {
-    await openFilter("col_003", "Корректные");
+    await openFilter("col_002", "Корректные");
     expect(master().textContent).toBe("Выбрать все12");
     expect(master().textContent).not.toContain("уникальных");
 });
 
 test("ID column: checking both buckets back checks «Выбрать все»", async () => {
-    await openFilter("col_003", "Корректные");
+    await openFilter("col_002", "Корректные");
     const correct = () => screen.getByRole("option", { name: /^Корректные/ });
     const incorrect = () => screen.getByRole("option", { name: /^Некорректные/ });
 
@@ -323,7 +323,7 @@ test("paged column: no «Загрузка…» caption, and new windows arrive c
         });
     };
 
-    await openFilter("col_022", "Значение 000");
+    await openFilter("col_021", "Значение 000");
     // The old implementation printed «Загрузка…» under the list and never
     // cleared it (a missed setLoadingMore(false) in the tail fetch), and the
     // caption is gone for good now.

@@ -30,8 +30,10 @@ from __future__ import annotations
 
 import zipfile
 from collections.abc import Iterable, Mapping, Sequence
+from copy import deepcopy
 from datetime import datetime
 from typing import IO, Protocol, cast
+from xml.etree import ElementTree as ET
 
 from openpyxl.utils import get_column_letter
 
@@ -45,6 +47,40 @@ _HEADER_STYLE = 1
 _TOTALS_STYLE = 7
 _DATA_STYLE = 8
 _DATETIME_STYLE = 9
+_SHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+
+
+def _column_styles(columns: Sequence[ExportColumnLike]) -> tuple[str, dict[tuple[str, int], int]]:
+    """Append bounded, deduplicated alignment variants to the shared styles."""
+    root = ET.fromstring(xlsx_stream.STYLES_XML)  # noqa: S314 — module-owned constant, not uploaded XML
+    formats = root.find(f"{{{_SHEET_NS}}}cellXfs")
+    if formats is None:
+        message = "The shared workbook stylesheet is missing cellXfs."
+        raise RuntimeError(message)
+    styles: dict[tuple[str, int], int] = {}
+    cache: dict[tuple[int, str | None, str | None], int] = {}
+    for column in columns:
+        horizontal = getattr(column, "horizontalAlignment", None)
+        vertical = getattr(column, "verticalAlignment", None)
+        if horizontal is None and vertical is None:
+            continue
+        for base in (_DATA_STYLE, _DATETIME_STYLE, _TOTALS_STYLE):
+            key = (base, horizontal, vertical)
+            if key not in cache:
+                variant = deepcopy(formats[base])
+                variant.set("applyAlignment", "1")
+                alignment = ET.SubElement(variant, f"{{{_SHEET_NS}}}alignment")
+                if horizontal:
+                    alignment.set("horizontal", horizontal)
+                if vertical:
+                    alignment.set("vertical", vertical)
+                cache[key] = len(formats)
+                formats.append(variant)
+            styles[(column.key, base)] = cache[key]
+    formats.set("count", str(len(formats)))
+    if not styles:
+        return xlsx_stream.STYLES_XML, styles
+    return ET.tostring(root, encoding="unicode"), styles
 
 
 class TableRowLike(Protocol):
@@ -144,7 +180,8 @@ class TableWorkbookWriter:
             ),
         )
         self._archive.writestr("xl/_rels/workbook.xml.rels", xlsx_stream.workbook_rels_xml(sheet_count))
-        self._archive.writestr("xl/styles.xml", xlsx_stream.STYLES_XML)
+        styles_xml, self._column_style_ids = _column_styles(self.columns)
+        self._archive.writestr("xl/styles.xml", styles_xml)
         if self._needs_lists:
             self._archive.writestr("xl/worksheets/sheet2.xml", self._lists_sheet_xml())
         # Main sheet: prefix + cols + sheetData up to and including the header
@@ -271,11 +308,12 @@ class TableWorkbookWriter:
                 cells.append(xlsx_stream.styled_cell_xml(ref, style=_HEADER_STYLE))
                 continue
             letter = self._column_letters[index]
+            style = self._column_style_ids.get((column.key, _TOTALS_STYLE), _TOTALS_STYLE)
             if self.row_total:
                 formula = f"SUM({letter}{data_from}:{letter}{data_from + self.row_total - 1})"
-                cells.append(xlsx_stream.formula_cell_xml(ref, formula, style=_TOTALS_STYLE, cached=cached))
+                cells.append(xlsx_stream.formula_cell_xml(ref, formula, style=style, cached=cached))
             else:
-                cells.append(xlsx_stream.number_cell_xml(ref, cached, style=_TOTALS_STYLE))
+                cells.append(xlsx_stream.number_cell_xml(ref, cached, style=style))
         return f'<row r="{row_number}" ht="22" customHeight="1">{"".join(cells)}</row>'
 
     def _dropdown_validations(self) -> list[tuple[str, str]]:
@@ -377,24 +415,26 @@ class TableWorkbookWriter:
 
     def _data_cell_xml(self, ref: str, value: object, column: ExportColumnLike) -> str:
         """One data cell with the value semantics of the old renderer."""
+        style = self._column_style_ids.get((column.key, _DATA_STYLE), _DATA_STYLE)
+        datetime_style = self._column_style_ids.get((column.key, _DATETIME_STYLE), _DATETIME_STYLE)
         operands = self.calculated.get(column.key)
         if operands is not None:
             formula = self._calculated_formula(ref, operands)
             if formula is not None:
                 cached = self._numeric_or_none(value)
-                return xlsx_stream.formula_cell_xml(ref, formula, style=_DATA_STYLE, cached=cached)
+                return xlsx_stream.formula_cell_xml(ref, formula, style=style, cached=cached)
         if isinstance(value, datetime):
-            return xlsx_stream.number_cell_xml(ref, datetime_serial(value), style=_DATETIME_STYLE)
+            return xlsx_stream.number_cell_xml(ref, datetime_serial(value), style=datetime_style)
         if isinstance(value, bool):
-            return xlsx_stream.text_cell_xml(ref, "Да" if value else "Нет", style=_DATA_STYLE)
+            return xlsx_stream.text_cell_xml(ref, "Да" if value else "Нет", style=style)
         if isinstance(value, int | float):
-            return xlsx_stream.number_cell_xml(ref, value, style=_DATA_STYLE)
+            return xlsx_stream.number_cell_xml(ref, value, style=style)
         if isinstance(value, list | tuple):
             joined = ", ".join(str(item) for item in value if item is not None)
-            return xlsx_stream.text_cell_xml(ref, joined, style=_DATA_STYLE)
+            return xlsx_stream.text_cell_xml(ref, joined, style=style)
         if value is not None:
-            return xlsx_stream.text_cell_xml(ref, str(value), style=_DATA_STYLE)
-        return xlsx_stream.styled_cell_xml(ref, style=_DATA_STYLE)
+            return xlsx_stream.text_cell_xml(ref, str(value), style=style)
+        return xlsx_stream.styled_cell_xml(ref, style=style)
 
     @staticmethod
     def _numeric_or_none(value: object) -> float | None:

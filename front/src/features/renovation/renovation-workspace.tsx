@@ -1720,6 +1720,7 @@ export function RenovationWorkspace({
                                         catalogs={meta.catalogs}
                                         scopeKey={scopeKey}
                                         totalRows={planTotals.total}
+                                        totalRowsAll={planTotals.totalAll ?? planTotals.total}
                                         loadRows={loadRows}
                                         loadedRows={loadedRows}
                                         assetFilter={assetFilterSet}

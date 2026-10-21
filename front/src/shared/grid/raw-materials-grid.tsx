@@ -1674,6 +1674,8 @@ function RawMaterialsGridInner(
             if (event.key === "Escape" && !document.fullscreenElement) {
                 if (
                     hasOpenSmartSelect() ||
+                    (event.target instanceof Element &&
+                        event.target.closest("[data-grid-keyboard-overlay]")) ||
                     isFromTextEditor(event) ||
                     isEditableTarget(document.activeElement)
                 )

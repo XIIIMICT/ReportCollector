@@ -31,6 +31,8 @@ class ExportColumnRequest(BaseModel):
     headerPath: list[str] = Field(min_length=1, max_length=3)
     width: float = Field(default=12.0, ge=1.0, le=100.0)
     numberFormat: str | None = None
+    horizontalAlignment: Literal["left", "center", "right"] | None = None
+    verticalAlignment: Literal["top", "center", "bottom"] | None = None
 
 
 class ExportViewRequest(BaseModel):
