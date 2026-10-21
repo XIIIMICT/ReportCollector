@@ -214,8 +214,13 @@ test("«По умолчанию» renders first, icon-only, and calls its handle
         "Отменить",
         "Применить",
     ]);
+    // Stock HeroUI semantics: destructive reset, dismissive cancel, forward apply.
     expect(cells[0]!.className).toContain("button--danger");
-    expect(cells[2]!.className).toContain("smart-select__confirm");
+    expect(cells[1]!.className).toContain("button--tertiary");
+    expect(cells[2]!.className).toContain("button--primary");
+    // No custom styling hooks: the buttons are plain HeroUI `Button`s whose
+    // radius/motion/colours come from the design system.
+    for (const cell of cells) expect(cell.className).not.toContain("smart-select__");
     fireEvent.click(reset);
     expect(events).toEqual(["reset"]);
 });

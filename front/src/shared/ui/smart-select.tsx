@@ -534,13 +534,15 @@ export function SmartSelect({
 
     /**
      * Commit mode's footer: icon-only «По умолчанию / Отменить / Применить»,
-     * right-aligned and pinned under the scrolling list. Each button is a
-     * ButtonGroup cell; the group's default radius is squared to the panel's
-     * `--radius` by `.smart-select__footer-actions` in globals.css.
-     * `preventFocus` keeps the search field's caret when a footer button is
-     * pressed, so the click does not move focus into the (scrolling) list.
-     * The labels live in `aria-label`/tooltips, the icons mirror the toolbar's
-     * reset («По умолчанию»), its undo («Отменить») and a positive ending.
+     * right-aligned and pinned under the scrolling list.
+     *
+     * Every button is a stock HeroUI `Button` in its own `ButtonGroup`, so the
+     * radius, hover/press motion and colours come from the design system
+     * untouched — a cell in ONE group would lose its pill radius (the group
+     * squares it to 0 and rounds only the outer edges). The variants follow
+     * their meaning: `danger` for the destructive reset, `tertiary` for the
+     * dismissive cancel, `primary` (the single forward action) for apply.
+     * `preventFocus` keeps the search field's caret when a button is pressed.
      */
     const commitFooter = isCommitMode ? (
         <div
@@ -554,8 +556,8 @@ export function SmartSelect({
                 if (canConfirm) confirmRef.current();
             }}
         >
-            <ButtonGroup size="sm" className="smart-select__footer-actions">
-                {onReset ? (
+            {onReset ? (
+                <ButtonGroup size="sm">
                     <Button
                         size="sm"
                         variant="danger"
@@ -565,22 +567,25 @@ export function SmartSelect({
                     >
                         <Refresh aria-hidden="true" />
                     </Button>
-                ) : null}
+                </ButtonGroup>
+            ) : null}
+            <ButtonGroup size="sm">
                 <Button
                     size="sm"
-                    variant="secondary"
+                    variant="tertiary"
                     isIconOnly
                     aria-label="Отменить"
                     onPress={() => cancelRef.current()}
                 >
                     <Xmark aria-hidden="true" />
                 </Button>
+            </ButtonGroup>
+            <ButtonGroup size="sm">
                 <Button
                     size="sm"
-                    variant="secondary"
+                    variant="primary"
                     isIconOnly
                     aria-label="Применить"
-                    className="smart-select__confirm"
                     isDisabled={!canConfirm}
                     onPress={() => confirmRef.current()}
                 >
