@@ -91,6 +91,13 @@ test("separator follows «Выбрать все» before «Пустые» and th
     expect(master().textContent).toContain("17 (2 уникальных)");
 });
 
+test("column filter stays open when the pointer leaves it", async () => {
+    await openFilter();
+    fireEvent.mouseMove(document.body, { clientX: 900, clientY: 900 });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(screen.getByRole("option", { name: /^Насос/ })).toBeTruthy();
+});
+
 test.each([undefined, Number.NaN])(
     "missing or invalid nullCount %s never renders NaN across pages",
     async (nullCount) => {

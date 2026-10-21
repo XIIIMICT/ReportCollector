@@ -24,8 +24,8 @@ import { useMediaQuery } from "@/shared/hooks/use-media-query";
  * same underlying react-aria `Select`, so `multiple`, `value`, `onChange` and
  * the disabled state behave identically no matter which one wins.
  *
- * Every instance opens on HOVER (and on click/Enter/Space) and closes ~200 ms
- * after the pointer leaves BOTH the trigger and the popover. Closing is driven
+ * Every instance opens on HOVER (and on click/Enter/Space) and, by default,
+ * closes ~200 ms after the pointer leaves BOTH trigger and popover. Closing is driven
  * by pointer coordinates, not by DOM `mouseleave`: an open HeroUI popover draws
  * an overlay above the trigger, so a structural leave fires while the pointer
  * is motionless — the classic open/close flicker (the same mechanism as
@@ -126,6 +126,8 @@ export type SmartSelectProps = {
     popoverClassName?: string;
     /** Open the popover on mount (the column filter's anchor popover). */
     defaultOpen?: boolean;
+    /** Close after the pointer leaves the trigger and popover (default: true). */
+    closeOnUnhover?: boolean;
 };
 
 const DEFAULT_THRESHOLD = 5;
@@ -142,6 +144,11 @@ const ANCHOR_OFFSET = 2;
 /** Sentinels for the pinned rows (never real option ids). */
 const NULL_OPTION_ID = "__null_option__";
 const ALL_OPTION_ID = "__all_option__";
+
+/** Global capture shortcuts must leave Escape to an open select, portals included. */
+export function hasOpenSmartSelect(): boolean {
+    return document.querySelector('[data-smart-select-open="true"]') !== null;
+}
 
 export function SmartSelect({
     options = [],
@@ -170,6 +177,7 @@ export function SmartSelect({
     anchor,
     popoverClassName,
     defaultOpen = false,
+    closeOnUnhover = true,
 }: SmartSelectProps) {
     const { contains } = useFilter({ sensitivity: "base" });
     // The toolbar shows a short label instead of the value on narrow screens.
@@ -204,7 +212,7 @@ export function SmartSelect({
     // embedded (in-cell) editor is exempt: it is open by construction and the
     // pointer strays across the grid all the time.
     useEffect(() => {
-        if (embedded) return;
+        if (embedded || !closeOnUnhover) return;
         function onMouseMove(event: MouseEvent) {
             if (!openRef.current) return;
             const x = event.clientX;
@@ -236,6 +244,21 @@ export function SmartSelect({
                 closeTimerRef.current = null;
             }
         };
+    }, [closeOnUnhover, embedded]);
+
+    // The popover is rendered in a body portal, outside the grid. Handle Escape
+    // at document level so it closes this control without reaching the grid's
+    // global Escape shortcut, which would otherwise clear the table selection.
+    useEffect(() => {
+        if (embedded) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== "Escape" || !openRef.current) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            setIsOpen(false);
+        };
+        document.addEventListener("keydown", onKeyDown, true);
+        return () => document.removeEventListener("keydown", onKeyDown, true);
     }, [embedded]);
 
     function openFromHover() {
@@ -398,6 +421,7 @@ export function SmartSelect({
     return (
         <div
             ref={wrapperRef}
+            data-smart-select-open={isOpen || undefined}
             onMouseEnter={openFromHover}
             className={[
                 // `--has-value`: the trigger shows a real value (an option OR a

@@ -326,6 +326,7 @@ export function ColumnFilterPopover({
             multiple
             forceSearchable
             defaultOpen
+            closeOnUnhover={false}
             value={selectedKeys.map(String)}
             onChange={(next) => {
                 const keys = Array.isArray(next) ? (next as Key[]) : [];

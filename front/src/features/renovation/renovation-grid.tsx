@@ -44,6 +44,7 @@ import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/raw-materials-
 import { isChunkedSection } from "@/shared/grid/section-policy";
 import { selectionDetailForColumn } from "@/shared/grid/selection-label";
 import { isFromTextEditor } from "@/shared/keyboard";
+import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
 
 import { breaksValueRules } from "./renovation-rules";
 
@@ -2261,6 +2262,9 @@ function RenovationGridInner(
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape" && !document.fullscreenElement) {
+                // Window capture precedes the select's portal handlers. Leave
+                // this Escape to the popover, preserving the current range.
+                if (hasOpenSmartSelect()) return;
                 if (isFromTextEditor(event)) return;
                 const grid = gridRef.current;
                 if (!grid) return;

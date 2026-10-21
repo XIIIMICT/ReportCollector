@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { SmartSelect } from "../smart-select";
+import { hasOpenSmartSelect, SmartSelect } from "../smart-select";
 
 afterEach(cleanup);
 
@@ -51,6 +51,68 @@ test("a long list renders a searchable Autocomplete", async () => {
     const trigger = screen.getByText("Выберите значение");
     fireEvent.mouseEnter(trigger.closest("div") ?? trigger);
     await waitFor(() => expect(screen.getByPlaceholderText("Найти…")).toBeTruthy());
+});
+
+test.each([{ options: shortOptions }, { options: longOptions }])(
+    "Escape closes an open select without clearing the page selection",
+    async ({ options }) => {
+        // Simulate the grid's window-capture shortcut, registered before the select.
+        let selectionCleared = 0;
+        const gridEscape = (event: KeyboardEvent) => {
+            if (event.key === "Escape" && !hasOpenSmartSelect()) selectionCleared += 1;
+        };
+        let bubbled = 0;
+        const pageEscape = () => {
+            bubbled += 1;
+        };
+        window.addEventListener("keydown", gridEscape, true);
+        window.addEventListener("keydown", pageEscape);
+        const { calls } = renderSelect({ options, defaultOpen: true });
+        try {
+            await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+            fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+            await waitFor(() => expect(hasOpenSmartSelect()).toBe(false));
+            expect(selectionCleared).toBe(0);
+            expect(bubbled).toBe(0);
+            expect(calls).toEqual([]);
+            fireEvent.keyDown(document.body, { key: "Escape" });
+            expect(selectionCleared).toBe(1);
+        } finally {
+            window.removeEventListener("keydown", gridEscape, true);
+            window.removeEventListener("keydown", pageEscape);
+        }
+    },
+);
+
+test("unhover closes a select by default", async () => {
+    renderSelect({ defaultOpen: true });
+    await waitFor(() => expect(hasOpenSmartSelect()).toBe(true));
+    fireEvent.mouseMove(document.body, { clientX: 900, clientY: 900 });
+    await waitFor(() => expect(hasOpenSmartSelect()).toBe(false));
+});
+
+test("outside pointer clicks close a persistent select", async () => {
+    renderSelect({ defaultOpen: true, closeOnUnhover: false });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    const outside = document.querySelector('[data-testid="underlay"]')!;
+    fireEvent.mouseDown(outside, { button: 0 });
+    fireEvent.mouseUp(outside, { button: 0 });
+    fireEvent.click(outside);
+    await waitFor(() => expect(hasOpenSmartSelect()).toBe(false));
+});
+
+test("embedded editor still dismisses on Escape", async () => {
+    let dismissed = 0;
+    renderSelect({
+        embedded: true,
+        onDismiss: () => {
+            dismissed += 1;
+        },
+    });
+    const trigger = document.querySelector('[data-slot="select"]');
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    fireEvent.keyDown(trigger!, { key: "Escape" });
+    expect(dismissed).toBe(1);
 });
 
 test("the threshold is configurable", async () => {

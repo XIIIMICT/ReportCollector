@@ -28,6 +28,7 @@ import {
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import { isFromTextEditor } from "@/shared/keyboard";
+import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
 
 import {
     buildGridColumns,
@@ -1671,7 +1672,12 @@ function RawMaterialsGridInner(
 
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape" && !document.fullscreenElement) {
-                if (isFromTextEditor(event) || isEditableTarget(document.activeElement)) return;
+                if (
+                    hasOpenSmartSelect() ||
+                    isFromTextEditor(event) ||
+                    isEditableTarget(document.activeElement)
+                )
+                    return;
                 // Same path as the row-selection reset: clears the range,
                 // repaints the overlay and drops revo-grid's stale focus restore.
                 clearGridSelection();
