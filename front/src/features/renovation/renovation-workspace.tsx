@@ -62,6 +62,7 @@ import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { SectionTabs } from "@/shared/grid/section-tabs";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
+import { useRestoredState } from "@/shared/hooks/use-restored-state";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
 import {
     NO_ROW_SELECTED_REASON,
@@ -231,26 +232,26 @@ export function RenovationWorkspace({
 }: RenovationWorkspaceProps) {
     const [metaReloadKey, setMetaReloadKey] = useState(0);
     const [reloadKey, setReloadKey] = useState(0);
-    const [assetFilter, setAssetFilter] = useState<string | null>(() =>
+    const [assetFilter, setAssetFilter] = useRestoredState<string | null>(null, () =>
         readWorkspaceQuery("asset"),
     );
-    const [blockFilter, setBlockFilter] = useState<string | null>(() =>
+    const [blockFilter, setBlockFilter] = useRestoredState<string | null>(null, () =>
         readWorkspaceQuery("block"),
     );
     // Active header filters, keyed by column prop (field dbName or the synthetic
     // asset column). A column keeps display values + the «Пустые» bucket; all
     // columns combine with AND (server-side).
-    const [columnFilters, setColumnFilters] = useState<Record<string, RenovationColumnFilter>>(
-        () => {
-            const raw = readWorkspaceQuery("filters");
-            if (!raw) return {};
-            try {
-                return JSON.parse(raw) as Record<string, RenovationColumnFilter>;
-            } catch {
-                return {};
-            }
-        },
-    );
+    const [columnFilters, setColumnFilters] = useRestoredState<
+        Record<string, RenovationColumnFilter>
+    >({}, () => {
+        const raw = readWorkspaceQuery("filters");
+        if (!raw) return {};
+        try {
+            return JSON.parse(raw) as Record<string, RenovationColumnFilter>;
+        } catch {
+            return {};
+        }
+    });
     // Flat filter list for the rows API; a column with nothing kept selects
     // nothing, which the server treats as "no rows" (never "all").
     const activeColumnFilters = useMemo(
@@ -1863,6 +1864,9 @@ export function RenovationWorkspace({
                     {...(viewPlanId && { planId: viewPlanId })}
                     asset={assetFilter}
                     initial={columnFilters[columnFilterTarget.column] ?? null}
+                    // «По умолчанию»: the same state «Сбросить все фильтры и
+                    // сортировки» restores — no constraint on this column.
+                    defaultFilter={null}
                     onApply={applyColumnFilter(columnFilterTarget.column)}
                     onClose={() => setColumnFilterTarget(null)}
                 />

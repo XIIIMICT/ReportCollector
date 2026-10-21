@@ -2860,6 +2860,42 @@ body {
     overflow-y: auto;
 }
 
+/* The commit-mode footer («По умолчанию / Отменить / Применить») of a
+   SmartSelect without hover dismissal: pinned under the scrolling list,
+   right-aligned. */
+.smart-select__footer {
+    display: flex;
+    flex: none;
+    justify-content: flex-end;
+    padding-block-start: 0.25rem;
+    border-top: 1px solid var(--border);
+}
+
+/* Icon-only cells at the panel's radius instead of HeroUI's pill: the
+   ButtonGroup squares the shared edges, so re-round the outer ones. */
+.smart-select__footer-actions .button {
+    border-radius: 0;
+}
+
+.smart-select__footer-actions .button:first-child {
+    border-start-start-radius: var(--radius);
+    border-end-start-radius: var(--radius);
+}
+
+.smart-select__footer-actions .button:last-child {
+    border-start-end-radius: var(--radius);
+    border-end-end-radius: var(--radius);
+}
+
+/* «Применить» is the confirming action: accent has no `success` variant in
+   HeroUI v3, so the positive tint comes from the theme's `--success` pair. */
+.smart-select__footer-actions .smart-select__confirm {
+    --button-bg: var(--success);
+    --button-bg-hover: color-mix(in oklch, var(--success) 88%, black);
+    --button-bg-pressed: color-mix(in oklch, var(--success) 78%, black);
+    --button-fg: var(--success-foreground);
+}
+
 /* Divides «Выбрать все»/«Пустые» from the value list. */
 .column-filter__separator {
     margin: 0.25rem 0;

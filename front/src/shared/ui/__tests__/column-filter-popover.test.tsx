@@ -43,6 +43,8 @@ mock.module("@/shared/api/renovation", () => ({
     },
 }));
 
+import type { RenovationColumnFilter } from "@/shared/api/renovation";
+
 const { ColumnFilterPopover } = await import("../column-filter-popover");
 
 afterEach(() => {
@@ -89,6 +91,105 @@ test("separator follows «Выбрать все» before «Пустые» and th
         nullOption.compareDocumentPosition(firstValue) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(master().textContent).toContain("17 (2 уникальных)");
+});
+
+async function openRecorded(
+    initial: { column?: string; values?: string[]; includeNulls?: boolean } | null,
+    defaultFilter: RenovationColumnFilter | null = null,
+) {
+    const applied: unknown[] = [];
+    let closes = 0;
+    render(
+        <ColumnFilterPopover
+            column="col_011"
+            columnLabel="col_011"
+            anchor={anchor}
+            initial={
+                initial && {
+                    column: "col_011",
+                    values: initial.values ?? [],
+                    includeNulls: initial.includeNulls ?? true,
+                }
+            }
+            defaultFilter={defaultFilter}
+            onApply={(filter) => applied.push(filter)}
+            onClose={() => {
+                closes += 1;
+            }}
+        />,
+    );
+    await waitFor(() => expect(screen.getByRole("option", { name: /^Насос/ })).toBeTruthy());
+    return { applied, closes: () => closes };
+}
+
+test("«Применить» hands the pending selection to the owner", async () => {
+    const { applied, closes } = await openRecorded(null);
+    // «Выбрать все» is on by default, so a filter that still keeps every value
+    // carries no constraint at all. Unchecking «Насос» makes the selection
+    // explicit: the master stays checked, but the request names the values.
+    // (The click keeps the master «on» only after its own toggle pass, so the
+    // master is unchecked first to get a positive list below.)
+    fireEvent.click(screen.getByRole("option", { name: /^Насос/ }));
+    await waitFor(() =>
+        expect(screen.getByRole("option", { name: /^Насос/ }).getAttribute("aria-selected")).toBe(
+            "false",
+        ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Применить" }));
+    await waitFor(() => expect(closes()).toBe(1));
+    expect(applied[0]).toEqual({ column: "col_011", values: ["Шкаф"], includeNulls: true });
+});
+
+test("«Отменить» restores the filter that was in force before opening", async () => {
+    const initial = { values: ["Насос"], includeNulls: false };
+    const { applied, closes } = await openRecorded(initial);
+    fireEvent.click(screen.getByRole("option", { name: /^Шкаф/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
+    await waitFor(() => expect(closes()).toBe(1));
+    expect(applied).toEqual([{ column: "col_011", values: ["Насос"], includeNulls: false }]);
+});
+
+test("Escape cancels the pending filter", async () => {
+    const { applied, closes } = await openRecorded({ values: ["Насос"], includeNulls: false });
+    fireEvent.click(screen.getByRole("option", { name: /^Шкаф/ }));
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(closes()).toBe(1));
+    expect(applied).toEqual([{ column: "col_011", values: ["Насос"], includeNulls: false }]);
+});
+
+test("a click outside the filter also cancels it", async () => {
+    const { applied, closes } = await openRecorded(null);
+    const outside = document.querySelector('[data-testid="underlay"]')!;
+    fireEvent.mouseDown(outside, { button: 0 });
+    await waitFor(() => expect(closes()).toBe(1));
+    // The filter was «everything» before, so «Отменить» keeps no constraint.
+    expect(applied).toEqual([null]);
+});
+
+test("«По умолчанию» resets the column to the given default, not to the opening value", async () => {
+    const { applied, closes } = await openRecorded({ values: ["Насос"], includeNulls: false });
+    fireEvent.click(screen.getByRole("button", { name: "По умолчанию: col_011" }));
+    await waitFor(() => expect(closes()).toBe(1));
+    // The workspace default is "no constraint" — unlike «Отменить», which keeps
+    // the filter that was in force before opening.
+    expect(applied).toEqual([null]);
+});
+
+test("Enter applies the pending filter", async () => {
+    const { applied, closes } = await openRecorded({ values: ["Насос"], includeNulls: false });
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Enter" });
+    await waitFor(() => expect(closes()).toBe(1));
+    expect(applied).toEqual([{ column: "col_011", values: ["Насос"], includeNulls: false }]);
+});
+
+test("the commit footer is pinned after the scrolling list", async () => {
+    await openFilter();
+    const footer = document.querySelector(".smart-select__footer");
+    const list = document.querySelector(".column-filter__list");
+    expect(footer).toBeTruthy();
+    expect(list!.compareDocumentPosition(footer!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Отменить" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Применить" })).toBeTruthy();
 });
 
 test("column filter stays open when the pointer leaves it", async () => {

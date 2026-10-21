@@ -84,6 +84,148 @@ test.each([{ options: shortOptions }, { options: longOptions }])(
     },
 );
 
+test("commit mode shows the footer, keeps hover, and cancels on Escape", async () => {
+    const events: string[] = [];
+    renderSelect({
+        options: longOptions,
+        defaultOpen: true,
+        closeOnUnhover: false,
+        onConfirm: () => events.push("confirm"),
+        onCancel: () => events.push("cancel"),
+    });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Значение 0" })).toBeTruthy());
+    // The footer belongs to the panel, after the scrolling list.
+    const footer = document.querySelector(".smart-select__footer");
+    const list = screen.getByRole("listbox");
+    expect(footer).toBeTruthy();
+    expect(list.compareDocumentPosition(footer!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Отменить" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Применить" })).toBeTruthy();
+
+    // Hover dismissal is off: leaving the panel keeps it open.
+    fireEvent.mouseMove(document.body, { clientX: 900, clientY: 900 });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(hasOpenSmartSelect()).toBe(true);
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => expect(hasOpenSmartSelect()).toBe(false));
+    expect(events).toEqual(["cancel"]);
+});
+
+test("commit mode: «Применить» confirms without cancelling", async () => {
+    const events: string[] = [];
+    renderSelect({
+        defaultOpen: true,
+        closeOnUnhover: false,
+        onConfirm: () => events.push("confirm"),
+        onCancel: () => events.push("cancel"),
+    });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    const confirm = screen.getByRole("button", { name: "Применить" });
+    fireEvent.click(confirm);
+    // The press reaches the callback: SmartSelect itself stays open, because
+    // the owner's onConfirm is what closes it (here it only records).
+    expect(events).toEqual(["confirm"]);
+});
+
+test("commit mode: «Отменить» cancels", async () => {
+    const events: string[] = [];
+    renderSelect({
+        defaultOpen: true,
+        closeOnUnhover: false,
+        onConfirm: () => events.push("confirm"),
+        onCancel: () => events.push("cancel"),
+    });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
+    await waitFor(() => expect(hasOpenSmartSelect()).toBe(false));
+    expect(events).toEqual(["cancel"]);
+});
+
+test("commit mode: the outside press cancels before react-aria closes", async () => {
+    const events: string[] = [];
+    renderSelect({
+        defaultOpen: true,
+        closeOnUnhover: false,
+        onCancel: () => events.push("cancel"),
+    });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    const outside = document.querySelector('[data-testid="underlay"]')!;
+    fireEvent.mouseDown(outside, { button: 0 });
+    expect(events).toEqual(["cancel"]);
+    await waitFor(() => expect(hasOpenSmartSelect()).toBe(false));
+});
+
+test("commit mode: «Применить» can be disabled by the owner", async () => {
+    renderSelect({ defaultOpen: true, closeOnUnhover: false, canConfirm: false });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    expect(document.querySelector(".smart-select__footer")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Применить" }).hasAttribute("disabled")).toBe(true);
+});
+
+test("default mode has no commit footer", async () => {
+    renderSelect({ defaultOpen: true });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    expect(document.querySelector(".smart-select__footer")).toBeNull();
+});
+
+test("Enter in commit mode applies the selection", async () => {
+    const events: string[] = [];
+    renderSelect({
+        defaultOpen: true,
+        closeOnUnhover: false,
+        onConfirm: () => events.push("confirm"),
+        onCancel: () => events.push("cancel"),
+    });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    // From anywhere in the panel: the list, the search field, the footer.
+    fireEvent.keyDown(document.querySelector(".smart-select__footer")!, { key: "Enter" });
+    expect(events).toEqual(["confirm"]);
+});
+
+test("Enter does not apply when «Применить» is disabled", async () => {
+    const events: string[] = [];
+    renderSelect({
+        defaultOpen: true,
+        closeOnUnhover: false,
+        canConfirm: false,
+        onConfirm: () => events.push("confirm"),
+    });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Enter" });
+    expect(events).toEqual([]);
+});
+
+test("«По умолчанию» renders first, icon-only, and calls its handler", async () => {
+    const events: string[] = [];
+    renderSelect({
+        defaultOpen: true,
+        closeOnUnhover: false,
+        onReset: () => events.push("reset"),
+        resetLabel: "По умолчанию: Группа",
+    });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    const reset = screen.getByRole("button", { name: "По умолчанию: Группа" });
+    // The three cells are icon-only; «По умолчанию» comes before cancel/confirm.
+    expect(reset.textContent).toBe("");
+    const cells = [...document.querySelectorAll(".smart-select__footer .button")];
+    expect(cells.map((cell) => cell.getAttribute("aria-label"))).toEqual([
+        "По умолчанию: Группа",
+        "Отменить",
+        "Применить",
+    ]);
+    expect(cells[0]!.className).toContain("button--danger");
+    expect(cells[2]!.className).toContain("smart-select__confirm");
+    fireEvent.click(reset);
+    expect(events).toEqual(["reset"]);
+});
+
+test("commit mode has no «По умолчанию» without a handler", async () => {
+    renderSelect({ defaultOpen: true, closeOnUnhover: false });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /По умолчанию/ })).toBeNull();
+});
+
 test("unhover closes a select by default", async () => {
     renderSelect({ defaultOpen: true });
     await waitFor(() => expect(hasOpenSmartSelect()).toBe(true));
@@ -92,6 +234,7 @@ test("unhover closes a select by default", async () => {
 });
 
 test("outside pointer clicks close a persistent select", async () => {
+    // Commit mode (no callbacks) still closes on an outside click.
     renderSelect({ defaultOpen: true, closeOnUnhover: false });
     await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
     const outside = document.querySelector('[data-testid="underlay"]')!;

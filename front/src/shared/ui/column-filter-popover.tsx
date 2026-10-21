@@ -2,6 +2,7 @@
 
 import { EmptyState, ListBox, Separator, type Key } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { getRenovationPlanFacets, type RenovationColumnFilter } from "@/shared/api/renovation";
 import { SmartSelect } from "@/shared/ui/smart-select";
@@ -26,8 +27,15 @@ const FACET_LOAD_THRESHOLD = 120;
  * unchecks the last remaining option the master unchecks itself, so «nothing
  * selected» never keeps a checked «Выбрать все». Whatever is kept becomes one
  * `RenovationColumnFilter`;
- * filters across columns combine with AND (server-side). The owner applies the
- * selection when the popover closes.
+ * filters across columns combine with AND (server-side).
+ *
+ * The filter is opened by the header funnel (an outside trigger) and is a
+ * commit-mode `SmartSelect`: hovering away keeps it open, and the pinned
+ * «По умолчанию / Отменить / Применить» footer decides. «Применить» (also
+ * Enter) hands `applied` to the owner; «Отменить», Escape and a click outside
+ * the filter keep the filter that was in force before opening; «По умолчанию»
+ * returns the column to its default («no constraint», like «Сбросить все
+ * фильтры и сортировки»).
  */
 export function ColumnFilterPopover({
     column,
@@ -36,6 +44,7 @@ export function ColumnFilterPopover({
     planId,
     asset,
     initial,
+    defaultFilter = null,
     onApply,
     onClose,
 }: {
@@ -45,6 +54,8 @@ export function ColumnFilterPopover({
     planId?: string;
     asset?: string | null;
     initial: RenovationColumnFilter | null;
+    /** The column's default filter («По умолчанию»); `null` = no constraint. */
+    defaultFilter?: RenovationColumnFilter | null;
     onApply: (filter: RenovationColumnFilter | null) => void;
     onClose: () => void;
 }) {
@@ -300,11 +311,11 @@ export function ColumnFilterPopover({
         // «Everything» is the WHOLE column, not the window loaded so far: a
         // column can hold six figures of distinct values (the renovation ID
         // column has ~248k), so comparing against `values.length` would turn
-        // «всё, кроме одного» into a 199-value whitelist. The master toggle is
-        // the reliable signal for «nothing was taken away», and with it on the
-        // request carries no constraint at all.
-        if (allActive && (includeNulls || !hasNulls)) return null;
-        // Without the master, every value the user actually saw must be kept —
+        // «всё, кроме одного» into a 199-value whitelist. The tail top-up ref is
+        // the reliable «nothing was taken away» signal (the master stays checked
+        // in between), and then the request carries no constraint at all.
+        if (allStillSelectedRef.current && (includeNulls || !hasNulls)) return null;
+        // Without that state, every value the user actually saw must be kept —
         // otherwise the selection would claim values that are merely unloaded.
         const keepsEverything =
             values.length > 0 && keptValues.length === values.length && (keepsNulls || !hasNulls);
@@ -314,27 +325,62 @@ export function ColumnFilterPopover({
             values: keptValues,
             includeNulls: keepsNulls,
         } satisfies RenovationColumnFilter;
+        // `allActive` stays in the deps: it re-runs the memo after the master
+        // toggle even though the decision reads the ref (which is not reactive).
     }, [allActive, column, hasNulls, includeNulls, kept, values]);
 
-    const close = () => {
+    // The filter this popover opened with. «Отменить» (the footer, Escape, a
+    // click outside) drops the pending selection, so the owner keeps exactly
+    // this one — the owner re-applies the same value, which is a no-op.
+    const initialFilter = useRef(initial);
+    // Guards a double close: the footer's «Применить» closes via SmartSelect,
+    // and the owner removes this component right after.
+    const settledRef = useRef(false);
+    const confirm = () => {
+        if (settledRef.current) return;
+        settledRef.current = true;
         onApply(applied);
         onClose();
     };
+    const cancel = () => {
+        if (settledRef.current) return;
+        settledRef.current = true;
+        onApply(initialFilter.current);
+        onClose();
+    };
+    /**
+     * «По умолчанию» — the user's remembered DEFAULT for this column (the value
+     * the workspace restores with «Сбросить все фильтры и сортировки»), not the
+     * one that was in force before opening. Cancel is symmetric to confirm: the
+     * owner assigns the given filter and closes.
+     */
+    const reset = () => {
+        if (settledRef.current) return;
+        settledRef.current = true;
+        onApply(defaultFilter);
+        onClose();
+    };
 
-    return (
+    const content = (
         <SmartSelect
             multiple
             forceSearchable
             defaultOpen
             closeOnUnhover={false}
+            canConfirm
+            onConfirm={confirm}
+            onCancel={cancel}
+            onReset={reset}
+            resetLabel={`По умолчанию: ${columnLabel}`}
             value={selectedKeys.map(String)}
             onChange={(next) => {
                 const keys = Array.isArray(next) ? (next as Key[]) : [];
                 onSelectionChange(keys);
             }}
             onOpenChange={(open) => {
-                // The filter applies and closes when the popover dismisses.
-                if (!open) close();
+                // Any other dismissal is a cancel: applying only happens with
+                // the explicit «Применить».
+                if (!open) cancel();
             }}
             ariaLabel={`Фильтр: ${columnLabel}`}
             placeholder="Поиск..."
@@ -381,4 +427,9 @@ export function ColumnFilterPopover({
             )}
         />
     );
+    // The header funnel lives in the environment state the grid syncs on every
+    // render, so the popover is mounted elsewhere in the tree when it opens.
+    // React events then never pass through the grid's layers, while a portal
+    // keeps every press bubbling to the document for the close-on-outside-click.
+    return typeof document === "undefined" ? content : createPortal(content, document.body);
 }

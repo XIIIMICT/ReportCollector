@@ -2,6 +2,8 @@
 
 import {
     Autocomplete,
+    Button,
+    ButtonGroup,
     EmptyState,
     Label,
     ListBox,
@@ -10,6 +12,7 @@ import {
     Separator,
     useFilter,
 } from "@heroui/react";
+import { Check, Refresh, Xmark } from "iconoir-react";
 import type { Key, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -30,6 +33,14 @@ import { useMediaQuery } from "@/shared/hooks/use-media-query";
  * an overlay above the trigger, so a structural leave fires while the pointer
  * is motionless — the classic open/close flicker (the same mechanism as
  * `SearchAutocomplete`).
+ *
+ * `closeOnUnhover={false}` turns the control into COMMIT mode: hover never
+ * dismisses it, the popover stays pinned until the user decides, and an
+ * icon-only «По умолчанию / Отменить / Применить» group sits at the bottom
+ * (outside the scrolling list). Selections still report through `onChange`
+ * (the owner previews them) — «Применить» (or Enter) calls `onConfirm`;
+ * «Отменить», Escape and an outside click call `onCancel`, which restores the
+ * value captured before opening; «По умолчанию» calls `onReset` (when given).
  */
 
 export type SmartSelectOption = {
@@ -126,8 +137,25 @@ export type SmartSelectProps = {
     popoverClassName?: string;
     /** Open the popover on mount (the column filter's anchor popover). */
     defaultOpen?: boolean;
-    /** Close after the pointer leaves the trigger and popover (default: true). */
+    /**
+     * Close after the pointer leaves the trigger and popover (default: true).
+     * `false` switches to commit mode with the «Отменить / Применить» footer.
+     */
     closeOnUnhover?: boolean;
+    /** Commit mode: «Применить» — keep the pending selection. */
+    onConfirm?: () => void;
+    /** Commit mode: «Отменить», Escape, or an outside click — restore the old value. */
+    onCancel?: () => void;
+    /** Commit mode: reveal «Применить» (the filter has a pending change). */
+    canConfirm?: boolean;
+    /**
+     * Commit mode: «По умолчанию» — reset this control to its default (the
+     * column filter's stored default, not the value before opening). The
+     * button renders only when the handler is given.
+     */
+    onReset?: () => void;
+    /** Accessible name of «По умолчанию» (icon-only button). */
+    resetLabel?: string;
 };
 
 const DEFAULT_THRESHOLD = 5;
@@ -178,7 +206,15 @@ export function SmartSelect({
     popoverClassName,
     defaultOpen = false,
     closeOnUnhover = true,
+    onConfirm,
+    onCancel,
+    canConfirm = true,
+    onReset,
+    resetLabel = "По умолчанию",
 }: SmartSelectProps) {
+    // Commit mode (the column filter): the popover stays open until the user
+    // picks «Применить» or «Отменить».
+    const isCommitMode = !embedded && !closeOnUnhover;
     const { contains } = useFilter({ sensitivity: "base" });
     // The toolbar shows a short label instead of the value on narrow screens.
     // `lg` (64rem) matches HeroUI's breakpoint scale; `sm` is 40rem.
@@ -196,6 +232,31 @@ export function SmartSelect({
     // harmless notification into a render loop.
     const onOpenChangeRef = useRef(onOpenChange);
     onOpenChangeRef.current = onOpenChange;
+    // The same for the commit-mode callbacks: the document listeners below are
+    // bound once per mode change, yet must call the LATEST handler.
+    const onConfirmRef = useRef(onConfirm);
+    onConfirmRef.current = onConfirm;
+    const onCancelRef = useRef(onCancel);
+    onCancelRef.current = onCancel;
+
+    // The commit callbacks are re-created per render at the call sites, so the
+    // document listeners read the current behaviour through refs and stay
+    // identity-stable. «Применить» keeps the pending value, «Отменить» closes
+    // first (react-aria then skip their dismiss side effects) and restores.
+    const confirmRef = useRef<() => void>(() => {});
+    confirmRef.current = () => {
+        if (openRef.current) onConfirmRef.current?.();
+    };
+    const cancelRef = useRef<() => void>(() => {});
+    cancelRef.current = () => {
+        if (!openRef.current) return;
+        setIsOpen(false);
+        onCancelRef.current?.();
+    };
+    const resetRef = useRef(onReset);
+    resetRef.current = onReset;
+    const canConfirmRef = useRef(canConfirm);
+    canConfirmRef.current = canConfirm;
 
     useEffect(() => {
         openRef.current = isOpen;
@@ -249,17 +310,58 @@ export function SmartSelect({
     // The popover is rendered in a body portal, outside the grid. Handle Escape
     // at document level so it closes this control without reaching the grid's
     // global Escape shortcut, which would otherwise clear the table selection.
+    // In commit mode Escape dismisses WITHOUT applying («Отменить»).
     useEffect(() => {
         if (embedded) return;
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key !== "Escape" || !openRef.current) return;
             event.preventDefault();
             event.stopImmediatePropagation();
-            setIsOpen(false);
+            if (isCommitMode) cancelRef.current();
+            else setIsOpen(false);
         };
         document.addEventListener("keydown", onKeyDown, true);
         return () => document.removeEventListener("keydown", onKeyDown, true);
-    }, [embedded]);
+    }, [embedded, isCommitMode]);
+
+    // Commit mode: Enter anywhere in the filter means «Применить». Registered
+    // like Escape (document capture ⇒ before react-aria's own key handling).
+    useEffect(() => {
+        if (!isCommitMode) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== "Enter" || !openRef.current) return;
+            // A modifier combination (Ctrl+Enter, Alt+Enter) is not a commit.
+            if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+            if (!isCommitKeyTarget(event)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (canConfirmRef.current) confirmRef.current();
+        };
+        document.addEventListener("keydown", onKeyDown, true);
+        return () => document.removeEventListener("keydown", onKeyDown, true);
+    }, [isCommitMode]);
+
+    // Commit mode: an outside click cancels. react-aria's own outside press only
+    // closes the popover, so the owner would neither apply nor restore — the
+    // footer therefore defaults to «Отменить». The press lands on the underlay
+    // (the popover's backdrop), never on the list or the footer themselves.
+    useEffect(() => {
+        if (!isCommitMode) return;
+        const onPointerDown = (event: Event) => {
+            if (!openRef.current) return;
+            const target = event.target;
+            if (!(target instanceof Element) || !target.closest("[data-testid='underlay']")) return;
+            cancelRef.current();
+        };
+        // HeroUI listens for pointer presses; the mouse fallback keeps the
+        // behaviour in environments without PointerEvent (jsdom, old browsers).
+        document.addEventListener("pointerdown", onPointerDown, true);
+        document.addEventListener("mousedown", onPointerDown, true);
+        return () => {
+            document.removeEventListener("pointerdown", onPointerDown, true);
+            document.removeEventListener("mousedown", onPointerDown, true);
+        };
+    }, [isCommitMode]);
 
     function openFromHover() {
         if (isDisabled || embedded) return;
@@ -385,6 +487,18 @@ export function SmartSelect({
         options,
     ]);
 
+    // A keydown inside the trigger, the open panel (its search field, list) or
+    // the footer. The document-level listener fires before react-aria acts on
+    // the key, so Enter can be claimed for «Применить» before the list or the
+    // search field consumes it.
+    function isCommitKeyTarget(event: KeyboardEvent): boolean {
+        const target = event.target;
+        if (!(target instanceof Node)) return false;
+        return Boolean(
+            popoverRef.current?.contains(target) || wrapperRef.current?.contains(target),
+        );
+    }
+
     const renderValue = () => {
         if (compactLabel) {
             return isCompact || alwaysCompact ? compactLabel : renderFullValue();
@@ -418,6 +532,64 @@ export function SmartSelect({
         );
     };
 
+    /**
+     * Commit mode's footer: icon-only «По умолчанию / Отменить / Применить»,
+     * right-aligned and pinned under the scrolling list. Each button is a
+     * ButtonGroup cell; the group's default radius is squared to the panel's
+     * `--radius` by `.smart-select__footer-actions` in globals.css.
+     * `preventFocus` keeps the search field's caret when a footer button is
+     * pressed, so the click does not move focus into the (scrolling) list.
+     * The labels live in `aria-label`/tooltips, the icons mirror the toolbar's
+     * reset («По умолчанию»), its undo («Отменить») and a positive ending.
+     */
+    const commitFooter = isCommitMode ? (
+        <div
+            className="smart-select__footer"
+            data-react-aria-prevent-focus
+            // Enter belongs to the filter and means «Применить».
+            onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (canConfirm) confirmRef.current();
+            }}
+        >
+            <ButtonGroup size="sm" className="smart-select__footer-actions">
+                {onReset ? (
+                    <Button
+                        size="sm"
+                        variant="danger"
+                        isIconOnly
+                        aria-label={resetLabel}
+                        onPress={() => resetRef.current?.()}
+                    >
+                        <Refresh aria-hidden="true" />
+                    </Button>
+                ) : null}
+                <Button
+                    size="sm"
+                    variant="secondary"
+                    isIconOnly
+                    aria-label="Отменить"
+                    onPress={() => cancelRef.current()}
+                >
+                    <Xmark aria-hidden="true" />
+                </Button>
+                <Button
+                    size="sm"
+                    variant="secondary"
+                    isIconOnly
+                    aria-label="Применить"
+                    className="smart-select__confirm"
+                    isDisabled={!canConfirm}
+                    onPress={() => confirmRef.current()}
+                >
+                    <Check aria-hidden="true" />
+                </Button>
+            </ButtonGroup>
+        </div>
+    ) : null;
+
     return (
         <div
             ref={wrapperRef}
@@ -429,6 +601,7 @@ export function SmartSelect({
                 // placeholder, which would grey the label out.
                 renderValue() !== null && "smart-select--has-value",
                 embedded && "smart-select--embedded",
+                isCommitMode && "smart-select--commit",
             ]
                 .filter(Boolean)
                 .join(" ")}
@@ -519,6 +692,7 @@ export function SmartSelect({
                             </Autocomplete.Filter>
                         )}
                         {popoverFooter ?? null}
+                        {commitFooter}
                     </Autocomplete.Popover>
                 </Autocomplete>
             ) : (
@@ -566,6 +740,7 @@ export function SmartSelect({
                             <ListBox>{renderedOptions}</ListBox>
                         )}
                         {popoverFooter ?? null}
+                        {commitFooter}
                     </Select.Popover>
                 </Select>
             )}

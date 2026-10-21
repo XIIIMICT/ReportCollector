@@ -175,11 +175,19 @@ A split-screen tab (≈ half a desktop) triggers the compact shell; one `@media 
 
 ## Ремонт (`front/src/features/renovation/`)
 
-- **Column filter dismissal.** Plan column filters pass `closeOnUnhover={false}`
-  to `SmartSelect`: moving the pointer outside does not close or apply them.
-  Outside clicks and Escape still close/apply the filter. Escape consumed by
-  an open select never clears the grid selection; the next Escape can clear it
-  normally. Other selects keep the default 200 ms unhover dismissal.
+- **Column filter commit mode.** Plan column filters pass `closeOnUnhover={false}`
+  to `SmartSelect`, which switches it to commit mode: moving the pointer outside
+  never closes or applies it, and a pinned icon-only footer
+  (`.smart-select__footer`, outside the scrolling list) carries
+  «По умолчанию» (reset icon, `danger`; resets the column to the same
+  «no constraint» state as «Сбросить все фильтры и сортировки»),
+  «Отменить» (`Xmark`) and «Применить» (`Check`, success tint). «Применить» and
+  `Enter` apply the pending selection; «Отменить», `Escape` and an outside click
+  discard it, restoring the filter that was in force before opening. Escape is
+  consumed by the filter and never clears the grid selection; the next Escape
+  clears it normally. The popover is portalled into `document.body` (the header
+  funnel lives in the un-synced environment state of the grid). Other selects
+  keep the default 200 ms unhover dismissal and no footer.
 
 The renovation plan is a separate grid sharing the raw-materials infrastructure but with its own component (`renovation-grid.tsx`), workspace (`renovation-workspace.tsx`) and client (`front/src/shared/api/renovation.ts`, scope `RENOVATION_SECTION = "renovationPlan"`, `reportMonth = null`). Project switcher: `report-workspace.tsx` renders `RenovationWorkspace` when `activeProjectKey === "renovation"`, otherwise `RawMaterialsWorkspace`.
 
