@@ -57,6 +57,7 @@ from src.renovation.export import (
 )
 from src.renovation.export_jobs import ExportJob, ExportJobSpec, ExportQueueFullError, export_jobs
 from src.renovation.import_plan import inspect_plan_file
+from src.renovation.inspect_cache import get_inspect_cache
 from src.renovation.models import RAsset, RProjectRole, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
 from src.renovation.schemas import (
@@ -188,6 +189,12 @@ async def inspect_renovation_plan_import(
     # Read the upload in memory: a NamedTemporaryFile stays locked on Windows,
     # so the workbook cannot be reopened from its path there.
     payload = await file.read()
+    cache = get_inspect_cache()
+    # The cached report is keyed by the file hash only, so it is reused for an
+    # unchanged plan state: a new row set invalidates it by TTL (one hour).
+    cached = await cache.get(payload)
+    if cached is not None:
+        return cached
     existing_codes = {value for value in (await session.exec(select(col(RenovationPlanRow.col_003)))).all() if value}
     assets = {
         asset.repair_code.upper(): asset.name
@@ -197,12 +204,14 @@ async def inspect_renovation_plan_import(
     references: dict[str, set[str]] = {}
     for value in (await session.exec(select(RenovationReferenceValue))).all():
         references.setdefault(value.catalog.value, set()).add(value.label.casefold())
-    return inspect_plan_file(
+    result = inspect_plan_file(
         BytesIO(payload),
         existing_codes=existing_codes,
         asset_names_by_code=assets,
         reference_values=references,
     )
+    await cache.set(payload, result)
+    return result
 
 
 @router.get("/meta", response_model=RenovationMetaRead)

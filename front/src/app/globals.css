@@ -661,6 +661,53 @@ body {
     font-size: 0.8rem;
 }
 
+/* Excel preflight dialog for the administrator's renovation-plan import. */
+.plan-excel-import-modal {
+    min-height: min(32rem, calc(100dvh - 5rem));
+}
+
+.plan-excel-import-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.file-input {
+    min-width: 0;
+}
+
+.file-input__suffix {
+    padding-inline-end: 0;
+}
+
+.plan-excel-import-modal__footer {
+    justify-content: flex-end;
+}
+
+.plan-excel-import-modal__errors,
+.plan-excel-import-modal__summary {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.plan-excel-import-modal__errors section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.plan-excel-import-modal__errors ul {
+    margin: 0;
+    padding-left: 1.25rem;
+    list-style: disc;
+}
+
+.plan-excel-import-modal__errors ul ul {
+    margin-top: 0.2rem;
+    list-style: circle;
+}
+
 /* View strip between the toolbar and the grid: display-only controls in ONE
    row — asset/block filters («Ремонт» plan) on the left, export/fullscreen
    buttons on the right. The filters take exactly the width they need. */

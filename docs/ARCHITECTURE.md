@@ -208,6 +208,12 @@ name), the new rows and the rows to update (existing `col_003`).
 The endpoint reads the upload in memory: a Windows `NamedTemporaryFile` stays
 locked and cannot be reopened for reading.
 
+Reports are cached in Valkey (`src/renovation/inspect_cache.py`): the key is
+the SHA-256 of the uploaded bytes (`rc:planimport:<hash>`), the value is the
+JSON result, the TTL is one hour. Re-picking the same workbook returns the same
+report instantly; the cache is optional — without `VALKEY_URL` or when Valkey
+is unreachable the file is simply analysed again.
+
 `inspect_plan_file` returns only; the actual import is a separate step.
 
 ## Renovation plan export jobs

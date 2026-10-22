@@ -1,0 +1,103 @@
+"""Valkey-backed cache of renovation plan preflight reports."""
+
+import pytest
+from redis.exceptions import RedisError
+
+from src.renovation.inspect_cache import (
+    INSPECT_CACHE_TTL_SECONDS,
+    InspectResultCache,
+    inspect_cache_key,
+)
+from src.renovation.schemas import RenovationPlanImportResult
+
+
+class _FakeRedis:
+    """Minimal async stand-in: records SET with its TTL and serves GET."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+        self.ttls: dict[str, int | None] = {}
+
+    async def get(self, key: str) -> str | None:
+        return self.store.get(key)
+
+    async def set(self, key: str, value: str, *, ex: int | None = None) -> None:
+        self.store[key] = value
+        self.ttls[key] = ex
+
+    async def aclose(self) -> None:
+        return None
+
+
+class _BrokenRedis:
+    async def get(self, _key: str) -> str | None:
+        msg = "valkey is down"
+        raise RedisError(msg)
+
+    async def set(self, _key: str, _value: str, **kwargs: object) -> None:
+        del kwargs
+        msg = "valkey is down"
+        raise RedisError(msg)
+
+
+def _report() -> RenovationPlanImportResult:
+    return RenovationPlanImportResult(
+        status="has_errors",
+        duplicate_codes=["CODE (строки 3, 9)"],
+        assets=["АО «БСЗ»"],
+        new_rows=2,
+    )
+
+
+def test_key_is_the_file_hash() -> None:
+    assert inspect_cache_key(b"same") == inspect_cache_key(b"same")
+    assert inspect_cache_key(b"same") != inspect_cache_key(b"other")
+    assert inspect_cache_key(b"same").startswith("rc:planimport:")
+
+
+async def test_report_is_reused_for_the_same_file_with_a_one_hour_ttl() -> None:
+    redis = _FakeRedis()
+    cache = InspectResultCache(redis)
+    payload = b"workbook"
+    assert await cache.get(payload) is None
+
+    await cache.set(payload, _report())
+
+    cached = await cache.get(payload)
+    assert cached is not None
+    assert cached.duplicate_codes == ["CODE (строки 3, 9)"]
+    assert redis.ttls[inspect_cache_key(payload)] == INSPECT_CACHE_TTL_SECONDS
+    assert INSPECT_CACHE_TTL_SECONDS == 3600
+
+
+async def test_a_different_file_has_its_own_entry() -> None:
+    cache = InspectResultCache(_FakeRedis())
+    await cache.set(b"first", _report())
+
+    assert await cache.get(b"first") is not None
+    assert await cache.get(b"second") is None
+
+
+async def test_cache_is_optional_without_valkey() -> None:
+    cache = InspectResultCache(None)
+    await cache.set(b"payload", _report())
+    assert await cache.get(b"payload") is None
+
+
+async def test_unreachable_valkey_never_fails_the_request() -> None:
+    cache = InspectResultCache(_BrokenRedis())
+    assert await cache.get(b"payload") is None
+    # A write failure is swallowed: the caller still returns the fresh result.
+    await cache.set(b"payload", _report())
+
+
+async def test_malformed_entry_is_treated_as_a_miss() -> None:
+    redis = _FakeRedis()
+    redis.store[inspect_cache_key(b"payload")] = "{not json"
+    cache = InspectResultCache(redis)
+    assert await cache.get(b"payload") is None
+
+
+@pytest.mark.parametrize("payload", [b"", b"\x00\x01"])
+async def test_cache_is_skipped_entirely_without_a_client(payload: bytes) -> None:
+    assert await InspectResultCache(None).get(payload) is None
