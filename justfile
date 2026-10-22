@@ -62,6 +62,18 @@ seed-renovation-plan:
 seed-kppk:
     uv run --directory back -m src.scripts.seed_kppk
 
+# gen-kppk-periods — досоздаёт недостающие строки «Реализации» и «Себестоимости»
+# на каждый месяц текущего и следующего года: по строке на (ДЗО × продукт из
+# «Продуктовых позиций» × рынок) и на (ДЗО × продукт), все числа в нулях.
+# Существующие строки не трогает, поэтому команду можно запускать повторно.
+# --dry-run показывает только количество.
+gen-kppk-periods:
+    uv run --directory back -m src.scripts.generate_kppk_periods
+
+# gen-kppk-periods-dry — то же самое, но без записи в базу.
+gen-kppk-periods-dry:
+    uv run --directory back -m src.scripts.generate_kppk_periods --dry-run
+
 # recompute-renovation-plan — разово пересчитывает и сохраняет расчётные поля
 # (и идентификаторы) рабочего плана реновации. Нужно после импорта/адопции
 # данных и после изменения формул; на PostgreSQL 14 схему менять не нужно.

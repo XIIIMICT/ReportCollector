@@ -42,6 +42,8 @@ import { publishSelection, type GridSelectionInfo } from "@/shared/ui/text-helpe
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
 import { useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
 
+import { expandExcise } from "./kppk-excise";
+
 /** Standard grid toasts: see `gridWarningHandlers`. */
 const gridWarnings = gridWarningHandlers({ lockedVerb: "редактирует" });
 
@@ -214,13 +216,17 @@ export function KppkRealizationSection({
 }: KppkRealizationSectionProps) {
     const isCost = mode === "cost";
     const roomSection = isCost ? "kppkCost" : realizationRoomSection(slice);
+    // The excise is ONE figure per product (see migration
+    // 0016_kppk_excise_per_product): it is stored on every market row but is
+    // always the same value, so the grid renders it as one merged cell per
+    // product block and any edit below is fanned out to the whole block.
+    const exciseKey = slice === "bp" ? "exciseBp" : slice === "op" ? "exciseMaxPlan" : "exciseFact";
+    const showExcise = includeExcise && !isCost;
     const descriptors = useMemo<ColumnDescriptor[]>(() => {
-        const exciseKey =
-            slice === "bp" ? "exciseBp" : slice === "op" ? "exciseMaxPlan" : "exciseFact";
         if (!isCost)
             return [
                 ...KPPK_REALIZATION_DESCRIPTORS[slice],
-                ...(includeExcise
+                ...(showExcise
                     ? [{ key: exciseKey, label: "Акциз", width: 130, kind: "number" as const }]
                     : []),
             ];
@@ -254,7 +260,7 @@ export function KppkRealizationSection({
                 kind: "number",
             })),
         ];
-    }, [includeExcise, isCost, slice]);
+    }, [exciseKey, isCost, showExcise, slice]);
 
     const [reloadKey, setReloadKey] = useState(0);
     const [isGridSorted, setIsGridSorted] = useState(false);
@@ -370,8 +376,13 @@ export function KppkRealizationSection({
     async function commit(updates: CellUpdate[]): Promise<boolean> {
         if (!isAdmin || updates.length === 0) return true;
         setPendingSkip(null);
+        // The excise is one figure per product but is STORED on every market
+        // row (migration 0016), so an edit of the merged cell is fanned out to
+        // the whole product block — otherwise the other two rows would keep the
+        // old rate and a later sort would reveal the disagreement.
+        const expanded = expandExcise(updates, view?.rows ?? [], exciseKey);
         const write = (async () => {
-            for (const update of updates) {
+            for (const update of expanded) {
                 if (isCost) await updateCostCell(update.rowId, update.field, update.value);
                 else await updateRealizationCell(update.rowId, slice, update.field, update.value);
             }
@@ -401,22 +412,41 @@ export function KppkRealizationSection({
             ? KPPK_COST_SLICE_FIELDS[slice]
             : KPPK_REALIZATION_SLICE_FIELDS[slice];
         let previous: string | null = null;
+        // The first row of the current product block: the excise of a merged
+        // block is edited through that row only, and every row of the block
+        // subscribes to the SAME canonical key, so a change made by anybody
+        // lands on all three cells at once.
+        let blockLeadId: string | null = null;
         return rows.map((row) => {
             const isGroupStart = row.product !== previous;
             previous = row.product;
+            if (isGroupStart) blockLeadId = row.id;
             const gridRow: GridRow = {
                 ...row,
-                product: isCost || isGridSorted || isGroupStart ? row.product : "",
+                product: isCost || isGridSorted || isGroupStart || !showExcise ? row.product : "",
                 rowState: "unchanged",
                 changedFields: [],
                 isDeleted: false,
                 isPlaceholder: false,
                 canonicalCells: {},
             };
+            if (!isCost && !isGridSorted && !isGroupStart && showExcise) {
+                // The covered cells of the merged excise block show nothing —
+                // the value belongs to the block, not to the market row.
+                gridRow[exciseKey] = null;
+            }
             if (!isAdmin) return gridRow;
             const cells = gridRow.canonicalCells;
             for (const field of fields) {
                 if (!cells) return gridRow;
+                if (field === exciseKey && !isCost) {
+                    // One key per PRODUCT for the excise (see above).
+                    const key = `${roomSection}/${isGridSorted ? row.id : blockLeadId}/${field}`;
+                    cells[field] = key;
+                    const remote = remoteCellValues.get(key);
+                    if (remote !== undefined && !gridRow[exciseKey]) gridRow[field] = remote;
+                    continue;
+                }
                 const key = `${roomSection}/${row.id}/${field}`;
                 cells[field] = key;
                 const remote = remoteCellValues.get(key);
@@ -424,23 +454,37 @@ export function KppkRealizationSection({
             }
             return gridRow;
         });
-    }, [isAdmin, isCost, isGridSorted, remoteCellValues, roomSection, slice, view?.rows]);
+    }, [
+        exciseKey,
+        isAdmin,
+        isCost,
+        isGridSorted,
+        remoteCellValues,
+        roomSection,
+        showExcise,
+        slice,
+        view?.rows,
+    ]);
 
     // The template folds each product's region rows into one merged cell: one
     // rowSpan range per run of rows sharing the product. The merge covers the
-    // leading `productNum` + `product` leaves (indexes 0 and 1): the «№» of a
-    // product is one block spanning all of its market rows, like its name.
+    // leading `productNum` + `product` leaves (indexes 0 and 1) — the «№» and
+    // the name of one product are one block — plus the trailing excise column,
+    // whose figure belongs to the product, not to the market.
     const cellMerge = useMemo<MergeData[]>(() => {
         if (isCost || isGridSorted) return [];
         const rows = view?.rows ?? [];
         const sweeps: MergeData[] = [];
-        let start = -1;
+        // The single Level/leaf array the merged columns sit in.
+        const mergedColumns = [0, 1];
+        if (showExcise) mergedColumns.push(KPPK_REALIZATION_DESCRIPTORS[slice].length);
         const push = (from: number, to: number) => {
             if (from < 0 || to - from < 2) return;
-            for (const column of [0, 1]) {
+            for (const column of mergedColumns) {
                 sweeps.push({ row: from, column, rowSpan: to - from });
             }
         };
+        let start = -1;
         for (let i = 0; i < rows.length; i += 1) {
             const isGroupStart = i === 0 || rows[i]!.product !== rows[i - 1]!.product;
             if (!isGroupStart) continue;
@@ -449,7 +493,7 @@ export function KppkRealizationSection({
         }
         if (start >= 0) push(start, rows.length);
         return sweeps;
-    }, [isCost, isGridSorted, view?.rows]);
+    }, [isCost, isGridSorted, showExcise, slice, view?.rows]);
 
     // ── Workspace wiring (footer actions, strip handlers) ──
     const gridRef = useRef<RawMaterialsGridHandle>(null);
@@ -612,9 +656,6 @@ export function KppkRealizationSection({
                 onClipboardStateChange={handleClipboardState}
                 onSelectionChange={handleSelectionChange}
             />
-            {gridRows.length === 0 ? (
-                <div className="grid-empty">Для выбранного ДЗО и среза данных пока нет.</div>
-            ) : null}
         </div>
     );
 }
