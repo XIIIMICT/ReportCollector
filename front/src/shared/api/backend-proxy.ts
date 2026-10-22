@@ -14,10 +14,16 @@ export async function proxyBackend(request: Request, path: string, method = requ
 
     const requestUrl = new URL(request.url);
     const targetUrl = new URL(`${path}${requestUrl.search}`, getBackendInternalUrl());
-    const contentType = request.headers.get("Content-Type");
+    const contentType = request.headers.get("Content-Type") ?? "";
     const headers = buildIdentityHeaders(session);
 
-    if (contentType) {
+    // A multipart body must be forwarded BYTE-FOR-BYTE with its original
+    // Content-Type: that header carries the boundary the backend parser needs,
+    // and `request.text()` would re-encode the binary file into garbage.
+    // Re-streaming `request.body` through undici also loses the parts in the
+    // Next dev server, so the upload is buffered once and sent as a buffer.
+    const isMultipart = contentType.toLowerCase().startsWith("multipart/form-data");
+    if (contentType && !isMultipart) {
         headers.set("Content-Type", contentType);
     }
 
@@ -27,7 +33,12 @@ export async function proxyBackend(request: Request, path: string, method = requ
         method,
     };
     if (method !== "GET" && method !== "HEAD") {
-        init.body = await request.text();
+        if (isMultipart) {
+            init.body = Buffer.from(await request.arrayBuffer());
+            headers.set("Content-Type", contentType);
+        } else {
+            init.body = await request.text();
+        }
     }
 
     const response = await fetch(targetUrl, init);

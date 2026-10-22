@@ -47,6 +47,49 @@ function jsonResponse(body: string, headers: Record<string, string> = {}) {
     ) as typeof fetch;
 }
 
+describe("proxyBackend uploads", () => {
+    test("forwards a multipart body byte-for-byte with its own boundary", async () => {
+        const form = new FormData();
+        const file = new Blob([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff])]);
+        form.append("file", file, "plan.xlsb");
+        const request = new Request(`http://front${PATH}`, { method: "POST", body: form });
+        const incomingContentType = request.headers.get("Content-Type") ?? "";
+        expect(incomingContentType).toContain("multipart/form-data");
+
+        let forwarded: { body: unknown; contentType: string | null } = {
+            body: undefined,
+            contentType: null,
+        };
+        globalThis.fetch = Object.assign(
+            async (_url: string | URL | Request, init?: RequestInit) => {
+                forwarded = {
+                    body: init?.body,
+                    contentType: new Headers(init?.headers).get("Content-Type"),
+                };
+                return new Response("{}", { headers: { "Content-Type": "application/json" } });
+            },
+            { preconnect: originalFetch.preconnect },
+        ) as typeof fetch;
+
+        await proxyBackend(request, PATH, "POST");
+
+        // The original Content-Type (with its boundary) is preserved...
+        expect(forwarded.contentType).toBe(incomingContentType);
+        // ...and the body is the untouched multipart payload, not decoded text.
+        const body = forwarded.body;
+        const bytes =
+            body instanceof ArrayBuffer
+                ? new Uint8Array(body)
+                : body instanceof Uint8Array
+                  ? body
+                  : null;
+        expect(bytes).not.toBeNull();
+        expect(bytes?.length ?? 0).toBeGreaterThan(0);
+        // The file's binary bytes survive the hop unchanged.
+        expect(Array.from(bytes ?? [])).toContain(0xff);
+    });
+});
+
 describe("proxyBackend compression", () => {
     test("gzips a large JSON body when the client accepts gzip", async () => {
         const body = JSON.stringify({

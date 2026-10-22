@@ -3,11 +3,12 @@
 import hashlib
 import json
 from collections.abc import Sequence
+from io import BytesIO
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -55,6 +56,7 @@ from src.renovation.export import (
     validate_export_request,
 )
 from src.renovation.export_jobs import ExportJob, ExportJobSpec, ExportQueueFullError, export_jobs
+from src.renovation.import_plan import inspect_plan_file
 from src.renovation.models import RAsset, RProjectRole, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
 from src.renovation.schemas import (
@@ -73,6 +75,7 @@ from src.renovation.schemas import (
     RenovationFacetsRead,
     RenovationMetaRead,
     RenovationPlanExportRequest,
+    RenovationPlanImportResult,
     RenovationPlanRead,
     RenovationPlanRowRead,
     RenovationPlanRowsRead,
@@ -171,6 +174,35 @@ async def require_renovation_admin(access: AccessDependency) -> RenovationAccess
 
 
 AdminDependency = Annotated[RenovationAccess, Depends(require_renovation_admin)]
+
+
+@router.post("/plan/import/inspect", response_model=RenovationPlanImportResult)
+async def inspect_renovation_plan_import(
+    session: SessionDependency,
+    _access: AdminDependency,
+    file: Annotated[UploadFile, File()],
+) -> RenovationPlanImportResult:
+    """Validate an XLSB technical-directorate plan without persisting rows."""
+    if not file.filename or not file.filename.casefold().endswith(".xlsb"):
+        return RenovationPlanImportResult(status="invalid_format")
+    # Read the upload in memory: a NamedTemporaryFile stays locked on Windows,
+    # so the workbook cannot be reopened from its path there.
+    payload = await file.read()
+    existing_codes = {value for value in (await session.exec(select(col(RenovationPlanRow.col_003)))).all() if value}
+    assets = {
+        asset.repair_code.upper(): asset.name
+        for asset in (await session.exec(select(RAsset))).all()
+        if asset.repair_code
+    }
+    references: dict[str, set[str]] = {}
+    for value in (await session.exec(select(RenovationReferenceValue))).all():
+        references.setdefault(value.catalog.value, set()).add(value.label.casefold())
+    return inspect_plan_file(
+        BytesIO(payload),
+        existing_codes=existing_codes,
+        asset_names_by_code=assets,
+        reference_values=references,
+    )
 
 
 @router.get("/meta", response_model=RenovationMetaRead)

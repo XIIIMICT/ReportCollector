@@ -455,6 +455,22 @@ class RenovationPlanExportRequest(BaseModel):
     filters: list[RenovationColumnFilter] | None = None
 
 
+class RenovationPlanImportCellIssue(BaseModel):
+    location: str
+    value: str
+
+
+class RenovationPlanImportResult(BaseModel):
+    status: Literal["invalid_format", "has_errors", "ready"]
+    duplicate_codes: list[str] = Field(default_factory=list)
+    invalid_calculated_codes: list[str] = Field(default_factory=list)
+    invalid_data_types: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
+    missing_dictionary_values: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
+    assets: list[str] = Field(default_factory=list)
+    new_rows: int = 0
+    rows_to_update: int = 0
+
+
 class RenovationExportJobRead(BaseModel):
     """A background plan-export job: status polling and the ready file name."""
 

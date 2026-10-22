@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertDialog, Button, ButtonGroup, Spinner, toast } from "@heroui/react";
-import { CheckCircle, Plus, Send, WarningTriangle } from "iconoir-react";
+import { CheckCircle, Plus, Send, Upload, WarningTriangle } from "iconoir-react";
 import { useTheme } from "next-themes";
 import {
     createElement,
@@ -31,6 +31,7 @@ import {
     getRenovationMeta,
     getRenovationPlanRows,
     getRenovationPlanSummary,
+    inspectRenovationPlanImport,
     getRenovationPlans,
     getUndoState,
     redoCells,
@@ -93,6 +94,7 @@ import { WorkspaceLoadError } from "@/shared/ui/workspace-feedback";
 import { WorkspaceContent, WorkspaceFullscreenPanels } from "@/shared/ui/workspace-layout";
 import { useDeleteShortcut, useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
 
+import { PlanExcelImportModal } from "./plan-excel-import-modal";
 import {
     RenovationDictionarySection,
     renovationSectionTable,
@@ -569,6 +571,16 @@ export function RenovationWorkspace({
     const [submitBlocked, setSubmitBlocked] = useState<string | null>(null);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [exportPending, setExportPending] = useState(false);
+    const [planExcelImportOpen, setPlanExcelImportOpen] = useState(false);
+    const [planExcelImportResult, setPlanExcelImportResult] = useState<
+        import("./plan-excel-import-modal").PlanExcelImportResult | null
+    >(null);
+    // Closing the dialog discards the previous file and its check result, so
+    // the next open starts from an empty field.
+    const closePlanExcelImport = (open: boolean) => {
+        setPlanExcelImportOpen(open);
+        if (!open) setPlanExcelImportResult(null);
+    };
     const [undoCount, setUndoCount] = useState(0);
     const [redoCount, setRedoCount] = useState(0);
     // The «Добавить строку» dialog (asset picker → an empty row at the end).
@@ -1609,6 +1621,17 @@ export function RenovationWorkspace({
             rowCount: gridStats?.filteredRows ?? 0,
             onExport: (mode) => void handleStripExport(mode),
         }),
+        ...(!isArchive && isAdmin
+            ? [
+                  {
+                      id: "plan-excel-import",
+                      label: "Загрузить из Excel",
+                      icon: createElement(Upload),
+                      onPress: () => setPlanExcelImportOpen(true),
+                      group: "download" as const,
+                  },
+              ]
+            : []),
         ...(!isArchive && canAddRows
             ? buildAddRowAction({
                   show: true,
@@ -1689,6 +1712,30 @@ export function RenovationWorkspace({
             <ActionBar
                 items={isPlanSection ? actions : dictActions}
                 onDropdownOpenChange={setToolbarControlOpen}
+            />
+            <PlanExcelImportModal
+                isOpen={planExcelImportOpen}
+                result={planExcelImportResult}
+                onOpenChange={closePlanExcelImport}
+                onFileSelected={async (file) => {
+                    setPlanExcelImportResult(null);
+                    const result = await inspectRenovationPlanImport(file);
+                    setPlanExcelImportResult({
+                        status:
+                            result.status === "invalid_format"
+                                ? "invalid-format"
+                                : result.status === "has_errors"
+                                  ? "has-errors"
+                                  : "ready",
+                        duplicateCodes: result.duplicate_codes,
+                        invalidCalculatedCodes: result.invalid_calculated_codes,
+                        invalidDataTypes: result.invalid_data_types,
+                        missingDictionaryValues: result.missing_dictionary_values,
+                        assets: result.assets,
+                        newRows: result.new_rows,
+                        rowsToUpdate: result.rows_to_update,
+                    });
+                }}
             />
         </div>
     );

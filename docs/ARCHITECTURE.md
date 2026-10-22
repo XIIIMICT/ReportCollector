@@ -165,6 +165,7 @@ Project URLs — `/raw-materials`, `/renovation`, `/kppk` (root redirects to the
   - Fixing: `POST /movement/fix` (admin) — see "Landmines" in AGENTS.md.
   - `POST /export` — Excel (openpyxl): whole/visible selection, for «Движение» — archive versions.
   - Renovation plan export — **background jobs**: `POST /plan/export/jobs` (202 + job id), `GET /plan/export/jobs/{id}` (status/progress), `GET /plan/export/jobs/{id}/file` (download). The legacy synchronous `GET/POST /plan/export` endpoints remain for tests/compat but the UI never uses them (they materialize the whole plan in the API process).
+  - Renovation plan **import preflight** (admin): `POST /plan/import/inspect` (multipart `file`, `.xlsb` only) validates the technical-directorate workbook **without writing** to the database. Readiness and the response contract — see «Renovation plan import» below.
 - `kppk` (signed identity; reads for every project member, mutations admin-only): dictionary CRUD — `GET/POST/PATCH/DELETE /product-positions[/{id}]` (PATCH `{field, value}`, `field` = `name` | `orgNames` | `productNum`; create accepts `productNum`; delete removes the product with its links), `/raws` (PATCH `{field, value}` for `name`/`rawNum`), `/orgs` (PATCH `{field, value}` for `code`/`name`), `/periods` (PATCH `{field, value}`; no UI in this phase). The source number («№», `productNum`/`rawNum`) is editable and unique — an occupied number is rejected with a clear `400`; `null` stands for a row added by hand (several NULLs are allowed); positions/raws are returned in the source-number order (unnumbered rows last). The «ДЗО» list is ordered by the full name and exposes no number. Undo/redo join the shared collaboration journal: every mutation carries the page-lifetime `session_id` (query) and is journaled as one action scoped to the tab (`scope = f"{section}/"`, no report month; `collab/undo.py` dispatches `kppk_products`/`kppk_raws`/`kppk_orgs` to `apply_kppk_cell_value`) — `GET /undo-state?section=&session_id=`, `POST /undo`, `POST /redo` (body `{skipActionId, section}`, admin; no WebSocket room and no `cell:changed` — the front refreshes the grid itself after undo/redo). `POST /export` streams the tab as XLSX (whole/visible via `rowIds`, `columns` from the grid). Deletes follow RESTRICT: a ДЗО/period referenced by the fact/plan copies is rejected with a clear `400`.
 - `ws`: `WS /ws/raw-materials` — collaboration (see `docs/COLLAB.md`).
 - Service: `GET /health` (process liveness), `GET /ready` (PostgreSQL/Valkey readiness, including the required outbox migration), rate-limit and log middlewares in `back/src/main.py`. HTTP responses carry `X-Request-ID`, also recorded in structured request logs. Uvicorn access/handshake logs redact credential query parameters (`ticket`, `access_token`, `token`); the external reverse proxy must apply its own redaction policy.
@@ -179,8 +180,37 @@ Errors: `CellValidationError` → 422, `DictionaryReferenceError` → 409, `Valu
 
 nginx is **not in Docker**, config `/etc/nginx/conf.d/reportcollector.conf`: `location /` → front `127.0.0.1:5000`; `location /api/ws/` → back `127.0.0.1:8000` with `Upgrade`/`Connection "Upgrade"` and large timeouts (`proxy_read_timeout 86400s`). HTTPS/WSS terminated by nginx (cert in SAN). Prod address: `https://m2v-form-1.h2-group.ru`. Details and WS diagnostics — `docs/COLLAB.md`, "Deployment and diagnostics" section.
 
-## Renovation plan export jobs
+## Renovation plan import (technical directorate, `.xlsb`)
 
+`back/src/renovation/import_plan.py` validates an uploaded «РБ ПОФ» workbook
+before anything is written. Columns are matched **only by header names** —
+normalised (case, whitespace, quotes), never by positions, since columns are
+added/removed between drops. The header may be row 1 or row 2 (row 1 then holds
+the extra info); a numbering helper row under the headings is detected by shape
+and skipped. `TEMPLATE_COLUMNS` freezes the headings of the current sample; a
+missing column is simply not loaded, an unknown one is ignored. Only two
+headings need an alias: «Лот» → direction code (`col_189`) and the
+suffix-free «Отнесение затрат (OPEX/CAPEX)» / «Способ выполнения работ».
+Asset identification uses «Наименование ДО» — the official repair code
+(`BSZR`) that is also an input of the work ID; the UI shows the asset name.
+
+Checks, in order: the file must be a readable `.xlsb` whose header carries
+«Код работы» plus the asset code and at least half of the template columns;
+cell types under the header (text/number/date); duplicate work codes
+(«Код работы», listed with the rows they occupy); work codes that differ from
+the ID formula `Год_ДО_КодНаправления_КодОбъекта`
+(`renovation_id.calculate_renovation_id`, built from the row's own values — a
+code whose inputs are missing counts as invalid); and reference labels absent
+from the form's own catalogs, compared strictly (whitespace/case only — no typo
+tolerance, no «@» options). Without errors the response carries the assets (by
+name), the new rows and the rows to update (existing `col_003`).
+
+The endpoint reads the upload in memory: a Windows `NamedTemporaryFile` stays
+locked and cannot be reopened for reading.
+
+`inspect_plan_file` returns only; the actual import is a separate step.
+
+## Renovation plan export jobs
 Excel-export plumbing is shared by every project in `back/src/common/`:
 `xlsx_stream.py` carries the raw-XML streaming mechanics (static package parts,
 the sheet prefix with the frozen pane, cell builders, `merge_cells_xml` with

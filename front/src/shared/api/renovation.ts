@@ -1,4 +1,4 @@
-import { requestJson, requestWrite } from "@/shared/api/api-error";
+import { readApiDetail, requestJson, requestWrite } from "@/shared/api/api-error";
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import { ReportCollectorApiError } from "@/shared/api/report-collector";
 import { downloadTableExport, tableExportJobFileUrl } from "@/shared/api/table-export";
@@ -123,6 +123,39 @@ export type RenovationPlan = {
     rows: RenovationPlanRow[];
     baselineBoundary: number | null;
 };
+
+export type RenovationPlanImportCellIssue = { location: string; value: string };
+export type RenovationPlanImportResult = {
+    status: "invalid_format" | "has_errors" | "ready";
+    duplicate_codes: string[];
+    invalid_calculated_codes: string[];
+    invalid_data_types: RenovationPlanImportCellIssue[];
+    missing_dictionary_values: RenovationPlanImportCellIssue[];
+    assets: string[];
+    new_rows: number;
+    rows_to_update: number;
+};
+
+export async function inspectRenovationPlanImport(file: File): Promise<RenovationPlanImportResult> {
+    const body = new FormData();
+    body.append("file", file);
+    // No Content-Type header: the browser must set it itself to attach the
+    // multipart boundary that the backend parser needs.
+    const response = await fetch("/api/renovation/plan/import/inspect", {
+        method: "POST",
+        body,
+        cache: "no-store",
+    });
+    if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as unknown;
+        throw new ReportCollectorApiError(
+            readApiDetail(payload) ?? `Не удалось проверить файл (${response.status}).`,
+            response.status,
+        );
+    }
+    const result = (await response.json()) as RenovationPlanImportResult;
+    return result;
+}
 
 export type RenovationPlanRows = {
     id: string;
