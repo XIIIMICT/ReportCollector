@@ -53,7 +53,11 @@ test("renders only the supplied error categories", () => {
                 status: "has-errors",
                 duplicateCodes: ["R-1", "R-2"],
                 invalidDataTypes: [{ location: "AA, строка 3", value: "abc" }],
-                missingDictionaryValues: [{ location: "Z, строка 7", value: "ОКР" }],
+                missingDictionaryValues: [
+                    { location: "Z, строка 7", value: "ОКР" },
+                    { location: "Z, строка 2", value: "ОКР" },
+                    { location: "Z, строка 5", value: "ДО" },
+                ],
             }}
         />,
     );
@@ -62,8 +66,13 @@ test("renders only the supplied error categories", () => {
     expect(view.getByText("Дублирующиеся коды (2):")).toBeTruthy();
     expect(view.getByText("R-1")).toBeTruthy();
     expect(view.getByText("Неверный тип данных (1):")).toBeTruthy();
-    expect(view.getByText("<AA, строка 3>: abc")).toBeTruthy();
-    expect(view.getByText("Столбец Z, строка 7: ОКР")).toBeTruthy();
+    expect(view.getByText("Столбец AA:")).toBeTruthy();
+    expect(view.getByText("abc (строки: 3)")).toBeTruthy();
+    expect(view.getByText("Значение отсутствует в справочнике (3):")).toBeTruthy();
+    expect(view.getByText("Столбец Z:")).toBeTruthy();
+    // Same value on several rows → one line, rows ascending.
+    expect(view.getByText("ОКР (строки: 2, 7)")).toBeTruthy();
+    expect(view.getByText("ДО (строки: 5)")).toBeTruthy();
     expect(view.queryByText(/Некорректно рассчитанные коды/)).toBeNull();
 });
 

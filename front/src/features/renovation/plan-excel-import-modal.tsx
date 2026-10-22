@@ -143,7 +143,6 @@ function ImportErrors({
             ) : null}
             {result.missingDictionaryValues?.length ? (
                 <CellErrorList
-                    prefixLocation
                     title="Значение отсутствует в справочнике"
                     values={result.missingDictionaryValues}
                 />
@@ -167,30 +166,60 @@ function ErrorList({ title, values }: { title: string; values: string[] }) {
     );
 }
 
-function CellErrorList({
-    title,
-    values,
-    prefixLocation = false,
-}: {
-    title: string;
-    values: ExcelCellIssue[];
-    /** Lead with «Столбец» (catalog misses) rather than angle-bracket quoting. */
-    prefixLocation?: boolean;
-}) {
+function CellErrorList({ title, values }: { title: string; values: ExcelCellIssue[] }) {
     return (
         <section>
             <strong>
                 {title} ({values.length}):
             </strong>
             <ul>
-                {values.map((issue, index) => (
-                    <li key={`${issue.location}-${index}`}>
-                        {prefixLocation
-                            ? `Столбец ${issue.location}: ${issue.value}`
-                            : `<${issue.location}>: ${issue.value}`}
+                {groupCellIssues(values).map((group) => (
+                    <li key={group.column}>
+                        Столбец {group.column}:
+                        <ul>
+                            {group.values.map((grouped) => (
+                                <li key={`${group.column}-${grouped.value}`}>
+                                    {grouped.value} (строки: {grouped.rows.join(", ")})
+                                </li>
+                            ))}
+                        </ul>
                     </li>
                 ))}
             </ul>
         </section>
     );
+}
+
+/**
+ * Group cell issues by column, then by value: one nested line per distinct
+ * value carrying all the rows it appears on, in sheet order.
+ */
+function groupCellIssues(values: ExcelCellIssue[]): Array<{
+    column: string;
+    values: Array<{ value: string; rows: number[] }>;
+}> {
+    const byColumn = new Map<string, Map<string, number[]>>();
+    for (const issue of values) {
+        const [column, row] = splitCellLocation(issue.location);
+        const rowsByValue = byColumn.get(column) ?? new Map<string, number[]>();
+        byColumn.set(column, rowsByValue);
+        const rows = rowsByValue.get(issue.value) ?? [];
+        rows.push(row);
+        rowsByValue.set(issue.value, rows);
+    }
+    return [...byColumn.entries()].map(([column, rowsByValue]) => ({
+        column,
+        values: [...rowsByValue.entries()].map(([value, rows]) => ({
+            value,
+            rows: [...rows].sort((left, right) => left - right),
+        })),
+    }));
+}
+
+/** Split «Z, строка 7» into its column letter(s) and the sheet row number. */
+function splitCellLocation(location: string): [string, number] {
+    const comma = location.lastIndexOf(",");
+    const column = (comma === -1 ? location : location.slice(0, comma)).trim();
+    const digits = location.slice(comma + 1).replace(/\D+/g, "");
+    return [column, digits === "" ? 0 : Number(digits)];
 }
