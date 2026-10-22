@@ -46,7 +46,6 @@ async def _apply_renovation_user_cell(
 ) -> None:
     """Apply a renovation project-user dictionary cell (undo/redo)."""
     now = datetime.now(UTC)
-    updated_by = user.name or user.email or ""
     user_row = await session.get(User, row_id)
     if user_row is None or user_row.is_deleted:
         raise _DICT_USER_NOT_FOUND
@@ -97,7 +96,7 @@ async def _apply_renovation_user_cell(
     session.add(user_row)
     if link is not None:
         link.updated_at = now
-        link.updated_by = updated_by
+        link.updater_user_id = user.id
         session.add(link)
         # Undo/redo of an activation must mirror onto the cross-project auth link
         # (see update_renovation_user); otherwise a Ctrl+Z (undo) would hand the
@@ -179,6 +178,7 @@ async def create_renovation_user(
     role: RProjectRole,
     block: RBlock | None,
     asset_names: list[str],
+    updater_user_id: UUID | None = None,
 ) -> User:
     """
     Add a user to the «Ремонт» project with role and assets.
@@ -221,7 +221,6 @@ async def create_renovation_user(
         session.add(user)
         await session.flush()
     now = datetime.now(UTC)
-    updated_by = user.name or user.email or ""
     session.add(
         RUserRole(
             user_id=user.id,
@@ -231,7 +230,7 @@ async def create_renovation_user(
             is_active=True,
             created_at=now,
             updated_at=now,
-            updated_by=updated_by,
+            updater_user_id=updater_user_id,
         )
     )
     await replace_renovation_user_assets(
@@ -256,7 +255,7 @@ async def update_renovation_user(
     block: RBlock | object | None = _UNSET,
     asset_names: list[str] | None = None,
     is_active: bool | None = None,
-    updated_by: str = "",
+    updater_user_id: UUID | None = None,
 ) -> tuple[User, list[AppliedCell]]:
     user = await session.get(User, user_id)
     if user is None or user.is_deleted:
@@ -311,7 +310,7 @@ async def update_renovation_user(
     new_asset_names = role_asset_names if role_changed else old_asset_names
     now = datetime.now(UTC)
     link.updated_at = now
-    link.updated_by = updated_by
+    link.updater_user_id = updater_user_id
     user.updated_at = now
     session.add(user)
     session.add(link)
@@ -452,6 +451,7 @@ async def restore_renovation_user(
     *,
     row_id: UUID,
     snapshot: dict[str, object],
+    updater_user_id: UUID,
 ) -> None:
     """Restore a deleted renovation user link (undo of the deletion)."""
     user = await session.get(User, row_id)
@@ -479,13 +479,14 @@ async def restore_renovation_user(
             is_active=bool(snapshot.get("isActive", True)),
             created_at=now,
             updated_at=now,
-            updated_by="",
+            updater_user_id=updater_user_id,
         )
     else:
         link.role = role
         link.block = block
         link.is_active = bool(snapshot.get("isActive", True))
         link.updated_at = now
+        link.updater_user_id = updater_user_id
     session.add(link)
     await session.flush()
     asset_names = snapshot.get("assetNames")

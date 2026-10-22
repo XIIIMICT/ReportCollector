@@ -43,7 +43,7 @@ COMMON_COLUMNS = {
     "created_at": "Дата и время создания записи.",
     "updated_at": "Дата и время последнего изменения записи.",
     "created_by": "Имя автора создания записи.",
-    "updated_by": "Имя автора последнего изменения записи.",
+    "updater_user_id": "ID автора последнего изменения записи → app_users.id",
     "user_id": "Идентификатор пользователя → app_users.id.",
     "project_id": "Идентификатор проекта → projects.id.",
     "is_active": "Признак активности записи.",
@@ -234,12 +234,12 @@ KPPK_SOURCE_METRICS = {
 
 def apply_table_comments(table: Table) -> None:
     """Attach descriptions when each model module registers its own tables."""
-    table.comment = TABLE_COMMENTS[table.name]
+    table.comment = TABLE_COMMENTS[table.name].rstrip(".")
     for name, comment in column_comments_for(table).items():
         table.c[name].comment = comment
 
 
-def column_comments_for(table: Table) -> dict[str, str]:
+def column_comments_for(table: Table) -> dict[str, str | None]:
     """Build complete comments, refusing undocumented columns instead of guessing."""
     comments = dict(COMMON_COLUMNS)
     if table.name.startswith("rm_"):
@@ -268,4 +268,11 @@ def column_comments_for(table: Table) -> dict[str, str]:
     if missing:
         message = f"Missing data-catalog descriptions: {table.name}: {sorted(missing)}"
         raise ValueError(message)
-    return {column.name: comments[column.name] for column in table.columns}
+    return {
+        column.name: (
+            None
+            if column.name in {"id", "created_at", "updated_at"}
+            else comments[column.name].replace("Идентификатор", "ID").replace("идентификатор", "ID").rstrip(".")
+        )
+        for column in table.columns
+    }

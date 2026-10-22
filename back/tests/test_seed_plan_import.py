@@ -39,7 +39,7 @@ async def test_batched_import_flushes_invented_options_before_rows(db_session: A
                 revision=0,
                 created_at=now,
                 updated_at=now,
-                updated_by="seed",
+                updater_user_id=None,
                 col_018=option.id,
             )
 

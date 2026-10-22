@@ -26,22 +26,29 @@ def test_catalog_covers_every_application_table_and_column() -> None:
     assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 495
     assert set(TABLE_COMMENTS) == set(SQLModel.metadata.tables)
     for table in SQLModel.metadata.tables.values():
-        assert table.comment == TABLE_COMMENTS[table.name]
+        assert table.comment == TABLE_COMMENTS[table.name].rstrip(".")
+        assert not table.comment.endswith(".")
         expected = column_comments_for(table)
         assert set(expected) == set(table.c.keys())
         for column in table.c:
             assert column.comment == expected[column.name]
+            if column.name in {"id", "created_at", "updated_at"}:
+                assert column.comment is None
+                continue
             assert column.comment
             assert column.comment == normalize_label(column.comment)
+            assert not column.comment.endswith(".")
+            assert "идентификатор" not in column.comment.lower()
 
 
 def test_frozen_migration_matches_current_catalog() -> None:
-    migration = import_module("migrations.versions.0014_data_catalog_comments")
+    migration = import_module("migrations.versions.0015_updater_user_catalog")
     expected = {
         table.name: (table.comment, {column.name: column.comment for column in table.c})
         for table in SQLModel.metadata.tables.values()
     }
     assert expected == migration.COMMENTS
+    assert migration.PREVIOUS_COMMENTS == import_module("migrations.versions.0014_data_catalog_comments").COMMENTS
 
 
 def test_new_columns_cannot_silently_get_generic_comments() -> None:

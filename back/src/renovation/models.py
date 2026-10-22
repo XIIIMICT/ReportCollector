@@ -7,6 +7,7 @@ from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
 
 from src.auth.models import utc_now
+from src.common.audit import UpdaterDisplay, configure_updater
 from src.common.data_catalog import apply_table_comments
 
 
@@ -35,7 +36,7 @@ class RBlock(StrEnum):
     MTO = "mto"
 
 
-class RAsset(SQLModel, table=True):
+class RAsset(UpdaterDisplay, table=True):
     """A renovation asset (legal entity). Separate from the raw-materials assets."""
 
     __tablename__ = "r_assets"
@@ -51,7 +52,7 @@ class RAsset(SQLModel, table=True):
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("now()")),
     )
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
 class RUserAsset(SQLModel, table=True):
@@ -71,7 +72,7 @@ class RUserAsset(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
 
 
-class RUserRole(SQLModel, table=True):
+class RUserRole(UpdaterDisplay, table=True):
     """
     User-project link for the renovation project: role and responsibility block.
 
@@ -109,8 +110,10 @@ class RUserRole(SQLModel, table=True):
     is_active: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default="false"))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
 for _model in (RAsset, RUserRole, RUserAsset):
     apply_table_comments(SQLModel.metadata.tables[_model.__tablename__])
+    if "updater_user_id" in _model.model_fields:
+        configure_updater(_model)

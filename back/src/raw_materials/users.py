@@ -89,7 +89,7 @@ async def read_user_rows(
     ]
 
 
-async def _apply_deleted_user(session: AsyncSession, *, row_id: UUID, snapshot: object) -> None:
+async def _apply_deleted_user(session: AsyncSession, *, row_id: UUID, snapshot: object, updater_user_id: UUID) -> None:
     """
     Undo/redo of a deleted «Сырьё» user: the project link and the asset grants.
 
@@ -135,11 +135,13 @@ async def _apply_deleted_user(session: AsyncSession, *, row_id: UUID, snapshot: 
             is_active=bool(snapshot.get("isActive", True)),
             created_at=now,
             updated_at=now,
+            updater_user_id=updater_user_id,
         )
     else:
         link.role = ProjectRole.ADMIN if snapshot.get("isAdmin") else ProjectRole.ASSET_WORKER
         link.is_active = bool(snapshot.get("isActive", True))
         link.updated_at = now
+        link.updater_user_id = updater_user_id
     session.add(link)
     await session.flush()
     asset_ids = snapshot.get("assetIds")
@@ -237,6 +239,7 @@ async def create_project_user(
     fullname: str,
     is_admin: bool,
     asset_names: list[str],
+    updater_user_id: UUID | None = None,
 ) -> User:
     """
     Add a user to the «Сырьё» project with role and assets.
@@ -286,6 +289,7 @@ async def create_project_user(
             is_active=True,
             created_at=now,
             updated_at=now,
+            updater_user_id=updater_user_id,
         )
     )
     await replace_user_assets(session, user.id, asset_names)
@@ -308,7 +312,7 @@ async def update_project_user(
     asset_names: list[str] | None,
     is_active: bool | None,
     reset_password: bool,
-    updated_by: str = "",
+    updater_user_id: UUID | None = None,
 ) -> tuple[User, list[AppliedCell]]:
     user = await session.get(User, user_id)
     if user is None or user.is_deleted:
@@ -360,7 +364,7 @@ async def update_project_user(
             asset_names if asset_names is not None else ([] if is_admin else None),
         )
     link.updated_at = datetime.now(UTC)
-    link.updated_by = updated_by
+    link.updater_user_id = updater_user_id
     user.updated_at = datetime.now(UTC)
     session.add(user)
     session.add(link)

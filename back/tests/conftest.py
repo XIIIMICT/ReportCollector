@@ -230,7 +230,7 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
             is_active=True,
             created_at=now,
             updated_at=now,
-            updated_by="seed",
+            updater_user_id=None,
         )
     )
 
@@ -256,7 +256,7 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
         created_at=now,
         created_by="seed",
         updated_at=now,
-        updated_by="seed",
+        updater_user_id=None,
     )
     session.add(working)
     await session.flush()
@@ -280,7 +280,7 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
                 revision=0,
                 created_at=now,
                 updated_at=now,
-                updated_by="seed",
+                updater_user_id=None,
                 col_011="Шкаф ПЛК" if code == "bsk" else "Насос НК",
                 col_016="Ремонтный бюджет",
                 col_017=reference_by_key["work_category_002"].id,
@@ -409,7 +409,7 @@ async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> No
     # Source numbers stand for raw.kppk_d_org.id; reads sort by name, so
     # «Березниковский…» (1) leads «СНХЗ» (2).
     orgs = {
-        name: KppkOrg(code=code, name=name, num=num, created_at=now, updated_at=now, updated_by="seed")
+        name: KppkOrg(code=code, name=name, num=num, created_at=now, updated_at=now, updater_user_id=None)
         for code, name, num in [
             ("БСЗ", "АО «Березниковский содовый завод»", 1),
             ("СНХЗ", "АО «СНХЗ»", 2),
@@ -426,7 +426,7 @@ async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> No
             product_num=num,
             created_at=now,
             updated_at=now,
-            updated_by="seed",
+            updater_user_id=None,
         )
         for name, num in [
             ("Сода кальцинированная марки А", None),
@@ -443,20 +443,20 @@ async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> No
             product_id=products["Сульфат натрия"].id,
             created_at=now,
             updated_at=now,
-            updated_by="seed",
+            updater_user_id=None,
         ),
         KppkOrgProduct(
             org_id=orgs["АО «Березниковский содовый завод»"].id,
             product_id=products["Сода кальцинированная марки Б"].id,
             created_at=now,
             updated_at=now,
-            updated_by="seed",
+            updater_user_id=None,
         ),
     ]
     for link in org_products:
         session.add(link)
-    session.add(KppkRaw(name="Резина", raw_num=2, created_at=now, updated_at=now, updated_by="seed"))
-    session.add(KppkRaw(name="Каучук", raw_num=1, created_at=now, updated_at=now, updated_by="seed"))
+    session.add(KppkRaw(name="Резина", raw_num=2, created_at=now, updated_at=now, updater_user_id=None))
+    session.add(KppkRaw(name="Каучук", raw_num=1, created_at=now, updated_at=now, updater_user_id=None))
     # «Реализация» rows for the June period of «СНХЗ» (source org id 2). The
     # products are seeded in a deliberately WRONG insertion order: the read must
     # sort them by the «Продуктовые позиции» number, not by the copy's text.

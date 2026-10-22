@@ -13,10 +13,11 @@ from uuid import UUID, uuid4
 from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Index, Text, UniqueConstraint, Uuid
 from sqlmodel import Field, SQLModel
 
+from src.common.audit import UpdaterDisplay, configure_updater
 from src.common.data_catalog import apply_table_comments
 
 
-class RawMaterialAsset(SQLModel, table=True):
+class RawMaterialAsset(UpdaterDisplay, table=True):
     """Asset (site)."""
 
     __tablename__ = "rm_assets"
@@ -25,7 +26,7 @@ class RawMaterialAsset(SQLModel, table=True):
     name: str = Field(sa_column=Column(Text, unique=True, nullable=False))
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
 class RawMaterialUserAsset(SQLModel, table=True):
@@ -42,7 +43,7 @@ class RawMaterialUserAsset(SQLModel, table=True):
     )
 
 
-class RawMaterial(SQLModel, table=True):
+class RawMaterial(UpdaterDisplay, table=True):
     """Raw-material item (raw-material name)."""
 
     __tablename__ = "rm_raw_materials"
@@ -51,10 +52,10 @@ class RawMaterial(SQLModel, table=True):
     name: str = Field(sa_column=Column(Text, unique=True, nullable=False))
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
-class AssetRawMaterial(SQLModel, table=True):
+class AssetRawMaterial(UpdaterDisplay, table=True):
     """Asset-raw-material link (the row of the «Движение» and «Цены» forms)."""
 
     __tablename__ = "rm_asset_raw_materials"
@@ -68,7 +69,7 @@ class AssetRawMaterial(SQLModel, table=True):
     raw_material_id: UUID = Field(foreign_key="rm_raw_materials.id", ondelete="RESTRICT")
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
 class MovementPeriod(SQLModel, table=True):
@@ -83,7 +84,7 @@ class MovementPeriod(SQLModel, table=True):
     )
 
 
-class MaterialMovement(SQLModel, table=True):
+class MaterialMovement(UpdaterDisplay, table=True):
     """«Движение» cell values for an asset-raw-material link in the report month."""
 
     __tablename__ = "rm_material_movements"
@@ -112,10 +113,10 @@ class MaterialMovement(SQLModel, table=True):
     deviation_reason: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
-class DeliveryBasis(SQLModel, table=True):
+class DeliveryBasis(UpdaterDisplay, table=True):
     """Delivery basis (FOB, FCA, CPT)."""
 
     __tablename__ = "rm_delivery_bases"
@@ -124,10 +125,10 @@ class DeliveryBasis(SQLModel, table=True):
     name: str = Field(sa_column=Column(Text, unique=True, nullable=False))
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
-class RawMaterialPrice(SQLModel, table=True):
+class RawMaterialPrice(UpdaterDisplay, table=True):
     """«Цены» form prices: 2025 fact and 2026 business plan for an asset-raw-material link."""
 
     __tablename__ = "rm_raw_material_prices"
@@ -149,7 +150,7 @@ class RawMaterialPrice(SQLModel, table=True):
     storage_standard_tons: float | None = Field(default=None, sa_column=Column(Float, nullable=True))
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
     business_plan_updated_at: datetime | None = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
     )
@@ -233,3 +234,5 @@ for _model in (
     SnapshotMaterialMovement,
 ):
     apply_table_comments(SQLModel.metadata.tables[_model.__tablename__])
+    if "updater_user_id" in _model.model_fields:
+        configure_updater(_model)

@@ -290,15 +290,22 @@ async def _ensure_copy_tables(connection: AsyncConnection, app_schema: str) -> i
     """Restore only missing КППК application tables; never alter existing tables."""
     names = (*KPPK_SOURCE_TABLES.values(), "kppk_org_products", "kppk_cost")
     metadata = MetaData()
+    # Resolve the external audit FK without creating or modifying app_users.
+    SQLModel.metadata.tables["app_users"].to_metadata(metadata, schema=app_schema)
     missing = 0
     for name in names:
         SQLModel.metadata.tables[name].to_metadata(metadata, schema=app_schema)
         if not await _table_exists(connection, app_schema, name):
             missing += 1
-    # The private metadata contains only КППК tables. SQLAlchemy orders their
+    # The private metadata resolves external FKs; only КППК tables are created.
+    # SQLAlchemy orders their
     # CREATEs by foreign-key dependencies and targets the explicit app schema,
     # independent of the connection's search_path. No shared metadata mutation.
-    await connection.run_sync(lambda sync: metadata.create_all(sync, checkfirst=True))
+    await connection.run_sync(
+        lambda sync: metadata.create_all(
+            sync, tables=[metadata.tables[f"{app_schema}.{name}"] for name in names], checkfirst=True
+        )
+    )
     return missing
 
 
@@ -312,8 +319,8 @@ async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[st
         # The four dictionaries carry audit stamps; the fact/plan copies stay
         # verbatim without them (the migration does not create those columns).
         stamped = source in STAMPED_COPY_TABLES
-        stamp_columns = ", created_at, updated_at, updated_by" if stamped else ""
-        stamp_values = ", now(), now(), 'seed'" if stamped else ""
+        stamp_columns = ", created_at, updated_at" if stamped else ""
+        stamp_values = ", now(), now()" if stamped else ""
         if source in {"kppk_f_realization", "kppk_f_realization_plan", "kppk_f_production_plan"}:
             copied = [column for column, _ in columns if column not in {"org_id", "period_id"}]
             target_columns = ", ".join(copied)
@@ -491,8 +498,8 @@ async def _rebuild_org_products(connection: AsyncConnection, app_schema: str) ->
             product_names.add(effective)
             await connection.execute(
                 text(
-                    f"INSERT INTO {products_table} (id, name, created_at, updated_at, updated_by) "
-                    "SELECT gen_random_uuid(), :name, now(), now(), 'seed'"
+                    f"INSERT INTO {products_table} (id, name, created_at, updated_at) "
+                    "SELECT gen_random_uuid(), :name, now(), now()"
                 ).bindparams(name=effective)
             )
             created_products += 1
@@ -506,8 +513,8 @@ async def _rebuild_org_products(connection: AsyncConnection, app_schema: str) ->
         # The matrix pairs arrive as two parallel arrays: unnest zips them back
         # into rows server-side (one statement, no per-row round trips).
         text(
-            f"INSERT INTO {links_table} (id, org_id, product_id, created_at, updated_at, updated_by) "  # noqa: S608
-            "SELECT gen_random_uuid(), o.id, p.id, now(), now(), 'seed' "
+            f"INSERT INTO {links_table} (id, org_id, product_id, created_at, updated_at) "  # noqa: S608
+            "SELECT gen_random_uuid(), o.id, p.id, now(), now() "
             "FROM unnest(CAST(:org_names AS text[]), CAST(:product_names AS text[])) AS m(org_name, product_name) "
             f"JOIN {orgs_table} o ON o.name = m.org_name "
             f"JOIN {products_table} p ON p.name = m.product_name"

@@ -26,7 +26,7 @@ from src.kppk.schemas import (
     KppkRawRowRead,
 )
 
-from .core import KppkNotFoundError, KppkValidationError, _audit_name, _now
+from .core import KppkNotFoundError, KppkValidationError, _now
 from .realization import apply_kppk_realization_cell_value, update_cost_cell
 
 if TYPE_CHECKING:
@@ -122,7 +122,7 @@ async def replace_org_links(
     product_id: UUID,
     org_ids: list[UUID],
     *,
-    updated_by: str,
+    updater_user_id: UUID | None,
 ) -> None:
     """Replace the ДЗО links of a product by diff (same mechanics as in «Сырьё»)."""
     existing = {
@@ -145,7 +145,7 @@ async def replace_org_links(
                     product_id=product_id,
                     created_at=now,
                     updated_at=now,
-                    updated_by=updated_by,
+                    updater_user_id=updater_user_id,
                 )
             )
     await session.flush()
@@ -196,7 +196,7 @@ async def _apply_product_cell(
     elif field == "orgNames":
         org_names = _check_org_names(value)
         org_ids = await _org_ids_by_names(session, org_names)
-        await replace_org_links(session, product.id, org_ids, updated_by=_audit_name(user))
+        await replace_org_links(session, product.id, org_ids, updater_user_id=user.id)
         stored = sorted(org_names)
     elif field == "productNum":
         number = _check_source_number(value)
@@ -218,7 +218,7 @@ async def _apply_product_cell(
         message = f"Поле «{field}» нельзя изменить."
         raise KppkValidationError(message)
     product.updated_at = _now()
-    product.updated_by = _audit_name(user)
+    product.updater_user_id = user.id
     session.add(product)
     await session.flush()
     return stored
@@ -249,11 +249,11 @@ async def create_product_position(
         name=product_name,
         created_at=_now(),
         updated_at=_now(),
-        updated_by=_audit_name(user),
+        updater_user_id=user.id,
     )
     session.add(product)
     await session.flush()
-    await replace_org_links(session, product.id, org_ids, updated_by=_audit_name(user))
+    await replace_org_links(session, product.id, org_ids, updater_user_id=user.id)
     row = KppkProductPositionRowRead(
         id=product.id,
         productNum=product.product_num,
@@ -393,7 +393,7 @@ async def _apply_raw_cell(
         message = f"Поле «{field}» нельзя изменить."
         raise KppkValidationError(message)
     raw.updated_at = _now()
-    raw.updated_by = _audit_name(user)
+    raw.updater_user_id = user.id
     session.add(raw)
     await session.flush()
     return stored
@@ -427,7 +427,7 @@ async def create_raw(
         name=value,
         created_at=_now(),
         updated_at=_now(),
-        updated_by=_audit_name(user),
+        updater_user_id=user.id,
     )
     session.add(raw)
     await session.flush()
@@ -588,7 +588,7 @@ async def _apply_org_cell(
         message = f"Поле «{field}» нельзя изменить."
         raise KppkValidationError(message)
     org.updated_at = _now()
-    org.updated_by = _audit_name(user)
+    org.updater_user_id = user.id
     session.add(org)
     await session.flush()
     return stored
@@ -633,7 +633,7 @@ async def create_org(
         name=name_value,
         created_at=_now(),
         updated_at=_now(),
-        updated_by=_audit_name(user),
+        updater_user_id=user.id,
     )
     session.add(org)
     await session.flush()
@@ -754,11 +754,11 @@ async def _apply_product_record(
         name=product_name,
         created_at=_now(),
         updated_at=_now(),
-        updated_by=_audit_name(user),
+        updater_user_id=user.id,
     )
     session.add(restored)
     await session.flush()
-    await replace_org_links(session, row_id, org_ids, updated_by=_audit_name(user))
+    await replace_org_links(session, row_id, org_ids, updater_user_id=user.id)
 
 
 async def _apply_raw_record(
@@ -801,7 +801,7 @@ async def _apply_raw_record(
         name=name,
         created_at=_now(),
         updated_at=_now(),
-        updated_by=_audit_name(user),
+        updater_user_id=user.id,
     )
     session.add(restored)
     await session.flush()
@@ -848,7 +848,7 @@ async def _apply_org_record(
         name=name_value,
         created_at=_now(),
         updated_at=_now(),
-        updated_by=_audit_name(user),
+        updater_user_id=user.id,
     )
     session.add(restored)
     await session.flush()

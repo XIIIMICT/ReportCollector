@@ -11,6 +11,7 @@ from sqlalchemy.dialects import postgresql
 from sqlmodel import Field, SQLModel
 
 from src.auth.models import utc_now
+from src.common.audit import UpdaterDisplay, configure_updater
 from src.common.data_catalog import apply_table_comments
 
 
@@ -32,7 +33,7 @@ class RReferenceCatalog(StrEnum):
     EXECUTION_METHOD = "execution_method"
 
 
-class RenovationReferenceValue(SQLModel, table=True):
+class RenovationReferenceValue(UpdaterDisplay, table=True):
     """A selectable option of a renovation reference catalog."""
 
     __tablename__ = "r_reference_values"
@@ -58,7 +59,7 @@ class RenovationReferenceValue(SQLModel, table=True):
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("now()")),
     )
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
     __table_args__ = (
         Index("ix_r_reference_values_catalog_key", "catalog", "value_key", unique=True),
         # A catalog is a dictionary: one entry per label (case-insensitive).
@@ -71,7 +72,7 @@ class RenovationReferenceValue(SQLModel, table=True):
     )
 
 
-class RenovationPlan(SQLModel, table=True):
+class RenovationPlan(UpdaterDisplay, table=True):
     """A renovation plan version (working, pending approval, or archived)."""
 
     __tablename__ = "r_plans"
@@ -98,10 +99,10 @@ class RenovationPlan(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     created_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
-class RenovationPlanRow(SQLModel, table=True):
+class RenovationPlanRow(UpdaterDisplay, table=True):
     """A single row of a renovation plan version (flat typed values)."""
 
     __tablename__ = "r_plan_rows"
@@ -126,7 +127,7 @@ class RenovationPlanRow(SQLModel, table=True):
     revision: int = Field(default=0, sa_column=Column(Integer, nullable=False, server_default="0"))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
     col_003: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
     col_004: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
     col_005: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
@@ -361,3 +362,5 @@ class RenovationPlanRow(SQLModel, table=True):
 
 for _model in (RenovationReferenceValue, RenovationPlan, RenovationPlanRow):
     apply_table_comments(SQLModel.metadata.tables[_model.__tablename__])
+    if "updater_user_id" in _model.model_fields:
+        configure_updater(_model)

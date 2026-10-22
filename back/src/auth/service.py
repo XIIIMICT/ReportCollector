@@ -294,7 +294,7 @@ async def sync_project_memberships(session: AsyncSession, user_id: UUID, *, acti
                 is_active=should_activate,
                 created_at=now,
                 updated_at=now,
-                updated_by="",
+                updater_user_id=None,
             )
         )
     await session.flush()
@@ -441,7 +441,7 @@ async def request_project_access(
                 is_active=False,
                 created_at=now,
                 updated_at=now,
-                updated_by="",
+                updater_user_id=None,
             )
         )
         await session.flush()
@@ -467,7 +467,7 @@ async def request_project_access(
                     is_active=False,
                     created_at=now,
                     updated_at=now,
-                    updated_by="",
+                    updater_user_id=None,
                 )
             )
     await session.commit()

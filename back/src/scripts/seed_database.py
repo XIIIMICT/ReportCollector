@@ -798,7 +798,7 @@ def iter_renovation_plan_rows(
                     revision=0,
                     created_at=now,
                     updated_at=now,
-                    updated_by=SEED_ADMIN_EMAIL,
+                    updater_user_id=None,
                     **values,
                 )
                 emitted += 1
@@ -1026,7 +1026,7 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
             created_at=now,
             created_by=SEED_ADMIN_EMAIL,
             updated_at=now,
-            updated_by=SEED_ADMIN_EMAIL,
+            updater_user_id=None,
         )
         session.add(working_plan)
         await session.flush()
@@ -1091,7 +1091,7 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
                         revision=0,
                         created_at=now,
                         updated_at=now,
-                        updated_by=SEED_ADMIN_EMAIL,
+                        updater_user_id=None,
                         col_011=object_name,
                         col_016="Ремонтный бюджет",
                         col_017=renovation_reference_by_key["work_category_002"].id,
@@ -1152,7 +1152,7 @@ async def seed_renovation_plan(session: AsyncSession) -> None:
         created_at=now,
         created_by=SEED_ADMIN_EMAIL,
         updated_at=now,
-        updated_by=SEED_ADMIN_EMAIL,
+        updater_user_id=None,
     )
     session.add(working_plan)
     await session.flush()

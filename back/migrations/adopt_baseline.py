@@ -9,7 +9,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import Column, DateTime, Enum, ForeignKeyConstraint, Index, MetaData, inspect, text
+from sqlalchemy import Column, DateTime, Enum, ForeignKeyConstraint, Index, MetaData, Text, Uuid, inspect, text
 from sqlalchemy.dialects.postgresql.base import PGInspector
 from sqlalchemy.engine import Connection
 from sqlalchemy.sql.elements import quoted_name
@@ -130,6 +130,26 @@ _RENOVATION_TABLE_RENAMES = {
     "renovation_plans": "r_plans",
     "renovation_plan_rows": "r_plan_rows",
 }
+TABLES_WITH_UPDATER = frozenset(
+    {
+        "kppk_org_products",
+        "kppk_orgs",
+        "kppk_products",
+        "kppk_raws",
+        "r_assets",
+        "r_plan_rows",
+        "r_plans",
+        "r_reference_values",
+        "r_user_roles",
+        "rm_asset_raw_materials",
+        "rm_assets",
+        "rm_delivery_bases",
+        "rm_material_movements",
+        "rm_raw_material_prices",
+        "rm_raw_materials",
+        "user_roles",
+    }
+)
 
 
 def compare_adoption_default(
@@ -288,6 +308,28 @@ def _is_legacy_equivalent(diff: tuple) -> bool:
             if legacy_column is not None and diff[-1] == legacy_column.comment and diff[-2] is None:
                 return True
         return column is not None and diff[-2] is None and diff[-1] == column.comment
+    # 0015 intentionally replaces denormalized text audit with a nullable FK;
+    # adoption validates legacy structure before that migration runs.
+    if isinstance(diff, tuple) and diff[0] in {"add_column", "remove_column", "add_fk", "remove_fk"}:
+        if diff[0] == "add_column":
+            column = diff[3]
+            name = _RENOVATION_TABLE_RENAMES.get(diff[2], diff[2])
+            if name in TABLES_WITH_UPDATER and column.name == "updater_user_id":
+                return column.nullable and isinstance(column.type, Uuid)
+        if diff[0] == "remove_column":
+            column = diff[3]
+            name = _RENOVATION_TABLE_RENAMES.get(diff[2], diff[2])
+            if name in TABLES_WITH_UPDATER and column.name == "updated_by":
+                return isinstance(column.type, Text) and not column.nullable
+        if diff[0] == "add_fk":
+            constraint = diff[1]
+            name = _RENOVATION_TABLE_RENAMES.get(constraint.table.name, constraint.table.name)
+            return (
+                name in TABLES_WITH_UPDATER
+                and [(element.parent.name, element.target_fullname) for element in constraint.elements]
+                == [("updater_user_id", "app_users.id")]
+                and constraint.ondelete == "SET NULL"
+            )
     if isinstance(diff, tuple) and len(diff) >= 4 and diff[0] == "remove_column":
         _schema, table, column = diff[1], diff[2], diff[3]
         return table in _LEGACY_EXTRA_COLUMNS and column.name in _LEGACY_EXTRA_COLUMNS[table]

@@ -75,15 +75,21 @@ Domain — `back/src/raw_materials/models.py` (prefix `rm_`):
 ### Data catalog comments
 
 Migration `0014_data_catalog_comments` documents every application-owned table
-and column in Russian (30 tables, 495 columns). Renovation plan column comments
+and column in Russian (30 tables, 495 columns); `0015_updater_user_catalog`
+refines the comments and replaces `updated_by` with nullable
+`updater_user_id` foreign keys to `app_users.id` in 16 application tables.
+The old text values are intentionally discarded. The API still exposes
+`updatedBy` as the referenced user's current name (or email when unnamed).
+Columns `id`, `created_at` and `updated_at` have no comments; foreign-key
+comments use `ID`, and catalog comments have no trailing period. Renovation plan column comments
 reuse the complete normalized header hierarchy shown by the form selection
 status. Source schemas `raw.*`/`dict.*` and `alembic_version` are excluded.
 `back/src/common/data_catalog.py` also attaches comments when each model module
 registers its tables, including tables recreated by the KPPK seeder. The
 migration carries a frozen snapshot, not runtime imports; future comment
 changes need a new migration. Legacy baseline adoption tolerates absent
-catalog comments deferred to 0014, but still rejects unexpected existing
-comments and structural drift. Legacy KPPK fields not exposed by the form
+catalog comments deferred to 0014 and the known audit-column transition deferred
+to 0015, but still rejects unexpected comments and structural drift. Legacy KPPK fields not exposed by the form
 retain source-field descriptions; undocumented units are not inferred.
 
 ## Data model (project «КППК», key `kppk`)

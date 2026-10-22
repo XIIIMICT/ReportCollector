@@ -7,6 +7,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Text
 from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
 
+from src.common.audit import UpdaterDisplay, configure_updater
 from src.common.data_catalog import apply_table_comments
 
 
@@ -68,7 +69,7 @@ class Project(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
 
 
-class UserRole(SQLModel, table=True):
+class UserRole(UpdaterDisplay, table=True):
     """
     User-project link: per-project role and activation.
 
@@ -97,8 +98,10 @@ class UserRole(SQLModel, table=True):
     is_active: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default="false"))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
 for _model in (User, Project, UserRole):
     apply_table_comments(SQLModel.metadata.tables[_model.__tablename__])
+    if "updater_user_id" in _model.model_fields:
+        configure_updater(_model)

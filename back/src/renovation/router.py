@@ -1028,6 +1028,7 @@ async def post_renovation_user(
             role=request.role,
             block=request.block,
             asset_names=request.assetNames,
+            updater_user_id=_access.user.id,
         )
     except RenovationDictionaryError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
@@ -1062,7 +1063,7 @@ async def patch_renovation_user(
             role=request.role,
             asset_names=request.assetNames,
             is_active=request.isActive,
-            updated_by=access.user.name or access.user.email or "",
+            updater_user_id=access.user.id,
             **block_kwargs,
         )
     except RenovationDictionaryError as error:
@@ -1203,7 +1204,7 @@ async def patch_renovation_dictionary_batch(
                     role=user_update.role,
                     asset_names=user_update.assetNames,
                     is_active=user_update.isActive,
-                    updated_by=access.user.name or access.user.email or "",
+                    updater_user_id=access.user.id,
                     **block_kwargs,
                 )
             else:

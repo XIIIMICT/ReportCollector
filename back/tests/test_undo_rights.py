@@ -35,7 +35,7 @@ async def _member_with_role(db_session, role: RProjectRole) -> None:
             is_active=True,
             created_at=now,
             updated_at=now,
-            updated_by="test",
+            updater_user_id=None,
         )
     )
     await db_session.commit()

@@ -165,7 +165,7 @@ async def create_raw_material(
         name=name.strip(),
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
-        updated_by=user.name or user.email or "",
+        updater_user_id=user.id,
     )
     session.add(raw_material)
     await session.flush()
@@ -225,7 +225,7 @@ async def update_raw_material(
     if asset_ids is not None:
         await replace_asset_links(session, raw_material.id, asset_ids)
     raw_material.updated_at = datetime.now(UTC)
-    raw_material.updated_by = user.name or user.email or ""
+    raw_material.updater_user_id = user.id
     session.add(raw_material)
     await session.flush()
     if new_name != old_name:
@@ -298,7 +298,7 @@ async def create_asset(session: AsyncSession, *, name: str, user: User) -> RawMa
         name=name.strip(),
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
-        updated_by=user.name or user.email or "",
+        updater_user_id=user.id,
     )
     session.add(asset)
     await session.flush()
@@ -321,7 +321,7 @@ async def update_asset(
     if name is not None:
         asset.name = new_name
     asset.updated_at = datetime.now(UTC)
-    asset.updated_by = user.name or user.email or ""
+    asset.updater_user_id = user.id
     session.add(asset)
     await session.flush()
     applied: list[AppliedCell] = []
@@ -392,7 +392,7 @@ async def create_delivery_basis(session: AsyncSession, *, name: str, user: User)
         name=name.strip(),
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
-        updated_by=user.name or user.email or "",
+        updater_user_id=user.id,
     )
     session.add(basis)
     await session.flush()
@@ -415,7 +415,7 @@ async def update_delivery_basis(
     if name is not None:
         basis.name = new_name
     basis.updated_at = datetime.now(UTC)
-    basis.updated_by = user.name or user.email or ""
+    basis.updater_user_id = user.id
     session.add(basis)
     await session.flush()
     applied: list[AppliedCell] = []

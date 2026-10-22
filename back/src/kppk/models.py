@@ -36,6 +36,7 @@ from sqlalchemy import (
 )
 from sqlmodel import Field, SQLModel
 
+from src.common.audit import UpdaterDisplay, configure_updater
 from src.common.data_catalog import apply_table_comments
 
 
@@ -51,7 +52,7 @@ def _updated_at_column() -> Column:
     )
 
 
-class KppkOrg(SQLModel, table=True):
+class KppkOrg(UpdaterDisplay, table=True):
     """A ДЗО (enterprise) of the «КППК» portal (the source time zone is not copied)."""
 
     __tablename__ = "kppk_orgs"
@@ -64,10 +65,10 @@ class KppkOrg(SQLModel, table=True):
     name: str = Field(sa_column=Column(Text, unique=True, nullable=False))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=_updated_at_column())
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
-class KppkProduct(SQLModel, table=True):
+class KppkProduct(UpdaterDisplay, table=True):
     """A product of the source product dictionary (raw.kppk_d_product_seq)."""
 
     __tablename__ = "kppk_products"
@@ -80,10 +81,10 @@ class KppkProduct(SQLModel, table=True):
     name: str = Field(sa_column=Column(Text, unique=True, nullable=False))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=_updated_at_column())
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
-class KppkRaw(SQLModel, table=True):
+class KppkRaw(UpdaterDisplay, table=True):
     """A raw-material item (the «Сырьевые позиции» dictionary, no ДЗО scope)."""
 
     __tablename__ = "kppk_raws"
@@ -94,10 +95,10 @@ class KppkRaw(SQLModel, table=True):
     name: str = Field(sa_column=Column(Text, unique=True, nullable=False))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=_updated_at_column())
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
-class KppkOrgProduct(SQLModel, table=True):
+class KppkOrgProduct(UpdaterDisplay, table=True):
     """«Продуктовые позиции»: a product × ДЗО link (Матрица продуктов.xlsx)."""
 
     __tablename__ = "kppk_org_products"
@@ -111,7 +112,7 @@ class KppkOrgProduct(SQLModel, table=True):
     product_id: UUID = Field(sa_column=Column(ForeignKey("kppk_products.id", ondelete="RESTRICT"), nullable=False))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=_updated_at_column())
-    updated_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
 class KppkRealization(SQLModel, table=True):
@@ -283,3 +284,5 @@ for _model in (
     KppkProductionPlan,
 ):
     apply_table_comments(SQLModel.metadata.tables[_model.__tablename__])
+    if "updater_user_id" in _model.model_fields:
+        configure_updater(_model)

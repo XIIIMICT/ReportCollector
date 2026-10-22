@@ -96,7 +96,7 @@ async def _grant_role(
             is_active=True,
             created_at=now,
             updated_at=now,
-            updated_by="test",
+            updater_user_id=None,
         )
     )
     for code in asset_codes:
@@ -607,7 +607,7 @@ async def test_read_empty_assetless_draft_row(client: AsyncClient, db_session: A
         revision=0,
         created_at=_now(),
         updated_at=_now(),
-        updated_by="test",
+        updater_user_id=None,
     )
     db_session.add(row)
     await db_session.commit()

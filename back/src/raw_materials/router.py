@@ -993,6 +993,7 @@ async def post_user(
             fullname=request.fullname,
             is_admin=request.isAdmin,
             asset_names=request.assetNames,
+            updater_user_id=user.id,
         )
     except DictionaryReferenceError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
@@ -1050,7 +1051,7 @@ async def patch_user(
             asset_names=request.assetNames,
             is_active=request.isActive,
             reset_password=request.resetPassword,
-            updated_by=user.name or user.email or "",
+            updater_user_id=user.id,
         )
     except DictionaryReferenceError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
@@ -1135,7 +1136,7 @@ async def patch_dictionary_batch(
                     asset_names=user_update.assetNames,
                     is_active=user_update.isActive,
                     reset_password=user_update.resetPassword,
-                    updated_by=user.name or user.email or "",
+                    updater_user_id=user.id,
                 )
             applied.extend(row_applied)
     except DictionaryReferenceError as error:

@@ -14,7 +14,7 @@ from src.collab.locking import project_write
 from src.config import get_settings
 from src.kppk.constants import KPPK_PROJECT_KEY
 
-from .core import KppkNotFoundError, KppkValidationError, _audit_name, _now, kppk_project_id
+from .core import KppkNotFoundError, KppkValidationError, _now, kppk_project_id
 from .schemas import KppkUserCreateRequest, KppkUserRowRead, KppkUserUpdateRequest
 
 
@@ -68,7 +68,7 @@ async def create_kppk_user(
     person.is_deleted = False
     session.add(person)
     link = UserRole(
-        user_id=person.id, project_id=project_id, role=ProjectRole.ADMIN, is_active=True, updated_by=_audit_name(editor)
+        user_id=person.id, project_id=project_id, role=ProjectRole.ADMIN, is_active=True, updater_user_id=editor.id
     )
     session.add(link)
     await sync_project_memberships(session, person.id)
@@ -152,7 +152,7 @@ async def update_kppk_user(
         person.password_hash = None
     person.updated_at = _now()
     link.updated_at = _now()
-    link.updated_by = _audit_name(editor)
+    link.updater_user_id = editor.id
     session.add(person)
     session.add(link)
     await session.flush()
@@ -197,7 +197,7 @@ async def apply_kppk_user_value(
         link = UserRole(user_id=row_id, project_id=project_id, role=ProjectRole.ADMIN)
     link.role = ProjectRole(str(value["role"]))
     link.is_active = bool(value["isActive"])
-    link.updated_by = _audit_name(editor)
+    link.updater_user_id = editor.id
     link.updated_at = _now()
     session.add(link)
     await session.flush()

@@ -97,7 +97,6 @@ async def create_renovation_asset(
 ) -> tuple[RAsset, RenovationAssetRowRead]:
     """Create a renovation asset (code is auto-generated; never shown)."""
     now = datetime.now(UTC)
-    updated_by = user.name or user.email or ""
     name = name.strip()
     repair_code = repair_code.strip()
     await _ensure_asset_unique(session, name=name, repair_code=repair_code)
@@ -107,7 +106,7 @@ async def create_renovation_asset(
         name=name,
         created_at=now,
         updated_at=now,
-        updated_by=updated_by,
+        updater_user_id=user.id,
     )
     session.add(asset)
     await session.flush()
@@ -144,7 +143,7 @@ async def update_renovation_asset(
     if repair_code is not None:
         asset.repair_code = repair_code
     asset.updated_at = datetime.now(UTC)
-    asset.updated_by = user.name or user.email or ""
+    asset.updater_user_id = user.id
     session.add(asset)
     await session.flush()
     applied: list[AppliedCell] = []
@@ -217,6 +216,7 @@ async def _apply_renovation_asset_deleted(
     session: AsyncSession,
     row_id: UUID,
     value: object,
+    updater_user_id: UUID,
 ) -> None:
     """Undo/redo of a deleted renovation asset (snapshot restore / re-delete)."""
     if value is None:
@@ -238,6 +238,7 @@ async def _apply_renovation_asset_deleted(
         code=str(value.get("code") or ""),
         name=str(value.get("name") or ""),
         repair_code=str(value.get("repairCode") or ""),
+        updater_user_id=updater_user_id,
     )
     session.add(asset)
     for item in value.get("userLinks") or []:

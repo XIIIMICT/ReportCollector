@@ -101,7 +101,7 @@ async def create_renovation_catalog_option(
         sort_order=int(max_order) + 1 if max_order is not None else 1,
         created_at=now,
         updated_at=now,
-        updated_by=user.name or user.email or "",
+        updater_user_id=user.id,
     )
     session.add(option)
     await session.flush()
@@ -131,7 +131,7 @@ async def update_renovation_catalog_option(
         await _ensure_option_label_free(session, catalog=catalog, label=label, exclude_id=option_id)
         option.label = label
     option.updated_at = datetime.now(UTC)
-    option.updated_by = user.name or user.email or ""
+    option.updater_user_id = user.id
     session.add(option)
     await session.flush()
     applied: list[AppliedCell] = []

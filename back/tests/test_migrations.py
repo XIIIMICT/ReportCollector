@@ -1,5 +1,7 @@
 """Fresh migration, roundtrip, drift rejection and lossless legacy adoption."""
 
+from importlib import import_module
+
 import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
@@ -11,6 +13,8 @@ from sqlmodel import SQLModel
 
 from migrations.adopt_baseline import BASELINE, LEGACY_HEAD, adopt
 from migrations.upgrade import upgrade
+
+_AUDIT_TABLES = frozenset(import_module("migrations.versions.0015_updater_user_catalog").TABLES)
 
 
 def config_for(connection) -> Config:
@@ -53,13 +57,17 @@ def business_snapshot(connection) -> dict[str, list[str]]:
         normalized = _EMPTY_AS_NULL_COLUMNS.get(table)
         if normalized:
             patch = ", ".join(f"'{name}', coalesce({quote(name)}::text, '')" for name in normalized)
-            expression = f"(to_jsonb(t) || jsonb_build_object({patch}))::text"
+            expression = f"(to_jsonb(t) || jsonb_build_object({patch}))"
         else:
-            expression = "row_to_json(t)::text"
-        dropped = _DROPPED_COLUMNS.get(_RENOVATION_TABLE_RENAMES.get(table, table))
+            expression = "to_jsonb(t)"
+        canonical_table = _RENOVATION_TABLE_RENAMES.get(table, table)
+        dropped = _DROPPED_COLUMNS.get(canonical_table, ())
+        if canonical_table in _AUDIT_TABLES:
+            dropped += ("updated_by", "updater_user_id")
         if dropped:
             removal = " - ".join(repr(name) for name in dropped)
-            expression = f"(row_to_json(t)::jsonb - {removal})::text"
+            expression = f"({expression} - {removal})"
+        expression = f"{expression}::text"
         snapshot[_RENOVATION_TABLE_RENAMES.get(table, table)] = list(
             connection.execute(
                 # Names come from the inspector and are dialect-quoted, never user input.
@@ -163,7 +171,7 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         assert {table: after[table] for table in all_business_data} == all_business_data
         assert (
             await conn.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalar_one() == "0014_data_catalog_comments"
+        ).scalar_one() == "0015_updater_user_catalog"
         assert (await conn.execute(text("SELECT id, col_011 FROM r_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
         assert (
@@ -360,7 +368,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) ->
             await conn.run_sync(upgrade)
             assert (
                 await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "0014_data_catalog_comments"
+            ).scalar_one() == "0015_updater_user_catalog"
         assert all(not path.exists() for path in stale)
     finally:
         for path in stale:
@@ -382,6 +390,8 @@ async def test_catalog_migration_only_changes_comments(db_session, test_engine) 
     await db_session.commit()
     async with test_engine.begin() as conn:
         config = config_for(conn.sync_connection)
+        await conn.run_sync(lambda _: command.downgrade(config, "0014_data_catalog_comments"))
+        comments = import_module("migrations.versions.0014_data_catalog_comments").COMMENTS
         before = await conn.run_sync(business_snapshot)
         for _ in range(2):
             await conn.run_sync(lambda _: command.downgrade(config, "0013_rename_renovation_tables"))
@@ -389,10 +399,10 @@ async def test_catalog_migration_only_changes_comments(db_session, test_engine) 
 
             def assert_comments(connection, *, present) -> None:
                 inspector = inspect(connection)
-                for table in SQLModel.metadata.tables.values():
-                    assert inspector.get_table_comment(table.name)["text"] == (table.comment if present else None)
-                    assert {column["name"]: column.get("comment") for column in inspector.get_columns(table.name)} == {
-                        column.name: column.comment if present else None for column in table.c
+                for name, (description, columns) in comments.items():
+                    assert inspector.get_table_comment(name)["text"] == (description if present else None)
+                    assert {column["name"]: column.get("comment") for column in inspector.get_columns(name)} == {
+                        name: comment if present else None for name, comment in columns.items()
                     }
 
             await conn.run_sync(lambda c: assert_comments(c, present=False))

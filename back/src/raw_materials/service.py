@@ -444,7 +444,7 @@ async def update_movement_cells(
             message = f"Неизвестное поле «{field}» формы «Движение»."
             raise CellValidationError(message)
         movement.updated_at = datetime.now(UTC)
-        movement.updated_by = user.name or user.email or ""
+        movement.updater_user_id = user.id
         session.add(movement)
         applied.append(
             AppliedCell(
@@ -533,7 +533,7 @@ async def update_price_cells(
             message = f"Неизвестное поле «{field}» формы «Цены»."
             raise CellValidationError(message)
         price.updated_at = datetime.now(UTC)
-        price.updated_by = user.name or user.email or ""
+        price.updater_user_id = user.id
         session.add(price)
         applied.append(
             AppliedCell(
@@ -593,9 +593,9 @@ async def apply_cell_value(
         return
     if field == "__deleted":
         if target_table == User.__tablename__:
-            await _apply_deleted_user(session, row_id=row_id, snapshot=value)
+            await _apply_deleted_user(session, row_id=row_id, snapshot=value, updater_user_id=user.id)
             return
-        await _apply_deleted_record(session, target_table=target_table, row_id=row_id, snapshot=value)
+        await _apply_deleted_record(session, target_table=target_table, row_id=row_id, snapshot=value, user=user)
         return
     if target_table == MOVEMENT_TABLE:
         movement = await session.get(MaterialMovement, row_id)
@@ -617,7 +617,7 @@ async def apply_cell_value(
             message = f"Неизвестное поле «{field}» формы «Движение»."
             raise CellValidationError(message)
         movement.updated_at = now
-        movement.updated_by = updated_by
+        movement.updater_user_id = user.id
         session.add(movement)
         return
     if target_table == PRICE_TABLE:
@@ -632,7 +632,7 @@ async def apply_cell_value(
             message = f"Неизвестное поле «{field}» формы «Цены»."
             raise CellValidationError(message)
         price.updated_at = now
-        price.updated_by = updated_by
+        price.updater_user_id = user.id
         session.add(price)
         return
     # Dictionaries: undo/redo of name and asset-set edits.
@@ -649,7 +649,7 @@ async def apply_cell_value(
             message = f"Неизвестное поле «{field}» справочника «Сырьевые позиции»."
             raise CellValidationError(message)
         raw_material.updated_at = now
-        raw_material.updated_by = updated_by
+        raw_material.updater_user_id = user.id
         session.add(raw_material)
         return
     if target_table == RawMaterialAsset.__tablename__:
@@ -658,7 +658,7 @@ async def apply_cell_value(
             raise _DICT_REF_ASSET_NOT_FOUND
         asset.name = value if isinstance(value, str) else ""
         asset.updated_at = now
-        asset.updated_by = updated_by
+        asset.updater_user_id = user.id
         session.add(asset)
         return
     if target_table == DeliveryBasis.__tablename__:
@@ -667,7 +667,7 @@ async def apply_cell_value(
             raise _DICT_REF_BASIS_NOT_FOUND
         basis.name = value if isinstance(value, str) else ""
         basis.updated_at = now
-        basis.updated_by = updated_by
+        basis.updater_user_id = user.id
         session.add(basis)
         return
     if target_table == User.__tablename__:
@@ -703,7 +703,7 @@ async def apply_cell_value(
         session.add(user_row)
         if link is not None:
             link.updated_at = now
-            link.updated_by = updated_by
+            link.updater_user_id = user.id
             session.add(link)
         return
     message = f"Неизвестная таблица «{target_table}»."
@@ -747,6 +747,7 @@ async def _apply_created_record(
                 return
             link.is_active = False
             link.updated_at = datetime.now(UTC)
+            link.updater_user_id = user.id
             session.add(link)
             await replace_user_assets(session, row_id, [])
             await session.flush()
@@ -765,11 +766,13 @@ async def _apply_created_record(
                 is_active=bool(snapshot.get("isActive", True)),
                 created_at=now,
                 updated_at=now,
+                updater_user_id=user.id,
             )
         else:
             link.role = ProjectRole.ADMIN if snapshot.get("isAdmin") else ProjectRole.ASSET_WORKER
             link.is_active = bool(snapshot.get("isActive", True))
             link.updated_at = datetime.now(UTC)
+            link.updater_user_id = user.id
         session.add(link)
         asset_names = snapshot.get("assetNames")
         await replace_user_assets(session, row_id, asset_names if isinstance(asset_names, list) else [])
@@ -796,22 +799,23 @@ async def _apply_created_record(
     if not isinstance(snapshot, dict):
         raise _DICT_CREATED_SNAPSHOT_INVALID
     now = datetime.now(UTC)
-    updated_by = user.name or user.email or ""
     name = snapshot.get("name")
     if target_table == RawMaterialAsset.__tablename__:
         if await session.get(RawMaterialAsset, row_id) is not None:
             return
-        session.add(RawMaterialAsset(id=row_id, name=str(name), created_at=now, updated_at=now, updated_by=updated_by))
+        session.add(
+            RawMaterialAsset(id=row_id, name=str(name), created_at=now, updated_at=now, updater_user_id=user.id)
+        )
         return
     if target_table == DeliveryBasis.__tablename__:
         if await session.get(DeliveryBasis, row_id) is not None:
             return
-        session.add(DeliveryBasis(id=row_id, name=str(name), created_at=now, updated_at=now, updated_by=updated_by))
+        session.add(DeliveryBasis(id=row_id, name=str(name), created_at=now, updated_at=now, updater_user_id=user.id))
         return
     if target_table == RawMaterial.__tablename__:
         if await session.get(RawMaterial, row_id) is not None:
             return
-        raw_material = RawMaterial(id=row_id, name=str(name), created_at=now, updated_at=now, updated_by=updated_by)
+        raw_material = RawMaterial(id=row_id, name=str(name), created_at=now, updated_at=now, updater_user_id=user.id)
         session.add(raw_material)
         await session.flush()
         raw_asset_ids = snapshot.get("assetIds")
@@ -831,6 +835,7 @@ async def _apply_deleted_record(
     target_table: str,
     row_id: UUID,
     snapshot: object,
+    user: User,
 ) -> None:
     """
     Undo/redo of a dictionary record deletion.
@@ -867,7 +872,6 @@ async def _apply_deleted_record(
     name = snapshot.get("name")
     created_at = _snapshot_datetime(snapshot.get("createdAt"))
     updated_at = _snapshot_datetime(snapshot.get("updatedAt")) or created_at
-    updated_by = str(snapshot.get("updatedBy") or "")
     if target_table == RawMaterialAsset.__tablename__:
         if await session.get(RawMaterialAsset, row_id) is not None:
             return
@@ -877,7 +881,7 @@ async def _apply_deleted_record(
                 name=str(name),
                 created_at=created_at,
                 updated_at=updated_at,
-                updated_by=updated_by,
+                updater_user_id=user.id,
             )
         )
         for user_id in snapshot.get("userLinks") or []:
@@ -892,7 +896,7 @@ async def _apply_deleted_record(
                 name=str(name),
                 created_at=created_at,
                 updated_at=updated_at,
-                updated_by=updated_by,
+                updater_user_id=user.id,
             )
         )
         return
@@ -905,7 +909,7 @@ async def _apply_deleted_record(
                 name=str(name),
                 created_at=created_at,
                 updated_at=updated_at,
-                updated_by=updated_by,
+                updater_user_id=user.id,
             )
         )
         await session.flush()
@@ -917,7 +921,7 @@ async def _apply_deleted_record(
                     raw_material_id=row_id,
                     created_at=created_at,
                     updated_at=updated_at,
-                    updated_by=updated_by,
+                    updater_user_id=user.id,
                 )
             )
         return

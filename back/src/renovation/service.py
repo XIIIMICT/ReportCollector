@@ -1385,7 +1385,6 @@ async def add_plan_row(
         )
     ).one()
     now = datetime.now(UTC)
-    updated_by = user.name or user.email or ""
     row = RenovationPlanRow(
         plan_id=plan.id,
         asset_id=asset.id if asset is not None else None,
@@ -1394,7 +1393,7 @@ async def add_plan_row(
         revision=0,
         created_at=now,
         updated_at=now,
-        updated_by=updated_by,
+        updater_user_id=user.id,
     )
     session.add(row)
     await session.flush()
@@ -1445,7 +1444,7 @@ async def assign_plan_row_asset(
         raise _ERR_ROW_HAS_ASSET
     row.asset_id = asset.id
     row.updated_at = datetime.now(UTC)
-    row.updated_by = user.name or user.email or ""
+    row.updater_user_id = user.id
     session.add(row)
     await session.flush()
     await session.refresh(row)
@@ -1891,7 +1890,7 @@ async def update_plan_cells(
             continue
         setattr(row, field, db_value)
         row.updated_at = datetime.now(UTC)
-        row.updated_by = user.name or user.email or ""
+        row.updater_user_id = user.id
         session.add(row)
         applied.append(
             AppliedCell(
@@ -2245,9 +2244,8 @@ async def apply_renovation_cell_value(
     with audit updates, the same way the plan rows are.
     """
     now = datetime.now(UTC)
-    updated_by = user.name or user.email or ""
     if target_table == RenovationPlanRow.__tablename__ and field in ("__created", "__deleted", "asset_id"):
-        await _apply_plan_row_change(session, row_id, field, value)
+        await _apply_plan_row_change(session, row_id, field, value, user)
         return
     if target_table == RAsset.__tablename__:
         # Both journal pseudo-fields share the same apply: __deleted carries
@@ -2255,7 +2253,7 @@ async def apply_renovation_cell_value(
         # snapshot} — value None means "end state deleted", a snapshot means
         # "end state restored".
         if field in ("__deleted", "__created"):
-            await _apply_renovation_asset_deleted(session, row_id, value)
+            await _apply_renovation_asset_deleted(session, row_id, value, user.id)
             return
         asset = await session.get(RAsset, row_id)
         if asset is None:
@@ -2268,7 +2266,7 @@ async def apply_renovation_cell_value(
             message = f"Неизвестное поле «{field}» справочника «Активы»."
             raise CellValidationError(message)
         asset.updated_at = now
-        asset.updated_by = updated_by
+        asset.updater_user_id = user.id
         session.add(asset)
         return
     if target_table == RenovationReferenceValue.__tablename__:
@@ -2283,7 +2281,7 @@ async def apply_renovation_cell_value(
             raise CellValidationError(message)
         option.label = value if isinstance(value, str) else ""
         option.updated_at = now
-        option.updated_by = updated_by
+        option.updater_user_id = user.id
         session.add(option)
         return
     if target_table == User.__tablename__:
@@ -2292,7 +2290,7 @@ async def apply_renovation_cell_value(
                 # Redo: the user is gone from this project already.
                 return
             if isinstance(value, dict):
-                await restore_renovation_user(session, row_id=row_id, snapshot=value)
+                await restore_renovation_user(session, row_id=row_id, snapshot=value, updater_user_id=user.id)
             return
         await _apply_renovation_user_cell(session, row_id, field, value, user)
         return
@@ -2310,7 +2308,7 @@ async def apply_renovation_cell_value(
     _, db_value = await _coerce_cell(session, meta, value)
     setattr(row, field, db_value)
     row.updated_at = now
-    row.updated_by = updated_by
+    row.updater_user_id = user.id
     asset = await session.get(RAsset, row.asset_id)
     if asset is not None:
         _recalculate_row(session, row)
@@ -2324,6 +2322,7 @@ async def _apply_plan_row_change(
     row_id: UUID,
     field: str,
     value: object,
+    user: User,
 ) -> None:
     """
     Undo/redo of a plan row lifecycle change: add, delete, asset assignment.
@@ -2363,7 +2362,7 @@ async def _apply_plan_row_change(
             revision=int(value.get("revision") or 0),
             created_at=_row_datetime(value.get("createdAt")),
             updated_at=_row_datetime(value.get("updatedAt")),
-            updated_by=str(value.get("updatedBy") or ""),
+            updater_user_id=user.id,
         )
         session.add(row)
         await session.flush()
@@ -2416,7 +2415,7 @@ async def submit_plan(session: AsyncSession, *, user: User, roles: list[RProject
         raise _submit_id_validation_error(incorrect, duplicates, incorrect_rows, duplicate_rows)
     plan.state = RPlanState.PENDING_APPROVAL
     plan.updated_at = now
-    plan.updated_by = user.name or user.email or ""
+    plan.updater_user_id = user.id
     session.add(plan)
     await session.flush()
     await session.refresh(plan)
@@ -2446,7 +2445,7 @@ async def approve_plan(
     updated_by = user.name or user.email or ""
     plan.state = RPlanState.ARCHIVED
     plan.updated_at = now
-    plan.updated_by = updated_by
+    plan.updater_user_id = user.id
     session.add(plan)
 
     working = RenovationPlan(
@@ -2456,7 +2455,7 @@ async def approve_plan(
         created_at=now,
         created_by=updated_by,
         updated_at=now,
-        updated_by=updated_by,
+        updater_user_id=user.id,
     )
     session.add(working)
     await session.flush()
@@ -2469,7 +2468,7 @@ async def approve_plan(
         "revision": literal(0),
         "created_at": literal(now),
         "updated_at": literal(now),
-        "updated_by": literal(updated_by),
+        "updater_user_id": literal(user.id),
     }
     columns = list(table.columns)
     await session.exec(

@@ -120,7 +120,7 @@ async def test_renovation_user_delete(client: AsyncClient, db_session) -> None:
             is_active=False,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
-            updated_by="",
+            updater_user_id=None,
         )
     )
     await db_session.commit()

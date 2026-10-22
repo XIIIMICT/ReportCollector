@@ -154,7 +154,7 @@ async def restore_movement_seed(db_session) -> AsyncGenerator[None]:
     ).all()
     for row in rows:
         row.balance_on_site_tons = 5.0
-        row.updated_by = ""
+        row.updater_user_id = None
         row.updated_at = datetime.now(UTC) - timedelta(hours=1)
         db_session.add(row)
     await db_session.commit()
