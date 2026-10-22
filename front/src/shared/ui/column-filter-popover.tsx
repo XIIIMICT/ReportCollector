@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { getRenovationPlanFacets, type RenovationColumnFilter } from "@/shared/api/renovation";
+import { usePopoverDismiss } from "@/shared/hooks/use-popover-dismiss";
 import { SmartSelect } from "@/shared/ui/smart-select";
 
 /** Sentinel keys for the two pinned options (never plan values). */
@@ -333,6 +334,8 @@ export function ColumnFilterPopover({
     // click outside) drops the pending selection, so the owner keeps exactly
     // this one — the owner re-applies the same value, which is a no-op.
     const initialFilter = useRef(initial);
+    const popoverRef = useRef<HTMLElement | null>(null);
+    const { isOpen, dismiss } = usePopoverDismiss(popoverRef, onClose);
     // Guards a double close: the footer's «Применить» closes via SmartSelect,
     // and the owner removes this component right after.
     const settledRef = useRef(false);
@@ -340,13 +343,13 @@ export function ColumnFilterPopover({
         if (settledRef.current) return;
         settledRef.current = true;
         onApply(applied);
-        onClose();
+        dismiss();
     };
     const cancel = () => {
         if (settledRef.current) return;
         settledRef.current = true;
         onApply(initialFilter.current);
-        onClose();
+        dismiss();
     };
     /**
      * «По умолчанию» — the user's remembered DEFAULT for this column (the value
@@ -358,7 +361,7 @@ export function ColumnFilterPopover({
         if (settledRef.current) return;
         settledRef.current = true;
         onApply(defaultFilter);
-        onClose();
+        dismiss();
     };
 
     const content = (
@@ -366,6 +369,8 @@ export function ColumnFilterPopover({
             multiple
             forceSearchable
             defaultOpen
+            isOpen={isOpen}
+            popoverRef={popoverRef}
             closeOnUnhover={false}
             canConfirm
             onConfirm={confirm}

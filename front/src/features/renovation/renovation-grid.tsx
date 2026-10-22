@@ -2,7 +2,6 @@
 
 import { Tooltip } from "@heroui/react";
 import {
-    Editor,
     RevoGrid,
     getSourceItem,
     setSourceByPhysicalIndex,
@@ -41,6 +40,7 @@ import { SERVICE_DESCRIPTORS } from "@/shared/grid/grid-config";
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/raw-materials-grid";
+import { reactEditor } from "@/shared/grid/react-editor";
 import { isChunkedSection } from "@/shared/grid/section-policy";
 import { selectionDetailForColumn } from "@/shared/grid/selection-label";
 import { isFromTextEditor } from "@/shared/keyboard";
@@ -997,7 +997,7 @@ function RenovationGridInner(
     );
 
     const editors = useMemo<Editors>(
-        () => ({ reference: Editor(ReferenceEditor), date: Editor(DateEditor) }),
+        () => ({ reference: reactEditor(ReferenceEditor), date: reactEditor(DateEditor) }),
         [],
     );
 

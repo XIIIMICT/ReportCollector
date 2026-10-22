@@ -4,6 +4,7 @@ import { Label, NumberField, Popover } from "@heroui/react";
 import { Check, Xmark } from "iconoir-react";
 import { useRef, useState } from "react";
 
+import { usePopoverDismiss } from "@/shared/hooks/use-popover-dismiss";
 import { ExpandableButton } from "@/shared/ui/expandable-button";
 import { ExpandableButtonGroup } from "@/shared/ui/expandable-button-group";
 
@@ -45,8 +46,13 @@ export function RowGoToFilter({
     const [column, setColumn] = useState(Number.NaN);
     const inputRef = useRef<HTMLInputElement>(null);
     const columnInputRef = useRef<HTMLInputElement>(null);
+    const popoverRef = useRef<HTMLElement | null>(null);
+    const { isOpen, dismiss } = usePopoverDismiss(popoverRef, onClose);
+    const settled = useRef(false);
 
     const apply = () => {
+        if (settled.current) return;
+        settled.current = true;
         const raw = inputRef.current?.value?.trim() ?? "";
         const parsed = raw === "" ? undefined : Number(raw.replace(",", "."));
         if (parsed !== undefined && Number.isFinite(parsed)) {
@@ -59,14 +65,17 @@ export function RowGoToFilter({
             // clamped but resolved by the grid to the nearest visible column.
             onGoToColumn(Math.max(1, Math.round(parsedColumn)));
         }
-        onClose();
+        dismiss();
     };
 
-    const cancel = () => onClose();
+    const cancel = () => {
+        settled.current = true;
+        dismiss();
+    };
 
     return (
         <Popover
-            defaultOpen
+            isOpen={isOpen}
             onOpenChange={(open) => {
                 if (!open) cancel();
             }}
@@ -77,7 +86,11 @@ export function RowGoToFilter({
             >
                 <span />
             </Popover.Trigger>
-            <Popover.Content className="row-go-to-filter__popover">
+            <Popover.Content
+                ref={popoverRef}
+                isExiting={!isOpen}
+                className="row-go-to-filter__popover"
+            >
                 <div
                     data-grid-keyboard-overlay
                     onKeyDownCapture={(event: React.KeyboardEvent<HTMLDivElement>) => {

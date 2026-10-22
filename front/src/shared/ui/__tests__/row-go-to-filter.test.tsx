@@ -66,7 +66,7 @@ test.each(["button", "Enter"])("%s applies typed row and column", async (mode) =
         });
     expect(rows).toEqual([17]);
     expect(columns).toEqual([23]);
-    expect(closes()).toBe(1);
+    await waitFor(() => expect(closes()).toBe(1));
 });
 
 test.each(["button", "Escape", "outside"])("%s cancels without jumping", async (mode) => {

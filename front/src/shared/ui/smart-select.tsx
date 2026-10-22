@@ -61,6 +61,9 @@ export type SpecialOption = {
 };
 
 export type SmartSelectProps = {
+    /** Controlled lifecycle for owners that wait for the exit animation. */
+    isOpen?: boolean;
+    popoverRef?: React.Ref<HTMLElement>;
     /** The options; a custom `renderListbox` may omit them. */
     options?: SmartSelectOption[];
     /** A single selection — the id; a multi selection — the ids. */
@@ -205,6 +208,8 @@ export function SmartSelect({
     anchor,
     popoverClassName,
     defaultOpen = false,
+    isOpen: controlledOpen,
+    popoverRef: externalPopoverRef,
     closeOnUnhover = true,
     onConfirm,
     onCancel,
@@ -221,7 +226,8 @@ export function SmartSelect({
     const isCompact = useMediaQuery(compactBelow === "sm" ? "(width < 40rem)" : "(width < 64rem)");
     // An embedded editor is open from the first paint (it IS the cell editor);
     // the column filter's anchor popover opens on mount too.
-    const [isOpen, setIsOpen] = useState(embedded || defaultOpen);
+    const [openState, setIsOpen] = useState(embedded || defaultOpen);
+    const isOpen = controlledOpen ?? openState;
     const openRef = useRef(false);
     const wrapperRef = useRef<HTMLDivElement | null>(null);
     const popoverRef = useRef<HTMLElement | null>(null);
@@ -614,7 +620,11 @@ export function SmartSelect({
                         isMultiple ? emitMultiple(keys as Key[]) : emitSingle(keys as Key | null)
                     }
                     isOpen={isOpen}
-                    onOpenChange={setIsOpen}
+                    onOpenChange={(open) => {
+                        setIsOpen(open);
+                        if (controlledOpen !== undefined && open !== controlledOpen)
+                            onOpenChangeRef.current?.(open);
+                    }}
                 >
                     {label ? <Label>{label}</Label> : null}
                     <Autocomplete.Trigger
@@ -634,7 +644,13 @@ export function SmartSelect({
                         <Autocomplete.Indicator />
                     </Autocomplete.Trigger>
                     <Autocomplete.Popover
-                        ref={popoverRef}
+                        isExiting={controlledOpen === false}
+                        ref={(element) => {
+                            popoverRef.current = element;
+                            if (typeof externalPopoverRef === "function")
+                                externalPopoverRef(element);
+                            else if (externalPopoverRef) externalPopoverRef.current = element;
+                        }}
                         {...(anchor && { placement: ANCHOR_PLACEMENT, offset: ANCHOR_OFFSET })}
                         className={["smart-select-popover", popoverClassName]
                             .filter(Boolean)
@@ -696,7 +712,11 @@ export function SmartSelect({
                         isMultiple ? emitMultiple(keys as Key[]) : emitSingle(keys as Key | null)
                     }
                     isOpen={isOpen}
-                    onOpenChange={setIsOpen}
+                    onOpenChange={(open) => {
+                        setIsOpen(open);
+                        if (controlledOpen !== undefined && open !== controlledOpen)
+                            onOpenChangeRef.current?.(open);
+                    }}
                 >
                     {label ? <Label>{label}</Label> : null}
                     <Select.Trigger
@@ -716,7 +736,13 @@ export function SmartSelect({
                         <Select.Indicator />
                     </Select.Trigger>
                     <Select.Popover
-                        ref={popoverRef}
+                        isExiting={controlledOpen === false}
+                        ref={(element) => {
+                            popoverRef.current = element;
+                            if (typeof externalPopoverRef === "function")
+                                externalPopoverRef(element);
+                            else if (externalPopoverRef) externalPopoverRef.current = element;
+                        }}
                         {...(anchor && { placement: ANCHOR_PLACEMENT, offset: ANCHOR_OFFSET })}
                         className={["smart-select-popover", popoverClassName]
                             .filter(Boolean)

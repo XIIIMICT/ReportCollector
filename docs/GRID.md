@@ -6,6 +6,12 @@ Stack: `@revolist/react-datagrid` 4.27 (revo-grid), React 19, HeroUI (tooltips, 
 
 ## Forms and columns (`grid-config.ts`)
 
+- **All grid headers wrap text.** The shared native-header selector includes
+  `.rgHeaderCell` so it overrides RevoGrid's more specific `white-space: nowrap`.
+  Leaf and grouped headers use `white-space: normal` and `overflow-wrap: anywhere`;
+  long words wrap within narrow columns instead of widening the header or being
+  forced into a single line. Header row heights remain controlled by the grid.
+
 - `SectionId`: `materialMovement` («Движение»), `rawMaterialPrices` («Цены»), and the dictionaries `rawMaterials`, `assets`, `deliveryBases`, `users`. `MAIN_SECTIONS` = movement+prices; dictionaries are admin-only. The `users` table shows «Время последнего входа» (`lastAuthenticatedAt` from `app_users`, read-only `datetime` column) — the last successful authentication (Keycloak or local), null until the user has logged in. The «Сбросить пароль» action column is hidden when Keycloak is enabled (passwords are managed in Keycloak) — flag flows through `GridColumnContext` into `getVisibleDescriptors`/`editableFieldKeys`/export. The profile modal hides its password-change fields the same way (it fetches `/api/auth/config` itself; if the config is unknown it keeps the fields).
 - `ColumnDescriptor`: key, label, width, kind (`text|number|boolean|asset|assetsMulti|basis|datetime|calculated`), `fixed` (pinned, non-editable), `path` (nested header, e.g. «Потребность / План, т»), `adminOnly`, `exportable`, `readOnly` (editable in no row — e.g. the renovation users' `email`, which only the creation dialog sets), `allowsNull` (a NULL is a legal state — the boolean checkbox then cycles three ways, see below).
 - Merged headers (`ColumnGrouping`) are built from `path`; editors: `reference` (single pick from `source`), `multiAssets` (multi-pick), booleans — one native checkbox template shared by every grid (see «Boolean cells» below).
@@ -23,6 +29,14 @@ Stack: `@revolist/react-datagrid` 4.27 (revo-grid), React 19, HeroUI (tooltips, 
 - **Dropdowns: one `SmartSelect` everywhere** (`front/src/shared/ui/smart-select.tsx`). Instead of using HeroUI's `Select`/`Autocomplete` directly, every dropdown goes through it: **`≤ threshold` options (5 by default) render a plain `Select`, more render a searchable `Autocomplete`** — both are the same react-aria `Select`, so `value`/`onChange`/`multiple` behave identically whichever wins. `multiple` is independent of the count (a short multi list is still a `Select` with `selectionMode="multiple"`). Every instance **opens on hover** and closes ~200 ms after the pointer leaves both the trigger and the popover (coordinate-based, not `mouseleave` — an open popover's overlay fires structural leaves while the pointer is still). Extra props: `threshold`, `forceSearchable`, `embedded` (in-cell editors: hidden trigger, open on mount, Escape → `onDismiss`), `anchor` + `defaultOpen` (the column filter's anchored popover), `emptyOptionLabel`, `popoverFooter`, `renderListbox` (a subclass keeps its own list), `compactLabel` (short trigger text below lg).
   - `SearchAutocomplete` (toolbar filters) forwards `allOption`/`allValue`/`nullOption` to `SmartSelect` — a toolbar's «Все блоки» / «Все варианты» row is a PROPERTY now, never a fake entry in `items` (a fake entry rendered below the rule and had no separator). Picking it reports `null` (= no constraint).
   - The in-cell `SelectEditor`/`MultiAssetEditor`/`ReferenceEditor` (`grid-editors.tsx`) are thin adapters over it (the reference editor's «Не задан» is a `nullOption`).
+  - Embedded mode hides `.grid-autocomplete-editor__hidden-trigger` for BOTH
+    Select and Autocomplete. Short reference lists must not expose a second
+    input/trigger in the cell; only the anchored dropdown is visible.
+  - Both grids register editors with `shared/grid/react-editor.tsx`. RevoGrid's
+    stock React adapter synchronously unmounts its nested root during grid
+    removal, which React 19 rejects inside a parent commit. Our bridge detaches
+    each root's own mount immediately and unmounts that root once in a microtask;
+    ref cleanup and disconnectedCallback are idempotent, even if the host is reused.
   - **Special rows are properties, not hand-rolled items**: `nullOption={{ label, present, count? }}` pins a «Пустые»/«Не задан» row (selecting it reports `null`) and `allOption` pins a «Все варианты»/«Выбрать все» row (`allValue` is the sentinel a single-select reports; in a multi-select picking it selects every real option). Both sit ABOVE the values, in that order, with an automatic `<Separator class="smart-select__separator">` between them and the values — emitted only when both sides are non-empty, so an absent special row leaves no stray rule. `count` renders the `(N)` suffix the filters show («Выбрать все (248)»).
   - `ColumnFilterPopover` uses the `anchor`/`defaultOpen`/`forceSearchable`/`renderListbox` slots: its «Выбрать все (N)» + «Пустые» + paged values list lives in the callback (the master-toggle logic — «stays checked while some values are unchecked» — has no generic equivalent), everything else (anchor trigger, hover/open state, search field, separator style) comes from `SmartSelect`.
   - **The option tick sits LEFT of the label** (`.smart-select-popover .list-box-item__indicator`): HeroUI positions it `absolute` at the row's right edge and reserves only `pe-7`, so a long value runs under the tick. The override puts it back in the flex flow (`order: -1`) and must reset **`translate`** — HeroUI centers it with the modern `translate` property, not `transform`; a `transform: none` alone leaves the box lifted above the baseline. The row `gap` drops 0.75rem → 0.5rem so the tick-to-text space reads tighter.
@@ -199,10 +213,14 @@ A split-screen tab (≈ half a desktop) triggers the compact shell; one `@media 
   clears it normally. The popover is portalled into `document.body` (the header
   funnel lives in the un-synced environment state of the grid). Other selects
   keep the default 200 ms unhover dismissal and no footer.
-  The footer uses the same funnel transition: the button width and label
-  reservation animate from compact to expanded on hover/focus, while the
-  measured group width prevents one button opening before its neighbour from
-  escaping the panel.
+  Column-filter and go-to panels fade/scale in for 180 ms on mount and out for
+  140 ms. Entry is applied on the panel's base class, not only `data-entering`;
+  controlled owners explicitly hold `isExiting` until their exit finishes.
+  Their controlled open state changes before the owner removes the component:
+  `usePopoverDismiss` waits for actual Web Animation `finished` promises after
+  the exit render, not an arbitrary timeout. Without animations (including
+  reduced motion), removal follows on the next frame. The header funnel's
+  width/opacity transition is separate from panel animation.
 
 - **Plan row counters.** The bottom form status always renders
   «Строки: N найдено, M всего» (and the tooltip repeats the same detail).

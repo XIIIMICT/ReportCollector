@@ -1501,14 +1501,20 @@ body {
     background-color: var(--surface) !important;
 }
 
-.raw-materials-grid revogr-header .header-content {
+.raw-materials-grid revogr-header .rgHeaderCell .header-content {
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
     line-height: 1.18;
-    text-overflow: ellipsis;
+    min-width: 0;
+    text-overflow: clip;
     white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    transition:
+        margin-left 267ms cubic-bezier(0.4, 0, 0.2, 1),
+        margin-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* RevoGrid ships the filter funnel with an enter-only transition (it is
@@ -1521,12 +1527,6 @@ body {
         opacity 267ms cubic-bezier(0.4, 0, 0.2, 1),
         width 267ms cubic-bezier(0.4, 0, 0.2, 1),
         transform 178ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.raw-materials-grid revogr-header .rgHeaderCell .header-content {
-    transition:
-        margin-left 267ms cubic-bezier(0.4, 0, 0.2, 1),
-        margin-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .raw-materials-grid:not(.raw-materials-grid--user-sorted) revogr-header .sort-indicator {
@@ -2644,26 +2644,20 @@ body {
     height: 100%;
     background: transparent;
 }
-.grid-autocomplete-editor [data-slot="trigger"].grid-autocomplete-editor__hidden-trigger {
-    position: absolute;
-    inset: 0;
-    min-height: 100%;
-    height: 100%;
-    border: 0;
-    border-radius: 0;
-    opacity: 0;
-    pointer-events: none;
-    box-shadow: none;
-}
-.grid-autocomplete-editor .autocomplete__trigger {
+.grid-autocomplete-editor .grid-autocomplete-editor__hidden-trigger,
+.grid-autocomplete-editor .select__trigger {
     position: absolute !important;
     inset: 0 !important;
+    width: 100% !important;
+    min-height: 100% !important;
+    height: 100% !important;
+    border: 0 !important;
+    border-radius: 0;
     opacity: 0 !important;
     pointer-events: none !important;
-    border: 0 !important;
-    background: transparent !important;
     box-shadow: none !important;
 }
+
 /* DatePicker (date cells): the calendar popover is anchored explicitly to the
    editor wrapper via triggerRef (see DateEditor), so only the visible field is
    hidden — the floating calendar opens beside the cell. */
@@ -2897,6 +2891,49 @@ body {
     width: 17rem;
     min-width: 0;
     max-width: calc(100vw - 2rem);
+}
+
+/* Native React Aria presence retains these nodes through the exit animation. */
+.column-filter__popover,
+.row-go-to-filter__popover {
+    animation: plan-filter-enter 180ms ease-out both;
+}
+
+.column-filter__popover[data-exiting],
+.row-go-to-filter__popover[data-exiting] {
+    animation: plan-filter-exit 140ms ease-in both;
+    pointer-events: none;
+}
+
+@keyframes plan-filter-enter {
+    from {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes plan-filter-exit {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.97);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .column-filter__popover,
+    .column-filter__popover[data-exiting],
+    .row-go-to-filter__popover,
+    .row-go-to-filter__popover[data-exiting] {
+        animation: none;
+    }
 }
 
 .row-go-to-filter__actions {

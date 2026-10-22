@@ -1,6 +1,5 @@
 ﻿import { Tooltip } from "@heroui/react";
 import {
-    Editor,
     RevoGrid,
     type BeforeRangeSaveDataDetails,
     type BeforeSaveDataDetails,
@@ -27,6 +26,7 @@ import {
 } from "react";
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
+import { reactEditor } from "@/shared/grid/react-editor";
 import { isFromTextEditor } from "@/shared/keyboard";
 import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
 
@@ -388,9 +388,9 @@ function RawMaterialsGridInner(
 
     const editors = useMemo<Editors>(
         () => ({
-            multiAssets: Editor(MultiAssetEditor),
-            reference: Editor(ReferenceEditor),
-            select: Editor(SelectEditor),
+            multiAssets: reactEditor(MultiAssetEditor),
+            reference: reactEditor(ReferenceEditor),
+            select: reactEditor(SelectEditor),
         }),
         [],
     );
