@@ -92,6 +92,31 @@ catalog comments deferred to 0014 and the known audit-column transition deferred
 to 0015, but still rejects unexpected comments and structural drift. Legacy KPPK fields not exposed by the form
 retain source-field descriptions; undocumented units are not inferred.
 
+## Dictionary ordering
+
+The «Ремонт» reference catalogs (категория работ, вид работ, отнесение затрат,
+способ выполнения, группа критичности) are dictionaries, not source-ordered
+lists: `r_reference_values` is read and shown **alphabetically by `label`**
+(`0019_drop_reference_sort_order` removed the stored `sort_order` — it only
+reproduced the Excel row order and made the lists look unordered). The same
+order feeds the catalog grid and the form's dropdown options. Adding an option
+no longer invents a position.
+
+The «Сырьё» dictionaries already sort by name and have no order column. КППК
+keeps its source numbering («№» — `product_num` / `raw_num`) as the primary
+sort key — that ordering is part of the source data and stays.
+
+The catalog row id is the option's identity: `value_key` was removed in
+`0021_drop_reference_value_key` (nothing referenced it — plan cells store the
+UUID). Seeded options get a deterministic id from `reference_option_id()`
+(`uuid5` over `(catalog, label)`), so a re-seed recognises its own rows.
+
+`r_reference_values.deleted_at` is the forward-compatible soft-delete marker:
+NULL means "not deleted", a timestamp is the moment of deletion. **Deletes are
+still hard**, so nothing writes it yet — the column is prepared ahead of the
+feature (`0022_reference_payload_to_deleted_at`, which also dropped the unused
+`payload` placeholder).
+
 ## Data model (project «КППК», key `kppk`)
 
 Phase 1 copies the source tables of the corporate КППК database into the program
@@ -193,14 +218,20 @@ headings need an alias: «Лот» → direction code (`col_189`) and the
 suffix-free «Отнесение затрат (OPEX/CAPEX)» / «Способ выполнения работ».
 Asset identification uses «Наименование ДО» — the official repair code
 (`BSZR`) that is also an input of the work ID; the UI shows the asset name.
+Text cells are stored trimmed (a non-breaking space included) and an empty
+string counts as an empty cell; the «Лот» code gets its mandatory trailing dot
+added silently when the file has `1.1.1` instead of `1.1.1.`
+(`renovation_id.normalize_direction_code` — the same rule the grid applies on
+edit).
 
 Checks, in order: the file must be a readable `.xlsb` whose header carries
 «Код работы» plus the asset code and at least half of the template columns;
 cell types under the header (text/number/date); duplicate work codes
-(«Код работы», listed with the rows they occupy); work codes that differ from
-the ID formula `Год_ДО_КодНаправления_КодОбъекта`
-(`renovation_id.calculate_renovation_id`, built from the row's own values — a
-code whose inputs are missing counts as invalid); and reference labels absent
+(«Код работы», listed with the rows they occupy) — the **only** blocker on the
+code itself, since the code is loaded from the file as-is (the ID formula is
+off, see «Renovation plan» below; the «Некорректно рассчитанные коды» check is
+archived in `inspect_plan_file` behind `RENOVATION_ID_FORMULA_ENABLED`); and
+reference labels absent
 from the form's own catalogs, compared strictly (whitespace/case only — no typo
 tolerance, no «@» options). Without errors the response carries the assets (by
 name), the new rows and the rows to update (existing `col_003`).
@@ -342,4 +373,6 @@ PostgreSQL stores business data, `collab_edit_stacks`, `collab_cell_states` and 
 
 Renovation approval copies the plan with PostgreSQL INSERT SELECT rather than constructing all rows in Python. Submission deletes empty draft rows with SQL predicates. Cell edits batch-load affected rows and serialize updates of the same row to preserve derived calculations. No load-test latency or capacity certification is implied; the planning target is 50 concurrent users across projects.
 
-The renovation plan's 59 formula fields (and the `col_003` renovation ID) are **stored columns**, recomputed on every edit and read back verbatim by `GET /plan/rows` — recomputing them per read is infeasible (~90 s for the 306k-row plan) and SQL filters/facets need them as columns. The importer skips calculated fields, so imported/adopted rows are filled by `recompute_plan_rows` (`just recompute-renovation-plan`, also run at the end of `just seed-renovation-plan`); see `docs/WORKFLOW.md`.
+The renovation plan's 59 formula fields are **stored columns**, recomputed on every edit and read back verbatim by `GET /plan/rows` — recomputing them per read is infeasible (~90 s for the 306k-row plan) and SQL filters/facets need them as columns. The importer skips calculated fields, so imported/adopted rows are filled by `recompute_plan_rows` (`just recompute-renovation-plan`, also run at the end of `just seed-renovation-plan`); see `docs/WORKFLOW.md`.
+
+**The renovation ID (`col_003`) is NOT one of them** — the generator is currently off (`RENOVATION_ID_FORMULA_ENABLED = False` in `back/src/renovation/renovation_id.py`): the field is a plain editable text cell, loaded from the template as-is and typed by hand, because the agreement processes and the state of the data made a derived value impractical. `form_schema.CALCULATED_OVERRIDES` / `READ_ONLY_OVERRIDES` drop its legacy «calculated + read-only» flags without touching the legacy JSON entry, so the whole generator (`calculate_renovation_id`, its component validation, the import's correctness check) stays in the codebase and can be switched back on from that one flag. While it is off the import keeps **only the duplicate check** as a blocker («Некорректно рассчитанные коды» is archived in the UI), the «Некорректные» filter means *empty or duplicated*, and submit refuses an empty or repeated code. The «Лот» (`col_189`) code, by contrast, always ends with a dot: a correct code typed or imported without it gets it added silently (`renovation_id.normalize_direction_code`).

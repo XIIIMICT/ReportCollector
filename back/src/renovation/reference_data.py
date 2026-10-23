@@ -1,47 +1,66 @@
 """Static reference options of the renovation plan (from renovation-form.json)."""
 
-REFERENCE_OPTIONS: list[tuple[str, str, str, int]] = [
-    ("criticality", "criticality_001", "1", 1),
-    ("criticality", "criticality_002", "2", 2),
-    ("criticality", "criticality_003", "3", 3),
-    ("criticality", "criticality_004", "4", 4),
-    ("work_category", "work_category_001", "ТОиР", 1),
-    ("work_category", "work_category_002", "Остановочный капитальный ремонт", 2),
-    ("work_category", "work_category_003", "Вспомогательные затраты", 3),
-    ("work_category", "work_category_004", "ЭПБ и ДО", 4),
-    ("work_category", "work_category_005", "ЗФиО", 5),
-    ("work_category", "work_category_006", "ПИР", 6),
-    ("work_category", "work_category_007", "Проект улучшения", 7),
-    ("work_category", "work_category_008", "Целевая программа", 8),
-    ("work_type", "work_type_001", "ТО", 1),
-    ("work_type", "work_type_002", "ТР", 2),
-    ("work_type", "work_type_003", "СР", 3),
-    ("work_type", "work_type_004", "КР", 4),
-    ("work_type", "work_type_005", "Чистка", 5),
-    ("work_type", "work_type_006", "Испытания", 6),
-    ("work_type", "work_type_007", "Поверка", 7),
-    ("work_type", "work_type_008", "Калибровка", 8),
-    ("work_type", "work_type_009", "Измерения", 9),
-    ("work_type", "work_type_010", "Корректирующие работы", 10),
-    ("work_type", "work_type_011", "Работы по фактическому тех.состоянию", 11),
-    ("work_type", "work_type_012", "Вспомогательные работы (леса, изоляция и пр)", 12),
-    ("work_type", "work_type_013", "Оснащенность ремонтного персонала", 13),
-    ("work_type", "work_type_014", "ТОиР непроизводственных объектов предприятия", 14),
-    ("work_type", "work_type_015", "Расходы без влияния на механическую готовность", 15),
-    ("work_type", "work_type_016", "Экспертиза", 16),
-    ("work_type", "work_type_017", "Тех. освидетельствование", 17),
-    ("work_type", "work_type_018", "Диагностические обследования", 18),
-    ("work_type", "work_type_019", "Инспекции", 19),
-    ("work_type", "work_type_020", "Замена физически изношенного оборудования", 20),
-    ("work_type", "work_type_021", "Реконструкция", 21),
-    ("work_type", "work_type_022", "Модернизация", 22),
-    ("work_type", "work_type_023", "Техническое перевооружение", 23),
-    ("work_type", "work_type_024", "Капитальное строительство", 24),
-    ("cost_allocation", "cost_allocation_001", "CAPEX", 1),
-    ("cost_allocation", "cost_allocation_002", "OPEX", 2),
-    ("cost_allocation", "cost_allocation_003", "Счет 91", 3),
-    ("execution_method", "execution_method_001", "Собственные силы", 1),
-    ("execution_method", "execution_method_002", "Химремонт", 2),
-    ("execution_method", "execution_method_003", "НХД", 3),
-    ("execution_method", "execution_method_004", "УСО", 4),
+from uuid import UUID, uuid5
+
+# Every seeded option gets a deterministic id: the same (catalog, label) pair
+# always yields the same UUID, so a re-seed recognises its own rows and the ids
+# stay identical across environments and installations. This replaces the old
+# human-readable `value_key` column — the id itself is the stable identity.
+_REFERENCE_NAMESPACE = UUID("6f1c8a4e-4f4b-4a3d-9c2e-6d0f5b1a7c93")
+
+
+def reference_option_id(catalog: str, label: str) -> UUID:
+    """Deterministic id of a seeded catalog option."""
+    return uuid5(_REFERENCE_NAMESPACE, f"{catalog}:{label}")
+
+
+REFERENCE_OPTIONS: list[tuple[str, str]] = [
+    ("criticality", "1"),
+    ("criticality", "2"),
+    ("criticality", "3"),
+    ("criticality", "4"),
+    ("work_category", "ТОиР"),
+    ("work_category", "Остановочный капитальный ремонт"),
+    ("work_category", "Вспомогательные затраты"),
+    ("work_category", "ЭПБ и ДО"),
+    ("work_category", "ЗФиО"),
+    ("work_category", "ПИР"),
+    ("work_category", "Проект улучшения"),
+    ("work_category", "Целевая программа"),
+    ("work_type", "ТО"),
+    ("work_type", "ТР"),
+    ("work_type", "СР"),
+    ("work_type", "КР"),
+    ("work_type", "Чистка"),
+    ("work_type", "Испытания"),
+    ("work_type", "Поверка"),
+    ("work_type", "Калибровка"),
+    ("work_type", "Измерения"),
+    ("work_type", "Корректирующие работы"),
+    ("work_type", "Работы по фактическому тех.состоянию"),
+    ("work_type", "Вспомогательные работы (леса, изоляция и пр)"),
+    ("work_type", "Оснащенность ремонтного персонала"),
+    ("work_type", "ТОиР непроизводственных объектов предприятия"),
+    ("work_type", "Расходы без влияния на механическую готовность"),
+    ("work_type", "Экспертиза"),
+    ("work_type", "Тех. освидетельствование"),
+    ("work_type", "Диагностические обследования"),
+    ("work_type", "Инспекции"),
+    ("work_type", "Замена физически изношенного оборудования"),
+    ("work_type", "Реконструкция"),
+    ("work_type", "Модернизация"),
+    ("work_type", "Техническое перевооружение"),
+    ("work_type", "Капитальное строительство"),
+    ("cost_allocation", "CAPEX"),
+    ("cost_allocation", "OPEX"),
+    ("cost_allocation", "Счет 91"),
+    ("execution_method", "Собственные силы"),
+    ("execution_method", "Химремонт"),
+    ("execution_method", "НХД"),
+    ("execution_method", "УСО"),
 ]
+
+
+def reference_option_ids() -> dict[tuple[str, str], UUID]:
+    """Deterministic ids keyed by (catalog, label) — the seed's lookup table."""
+    return {(catalog, label): reference_option_id(catalog, label) for catalog, label in REFERENCE_OPTIONS}

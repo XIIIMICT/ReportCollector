@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import func
 from sqlmodel import col, select, update
@@ -89,7 +89,6 @@ async def create_renovation_catalog_option(
     now = datetime.now(UTC)
     option = RenovationReferenceValue(
         catalog=RReferenceCatalog(catalog),
-        value_key=f"{catalog}_{uuid4().hex[:8]}",
         label=label,
         created_at=now,
         updated_at=now,
@@ -165,9 +164,7 @@ async def delete_renovation_catalog_option(
             raise _DICT_OPTION_USED
     snapshot = {
         "catalog": option.catalog.value,
-        "valueKey": option.value_key,
         "label": option.label,
-        "payload": option.payload,
     }
     await session.delete(option)
     await session.flush()
@@ -257,9 +254,7 @@ async def _apply_renovation_option_deleted(
     option = RenovationReferenceValue(
         id=row_id,
         catalog=catalog,
-        value_key=str(value.get("valueKey") or ""),
         label=str(value.get("label") or ""),
-        payload=value.get("payload") if value.get("payload") is not None else None,
         is_active=True,
     )
     session.add(option)

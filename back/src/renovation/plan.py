@@ -45,11 +45,7 @@ class RenovationReferenceValue(UpdaterDisplay, table=True):
             nullable=False,
         )
     )
-    # Stable key of the option within the catalog, e.g. В«work_type_001В».
-    value_key: str = Field(sa_column=Column(Text, nullable=False))
     label: str = Field(sa_column=Column(Text, nullable=False))
-    sort_order: int = Field(default=0, sa_column=Column(Integer, nullable=False, server_default="0"))
-    payload: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     is_active: bool = Field(default=True, sa_column=Column(Boolean, nullable=False, server_default="true"))
     created_at: datetime = Field(
         default_factory=utc_now,
@@ -60,8 +56,10 @@ class RenovationReferenceValue(UpdaterDisplay, table=True):
         sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("now()")),
     )
     updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
+    # Soft deletion is not used yet (deletes are hard); the column is the
+    # forward-compatible marker: NULL means "not deleted".
+    deleted_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
     __table_args__ = (
-        Index("ix_r_reference_values_catalog_key", "catalog", "value_key", unique=True),
         # A catalog is a dictionary: one entry per label (case-insensitive).
         Index(
             "uq_r_reference_values_catalog_label",

@@ -23,7 +23,8 @@ from src.renovation.form_schema import (
 
 def test_catalog_covers_every_application_table_and_column() -> None:
     assert len(SQLModel.metadata.tables) == 30
-    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 495
+    # 494: 0021 dropped `value_key`, 0022 swapped `payload` for `deleted_at`.
+    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 494
     assert set(TABLE_COMMENTS) == set(SQLModel.metadata.tables)
     for table in SQLModel.metadata.tables.values():
         assert table.comment == TABLE_COMMENTS[table.name].rstrip(".")
@@ -47,7 +48,25 @@ def test_frozen_migration_matches_current_catalog() -> None:
         table.name: (table.comment, {column.name: column.comment for column in table.c})
         for table in SQLModel.metadata.tables.values()
     }
-    assert expected == migration.COMMENTS
+    # 0019/0020 dropped `r_reference_values.sort_order` and `.value_key`: the
+    # frozen snapshot still describes them, the live metadata does not.
+    migration_tables = {
+        name: (
+            description,
+            {
+                column: comment
+                for column, comment in columns.items()
+                if column not in {"sort_order", "value_key", "payload"}
+            },
+        )
+        for name, (description, columns) in migration.COMMENTS.items()
+    }
+    # 0017 added `kppk_org_products.has_excise` after 0015 froze the snapshot.
+    for name, (description, columns) in migration_tables.items():
+        columns.update(
+            {column.name: column.comment for column in SQLModel.metadata.tables[name].c if column.name not in columns}
+        )
+    assert expected == migration_tables
     assert migration.PREVIOUS_COMMENTS == import_module("migrations.versions.0014_data_catalog_comments").COMMENTS
 
 

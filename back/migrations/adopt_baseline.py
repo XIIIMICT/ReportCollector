@@ -80,10 +80,12 @@ def prune_legacy_revision_files(directory: Path) -> list[str]:
 # It is nullable and unused; the guard tolerates it so old installations adopt.
 # `renovation_plan_rows.col_218` (the retired «Корректировка») is dropped by
 # 0007_drop_plan_correction, which runs after the baseline during adoption, so
-# its presence on the pre-adoption schema is expected too.
+# its presence on the pre-adoption schema is expected too. `sort_order` and
+# `value_key` are the renovation catalog columns dropped by
+# 0019_drop_reference_sort_order / 0020_drop_reference_value_key / 0022.
 _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
-    "renovation_reference_values": {"metadata"},
-    "r_reference_values": {"metadata"},
+    "renovation_reference_values": {"metadata", "sort_order", "value_key", "payload"},
+    "r_reference_values": {"metadata", "sort_order", "value_key", "payload"},
     "renovation_plan_rows": {"col_218"},
     "r_plan_rows": {"col_218"},
 }
@@ -98,6 +100,17 @@ _LEGACY_MISSING_INDEXES: frozenset[str] = frozenset(
         "ix_r_user_roles_project",
         "ix_kppk_cost_scope",
         "ix_kppk_production_plan_scope",
+    }
+)
+
+# Indexes a legacy-0015 installation still carries but the models dropped: they
+# go away in migrations that run AFTER the baseline during adoption
+# (0021_drop_reference_value_key drops the `value_key` uniqueness index). A
+# closed list — an unexpected leftover index is still drift.
+_LEGACY_EXTRA_INDEXES: frozenset[str] = frozenset(
+    {
+        "ix_renovation_reference_values_catalog_key",
+        "ix_r_reference_values_catalog_key",
     }
 )
 
@@ -316,6 +329,9 @@ def _is_legacy_equivalent(diff: tuple) -> bool:
             name = _RENOVATION_TABLE_RENAMES.get(diff[2], diff[2])
             if name in TABLES_WITH_UPDATER and column.name == "updater_user_id":
                 return column.nullable and isinstance(column.type, Uuid)
+            # 0022 adds the forward-compatible soft-delete marker.
+            if name == "r_reference_values" and column.name == "deleted_at":
+                return column.nullable and isinstance(column.type, DateTime)
         if diff[0] == "remove_column":
             column = diff[3]
             name = _RENOVATION_TABLE_RENAMES.get(diff[2], diff[2])
@@ -338,6 +354,10 @@ def _is_legacy_equivalent(diff: tuple) -> bool:
         # pre-adoption legacy schema — either by name (0005) or together with
         # the whole post-baseline table it belongs to (0008).
         return diff[1].name in _LEGACY_MISSING_INDEXES or diff[1].table.name in _LEGACY_MISSING_TABLES
+    if isinstance(diff, tuple) and len(diff) >= 2 and diff[0] == "remove_index":
+        # An index the migration chain drops after the baseline; still present
+        # on a pre-adoption legacy schema (the `value_key` uniqueness).
+        return diff[1].name in _LEGACY_EXTRA_INDEXES
     if isinstance(diff, tuple) and len(diff) >= 2 and diff[0] == "add_table":
         return diff[1].name in _LEGACY_MISSING_TABLES
     if isinstance(diff, list):

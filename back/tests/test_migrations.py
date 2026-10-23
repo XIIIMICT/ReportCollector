@@ -64,6 +64,11 @@ def business_snapshot(connection) -> dict[str, list[str]]:
         dropped = _DROPPED_COLUMNS.get(canonical_table, ())
         if canonical_table in _AUDIT_TABLES:
             dropped += ("updated_by", "updater_user_id")
+        # 0019-0022 dropped the renovation catalog order/key/payload columns and
+        # added the soft-delete marker: they exist on the pre-adoption snapshot
+        # but are not business values.
+        if canonical_table == "r_reference_values":
+            dropped += ("sort_order", "value_key", "payload", "deleted_at")
         if dropped:
             removal = " - ".join(repr(name) for name in dropped)
             expression = f"({expression} - {removal})"
@@ -171,7 +176,7 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         assert {table: after[table] for table in all_business_data} == all_business_data
         assert (
             await conn.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalar_one() == "0016_kppk_excise_per_product"
+        ).scalar_one() == "0022_reference_payload_to_deleted_at"
         assert (await conn.execute(text("SELECT id, col_011 FROM r_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
         assert (
@@ -368,7 +373,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) ->
             await conn.run_sync(upgrade)
             assert (
                 await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "0016_kppk_excise_per_product"
+            ).scalar_one() == "0022_reference_payload_to_deleted_at"
         assert all(not path.exists() for path in stale)
     finally:
         for path in stale:
@@ -384,6 +389,34 @@ async def test_upgrade_fresh_schema(test_engine) -> None:
         await conn.run_sync(upgrade)
         diffs = await conn.run_sync(lambda c: compare_metadata(MigrationContext.configure(c), SQLModel.metadata))
         assert diffs == []
+
+
+async def test_reference_columns_drop_and_roundtrip(db_session, test_engine) -> None:
+    """0019-0022 reshape the catalog table; the options themselves survive."""
+    await db_session.commit()
+
+    def columns(connection) -> set[str]:
+        return {column["name"] for column in inspect(connection).get_columns("r_reference_values")}
+
+    async with test_engine.begin() as conn:
+        config = config_for(conn.sync_connection)
+        await conn.run_sync(lambda _: command.downgrade(config, "0018_kppk_excise_on_position"))
+        before = (await conn.execute(text("SELECT catalog::text, label FROM r_reference_values ORDER BY label"))).all()
+        assert before
+        await conn.run_sync(lambda _: command.upgrade(config, "0022_reference_payload_to_deleted_at"))
+        live = await conn.run_sync(columns)
+        assert "sort_order" not in live
+        assert "value_key" not in live
+        assert "payload" not in live
+        assert "deleted_at" in live
+        assert (
+            await conn.execute(text("SELECT catalog::text, label FROM r_reference_values ORDER BY label"))
+        ).all() == before
+        await conn.run_sync(lambda _: command.downgrade(config, "0018_kppk_excise_on_position"))
+        restored = await conn.run_sync(columns)
+        assert {"sort_order", "value_key", "payload"} <= restored
+        assert "deleted_at" not in restored
+        await conn.run_sync(lambda _: command.upgrade(config, "head"))
 
 
 async def test_catalog_migration_only_changes_comments(db_session, test_engine) -> None:

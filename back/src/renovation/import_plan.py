@@ -12,10 +12,13 @@ from src.renovation.constants import R_ASSETS
 from src.renovation.form_schema import field_metas, normalize_label
 from src.renovation.reference_data import REFERENCE_OPTIONS
 from src.renovation.renovation_id import (
+    DIRECTION_CODE_FIELD,
+    RENOVATION_ID_FORMULA_ENABLED,
     RenovationIdError,
     RenovationIdInput,
     RenovationIdResult,
     calculate_renovation_id,
+    normalize_direction_code,
 )
 from src.renovation.schemas import RenovationPlanImportCellIssue, RenovationPlanImportResult
 
@@ -190,7 +193,7 @@ def _header_map() -> dict[str, str]:
 def _reference_values() -> dict[str, set[str]]:
     """Return the form's own reference options plus the plan's known aliases."""
     values: dict[str, set[str]] = {}
-    for catalog, _key, label, _order in REFERENCE_OPTIONS:
+    for catalog, label in REFERENCE_OPTIONS:
         values.setdefault(catalog, set()).add(label.casefold())
     for catalog, labels in _CATALOG_ALIASES.items():
         values.setdefault(catalog, set()).update(labels)
@@ -294,41 +297,63 @@ def inspect_plan_file(
             meta = field_by_name.get(field)
             if meta is None or meta.is_calculated:
                 continue
-            # Reference fields carry labels in the source; text validation of the
-            # numeric id is meaningless, so only the catalog lookup runs.
-            value = True if meta.catalog else _coerce(raw[index], meta.cell_type)
-            if value is None:
-                type_errors.append(
-                    RenovationPlanImportCellIssue(
-                        location=f"{_column_name(index)}, строка {row_number}", value=str(raw[index])
-                    )
-                )
+            # The «Направление деятельности» («Лот») code always ends with a dot:
+            # a correct code typed or stored without it gets it added silently.
+            if field == DIRECTION_CODE_FIELD:
+                values[field] = normalize_direction_code(str(raw[index]))
                 continue
-            values[field] = value
+            # Reference fields carry labels in the source; text validation of the
+            # numeric id is meaningless, so only the catalog lookup runs. The
+            # label is stored trimmed: stray spaces must not create a value the
+            # catalogue does not know.
+            if meta.catalog:
+                trimmed = _trimmed_text(raw[index])
+                if trimmed is None:
+                    continue
+                values[field] = True
+                label = trimmed
+            else:
+                value = _coerce(raw[index], meta.cell_type)
+                if value is None:
+                    type_errors.append(
+                        RenovationPlanImportCellIssue(
+                            location=f"{_column_name(index)}, строка {row_number}", value=str(raw[index])
+                        )
+                    )
+                    continue
+                values[field] = value
+                label = raw[index]
             if meta.catalog:
                 # STRICT form catalogue: a value that differs in spelling is
                 # "absent", unlike the seed's typo-tolerant import.
                 known = reference_values.get(meta.catalog) if reference_values is not None else None
                 if known is None:
                     unknown_catalogs.add(meta.catalog)
-                elif not _value_in_catalog(known, raw[index]):
+                elif not _value_in_catalog(known, label):
                     missing.append(
                         RenovationPlanImportCellIssue(
-                            location=f"{_column_name(index)}, строка {row_number}", value=str(raw[index])
+                            location=f"{_column_name(index)}, строка {row_number}", value=str(label)
                         )
                     )
         valid_rows.append(values)
     duplicates = sorted(code for code, count in Counter(codes).items() if count > 1)
+    # ARCHIVED: the «correctly calculated code» check. The renovation-ID formula
+    # is OFF (`service.RENOVATION_ID_FORMULA_ENABLED`) and col_003 is imported
+    # from the template as-is, so comparing it with the generator's output would
+    # flag every hand-edited code. The check is kept verbatim below, switched
+    # off, to be restored together with the formula. Duplicates are the only
+    # blocker left, and they keep blocking.
     invalid_codes: list[str] = []
-    for row_number, code, values, asset_code in zip(row_numbers, codes, valid_rows, asset_codes, strict=False):
-        try:
-            expected = _calculate_code(values, _REPAIR_CODES.get((asset_code or "").upper(), asset_code))
-        except RenovationIdError:
-            # An unassemblable row (e.g. an empty «Лот») is an invalid code.
-            invalid_codes.append(f"{code} (строка {row_number})")
-            continue
-        if expected.value != code:
-            invalid_codes.append(f"{code} (строка {row_number})")
+    if RENOVATION_ID_FORMULA_ENABLED:
+        for row_number, code, values, asset_code in zip(row_numbers, codes, valid_rows, asset_codes, strict=False):
+            try:
+                expected = _calculate_code(values, _REPAIR_CODES.get((asset_code or "").upper(), asset_code))
+            except RenovationIdError:
+                # An unassemblable row (e.g. an empty «Лот») is an invalid code.
+                invalid_codes.append(f"{code} (строка {row_number})")
+                continue
+            if expected.value != code:
+                invalid_codes.append(f"{code} (строка {row_number})")
     status = "has_errors" if duplicates or invalid_codes or type_errors or missing else "ready"
     return RenovationPlanImportResult(
         status=status,
@@ -387,9 +412,20 @@ def _defect_text(value: object) -> str:
     return text.zfill(7) if text.isdigit() and len(text) < 7 else text
 
 
+def _trimmed_text(value: object) -> str | None:
+    """Text cell, trimmed; an empty result is the same as an empty cell (None)."""
+    if value is None or isinstance(value, bool):
+        return None
+    text = str(value).replace("\u00a0", " ").strip()
+    return text or None
+
+
 def _coerce(value: object, cell_type: str) -> object | None:
     if cell_type == "text":
-        return str(value).strip() or None
+        # Text is stored trimmed: stray whitespace (including the non-breaking
+        # space Excel loves) must never become part of a typed value. An empty
+        # string is the same as an empty cell.
+        return _trimmed_text(value)
     if cell_type == "number":
         try:
             number = float(str(value))

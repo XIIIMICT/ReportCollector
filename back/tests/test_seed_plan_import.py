@@ -29,7 +29,7 @@ async def test_batched_import_flushes_invented_options_before_rows(db_session: A
     def rows() -> Iterator[RenovationPlanRow]:
         # Same shape as `_ReferenceResolver.resolve`: invent the option first,
         # then yield the row that references it, all in one batch.
-        option = RenovationReferenceValue(catalog="work_type", value_key=f"probe_{uuid4().hex[:8]}", label=label)
+        option = RenovationReferenceValue(catalog="work_type", label=label)
         db_session.add(option)
         for offset in (1, 2):
             yield RenovationPlanRow(

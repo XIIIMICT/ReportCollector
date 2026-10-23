@@ -1025,7 +1025,6 @@ async def post_renovation_catalog_option(
                     new_value={
                         "catalog": created.catalog.value,
                         "label": created.label,
-                        "payload": created.payload,
                     },
                 )
             ],

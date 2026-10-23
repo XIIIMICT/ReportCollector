@@ -13,6 +13,7 @@ from src.auth.models import Project
 from src.renovation.constants import R_ASSETS, RENOVATION_PROJECT_KEY
 from src.renovation.models import RAsset
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
+from src.renovation.reference_data import reference_option_id
 
 ADMIN_HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
 VIEWER_HEADERS = signed_identity_headers(email="viewer@example.ru", name="Viewer User")
@@ -253,6 +254,22 @@ async def test_asset_duplicate_name_and_repair_code_rejected(
 # ─── Catalog options ───────────────────────────────────────────────────────
 
 
+async def test_catalog_options_are_ordered_by_label(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Catalogs read as dictionaries: alphabetical, whatever the source order was."""
+    response = await client.get("/api/renovation/dictionary/catalogs/work_type", headers=ADMIN_HEADERS)
+    assert response.status_code == 200
+    labels = [option["label"] for option in response.json()]
+    assert labels == sorted(labels)
+    assert labels[0] == "Вспомогательные работы (леса, изоляция и пр)"
+
+    meta = (await client.get("/api/renovation/meta", headers=ADMIN_HEADERS)).json()
+    work_types = next(catalog for catalog in meta["catalogs"] if catalog["id"] == "work_type")
+    assert [option["label"] for option in work_types["options"]] == sorted(labels)
+
+
 async def test_catalog_options_create_read_patch_delete(
     client: AsyncClient,
     db_session: AsyncSession,
@@ -336,14 +353,8 @@ async def test_catalog_option_delete_blocked_while_used(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    option = (
-        await db_session.exec(
-            select(RenovationReferenceValue).where(
-                col(RenovationReferenceValue.catalog) == "criticality",
-                col(RenovationReferenceValue.value_key) == "criticality_001",
-            )
-        )
-    ).one()
+    option = await db_session.get(RenovationReferenceValue, reference_option_id("criticality", "1"))
+    assert option is not None
     row = (
         await db_session.exec(
             select(RenovationPlanRow)
@@ -371,14 +382,8 @@ async def test_catalog_option_mismatched_catalog_is_not_found(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    option = (
-        await db_session.exec(
-            select(RenovationReferenceValue).where(
-                col(RenovationReferenceValue.catalog) == "criticality",
-                col(RenovationReferenceValue.value_key) == "criticality_002",
-            )
-        )
-    ).one()
+    option = await db_session.get(RenovationReferenceValue, reference_option_id("criticality", "2"))
+    assert option is not None
     response = await client.delete(
         f"/api/renovation/dictionary/catalogs/work_type/options/{option.id}",
         headers=ADMIN_HEADERS,
