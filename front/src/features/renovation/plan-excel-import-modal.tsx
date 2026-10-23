@@ -19,6 +19,7 @@ export type PlanExcelImportResult =
           invalidCalculatedCodes?: string[];
           invalidDataTypes?: ExcelCellIssue[];
           missingDictionaryValues?: ExcelCellIssue[];
+          unknownAssets?: ExcelCellIssue[];
           blankValues?: ExcelCellIssue[];
       }
     | {
@@ -30,14 +31,12 @@ export type PlanExcelImportResult =
 
 /** What the dialog shows after the load finished (or failed). */
 export type PlanExcelUploadResult =
-    | { status: "done"; newRows: number; updatedRows: number; skippedRows: number }
+    | { status: "done"; newRows: number; updatedRows: number }
     | { status: "error"; message: string };
 
 /** The one-line load summary carried by the success toast. */
 export function loadSummary(result: Extract<PlanExcelUploadResult, { status: "done" }>): string {
-    const parts = [`Новых строк: ${result.newRows}`, `Обновлено строк: ${result.updatedRows}`];
-    if (result.skippedRows) parts.push(`Пропущено (актив вне проекта): ${result.skippedRows}`);
-    return parts.join(" · ");
+    return [`Новых строк: ${result.newRows}`, `Обновлено строк: ${result.updatedRows}`].join(" · ");
 }
 
 export function PlanExcelImportModal({
@@ -279,6 +278,12 @@ function ImportErrors({
                 <CellErrorList
                     title="Значение отсутствует в справочнике"
                     values={result.missingDictionaryValues}
+                />
+            ) : null}
+            {result.unknownAssets?.length ? (
+                <CellErrorList
+                    title="Актив отсутствует в справочнике"
+                    values={result.unknownAssets}
                 />
             ) : null}
             {result.blankValues?.length ? (

@@ -231,11 +231,13 @@ cell types under the header (text/number/date); duplicate work codes
 («Код работы», listed with the rows they occupy) — the **only** blocker on the
 code itself, since the code is loaded from the file as-is (the ID formula is
 off, see «Renovation plan» below; the «Некорректно рассчитанные коды» check is
-archived in `inspect_plan_file` behind `RENOVATION_ID_FORMULA_ENABLED`); and
-reference labels absent
-from the form's own catalogs, compared strictly (whitespace/case only — no typo
-tolerance, no «@» options). Without errors the response carries the assets (by
-name), the new rows and the rows to update (existing `col_003`).
+archived in `inspect_plan_file` behind `RENOVATION_ID_FORMULA_ENABLED`); an
+asset whose code is not in the project's `rm_assets` dictionary
+(`unknown_assets` — the asset is a reference value like any catalog label);
+and reference labels absent from the form's own catalogs, compared strictly
+(whitespace/case only — no typo tolerance, no «@» options). Without errors the
+response carries the assets (by name), the new rows and the rows to update
+(existing `col_003`).
 
 The endpoint reads the upload in memory: a Windows `NamedTemporaryFile` stays
 locked and cannot be reopened for reading.
@@ -277,7 +279,10 @@ refuses the whole file (`409`, nothing written) rather than dropping the value.
 The same strictness covers blank required cells — «Код работы», «Предприятие»,
 «Группа критичности», «Категория работ», «Вид работ», «Отнесение затрат»,
 «Способ выполнения» — reported in the `blank_values` section; a row without a
-work code is not loaded at all.
+work code is not loaded at all. The **asset** is held to the same rule: a code
+missing from the project's `rm_assets` (`unknown_assets` in the report) refuses
+the whole file instead of silently skipping its rows — nothing is dropped from
+the plan, so the response no longer carries a `skipped_rows` counter.
 
 The load is **not** journaled into undo/redo: it rewrites many rows at once, so
 a single «Отменить» cannot meaningfully revert it.

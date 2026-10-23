@@ -1744,6 +1744,7 @@ export function RenovationWorkspace({
                         invalidCalculatedCodes: result.invalid_calculated_codes,
                         invalidDataTypes: result.invalid_data_types,
                         missingDictionaryValues: result.missing_dictionary_values,
+                        unknownAssets: result.unknown_assets,
                         blankValues: result.blank_values,
                         assets: result.assets,
                         newRows: result.new_rows,
@@ -1760,7 +1761,6 @@ export function RenovationWorkspace({
                             status: "done" as const,
                             newRows: applied.new_rows,
                             updatedRows: applied.updated_rows,
-                            skippedRows: applied.skipped_rows,
                         };
                     } catch (error) {
                         return {

@@ -273,6 +273,7 @@ def inspect_plan_file(
     type_errors: list[RenovationPlanImportCellIssue] = []
     missing: list[RenovationPlanImportCellIssue] = []
     blank: list[RenovationPlanImportCellIssue] = []
+    unknown_assets: list[RenovationPlanImportCellIssue] = []
     unknown_catalogs: set[str] = set()
     assets: set[str] = set()
     codes: list[str] = []
@@ -298,8 +299,19 @@ def inspect_plan_file(
         row_numbers.append(row_number)
         if asset_code in asset_names_by_code:
             assets.add(asset_names_by_code[asset_code])
-        elif (default_name := _TEMPLATE_ASSETS.get(asset_code)) is not None:
-            assets.add(default_name)
+        else:
+            # The asset is a reference value like any catalog label: a code the
+            # project's dictionary does not have makes the file invalid — it is
+            # never silently dropped from the load.
+            unknown_assets.append(
+                RenovationPlanImportCellIssue(
+                    location=f"{_column_name(asset_index)}, строка {row_number}", value=str(raw[asset_index])
+                )
+            )
+            if (default_name := _TEMPLATE_ASSETS.get(asset_code)) is not None:
+                # Still counted among the file's assets: the cache scope must
+                # cover the rows a fixed file would touch.
+                assets.add(default_name)
         asset_codes.append(asset_code or None)
         values: dict[str, object] = {}
         for field, index in columns.items():
@@ -369,7 +381,9 @@ def inspect_plan_file(
                 continue
             if expected.value != code:
                 invalid_codes.append(f"{code} (строка {row_number})")
-    status = "has_errors" if duplicates or invalid_codes or type_errors or missing or blank else "ready"
+    status = (
+        "has_errors" if duplicates or invalid_codes or type_errors or missing or blank or unknown_assets else "ready"
+    )
     return RenovationPlanImportResult(
         status=status,
         duplicate_codes=_duplicates_with_rows(codes, row_numbers),
@@ -377,6 +391,7 @@ def inspect_plan_file(
         invalid_data_types=type_errors,
         blank_values=blank,
         missing_dictionary_values=missing,
+        unknown_assets=unknown_assets,
         assets=sorted(assets),
         new_rows=sum(code not in existing_codes for code in codes),
         rows_to_update=sum(code in existing_codes for code in codes),

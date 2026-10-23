@@ -47,6 +47,30 @@ def test_sample_analyses_as_has_errors_not_invalid_format() -> None:
     assert result.new_rows > 0
 
 
+def test_an_unknown_asset_makes_the_file_invalid() -> None:
+    """The asset is a reference value: a code the dictionary lacks is an error."""
+    if _SAMPLE is None:
+        pytest.skip("no template sample in docs/")
+    # No assets known to the project: every row names «BSZR».
+    result = inspect_plan_file(
+        _SAMPLE,
+        existing_codes=set(),
+        asset_names_by_code={},
+        reference_values={"criticality": {"1", "2", "3", "4"}},
+    )
+    assert result.status == "has_errors"
+    assert result.unknown_assets
+    assert all(issue.value.upper() == "BSZR" for issue in result.unknown_assets)
+    # The known-dictionary pass reports no asset errors at all.
+    known = inspect_plan_file(
+        _SAMPLE,
+        existing_codes=set(),
+        asset_names_by_code={"BSZR": "АО «БСЗ»"},
+        reference_values={"criticality": {"1", "2", "3", "4"}},
+    )
+    assert known.unknown_assets == []
+
+
 def test_duplicate_codes_name_every_sheet_row() -> None:
     """Repeated work codes are reported once with all the rows they occupy."""
     from src.renovation import import_plan

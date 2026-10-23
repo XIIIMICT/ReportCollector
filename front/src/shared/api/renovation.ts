@@ -131,6 +131,7 @@ export type RenovationPlanImportResult = {
     invalid_calculated_codes: string[];
     invalid_data_types: RenovationPlanImportCellIssue[];
     missing_dictionary_values: RenovationPlanImportCellIssue[];
+    unknown_assets: RenovationPlanImportCellIssue[];
     blank_values: RenovationPlanImportCellIssue[];
     assets: string[];
     new_rows: number;
@@ -161,7 +162,6 @@ export async function inspectRenovationPlanImport(file: File): Promise<Renovatio
 export type RenovationPlanImportApplyResult = {
     new_rows: number;
     updated_rows: number;
-    skipped_rows: number;
 };
 
 /**

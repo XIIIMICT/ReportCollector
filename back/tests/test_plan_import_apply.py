@@ -60,6 +60,43 @@ async def test_the_sample_file_is_refused_while_it_carries_unknown_catalog_value
     assert after == before
 
 
+async def test_an_asset_outside_the_dictionary_refuses_the_whole_file(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    The asset is a reference value: an unknown one aborts the load.
+
+    A code the project's dictionary does not have must not be silently dropped
+    from the plan — the preflight reports it and the load refuses the file, so
+    the plan stays exactly as it was.
+    """
+    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.repair_code) == "BSZR"))).first()
+    if bsz is None:
+        pytest.skip("the seed carries no BSZR asset")
+    plan = (
+        await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))
+    ).first()
+    assert plan is not None
+    before = len(
+        (await db_session.exec(select(RenovationPlanRow.id).where(col(RenovationPlanRow.plan_id) == plan.id))).all()
+    )
+    rows = [
+        # A known asset first: the refusal must undo what the batch would write.
+        ParsedPlanRow(code="TEST_ASSET_KNOWN", asset_code="BSZR", values={"col_005": "известный актив"}),
+        ParsedPlanRow(code="TEST_ASSET_UNKNOWN", asset_code="ZZZR", values={"col_005": "неизвестный актив"}),
+    ]
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source: rows)
+
+    with pytest.raises(ValueError, match="TEST_ASSET_UNKNOWN"):
+        await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
+
+    after = (
+        await db_session.exec(select(col(RenovationPlanRow.col_003)).where(col(RenovationPlanRow.plan_id) == plan.id))
+    ).all()
+    assert len(after) == before
+    assert "TEST_ASSET_KNOWN" not in after
+
+
 async def test_a_clean_file_creates_rows_once_and_updates_them_next_time(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -98,7 +135,7 @@ async def test_a_clean_file_creates_rows_once_and_updates_them_next_time(
     monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source: rows)
 
     first = await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
-    assert (first.new_rows, first.updated_rows, first.skipped_rows) == (3, 0, 0)
+    assert (first.new_rows, first.updated_rows) == (3, 0)
     after_first = len(
         (await db_session.exec(select(RenovationPlanRow.id).where(col(RenovationPlanRow.plan_id) == plan.id))).all()
     )
@@ -111,7 +148,7 @@ async def test_a_clean_file_creates_rows_once_and_updates_them_next_time(
     assert loaded.position > 0
 
     second = await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
-    assert (second.new_rows, second.updated_rows, second.skipped_rows) == (0, 3, 0)
+    assert (second.new_rows, second.updated_rows) == (0, 3)
     after_second = len(
         (await db_session.exec(select(RenovationPlanRow.id).where(col(RenovationPlanRow.plan_id) == plan.id))).all()
     )

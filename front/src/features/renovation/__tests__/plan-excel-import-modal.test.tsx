@@ -15,12 +15,13 @@ let successSpy: ReturnType<typeof spyOn<typeof toast, "success">> | undefined;
 
 beforeEach(() => {
     toasts.length = 0;
-    successSpy = spyOn(toast, "success").mockImplementation(
-        ((title: string, options?: { description?: string }) => {
-            toasts.push([title, options?.description].filter(Boolean).join(" · "));
-            return "toast-id";
-        }) as typeof toast.success,
-    );
+    successSpy = spyOn(toast, "success").mockImplementation(((
+        title: string,
+        options?: { description?: string },
+    ) => {
+        toasts.push([title, options?.description].filter(Boolean).join(" · "));
+        return "toast-id";
+    }) as typeof toast.success);
 });
 
 afterEach(() => {
@@ -252,15 +253,13 @@ test("the upload shows the load state, then closes and raises a success toast", 
     expect(opened).toEqual([]);
 
     await act(async () => {
-        finish?.({ status: "done", newRows: 10, updatedRows: 30, skippedRows: 2 });
+        finish?.({ status: "done", newRows: 10, updatedRows: 30 });
     });
 
     expect(uploaded).toEqual([file]);
     // Done: the dialog closes for the grid behind it, the summary is a toast.
     expect(opened).toContain(false);
-    expect(toasts).toEqual([
-        "Файл загружен · Новых строк: 10 · Обновлено строк: 30 · Пропущено (актив вне проекта): 2",
-    ]);
+    expect(toasts).toEqual(["Файл загружен · Новых строк: 10 · Обновлено строк: 30"]);
     // Nothing is reported inside the dialog any more.
     expect(view.queryByText("Загружено: 40")).toBeNull();
 });
@@ -306,4 +305,26 @@ test("the errors report lists blank required cells", () => {
     expect(view.getByText(/Не заполнены обязательные ячейки \(1\)/)).toBeTruthy();
     expect(view.getByText("Столбец Код работы:")).toBeTruthy();
     expect(view.getByText("(строки: 7)", { exact: false })).toBeTruthy();
+});
+
+test("an asset outside the project dictionary is an error of the file", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{
+                status: "has-errors",
+                // The asset is a reference value like any catalog label.
+                unknownAssets: [
+                    { location: "C, строка 12", value: "ZZZR" },
+                    { location: "C, строка 40", value: "ZZZR" },
+                ],
+            }}
+        />,
+    );
+    expect(view.getByText("Файл содержит ошибки")).toBeTruthy();
+    expect(view.getByText("Актив отсутствует в справочнике (2):")).toBeTruthy();
+    expect(view.getByText("Столбец C:")).toBeTruthy();
+    expect(view.getByText("ZZZR (строки: 12, 40)")).toBeTruthy();
 });

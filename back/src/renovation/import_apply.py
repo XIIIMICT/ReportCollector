@@ -86,14 +86,14 @@ async def apply_plan_file(
 
     inserted = 0
     updated = 0
-    skipped = 0
     batch: list[_PendingRow] = []
     for row in parsed:
         asset_id = asset_ids.get(row.asset_code)
         if asset_id is None:
-            # An asset outside the project's dictionary: the preflight reports it.
-            skipped += 1
-            continue
+            # A reference value like any catalog label: an asset the project's
+            # dictionary does not have refuses the whole file (the preflight
+            # reports it) instead of dropping its rows from the plan.
+            raise _unknown_asset(row.code, row.asset_code)
         row_id = existing.get(row.code)
         position: int | None = None
         if row_id is not None:
@@ -111,7 +111,7 @@ async def apply_plan_file(
 
     # Calculated fields and the renovation ID of every row of the plan.
     await recompute_plan_rows(session, plan_id=plan.id)
-    return RenovationPlanImportApplyResult(new_rows=inserted, updated_rows=updated, skipped_rows=skipped)
+    return RenovationPlanImportApplyResult(new_rows=inserted, updated_rows=updated)
 
 
 async def _flush_batch(
@@ -201,8 +201,16 @@ def _resolve_reference(field: str, value: object, reference_ids: dict[str, dict[
 def _unknown_reference(code: str, field: str, value: object) -> ValueError:
     """Abort on a label the catalog has no option for (the whole load rolls back)."""
     return ValueError(
-        f"?????? {code}: ???????? ?{value}? ?? ??????? ? ??????????? ???? "
-        f"?{_label(field)}?. ???? ?? ??????? ? ???????? ? ???????? ?????????????? ?? ??????????."
+        f"Строка {code}: значение «{value}» не найдено в справочнике поля «{_label(field)}». "
+        "План не изменён — сообщите о значении ответственному за справочник."
+    )
+
+
+def _unknown_asset(code: str, asset_code: str) -> ValueError:
+    """Abort on an asset the project's dictionary does not have (nothing written)."""
+    return ValueError(
+        f"Строка {code}: актив «{asset_code}» не найден в справочнике активов. "
+        "План не изменён — добавьте актив в справочник или исправьте файл."
     )
 
 
