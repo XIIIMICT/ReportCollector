@@ -109,6 +109,7 @@ import {
     type GridSelectionInfo,
     updateClipboardActions,
 } from "@/shared/ui/text-helpers";
+import { ToolbarFilters } from "@/shared/ui/toolbar-filters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
 import { useViewState } from "@/shared/ui/use-view-state";
@@ -1329,14 +1330,7 @@ export function KppkWorkspace({
         return years.map((year) => ({ id: year, name: year }));
     }, []);
     const realizationFilters = (
-        <div
-            className={
-                isMainTab
-                    ? "kppk-realization-filters-row"
-                    : "kppk-realization-filters-row kppk-realization-filters-row--hidden"
-            }
-            aria-hidden={isMainTab ? undefined : true}
-        >
+        <ToolbarFilters placement="below" visible={isMainTab}>
             <SmartSelect
                 options={REALIZATION_SLICE_OPTIONS}
                 value={realizationSlice}
@@ -1403,7 +1397,7 @@ export function KppkWorkspace({
                     writeWorkspaceQuery("year", value);
                 }}
             />
-        </div>
+        </ToolbarFilters>
     );
 
     // The tabs row keeps the shared toolbar rhythm; the «Реализация» period
@@ -1414,7 +1408,7 @@ export function KppkWorkspace({
         <div className="table-toolbar table-toolbar--stacked">
             <div className="table-toolbar__row">
                 <div className="table-toolbar__controls">
-                    {isPositionsTab ? (
+                    <ToolbarFilters placement="inline" visible={isPositionsTab}>
                         <Switch isSelected={exciseMode} onChange={setExciseMode}>
                             <Switch.Content>
                                 <Switch.Control>
@@ -1423,7 +1417,7 @@ export function KppkWorkspace({
                                 Настройка акциза
                             </Switch.Content>
                         </Switch>
-                    ) : null}
+                    </ToolbarFilters>
                     <SectionTabs
                         tabs={visibleTabs}
                         value={selectedTab?.id ?? ""}

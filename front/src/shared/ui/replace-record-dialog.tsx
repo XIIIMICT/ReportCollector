@@ -78,13 +78,11 @@ export function ReplaceRecordDialog({
                         <AlertDialog.Body className="replace-record-dialog__body">
                             <p className="replace-record-dialog__hint">
                                 Выберите значение справочника «
-                                <span className="replace-record-dialog__accent">
-                                    {sectionLabel}
-                                </span>
+                                <span className="dialog-accent">{sectionLabel}</span>
                                 », на которое хотите заменить «
-                                <span className="replace-record-dialog__accent">{label}</span>».
-                                Операция выполнится, если это не нарушит ограничений уникальности в
-                                связанных таблицах.
+                                <span className="dialog-accent">{label}</span>». Операция
+                                выполнится, если это не нарушит ограничений уникальности в связанных
+                                таблицах.
                             </p>
                             {/* The select sits below the text with the dialog's own
                                 spacing — `AlertDialog.Body` stacks its children in

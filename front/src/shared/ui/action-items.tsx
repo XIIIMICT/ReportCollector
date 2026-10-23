@@ -305,10 +305,18 @@ export function DeleteRecordDialog({
                             </AlertDialog.Heading>
                         </AlertDialog.Header>
                         <AlertDialog.Body>
-                            {count === 1 && label ? `Будет удалена запись «${label}». ` : null}
-                            {count > 1 ? `Будут удалены записи в количестве ${count}. ` : null}
-                            Операция выполняется только в том случае, если на удаляемые записи ничто
-                            не ссылается. Иначе ни одна запись не будет удалена.
+                            {count === 1 && label ? (
+                                <p>
+                                    Будет удалена запись «
+                                    <span className="dialog-accent">{label}</span>
+                                    ».
+                                </p>
+                            ) : null}
+                            {count > 1 ? <p>Будут удалены записи в количестве {count}.</p> : null}
+                            <p>
+                                Операция выполняется только в том случае, если на удаляемые записи
+                                ничто не ссылается. Иначе ни одна запись не будет удалена.
+                            </p>
                         </AlertDialog.Body>
                         <AlertDialog.Footer>
                             <ButtonGroup>

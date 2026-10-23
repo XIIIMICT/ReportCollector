@@ -87,6 +87,7 @@ import { readWorkspaceQuery, writeWorkspaceQuery } from "@/shared/ui/query-state
 import { RowGoToFilter } from "@/shared/ui/row-go-to-filter";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { errorMessage, updateClipboardActions } from "@/shared/ui/text-helpers";
+import { ToolbarFilters } from "@/shared/ui/toolbar-filters";
 import { refreshUndoCounters } from "@/shared/ui/undo-counters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
@@ -1516,33 +1517,28 @@ export function RenovationWorkspace({
     // toolbar settles (instead of popping) when the section changes.
     const showBlockFilter = isPlanSection && blocks.length > 0;
     const blockFilterSelect = (
-        <div
-            className={
-                showBlockFilter
-                    ? "plan-filters__block toolbar-collapse"
-                    : "plan-filters__block toolbar-collapse toolbar-collapse--hidden"
-            }
-            aria-hidden={showBlockFilter ? undefined : true}
-        >
-            <SearchAutocomplete
-                placeholder="Все блоки"
-                compactLabel="Блок"
-                isDisabled={!showBlockFilter}
-                onOpenChange={setToolbarControlOpen}
-                allOption={{ label: "Все блоки", present: true }}
-                allValue="__all"
-                items={blocks.map((block) => ({
-                    id: block,
-                    name: BLOCK_LABELS[block] ?? block,
-                }))}
-                selectedKey={blockFilter ?? "__all"}
-                onSelectionChange={(key) => {
-                    const value = key && key !== "__all" ? String(key) : null;
-                    setBlockFilter(value);
-                    writeWorkspaceQuery("block", value);
-                }}
-            />
-        </div>
+        <ToolbarFilters placement="inline" visible={showBlockFilter}>
+            <div className="plan-filters__block">
+                <SearchAutocomplete
+                    placeholder="Все блоки"
+                    compactLabel="Блок"
+                    isDisabled={!showBlockFilter}
+                    onOpenChange={setToolbarControlOpen}
+                    allOption={{ label: "Все блоки", present: true }}
+                    allValue="__all"
+                    items={blocks.map((block) => ({
+                        id: block,
+                        name: BLOCK_LABELS[block] ?? block,
+                    }))}
+                    selectedKey={blockFilter ?? "__all"}
+                    onSelectionChange={(key) => {
+                        const value = key && key !== "__all" ? String(key) : null;
+                        setBlockFilter(value);
+                        writeWorkspaceQuery("block", value);
+                    }}
+                />
+            </div>
+        </ToolbarFilters>
     );
 
     // Form tabs — the same strip as «Сырьё», right after the version and block
