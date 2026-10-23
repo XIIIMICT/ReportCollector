@@ -766,6 +766,10 @@ body {
     list-style: circle;
 }
 
+.plan-excel-import-modal__upload-error {
+    color: var(--danger);
+}
+
 /* View strip between the toolbar and the grid: display-only controls in ONE
    row — asset/block filters («Ремонт» plan) on the left, export/fullscreen
    buttons on the right. The filters take exactly the width they need. */

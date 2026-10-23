@@ -191,6 +191,7 @@ Project URLs — `/raw-materials`, `/renovation`, `/kppk` (root redirects to the
   - `POST /export` — Excel (openpyxl): whole/visible selection, for «Движение» — archive versions.
   - Renovation plan export — **background jobs**: `POST /plan/export/jobs` (202 + job id), `GET /plan/export/jobs/{id}` (status/progress), `GET /plan/export/jobs/{id}/file` (download). The legacy synchronous `GET/POST /plan/export` endpoints remain for tests/compat but the UI never uses them (they materialize the whole plan in the API process).
   - Renovation plan **import preflight** (admin): `POST /plan/import/inspect` (multipart `file`, `.xlsb` only) validates the technical-directorate workbook **without writing** to the database. Readiness and the response contract — see «Renovation plan import» below.
+  - Renovation plan **import load** (admin): `POST /plan/import/apply` (multipart `file`, `.xlsb` only) writes the checked workbook into the working plan (matched by work code, strict catalog lookup, batched under the project gate). See «Loading the checked file» below.
 - `kppk` (signed identity; reads for every project member, mutations admin-only): dictionary CRUD — `GET/POST/PATCH/DELETE /product-positions[/{id}]` (PATCH `{field, value}`, `field` = `name` | `orgNames` | `productNum`; create accepts `productNum`; delete removes the product with its links), `/raws` (PATCH `{field, value}` for `name`/`rawNum`), `/orgs` (PATCH `{field, value}` for `code`/`name`), `/periods` (PATCH `{field, value}`; no UI in this phase). The source number («№», `productNum`/`rawNum`) is editable and unique — an occupied number is rejected with a clear `400`; `null` stands for a row added by hand (several NULLs are allowed); positions/raws are returned in the source-number order (unnumbered rows last). The «ДЗО» list is ordered by the full name and exposes no number. Undo/redo join the shared collaboration journal: every mutation carries the page-lifetime `session_id` (query) and is journaled as one action scoped to the tab (`scope = f"{section}/"`, no report month; `collab/undo.py` dispatches `kppk_products`/`kppk_raws`/`kppk_orgs` to `apply_kppk_cell_value`) — `GET /undo-state?section=&session_id=`, `POST /undo`, `POST /redo` (body `{skipActionId, section}`, admin; no WebSocket room and no `cell:changed` — the front refreshes the grid itself after undo/redo). `POST /export` streams the tab as XLSX (whole/visible via `rowIds`, `columns` from the grid). Deletes follow RESTRICT: a ДЗО/period referenced by the fact/plan copies is rejected with a clear `400`.
 - `ws`: `WS /ws/raw-materials` — collaboration (see `docs/COLLAB.md`).
 - Service: `GET /health` (process liveness), `GET /ready` (PostgreSQL/Valkey readiness, including the required outbox migration), rate-limit and log middlewares in `back/src/main.py`. HTTP responses carry `X-Request-ID`, also recorded in structured request logs. Uvicorn access/handshake logs redact credential query parameters (`ticket`, `access_token`, `token`); the external reverse proxy must apply its own redaction policy.
@@ -248,6 +249,46 @@ asset recomputes it. The TTL is one hour. The cache is optional — without
 `VALKEY_URL` or when Valkey is unreachable the file is analysed again.
 
 `inspect_plan_file` returns only; the actual import is a separate step.
+
+### Loading the checked file
+
+`POST /plan/import/apply` (admin, multipart `file`, `.xlsb` only) writes the
+same workbook into the **working** plan (`import_apply.apply_plan_file`). The
+order is: parse in a worker thread (`asyncio.to_thread(parse_plan_rows)` —
+CPU-bound: ~20k rows × 216 columns, the event loop stays free), then take the
+shared project gate (`lock_project`), then write in batches of 200 rows inside
+**one transaction**, then `recompute_plan_rows`. The plan is therefore never
+observed half-loaded, and a concurrent edit waits instead of racing.
+
+Rows are matched by «Код работы» (`col_003`): a code already in the plan updates
+that row in place, a code the plan does not have **appends** a row at the end
+(picking up the positional sequence after the current last row). A cell the file
+leaves empty keeps the plan's current value — a blank cell is never an
+instruction to clear a value.
+
+Reference cells are resolved to the form catalog ids by the option **label**
+(`reference_data.reference_option_id`), the same deterministic ids the seed
+creates; numeric cells lose their float tail first (`3.0` → the label `3`).
+A label the catalog does not know (`ОКР`, `ДО`, `Собственными силами` in the
+current sample — the catalog spells them «Остановочный капитальный ремонт»,
+«Диагностические обследования», «Собственные силы») is a **strict error**: the
+preflight lists it under «Значение отсутствует в справочнике» and the load
+refuses the whole file (`409`, nothing written) rather than dropping the value.
+The same strictness covers blank required cells — «Код работы», «Предприятие»,
+«Группа критичности», «Категория работ», «Вид работ», «Отнесение затрат»,
+«Способ выполнения» — reported in the `blank_values` section; a row without a
+work code is not loaded at all.
+
+The load is **not** journaled into undo/redo: it rewrites many rows at once, so
+a single «Отменить» cannot meaningfully revert it.
+
+**Known risk (temporary, until the load leaves the testing phase):** the gate
+serialises the load against other *gated* writes (cell edits, row inserts,
+fixing), but a user who is holding a lease on a cell of a row the file rewrites
+keeps their stale value in the open editor and can commit it afterwards — the
+last write wins. Undo history of the affected rows is not reconciled either. No
+special handling yet; the operator should avoid loading while someone edits the
+same rows.
 
 ## Renovation plan export jobs
 Excel-export plumbing is shared by every project in `back/src/common/`:

@@ -31,6 +31,7 @@ import {
     getRenovationMeta,
     getRenovationPlanRows,
     getRenovationPlanSummary,
+    applyRenovationPlanImport,
     inspectRenovationPlanImport,
     getRenovationPlans,
     getUndoState,
@@ -1743,10 +1744,33 @@ export function RenovationWorkspace({
                         invalidCalculatedCodes: result.invalid_calculated_codes,
                         invalidDataTypes: result.invalid_data_types,
                         missingDictionaryValues: result.missing_dictionary_values,
+                        blankValues: result.blank_values,
                         assets: result.assets,
                         newRows: result.new_rows,
                         rowsToUpdate: result.rows_to_update,
                     });
+                }}
+                onUpload={async (file) => {
+                    try {
+                        const applied = await applyRenovationPlanImport(file);
+                        // The grid still holds the plan as it was before the load:
+                        // a new key refetches rows, summary and the «№» order.
+                        setReloadKey((key) => key + 1);
+                        return {
+                            status: "done" as const,
+                            newRows: applied.new_rows,
+                            updatedRows: applied.updated_rows,
+                            skippedRows: applied.skipped_rows,
+                        };
+                    } catch (error) {
+                        return {
+                            status: "error" as const,
+                            message:
+                                error instanceof Error
+                                    ? error.message
+                                    : "Не удалось загрузить файл.",
+                        };
+                    }
                 }}
             />
         </div>

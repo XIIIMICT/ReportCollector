@@ -191,23 +191,81 @@ test("shows the spinner and «Идёт анализ...» while the file is being
     ).toBeTruthy();
 });
 
-test("shows the successful summary and upload action", () => {
-    let uploaded = false;
+test("the upload action loads the file that was checked and reports the summary", async () => {
+    const uploaded: File[] = [];
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            onUpload={async (file) => {
+                uploaded.push(file);
+                return { status: "done" as const, newRows: 10, updatedRows: 30, skippedRows: 2 };
+            }}
+            result={{ status: "ready", assets: ["АЭС-1", "АЭС-2"], newRows: 10, rowsToUpdate: 30 }}
+        />,
+    );
+    // Nothing is loaded before a file is picked and checked.
+    const button = view.getByRole("button", { name: "Загрузить" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(view.getByText("Активы: АЭС-1, АЭС-2")).toBeTruthy();
+    expect(view.getByText("Новых строк: 10")).toBeTruthy();
+    expect(view.getByText("Строк для обновления: 30")).toBeTruthy();
+
+    const file = new File(["xlsb"], "plan.xlsb");
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+        fireEvent.change(input, { target: { files: [file] } });
+    });
+    await act(async () => {
+        fireEvent.click(view.getByRole("button", { name: "Загрузить" }));
+    });
+
+    expect(uploaded).toEqual([file]);
+    expect(view.getByText("Загружено: 40")).toBeTruthy();
+    expect(view.getByText("Обновлено строк: 30")).toBeTruthy();
+    expect(view.getByText("Пропущено строк (актив вне проекта): 2")).toBeTruthy();
+});
+
+test("a failed load keeps the checked file and shows the server message", async () => {
     const view = render(
         <PlanExcelImportModal
             isOpen
             onFileSelected={() => {}}
             onOpenChange={() => {}}
             onUpload={() => {
-                uploaded = true;
+                throw new Error("Строка 5: значение «ОКР» не найдено в справочнике.");
             }}
-            result={{ status: "ready", assets: ["АЭС-1", "АЭС-2"], newRows: 10, rowsToUpdate: 30 }}
+            result={{ status: "ready", assets: ["АЭС-1"], newRows: 1, rowsToUpdate: 0 }}
         />,
     );
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+        fireEvent.change(input, { target: { files: [new File(["xlsb"], "plan.xlsb")] } });
+    });
+    await act(async () => {
+        fireEvent.click(view.getByRole("button", { name: "Загрузить" }));
+    });
 
-    fireEvent.click(view.getByRole("button", { name: "Загрузить" }));
-    expect(uploaded).toBe(true);
-    expect(view.getByText("Активы: АЭС-1, АЭС-2")).toBeTruthy();
-    expect(view.getByText("Новых строк: 10")).toBeTruthy();
-    expect(view.getByText("Строк для обновления: 30")).toBeTruthy();
+    expect(view.getByRole("alert").textContent).toContain("не найдено в справочнике");
+    // The file is still there: the user only has to fix the sheet and re-pick.
+    const nameField = document.querySelector(".file-input__text") as HTMLInputElement;
+    expect(nameField.value).toBe("plan.xlsb");
+});
+
+test("the errors report lists blank required cells", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{
+                status: "has-errors",
+                blankValues: [{ location: "Код работы, строка 7", value: "" }],
+            }}
+        />,
+    );
+    expect(view.getByText(/Не заполнены обязательные ячейки \(1\)/)).toBeTruthy();
+    expect(view.getByText("Столбец Код работы:")).toBeTruthy();
+    expect(view.getByText("(строки: 7)", { exact: false })).toBeTruthy();
 });

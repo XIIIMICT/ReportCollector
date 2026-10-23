@@ -472,9 +472,18 @@ class RenovationPlanImportResult(BaseModel):
     invalid_calculated_codes: list[str] = Field(default_factory=list)
     invalid_data_types: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
     missing_dictionary_values: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
+    blank_values: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
     assets: list[str] = Field(default_factory=list)
     new_rows: int = 0
     rows_to_update: int = 0
+
+
+class RenovationPlanImportApplyResult(BaseModel):
+    """Outcome of a file load into the working plan."""
+
+    new_rows: int = 0
+    updated_rows: int = 0
+    skipped_rows: int = 0
 
 
 class RenovationExportJobRead(BaseModel):

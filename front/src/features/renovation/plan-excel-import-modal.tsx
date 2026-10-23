@@ -19,6 +19,7 @@ export type PlanExcelImportResult =
           invalidCalculatedCodes?: string[];
           invalidDataTypes?: ExcelCellIssue[];
           missingDictionaryValues?: ExcelCellIssue[];
+          blankValues?: ExcelCellIssue[];
       }
     | {
           status: "ready";
@@ -26,6 +27,11 @@ export type PlanExcelImportResult =
           newRows: number;
           rowsToUpdate: number;
       };
+
+/** What the dialog shows after the load finished (or failed). */
+export type PlanExcelUploadResult =
+    | { status: "done"; newRows: number; updatedRows: number; skippedRows: number }
+    | { status: "error"; message: string };
 
 export function PlanExcelImportModal({
     isOpen,
@@ -38,7 +44,8 @@ export function PlanExcelImportModal({
     result?: PlanExcelImportResult | null;
     onOpenChange: (open: boolean) => void;
     onFileSelected: (file: File) => Promise<unknown> | void;
-    onUpload?: () => void;
+    /** Loads the already checked file; the dialog owns its pending state. */
+    onUpload?: (file: File) => Promise<PlanExcelUploadResult> | void;
 }) {
     const [fileName, setFileName] = useState("");
     const [checkPending, setCheckPending] = useState(false);
@@ -49,14 +56,22 @@ export function PlanExcelImportModal({
     // A file dragged anywhere over the page — the hint appears before the
     // pointer reaches the dialog, so the destination is obvious.
     const [isPageDragging, setIsPageDragging] = useState(false);
+    // The file itself, kept for the load: the check result says the file is
+    // valid, but the load needs the bytes it described.
+    const [file, setFile] = useState<File | null>(null);
+    const [uploadPending, setUploadPending] = useState(false);
+    const [uploadResult, setUploadResult] = useState<PlanExcelUploadResult | null>(null);
     const hasResult = result !== null;
     // Every open starts clean: a previous file must not leak into a new check.
     useEffect(() => {
         if (isOpen) return;
         setFileName("");
+        setFile(null);
         setCheckPending(false);
         setCheckError(null);
         setIsDragging(false);
+        setUploadPending(false);
+        setUploadResult(null);
     }, [isOpen]);
     // Page-wide drag tracking: a drag carries no drop data until it enters a
     // drop target, so only the dialog/body handlers accept the drop itself.
@@ -90,17 +105,36 @@ export function PlanExcelImportModal({
           ? "Файл содержит ошибки"
           : null;
 
-    async function chooseFile(file: File | undefined) {
-        if (!file) return;
-        setFileName(file.name);
+    async function chooseFile(selected: File | undefined) {
+        if (!selected) return;
+        setFile(selected);
+        setFileName(selected.name);
         setCheckPending(true);
         setCheckError(null);
+        setUploadResult(null);
         try {
-            await onFileSelected(file);
+            await onFileSelected(selected);
         } catch {
             setCheckError("invalid-format");
         } finally {
             setCheckPending(false);
+        }
+    }
+
+    async function upload() {
+        if (!file || uploadPending) return;
+        setUploadPending(true);
+        setUploadResult(null);
+        try {
+            const outcome = await onUpload?.(file);
+            if (outcome) setUploadResult(outcome);
+        } catch (error) {
+            setUploadResult({
+                status: "error",
+                message: error instanceof Error ? error.message : "Не удалось загрузить файл.",
+            });
+        } finally {
+            setUploadPending(false);
         }
     }
 
@@ -144,6 +178,11 @@ export function PlanExcelImportModal({
                                 <Spinner size="sm" />
                                 Идёт анализ...
                             </p>
+                        ) : uploadPending ? (
+                            <p className="plan-excel-import-modal__status" role="status">
+                                <Spinner size="sm" />
+                                Идёт загрузка в базу...
+                            </p>
                         ) : (
                             <p
                                 className={`plan-excel-import-modal__hint${dragging ? " plan-excel-import-modal__hint--active" : ""}${hasResult ? " plan-excel-import-modal__hint--with-result" : ""}`}
@@ -154,6 +193,28 @@ export function PlanExcelImportModal({
                             </p>
                         )}
                         {result?.status === "has-errors" ? <ImportErrors result={result} /> : null}
+                        {uploadResult?.status === "done" ? (
+                            <div className="plan-excel-import-modal__summary" role="status">
+                                <p>
+                                    <strong>
+                                        Загружено: {uploadResult.newRows + uploadResult.updatedRows}
+                                    </strong>
+                                </p>
+                                <p>Новых строк: {uploadResult.newRows}</p>
+                                <p>Обновлено строк: {uploadResult.updatedRows}</p>
+                                {uploadResult.skippedRows ? (
+                                    <p>
+                                        Пропущено строк (актив вне проекта):{" "}
+                                        {uploadResult.skippedRows}
+                                    </p>
+                                ) : null}
+                            </div>
+                        ) : null}
+                        {uploadResult?.status === "error" ? (
+                            <p className="plan-excel-import-modal__upload-error" role="alert">
+                                {uploadResult.message}
+                            </p>
+                        ) : null}
                         {result?.status === "ready" ? (
                             <div className="plan-excel-import-modal__summary">
                                 <p>
@@ -174,14 +235,14 @@ export function PlanExcelImportModal({
                                 accept=".xlsb,application/vnd.ms-excel.sheet.binary.macroEnabled.12"
                                 error={inputError}
                                 fileName={fileName}
-                                isDisabled={checkPending}
+                                isDisabled={checkPending || uploadPending}
                                 onFileSelected={chooseFile}
                                 placeholder="Имя файла"
                             />
                             <Button
                                 className="plan-excel-import-modal__upload"
-                                isDisabled={result?.status !== "ready"}
-                                onPress={() => onUpload?.()}
+                                isDisabled={result?.status !== "ready" || uploadPending || !file}
+                                onPress={() => void upload()}
                                 variant="primary"
                             >
                                 <Upload aria-hidden="true" />
@@ -226,6 +287,12 @@ function ImportErrors({
                 <CellErrorList
                     title="Значение отсутствует в справочнике"
                     values={result.missingDictionaryValues}
+                />
+            ) : null}
+            {result.blankValues?.length ? (
+                <CellErrorList
+                    title="Не заполнены обязательные ячейки"
+                    values={result.blankValues}
                 />
             ) : null}
         </div>

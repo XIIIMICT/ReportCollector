@@ -202,6 +202,10 @@ def _reference_values() -> dict[str, set[str]]:
 
 # Source wording that the form stores under a different, canonical label. A
 # closed list: anything else absent from the catalog is reported to the user.
+# Fields a valid plan row cannot leave empty: the asset and every reference
+# choice the plan is grouped by (a blank one cannot be resolved to an option).
+_REQUIRED_FIELDS: frozenset[str] = frozenset({"col_002", "col_015", "col_017", "col_018", "col_019", "col_020"})
+
 _CATALOG_ALIASES: dict[str, frozenset[str]] = {
     "work_category": frozenset({"окр"}),
     "work_type": frozenset({"до"}),
@@ -268,6 +272,7 @@ def inspect_plan_file(
 
     type_errors: list[RenovationPlanImportCellIssue] = []
     missing: list[RenovationPlanImportCellIssue] = []
+    blank: list[RenovationPlanImportCellIssue] = []
     unknown_catalogs: set[str] = set()
     assets: set[str] = set()
     codes: list[str] = []
@@ -279,12 +284,18 @@ def inspect_plan_file(
         if not any(value not in (None, "") for value in raw):
             continue
         code = str(raw[code_index]).strip() if code_index < len(raw) and raw[code_index] is not None else ""
+        if not code:
+            # The work code identifies the row: a blank one is a gap in the file,
+            # never an instruction to clear the plan.
+            blank.append(
+                RenovationPlanImportCellIssue(location=f"{_column_name(code_index)}, строка {row_number}", value="")
+            )
+            continue
         asset_code = (
             str(raw[asset_index]).strip().upper() if asset_index < len(raw) and raw[asset_index] is not None else ""
         )
-        if code:
-            codes.append(code)
-            row_numbers.append(row_number)
+        codes.append(code)
+        row_numbers.append(row_number)
         if asset_code in asset_names_by_code:
             assets.add(asset_names_by_code[asset_code])
         elif (default_name := _TEMPLATE_ASSETS.get(asset_code)) is not None:
@@ -292,6 +303,10 @@ def inspect_plan_file(
         asset_codes.append(asset_code or None)
         values: dict[str, object] = {}
         for field, index in columns.items():
+            if field in _REQUIRED_FIELDS and (index >= len(raw) or raw[index] in (None, "")):
+                blank.append(
+                    RenovationPlanImportCellIssue(location=f"{_column_name(index)}, строка {row_number}", value="")
+                )
             if index >= len(raw) or raw[index] in (None, ""):
                 continue
             meta = field_by_name.get(field)
@@ -354,12 +369,13 @@ def inspect_plan_file(
                 continue
             if expected.value != code:
                 invalid_codes.append(f"{code} (строка {row_number})")
-    status = "has_errors" if duplicates or invalid_codes or type_errors or missing else "ready"
+    status = "has_errors" if duplicates or invalid_codes or type_errors or missing or blank else "ready"
     return RenovationPlanImportResult(
         status=status,
         duplicate_codes=_duplicates_with_rows(codes, row_numbers),
         invalid_calculated_codes=_sorted_without_duplicates(invalid_codes),
         invalid_data_types=type_errors,
+        blank_values=blank,
         missing_dictionary_values=missing,
         assets=sorted(assets),
         new_rows=sum(code not in existing_codes for code in codes),
@@ -384,17 +400,23 @@ def _sorted_without_duplicates(values: list[str]) -> list[str]:
     return sorted(dict.fromkeys(values))
 
 
+def normalized_option(value: object) -> str:
+    """Render a reference cell as its catalog label: "3.0" ? "3", NBSP ? space."""
+    text = " ".join(str(value).replace("\u00a0", " ").split())
+    if text.endswith(".0") and text[:-2].lstrip("-").isdigit():
+        text = text[:-2]
+    return text
+
+
 def _value_in_catalog(known: set[str], value: object) -> bool:
     """
     Strict form-catalog lookup (no typo or «@» tolerance).
 
-    A number cell is rendered without the float tail — the criticality group
-    arrives as `3.0` while the catalog label is `3` — everything else is
+    A number cell loses its float tail — the criticality group arrives as `3.0`
+    (or the text «3,0») while the catalog label is `3` — everything else is
     matched exactly after whitespace/case normalization.
     """
-    text = str(int(value)) if isinstance(value, float) and value.is_integer() else str(value)
-    cleaned = " ".join(text.replace("\u00a0", " ").split()).casefold()
-    return cleaned in known
+    return normalized_option(value).casefold() in known
 
 
 def _defect_text(value: object) -> str:

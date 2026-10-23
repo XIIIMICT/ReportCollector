@@ -59,6 +59,7 @@ from src.renovation.export import (
     validate_export_request,
 )
 from src.renovation.export_jobs import ExportJob, ExportJobSpec, ExportQueueFullError, export_jobs
+from src.renovation.import_apply import apply_plan_file
 from src.renovation.import_plan import assets_in_file, inspect_plan_file
 from src.renovation.inspect_cache import get_inspect_cache
 from src.renovation.models import RAsset, RProjectRole, RUserRole
@@ -80,6 +81,7 @@ from src.renovation.schemas import (
     RenovationFacetsRead,
     RenovationMetaRead,
     RenovationPlanExportRequest,
+    RenovationPlanImportApplyResult,
     RenovationPlanImportResult,
     RenovationPlanRead,
     RenovationPlanRowRead,
@@ -251,6 +253,34 @@ async def inspect_renovation_plan_import(
     if file_asset_codes:
         await cache.set(payload, result, scope=scope)
     return result
+
+
+@router.post("/plan/import/apply", response_model=RenovationPlanImportApplyResult)
+async def apply_renovation_plan_import(
+    session: SessionDependency,
+    _access: AdminDependency,
+    file: Annotated[UploadFile, File()],
+) -> RenovationPlanImportApplyResult:
+    """
+    Load a validated XLSB file into the working plan (admin only).
+
+    Parsing runs in a worker thread and the write goes in batches under the
+    project gate, so the API keeps serving while a large file is loaded. The
+    file is expected to have passed the preflight; an unknown catalog label
+    still aborts the whole load instead of writing a partial plan. The load is
+    NOT journaled into undo/redo: it rewrites many rows at once.
+    """
+    if not file.filename or not file.filename.casefold().endswith(".xlsb"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ожидается файл .xlsb.")
+    try:
+        return await apply_plan_file(session, source=BytesIO(await file.read()), user_id=_access.user.id)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except IntegrityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Загрузка нарушила бы ограничения уникальности — ни одна строка не изменена.",
+        ) from error
 
 
 @router.get("/meta", response_model=RenovationMetaRead)

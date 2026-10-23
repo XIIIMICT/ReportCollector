@@ -131,6 +131,7 @@ export type RenovationPlanImportResult = {
     invalid_calculated_codes: string[];
     invalid_data_types: RenovationPlanImportCellIssue[];
     missing_dictionary_values: RenovationPlanImportCellIssue[];
+    blank_values: RenovationPlanImportCellIssue[];
     assets: string[];
     new_rows: number;
     rows_to_update: number;
@@ -155,6 +156,39 @@ export async function inspectRenovationPlanImport(file: File): Promise<Renovatio
     }
     const result = (await response.json()) as RenovationPlanImportResult;
     return result;
+}
+
+export type RenovationPlanImportApplyResult = {
+    new_rows: number;
+    updated_rows: number;
+    skipped_rows: number;
+};
+
+/**
+ * Load a checked XLSB file into the working plan.
+ *
+ * The backend parses the workbook in a worker thread and writes it in batches
+ * under the project gate, so a large file never blocks other users; the call
+ * still takes a while, hence the dedicated pending state in the dialog.
+ */
+export async function applyRenovationPlanImport(
+    file: File,
+): Promise<RenovationPlanImportApplyResult> {
+    const body = new FormData();
+    body.append("file", file);
+    const response = await fetch("/api/renovation/plan/import/apply", {
+        method: "POST",
+        body,
+        cache: "no-store",
+    });
+    if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as unknown;
+        throw new ReportCollectorApiError(
+            readApiDetail(payload) ?? `Не удалось загрузить файл (${response.status}).`,
+            response.status,
+        );
+    }
+    return (await response.json()) as RenovationPlanImportApplyResult;
 }
 
 export type RenovationPlanRows = {
