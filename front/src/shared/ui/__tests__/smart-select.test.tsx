@@ -241,6 +241,48 @@ test("commit mode has no «По умолчанию» without a handler", async (
     expect(screen.queryByRole("button", { name: /По умолчанию/ })).toBeNull();
 });
 
+test("an embedded control shows the same footer without «По умолчанию»", async () => {
+    const events: string[] = [];
+    renderSelect({
+        embedded: true,
+        isOpen: true,
+        commitFooter: true,
+        confirmEnabled: false,
+        onCancel: () => events.push("cancel"),
+        onConfirm: () => events.push("confirm"),
+    });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+
+    const cells = [...document.querySelectorAll(".smart-select__footer .button")];
+    expect(cells.map((cell) => cell.getAttribute("aria-label"))).toEqual(["Отменить", "Применить"]);
+    for (const cell of cells) {
+        // The shared expanding buttons: an icon and a label that CSS collapses.
+        expect(cell.className).toContain("expandable-button");
+        expect(cell.querySelector(".expandable-button__icon svg")).toBeTruthy();
+        expect(cell.querySelector(".expandable-button__label")).toBeTruthy();
+    }
+    // One ButtonGroup of direct children, measured for the labels' width.
+    const groups = [...document.querySelectorAll(".smart-select__footer .button-group")];
+    expect(groups.length).toBe(1);
+    expect(
+        [...groups[0]!.children].every((child) => child.getAttribute("data-slot") === "button"),
+    ).toBe(true);
+    // The column filter's splitter: the bar is its own zone, not a list row.
+    const bar = document.querySelector(".smart-select__action-bar");
+    expect(bar?.querySelector(".smart-select__footer-separator")).toBeTruthy();
+    // «Применить» is the editor's call: nothing to apply yet.
+    expect(screen.getByRole("button", { name: "Применить" }).hasAttribute("disabled")).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
+    expect(events).toEqual(["cancel"]);
+});
+
+test("an embedded control has no footer unless asked for one", async () => {
+    renderSelect({ embedded: true, isOpen: true });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
+    expect(document.querySelector(".smart-select__footer")).toBeNull();
+});
+
 test("unhover closes a select by default", async () => {
     renderSelect({ defaultOpen: true });
     await waitFor(() => expect(hasOpenSmartSelect()).toBe(true));

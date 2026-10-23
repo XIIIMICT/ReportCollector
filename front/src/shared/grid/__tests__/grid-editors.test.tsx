@@ -26,12 +26,15 @@ test.each([2, 8])(
             />,
         );
         const option = await screen.findByRole("option", { name: "Вариант 0" });
+        fireEvent.pointerDown(option);
+        fireEvent.pointerUp(option);
+        fireEvent.click(option);
+        console.log("DBGOPT", count, JSON.stringify(saved));
         const anchor = document.querySelector(".grid-autocomplete-editor__hidden-trigger");
         expect(anchor).toBeTruthy();
         expect(anchor?.getAttribute("data-slot")).toBe(
             count > 5 ? "autocomplete-trigger" : "select-trigger",
         );
-        fireEvent.click(option);
         await waitFor(() => expect(saved).toEqual(["Вариант 0"]));
     },
 );

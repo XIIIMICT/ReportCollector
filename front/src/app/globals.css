@@ -2804,13 +2804,6 @@ body {
     background: transparent !important;
     border-color: transparent !important;
 }
-.grid-autocomplete-editor__actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.45rem;
-    padding: 0.55rem;
-    border-top: 1px solid var(--separator);
-}
 
 .profile-pill__avatar {
     flex: 0 0 auto;
@@ -2992,16 +2985,28 @@ body {
 }
 
 /* The commit-mode footer («По умолчанию / Отменить / Применить») of a
-   SmartSelect without hover dismissal: pinned under the scrolling list,
-   right-aligned. The buttons themselves are stock HeroUI `Button`s — their
-   radius, motion and colours are the design system's. */
+   SmartSelect without hover dismissal: a separate zone pinned under the
+   scrolling list, right-aligned, divided from it by a rule.
+   HeroUI's popovers carry no padding (`p-0`), so the bar brings its own — the
+   same 0.5rem the column filter pads its panel with. Without it the buttons
+   sit flush against the panel's bottom and right edges. */
+.smart-select__action-bar {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+}
+
+.smart-select__footer-separator {
+    margin: 0;
+    background: var(--border);
+}
+
 .smart-select__footer {
     display: flex;
     flex: none;
     gap: 0.5rem;
     justify-content: flex-end;
-    padding-block-start: 0.5rem;
-    border-top: 1px solid var(--border);
+    padding: 0.5rem;
 }
 
 /* Divides «Выбрать все»/«Пустые» from the value list. */

@@ -41,6 +41,14 @@ import { ExpandableButtonGroup } from "@/shared/ui/expandable-button-group";
  * (the owner previews them) — «Применить» (or Enter) calls `onConfirm`;
  * «Отменить», Escape and an outside click call `onCancel`, which restores the
  * value captured before opening; «По умолчанию» calls `onReset` (when given).
+ *
+ * An EMBEDDED control (the in-cell reference/select editor) gets the same
+ * footer through `commitFooter` without becoming commit mode: it still closes
+ * on the grid's own dismissal (Escape / an outside press on the cell), and the
+ * editor owns what «Отмена» and «Применить» mean — `confirmEnabled` says
+ * whether there is something to apply. The bar itself (the splitter rule, the
+ * expanding buttons and the width their labels need while one is hovered)
+ * lives here once, so a filter and an editor look alike.
  */
 
 export type SmartSelectOption = {
@@ -152,6 +160,19 @@ export type SmartSelectProps = {
     /** Commit mode: reveal «Применить» (the filter has a pending change). */
     canConfirm?: boolean;
     /**
+     * Show the «Отменить / Применить» footer in an EMBEDDED control (the in-cell
+     * editor). Opt-in, because a dialog that only picks a value wants none.
+     * Without `onConfirm` the footer reports a press through `onCancel` /
+     * `onDismiss` of the owner, so an editor wires both actions itself.
+     */
+    commitFooter?: boolean;
+    /** Footer «Применить» is enabled (`canConfirm` remains the commit-mode flag). */
+    confirmEnabled?: boolean;
+    /** Label of the footer's dismissive action («Отменить» by default). */
+    cancelLabel?: string;
+    /** Label of the footer's forward action («Применить» by default). */
+    confirmLabel?: string;
+    /**
      * Commit mode: «По умолчанию» — reset this control to its default (the
      * column filter's stored default, not the value before opening). The
      * button renders only when the handler is given.
@@ -214,6 +235,10 @@ export function SmartSelect({
     onConfirm,
     onCancel,
     canConfirm = true,
+    commitFooter = false,
+    confirmEnabled,
+    cancelLabel = "Отменить",
+    confirmLabel = "Применить",
     onReset,
     resetLabel = "По умолчанию",
 }: SmartSelectProps) {
@@ -263,6 +288,10 @@ export function SmartSelect({
     resetRef.current = onReset;
     const canConfirmRef = useRef(canConfirm);
     canConfirmRef.current = canConfirm;
+    // The footer's own enablement: the embedded editor's flag wins, the
+    // commit-mode one («По умолчанию / Отменить / Применить» of the filter) is
+    // the fallback.
+    const footerConfirmEnabled = confirmEnabled ?? canConfirm;
 
     useEffect(() => {
         openRef.current = isOpen;
@@ -538,49 +567,58 @@ export function SmartSelect({
         );
     };
 
-    // The same expanding buttons as the action bar, in one native ButtonGroup.
-    const commitFooter = isCommitMode ? (
+    // One footer for every owner: the column filter (commit mode) and the
+    // in-cell editor (embedded, opt-in). The buttons stand UNDER the list,
+    // outside its scroll, and expand on hover down to their icons — the same
+    // group the action bar uses, so the labels' reserved width is measured
+    // once here. The rule above the bar is the column filter's splitter: the
+    // footer is a separate zone of the panel, not the last list row.
+    const showFooter = isCommitMode || commitFooter;
+    const footer = showFooter ? (
         <div
-            className="smart-select__footer"
+            className="smart-select__action-bar"
             data-react-aria-prevent-focus
-            // Enter belongs to the filter and means «Применить».
+            // Enter belongs to the control and means «Применить».
             onKeyDown={(event) => {
                 if (event.key !== "Enter") return;
                 event.preventDefault();
                 event.stopPropagation();
-                if (canConfirm) confirmRef.current();
+                if (footerConfirmEnabled) confirmRef.current();
             }}
         >
-            <ExpandableButtonGroup size="sm" reserveLast={2}>
-                {/* Direct children only: the group injects props into them. */}
-                {onReset ? (
+            <Separator className="smart-select__footer-separator" />
+            <div className="smart-select__footer">
+                <ExpandableButtonGroup size="sm" reserveLast={2}>
+                    {/* Direct children only: the group injects props into them. */}
+                    {onReset ? (
+                        <ExpandableButton
+                            variant="danger"
+                            aria-label={resetLabel}
+                            icon={<Refresh aria-hidden="true" />}
+                            onPress={() => resetRef.current?.()}
+                        >
+                            По умолчанию
+                        </ExpandableButton>
+                    ) : null}
                     <ExpandableButton
-                        variant="danger"
-                        aria-label={resetLabel}
-                        icon={<Refresh aria-hidden="true" />}
-                        onPress={() => resetRef.current?.()}
+                        variant="tertiary"
+                        aria-label={cancelLabel}
+                        icon={<Xmark aria-hidden="true" />}
+                        onPress={() => cancelRef.current()}
                     >
-                        По умолчанию
+                        {cancelLabel}
                     </ExpandableButton>
-                ) : null}
-                <ExpandableButton
-                    variant="tertiary"
-                    aria-label="Отменить"
-                    icon={<Xmark aria-hidden="true" />}
-                    onPress={() => cancelRef.current()}
-                >
-                    Отменить
-                </ExpandableButton>
-                <ExpandableButton
-                    variant="primary"
-                    aria-label="Применить"
-                    icon={<Check aria-hidden="true" />}
-                    isDisabled={!canConfirm}
-                    onPress={() => confirmRef.current()}
-                >
-                    Применить
-                </ExpandableButton>
-            </ExpandableButtonGroup>
+                    <ExpandableButton
+                        variant="primary"
+                        aria-label={confirmLabel}
+                        icon={<Check aria-hidden="true" />}
+                        isDisabled={!footerConfirmEnabled}
+                        onPress={() => confirmRef.current()}
+                    >
+                        {confirmLabel}
+                    </ExpandableButton>
+                </ExpandableButtonGroup>
+            </div>
         </div>
     ) : null;
 
@@ -696,7 +734,7 @@ export function SmartSelect({
                             </Autocomplete.Filter>
                         )}
                         {popoverFooter ?? null}
-                        {commitFooter}
+                        {footer}
                     </Autocomplete.Popover>
                 </Autocomplete>
             ) : (
@@ -754,7 +792,7 @@ export function SmartSelect({
                             <ListBox>{renderedOptions}</ListBox>
                         )}
                         {popoverFooter ?? null}
-                        {commitFooter}
+                        {footer}
                     </Select.Popover>
                 </Select>
             )}

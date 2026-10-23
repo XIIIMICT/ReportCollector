@@ -1,4 +1,4 @@
-import { Button, ButtonGroup, Calendar, DatePicker } from "@heroui/react";
+import { Calendar, DatePicker } from "@heroui/react";
 import { CalendarDate, parseDate } from "@internationalized/date";
 import type { EditorType } from "@revolist/react-datagrid";
 import { useMemo, useRef, useState } from "react";
@@ -56,6 +56,11 @@ export function MultiAssetEditor({ column, save, close }: EditorType) {
     const [selected, setSelected] = useState<string[]>(() =>
         normalizeStringArray(column.value ?? column.model[String(column.prop)]),
     );
+    const initial = useRef(selected);
+    // The set is saved as a whole: «Применить» is live only when it changed.
+    const changed =
+        selected.length !== initial.current.length ||
+        selected.some((option, index) => option !== initial.current[index]);
 
     return (
         <EditorShell close={close}>
@@ -68,25 +73,12 @@ export function MultiAssetEditor({ column, save, close }: EditorType) {
                 onChange={(value) => setSelected(Array.isArray(value) ? value : [])}
                 embedded
                 onDismiss={close}
-                popoverFooter={
-                    <div className="grid-autocomplete-editor__actions">
-                        <ButtonGroup size="sm">
-                            <Button size="sm" variant="tertiary" onPress={() => close()}>
-                                Отмена
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="primary"
-                                onPress={() =>
-                                    save(options.filter((option) => selected.includes(option)))
-                                }
-                            >
-                                <ButtonGroup.Separator />
-                                Применить
-                            </Button>
-                        </ButtonGroup>
-                    </div>
-                }
+                // The shared footer replaces the two hand-rolled buttons this
+                // editor used to carry; the set is saved as a whole.
+                commitFooter
+                confirmEnabled={changed}
+                onCancel={close}
+                onConfirm={() => save(options.filter((option) => selected.includes(option)))}
             />
         </EditorShell>
     );
