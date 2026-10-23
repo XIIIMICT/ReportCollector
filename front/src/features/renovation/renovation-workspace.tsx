@@ -71,6 +71,7 @@ import {
     buildClipboardActions,
     buildDeleteAction,
     buildExportAction,
+    buildReplaceAction,
     buildHistoryActions,
     buildPrimaryAction,
     DeleteRecordDialog,
@@ -592,6 +593,11 @@ export function RenovationWorkspace({
         blockedReason: string | null;
         onDelete: () => void;
     }>({ canDelete: false, blockedReason: null, onDelete: () => {} });
+    const [dictReplaceState, setDictReplaceState] = useState<{
+        canReplace: boolean;
+        blockedReason: string | null;
+        onReplace: () => void;
+    }>({ canReplace: false, blockedReason: null, onReplace: () => {} });
     const [dictExportState, setDictExportState] = useState<{
         pending: boolean;
         onExport: (scope: "all" | "visible") => void;
@@ -1688,6 +1694,12 @@ export function RenovationWorkspace({
                   onAdd: dictUserCreateState.onCreate,
               })
             : []),
+        ...buildReplaceAction({
+            show: dictReplaceState.canReplace || dictReplaceState.blockedReason !== null,
+            disabled: !dictReplaceState.canReplace || isFullscreenPending,
+            blockedReason: isFullscreenPending ? null : dictReplaceState.blockedReason,
+            onReplace: dictReplaceState.onReplace,
+        }),
         ...buildDeleteAction({
             disabled: !dictDeleteState.canDelete || isFullscreenPending,
             blockedReason: dictDeleteState.blockedReason,
@@ -1830,6 +1842,7 @@ export function RenovationWorkspace({
                             refreshKey={reloadKey}
                             remoteCellValues={remoteCellValues}
                             onDeleteState={setDictDeleteState}
+                            onReplaceState={setDictReplaceState}
                             onExportState={setDictExportState}
                             onResetState={setDictResetState}
                             onUserCreateState={setDictUserCreateState}

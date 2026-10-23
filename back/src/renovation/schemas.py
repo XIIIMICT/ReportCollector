@@ -389,6 +389,12 @@ class RenovationCatalogOptionCreateRequest(BaseModel):
     label: str = Field(min_length=1, max_length=255)
 
 
+class RenovationCatalogReplaceRequest(BaseModel):
+    """Catalog value replacement: `null` deletes the value instead."""
+
+    targetId: UUID | None = None
+
+
 class RenovationCatalogOptionUpdateRequest(BaseModel):
     """Editable fields of a renovation catalog option (at least one must be set)."""
 

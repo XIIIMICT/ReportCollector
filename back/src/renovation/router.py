@@ -44,6 +44,7 @@ from src.renovation.catalogs import (
     create_renovation_catalog_option,
     delete_renovation_catalog_option,
     read_renovation_catalog_rows,
+    replace_renovation_catalog_option,
     update_renovation_catalog_option,
 )
 from src.renovation.constants import RENOVATION_PROJECT_KEY
@@ -69,6 +70,7 @@ from src.renovation.schemas import (
     RenovationCatalogOptionCreateRequest,
     RenovationCatalogOptionRowRead,
     RenovationCatalogOptionUpdateRequest,
+    RenovationCatalogReplaceRequest,
     RenovationColumnFilter,
     RenovationDictionaryBatchRequest,
     RenovationDiffRead,
@@ -994,7 +996,6 @@ async def post_renovation_catalog_option(
                         "catalog": created.catalog.value,
                         "valueKey": created.value_key,
                         "label": created.label,
-                        "sortOrder": created.sort_order,
                         "payload": created.payload,
                     },
                 )
@@ -1067,6 +1068,43 @@ async def delete_renovation_catalog_option_endpoint(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await record_cell_updates(
+        JournalStore(session),
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        project_key=RENOVATION_PROJECT_KEY,
+        section=_catalog_section(catalog),
+        report_month=None,
+        session_id=session_id,
+        applied=applied,
+    )
+
+
+@router.post(
+    "/dictionary/catalogs/{catalog}/options/{option_id}/replace",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def replace_renovation_catalog_option_endpoint(
+    catalog: str,
+    option_id: UUID,
+    request: RenovationCatalogReplaceRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+) -> None:
+    """Replace a catalog option with another (or delete it) across the plan."""
+    try:
+        applied = await replace_renovation_catalog_option(
+            session,
+            catalog=catalog,
+            option_id=option_id,
+            target_id=request.targetId,
+            user=access.user,
+        )
+    except RenovationDictionaryError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     await record_cell_updates(
         JournalStore(session),
         user_id=access.user.id,

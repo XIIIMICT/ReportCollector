@@ -41,6 +41,9 @@ from src.raw_materials.dictionaries import (
     read_asset_rows,
     read_delivery_basis_rows,
     read_raw_material_rows,
+    replace_asset,
+    replace_delivery_basis,
+    replace_raw_material,
     update_asset,
     update_delivery_basis,
     update_raw_material,
@@ -69,6 +72,7 @@ from src.raw_materials.schemas import (
     DeliveryBasisRowRead,
     DeliveryBasisUpdateRequest,
     DictionaryBatchRequest,
+    DictionaryReplaceRequest,
     ExportViewRequest,
     FixMovementRequest,
     MovementMetaRead,
@@ -1203,6 +1207,57 @@ async def delete_user_endpoint(
             detail="Пользователя нельзя удалить: на нём зафиксированные периоды или другие данные.",
         ) from error
     await _record_dictionary_delete(session, user=user, section="users", session_id=session_id, applied=applied)
+
+
+@router.post("/raw-materials/{raw_material_id}/replace", status_code=status.HTTP_204_NO_CONTENT)
+async def replace_raw_material_endpoint(
+    raw_material_id: UUID,
+    request: DictionaryReplaceRequest,
+    session: SessionDependency,
+    user: UserDependency,
+    _assets: AdminDependency,
+    session_id: str = "",
+) -> None:
+    """Replace one raw-material item with another (or delete it) everywhere."""
+    try:
+        applied = await replace_raw_material(session, raw_material_id=raw_material_id, target_id=request.targetId)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    await _record_dictionary_delete(session, user=user, section="rawMaterials", session_id=session_id, applied=applied)
+
+
+@router.post("/assets/{asset_id}/replace", status_code=status.HTTP_204_NO_CONTENT)
+async def replace_asset_endpoint(
+    asset_id: UUID,
+    request: DictionaryReplaceRequest,
+    session: SessionDependency,
+    user: UserDependency,
+    _assets: AdminDependency,
+    session_id: str = "",
+) -> None:
+    """Replace one asset with another (or delete it) everywhere."""
+    try:
+        applied = await replace_asset(session, asset_id=asset_id, target_id=request.targetId)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    await _record_dictionary_delete(session, user=user, section="assets", session_id=session_id, applied=applied)
+
+
+@router.post("/delivery-bases/{basis_id}/replace", status_code=status.HTTP_204_NO_CONTENT)
+async def replace_delivery_basis_endpoint(
+    basis_id: UUID,
+    request: DictionaryReplaceRequest,
+    session: SessionDependency,
+    user: UserDependency,
+    _assets: AdminDependency,
+    session_id: str = "",
+) -> None:
+    """Replace one delivery basis with another (or delete it) everywhere."""
+    try:
+        applied = await replace_delivery_basis(session, basis_id=basis_id, target_id=request.targetId)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    await _record_dictionary_delete(session, user=user, section="deliveryBases", session_id=session_id, applied=applied)
 
 
 async def _record_dictionary_delete(

@@ -180,6 +180,12 @@ class DictionaryBatchRequest(BaseModel):
     updates: list[CellUpdate] = Field(min_length=1, max_length=10000)
 
 
+class DictionaryReplaceRequest(BaseModel):
+    """Dictionary value replacement: `null` deletes the value instead."""
+
+    targetId: UUID | None = None
+
+
 class PriceUpdateRequest(BaseModel):
     """Batch of «Цены» cell edits."""
 

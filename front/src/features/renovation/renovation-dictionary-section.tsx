@@ -11,6 +11,7 @@ import {
     deleteRenovationAsset,
     deleteRenovationUser,
     deleteRenovationCatalogOption,
+    replaceRenovationCatalogOption,
     exportRenovationDictionary,
     getRenovationCatalogOptions,
     getRenovationDictionaryAssets,
@@ -44,6 +45,7 @@ import {
     type AddRecordValues,
 } from "@/shared/ui/add-record-modal";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
+import { ReplaceRecordDialog, type ReplaceTargetOption } from "@/shared/ui/replace-record-dialog";
 import { runTableExport } from "@/shared/ui/table-export-action";
 import { errorMessage, recordLabel, trimmedText } from "@/shared/ui/text-helpers";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
@@ -195,6 +197,7 @@ export function RenovationDictionarySection({
     refreshKey,
     remoteCellValues,
     onDeleteState,
+    onReplaceState,
     onExportState,
     onResetState,
     onUserCreateState,
@@ -220,6 +223,12 @@ export function RenovationDictionarySection({
         canDelete: boolean;
         blockedReason: string | null;
         onDelete: () => void;
+    }) => void;
+    /** Registers the «Заменить» action of the reference catalogs. */
+    onReplaceState: (state: {
+        canReplace: boolean;
+        blockedReason: string | null;
+        onReplace: () => void;
     }) => void;
     onExportState: (state: {
         pending: boolean;
@@ -420,6 +429,38 @@ export function RenovationDictionarySection({
         });
     }, [canDelete, deleteBlockedReason, onDeleteState]);
 
+    // «Заменить» is available on the reference catalogs for exactly one value.
+    const [replaceOpen, setReplaceOpen] = useState(false);
+    const canReplace =
+        catalogId !== null && dictSection !== RENOVATION_USERS_SECTION && selectedRows.length === 1;
+    const replaceBlockedReason =
+        catalogId === null || dictSection === RENOVATION_USERS_SECTION
+            ? null
+            : selectedRows.length === 0
+              ? "Выберите значение для замены."
+              : selectedRows.length > 1
+                ? "Выберите ровно одно значение."
+                : null;
+    const replaceTargets: ReplaceTargetOption[] = useMemo(
+        () =>
+            canReplace
+                ? gridRows
+                      .filter((row) => row.id !== selectedRows[0]?.id)
+                      .map((row) => ({
+                          id: row.id,
+                          name: String((row as { label?: unknown }).label ?? row.id),
+                      }))
+                : [],
+        [canReplace, gridRows, selectedRows],
+    );
+    useEffect(() => {
+        onReplaceState({
+            canReplace,
+            blockedReason: replaceBlockedReason,
+            onReplace: () => setReplaceOpen(true),
+        });
+    }, [canReplace, onReplaceState, replaceBlockedReason]);
+
     const commit = useCallback(
         async (updates: CellUpdate[]): Promise<boolean> => {
             if (readOnly || !updates.length) return true;
@@ -455,6 +496,25 @@ export function RenovationDictionarySection({
         } catch (reason) {
             toast.danger("Изменения не сохранены", { description: errorMessage(reason) });
             return false;
+        } finally {
+            setIsMutationPending(false);
+        }
+    }
+
+    async function replaceRecord(targetId: string | null) {
+        if (!canReplace || catalogId === null) return;
+        const row = selectedRows[0];
+        if (!row) return;
+        setIsMutationPending(true);
+        try {
+            await replaceRenovationCatalogOption(catalogId, row.id, targetId);
+            refresh();
+            setReplaceOpen(false);
+            setSelectedRowIds([]);
+            onUndoHistoryChanged();
+            toast.success("Значение заменено");
+        } catch (reason) {
+            toast.danger("Не удалось заменить значение", { description: errorMessage(reason) });
         } finally {
             setIsMutationPending(false);
         }
@@ -720,6 +780,14 @@ export function RenovationDictionarySection({
                 count={selectedRows.length}
                 onOpenChange={setDeleteOpen}
                 onConfirm={() => void deleteRecords()}
+            />
+            <ReplaceRecordDialog
+                isOpen={replaceOpen}
+                isPending={isMutationPending}
+                label={String((selectedRows[0] as { label?: unknown } | undefined)?.label ?? "")}
+                options={replaceTargets}
+                onOpenChange={setReplaceOpen}
+                onConfirm={(targetId) => void replaceRecord(targetId)}
             />
             {dictSection === RENOVATION_USERS_SECTION ? (
                 <AddRecordModal

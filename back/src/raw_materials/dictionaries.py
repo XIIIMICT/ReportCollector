@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import col, delete, select
+from sqlmodel import col, delete, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
@@ -34,6 +34,79 @@ _DICT_REF_ASSET_NOT_FOUND = ValueError("Актив не найден.")
 _DICT_REF_ASSET_USED = ValueError("Нельзя удалить: актив используется в формах «Движение» или «Цены».")
 _DICT_REF_BASIS_NOT_FOUND = ValueError("Базис поставки не найден.")
 _DICT_REF_BASIS_USED = ValueError("Нельзя удалить: базис используется в форме «Цены».")
+_ERR_REPLACE_SELF = ValueError("Нельзя заменить значение на него же.")
+_ERR_REPLACE_CONFLICT = ValueError(
+    "Замена нарушила бы ограничения уникальности в связанных таблицах — ни одна запись не изменена.",
+)
+
+
+async def replace_raw_material(
+    session: AsyncSession, *, raw_material_id: UUID, target_id: UUID | None
+) -> list[AppliedCell]:
+    """
+    Re-point every «Движение»/«Цены» row of one item to another, then delete it.
+
+    The asset links of the replaced item merge into the target: links that
+    already hold movement or price rows stay (the moved rows join them), the
+    empty ones are dropped. With `target_id=None` the item is simply deleted —
+    its rows cannot survive without an item, and the delete refuses a used one.
+    A uniqueness violation rolls the whole operation back.
+    """
+    source = await session.get(RawMaterial, raw_material_id)
+    if source is None:
+        raise _DICT_REF_RAW_MATERIAL_NOT_FOUND
+    if target_id is None:
+        return await delete_raw_material(session, raw_material_id=raw_material_id)
+    if target_id == raw_material_id:
+        raise _ERR_REPLACE_SELF
+    target = await session.get(RawMaterial, target_id)
+    if target is None:
+        raise _DICT_REF_RAW_MATERIAL_NOT_FOUND
+    source_links = (
+        await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.raw_material_id) == raw_material_id))
+    ).all()
+    target_links = {
+        link.asset_id: link
+        for link in (
+            await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.raw_material_id) == target_id))
+        ).all()
+    }
+    for link in source_links:
+        target_link = target_links.get(link.asset_id)
+        if target_link is None:
+            link.raw_material_id = target_id
+            await session.flush()
+            continue
+        await session.exec(
+            update(MaterialMovement)
+            .where(col(MaterialMovement.asset_raw_material_id) == link.id)
+            .values(asset_raw_material_id=target_link.id)
+        )
+        await session.exec(
+            update(RawMaterialPrice)
+            .where(col(RawMaterialPrice.asset_raw_material_id) == link.id)
+            .values(asset_raw_material_id=target_link.id)
+        )
+        await session.delete(link)
+        await session.flush()
+    source_name = source.name
+    target.updated_at = datetime.now(UTC)
+    session.add(target)
+    await session.delete(source)
+    try:
+        await session.flush()
+    except IntegrityError as error:
+        await session.rollback()
+        raise _ERR_REPLACE_CONFLICT from error
+    return [
+        AppliedCell(
+            target_table=RawMaterial.__tablename__,
+            row_id=raw_material_id,
+            field="__replaced",
+            old_value={"name": source_name, "targetId": str(target_id)},
+            new_value=None,
+        )
+    ]
 
 
 async def read_raw_material_rows(
@@ -464,6 +537,126 @@ async def delete_delivery_basis(session: AsyncSession, *, basis_id: UUID) -> lis
             row_id=basis_id,
             field="__deleted",
             old_value=snapshot,
+            new_value=None,
+        )
+    ]
+
+
+async def replace_asset(session: AsyncSession, *, asset_id: UUID, target_id: UUID | None) -> list[AppliedCell]:
+    """
+    Re-point every «Движение»/«Цены» row of one asset to another, then delete it.
+
+    Asset grants of the replaced asset move to the target where the target has
+    none. With `target_id=None` the asset is deleted as usual (refused while it
+    is used).
+    """
+    source = await session.get(RawMaterialAsset, asset_id)
+    if source is None:
+        raise _DICT_REF_ASSET_NOT_FOUND
+    if target_id is None:
+        return await delete_asset(session, asset_id=asset_id)
+    if target_id == asset_id:
+        raise _ERR_REPLACE_SELF
+    target = await session.get(RawMaterialAsset, target_id)
+    if target is None:
+        raise _DICT_REF_ASSET_NOT_FOUND
+    source_links = (
+        await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.asset_id) == asset_id))
+    ).all()
+    target_links = {
+        link.raw_material_id: link
+        for link in (
+            await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.asset_id) == target_id))
+        ).all()
+    }
+    for link in source_links:
+        target_link = target_links.get(link.raw_material_id)
+        if target_link is None:
+            link.asset_id = target_id
+            await session.flush()
+            continue
+        await session.exec(
+            update(MaterialMovement)
+            .where(col(MaterialMovement.asset_raw_material_id) == link.id)
+            .values(asset_raw_material_id=target_link.id)
+        )
+        await session.exec(
+            update(RawMaterialPrice)
+            .where(col(RawMaterialPrice.asset_raw_material_id) == link.id)
+            .values(asset_raw_material_id=target_link.id)
+        )
+        await session.delete(link)
+        await session.flush()
+    target_grants = {
+        grant.user_id
+        for grant in (
+            await session.exec(select(RawMaterialUserAsset).where(col(RawMaterialUserAsset.asset_id) == target_id))
+        ).all()
+    }
+    for grant in (
+        await session.exec(select(RawMaterialUserAsset).where(col(RawMaterialUserAsset.asset_id) == asset_id))
+    ).all():
+        if grant.user_id in target_grants:
+            await session.delete(grant)
+        else:
+            grant.asset_id = target_id
+    source_name = source.name
+    target.updated_at = datetime.now(UTC)
+    session.add(target)
+    await session.delete(source)
+    try:
+        await session.flush()
+    except IntegrityError as error:
+        await session.rollback()
+        raise _ERR_REPLACE_CONFLICT from error
+    return [
+        AppliedCell(
+            target_table=RawMaterialAsset.__tablename__,
+            row_id=asset_id,
+            field="__replaced",
+            old_value={"name": source_name, "targetId": str(target_id)},
+            new_value=None,
+        )
+    ]
+
+
+async def replace_delivery_basis(session: AsyncSession, *, basis_id: UUID, target_id: UUID | None) -> list[AppliedCell]:
+    """
+    Re-point every «Цены» row of one basis to another, then delete it.
+
+    With `target_id=None` the basis is deleted as usual (refused while it is
+    already used by a price row).
+    """
+    source = await session.get(DeliveryBasis, basis_id)
+    if source is None:
+        raise _DICT_REF_BASIS_NOT_FOUND
+    if target_id is None:
+        return await delete_delivery_basis(session, basis_id=basis_id)
+    if target_id == basis_id:
+        raise _ERR_REPLACE_SELF
+    target = await session.get(DeliveryBasis, target_id)
+    if target is None:
+        raise _DICT_REF_BASIS_NOT_FOUND
+    await session.exec(
+        update(RawMaterialPrice)
+        .where(col(RawMaterialPrice.delivery_basis_id) == basis_id)
+        .values(delivery_basis_id=target_id)
+    )
+    source_name = source.name
+    target.updated_at = datetime.now(UTC)
+    session.add(target)
+    await session.delete(source)
+    try:
+        await session.flush()
+    except IntegrityError as error:
+        await session.rollback()
+        raise _ERR_REPLACE_CONFLICT from error
+    return [
+        AppliedCell(
+            target_table=DeliveryBasis.__tablename__,
+            row_id=basis_id,
+            field="__replaced",
+            old_value={"name": source_name, "targetId": str(target_id)},
             new_value=None,
         )
     ]

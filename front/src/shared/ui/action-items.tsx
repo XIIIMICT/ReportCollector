@@ -8,7 +8,17 @@
  */
 
 import { AlertDialog, Button, ButtonGroup, Spinner } from "@heroui/react";
-import { Copy, Download, PasteClipboard, Plus, Redo, Trash, Undo } from "iconoir-react";
+import {
+    Copy,
+    Download,
+    PasteClipboard,
+    Plus,
+    Redo,
+    Substract,
+    Trash,
+    Undo,
+    Xmark,
+} from "iconoir-react";
 import { createElement, type ReactElement, type ReactNode } from "react";
 
 import type { ActionItem } from "@/shared/ui/action-bar";
@@ -39,6 +49,36 @@ export function reconcileExportState(current: ExportState, next: ExportState): E
 
 /** The reason shown on an export button over an empty table. */
 export const NOTHING_TO_EXPORT_REASON = "Нечего выгружать: таблица пуста.";
+
+/**
+ * «Заменить» for dictionary grids: re-points every reference to another
+ * option and deletes the replaced one. Visible only where the section is a
+ * reference dictionary and exactly one row is selected.
+ */
+export function buildReplaceAction({
+    show,
+    disabled,
+    blockedReason,
+    onReplace,
+}: {
+    show: boolean;
+    disabled: boolean;
+    blockedReason: string | null;
+    onReplace: () => void;
+}): ActionItem[] {
+    if (!show) return [];
+    return [
+        {
+            id: "replace",
+            label: "Заменить",
+            icon: createElement(Substract),
+            onPress: onReplace,
+            disabled,
+            ...(blockedReason && { disabledReason: blockedReason }),
+            group: "row",
+        },
+    ];
+}
 
 /**
  * The Excel export button with its two-entry dropdown.
@@ -262,6 +302,7 @@ export function DeleteRecordDialog({
                                     onPress={() => onOpenChange(false)}
                                     isDisabled={isPending}
                                 >
+                                    <Xmark aria-hidden="true" />
                                     Отмена
                                 </Button>
                                 <Button variant="danger" onPress={onConfirm} isDisabled={isPending}>

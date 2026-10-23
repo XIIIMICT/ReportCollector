@@ -2,10 +2,10 @@
 
 import { Dropdown, Label } from "@heroui/react";
 import {
-    ArrowSeparateVertical,
-    ArrowUnionVertical,
     Collapse,
+    CompressLines,
     Expand,
+    ExpandLines,
     Eye,
     EyeClosed,
     MoreHoriz,
@@ -124,9 +124,9 @@ export function ViewStrip({
                                       : "Сузить строки",
                                   false,
                                   rowHeight === MIN_ROW_HEIGHT ? (
-                                      <ArrowSeparateVertical aria-hidden="true" />
+                                      <ExpandLines aria-hidden="true" />
                                   ) : (
-                                      <ArrowUnionVertical aria-hidden="true" />
+                                      <CompressLines aria-hidden="true" />
                                   ),
                               )
                             : null}

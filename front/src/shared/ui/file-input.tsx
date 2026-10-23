@@ -1,7 +1,7 @@
 "use client";
 
 import { FieldError, InputGroup, TextField } from "@heroui/react";
-import { PagePlusIn } from "iconoir-react";
+import { Attachment } from "iconoir-react";
 import { useRef } from "react";
 
 import { ExpandableButton } from "@/shared/ui/expandable-button";
@@ -72,7 +72,7 @@ export function FileInput({
                             isDisabled={isDisabled}
                             onPress={openPicker}
                             variant="tertiary"
-                            icon={<PagePlusIn aria-hidden="true" />}
+                            icon={<Attachment aria-hidden="true" />}
                         >
                             {buttonLabel}
                         </ExpandableButton>

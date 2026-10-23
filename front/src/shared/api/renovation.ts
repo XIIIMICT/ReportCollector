@@ -621,6 +621,18 @@ export async function deleteRenovationCatalogOption(
     );
 }
 
+export async function replaceRenovationCatalogOption(
+    catalogId: string,
+    valueId: string,
+    targetId: string | null,
+): Promise<void> {
+    return requestWrite(
+        `/api/renovation/dictionary/catalogs/${encodeURIComponent(catalogId)}/options/${encodeURIComponent(valueId)}/replace?session_id=${getCollabSessionId()}`,
+        "POST",
+        { targetId },
+    );
+}
+
 export async function getRenovationDictionaryUsers(): Promise<RenovationUserRow[]> {
     return requestJson("/api/renovation/dictionary/users");
 }

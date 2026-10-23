@@ -357,6 +357,26 @@ export async function deleteDictionaryRecord(
     );
 }
 
+export type DictionaryReplaceTarget = "rawMaterials" | "assets" | "deliveryBases";
+
+export async function replaceDictionaryRecord(
+    section: DictionaryReplaceTarget,
+    rowId: string,
+    targetId: string | null,
+): Promise<void> {
+    const endpoint =
+        section === "rawMaterials"
+            ? "raw-materials"
+            : section === "assets"
+              ? "assets"
+              : "delivery-bases";
+    return requestWrite(
+        `/api/raw-materials/${endpoint}/${rowId}/replace?session_id=${getCollabSessionId()}`,
+        "POST",
+        { targetId },
+    );
+}
+
 export type ExportViewRequest = {
     section: SectionId;
     reportMonth: string | null;

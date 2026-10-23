@@ -17,6 +17,7 @@ import { createElement, useCallback, useEffect, useMemo, useRef, useState } from
 import {
     createDictionaryRecord,
     deleteDictionaryRecord,
+    replaceDictionaryRecord,
     exportTableToExcel,
     fixMovement,
     getAssetList,
@@ -95,6 +96,7 @@ import {
     buildExportAction,
     buildHistoryActions,
     buildPrimaryAction,
+    buildReplaceAction,
     DeleteRecordDialog,
 } from "@/shared/ui/action-items";
 import {
@@ -109,6 +111,7 @@ import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
 import { HoverDropdown } from "@/shared/ui/hover-dropdown";
+import { ReplaceRecordDialog, type ReplaceTargetOption } from "@/shared/ui/replace-record-dialog";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { SupportButton } from "@/shared/ui/support-button";
 import { runTableExport } from "@/shared/ui/table-export-action";
@@ -445,6 +448,7 @@ function SectionContent({
     // scrollbars in this mode (the header stays visible while scrolling).
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [replaceOpen, setReplaceOpen] = useState(false);
     const [approveOpen, setApproveOpen] = useState(false);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     // Users are created through a modal (the fields are role-dependent), other
@@ -543,6 +547,25 @@ function SectionContent({
                   ? "Сначала снимите доступ пользователя к проекту (колонка «Доступ»), затем удаляйте."
                   : null;
     const deleteAllowed = canDelete && deleteBlockedReason === null;
+    // «Заменить» is a dictionary operation on exactly one value: it re-points
+    // the references and deletes the replaced row.
+    const replaceTargets: ReplaceTargetOption[] = useMemo(() => {
+        if (selectedRows.length !== 1 || section === "users") return [];
+        return (rows ?? [])
+            .filter((row) => row.id !== selectedRows[0]?.id)
+            .map((row) => ({
+                id: row.id,
+                name: String((row as { name?: unknown }).name ?? row.id),
+            }));
+    }, [rows, section, selectedRows]);
+    const canReplace = canManageReferences && selectedRows.length === 1 && section !== "users";
+    const replaceBlockedReason =
+        selectedRows.length === 0
+            ? "Выберите запись для замены."
+            : selectedRows.length > 1
+              ? "Выберите ровно одну запись."
+              : null;
+    void replaceBlockedReason;
 
     // Ctrl+Delete — the shortcut advertised on the action-bar delete button:
     // opens the same confirmation dialog as the button press.
@@ -782,6 +805,29 @@ function SectionContent({
             setIsMutationPending(false);
             // The deletion is journaled like any cell edit: re-read the stack so
             // «Отменить действие» lights up straight away.
+            void refreshUndoCounters(
+                () => getUndoState(section, reportMonth),
+                setUndoCount,
+                setRedoCount,
+            );
+        }
+    }
+
+    async function replaceRecord(targetId: string | null) {
+        if (!canReplace || !isDictionarySection(section)) return;
+        const row = selectedRows[0];
+        if (!row) return;
+        setIsMutationPending(true);
+        try {
+            await replaceDictionaryRecord(section, row.id, targetId);
+            refresh();
+            setReplaceOpen(false);
+            setSelectedRowIds([]);
+            toast.success("Значение заменено");
+        } catch (reason) {
+            toast.danger("Не удалось заменить значение", { description: errorMessage(reason) });
+        } finally {
+            setIsMutationPending(false);
             void refreshUndoCounters(
                 () => getUndoState(section, reportMonth),
                 setUndoCount,
@@ -1082,6 +1128,14 @@ function SectionContent({
                 onOpenChange={setDeleteOpen}
                 onConfirm={() => void deleteRecords()}
             />
+            <ReplaceRecordDialog
+                isOpen={replaceOpen}
+                isPending={isMutationPending}
+                label={recordLabel(selectedRows[0]) ?? ""}
+                options={replaceTargets}
+                onOpenChange={setReplaceOpen}
+                onConfirm={(targetId) => void replaceRecord(targetId)}
+            />
             <ApproveDialog
                 isOpen={approveOpen}
                 isPending={approvePending}
@@ -1121,6 +1175,9 @@ function SectionFooter({
     onExport,
     onDelete,
     deleteBlockedReason,
+    canReplace,
+    replaceBlockedReason,
+    onReplace,
     onCreateUser,
     onCopy,
     onPaste,
@@ -1130,6 +1187,10 @@ function SectionFooter({
     canDelete: boolean;
     /** Why delete is disabled (deleting yourself / a user with access). */
     deleteBlockedReason: string | null;
+    /** «Заменить» needs exactly one dictionary value selected. */
+    canReplace: boolean;
+    replaceBlockedReason: string | null;
+    onReplace: () => void;
     /** «Пользователи» is created through the modal, so the action is shown. */
     canCreateUser: boolean;
     undoState: UndoState;
@@ -1162,6 +1223,9 @@ function SectionFooter({
                 onExport={onExport}
                 onDelete={onDelete}
                 deleteBlockedReason={deleteBlockedReason}
+                canReplace={canReplace}
+                replaceBlockedReason={replaceBlockedReason}
+                onReplace={onReplace}
                 onCreateUser={onCreateUser}
                 onCopy={onCopy}
                 onPaste={onPaste}
@@ -1573,6 +1637,9 @@ export function RawMaterialsWorkspace({
                 onExport={(scope) => void exportState.onExport(scope)}
                 onDelete={deleteState.onDelete}
                 deleteBlockedReason={deleteState.blockedReason}
+                canReplace={false}
+                replaceBlockedReason={null}
+                onReplace={() => {}}
                 onCreateUser={userCreateState.onCreate}
                 onCopy={clipboardState.onCopy}
                 onPaste={clipboardState.onPaste}
@@ -1802,6 +1869,9 @@ function ActionBar({
     onExport,
     onDelete,
     deleteBlockedReason,
+    canReplace,
+    replaceBlockedReason,
+    onReplace,
     onCreateUser,
     onCopy,
     onPaste,
@@ -1811,6 +1881,10 @@ function ActionBar({
     canDelete: boolean;
     /** Why delete is disabled (deleting yourself / a user with access). */
     deleteBlockedReason: string | null;
+    /** «Заменить» needs exactly one dictionary value selected. */
+    canReplace: boolean;
+    replaceBlockedReason: string | null;
+    onReplace: () => void;
     canCreateUser: boolean;
     undoState: UndoState;
     approveState: ApproveState;
@@ -1855,6 +1929,12 @@ function ActionBar({
             disabled: exportPending || isFullscreenPending,
             rowCount: exportRowCount,
             onExport,
+        }),
+        ...buildReplaceAction({
+            show: section !== "users",
+            disabled: !canReplace || isFullscreenPending,
+            blockedReason: isFullscreenPending ? null : replaceBlockedReason,
+            onReplace,
         }),
         ...buildDeleteAction({
             show: sectionPolicy(section).rowOps !== "none",

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import func
-from sqlmodel import col, select
+from sqlmodel import col, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.collab.journal import AppliedCell
@@ -32,11 +32,11 @@ async def read_renovation_catalog_rows(
     catalog: str,
     option_id: UUID | None = None,
 ) -> list[RenovationCatalogOptionRowRead]:
-    """Options of a renovation reference catalog (ordered by sort_order, label)."""
+    """Options of a renovation reference catalog (ordered by label)."""
     query = (
         select(RenovationReferenceValue)
         .where(col(RenovationReferenceValue.catalog) == catalog)
-        .order_by(col(RenovationReferenceValue.sort_order), col(RenovationReferenceValue.label))
+        .order_by(col(RenovationReferenceValue.label))
     )
     if option_id is not None:
         query = query.where(col(RenovationReferenceValue.id) == option_id)
@@ -86,19 +86,11 @@ async def create_renovation_catalog_option(
     if not label:
         raise _DICT_OPTION_LABEL_EMPTY
     await _ensure_option_label_free(session, catalog=catalog, label=label, exclude_id=None)
-    max_order = (
-        await session.exec(
-            select(func.max(col(RenovationReferenceValue.sort_order))).where(
-                col(RenovationReferenceValue.catalog) == catalog
-            )
-        )
-    ).one()
     now = datetime.now(UTC)
     option = RenovationReferenceValue(
         catalog=RReferenceCatalog(catalog),
         value_key=f"{catalog}_{uuid4().hex[:8]}",
         label=label,
-        sort_order=int(max_order) + 1 if max_order is not None else 1,
         created_at=now,
         updated_at=now,
         updater_user_id=user.id,
@@ -175,7 +167,6 @@ async def delete_renovation_catalog_option(
         "catalog": option.catalog.value,
         "valueKey": option.value_key,
         "label": option.label,
-        "sortOrder": option.sort_order,
         "payload": option.payload,
     }
     await session.delete(option)
@@ -186,6 +177,56 @@ async def delete_renovation_catalog_option(
             row_id=option_id,
             field="__deleted",
             old_value=snapshot,
+            new_value=None,
+        )
+    ]
+
+
+async def replace_renovation_catalog_option(
+    session: AsyncSession,
+    *,
+    catalog: str,
+    option_id: UUID,
+    target_id: UUID | None,
+    user: User,
+) -> list[AppliedCell]:
+    """
+    Re-point every plan row of one catalog option to another, then delete it.
+
+    With `target_id=None` the option is deleted as usual (refused while it is
+    still referenced). A failure leaves both options untouched.
+    """
+    option = await session.get(RenovationReferenceValue, option_id)
+    if option is None or option.catalog.value != catalog:
+        raise _DICT_OPTION_NOT_FOUND
+    if target_id is None:
+        return await delete_renovation_catalog_option(session, catalog=catalog, option_id=option_id)
+    if target_id == option_id:
+        msg = "Нельзя заменить значение на него же."
+        raise ValueError(msg)
+    target = await session.get(RenovationReferenceValue, target_id)
+    if target is None or target.catalog.value != catalog:
+        raise _DICT_OPTION_NOT_FOUND
+    now = datetime.now(UTC)
+    reference_fields = [getattr(RenovationPlanRow, meta.db_name) for meta in field_metas() if meta.catalog == catalog]
+    for field in reference_fields:
+        await session.exec(
+            update(RenovationPlanRow)
+            .where(field == option_id)
+            .values({field.key: target_id, "updated_at": now, "updater_user_id": user.id})
+        )
+    target.updated_at = now
+    target.updater_user_id = user.id
+    session.add(target)
+    label = option.label
+    await session.delete(option)
+    await session.flush()
+    return [
+        AppliedCell(
+            target_table=RenovationReferenceValue.__tablename__,
+            row_id=option_id,
+            field="__replaced",
+            old_value={"catalog": catalog, "label": label, "targetId": str(target_id)},
             new_value=None,
         )
     ]
@@ -218,7 +259,6 @@ async def _apply_renovation_option_deleted(
         catalog=catalog,
         value_key=str(value.get("valueKey") or ""),
         label=str(value.get("label") or ""),
-        sort_order=int(value.get("sortOrder") or 0),
         payload=value.get("payload") if value.get("payload") is not None else None,
         is_active=True,
     )
