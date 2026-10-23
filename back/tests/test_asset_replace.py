@@ -1,10 +1,8 @@
 """Asset replacement re-points the asset × raw-material links or reports a conflict."""
 
 from datetime import UTC, datetime
-from uuid import UUID
 
 import pytest
-from sqlalchemy import text
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -52,24 +50,18 @@ async def test_a_shared_raw_material_is_a_conflict_not_a_merge(db_session: Async
     db_session.add(AssetRawMaterial(asset_id=source.id, raw_material_id=shared.id, created_at=now, updated_at=now))
     db_session.add(AssetRawMaterial(asset_id=target.id, raw_material_id=shared.id, created_at=now, updated_at=now))
     await db_session.flush()
+    source_id, target_id, material_id = source.id, target.id, shared.id
     await db_session.commit()
-    source_id, target_id, material_id = str(source.id), str(target.id), str(shared.id)
 
     with pytest.raises(ValueError, match="уникальности"):
-        await replace_asset(db_session, asset_id=UUID(source_id), target_id=UUID(target_id))
+        await replace_asset(db_session, asset_id=source_id, target_id=target_id)
 
     # The rollback restored the database state: both assets and both links.
     links = (
-        await db_session.exec(
-            text("SELECT asset_id FROM rm_asset_raw_materials WHERE raw_material_id = CAST(:material AS uuid)").bindparams(
-                material=material_id
-            )
-        )
+        await db_session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.raw_material_id) == material_id))
     ).all()
-    assert sorted(str(row[0]) for row in links) == sorted([source_id, target_id])
+    assert sorted(link.asset_id for link in links) == sorted([source_id, target_id])
     assets = (
-        await db_session.exec(
-            text("SELECT id FROM rm_assets WHERE name LIKE :prefix").bindparams(prefix="ПРОБА-АКТИВ%")
-        )
+        await db_session.exec(select(RawMaterialAsset).where(col(RawMaterialAsset.name).like("ПРОБА-АКТИВ%")))
     ).all()
     assert len(assets) == 2

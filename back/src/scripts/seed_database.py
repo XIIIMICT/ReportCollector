@@ -25,7 +25,7 @@ from uuid import UUID, uuid4
 
 from openpyxl import load_workbook
 from pyxlsb import open_workbook
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -49,7 +49,8 @@ from src.renovation.constants import R_ASSETS, RENOVATION_PROJECT_KEY, RENOVATIO
 from src.renovation.form_schema import field_metas
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
-from src.renovation.reference_data import REFERENCE_OPTIONS
+from src.renovation.reference_data import REFERENCE_OPTIONS, reference_option_id
+from src.renovation.renovation_id import DIRECTION_CODE_FIELD, normalize_direction_code
 from src.renovation.service import recompute_plan_rows
 from src.scripts.seed_kppk import seed_administrators
 
@@ -789,6 +790,9 @@ def iter_renovation_plan_rows(
                         parsed = _parse_bool(cell)
                     else:
                         parsed = _parse_text(cell)
+                        if parsed is not None and field == DIRECTION_CODE_FIELD:
+                            # The «Лот» code always ends with a dot.
+                            parsed = normalize_direction_code(parsed)
                     if parsed is not None:
                         values[field] = parsed
                 yield RenovationPlanRow(
@@ -983,22 +987,24 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
     await session.flush()
 
     # Renovation reference catalogs (static options from renovation-form.json).
-    for catalog, value_key, label, sort_order in REFERENCE_OPTIONS:
-        option = (
+    # The id comes from (catalog, label), so a re-seed recognises its own rows;
+    # a database seeded before this change keeps its existing row (matched by
+    # label) instead of gaining a second copy.
+    for catalog, label in REFERENCE_OPTIONS:
+        existing = (
             await session.exec(
                 select(RenovationReferenceValue).where(
                     RenovationReferenceValue.catalog == catalog,
-                    RenovationReferenceValue.value_key == value_key,
+                    func.lower(RenovationReferenceValue.label) == label.lower(),
                 )
             )
         ).one_or_none()
-        if option is None:
+        if existing is None:
             session.add(
                 RenovationReferenceValue(
+                    id=reference_option_id(catalog, label),
                     catalog=catalog,
-                    value_key=value_key,
                     label=label,
-                    sort_order=sort_order,
                 )
             )
     await session.flush()
@@ -1007,9 +1013,9 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
     # deterministic demo when the workbook is absent). The plan is recreated
     # only when no working plan exists yet — for a fresh re-import, truncate
     # the renovation tables first (see `run --renovation`).
-    renovation_reference_by_key: dict[str, RenovationReferenceValue] = {}
+    renovation_reference_by_id: dict[UUID, UUID] = {}
     for value in (await session.exec(select(RenovationReferenceValue))).all():
-        renovation_reference_by_key[value.value_key] = value
+        renovation_reference_by_id[value.id] = value.id
     working_plan = (
         await session.exec(
             select(RenovationPlan).where(
@@ -1094,10 +1100,12 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
                         updater_user_id=None,
                         col_011=object_name,
                         col_016="Ремонтный бюджет",
-                        col_017=renovation_reference_by_key["work_category_002"].id,
-                        col_018=renovation_reference_by_key["work_type_002"].id,
-                        col_019=renovation_reference_by_key["cost_allocation_002"].id,
-                        col_020=renovation_reference_by_key["execution_method_001"].id,
+                        col_017=renovation_reference_by_id[
+                            reference_option_id("work_category", "Остановочный капитальный ремонт")
+                        ],
+                        col_018=renovation_reference_by_id[reference_option_id("work_type", "ТР")],
+                        col_019=renovation_reference_by_id[reference_option_id("cost_allocation", "OPEX")],
+                        col_020=renovation_reference_by_id[reference_option_id("execution_method", "Собственные силы")],
                         col_023=defect,
                         col_024=date(2027, 1, 1),
                         col_025=date(2027, 1, 31),
