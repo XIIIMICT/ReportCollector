@@ -1,75 +1,75 @@
-"""Asset replacement merges the asset × raw-material links without duplicates."""
+"""Asset replacement re-points the asset × raw-material links or reports a conflict."""
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
+from uuid import UUID
 
+import pytest
+from sqlalchemy import text
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.raw_materials.dictionaries import replace_asset
-from src.raw_materials.models import (
-    AssetRawMaterial,
-    MaterialMovement,
-    RawMaterial,
-    RawMaterialAsset,
-    RawMaterialPrice,
-)
+from src.raw_materials.models import AssetRawMaterial, RawMaterial, RawMaterialAsset
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-async def test_replacing_an_asset_merges_the_product_links(db_session: AsyncSession) -> None:
+async def _assets(source: AsyncSession) -> tuple[RawMaterialAsset, RawMaterialAsset]:
     now = _now()
-    source = RawMaterialAsset(name="ПРОБА-АКТИВ-1", created_at=now, updated_at=now)
-    target = RawMaterialAsset(name="ПРОБА-АКТИВ-2", created_at=now, updated_at=now)
-    shared = RawMaterial(name="ПРОБА-СЫРЬЁ-ОБЩЕЕ", created_at=now, updated_at=now)
-    only_source = RawMaterial(name="ПРОБА-СЫРЬЁ-ОДНО", created_at=now, updated_at=now)
-    db_session.add(source)
-    db_session.add(target)
-    db_session.add(shared)
-    db_session.add(only_source)
-    await db_session.flush()
+    first = RawMaterialAsset(name="ПРОБА-АКТИВ-1", created_at=now, updated_at=now)
+    second = RawMaterialAsset(name="ПРОБА-АКТИВ-2", created_at=now, updated_at=now)
+    source.add(first)
+    source.add(second)
+    await source.flush()
+    return first, second
 
-    # Same raw material on both assets: the links must merge into one.
-    source_shared = AssetRawMaterial(asset_id=source.id, raw_material_id=shared.id, created_at=now, updated_at=now)
-    target_shared = AssetRawMaterial(asset_id=target.id, raw_material_id=shared.id, created_at=now, updated_at=now)
-    source_only = AssetRawMaterial(asset_id=source.id, raw_material_id=only_source.id, created_at=now, updated_at=now)
-    db_session.add(source_shared)
-    db_session.add(target_shared)
-    db_session.add(source_only)
-    await db_session.flush()
 
-    # A month the target already covers (dropped) and one it does not (moved).
-    march, august = date(2026, 8, 1), date(2026, 9, 1)
-    db_session.add(
-        MaterialMovement(asset_raw_material_id=target_shared.id, report_month=march, created_at=now, updated_at=now)
-    )
-    db_session.add(
-        MaterialMovement(asset_raw_material_id=source_shared.id, report_month=march, created_at=now, updated_at=now)
-    )
-    db_session.add(
-        MaterialMovement(asset_raw_material_id=source_shared.id, report_month=august, created_at=now, updated_at=now)
-    )
-    db_session.add(RawMaterialPrice(asset_raw_material_id=source_shared.id, created_at=now, updated_at=now))
+async def test_a_unique_link_follows_the_asset(db_session: AsyncSession) -> None:
+    source, target = await _assets(db_session)
+    now = _now()
+    material = RawMaterial(name="ПРОБА-СЫРЬЁ-ОДНО", created_at=now, updated_at=now)
+    db_session.add(material)
+    await db_session.flush()
+    db_session.add(AssetRawMaterial(asset_id=source.id, raw_material_id=material.id, created_at=now, updated_at=now))
     await db_session.flush()
 
     await replace_asset(db_session, asset_id=source.id, target_id=target.id)
 
     links = (await db_session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.asset_id) == target.id))).all()
-    assert sorted(link.raw_material_id for link in links) == sorted([shared.id, only_source.id])
-    merged = next(link for link in links if link.raw_material_id == shared.id)
-    months = sorted(
-        row.report_month
-        for row in (
-            await db_session.exec(
-                select(MaterialMovement).where(col(MaterialMovement.asset_raw_material_id) == merged.id)
-            )
-        ).all()
-    )
-    assert months == [march, august]
-    prices = (
-        await db_session.exec(select(RawMaterialPrice).where(col(RawMaterialPrice.asset_raw_material_id) == merged.id))
-    ).all()
-    assert len(prices) == 1
+    assert [link.raw_material_id for link in links] == [material.id]
     assert await db_session.get(RawMaterialAsset, source.id) is None
+
+
+async def test_a_shared_raw_material_is_a_conflict_not_a_merge(db_session: AsyncSession) -> None:
+    """A duplicate pair rolls the whole replace back; nothing is folded away."""
+    source, target = await _assets(db_session)
+    now = _now()
+    shared = RawMaterial(name="ПРОБА-СЫРЬЁ-ОБЩЕЕ", created_at=now, updated_at=now)
+    db_session.add(shared)
+    await db_session.flush()
+    db_session.add(AssetRawMaterial(asset_id=source.id, raw_material_id=shared.id, created_at=now, updated_at=now))
+    db_session.add(AssetRawMaterial(asset_id=target.id, raw_material_id=shared.id, created_at=now, updated_at=now))
+    await db_session.flush()
+    await db_session.commit()
+    source_id, target_id, material_id = str(source.id), str(target.id), str(shared.id)
+
+    with pytest.raises(ValueError, match="уникальности"):
+        await replace_asset(db_session, asset_id=UUID(source_id), target_id=UUID(target_id))
+
+    # The rollback restored the database state: both assets and both links.
+    links = (
+        await db_session.exec(
+            text("SELECT asset_id FROM rm_asset_raw_materials WHERE raw_material_id = CAST(:material AS uuid)").bindparams(
+                material=material_id
+            )
+        )
+    ).all()
+    assert sorted(str(row[0]) for row in links) == sorted([source_id, target_id])
+    assets = (
+        await db_session.exec(
+            text("SELECT id FROM rm_assets WHERE name LIKE :prefix").bindparams(prefix="ПРОБА-АКТИВ%")
+        )
+    ).all()
+    assert len(assets) == 2

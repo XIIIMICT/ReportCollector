@@ -544,14 +544,13 @@ async def delete_delivery_basis(session: AsyncSession, *, basis_id: UUID) -> lis
 
 async def replace_asset(session: AsyncSession, *, asset_id: UUID, target_id: UUID | None) -> list[AppliedCell]:
     """
-    Merge one «Сырьё» asset into another, then delete the replaced one.
+    Re-point one «Сырьё» asset's links to another, then delete the replaced one.
 
-    Every asset × raw-material link of the replaced asset moves to the target.
-    When the target already links the same raw material, the two links are
-    merged into the target's: its movement and price rows are kept, the
-    source's duplicates for the same month (a unique pair) are dropped, and
-    the remaining source rows move over. Per-user grants are merged the same
-    way. With `target_id=None` the asset is deleted as usual.
+    Links, their «Движение»/«Цены» rows and the per-user grants move over
+    unchanged. A raw material already linked to the target breaks the unique
+    (asset, raw material) pair: nothing is merged, the whole replacement is
+    rolled back and the usual uniqueness error is raised, so no link is
+    silently folded away. With `target_id=None` the asset is deleted as usual.
     """
     source = await session.get(RawMaterialAsset, asset_id)
     if source is None:
@@ -563,33 +562,21 @@ async def replace_asset(session: AsyncSession, *, asset_id: UUID, target_id: UUI
     target = await session.get(RawMaterialAsset, target_id)
     if target is None:
         raise _DICT_REF_ASSET_NOT_FOUND
-
-    source_links = (
-        await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.asset_id) == asset_id))
-    ).all()
-    target_links = {
-        link.raw_material_id: link
-        for link in (
-            await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.asset_id) == target_id))
-        ).all()
-    }
-    for link in source_links:
-        target_link = target_links.get(link.raw_material_id)
-        if target_link is None:
-            # No counterpart: the whole link simply changes owner.
-            link.asset_id = target_id
-            target_links[link.raw_material_id] = link
-            await session.flush()
-            continue
-        await _merge_asset_raw_material_link(session, source=link, target=target_link)
-
-    await _merge_asset_grants(session, source_id=asset_id, target_id=target_id)
-
     source_name = source.name
-    target.updated_at = datetime.now(UTC)
-    session.add(target)
-    await session.delete(source)
     try:
+        for link in (
+            await session.exec(select(AssetRawMaterial).where(col(AssetRawMaterial.asset_id) == asset_id))
+        ).all():
+            link.asset_id = target_id
+            await session.flush()
+        for grant in (
+            await session.exec(select(RawMaterialUserAsset).where(col(RawMaterialUserAsset.asset_id) == asset_id))
+        ).all():
+            grant.asset_id = target_id
+            await session.flush()
+        target.updated_at = datetime.now(UTC)
+        session.add(target)
+        await session.delete(source)
         await session.flush()
     except IntegrityError as error:
         await session.rollback()
@@ -603,70 +590,6 @@ async def replace_asset(session: AsyncSession, *, asset_id: UUID, target_id: UUI
             new_value=None,
         )
     ]
-
-
-async def _merge_asset_raw_material_link(
-    session: AsyncSession,
-    *,
-    source: AssetRawMaterial,
-    target: AssetRawMaterial,
-) -> None:
-    """
-    Fold one asset × raw-material link into another.
-
-    The target keeps its own movement/price rows. A source row for a month the
-    target already covers is a duplicate of the same unique pair and is
-    dropped; every other source row moves to the target link. The source link
-    is removed afterwards.
-    """
-    target_months = {
-        row.report_month
-        for row in (
-            await session.exec(select(MaterialMovement).where(col(MaterialMovement.asset_raw_material_id) == target.id))
-        ).all()
-    }
-    for movement in (
-        await session.exec(select(MaterialMovement).where(col(MaterialMovement.asset_raw_material_id) == source.id))
-    ).all():
-        if movement.report_month in target_months:
-            await session.delete(movement)
-            continue
-        movement.asset_raw_material_id = target.id
-        target_months.add(movement.report_month)
-    # «Цены» is one row per link (no month): the target's row wins.
-    prices = (
-        await session.exec(select(RawMaterialPrice).where(col(RawMaterialPrice.asset_raw_material_id) == source.id))
-    ).all()
-    if prices:
-        target_price = (
-            await session.exec(select(RawMaterialPrice).where(col(RawMaterialPrice.asset_raw_material_id) == target.id))
-        ).first()
-        for price in prices:
-            if target_price is None:
-                price.asset_raw_material_id = target.id
-                target_price = price
-            else:
-                await session.delete(price)
-    await session.delete(source)
-    await session.flush()
-
-
-async def _merge_asset_grants(session: AsyncSession, *, source_id: UUID, target_id: UUID) -> None:
-    """Move per-user grants of the replaced asset, dropping the duplicates."""
-    target_users = {
-        grant.user_id
-        for grant in (
-            await session.exec(select(RawMaterialUserAsset).where(col(RawMaterialUserAsset.asset_id) == target_id))
-        ).all()
-    }
-    for grant in (
-        await session.exec(select(RawMaterialUserAsset).where(col(RawMaterialUserAsset.asset_id) == source_id))
-    ).all():
-        if grant.user_id in target_users:
-            await session.delete(grant)
-        else:
-            grant.asset_id = target_id
-            await session.flush()
 
 
 async def replace_delivery_basis(session: AsyncSession, *, basis_id: UUID, target_id: UUID | None) -> list[AppliedCell]:
