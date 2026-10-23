@@ -22,6 +22,7 @@ import {
     LogOut,
     SunLight,
     User,
+    Xmark,
 } from "iconoir-react";
 import { useTheme } from "next-themes";
 import { useEffect, useMemo, useState, type Key } from "react";
@@ -239,7 +240,8 @@ export function ProfileModal({ isOpen, user, onOpenChange, onProfileSaved }: Pro
                                     onPress={() => setConfirmation(null)}
                                     isDisabled={isPending}
                                 >
-                                    Отмена
+                                    <Xmark aria-hidden="true" />
+                                    Отменить
                                 </Button>
                                 <Button
                                     variant={confirmation === "logout" ? "danger" : "primary"}

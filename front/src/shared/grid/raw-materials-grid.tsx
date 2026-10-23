@@ -28,6 +28,7 @@ import {
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import { reactEditor } from "@/shared/grid/react-editor";
 import { isFromTextEditor } from "@/shared/keyboard";
+import { hasOpenModal } from "@/shared/ui/modal-presence";
 import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
 
 import {
@@ -1675,6 +1676,7 @@ function RawMaterialsGridInner(
             if (event.key === "Escape" && !document.fullscreenElement) {
                 if (
                     hasOpenSmartSelect() ||
+                    hasOpenModal() ||
                     (event.target instanceof Element &&
                         event.target.closest("[data-grid-keyboard-overlay]")) ||
                     isFromTextEditor(event) ||

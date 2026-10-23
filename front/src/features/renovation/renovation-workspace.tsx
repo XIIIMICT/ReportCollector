@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertDialog, Button, ButtonGroup, Spinner, toast } from "@heroui/react";
-import { CheckCircle, Plus, Send, Upload, WarningTriangle } from "iconoir-react";
+import { CheckCircle, Plus, Send, Upload, WarningTriangle, Xmark } from "iconoir-react";
 import { useTheme } from "next-themes";
 import {
     createElement,
@@ -2020,7 +2020,8 @@ function AddRowDialog({
                                     onPress={() => onOpenChange(false)}
                                     isDisabled={isPending}
                                 >
-                                    Отмена
+                                    <Xmark aria-hidden="true" />
+                                    Отменить
                                 </Button>
                                 <Button
                                     variant="primary"
@@ -2075,7 +2076,8 @@ function SubmitPlanDialog({
                                     onPress={() => onOpenChange(false)}
                                     isDisabled={isPending}
                                 >
-                                    Отмена
+                                    <Xmark aria-hidden="true" />
+                                    Отменить
                                 </Button>
                                 <Button
                                     variant="primary"
@@ -2166,7 +2168,8 @@ function ApprovePlanDialog({
                                     onPress={() => onOpenChange(false)}
                                     isDisabled={isPending}
                                 >
-                                    Отмена
+                                    <Xmark aria-hidden="true" />
+                                    Отменить
                                 </Button>
                                 <Button
                                     variant="primary"

@@ -318,7 +318,7 @@ export function DeleteRecordDialog({
                                     isDisabled={isPending}
                                 >
                                     <Xmark aria-hidden="true" />
-                                    Отмена
+                                    Отменить
                                 </Button>
                                 <Button variant="danger" onPress={onConfirm} isDisabled={isPending}>
                                     <ButtonGroup.Separator />

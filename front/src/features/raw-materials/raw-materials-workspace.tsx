@@ -10,7 +10,7 @@ import {
     toast,
     Typography,
 } from "@heroui/react";
-import { CheckCircle } from "iconoir-react";
+import { CheckCircle, Xmark } from "iconoir-react";
 import { useTheme } from "next-themes";
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -2002,7 +2002,8 @@ function ApproveDialog({
                                     onPress={() => onOpenChange(false)}
                                     isDisabled={isPending}
                                 >
-                                    Отмена
+                                    <Xmark aria-hidden="true" />
+                                    Отменить
                                 </Button>
                                 <Button
                                     variant="primary"

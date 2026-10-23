@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, InputGroup, Label, Modal, Spinner, Switch, TextField } from "@heroui/react";
-import { Check, Plus } from "iconoir-react";
+import { Check, Plus, Xmark } from "iconoir-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SmartSelect } from "@/shared/ui/smart-select";
@@ -147,7 +147,8 @@ export function AddRecordModal({
                             onPress={() => onOpenChange(false)}
                             isDisabled={isPending}
                         >
-                            Отмена
+                            <Xmark aria-hidden="true" />
+                            Отменить
                         </Button>
                         <Button
                             variant="primary"

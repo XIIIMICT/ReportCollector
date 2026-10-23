@@ -44,6 +44,7 @@ import { reactEditor } from "@/shared/grid/react-editor";
 import { isChunkedSection } from "@/shared/grid/section-policy";
 import { selectionDetailForColumn } from "@/shared/grid/selection-label";
 import { isFromTextEditor } from "@/shared/keyboard";
+import { hasOpenModal } from "@/shared/ui/modal-presence";
 import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
 
 import { breaksValueRules } from "./renovation-rules";
@@ -2280,6 +2281,11 @@ function RenovationGridInner(
                 // Window capture precedes the select's portal handlers. Leave
                 // this Escape to the popover, preserving the current range.
                 if (hasOpenSmartSelect()) return;
+                // A dialog owns Escape while it is open: the overlay lives in
+                // document.body, so this window handler would otherwise clear
+                // the grid selection underneath it (the open dialog then reads
+                // «Удалить записи (0)»).
+                if (hasOpenModal()) return;
                 if (
                     event.target instanceof Element &&
                     event.target.closest("[data-grid-keyboard-overlay]")
