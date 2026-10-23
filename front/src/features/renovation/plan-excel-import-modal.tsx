@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Modal, Spinner } from "@heroui/react";
+import { Button, Modal, Spinner, toast } from "@heroui/react";
 import { Upload } from "iconoir-react";
 import { useEffect, useState } from "react";
 
@@ -32,6 +32,13 @@ export type PlanExcelImportResult =
 export type PlanExcelUploadResult =
     | { status: "done"; newRows: number; updatedRows: number; skippedRows: number }
     | { status: "error"; message: string };
+
+/** The one-line load summary carried by the success toast. */
+export function loadSummary(result: Extract<PlanExcelUploadResult, { status: "done" }>): string {
+    const parts = [`Новых строк: ${result.newRows}`, `Обновлено строк: ${result.updatedRows}`];
+    if (result.skippedRows) parts.push(`Пропущено (актив вне проекта): ${result.skippedRows}`);
+    return parts.join(" · ");
+}
 
 export function PlanExcelImportModal({
     isOpen,
@@ -124,10 +131,17 @@ export function PlanExcelImportModal({
     async function upload() {
         if (!file || uploadPending) return;
         setUploadPending(true);
-        setUploadResult(null);
         try {
             const outcome = await onUpload?.(file);
-            if (outcome) setUploadResult(outcome);
+            if (!outcome) return;
+            if (outcome.status === "done") {
+                // A finished load needs no dialog: the summary moves to a toast
+                // and the grid behind it refetches the loaded rows.
+                toast.success("Файл загружен", { description: loadSummary(outcome) });
+                onOpenChange(false);
+                return;
+            }
+            setUploadResult(outcome);
         } catch (error) {
             setUploadResult({
                 status: "error",
@@ -173,15 +187,10 @@ export function PlanExcelImportModal({
                             void chooseFile(event.dataTransfer.files[0]);
                         }}
                     >
-                        {checkPending ? (
+                        {checkPending || uploadPending ? (
                             <p className="plan-excel-import-modal__status" role="status">
                                 <Spinner size="sm" />
-                                Идёт анализ...
-                            </p>
-                        ) : uploadPending ? (
-                            <p className="plan-excel-import-modal__status" role="status">
-                                <Spinner size="sm" />
-                                Идёт загрузка в базу...
+                                {checkPending ? "Идёт анализ..." : "Идёт загрузка в базу..."}
                             </p>
                         ) : (
                             <p
@@ -193,23 +202,6 @@ export function PlanExcelImportModal({
                             </p>
                         )}
                         {result?.status === "has-errors" ? <ImportErrors result={result} /> : null}
-                        {uploadResult?.status === "done" ? (
-                            <div className="plan-excel-import-modal__summary" role="status">
-                                <p>
-                                    <strong>
-                                        Загружено: {uploadResult.newRows + uploadResult.updatedRows}
-                                    </strong>
-                                </p>
-                                <p>Новых строк: {uploadResult.newRows}</p>
-                                <p>Обновлено строк: {uploadResult.updatedRows}</p>
-                                {uploadResult.skippedRows ? (
-                                    <p>
-                                        Пропущено строк (актив вне проекта):{" "}
-                                        {uploadResult.skippedRows}
-                                    </p>
-                                ) : null}
-                            </div>
-                        ) : null}
                         {uploadResult?.status === "error" ? (
                             <p className="plan-excel-import-modal__upload-error" role="alert">
                                 {uploadResult.message}

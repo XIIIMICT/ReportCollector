@@ -1,12 +1,32 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 
+import { toast } from "@heroui/react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
-import { PlanExcelImportModal } from "../plan-excel-import-modal";
+import { type PlanExcelUploadResult, PlanExcelImportModal } from "../plan-excel-import-modal";
 
 const HINT = "Выберите файл для загрузки в базу. Здесь будут выведены результаты его анализа.";
 
-afterEach(cleanup);
+const toasts: string[] = [];
+// The toast viewport needs a full landmark tree that happy-dom cannot provide,
+// so the dialog is checked against the notifications it raises. A spy (not a
+// module mock) keeps every other test in the run on the real implementation.
+let successSpy: ReturnType<typeof spyOn<typeof toast, "success">> | undefined;
+
+beforeEach(() => {
+    toasts.length = 0;
+    successSpy = spyOn(toast, "success").mockImplementation(
+        ((title: string, options?: { description?: string }) => {
+            toasts.push([title, options?.description].filter(Boolean).join(" · "));
+            return "toast-id";
+        }) as typeof toast.success,
+    );
+});
+
+afterEach(() => {
+    successSpy?.mockRestore();
+    cleanup();
+});
 
 test("opens the file picker and displays the selected file name", () => {
     const selected: File[] = [];
@@ -191,16 +211,20 @@ test("shows the spinner and «Идёт анализ...» while the file is being
     ).toBeTruthy();
 });
 
-test("the upload action loads the file that was checked and reports the summary", async () => {
+test("the upload shows the load state, then closes and raises a success toast", async () => {
     const uploaded: File[] = [];
+    const opened: boolean[] = [];
+    let finish: ((value: PlanExcelUploadResult) => void) | undefined;
     const view = render(
         <PlanExcelImportModal
             isOpen
             onFileSelected={() => {}}
-            onOpenChange={() => {}}
-            onUpload={async (file) => {
+            onOpenChange={(open) => opened.push(open)}
+            onUpload={(file) => {
                 uploaded.push(file);
-                return { status: "done" as const, newRows: 10, updatedRows: 30, skippedRows: 2 };
+                return new Promise<PlanExcelUploadResult>((resolve) => {
+                    finish = resolve;
+                });
             }}
             result={{ status: "ready", assets: ["АЭС-1", "АЭС-2"], newRows: 10, rowsToUpdate: 30 }}
         />,
@@ -209,8 +233,6 @@ test("the upload action loads the file that was checked and reports the summary"
     const button = view.getByRole("button", { name: "Загрузить" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(view.getByText("Активы: АЭС-1, АЭС-2")).toBeTruthy();
-    expect(view.getByText("Новых строк: 10")).toBeTruthy();
-    expect(view.getByText("Строк для обновления: 30")).toBeTruthy();
 
     const file = new File(["xlsb"], "plan.xlsb");
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -221,10 +243,26 @@ test("the upload action loads the file that was checked and reports the summary"
         fireEvent.click(view.getByRole("button", { name: "Загрузить" }));
     });
 
+    // The load is highlighted the same way as the analysis: spinner + label,
+    // and the rest of the dialog steps aside while it runs.
+    const statuses = Array.from(document.querySelectorAll(".plan-excel-import-modal__status"));
+    const status = statuses[statuses.length - 1];
+    expect(status?.textContent).toContain("Идёт загрузка в базу...");
+    expect(status?.querySelector("svg")).toBeTruthy();
+    expect(opened).toEqual([]);
+
+    await act(async () => {
+        finish?.({ status: "done", newRows: 10, updatedRows: 30, skippedRows: 2 });
+    });
+
     expect(uploaded).toEqual([file]);
-    expect(view.getByText("Загружено: 40")).toBeTruthy();
-    expect(view.getByText("Обновлено строк: 30")).toBeTruthy();
-    expect(view.getByText("Пропущено строк (актив вне проекта): 2")).toBeTruthy();
+    // Done: the dialog closes for the grid behind it, the summary is a toast.
+    expect(opened).toContain(false);
+    expect(toasts).toEqual([
+        "Файл загружен · Новых строк: 10 · Обновлено строк: 30 · Пропущено (актив вне проекта): 2",
+    ]);
+    // Nothing is reported inside the dialog any more.
+    expect(view.queryByText("Загружено: 40")).toBeNull();
 });
 
 test("a failed load keeps the checked file and shows the server message", async () => {
