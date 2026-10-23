@@ -6,48 +6,53 @@ import { ReplaceRecordDialog } from "../replace-record-dialog";
 
 afterEach(cleanup);
 
-const options = [
-    { id: "a", name: "Значение А" },
-    { id: "b", name: "Значение Б" },
+const OPTIONS = [
+    { id: "a", name: "ТО" },
+    { id: "b", name: "ТР" },
 ];
 
-test("explains the replacement, offers no self-target and reports the choice", () => {
-    const targets: Array<string | null> = [];
+test("nothing is chosen until the user picks a value, so confirm starts disabled", () => {
     const view = render(
         <ReplaceRecordDialog
             isOpen
             isPending={false}
-            label="Старое значение"
-            options={options}
+            label="КР"
+            sectionLabel="Вид работ"
+            options={OPTIONS}
             onOpenChange={() => {}}
-            onConfirm={(targetId) => targets.push(targetId)}
+            onConfirm={() => {}}
         />,
     );
-
-    expect(
-        view.getByText(
-            /Выберите значение справочника, на которое хотите заменить «Старое значение»/,
-        ),
-    ).toBeTruthy();
-    expect(view.getByRole("button", { name: "Отмена" })).toBeTruthy();
-    expect(view.queryByText("Старое значение")).toBeNull();
-
-    // Cancelling never reports a target; «Заменить» does.
-    fireEvent.click(view.getByRole("button", { name: "Заменить" }));
+    const confirm = view.getByRole("button", { name: "Заменить" });
+    expect(confirm.hasAttribute("disabled")).toBe(true);
+    // The trigger shows the hint, not «Пустое значение»: an untouched control is
+    // not the same thing as choosing to clear the value.
+    expect(view.getByRole("button", { name: /Значение для замены/ }).textContent).toContain(
+        "Выберите значение",
+    );
 });
 
-test("the empty option reports null", () => {
-    const targets: Array<string | null> = [];
+test("«Пустое значение» is a real option that reports null", () => {
+    const confirmed: Array<string | null> = [];
     const view = render(
         <ReplaceRecordDialog
             isOpen
             isPending={false}
-            label="Старое"
-            options={options}
+            label="КР"
+            sectionLabel="Вид работ"
+            options={OPTIONS}
             onOpenChange={() => {}}
-            onConfirm={(targetId) => targets.push(targetId)}
+            onConfirm={(target) => confirmed.push(target)}
         />,
     );
+    const trigger = view.getByRole("button", { name: /Значение для замены/ });
+    fireEvent.mouseEnter(trigger);
+    fireEvent.click(trigger);
+
+    const empty = view.getByRole("option", { name: /Пустое значение/ });
+    fireEvent.click(empty);
     fireEvent.click(view.getByRole("button", { name: "Заменить" }));
-    expect(targets).toEqual([null]);
+
+    expect(confirmed).toEqual([null]);
+    void empty;
 });

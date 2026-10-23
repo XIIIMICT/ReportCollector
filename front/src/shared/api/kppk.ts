@@ -236,6 +236,25 @@ export async function replaceOrgRow(orgId: string, targetId: string | null): Pro
     );
 }
 
+/**
+ * Replace the PRODUCT of a «Продуктовые позиции» row with another one.
+ *
+ * The row id is a product × ДЗО position, but the replacement works on the
+ * product: every position of the replaced product moves to the target.
+ */
+export async function replaceProductPosition(
+    positionId: string,
+    targetId: string | null,
+): Promise<void> {
+    await requestWrite(
+        `/api/kppk/product-positions/${positionId}/replace?session_id=${getCollabSessionId()}`,
+        "POST",
+        {
+            targetId,
+        },
+    );
+}
+
 // ─── Сырьевые позиции ─────────────────────────────────────────────────────
 
 export async function getRawRows(): Promise<KppkRawRow[]> {

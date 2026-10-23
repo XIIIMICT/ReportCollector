@@ -9,21 +9,32 @@ import { SmartSelect } from "@/shared/ui/smart-select";
 export type ReplaceTargetOption = {
     id: string;
     name: string;
+    /** A muted second line inside the option and the trigger. */
+    description?: string;
 };
 
+/**
+ * Sentinel for «Пустое значение» — a real, selectable target that clears the
+ * references instead of re-pointing them. It is a VALUE of this control, so it
+ * has to be distinguishable from "nothing chosen yet" (in SmartSelect a `null`
+ * selection renders as an untouched placeholder).
+ */
 const EMPTY_TARGET = "__empty__";
 
 /**
  * «Заменить» dictionary value dialog: re-points every reference to another
  * option (or clears it) and then deletes the replaced value.
  *
- * The replaced option is never offered as a target; «Пустое значение» reports
- * `null`, which the server reads as "delete the value instead of replacing".
+ * The replaced option is never offered as a target. Nothing is selected when
+ * the dialog opens — the confirm button stays disabled until the user picks
+ * either another option or «Пустое значение» (which reports `null`; the server
+ * reads that as "delete the value instead of replacing").
  */
 export function ReplaceRecordDialog({
     isOpen,
     isPending,
     label,
+    sectionLabel,
     options,
     onOpenChange,
     onConfirm,
@@ -31,18 +42,27 @@ export function ReplaceRecordDialog({
     isOpen: boolean;
     isPending: boolean;
     label: string;
+    /** The dictionary the value belongs to («Вид работ», «Предприятия»). */
+    sectionLabel: string;
     /** Candidates to replace with (the replaced one must not be included). */
     options: ReplaceTargetOption[];
     onOpenChange: (open: boolean) => void;
     /** `null` — «Пустое значение». */
     onConfirm: (targetId: string | null) => void;
 }): React.ReactNode {
-    const [target, setTarget] = useState<string>(EMPTY_TARGET);
+    // `null` = nothing chosen yet; the sentinel = «Пустое значение».
+    const [target, setTarget] = useState<string | null>(null);
 
-    // Every open starts from «Пустое значение».
+    // Every open starts from "nothing chosen": the user must make a choice.
     useEffect(() => {
-        if (isOpen) setTarget(EMPTY_TARGET);
+        if (isOpen) setTarget(null);
     }, [isOpen]);
+
+    const hasChoice = target !== null;
+    const confirm = () => {
+        if (target === null) return;
+        onConfirm(target === EMPTY_TARGET ? null : target);
+    };
 
     return (
         <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
@@ -55,23 +75,42 @@ export function ReplaceRecordDialog({
                             </AlertDialog.Icon>
                             <AlertDialog.Heading>Заменить значение?</AlertDialog.Heading>
                         </AlertDialog.Header>
-                        <AlertDialog.Body>
-                            <p>
-                                Выберите значение справочника, на которое хотите заменить «{label}».
+                        <AlertDialog.Body className="replace-record-dialog__body">
+                            <p className="replace-record-dialog__hint">
+                                Выберите значение справочника «
+                                <span className="replace-record-dialog__accent">
+                                    {sectionLabel}
+                                </span>
+                                », на которое хотите заменить{" "}
+                                <span className="replace-record-dialog__accent">«{label}»</span>.
                                 Операция выполнится, если это не нарушит ограничений уникальности в
                                 связанных таблицах.
                             </p>
+                            {/* The select sits below the text with the dialog's own
+                                spacing — `AlertDialog.Body` stacks its children in
+                                a grid, so no manual margin is needed. */}
                             <SmartSelect
                                 ariaLabel="Значение для замены"
+                                placeholder="Выберите значение"
                                 onChange={(value) =>
-                                    setTarget(typeof value === "string" ? value : EMPTY_TARGET)
+                                    setTarget(typeof value === "string" ? value : null)
                                 }
-                                options={options.map((option) => ({
-                                    id: option.id,
-                                    name: option.name,
-                                }))}
-                                nullOption={{ label: "Пустое значение", present: true }}
+                                options={[
+                                    {
+                                        id: EMPTY_TARGET,
+                                        name: "Пустое значение",
+                                        description: "Очистить ссылки на эту запись",
+                                    },
+                                    ...options.map((option) => ({
+                                        id: option.id,
+                                        name: option.name,
+                                        ...(option.description
+                                            ? { description: option.description }
+                                            : {}),
+                                    })),
+                                ]}
                                 value={target}
+                                fullWidth
                             />
                         </AlertDialog.Body>
                         <AlertDialog.Footer>
@@ -86,10 +125,8 @@ export function ReplaceRecordDialog({
                                 </Button>
                                 <Button
                                     variant="danger"
-                                    onPress={() =>
-                                        onConfirm(target === EMPTY_TARGET ? null : target)
-                                    }
-                                    isDisabled={isPending}
+                                    onPress={confirm}
+                                    isDisabled={isPending || !hasChoice}
                                 >
                                     <ButtonGroup.Separator />
                                     {isPending ? (

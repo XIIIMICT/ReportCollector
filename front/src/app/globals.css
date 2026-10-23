@@ -861,6 +861,22 @@ body {
     text-align: left;
 }
 
+/* The replace dialog stacks its explanation and the target selector; HeroUI's
+   body is a plain block, so the gap has to be declared here. */
+.replace-record-dialog__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* The explanation stays muted; the two names it talks about (the dictionary
+   and the value being replaced) are accented so the sentence scans at a
+   glance. `AlertDialog.Body` already paints its text muted. */
+.replace-record-dialog__accent {
+    color: var(--accent);
+    font-weight: 500;
+}
+
 /* Merged summary in the top toolbar: the status badge (dot, LEFT, vertically
    centered against the stacked lines), the collab presence («На форме») and
    the selection/filter breakdown («Выделено», «Строки»). The hover tooltip

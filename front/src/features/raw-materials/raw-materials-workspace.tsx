@@ -1134,6 +1134,7 @@ function SectionContent({
                 isOpen={replaceOpen}
                 isPending={isMutationPending}
                 label={recordLabel(selectedRows[0]) ?? ""}
+                sectionLabel={SECTION_LABELS[section] ?? section}
                 options={replaceTargets}
                 onOpenChange={setReplaceOpen}
                 onConfirm={(targetId) => void replaceRecord(targetId)}

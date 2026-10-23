@@ -28,6 +28,7 @@ import {
     deleteOrg,
     deleteProductPosition,
     replaceOrgRow,
+    replaceProductPosition,
     replaceRawRow,
     deleteRaw,
     exportKppkTable,
@@ -161,6 +162,11 @@ const KPPK_TABS: readonly KppkTab[] = [
     { id: "kppkOrgs", section: "kppkOrgs", label: "ДЗО", reportMonth: null },
     { id: "kppkUsers", section: "kppkUsers", label: "Пользователи", reportMonth: null },
 ];
+
+/** Tab captions by section id — the «Заменить» dialog names the dictionary. */
+const KPPK_SECTION_TITLES: Record<string, string> = Object.fromEntries(
+    KPPK_TABS.map((tab) => [tab.section, tab.label]),
+);
 
 /** The «Реализация» slice filter's options (the workspace toolbar's select). */
 const REALIZATION_SLICE_OPTIONS = KPPK_REALIZATION_SLICES.map(({ id, label }) => ({
@@ -324,9 +330,8 @@ function placeholderCreate(
                       .map((item) => item.trim())
                       .filter((item) => item.length > 0)
                 : [];
-            // A product is typed once, but it needs at least one ДЗО to exist:
-            // linked positions are what the dictionary stores.
-            if (orgNames.length === 0) return null;
+            // A product is typed once; its ДЗО set may be empty and filled in
+            // later — the positions are a separate structure over the product.
             return () =>
                 createProductPosition({
                     name,
@@ -650,9 +655,11 @@ function KppkSection({
                 (row) => "isActive" in row && !row.isActive && row.email !== currentUserEmail,
             ));
 
-    // «Заменить»: raw items and ДЗО merge into another value; product
-    // positions are left out — their merge logic is not trivial yet.
-    const replaceable = section === "kppkRaws" || section === "kppkOrgs";
+    // «Заменить»: raw items and ДЗО merge into another value; on «Продуктовые
+    // позиции» the picked row is a product × ДЗО position but the replacement
+    // works on the PRODUCT — its positions move to the target.
+    const replaceable =
+        section === "kppkRaws" || section === "kppkOrgs" || section === "kppkPositions";
     const replaceBlockedReason = !replaceable
         ? null
         : selectedRows.length === 0
@@ -664,6 +671,21 @@ function KppkSection({
         isAdmin && replaceable && selectedRows.length === 1 && replaceBlockedReason === null;
     const replaceTargets: ReplaceTargetOption[] = useMemo(() => {
         if (!replaceable || selectedRows.length !== 1) return [];
+        if (section === "kppkPositions") {
+            // One option per PRODUCT: the same product at three assets is three
+            // rows, so the list is deduplicated by the product id.
+            const positionRows = rows as KppkProductPositionRow[] | null | undefined;
+            const current = (selectedRows[0] as KppkProductPositionRow | undefined)?.productId;
+            const seen = new Set<string>();
+            return (positionRows ?? [])
+                .filter((row) => {
+                    const productId = row.productId;
+                    if (!productId || productId === current || seen.has(productId)) return false;
+                    seen.add(productId);
+                    return true;
+                })
+                .map((row) => ({ id: row.productId, name: String(row.name ?? row.productId) }));
+        }
         const currentId = selectedRows[0]?.id;
         return (rows ?? [])
             .filter((row) => row.id !== currentId)
@@ -671,7 +693,7 @@ function KppkSection({
                 id: row.id,
                 name: String((row as { name?: unknown }).name ?? row.id),
             }));
-    }, [replaceable, rows, selectedRows]);
+    }, [replaceable, rows, section, selectedRows]);
     const [replaceOpen, setReplaceOpen] = useState(false);
 
     useEffect(() => {
@@ -691,6 +713,10 @@ function KppkSection({
         try {
             if (section === "kppkRaws") {
                 await track(replaceRawRow(row.id, targetId));
+            } else if (section === "kppkPositions") {
+                // The row is a product × ДЗО position, but the replacement
+                // works on the PRODUCT: its positions move to the target.
+                await track(replaceProductPosition(row.id, targetId));
             } else {
                 await track(replaceOrgRow(row.id, targetId));
             }
@@ -929,6 +955,7 @@ function KppkSection({
                 isOpen={replaceOpen}
                 isPending={isMutationPending}
                 label={recordLabel(selectedRows[0]) ?? ""}
+                sectionLabel={KPPK_SECTION_TITLES[section] ?? section}
                 options={replaceTargets}
                 onOpenChange={setReplaceOpen}
                 onConfirm={(targetId) => void replaceRecord(targetId)}
@@ -1283,7 +1310,6 @@ export function KppkWorkspace({
     const isRealizationTab = selectedTab?.id === "kppkRealization";
     const isCostTab = selectedTab?.id === "kppkCost";
     const isMainTab = isRealizationTab || isCostTab;
-    const [includeExcise, setIncludeExcise] = useState(false);
     // «Продуктовые позиции» has two views over the same stored positions: the
     // default groups a product with its multi-selected ДЗО set (the historical
     // look), «Настройка акциза» lists one row per position with its flag.
@@ -1371,20 +1397,6 @@ export function KppkWorkspace({
                     writeWorkspaceQuery("year", value);
                 }}
             />
-            {isRealizationTab ? (
-                <Checkbox
-                    isSelected={includeExcise}
-                    onChange={setIncludeExcise}
-                    variant="secondary"
-                >
-                    <Checkbox.Content>
-                        <Checkbox.Control>
-                            <Checkbox.Indicator />
-                        </Checkbox.Control>
-                        с учётом акциза
-                    </Checkbox.Content>
-                </Checkbox>
-            ) : null}
         </div>
     );
 
@@ -1493,7 +1505,6 @@ export function KppkWorkspace({
                         <KppkRealizationSection
                             key={selectedTab.id}
                             mode={selectedTab.id === "kppkCost" ? "cost" : "realization"}
-                            includeExcise={includeExcise}
                             isAdmin={isAdmin}
                             orgId={realizationOrgId}
                             slice={realizationSlice}

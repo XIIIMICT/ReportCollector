@@ -45,6 +45,7 @@ from .dictionaries import (
     read_product_position_rows,
     read_raw_rows,
     replace_org,
+    replace_product,
     replace_raw,
     update_org_cell,
     update_product_position_cell,
@@ -388,6 +389,7 @@ async def patch_product_position(
     session_id: str = "",
 ) -> KppkAppliedRead:
     """Edit one cell of a product × ДЗО position (№ / наименование / ДЗО / акциз)."""
+    updated = None
     try:
         applied = await update_product_position_cell(
             session, position_id=position_id, field=request.field, value=request.value, user=access.user
@@ -396,7 +398,8 @@ async def patch_product_position(
         # position (an asset removed from the set) or even leave the product
         # without any, so a missing row is a legitimate outcome, not an error:
         # fall back to the product's first remaining position and else an empty
-        # row the client only uses for its applied cells.
+        # row the client only uses for its applied cells. Both views are read:
+        # the grouped row of a position-less product is keyed by the PRODUCT id.
         rows = await read_product_position_rows(session)
         updated = next((row for row in rows if row.id == position_id), None)
         if updated is None:
@@ -409,6 +412,9 @@ async def patch_product_position(
                 None,
             )
             updated = next((row for row in rows if str(row.productId) == str(product_id)), None)
+        if updated is None:
+            grouped_rows = await read_product_position_rows(session, grouped=True)
+            updated = next((row for row in grouped_rows if str(row.id) == str(position_id)), None)
     except (KppkValidationError, KppkNotFoundError) as error:
         status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=str(error)) from error
@@ -443,6 +449,30 @@ async def drop_product_position(
         applied = await delete_product_position(session, position_id=position_id)
     except KppkNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await _record_kppk_updates(
+        session,
+        access=access,
+        section=KPPK_SECTION_PRODUCT_POSITIONS,
+        session_id=session_id,
+        applied=applied,
+    )
+
+
+@router.post("/product-positions/{position_id}/replace", status_code=status.HTTP_204_NO_CONTENT)
+async def replace_product_position_endpoint(
+    position_id: UUID,
+    request: KppkReplaceRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str = "",
+) -> None:
+    """Replace the PRODUCT of a position with another (or delete it)."""
+    applied = await replace_product(
+        session,
+        position_id=position_id,
+        target_id=request.targetId,
+        user=access.user,
+    )
     await _record_kppk_updates(
         session,
         access=access,

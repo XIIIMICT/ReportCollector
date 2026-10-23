@@ -448,6 +448,9 @@ export function RenovationDictionarySection({
         () =>
             canReplace
                 ? gridRows
+                      // The trailing placeholder row is not a value: its id is an
+                      // internal `new:...` key, never a dictionary option.
+                      .filter((row) => !row.isPlaceholder)
                       .filter((row) => row.id !== selectedRows[0]?.id)
                       .map((row) => ({
                           id: row.id,
@@ -792,6 +795,7 @@ export function RenovationDictionarySection({
                 isOpen={replaceOpen}
                 isPending={isMutationPending}
                 label={String((selectedRows[0] as { label?: unknown } | undefined)?.label ?? "")}
+                sectionLabel={sectionLabel}
                 options={replaceTargets}
                 onOpenChange={setReplaceOpen}
                 onConfirm={(targetId) => void replaceRecord(targetId)}
