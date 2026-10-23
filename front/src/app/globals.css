@@ -688,11 +688,9 @@ body {
     display: none;
 }
 
-/* Dropping guidance stays visible (inline, not centred) next to the report. */
+/* The drag hint keeps the standing guidance's place and look, just tinted. */
 .plan-excel-import-modal__hint--active {
-    margin: 0;
     color: var(--accent);
-    font-weight: 600;
 }
 
 .plan-excel-import-modal__status {
