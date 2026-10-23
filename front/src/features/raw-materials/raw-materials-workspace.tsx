@@ -558,6 +558,8 @@ function SectionContent({
                 name: String((row as { name?: unknown }).name ?? row.id),
             }));
     }, [rows, section, selectedRows]);
+    // «Заменить» is a dictionary operation: only the reference tables, never
+    // the «Движение»/«Цены» forms.
     const canReplace = canManageReferences && selectedRows.length === 1 && section !== "users";
     const replaceBlockedReason =
         selectedRows.length === 0
@@ -1931,7 +1933,8 @@ function ActionBar({
             onExport,
         }),
         ...buildReplaceAction({
-            show: section !== "users",
+            // Dictionaries only: the «Движение»/«Цены» forms are not values.
+            show: section !== "users" && sectionPolicy(section).rowOps !== "none",
             disabled: !canReplace || isFullscreenPending,
             blockedReason: isFullscreenPending ? null : replaceBlockedReason,
             onReplace,

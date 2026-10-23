@@ -621,6 +621,17 @@ export async function deleteRenovationCatalogOption(
     );
 }
 
+export async function replaceRenovationAsset(
+    assetId: string,
+    targetId: string | null,
+): Promise<void> {
+    return requestWrite(
+        `/api/renovation/dictionary/assets/${encodeURIComponent(assetId)}/replace?session_id=${getCollabSessionId()}`,
+        "POST",
+        { targetId },
+    );
+}
+
 export async function replaceRenovationCatalogOption(
     catalogId: string,
     valueId: string,

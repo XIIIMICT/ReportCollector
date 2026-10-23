@@ -38,6 +38,7 @@ from src.renovation.assets import (
     create_renovation_asset,
     delete_renovation_asset,
     read_renovation_asset_rows,
+    replace_renovation_asset,
     update_renovation_asset,
 )
 from src.renovation.catalogs import (
@@ -945,6 +946,35 @@ async def delete_renovation_asset_endpoint(
     )
 
 
+@router.post("/dictionary/assets/{asset_id}/replace", status_code=status.HTTP_204_NO_CONTENT)
+async def replace_renovation_asset_endpoint(
+    asset_id: UUID,
+    request: RenovationCatalogReplaceRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+) -> None:
+    """Merge a renovation asset into another (or delete it)."""
+    try:
+        applied = await replace_renovation_asset(
+            session, asset_id=asset_id, target_id=request.targetId, user=access.user
+        )
+    except RenovationDictionaryError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    await record_cell_updates(
+        JournalStore(session),
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        project_key=RENOVATION_PROJECT_KEY,
+        section=RENOVATION_ASSETS_SECTION,
+        report_month=None,
+        session_id=session_id,
+        applied=applied,
+    )
+
+
 @router.get("/dictionary/catalogs/{catalog}", response_model=list[RenovationCatalogOptionRowRead])
 async def get_renovation_catalog_options(
     catalog: str,
@@ -994,7 +1024,6 @@ async def post_renovation_catalog_option(
                     old_value=None,
                     new_value={
                         "catalog": created.catalog.value,
-                        "valueKey": created.value_key,
                         "label": created.label,
                         "payload": created.payload,
                     },

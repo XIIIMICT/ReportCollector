@@ -11,6 +11,7 @@ import {
     deleteRenovationAsset,
     deleteRenovationUser,
     deleteRenovationCatalogOption,
+    replaceRenovationAsset,
     replaceRenovationCatalogOption,
     exportRenovationDictionary,
     getRenovationCatalogOptions,
@@ -431,10 +432,12 @@ export function RenovationDictionarySection({
 
     // «Заменить» is available on the reference catalogs for exactly one value.
     const [replaceOpen, setReplaceOpen] = useState(false);
+    // Assets and the reference catalogs are replaceable; users are not values.
+    const replaceable = catalogId !== null || dictSection === RENOVATION_ASSETS_SECTION;
     const canReplace =
-        catalogId !== null && dictSection !== RENOVATION_USERS_SECTION && selectedRows.length === 1;
+        replaceable && dictSection !== RENOVATION_USERS_SECTION && selectedRows.length === 1;
     const replaceBlockedReason =
-        catalogId === null || dictSection === RENOVATION_USERS_SECTION
+        !replaceable || dictSection === RENOVATION_USERS_SECTION
             ? null
             : selectedRows.length === 0
               ? "Выберите значение для замены."
@@ -502,12 +505,16 @@ export function RenovationDictionarySection({
     }
 
     async function replaceRecord(targetId: string | null) {
-        if (!canReplace || catalogId === null) return;
+        if (!canReplace) return;
         const row = selectedRows[0];
         if (!row) return;
         setIsMutationPending(true);
         try {
-            await replaceRenovationCatalogOption(catalogId, row.id, targetId);
+            if (catalogId === null) {
+                await replaceRenovationAsset(row.id, targetId);
+            } else {
+                await replaceRenovationCatalogOption(catalogId, row.id, targetId);
+            }
             refresh();
             setReplaceOpen(false);
             setSelectedRowIds([]);

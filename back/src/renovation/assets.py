@@ -170,6 +170,81 @@ async def update_renovation_asset(
     return asset, applied
 
 
+async def replace_renovation_asset(
+    session: AsyncSession,
+    *,
+    asset_id: UUID,
+    target_id: UUID | None,
+    user: User,
+) -> list[AppliedCell]:
+    """
+    Merge one renovation asset into another, then delete the replaced one.
+
+    Plan rows of the replaced asset move to the target. When the target already
+    has a row with the same work code (its case-insensitive duplicate), that
+    row keeps its place and the moved one is dropped — the plan never gets two
+    rows with one code. Per-user grants merge the same way. Deleting a replaced
+    asset that plan rows reference is refused with the usual dictionary error.
+    """
+    source = await session.get(RAsset, asset_id)
+    if source is None:
+        raise _DICT_ASSET_NOT_FOUND
+    if target_id is None:
+        return await delete_renovation_asset(session, asset_id=asset_id)
+    if target_id == asset_id:
+        msg = "Нельзя заменить значение на него же."
+        raise ValueError(msg)
+    target = await session.get(RAsset, target_id)
+    if target is None:
+        raise _DICT_ASSET_NOT_FOUND
+    now = datetime.now(UTC)
+    target_codes = {
+        (code or "").casefold()
+        for code in (
+            await session.exec(select(RenovationPlanRow.col_003).where(col(RenovationPlanRow.asset_id) == target_id))
+        ).all()
+        if code
+    }
+    for row in (await session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.asset_id) == asset_id))).all():
+        code = (row.col_003 or "").casefold()
+        if code and code in target_codes:
+            # The same work already exists on the target: keep one row.
+            await session.delete(row)
+            await session.flush()
+            continue
+        row.asset_id = target_id
+        row.updated_at = now
+        row.updater_user_id = user.id
+        if code:
+            target_codes.add(code)
+        await session.flush()
+    target_grants = {
+        (grant.user_id, grant.project_id)
+        for grant in (await session.exec(select(RUserAsset).where(col(RUserAsset.asset_id) == target_id))).all()
+    }
+    for grant in (await session.exec(select(RUserAsset).where(col(RUserAsset.asset_id) == asset_id))).all():
+        if (grant.user_id, grant.project_id) in target_grants:
+            await session.delete(grant)
+        else:
+            grant.asset_id = target_id
+        await session.flush()
+    source_name = source.name
+    target.updated_at = now
+    target.updater_user_id = user.id
+    session.add(target)
+    await session.delete(source)
+    await session.flush()
+    return [
+        AppliedCell(
+            target_table=RAsset.__tablename__,
+            row_id=asset_id,
+            field="__replaced",
+            old_value={"name": source_name, "targetId": str(target_id)},
+            new_value=None,
+        )
+    ]
+
+
 @project_write(RENOVATION_PROJECT_KEY, exclusive=True)
 async def delete_renovation_asset(
     session: AsyncSession,
