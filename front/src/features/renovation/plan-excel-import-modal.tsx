@@ -1,12 +1,12 @@
 "use client";
 
-import { Button, Modal } from "@heroui/react";
+import { Button, Modal, Spinner } from "@heroui/react";
 import { Upload } from "iconoir-react";
 import { useEffect, useState } from "react";
 
 import { FileInput } from "@/shared/ui/file-input";
 
-export type ExcelCellIssue = {
+type ExcelCellIssue = {
     location: string;
     value: string;
 };
@@ -43,12 +43,16 @@ export function PlanExcelImportModal({
     const [fileName, setFileName] = useState("");
     const [checkPending, setCheckPending] = useState(false);
     const [checkError, setCheckError] = useState<"invalid-format" | null>(null);
+    // A dragged file hovering the dialog (nested elements fire leave/enter, so
+    // the state is toggled from `dragover` instead of `dragleave` alone).
+    const [isDragging, setIsDragging] = useState(false);
     // Every open starts clean: a previous file must not leak into a new check.
     useEffect(() => {
         if (isOpen) return;
         setFileName("");
         setCheckPending(false);
         setCheckError(null);
+        setIsDragging(false);
     }, [isOpen]);
     const invalidFormat = result?.status === "invalid-format" || checkError === "invalid-format";
     const inputError = invalidFormat
@@ -71,6 +75,9 @@ export function PlanExcelImportModal({
         }
     }
 
+    const hint = isDragging
+        ? "Продолжайте перетаскивать файл."
+        : "Выберите файл для загрузки в базу. Здесь будут выведены результаты его анализа.";
     return (
         <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
             <Modal.Container size="lg">
@@ -79,7 +86,41 @@ export function PlanExcelImportModal({
                     <Modal.Header>
                         <Modal.Heading>Загрузка данных технической дирекции из Excel</Modal.Heading>
                     </Modal.Header>
-                    <Modal.Body className="plan-excel-import-modal__body">
+                    <Modal.Body
+                        className="plan-excel-import-modal__body"
+                        onDragEnter={(event) => {
+                            event.preventDefault();
+                            setIsDragging(true);
+                        }}
+                        onDragOver={(event) => {
+                            // Without preventDefault the browser opens the file.
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "copy";
+                            setIsDragging(true);
+                        }}
+                        onDragLeave={(event) => {
+                            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                                setIsDragging(false);
+                            }
+                        }}
+                        onDrop={(event) => {
+                            event.preventDefault();
+                            setIsDragging(false);
+                            void chooseFile(event.dataTransfer.files[0]);
+                        }}
+                    >
+                        {checkPending ? (
+                            <p className="plan-excel-import-modal__status" role="status">
+                                <Spinner size="sm" />
+                                Идёт анализ...
+                            </p>
+                        ) : (
+                            <p
+                                className={`plan-excel-import-modal__hint${isDragging ? " plan-excel-import-modal__hint--active" : ""}`}
+                            >
+                                {hint}
+                            </p>
+                        )}
                         {result?.status === "has-errors" ? <ImportErrors result={result} /> : null}
                         {result?.status === "ready" ? (
                             <div className="plan-excel-import-modal__summary">

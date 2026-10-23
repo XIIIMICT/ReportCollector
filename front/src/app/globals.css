@@ -672,6 +672,27 @@ body {
     gap: 1.25rem;
 }
 
+/* Centred guidance of the drop zone; replaced by the analysis spinner. */
+.plan-excel-import-modal__hint {
+    margin: auto 0;
+    padding: 1rem;
+    color: var(--muted);
+    font-size: 0.95rem;
+    text-align: center;
+    line-height: 1.5;
+    text-wrap: balance;
+}
+
+.plan-excel-import-modal__status {
+    display: flex;
+    margin: auto 0;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
 .file-input {
     min-width: 0;
 }
