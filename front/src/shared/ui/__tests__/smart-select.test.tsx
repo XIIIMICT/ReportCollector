@@ -241,12 +241,13 @@ test("commit mode has no «По умолчанию» without a handler", async (
     expect(screen.queryByRole("button", { name: /По умолчанию/ })).toBeNull();
 });
 
-test("an embedded control shows the same footer without «По умолчанию»", async () => {
+test("a multi-select editor gets the shared bar without «По умолчанию»", async () => {
     const events: string[] = [];
     renderSelect({
         embedded: true,
         isOpen: true,
-        commitFooter: true,
+        multiple: true,
+        value: [],
         confirmEnabled: false,
         onCancel: () => events.push("cancel"),
         onConfirm: () => events.push("confirm"),
@@ -277,10 +278,12 @@ test("an embedded control shows the same footer without «По умолчани�
     expect(events).toEqual(["cancel"]);
 });
 
-test("an embedded control has no footer unless asked for one", async () => {
+test("a single-value editor gets no action bar", async () => {
+    // A pick saves on the spot there, so «Отменить / Применить» would only be in
+    // the way: the bar belongs to controls that commit a whole set.
     renderSelect({ embedded: true, isOpen: true });
     await waitFor(() => expect(screen.getByRole("option", { name: "Альфа" })).toBeTruthy());
-    expect(document.querySelector(".smart-select__footer")).toBeNull();
+    expect(document.querySelector(".smart-select__action-bar")).toBeNull();
 });
 
 test("unhover closes a select by default", async () => {

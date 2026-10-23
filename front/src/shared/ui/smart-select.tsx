@@ -42,13 +42,15 @@ import { ExpandableButtonGroup } from "@/shared/ui/expandable-button-group";
  * «Отменить», Escape and an outside click call `onCancel`, which restores the
  * value captured before opening; «По умолчанию» calls `onReset` (when given).
  *
- * An EMBEDDED control (the in-cell reference/select editor) gets the same
- * footer through `commitFooter` without becoming commit mode: it still closes
- * on the grid's own dismissal (Escape / an outside press on the cell), and the
- * editor owns what «Отмена» and «Применить» mean — `confirmEnabled` says
- * whether there is something to apply. The bar itself (the splitter rule, the
- * expanding buttons and the width their labels need while one is hovered)
- * lives here once, so a filter and an editor look alike.
+ * An EMBEDDED control (an in-cell editor) gets the same bar without becoming
+ * commit mode: it still closes on the grid's own dismissal (Escape / an
+ * outside press on the cell), and the editor owns what «Отмена» and
+ * «Применить» mean — `confirmEnabled` says whether there is something to
+ * apply. The bar is only shown when there IS something to commit: the filter's
+ * commit mode or a MULTI-select editor (a single pick saves on the spot, so
+ * two buttons would only be in the way). It lives here once — the splitter
+ * rule, the expanding buttons and the width their labels need while one is
+ * hovered — so a filter and an editor look alike.
  */
 
 export type SmartSelectOption = {
@@ -160,17 +162,13 @@ export type SmartSelectProps = {
     /** Commit mode: reveal «Применить» (the filter has a pending change). */
     canConfirm?: boolean;
     /**
-     * Show the «Отменить / Применить» footer in an EMBEDDED control (the in-cell
-     * editor). Opt-in, because a dialog that only picks a value wants none.
-     * Without `onConfirm` the footer reports a press through `onCancel` /
-     * `onDismiss` of the owner, so an editor wires both actions itself.
+     * Action bar «Применить» is enabled. In a multi-select editor a pick only
+     * builds the pending set, so the bar shows only when the set changed.
      */
-    commitFooter?: boolean;
-    /** Footer «Применить» is enabled (`canConfirm` remains the commit-mode flag). */
     confirmEnabled?: boolean;
-    /** Label of the footer's dismissive action («Отменить» by default). */
+    /** Label of the action bar's dismissive button («Отменить» by default). */
     cancelLabel?: string;
-    /** Label of the footer's forward action («Применить» by default). */
+    /** Label of the action bar's forward button («Применить» by default). */
     confirmLabel?: string;
     /**
      * Commit mode: «По умолчанию» — reset this control to its default (the
@@ -235,7 +233,6 @@ export function SmartSelect({
     onConfirm,
     onCancel,
     canConfirm = true,
-    commitFooter = false,
     confirmEnabled,
     cancelLabel = "Отменить",
     confirmLabel = "Применить",
@@ -288,10 +285,10 @@ export function SmartSelect({
     resetRef.current = onReset;
     const canConfirmRef = useRef(canConfirm);
     canConfirmRef.current = canConfirm;
-    // The footer's own enablement: the embedded editor's flag wins, the
-    // commit-mode one («По умолчанию / Отменить / Применить» of the filter) is
+    // The bar's own enablement: a multi-select editor's pending set wins, the
+    // commit-mode flag («По умолчанию / Отменить / Применить» of the filter) is
     // the fallback.
-    const footerConfirmEnabled = confirmEnabled ?? canConfirm;
+    const barConfirmEnabled = confirmEnabled ?? canConfirm;
 
     useEffect(() => {
         openRef.current = isOpen;
@@ -567,14 +564,16 @@ export function SmartSelect({
         );
     };
 
-    // One footer for every owner: the column filter (commit mode) and the
-    // in-cell editor (embedded, opt-in). The buttons stand UNDER the list,
-    // outside its scroll, and expand on hover down to their icons — the same
-    // group the action bar uses, so the labels' reserved width is measured
-    // once here. The rule above the bar is the column filter's splitter: the
-    // footer is a separate zone of the panel, not the last list row.
-    const showFooter = isCommitMode || commitFooter;
-    const footer = showFooter ? (
+    // One action bar for every owner that COMMITS A SET rather than picking a
+    // value: the column filter (commit mode) and a multi-select in-cell editor.
+    // A single-value pick saves on the spot and gets no bar — two buttons
+    // would only be in the way. The buttons stand under the list, outside its
+    // scroll, and expand on hover down to their icons — the same group the
+    // toolbar uses, so the labels' reserved width is measured once here. The
+    // rule above the bar is the column filter's splitter: the bar is a
+    // separate zone of the panel, not the last list row.
+    const showActionBar = isCommitMode || (embedded && multiple);
+    const actionBar = showActionBar ? (
         <div
             className="smart-select__action-bar"
             data-react-aria-prevent-focus
@@ -583,7 +582,7 @@ export function SmartSelect({
                 if (event.key !== "Enter") return;
                 event.preventDefault();
                 event.stopPropagation();
-                if (footerConfirmEnabled) confirmRef.current();
+                if (barConfirmEnabled) confirmRef.current();
             }}
         >
             <Separator className="smart-select__footer-separator" />
@@ -612,7 +611,7 @@ export function SmartSelect({
                         variant="primary"
                         aria-label={confirmLabel}
                         icon={<Check aria-hidden="true" />}
-                        isDisabled={!footerConfirmEnabled}
+                        isDisabled={!barConfirmEnabled}
                         onPress={() => confirmRef.current()}
                     >
                         {confirmLabel}
@@ -734,7 +733,7 @@ export function SmartSelect({
                             </Autocomplete.Filter>
                         )}
                         {popoverFooter ?? null}
-                        {footer}
+                        {actionBar}
                     </Autocomplete.Popover>
                 </Autocomplete>
             ) : (
@@ -792,7 +791,7 @@ export function SmartSelect({
                             <ListBox>{renderedOptions}</ListBox>
                         )}
                         {popoverFooter ?? null}
-                        {footer}
+                        {actionBar}
                     </Select.Popover>
                 </Select>
             )}

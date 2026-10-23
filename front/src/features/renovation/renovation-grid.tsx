@@ -15,6 +15,7 @@ import {
     type VNode,
 } from "@revolist/react-datagrid";
 import { InfinityScrollPlugin } from "@revolist/rv-pro-trial";
+import { Filter } from "iconoir-react";
 import {
     forwardRef,
     Fragment,
@@ -2853,19 +2854,7 @@ function RenovationGridInner(
                             );
                         }}
                     >
-                        <svg
-                            className="renovation-grid__filter-icon"
-                            viewBox="0 0 64 64"
-                            aria-hidden="true"
-                            focusable="false"
-                        >
-                            <g stroke="none" strokeWidth="1" fill="none" fillRule="evenodd">
-                                <path
-                                    d="M43,48 L43,56 L21,56 L21,48 L43,48 Z M53,28 L53,36 L12,36 L12,28 L53,28 Z M64,8 L64,16 L0,16 L0,8 L64,8 Z"
-                                    fill="currentColor"
-                                />
-                            </g>
-                        </svg>
+                        <Filter className="renovation-grid__filter-icon" aria-hidden="true" />
                     </button>
                 ) : null}
             </div>
@@ -2927,22 +2916,13 @@ function RenovationGridInner(
                                     );
                                 }}
                             >
-                                {/* RevoGrid's own funnel glyph (viewBox 0 0 64 64),
-                                    so the plan's filter buttons read like the
-                                    client-side funnels on the other grids. */}
-                                <svg
+                                {/* The same funnel as every other filter
+                                    affordance in the app (iconoir), so the
+                                    header button reads as a filter. */}
+                                <Filter
                                     className="renovation-grid__filter-icon"
-                                    viewBox="0 0 64 64"
                                     aria-hidden="true"
-                                    focusable="false"
-                                >
-                                    <g stroke="none" strokeWidth="1" fill="none" fillRule="evenodd">
-                                        <path
-                                            d="M43,48 L43,56 L21,56 L21,48 L43,48 Z M53,28 L53,36 L12,36 L12,28 L53,28 Z M64,8 L64,16 L0,16 L0,8 L64,8 Z"
-                                            fill="currentColor"
-                                        />
-                                    </g>
-                                </svg>
+                                />
                             </button>
                         ) : null}
                     </div>
@@ -2988,19 +2968,10 @@ function RenovationGridInner(
                                     );
                                 }}
                             >
-                                <svg
+                                <Filter
                                     className="renovation-grid__filter-icon"
-                                    viewBox="0 0 64 64"
                                     aria-hidden="true"
-                                    focusable="false"
-                                >
-                                    <g stroke="none" strokeWidth="1" fill="none" fillRule="evenodd">
-                                        <path
-                                            d="M43,48 L43,56 L21,56 L21,48 L43,48 Z M53,28 L53,36 L12,36 L12,28 L53,28 Z M64,8 L64,16 L0,16 L0,8 L64,8 Z"
-                                            fill="currentColor"
-                                        />
-                                    </g>
-                                </svg>
+                                />
                             </button>
                         ) : null}
                     </div>

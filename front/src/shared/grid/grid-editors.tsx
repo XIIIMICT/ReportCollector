@@ -73,9 +73,8 @@ export function MultiAssetEditor({ column, save, close }: EditorType) {
                 onChange={(value) => setSelected(Array.isArray(value) ? value : [])}
                 embedded
                 onDismiss={close}
-                // The shared footer replaces the two hand-rolled buttons this
-                // editor used to carry; the set is saved as a whole.
-                commitFooter
+                // A multi-select commits the whole set: the shared action bar
+                // reports it, as it does in the column filter.
                 confirmEnabled={changed}
                 onCancel={close}
                 onConfirm={() => save(options.filter((option) => selected.includes(option)))}
