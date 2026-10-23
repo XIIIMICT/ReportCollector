@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertDialog, Button, ButtonGroup, Spinner } from "@heroui/react";
-import { Substract, Xmark } from "iconoir-react";
+import { DataTransferBoth, Xmark } from "iconoir-react";
 import { useEffect, useState } from "react";
 
 import { SmartSelect } from "@/shared/ui/smart-select";
@@ -51,7 +51,7 @@ export function ReplaceRecordDialog({
                     <AlertDialog.Dialog>
                         <AlertDialog.Header>
                             <AlertDialog.Icon status="warning">
-                                <Substract />
+                                <DataTransferBoth aria-hidden="true" />
                             </AlertDialog.Icon>
                             <AlertDialog.Heading>Заменить значение?</AlertDialog.Heading>
                         </AlertDialog.Header>
@@ -95,7 +95,7 @@ export function ReplaceRecordDialog({
                                     {isPending ? (
                                         <Spinner color="current" size="sm" />
                                     ) : (
-                                        <Substract aria-hidden="true" />
+                                        <DataTransferBoth aria-hidden="true" />
                                     )}
                                     Заменить
                                 </Button>

@@ -1,6 +1,7 @@
 "use client";
 
 import { Checkbox, toast, Typography } from "@heroui/react";
+import { CellMergePlugin, type MergeData } from "@revolist/rv-pro-trial";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
@@ -26,6 +27,7 @@ import {
     type KppkUserRow,
     deleteOrg,
     deleteProductPosition,
+    replaceProductPosition,
     deleteRaw,
     exportKppkTable,
     getKppkUndoState,
@@ -50,7 +52,14 @@ import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector"
 import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
-import { exportFileName, type GridRow, type ReferenceOption } from "@/shared/grid/grid-config";
+import {
+    exportFileName,
+    KPPK_GROUPED_POSITION_DESCRIPTORS,
+    KPPK_POSITION_DESCRIPTORS,
+    type ColumnDescriptor,
+    type GridRow,
+    type ReferenceOption,
+} from "@/shared/grid/grid-config";
 import { parseNumericText } from "@/shared/grid/grid-edit";
 import {
     RawMaterialsGrid,
@@ -71,6 +80,7 @@ import {
     NO_ROW_SELECTED_REASON,
     buildClipboardActions,
     buildDeleteAction,
+    buildReplaceAction,
     buildExportAction,
     reconcileExportState,
     buildHistoryActions,
@@ -88,6 +98,7 @@ import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
 import { readWorkspaceQuery, writeWorkspaceQuery } from "@/shared/ui/query-state";
+import { ReplaceRecordDialog, type ReplaceTargetOption } from "@/shared/ui/replace-record-dialog";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { SmartSelect } from "@/shared/ui/smart-select";
 import { runTableExport } from "@/shared/ui/table-export-action";
@@ -204,6 +215,14 @@ const USER_DEFAULTS: AddRecordValues = { email: "", fullname: "", role: "admin" 
 
 type KppkDraft = Record<string, unknown>;
 
+export type DictionaryReplaceState = {
+    /** Whether the section is a replaceable dictionary at all. */
+    show?: boolean;
+    canReplace: boolean;
+    blockedReason: string | null;
+    onReplace: () => void;
+};
+
 type ClipboardActions = { canPaste: boolean; onCopy: () => void; onPaste: () => void };
 
 /** Undo/redo availability of the mounted tab, reported to the workspace footer. */
@@ -230,17 +249,23 @@ function toGridRow<T extends { id: string }>(row: T): GridRow {
  * schemas accept. Used for `canonicalCells`, without which leases have no keys.
  */
 const KPPK_EDITABLE_FIELDS: Record<KppkSectionId, readonly string[]> = {
-    kppkPositions: ["productNum", "name", "orgNames"],
+    // `orgNames` (the grouped default) and `hasExcise` (the «Настройка акциза»
+    // view) belong to `kppkPositions` too: the same tab, two shapes.
+    kppkPositions: ["productNum", "name", "orgNames", "hasExcise"],
     kppkRaws: ["rawNum", "name"],
     kppkOrgs: ["code", "name"],
     kppkUsers: ["email", "fullname", "isAdmin", "isActive"],
 };
 
 /** The empty draft behind the trailing placeholder row of each dictionary. */
-function initialDraft(section: KppkSectionId): KppkDraft {
+function initialDraft(section: KppkSectionId, exciseMode = false): KppkDraft {
     switch (section) {
         case "kppkPositions":
-            return { productNum: null, name: "", orgNames: [] };
+            // Grouped (default): one product + its ДЗО multi-select. Excise
+            // mode: one position (a single ДЗО) plus its flag.
+            return exciseMode
+                ? { productNum: null, name: "", orgName: "", hasExcise: false }
+                : { productNum: null, name: "", orgNames: [] };
         case "kppkRaws":
             return { rawNum: null, name: "" };
         case "kppkOrgs":
@@ -274,17 +299,33 @@ function draftNumber(value: unknown): number | null {
 function placeholderCreate(
     section: KppkSectionId,
     draft: KppkDraft,
+    exciseMode = false,
 ): (() => Promise<unknown>) | null {
     switch (section) {
         case "kppkPositions": {
             const name = draftText(draft.name);
             if (!name) return null;
+            if (exciseMode) {
+                // One position of the «Настройка акциза» view: exactly one ДЗО.
+                const orgName = draftText(draft.orgName);
+                if (!orgName) return null;
+                return () =>
+                    createProductPosition({
+                        name,
+                        orgName,
+                        hasExcise: draft.hasExcise === true,
+                        productNum: draftNumber(draft.productNum),
+                    });
+            }
             const orgNames = Array.isArray(draft.orgNames)
                 ? draft.orgNames
                       .filter((item): item is string => typeof item === "string")
                       .map((item) => item.trim())
                       .filter((item) => item.length > 0)
                 : [];
+            // A product is typed once, but it needs at least one ДЗО to exist:
+            // linked positions are what the dictionary stores.
+            if (orgNames.length === 0) return null;
             return () =>
                 createProductPosition({
                     name,
@@ -354,6 +395,7 @@ function KppkSection({
     showServiceColumns,
     rowHeight,
     onDeleteState,
+    onReplaceState,
     onClipboardStateChange,
     onGridStatsChange,
     onSelectionLabelChange,
@@ -364,6 +406,7 @@ function KppkSection({
     onExportState,
     onUserCreateState,
     currentUserEmail,
+    exciseMode,
 }: {
     section: KppkSectionId;
     isAdmin: boolean;
@@ -373,6 +416,8 @@ function KppkSection({
     showServiceColumns: boolean;
     rowHeight: number;
     onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
+    /** Publishes the shared ?????????? action of this tab to the footer. */
+    onReplaceState: (state: DictionaryReplaceState) => void;
     onClipboardStateChange: (state: ClipboardActions) => void;
     onGridStatsChange: (stats: GridViewStats) => void;
     onSelectionLabelChange: (label: string | null) => void;
@@ -391,11 +436,15 @@ function KppkSection({
     onExportState: (state: ExportState) => void;
     currentUserEmail: string | undefined;
     onUserCreateState: (state: { canCreate: boolean; onCreate: () => void }) => void;
+    /** «Настройка акциза»: one row per product × ДЗО, with the excise flag. */
+    exciseMode: boolean;
 }) {
     const loader = useMemo<() => Promise<KppkRow[]>>(() => {
         switch (section) {
             case "kppkPositions":
-                return getProductPositions;
+                // «Настройка акциза» lists one row per position; the default
+                // groups a product with its whole ДЗО set.
+                return () => getProductPositions(exciseMode ? "positions" : "grouped");
             case "kppkRaws":
                 return getRawRows;
             case "kppkOrgs":
@@ -403,7 +452,7 @@ function KppkSection({
             case "kppkUsers":
                 return getKppkUsers;
         }
-    }, [section]);
+    }, [exciseMode, section]);
     const [reloadKey, setReloadKey] = useState(0);
     const { data: rows, error } = useAsyncData<KppkRow[]>(loader, [loader, reloadKey]);
     // Real-time collaboration of this tab: the room is admin-scoped (only
@@ -452,7 +501,7 @@ function KppkSection({
     }, [isAdmin, section, openUserCreate, onUserCreateState]);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const [placeholderDraft, setPlaceholderDraft] = useState<KppkDraft>(() =>
-        initialDraft(section),
+        initialDraft(section, exciseMode),
     );
     const placeholderDraftRef = useRef(placeholderDraft);
     const createPendingRef = useRef(false);
@@ -461,6 +510,14 @@ function KppkSection({
     useEffect(() => {
         placeholderDraftRef.current = placeholderDraft;
     }, [placeholderDraft]);
+
+    // Switching a tab's shape (or the tab itself) drops the half-filled draft:
+    // the cells of the grouped view mean nothing in the excise view.
+    useEffect(() => {
+        const reset = initialDraft(section, exciseMode);
+        placeholderDraftRef.current = reset;
+        setPlaceholderDraft(reset);
+    }, [exciseMode, section]);
 
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
 
@@ -592,6 +649,60 @@ function KppkSection({
                 (row) => "isActive" in row && !row.isActive && row.email !== currentUserEmail,
             ));
 
+    const replaceBlockedReason =
+        section !== "kppkPositions"
+            ? null
+            : selectedRows.length === 0
+              ? "Выберите запись для замены."
+              : selectedRows.length > 1
+                ? "Выберите ровно одну запись."
+                : null;
+    const canReplace =
+        isAdmin &&
+        section === "kppkPositions" &&
+        selectedRows.length === 1 &&
+        replaceBlockedReason === null;
+    const replaceTargets: ReplaceTargetOption[] = useMemo(() => {
+        if (section !== "kppkPositions" || selectedRows.length !== 1) return [];
+        const currentId = selectedRows[0]?.id;
+        return (rows ?? [])
+            .filter((row) => row.id !== currentId)
+            .map((row) => ({
+                id: row.id,
+                name: String((row as { name?: unknown }).name ?? row.id),
+            }));
+    }, [rows, section, selectedRows]);
+    const [replaceOpen, setReplaceOpen] = useState(false);
+
+    useEffect(() => {
+        onReplaceState({
+            show: section === "kppkPositions",
+            canReplace,
+            blockedReason: replaceBlockedReason,
+            onReplace: () => setReplaceOpen(true),
+        });
+    }, [canReplace, onReplaceState, replaceBlockedReason, section]);
+
+    async function replaceRecord(targetId: string | null) {
+        if (!canReplace) return;
+        const row = selectedRows[0];
+        if (!row) return;
+        setIsMutationPending(true);
+        try {
+            await track(replaceProductPosition(row.id, targetId));
+            gridRef.current?.clearSelection();
+            setSelectedRowIds([]);
+            setReplaceOpen(false);
+            refresh();
+            toast.success("Значение заменено");
+        } catch (reason) {
+            toast.danger("Не удалось заменить значение", { description: errorMessage(reason) });
+        } finally {
+            setIsMutationPending(false);
+            refreshUndoState();
+        }
+    }
+
     // Ctrl+Delete — the shortcut advertised on the action-bar delete button:
     // opens the same confirmation dialog as the button press.
     const openDeleteDialog = useCallback(() => setDeleteOpen(true), []);
@@ -622,7 +733,15 @@ function KppkSection({
     );
 
     const gridRows = useMemo(() => {
-        const fields = KPPK_EDITABLE_FIELDS[section];
+        // «Продуктовые позиции» carries two cell sets over the same stored
+        // positions: the default groups a product with its ДЗО multi-select,
+        // «Настройка акциза» lists one position (a single ДЗО + the flag).
+        const fields = KPPK_EDITABLE_FIELDS[section].filter((field) => {
+            if (section !== "kppkPositions") return true;
+            if (field === "orgNames") return !exciseMode;
+            if (field === "orgName" || field === "hasExcise") return exciseMode;
+            return true;
+        });
         const base = (rows ?? []).map((row) => {
             const gridRow = toGridRow(row);
             gridRow.readOnlyRow =
@@ -644,7 +763,37 @@ function KppkSection({
         return isAdmin && section !== "kppkUsers"
             ? [...base, placeholderRow(section, placeholderDraft)]
             : base;
-    }, [currentUserEmail, isAdmin, placeholderDraft, remoteCellValues, rows, section]);
+    }, [currentUserEmail, exciseMode, isAdmin, placeholderDraft, remoteCellValues, rows, section]);
+
+    // The two shapes of «Продуктовые позиции»: one column set each.
+    const [sorted, setSorted] = useState(false);
+    const columnDescriptors = useMemo<ColumnDescriptor[] | undefined>(() => {
+        if (section !== "kppkPositions") return undefined;
+        return exciseMode ? KPPK_POSITION_DESCRIPTORS : KPPK_GROUPED_POSITION_DESCRIPTORS;
+    }, [exciseMode, section]);
+
+    // The positions view merges the «№» and «Продукт» cells of each product's
+    // run, so a product with three assets reads as one block (the source
+    // matrix). The grouped view has one row per product already — nothing to
+    // merge there.
+    const cellMerge = useMemo<MergeData[]>(() => {
+        if (section !== "kppkPositions" || !exciseMode || sorted) return [];
+        const data = (rows ?? []) as unknown as { productId?: string; name?: string }[];
+        const sweeps: MergeData[] = [];
+        let start = -1;
+        const push = (from: number, to: number) => {
+            if (from < 0 || to - from < 2) return;
+            for (const column of [0, 1]) sweeps.push({ row: from, column, rowSpan: to - from });
+        };
+        for (let i = 0; i < data.length; i += 1) {
+            const isGroupStart = i === 0 || data[i]!.productId !== data[i - 1]!.productId;
+            if (!isGroupStart) continue;
+            if (start >= 0) push(start, i);
+            start = i;
+        }
+        if (start >= 0) push(start, data.length);
+        return sweeps;
+    }, [exciseMode, rows, section, sorted]);
 
     const readOnly = isMutationPending || !isAdmin;
 
@@ -669,13 +818,13 @@ function KppkSection({
         const next = { ...placeholderDraftRef.current, ...patch };
         placeholderDraftRef.current = next;
         setPlaceholderDraft(next);
-        const create = placeholderCreate(section, next);
+        const create = placeholderCreate(section, next, exciseMode);
         if (!create) return true;
         createPendingRef.current = true;
         setIsMutationPending(true);
         try {
             await track(create());
-            const reset = initialDraft(section);
+            const reset = initialDraft(section, exciseMode);
             placeholderDraftRef.current = reset;
             setPlaceholderDraft(reset);
             refresh();
@@ -754,6 +903,10 @@ function KppkSection({
                         onViewStatsChange={onGridStatsChange}
                         onClipboardStateChange={handleClipboardState}
                         onSelectionChange={handleSelectionChange}
+                        {...(columnDescriptors && { columnDescriptors })}
+                        plugins={cellMerge.length > 0 ? [CellMergePlugin] : []}
+                        cellMerge={cellMerge}
+                        onSortingChange={setSorted}
                     />
                 </GridErrorBoundary>
                 {gridRows.length === 0 ? (
@@ -767,6 +920,14 @@ function KppkSection({
                 count={selectedRows.length}
                 onOpenChange={setDeleteOpen}
                 onConfirm={() => void deleteRecords()}
+            />
+            <ReplaceRecordDialog
+                isOpen={replaceOpen}
+                isPending={isMutationPending}
+                label={recordLabel(selectedRows[0]) ?? ""}
+                options={replaceTargets}
+                onOpenChange={setReplaceOpen}
+                onConfirm={(targetId) => void replaceRecord(targetId)}
             />
             {section === "kppkUsers" && (
                 <AddRecordModal
@@ -881,6 +1042,13 @@ export function KppkWorkspace({
     const [deleteState, setDeleteState] = useState<{ canDelete: boolean; onDelete: () => void }>({
         canDelete: false,
         onDelete: () => {},
+    });
+    // «Заменить» of the mounted dictionary tab (published by `KppkSection`).
+    const [replaceState, setReplaceState] = useState<DictionaryReplaceState>({
+        show: false,
+        canReplace: false,
+        blockedReason: null,
+        onReplace: () => {},
     });
     // The «Реализация» tab's filter state lives at workspace level: its
     // controls render in the toolbar row (alongside the tabs), like every
@@ -1076,6 +1244,14 @@ export function KppkWorkspace({
                       onExport: (mode) => exportState.onExport(mode),
                   }),
               ]),
+        // The same shared «Заменить» action every project renders: the mounted
+        // section only reports whether its dictionary supports it.
+        ...buildReplaceAction({
+            show: replaceState.show ?? false,
+            disabled: !replaceState.canReplace || isFullscreenPending,
+            blockedReason: isFullscreenPending ? null : replaceState.blockedReason,
+            onReplace: replaceState.onReplace,
+        }),
         ...buildDeleteAction({
             show:
                 isAdmin &&
@@ -1104,6 +1280,11 @@ export function KppkWorkspace({
     const isCostTab = selectedTab?.id === "kppkCost";
     const isMainTab = isRealizationTab || isCostTab;
     const [includeExcise, setIncludeExcise] = useState(false);
+    // «Продуктовые позиции» has two views over the same stored positions: the
+    // default groups a product with its multi-selected ДЗО set (the historical
+    // look), «Настройка акциза» lists one row per position with its flag.
+    const [exciseMode, setExciseMode] = useState(false);
+    const isPositionsTab = selectedTab?.id === "kppkPositions";
     const MONTH_OPTIONS = REALIZATION_MONTH_OPTIONS;
     const yearOptions = useMemo(() => {
         const current = new Date().getFullYear();
@@ -1211,6 +1392,20 @@ export function KppkWorkspace({
         <div className="table-toolbar table-toolbar--stacked">
             <div className="table-toolbar__row">
                 <div className="table-toolbar__controls">
+                    {isPositionsTab ? (
+                        <Checkbox
+                            isSelected={exciseMode}
+                            onChange={setExciseMode}
+                            variant="secondary"
+                        >
+                            <Checkbox.Content>
+                                <Checkbox.Control>
+                                    <Checkbox.Indicator />
+                                </Checkbox.Control>
+                                Настройка акциза
+                            </Checkbox.Content>
+                        </Checkbox>
+                    ) : null}
                     <SectionTabs
                         tabs={visibleTabs}
                         value={selectedTab?.id ?? ""}
@@ -1334,6 +1529,8 @@ export function KppkWorkspace({
                             onExportState={handleExportState}
                             currentUserEmail={user.email}
                             onUserCreateState={setUserCreateState}
+                            onReplaceState={setReplaceState}
+                            exciseMode={exciseMode}
                         />
                     )
                 ) : null}

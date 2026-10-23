@@ -10,11 +10,11 @@
 import { AlertDialog, Button, ButtonGroup, Spinner } from "@heroui/react";
 import {
     Copy,
+    DataTransferBoth,
     Download,
     PasteClipboard,
     Plus,
     Redo,
-    Substract,
     Trash,
     Undo,
     Xmark,
@@ -25,6 +25,20 @@ import type { ActionItem } from "@/shared/ui/action-bar";
 
 /** The export scope both menu entries drive. */
 export type ExportMode = "all" | "visible";
+
+/**
+ * «Заменить» activity of a dictionary section.
+ *
+ * Each project publishes it from its mounted dictionary tab and its footer
+ * renders the same shared action: `show` says whether the section is a
+ * replaceable dictionary at all, the rest mirrors the selection.
+ */
+export type DictionaryReplaceState = {
+    show?: boolean;
+    canReplace: boolean;
+    blockedReason: string | null;
+    onReplace: () => void;
+};
 
 /** What a workspace publishes to the action bar for the export button. */
 export type ExportState = {
@@ -56,12 +70,12 @@ export const NOTHING_TO_EXPORT_REASON = "Нечего выгружать: таб
  * reference dictionary and exactly one row is selected.
  */
 export function buildReplaceAction({
-    show,
+    show = true,
     disabled,
     blockedReason,
     onReplace,
 }: {
-    show: boolean;
+    show?: boolean;
     disabled: boolean;
     blockedReason: string | null;
     onReplace: () => void;
@@ -71,7 +85,7 @@ export function buildReplaceAction({
         {
             id: "replace",
             label: "Заменить",
-            icon: createElement(Substract),
+            icon: createElement(DataTransferBoth),
             onPress: onReplace,
             disabled,
             ...(blockedReason && { disabledReason: blockedReason }),

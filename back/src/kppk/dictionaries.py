@@ -3,8 +3,9 @@
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import func
-from sqlmodel import col, select
+from sqlalchemy import Table, func
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import SQLModel, col, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.collab.journal import AppliedCell
@@ -15,6 +16,7 @@ from src.kppk.models import (
     KppkOrg,
     KppkOrgProduct,
     KppkProduct,
+    KppkProductionPlan,
     KppkRaw,
     KppkRealization,
     KppkRealizationPlan,
@@ -49,33 +51,66 @@ def _check_source_number(value: object) -> int | None:
     return number
 
 
-async def read_product_position_rows(session: AsyncSession) -> list[KppkProductPositionRowRead]:
-    """Rows of the «Продуктовые позиции» dictionary (products with their ДЗО)."""
+async def read_product_position_rows(
+    session: AsyncSession, *, grouped: bool = False
+) -> list[KppkProductPositionRowRead]:
+    """
+    Rows of «Продуктовые позиции», in one of the tab's two shapes.
+
+    The dictionary is stored as one row per product × ДЗО POSITION, and both
+    presentation modes read from it:
+
+    - `grouped=False` (the «Настройка акциза» mode): one row per POSITION, so
+      the «Заполняемый акциз» flag can be set for each product at each asset;
+    - `grouped=True` (the default, the historical view): one row per PRODUCT
+      with its whole ДЗО set in `orgNames`, which is how the tab was edited
+      before the excise existed — a product is typed once, then the assets are
+      multi-selected.
+
+    Both orders follow the source number («№», unnumbered last), the name and,
+    inside a product, the asset name.
+    """
     query = (
         select(KppkProduct, KppkOrgProduct, KppkOrg)
         .outerjoin(KppkOrgProduct, col(KppkOrgProduct.product_id) == col(KppkProduct.id))
         .outerjoin(KppkOrg, col(KppkOrg.id) == col(KppkOrgProduct.org_id))
-        # The default order is the source number («№»): the numbered dictionary
-        # products first (ASC puts NULLs last in PostgreSQL), then the rest.
         .order_by(col(KppkProduct.product_num), col(KppkProduct.name), col(KppkOrg.name))
     )
     rows = (await session.exec(query)).all()
-    grouped: dict[UUID, tuple[KppkProduct, list[str]]] = {}
-    for product, _link, org in rows:
-        entry = grouped.setdefault(product.id, (product, []))
-        if org is not None:
-            entry[1].append(org.name)
+    if grouped:
+        grouped_rows: dict[UUID, tuple[KppkProduct, list[str]]] = {}
+        for product, _link, org in rows:
+            entry = grouped_rows.setdefault(product.id, (product, []))
+            if org is not None:
+                entry[1].append(org.name)
+        return [
+            KppkProductPositionRowRead(
+                id=product.id,
+                productId=product.id,
+                productNum=product.product_num,
+                name=product.name,
+                orgName="",
+                orgNames=org_names,
+                createdAt=product.created_at,
+                updatedAt=product.updated_at,
+                updatedBy=product.updated_by,
+            )
+            for product, org_names in (entry for _, entry in grouped_rows.items())
+        ]
     return [
         KppkProductPositionRowRead(
-            id=product.id,
+            id=link.id,
+            productId=product.id,
             productNum=product.product_num,
             name=product.name,
-            orgNames=org_names,
+            orgName=org.name,
+            hasExcise=link.has_excise,
             createdAt=product.created_at,
             updatedAt=product.updated_at,
             updatedBy=product.updated_by,
         )
-        for product, org_names in (entry for _, entry in grouped.items())
+        for product, link, org in rows
+        if link is not None and org is not None
     ]
 
 
@@ -95,7 +130,15 @@ def _check_org_names(value: object) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         message = "Некорректный список ДЗО."
         raise KppkValidationError(message)
-    return [item.strip() for item in value if item.strip()]
+    # Deduplicated, first occurrence wins: a multi-select cannot normally repeat
+    # an asset, but a paste can — and a repeat must not hit the (org, product)
+    # unique key as a second insert.
+    names: list[str] = []
+    for item in value:
+        name = item.strip()
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 async def _product_by_name(session: AsyncSession, name: str) -> KppkProduct | None:
@@ -164,27 +207,45 @@ async def _product_org_names(session: AsyncSession, product_id: UUID) -> list[st
     return list(names)
 
 
-async def _product_field_value(session: AsyncSession, product: KppkProduct, field: str) -> object:
-    """Return the current journal value of one product cell (the undo «old value»)."""
-    if field == "orgNames":
-        return await _product_org_names(session, product.id)
+async def _position_field_value(
+    session: AsyncSession,
+    *,
+    product: KppkProduct,
+    link: KppkOrgProduct,
+    field: str,
+) -> object:
+    """Return the current journal value of one position cell (the undo «old value»)."""
     if field == "name":
         return product.name
     if field == "productNum":
         return product.product_num
+    if field == "orgNames":
+        return await _product_org_names(session, product.id)
+    if field == "hasExcise":
+        return link.has_excise
+    if field == "orgName":
+        org = await session.get(KppkOrg, link.org_id)
+        return org.name if org is not None else None
     message = f"Поле «{field}» нельзя изменить."
     raise KppkValidationError(message)
 
 
-async def _apply_product_cell(
+async def _apply_position_cell(
     session: AsyncSession,
     *,
     product: KppkProduct,
+    link: KppkOrgProduct,
     field: str,
     value: object,
     user: User,
 ) -> object:
-    """Validate and store one product cell; returns the normalized journal value."""
+    """
+    Validate and store one cell of a position; returns the normalized value.
+
+    «№» and «Наименование» are PRODUCT cells (every position of the product
+    shows them, and editing either repaints the product's whole block);
+    «ДЗО» and «Заполняемый акциз» belong to THIS position.
+    """
     if field == "name":
         product_name = _check_product_name(value)
         rows = (await session.exec(select(KppkProduct).where(col(KppkProduct.id) != product.id))).all()
@@ -193,11 +254,6 @@ async def _apply_product_cell(
             raise KppkValidationError(message)
         product.name = product_name
         stored: object = product_name
-    elif field == "orgNames":
-        org_names = _check_org_names(value)
-        org_ids = await _org_ids_by_names(session, org_names)
-        await replace_org_links(session, product.id, org_ids, updater_user_id=user.id)
-        stored = sorted(org_names)
     elif field == "productNum":
         number = _check_source_number(value)
         if number is not None:
@@ -214,6 +270,45 @@ async def _apply_product_cell(
                 raise KppkValidationError(message)
         product.product_num = number
         stored = number
+    elif field == "orgName":
+        org_names = _check_org_names([value])
+        org_ids = await _org_ids_by_names(session, org_names)
+        org_id = org_ids[0]
+        if org_id == link.org_id:
+            return org_names[0]
+        clash = (
+            await session.exec(
+                select(KppkOrgProduct).where(
+                    col(KppkOrgProduct.product_id) == product.id,
+                    col(KppkOrgProduct.org_id) == org_id,
+                )
+            )
+        ).first()
+        if clash is not None:
+            message = f"Позиция «{product.name}» на этом ДЗО уже существует."
+            raise KppkValidationError(message)
+        link.org_id = org_id
+        link.updated_at = _now()
+        link.updater_user_id = user.id
+        session.add(link)
+        stored = org_names[0]
+    elif field == "orgNames":
+        # The DEFAULT (grouped) view edits a product's whole ДЗО set in one
+        # multi-select cell: added assets become new positions, removed ones drop
+        # theirs. The per-position flags of the surviving pairs are kept.
+        org_names = _check_org_names(value)
+        org_ids = await _org_ids_by_names(session, org_names)
+        await replace_org_links(session, product.id, org_ids, updater_user_id=user.id)
+        stored = sorted(org_names)
+    elif field == "hasExcise":
+        if not isinstance(value, bool):
+            message = "Значение поля «Заполняемый акциз» должно быть да/нет."
+            raise KppkValidationError(message)
+        link.has_excise = value
+        link.updated_at = _now()
+        link.updater_user_id = user.id
+        session.add(link)
+        stored = value
     else:
         message = f"Поле «{field}» нельзя изменить."
         raise KppkValidationError(message)
@@ -231,46 +326,94 @@ async def create_product_position(
     request: KppkProductPositionCreateRequest,
     user: User,
 ) -> tuple[KppkProductPositionRowRead, list[AppliedCell]]:
-    """Create a product with its ДЗО set (one row of «Продуктовые позиции»)."""
+    """
+    Add one product × ДЗО position (the form's «Добавить строку»).
+
+    The name may repeat an existing product: then the new row is another
+    position of it, and the whole product block grows. A new name creates the
+    product together with its first position.
+    """
     product_name = _check_product_name(request.name)
-    if await _product_by_name(session, product_name) is not None:
-        message = f"Продукт «{product_name}» уже существует."
+    # The grouped (default) view types a product once and multi-selects its ДЗО,
+    # so it sends `orgNames` instead of the single `orgName` of the position
+    # view; both end up as the same stored positions.
+    requested_orgs = _check_org_names(request.orgNames if request.orgNames is not None else [request.orgName])
+    if not requested_orgs:
+        message = "Выберите хотя бы одно ДЗО."
         raise KppkValidationError(message)
-    product_num = _check_source_number(request.productNum)
-    if product_num is not None:
-        duplicate = (await session.exec(select(KppkProduct).where(col(KppkProduct.product_num) == product_num))).first()
-        if duplicate is not None:
-            message = f"Номер {product_num} уже используется: «{duplicate.name}»."
+    now = _now()
+    product = await _product_by_name(session, product_name)
+    new_product = product is None
+    if product is None:
+        product_num = _check_source_number(request.productNum)
+        if product_num is not None:
+            duplicate = (
+                await session.exec(select(KppkProduct).where(col(KppkProduct.product_num) == product_num))
+            ).first()
+            if duplicate is not None:
+                message = f"Номер {product_num} уже используется: «{duplicate.name}»."
+                raise KppkValidationError(message)
+        product = KppkProduct(
+            product_num=product_num,
+            name=product_name,
+            created_at=now,
+            updated_at=now,
+            updater_user_id=user.id,
+        )
+        session.add(product)
+        await session.flush()
+    org_ids = await _org_ids_by_names(session, requested_orgs)
+    existing = {
+        link.org_id
+        for link in (
+            await session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.product_id) == product.id))
+        ).all()
+        if product.id is not None
+    }
+    created: list[tuple[str, KppkOrgProduct]] = []
+    for org_id, org_name in zip(org_ids, requested_orgs, strict=True):
+        if org_id in existing:
+            message = f"Позиция «{product.name}» на этом ДЗО уже существует: «{org_name}»."
             raise KppkValidationError(message)
-    org_names = _check_org_names(request.orgNames)
-    org_ids = await _org_ids_by_names(session, org_names)
-    product = KppkProduct(
-        product_num=product_num,
-        name=product_name,
-        created_at=_now(),
-        updated_at=_now(),
-        updater_user_id=user.id,
-    )
-    session.add(product)
+        link = KppkOrgProduct(
+            org_id=org_id,
+            product_id=product.id,
+            has_excise=request.hasExcise,
+            created_at=now,
+            updated_at=now,
+            updater_user_id=user.id,
+        )
+        session.add(link)
+        created.append((org_name, link))
     await session.flush()
-    await replace_org_links(session, product.id, org_ids, updater_user_id=user.id)
+    first_org_name, first = created[0]
     row = KppkProductPositionRowRead(
-        id=product.id,
+        id=first.id,
+        productId=product.id,
         productNum=product.product_num,
         name=product.name,
-        orgNames=sorted(org_names),
+        orgName=first_org_name,
+        hasExcise=first.has_excise,
         createdAt=product.created_at,
         updatedAt=product.updated_at,
         updatedBy=product.updated_by,
     )
     applied = [
         AppliedCell(
-            target_table=KppkProduct.__tablename__,
-            row_id=product.id,
+            target_table=KppkOrgProduct.__tablename__,
+            row_id=link.id,
             field="__created",
             old_value=None,
-            new_value={"productNum": row.productNum, "name": row.name, "orgNames": row.orgNames},
+            new_value={
+                "productId": str(product.id),
+                "productNum": row.productNum,
+                "name": row.name,
+                "orgName": org_name,
+                "hasExcise": link.has_excise,
+                "newProduct": new_product,
+            },
         )
+        for org_name, link in created
     ]
     return row, applied
 
@@ -279,22 +422,33 @@ async def create_product_position(
 async def update_product_position_cell(
     session: AsyncSession,
     *,
-    product_id: UUID,
+    position_id: UUID,
     field: str,
     value: object,
     user: User,
 ) -> list[AppliedCell]:
-    """Edit one cell of a «Продуктовые позиции» row (name / orgNames / productNum)."""
-    product = await session.get(KppkProduct, product_id)
-    if product is None:
+    """
+    Edit one cell of a product × ДЗО position.
+
+    The row id is the POSITION: «№»/«Наименование» write the product (so the
+    product's whole block changes), «ДЗО»/«Заполняемый акциз» write the
+    position itself.
+    """
+    link = await session.get(KppkOrgProduct, position_id)
+    if link is None:
         message = "Позиция не найдена."
         raise KppkNotFoundError(message)
-    old_value = await _product_field_value(session, product, field)
-    stored = await _apply_product_cell(session, product=product, field=field, value=value, user=user)
+    product = await session.get(KppkProduct, link.product_id)
+    if product is None:
+        message = "Продукт позиции не найден."
+        raise KppkNotFoundError(message)
+    old_value = await _position_field_value(session, product=product, link=link, field=field)
+    stored = await _apply_position_cell(session, product=product, link=link, field=field, value=value, user=user)
+    target = KppkOrgProduct if field in {"orgName", "hasExcise"} else KppkProduct
     return [
         AppliedCell(
-            target_table=KppkProduct.__tablename__,
-            row_id=product_id,
+            target_table=target.__tablename__,
+            row_id=position_id if target is KppkOrgProduct else product.id,
             field=field,
             old_value=old_value,
             new_value=stored,
@@ -303,29 +457,118 @@ async def update_product_position_cell(
 
 
 @project_write(KPPK_PROJECT_KEY, exclusive=True)
-async def delete_product_position(session: AsyncSession, *, product_id: UUID) -> list[AppliedCell]:
-    """Delete a product together with its ДЗО links."""
-    product = await session.get(KppkProduct, product_id)
-    if product is None:
+async def delete_product_position(session: AsyncSession, *, position_id: UUID) -> list[AppliedCell]:
+    """
+    Delete ONE product × ДЗО position.
+
+    The product itself goes only when that position was its last one — the
+    dictionary codes the product once, so an empty product is dead data.
+    """
+    link = await session.get(KppkOrgProduct, position_id)
+    if link is None:
         message = "Позиция не найдена."
         raise KppkNotFoundError(message)
+    org = await session.get(KppkOrg, link.org_id)
+    product = await session.get(KppkProduct, link.product_id)
     snapshot: dict[str, object] = {
-        "productNum": product.product_num,
-        "name": product.name,
-        "orgNames": await _product_org_names(session, product_id),
+        "productId": str(link.product_id),
+        "productNum": product.product_num if product is not None else None,
+        "name": product.name if product is not None else "",
+        "orgName": org.name if org is not None else "",
+        "hasExcise": link.has_excise,
     }
-    links = (await session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.product_id) == product_id))).all()
-    for link in links:
-        await session.delete(link)
-    # Deletions flush before the product delete: the RESTRICT key guards the order.
+    await session.delete(link)
     await session.flush()
-    await session.delete(product)
-    await session.flush()
+    remaining = (
+        await session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.product_id) == link.product_id))
+    ).all()
+    if not remaining and product is not None:
+        await session.delete(product)
+        await session.flush()
     return [
         AppliedCell(
-            target_table=KppkProduct.__tablename__,
-            row_id=product_id,
+            target_table=KppkOrgProduct.__tablename__,
+            row_id=position_id,
             field="__deleted",
+            old_value=snapshot,
+            new_value=None,
+        )
+    ]
+
+
+# The fact/plan tables share the (org_id, product_id) slice columns.
+_SCOPE_TABLES: tuple[Table, ...] = (
+    SQLModel.metadata.tables[KppkRealization.__tablename__],
+    SQLModel.metadata.tables[KppkRealizationPlan.__tablename__],
+    SQLModel.metadata.tables[KppkProductionPlan.__tablename__],
+    SQLModel.metadata.tables[KppkCost.__tablename__],
+)
+
+
+async def replace_product_position(
+    session: AsyncSession, *, position_id: UUID, target_id: UUID | None
+) -> list[AppliedCell]:
+    """
+    Re-point a product × ДЗО position, merge products, then delete the source.
+
+    Replacing with another position moves every «Реализация»/«Себестоимость»
+    row of the source product's ДЗО slice to the target product, adds the
+    target product to that ДЗО (when it is not there yet), and deletes the
+    source position — and its product once no position uses it. With
+    `target_id=None` the position is deleted as usual.
+    """
+    source_link = await session.get(KppkOrgProduct, position_id)
+    if source_link is None:
+        message = "Позиция не найдена."
+        raise KppkNotFoundError(message)
+    if target_id is None:
+        return await delete_product_position(session, position_id=position_id)
+    if target_id == position_id:
+        message = "Нельзя заменить значение на него же."
+        raise KppkValidationError(message)
+    target_link = await session.get(KppkOrgProduct, target_id)
+    if target_link is None:
+        message = "Позиция для замены не найдена."
+        raise KppkNotFoundError(message)
+    source_product_id = source_link.product_id
+    source_org_id = source_link.org_id
+    source_product = await session.get(KppkProduct, source_product_id)
+    target_product = await session.get(KppkProduct, target_link.product_id)
+    snapshot: dict[str, object] = {
+        "productId": str(source_product_id),
+        "productNum": source_product.product_num if source_product is not None else None,
+        "name": source_product.name if source_product is not None else "",
+        "targetPositionId": str(target_id),
+    }
+    # Only the source ДЗО slice of that product moves; the other slices keep theirs.
+    for table in _SCOPE_TABLES:
+        statement = (
+            update(table)
+            .where(table.c.product_id == source_product_id, table.c.org_id == source_org_id)
+            .values(product_id=target_link.product_id)
+        )
+        await session.exec(statement)
+    await session.delete(source_link)
+    await session.flush()
+    remaining = (
+        await session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.product_id) == source_product_id))
+    ).all()
+    if not remaining and source_product is not None:
+        await session.delete(source_product)
+    if target_product is not None:
+        target_product.updated_at = _now()
+        session.add(target_product)
+    try:
+        await session.flush()
+    except IntegrityError as error:
+        await session.rollback()
+        message = "Замена нарушила бы ограничения уникальности в связанных таблицах — ни одна запись не изменена."
+        raise KppkValidationError(message) from error
+    return [
+        AppliedCell(
+            target_table=KppkOrgProduct.__tablename__,
+            row_id=position_id,
+            field="__replaced",
             old_value=snapshot,
             new_value=None,
         )
@@ -706,6 +949,78 @@ async def delete_org(session: AsyncSession, *, org_id: UUID) -> list[AppliedCell
     ]
 
 
+async def _apply_position_record(
+    session: AsyncSession,
+    *,
+    row_id: UUID,
+    field: str,
+    snapshot: object,
+    user: User,
+) -> None:
+    """
+    Undo/redo of a created/deleted product × ДЗО position.
+
+    «__created» carries {old: None, new: snapshot}: undo (None) removes the
+    position, redo (the snapshot) restores it under its original link id. If the
+    product itself was created together with the position (`newProduct`), the
+    undo removes it too when nothing else references it. «__deleted» is the
+    mirror image.
+    """
+    link = await session.get(KppkOrgProduct, row_id)
+    if snapshot is None:
+        if link is None:
+            return
+        product_id = link.product_id
+        await session.delete(link)
+        await session.flush()
+        # A product with no positions left is dead data — but only drop it when
+        # its creation was journaled together with this position, otherwise a
+        # historic product could vanish silently.
+        remaining = (
+            await session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.product_id) == product_id))
+        ).all()
+        if not remaining:
+            product = await session.get(KppkProduct, product_id)
+            if product is not None and field == "__created":
+                await session.delete(product)
+                await session.flush()
+        return
+    if link is not None:
+        return
+    if not isinstance(snapshot, dict):
+        message = "Некорректные данные для восстановления позиции."
+        raise KppkValidationError(message)
+    org_names = _check_org_names([snapshot.get("orgName")])
+    org_ids = await _org_ids_by_names(session, org_names)
+    product_id = UUID(str(snapshot.get("productId")))
+    product = await session.get(KppkProduct, product_id)
+    if product is None:
+        product_name = _check_product_name(snapshot.get("name"))
+        number = _check_source_number(snapshot.get("productNum"))
+        product = KppkProduct(
+            id=product_id,
+            product_num=number,
+            name=product_name,
+            created_at=_now(),
+            updated_at=_now(),
+            updater_user_id=user.id,
+        )
+        session.add(product)
+        await session.flush()
+    session.add(
+        KppkOrgProduct(
+            id=row_id,
+            org_id=org_ids[0],
+            product_id=product.id,
+            has_excise=bool(snapshot.get("hasExcise")),
+            created_at=_now(),
+            updated_at=_now(),
+            updater_user_id=user.id,
+        )
+    )
+    await session.flush()
+
+
 async def _apply_product_record(
     session: AsyncSession,
     *,
@@ -870,6 +1185,20 @@ async def apply_kppk_cell_value(
     `__created`/`__deleted` field is a whole-row snapshot: `None` removes the
     row, a dict restores it under its original id.
     """
+    if target_table == KppkOrgProduct.__tablename__:
+        if field in {"__created", "__deleted"}:
+            await _apply_position_record(session, row_id=row_id, field=field, snapshot=value, user=user)
+            return
+        link = await session.get(KppkOrgProduct, row_id)
+        if link is None:
+            message = "Позиция не найдена."
+            raise KppkNotFoundError(message)
+        product = await session.get(KppkProduct, link.product_id)
+        if product is None:
+            message = "Продукт позиции не найден."
+            raise KppkNotFoundError(message)
+        await _apply_position_cell(session, product=product, link=link, field=field, value=value, user=user)
+        return
     if target_table == KppkProduct.__tablename__:
         if field in {"__created", "__deleted"}:
             await _apply_product_record(session, row_id=row_id, snapshot=value, user=user)
@@ -878,7 +1207,13 @@ async def apply_kppk_cell_value(
         if product is None:
             message = "Позиция не найдена."
             raise KppkNotFoundError(message)
-        await _apply_product_cell(session, product=product, field=field, value=value, user=user)
+        # A product-level cell is replayed through its FIRST position: the same
+        # validator the interactive edit uses.
+        link = (await session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.product_id) == row_id))).first()
+        if link is None:
+            message = "У продукта нет позиций — правка невозможна."
+            raise KppkNotFoundError(message)
+        await _apply_position_cell(session, product=product, link=link, field=field, value=value, user=user)
         return
     if target_table == KppkRaw.__tablename__:
         if field in {"__created", "__deleted"}:
