@@ -683,6 +683,18 @@ body {
     text-wrap: balance;
 }
 
+/* The guidance disappears once a report is shown: it has done its job. */
+.plan-excel-import-modal__hint--with-result:not(.plan-excel-import-modal__hint--active) {
+    display: none;
+}
+
+/* Dropping guidance stays visible (inline, not centred) next to the report. */
+.plan-excel-import-modal__hint--active {
+    margin: 0;
+    color: var(--accent);
+    font-weight: 600;
+}
+
 .plan-excel-import-modal__status {
     display: flex;
     margin: auto 0;

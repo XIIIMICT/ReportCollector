@@ -46,6 +46,10 @@ export function PlanExcelImportModal({
     // A dragged file hovering the dialog (nested elements fire leave/enter, so
     // the state is toggled from `dragover` instead of `dragleave` alone).
     const [isDragging, setIsDragging] = useState(false);
+    // A file dragged anywhere over the page — the hint appears before the
+    // pointer reaches the dialog, so the destination is obvious.
+    const [isPageDragging, setIsPageDragging] = useState(false);
+    const hasResult = result !== null;
     // Every open starts clean: a previous file must not leak into a new check.
     useEffect(() => {
         if (isOpen) return;
@@ -53,6 +57,31 @@ export function PlanExcelImportModal({
         setCheckPending(false);
         setCheckError(null);
         setIsDragging(false);
+    }, [isOpen]);
+    // Page-wide drag tracking: a drag carries no drop data until it enters a
+    // drop target, so only the dialog/body handlers accept the drop itself.
+    useEffect(() => {
+        if (!isOpen) return;
+        const onDragOver = (event: DragEvent) => {
+            if (event.dataTransfer?.types.includes("Files")) setIsPageDragging(true);
+        };
+        const onDragLeave = (event: DragEvent) => {
+            // Leaving the window: no relatedTarget left in the document.
+            if (event.relatedTarget === null) setIsPageDragging(false);
+        };
+        const onDrop = () => setIsPageDragging(false);
+        const onDragEnd = () => setIsPageDragging(false);
+        window.addEventListener("dragover", onDragOver);
+        window.addEventListener("dragleave", onDragLeave);
+        window.addEventListener("drop", onDrop);
+        window.addEventListener("dragend", onDragEnd);
+        return () => {
+            window.removeEventListener("dragover", onDragOver);
+            window.removeEventListener("dragleave", onDragLeave);
+            window.removeEventListener("drop", onDrop);
+            window.removeEventListener("dragend", onDragEnd);
+            setIsPageDragging(false);
+        };
     }, [isOpen]);
     const invalidFormat = result?.status === "invalid-format" || checkError === "invalid-format";
     const inputError = invalidFormat
@@ -75,9 +104,7 @@ export function PlanExcelImportModal({
         }
     }
 
-    const hint = isDragging
-        ? "Продолжайте перетаскивать файл."
-        : "Выберите файл для загрузки в базу. Здесь будут выведены результаты его анализа.";
+    const dragging = isDragging || isPageDragging;
     return (
         <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
             <Modal.Container size="lg">
@@ -91,12 +118,14 @@ export function PlanExcelImportModal({
                         onDragEnter={(event) => {
                             event.preventDefault();
                             setIsDragging(true);
+                            setIsPageDragging(true);
                         }}
                         onDragOver={(event) => {
                             // Without preventDefault the browser opens the file.
                             event.preventDefault();
                             event.dataTransfer.dropEffect = "copy";
                             setIsDragging(true);
+                            setIsPageDragging(true);
                         }}
                         onDragLeave={(event) => {
                             if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -106,6 +135,7 @@ export function PlanExcelImportModal({
                         onDrop={(event) => {
                             event.preventDefault();
                             setIsDragging(false);
+                            setIsPageDragging(false);
                             void chooseFile(event.dataTransfer.files[0]);
                         }}
                     >
@@ -116,9 +146,11 @@ export function PlanExcelImportModal({
                             </p>
                         ) : (
                             <p
-                                className={`plan-excel-import-modal__hint${isDragging ? " plan-excel-import-modal__hint--active" : ""}`}
+                                className={`plan-excel-import-modal__hint${dragging ? " plan-excel-import-modal__hint--active" : ""}${hasResult ? " plan-excel-import-modal__hint--with-result" : ""}`}
                             >
-                                {hint}
+                                {dragging
+                                    ? "Перетащите файл в это окно."
+                                    : "Выберите файл для загрузки в базу. Здесь будут выведены результаты его анализа."}
                             </p>
                         )}
                         {result?.status === "has-errors" ? <ImportErrors result={result} /> : null}

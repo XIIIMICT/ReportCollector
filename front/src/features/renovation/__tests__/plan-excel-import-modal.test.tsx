@@ -4,6 +4,8 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import { PlanExcelImportModal } from "../plan-excel-import-modal";
 
+const HINT = "Выберите файл для загрузки в базу. Здесь будут выведены результаты его анализа.";
+
 afterEach(cleanup);
 
 test("opens the file picker and displays the selected file name", () => {
@@ -100,7 +102,7 @@ test("drops a dragged file into the same picker and shows the analysis state", a
             dataTransfer: { files: [], dropEffect: "", types: ["Files"] },
         });
     });
-    expect(view.getByText("Продолжайте перетаскивать файл.")).toBeTruthy();
+    expect(view.getByText("Перетащите файл в это окно.")).toBeTruthy();
 
     const file = new File(["xlsb"], "plan.xlsb");
     await act(async () => {
@@ -112,6 +114,48 @@ test("drops a dragged file into the same picker and shows the analysis state", a
     expect((view.getByRole("textbox", { name: "Имя файла" }) as HTMLInputElement).value).toBe(
         "plan.xlsb",
     );
+});
+
+test("the drop hint appears while a file is dragged anywhere over the page", async () => {
+    const view = render(
+        <PlanExcelImportModal isOpen onFileSelected={() => {}} onOpenChange={() => {}} />,
+    );
+
+    // Outside the dialog: the page-level drag still advertises the drop target.
+    await act(async () => {
+        fireEvent.dragOver(document.body, {
+            dataTransfer: { files: [], dropEffect: "", types: ["Files"] },
+        });
+    });
+    expect(view.getByText("Перетащите файл в это окно.")).toBeTruthy();
+
+    // Dropping anywhere ends the drag → back to the standing guidance.
+    await act(async () => {
+        fireEvent.drop(document.body, { dataTransfer: { files: [] } });
+    });
+    expect(view.getByText(HINT)).toBeTruthy();
+});
+
+test("the guidance disappears once a result is shown", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{ status: "ready", assets: ["АЭС-1"], newRows: 1, rowsToUpdate: 0 }}
+        />,
+    );
+    const hint = view.getByText(
+        "Выберите файл для загрузки в базу. Здесь будут выведены результаты его анализа.",
+    );
+    expect(hint.className).toContain("plan-excel-import-modal__hint--with-result");
+    // A new drag brings the drop guidance back, even over an existing report.
+    const dropZone = document.querySelector("[data-slot='modal-body']");
+    fireEvent.dragOver(dropZone as Element, {
+        dataTransfer: { files: [], dropEffect: "", types: ["Files"] },
+    });
+    const dropHint = view.getByText("Перетащите файл в это окно.");
+    expect(dropHint.className).toContain("plan-excel-import-modal__hint--active");
 });
 
 test("shows the spinner and «Идёт анализ...» while the file is being checked", async () => {
