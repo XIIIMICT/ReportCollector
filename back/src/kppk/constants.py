@@ -1,5 +1,28 @@
 """Static reference data of the «КППК» project (project key and section ids)."""
 
+
+def normalize_text(value: str | None) -> str:
+    """
+    Canonical form of a КППК text value: trimmed, single spaces.
+
+    Names, codes and regions in the source dumps carry stray whitespace —
+    leading/trailing spaces, tabs, line breaks, doubled and non-breaking spaces.
+    None of it is meaningful, and keeping it would make lookups by display name
+    (the matrix, the realization copies keyed by product NAME) miss. Every text
+    value the seeder writes and every text cell a user saves goes through here,
+    so the stored strings and the incoming ones always compare equal.
+
+    An empty result stays an empty string: for an optional field the caller
+    decides whether that means NULL.
+    """
+    if value is None:
+        return ""
+    # `split()` on its own handles every Unicode whitespace, and `join` puts
+    # exactly one ordinary space back — this also drops the non-breaking space
+    # Excel loves to embed.
+    return " ".join(value.split())
+
+
 KPPK_PROJECT_KEY = "kppk"
 KPPK_PROJECT_NAME = "КППК"
 

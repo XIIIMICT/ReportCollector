@@ -108,8 +108,13 @@ async def test_seed_recopies_sources_after_application_tables_were_deleted(db_se
     assert counters["matrix_links"] == 1
     row = (
         await connection.execute(
-            text(f'SELECT fact, excise_fact, buyout_fact FROM "{TEST_SCHEMA}".kppk_realization')  # noqa: S608
+            text(
+                f'SELECT fact, excise_fact, buyout_fact FROM "{TEST_SCHEMA}".kppk_realization '  # noqa: S608 — test schema
+                "WHERE product = :product AND region = 'RU'"
+            ).bindparams(product="Test product")
         )
     ).one()
     assert tuple(row) == (0, 0, 0)
+    # The seed is idempotent as a whole: a second run copies nothing and adds
+    # no period rows either (the generator only fills what is missing).
     assert (await seed_kppk.seed(db_session))["copy_tables_created"] == 0

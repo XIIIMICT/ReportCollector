@@ -36,7 +36,14 @@ from src.auth.models import Project, ProjectRole, User, UserRole
 from src.config import get_settings
 from src.database import async_session_factory
 from src.kppk import models as _kppk_models  # noqa: F401 — register current application table definitions
-from src.kppk.constants import KPPK_PROJECT_KEY, KPPK_SOURCE_SCHEMA_DICT, KPPK_SOURCE_SCHEMA_RAW, KPPK_SOURCE_TABLES
+from src.kppk.constants import (
+    KPPK_PROJECT_KEY,
+    KPPK_SOURCE_SCHEMA_DICT,
+    KPPK_SOURCE_SCHEMA_RAW,
+    KPPK_SOURCE_TABLES,
+    normalize_text,
+)
+from src.scripts.generate_kppk_periods import generate
 
 # docs/kppk/ of the repository (`back/src/scripts/seed_kppk.py` → 3 levels up).
 KPPK_DOCS_DIR: Final[Path] = Path(__file__).resolve().parents[3] / "docs" / "kppk"
@@ -46,6 +53,33 @@ KPPK_ADMIN_EMAILS: Final[tuple[str, ...]] = ("evtushenko.sn@ruschem.ru", "lavrov
 # Only the four dictionary copies get audit stamps; the fact/plan copies stay
 # verbatim (the migration does not create audit columns for them).
 STAMPED_COPY_TABLES: Final[frozenset[str]] = frozenset({"kppk_d_org", "kppk_d_product_seq", "kppk_d_raw_seq"})
+
+# The text columns of the copies. Their values are normalised on the way in —
+# trimmed and collapsed to single spaces (`normalize_text` in
+# `src/kppk/constants.py`) — because the source dumps carry stray tabs, line
+# breaks, doubled and non-breaking spaces, and products/regions are the
+# natural keys of the realization copies: an untrimmed value would silently
+# become a second product.
+TEXT_COPY_COLUMNS: Final[frozenset[str]] = frozenset({"code", "name", "product", "region"})
+
+
+def _normalized_sql(column: str) -> str:
+    r"""
+    Build the SQL form of `normalize_text`.
+
+    The server must apply the same rule as the Python side, so the expression
+    mirrors `" ".join(value.split())` step by step: the non-breaking space is a
+    plain space for us (PostgreSQL's `\s` does not match it, hence the explicit
+    `replace`), then every run of whitespace collapses to one ordinary space,
+    and the edges are trimmed.
+    """
+    return f"""regexp_replace(btrim(replace(s."{column}", chr(160), ' ')), '[[:space:]]+', ' ', 'g')"""
+
+
+def _source_column_sql(column: str) -> str:
+    """Source expression of one copied column: normalised when it is text."""
+    return _normalized_sql(column) if column in TEXT_COPY_COLUMNS else f's."{column}"'
+
 
 # Column mapping of every copied table: (source column, rc copy column).
 SOURCE_COPY_COLUMNS: Final[dict[str, tuple[tuple[str, str], ...]]] = {
@@ -315,7 +349,7 @@ async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[st
     for source, target in KPPK_SOURCE_TABLES.items():
         columns = SOURCE_COPY_COLUMNS[source]
         target_columns = ", ".join(column for _, column in columns)
-        source_columns = ", ".join(column for column, _ in columns)
+        source_columns = ", ".join(_source_column_sql(column) for column, _ in columns)
         # The four dictionaries carry audit stamps; the fact/plan copies stay
         # verbatim without them (the migration does not create those columns).
         stamped = source in STAMPED_COPY_TABLES
@@ -326,7 +360,7 @@ async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[st
             target_columns = ", ".join(copied)
             zero_fields = {"fact", "month_bp_plan", "month_max_plan", "excise_bp", "excise_max_plan", "excise_fact"}
             source_columns = ", ".join(
-                f"coalesce(s.{column}, 0)" if column in zero_fields else f"s.{column}" for column in copied
+                f"coalesce(s.{column}, 0)" if column in zero_fields else _source_column_sql(column) for column in copied
             )
             missing = (
                 await connection.execute(
@@ -355,7 +389,7 @@ async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[st
                 text(
                     f"INSERT INTO {_qualified(app_schema, target)} (id, {target_columns}{stamp_columns}) "  # noqa: S608 — server-owned identifiers
                     f"SELECT gen_random_uuid(), {source_columns}{stamp_values} "
-                    f"FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)}"
+                    f"FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)} s"
                 )
             )
         per_table[target] = int(result.rowcount or 0) if isinstance(result, CursorResult) else 0
@@ -450,17 +484,19 @@ def _matrix_matches() -> list[MatrixMatch]:
     if not rows:
         message = f"Матрица продуктов пуста: {matrix}."
         raise CommandError(message)
-    orgs = [str(cell).strip() for cell in rows[0][1:] if cell is not None]
+    # Names are normalised the same way the copies were: the matrix columns and
+    # its product column must match the stored ДЗО/product names exactly.
+    orgs = [normalize_text(str(cell)) for cell in rows[0][1:] if cell is not None]
     if not orgs:
         message = f"В матрице продуктов нет колонок ДЗО: {matrix}."
         raise CommandError(message)
     matches: list[MatrixMatch] = []
     for row in rows[1:]:
-        product = str(row[0]).strip() if row[0] is not None else ""
+        product = normalize_text(str(row[0])) if row[0] is not None else ""
         if not product:
             continue
         for org_name, cell in zip(orgs, row[1 : len(orgs) + 1], strict=False):
-            if str(cell).strip() == MATCH_COLUMN_VALUE:
+            if normalize_text(str(cell)) == MATCH_COLUMN_VALUE:
                 matches.append({"org": org_name, "product": product})
     return matches
 
@@ -578,8 +614,27 @@ async def seed_administrators(session: AsyncSession) -> int:
     return len(KPPK_ADMIN_EMAILS)
 
 
+async def _generate_periods(session: AsyncSession) -> dict[str, int]:
+    """
+    Materialize the coming «Реализация» / «Себестоимость» rows.
+
+    Delegates to `generate_kppk_periods` so the seeder and `just
+    gen-kppk-periods` can never drift: the same month window, the same market
+    list, the same "only combinations that are missing" rule. It runs inside
+    the seed transaction (no commit of its own), so a failed seed leaves no
+    half-written periods behind.
+    """
+    return await generate(session=session)
+
+
 async def seed(session: AsyncSession) -> dict[str, int]:
-    """Seed the КППК source copies; returns the counters printed by `run`."""
+    """
+    Seed the КППК source copies and the coming periods; returns the counters.
+
+    The period rows are generated as the LAST step (same transaction): a fresh
+    copy of the dictionaries would otherwise leave the «Реализация» and
+    «Себестоимость» forms empty for months nobody has loaded yet.
+    """
     settings = get_settings()
     app_schema = settings.postgres_schema
     if not app_schema:
@@ -596,6 +651,8 @@ async def seed(session: AsyncSession) -> dict[str, int]:
     org_products = await _rebuild_org_products(connection, app_schema)
     costs = await _rebuild_costs(connection, app_schema)
     administrators = await seed_administrators(session)
+    # Last: the matrix is final only after the rebuild above.
+    periods = await _generate_periods(session)
     return {
         **per_table,
         **org_products,
@@ -604,16 +661,25 @@ async def seed(session: AsyncSession) -> dict[str, int]:
         "source_tables_created": source_tables_created,
         "copy_tables_created": copy_tables_created,
         "administrators": administrators,
+        "periods_created": sum(periods.values()),
+        "periods_realization_plan": periods["kppk_realization_plan"],
+        "periods_realization": periods["kppk_realization"],
+        "periods_cost": periods["kppk_cost"],
     }
 
 
 async def run() -> None:
-    """Seed the КППК source copies in one transaction."""
+    """Seed the КППК source copies and the coming periods in one transaction."""
     async with async_session_factory() as session:
         counters = await seed(session)
         await session.commit()
     details = ", ".join(f"{name}={count}" for name, count in sorted(counters.items()))
     print(f"Сидирование КППК завершено: {details}.")
+    print(
+        f"Периоды (как `just gen-kppk-periods`): «Реализация» (план) — "
+        f"{counters['periods_realization_plan']}, «Реализация» (факт) — "
+        f"{counters['periods_realization']}, «Себестоимость» — {counters['periods_cost']}."
+    )
 
 
 def main() -> None:

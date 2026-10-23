@@ -36,8 +36,8 @@ editing a KPPK membership.
 | Migrations | `just migrate` (never edit already-applied prod migrations — only new ones). The migration connection sets `lock_timeout=30s` — a blocked migration (e.g. an ALTER waiting behind the running app) fails loudly instead of hanging |
 | New empty DB / baseline adoption | New: `just migrate`. Existing old head `0015_plan_row_col_218`: backed-up, stopped installation + `uv run --directory back python -m migrations.adopt_baseline` once, then `just migrate`. Guarded schema comparison; details in `docs/WORKFLOW.md` |
 | Seed | `just seed` — **fully recreates the DB schema**, don't run without asking |
-| КППК seed | `just seed-kppk` — re-copies the `raw.kppk_*` sources (only creates them when missing) and rebuilds «Продуктовые позиции»; other projects untouched |
-| КППК periods | `just gen-kppk-periods` (`-dry` for a count only) — inserts the missing «Реализация» (one row per ДЗО × product × market) and «Себестоимость» (per ДЗО × product) rows for every month of the current and next year, all values zero. Existing rows are never touched; safe to re-run. Products come from the «Продуктовые позиции» matrix |
+| КППК seed | `just seed-kppk` — re-copies the `raw.kppk_*` sources (only creates them when missing), rebuilds «Продуктовые позиции» and **finishes by generating the periods** (same code as `just gen-kppk-periods`, same transaction). Text values are normalized on copy and on save (`normalize_text` in `src/kppk/constants.py`): trimmed, single spaces, non-breaking space included — the copies are keyed by NAME, so stray spaces would create a second product. Other projects untouched |
+| КППК periods | `just gen-kppk-periods` (`-dry` for a count only) — inserts the missing «Реализация» (one row per ДЗО × product × market) and «Себестоимость» (per ДЗО × product) rows for every month of the current and next year, all values zero. Existing rows are never touched; safe to re-run. Products come from the «Продуктовые позиции» matrix. Also runs at the end of `just seed-kppk` |
 
 ## Landmines (critical!)
 
