@@ -81,8 +81,8 @@ export function ReplaceRecordDialog({
                                 <span className="replace-record-dialog__accent">
                                     {sectionLabel}
                                 </span>
-                                », на которое хотите заменить{" "}
-                                <span className="replace-record-dialog__accent">«{label}»</span>.
+                                », на которое хотите заменить «
+                                <span className="replace-record-dialog__accent">{label}</span>».
                                 Операция выполнится, если это не нарушит ограничений уникальности в
                                 связанных таблицах.
                             </p>
@@ -121,7 +121,7 @@ export function ReplaceRecordDialog({
                                     isDisabled={isPending}
                                 >
                                     <Xmark aria-hidden="true" />
-                                    Отмена
+                                    Отменить
                                 </Button>
                                 <Button
                                     variant="danger"
@@ -134,7 +134,7 @@ export function ReplaceRecordDialog({
                                     ) : (
                                         <DataTransferBoth aria-hidden="true" />
                                     )}
-                                    Заменить
+                                    Заменить запись
                                 </Button>
                             </ButtonGroup>
                         </AlertDialog.Footer>

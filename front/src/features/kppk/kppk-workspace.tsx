@@ -1,6 +1,6 @@
 "use client";
 
-import { Checkbox, toast, Typography } from "@heroui/react";
+import { Switch, toast, Typography } from "@heroui/react";
 import { CellMergePlugin, type MergeData } from "@revolist/rv-pro-trial";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1415,18 +1415,14 @@ export function KppkWorkspace({
             <div className="table-toolbar__row">
                 <div className="table-toolbar__controls">
                     {isPositionsTab ? (
-                        <Checkbox
-                            isSelected={exciseMode}
-                            onChange={setExciseMode}
-                            variant="secondary"
-                        >
-                            <Checkbox.Content>
-                                <Checkbox.Control>
-                                    <Checkbox.Indicator />
-                                </Checkbox.Control>
+                        <Switch isSelected={exciseMode} onChange={setExciseMode}>
+                            <Switch.Content>
+                                <Switch.Control>
+                                    <Switch.Thumb />
+                                </Switch.Control>
                                 Настройка акциза
-                            </Checkbox.Content>
-                        </Checkbox>
+                            </Switch.Content>
+                        </Switch>
                     ) : null}
                     <SectionTabs
                         tabs={visibleTabs}

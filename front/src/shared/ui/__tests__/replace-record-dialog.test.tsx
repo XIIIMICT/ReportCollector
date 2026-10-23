@@ -23,7 +23,7 @@ test("nothing is chosen until the user picks a value, so confirm starts disabled
             onConfirm={() => {}}
         />,
     );
-    const confirm = view.getByRole("button", { name: "Заменить" });
+    const confirm = view.getByRole("button", { name: "Заменить запись" });
     expect(confirm.hasAttribute("disabled")).toBe(true);
     // The trigger shows the hint, not «Пустое значение»: an untouched control is
     // not the same thing as choosing to clear the value.
@@ -51,7 +51,7 @@ test("«Пустое значение» is a real option that reports null", () 
 
     const empty = view.getByRole("option", { name: /Пустое значение/ });
     fireEvent.click(empty);
-    fireEvent.click(view.getByRole("button", { name: "Заменить" }));
+    fireEvent.click(view.getByRole("button", { name: "Заменить запись" }));
 
     expect(confirmed).toEqual([null]);
     void empty;

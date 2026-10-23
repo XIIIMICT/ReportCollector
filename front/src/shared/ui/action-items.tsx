@@ -84,8 +84,9 @@ export function buildReplaceAction({
     return [
         {
             id: "replace",
-            label: "Заменить",
+            label: "Заменить запись",
             icon: createElement(DataTransferBoth),
+            variant: "danger",
             onPress: onReplace,
             disabled,
             ...(blockedReason && { disabledReason: blockedReason }),
