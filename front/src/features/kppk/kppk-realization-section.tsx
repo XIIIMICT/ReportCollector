@@ -77,7 +77,6 @@ const KPPK_REALIZATION_SLICES: { id: KppkRealizationSlice; label: string }[] = [
  */
 const KPPK_REALIZATION_DESCRIPTORS: Record<KppkRealizationSlice, ColumnDescriptor[]> = {
     bp: [
-        { key: "productNum", label: "№", width: 70, kind: "number", fixed: true, readOnly: true },
         { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
         { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
         { key: "buyoutBpPlan", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
@@ -92,7 +91,6 @@ const KPPK_REALIZATION_DESCRIPTORS: Record<KppkRealizationSlice, ColumnDescripto
         },
     ],
     op: [
-        { key: "productNum", label: "№", width: 70, kind: "number", fixed: true, readOnly: true },
         { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
         { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
         { key: "buyoutMaxPlan", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
@@ -107,7 +105,6 @@ const KPPK_REALIZATION_DESCRIPTORS: Record<KppkRealizationSlice, ColumnDescripto
         },
     ],
     fact: [
-        { key: "productNum", label: "№", width: 70, kind: "number", fixed: true, readOnly: true },
         { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
         { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
         { key: "buyoutFact", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
@@ -157,7 +154,6 @@ export { KPPK_REALIZATION_SLICES, realizationRoomSection, type KppkRealizationSe
 
 type KppkRealizationSectionProps = {
     mode?: "realization" | "cost";
-    includeExcise?: boolean;
     isAdmin: boolean;
     /** The selected ДЗО: the workspace toolbar always provides one. */
     orgId: string | null;
@@ -190,17 +186,10 @@ type KppkRealizationSectionProps = {
     onRoomChange?: (room: CollabRoom | null) => void;
     /** The loaded view's period banner (the toolbar renders it) — null while empty. */
     onPeriodTextChange: (period: string | null) => void;
-    /**
-     * Whether the ACTIVE asset levies an excise on any of its positions. The
-     * toolbar hides the «с учётом акциза» checkbox entirely for an asset without
-     * one — there is nothing to switch on.
-     */
-    onExciseScopeChange?: (hasExcise: boolean) => void;
 };
 
 export function KppkRealizationSection({
     mode = "realization",
-    includeExcise = false,
     isAdmin,
     orgId,
     slice,
@@ -219,7 +208,6 @@ export function KppkRealizationSection({
     onResetState,
     onRoomChange,
     onPeriodTextChange,
-    onExciseScopeChange,
 }: KppkRealizationSectionProps) {
     const isCost = mode === "cost";
     const roomSection = isCost ? "kppkCost" : realizationRoomSection(slice);
@@ -229,13 +217,11 @@ export function KppkRealizationSection({
         if (!isCost)
             return [
                 ...KPPK_REALIZATION_DESCRIPTORS[slice],
-                // The column is added here and REMOVED further down when the
+                // The column is declared here and REMOVED further down when the
                 // asset levies no excise at all (`showExcise` needs the loaded
                 // view). Keeping it declarative here means the descriptors stay
                 // independent of the fetch.
-                ...(includeExcise
-                    ? [{ key: exciseKey, label: "Акциз", width: 130, kind: "number" as const }]
-                    : []),
+                { key: exciseKey, label: "Акциз", width: 130, kind: "number" as const },
             ];
         const fields = KPPK_COST_SLICE_FIELDS[slice];
         const labels = [
@@ -244,14 +230,6 @@ export function KppkRealizationSection({
             "Переменные затраты, руб./т",
         ];
         return [
-            {
-                key: "productNum",
-                label: "№",
-                width: 70,
-                kind: "number",
-                fixed: true,
-                readOnly: true,
-            },
             {
                 key: "product",
                 label: "Продукция",
@@ -267,7 +245,7 @@ export function KppkRealizationSection({
                 kind: "number",
             })),
         ];
-    }, [exciseKey, includeExcise, isCost, slice]);
+    }, [exciseKey, isCost, slice]);
 
     const [reloadKey, setReloadKey] = useState(0);
     const [isGridSorted, setIsGridSorted] = useState(false);
@@ -295,12 +273,17 @@ export function KppkRealizationSection({
         const names = isCost ? [] : ((view as KppkRealizationView | null)?.exciseProducts ?? []);
         return new Set(names.map((name) => name.toLowerCase().split(/\s+/).join(" ")));
     }, [isCost, view]);
-    const showExcise = includeExcise && !isCost && exciseProducts.size > 0;
-    // Tell the toolbar whether this asset has an excise at all: the checkbox is
-    // hidden entirely when it does not.
-    useEffect(() => {
-        onExciseScopeChange?.(!isCost && exciseProducts.size > 0);
-    }, [exciseProducts, isCost, onExciseScopeChange]);
+    const showExcise = !isCost && exciseProducts.size > 0;
+    // The «Акциз» column exists only for an asset that levies an excise on at
+    // least one of its products; for anything else it is dropped, so the grid
+    // never offers an excise cell nobody can fill.
+    const visibleDescriptors = useMemo(
+        () =>
+            showExcise || isCost
+                ? descriptors
+                : descriptors.filter((item) => item.key !== exciseKey),
+        [descriptors, exciseKey, isCost, showExcise],
+    );
     const productHasExcise = useCallback(
         (product: string) => exciseProducts.has(product.toLowerCase().split(/\s+/).join(" ")),
         [exciseProducts],
@@ -511,15 +494,15 @@ export function KppkRealizationSection({
 
     // The template folds each product's region rows into one merged cell: one
     // rowSpan range per run of rows sharing the product. The merge covers the
-    // leading `productNum` + `product` leaves (indexes 0 and 1) — the «№» and
-    // the name of one product are one block — plus the trailing excise column,
-    // whose figure belongs to the product, not to the market.
+    // leading `product` leaf (index 0 — the «№» column is gone) plus the
+    // trailing excise column, whose figure belongs to the product, not to the
+    // market.
     const cellMerge = useMemo<MergeData[]>(() => {
         if (isCost || isGridSorted) return [];
         const rows = view?.rows ?? [];
         const sweeps: MergeData[] = [];
         // The single Level/leaf array the merged columns sit in.
-        const mergedColumns = [0, 1];
+        const mergedColumns = [0];
         if (showExcise) mergedColumns.push(KPPK_REALIZATION_DESCRIPTORS[slice].length);
         const push = (from: number, to: number) => {
             if (from < 0 || to - from < 2) return;
@@ -673,7 +656,7 @@ export function KppkRealizationSection({
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}
                 rowHeight={rowHeight}
-                columnDescriptors={descriptors}
+                columnDescriptors={visibleDescriptors}
                 // Merge only in the original product/market order. Keep the
                 // plugin mounted: replacing it would rebuild sorting too.
                 sortable
