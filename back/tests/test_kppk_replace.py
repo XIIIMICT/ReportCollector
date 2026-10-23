@@ -125,3 +125,42 @@ async def test_replacing_a_product_with_itself_is_refused(db_session: AsyncSessi
 
     with pytest.raises(KppkValidationError, match="самое себя"):
         await replace_product(db_session, position_id=link.id, target_id=product.id, user=user)
+
+
+async def test_the_grouped_row_id_is_the_product(db_session: AsyncSession) -> None:
+    """The grouped view edits a PRODUCT row: its id is the product, not a position."""
+    now = _now()
+    user = await _admin(db_session)
+    org = KppkOrg(code="PRDE", name="ПРОБА-Д", created_at=now, updated_at=now)
+    db_session.add(org)
+    await db_session.flush()
+    source = KppkProduct(name="ПРОБА-ГРУППА", created_at=now, updated_at=now)
+    target = KppkProduct(name="ПРОБА-ГРУППА-ЦЕЛЬ", created_at=now, updated_at=now)
+    db_session.add(source)
+    db_session.add(target)
+    await db_session.flush()
+    db_session.add(KppkOrgProduct(org_id=org.id, product_id=source.id, created_at=now, updated_at=now))
+    await db_session.flush()
+
+    # The PRODUCT id, exactly what the grouped grid sends.
+    applied = await replace_product(db_session, position_id=source.id, target_id=target.id, user=user)
+
+    assert applied[0].field == "__replaced"
+    assert await db_session.get(KppkProduct, source.id) is None
+    links = (
+        await db_session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.product_id) == target.id))
+    ).all()
+    assert [link.org_id for link in links] == [org.id]
+
+
+async def test_a_position_less_product_is_removed_by_its_own_id(db_session: AsyncSession) -> None:
+    now = _now()
+    user = await _admin(db_session)
+    product = KppkProduct(name="ПРОБА-БЕЗ-ДЗО", created_at=now, updated_at=now)
+    db_session.add(product)
+    await db_session.flush()
+
+    applied = await replace_product(db_session, position_id=product.id, target_id=None, user=user)
+
+    assert applied[0].field == "__deleted"
+    assert await db_session.get(KppkProduct, product.id) is None

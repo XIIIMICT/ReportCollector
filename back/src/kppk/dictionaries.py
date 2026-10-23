@@ -524,6 +524,41 @@ async def update_product_position_cell(
 
 
 @project_write(KPPK_PROJECT_KEY, exclusive=True)
+async def delete_product_only(session: AsyncSession, *, product_id: UUID) -> list[AppliedCell]:
+    """
+    Delete a PRODUCT that has no positions left (the grouped view's row).
+
+    A numbered product refuses: the fact/plan copies still reference it by its
+    source number. A product that still holds positions is left to
+    `delete_product_position`, which drops them one by one.
+    """
+    product = await session.get(KppkProduct, product_id)
+    if product is None:
+        message = "Продукт не найден."
+        raise KppkNotFoundError(message)
+    if product.product_num is not None:
+        message = "У этого продукта есть номер из справочника — его нельзя удалить, пока он используется."
+        raise KppkValidationError(message)
+    snapshot: dict[str, object] = {
+        "productId": str(product.id),
+        "productNum": product.product_num,
+        "name": product.name,
+        "orgName": "",
+        "hasExcise": False,
+    }
+    await session.delete(product)
+    await session.flush()
+    return [
+        AppliedCell(
+            target_table=KppkOrgProduct.__tablename__,
+            row_id=product_id,
+            field="__deleted",
+            old_value=snapshot,
+            new_value=None,
+        )
+    ]
+
+
 async def delete_product_position(session: AsyncSession, *, position_id: UUID) -> list[AppliedCell]:
     """
     Delete ONE product × ДЗО position.
@@ -574,11 +609,13 @@ async def replace_product(
     """
     Replace one PRODUCT of «Продуктовые позиции» with another, then delete it.
 
-    The row the user picked is a product × ДЗО position, but the replacement
-    works on the PRODUCT: every position of the replaced product moves to the
-    target, and a target that already holds the same ДЗО keeps exactly one
-    position there (the duplicate is dropped after merging the excise flag —
-    a product flagged anywhere stays flagged).
+    `position_id` is whatever id the grid row carries: in the «Настройка
+    акциза» view that is a product × ДЗО POSITION, in the grouped (default)
+    view the row IS the product — a product may even have no position at all.
+    The replacement always works on the PRODUCT: every position of the replaced
+    product moves to the target, and a target that already holds the same ДЗО
+    keeps exactly one position there (the duplicate is dropped after merging the
+    excise flag — a product flagged anywhere stays flagged).
 
     The asset links follow the same rule as in «Сырьё»: a link that already
     exists on the target is merged, never duplicated, and the replaced product
@@ -586,15 +623,18 @@ async def replace_product(
     by its source number. With `target_id=None` the product is deleted as usual.
     """
     link = await session.get(KppkOrgProduct, position_id)
-    if link is None:
+    if link is not None:
+        source = await session.get(KppkProduct, link.product_id)
+    else:
+        # The grouped view's row id is the PRODUCT id itself.
+        source = await session.get(KppkProduct, position_id)
+    if source is None:
         message = "Позиция не найдена."
         raise KppkNotFoundError(message)
-    source = await session.get(KppkProduct, link.product_id)
-    if source is None:
-        message = "Продукт позиции не найден."
-        raise KppkNotFoundError(message)
     if target_id is None:
-        return await delete_product_position(session, position_id=position_id)
+        if link is not None:
+            return await delete_product_position(session, position_id=position_id)
+        return await delete_product_only(session, product_id=source.id)
     if target_id == source.id:
         message = "Нельзя заменить значение на самое себя."
         raise KppkValidationError(message)
