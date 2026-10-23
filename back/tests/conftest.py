@@ -217,7 +217,7 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
     from src.renovation.constants import R_ASSETS, RENOVATION_PROJECT_KEY, RENOVATION_PROJECT_NAME
     from src.renovation.models import RAsset, RProjectRole, RUserRole
     from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
-    from src.renovation.reference_data import REFERENCE_OPTIONS
+    from src.renovation.reference_data import REFERENCE_OPTIONS, reference_option_id
 
     project = Project(key=RENOVATION_PROJECT_KEY, name=RENOVATION_PROJECT_NAME)
     session.add(project)
@@ -242,11 +242,13 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
         session.add(asset)
     await session.flush()
 
-    reference_by_key: dict[str, RenovationReferenceValue] = {}
-    for catalog, value_key, label, sort_order in REFERENCE_OPTIONS:
-        value = RenovationReferenceValue(catalog=catalog, value_key=value_key, label=label, sort_order=sort_order)
+    for catalog, label in REFERENCE_OPTIONS:
+        value = RenovationReferenceValue(
+            id=reference_option_id(catalog, label),
+            catalog=catalog,
+            label=label,
+        )
         session.add(value)
-        reference_by_key[value_key] = value
     await session.flush()
 
     working = RenovationPlan(
@@ -271,6 +273,9 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
         ],
         start=1,
     ):
+        # col_003 is a plain typed value now (the generator is off): the fixture
+        # stores the codes a real plan carries, like the Excel seed does.
+        repair_code = next(rc for asset_code, rc, _ in R_ASSETS if asset_code == code).upper()
         session.add(
             RenovationPlanRow(
                 plan_id=working.id,
@@ -281,12 +286,13 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
                 created_at=now,
                 updated_at=now,
                 updater_user_id=None,
+                col_003=f"2027_{repair_code}_1.1.1_{defect}",
                 col_011="Шкаф ПЛК" if code == "bsk" else "Насос НК",
                 col_016="Ремонтный бюджет",
-                col_017=reference_by_key["work_category_002"].id,
-                col_018=reference_by_key["work_type_002"].id,
-                col_019=reference_by_key["cost_allocation_002"].id,
-                col_020=reference_by_key["execution_method_001"].id,
+                col_017=reference_option_id("work_category", "Остановочный капитальный ремонт"),
+                col_018=reference_option_id("work_type", "ТР"),
+                col_019=reference_option_id("cost_allocation", "OPEX"),
+                col_020=reference_option_id("execution_method", "Собственные силы"),
                 col_023=defect,
                 col_024=date(2027, 1, 1),
                 col_025=date(2027, 1, 31),

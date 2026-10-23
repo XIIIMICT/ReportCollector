@@ -36,7 +36,7 @@ SECTION_SHEET_NAMES: dict[str, str] = {
 
 # Keep in sync with the grid descriptors of the КППК sections.
 ALLOWED_KEYS: dict[str, frozenset[str]] = {
-    "kppkPositions": frozenset({"productNum", "name", "orgNames", "createdAt", "updatedAt", "updatedBy"}),
+    "kppkPositions": frozenset({"productNum", "name", "orgName", "hasExcise", "createdAt", "updatedAt", "updatedBy"}),
     "kppkRaws": frozenset({"rawNum", "name", "createdAt", "updatedAt", "updatedBy"}),
     "kppkOrgs": frozenset({"code", "name", "createdAt", "updatedAt", "updatedBy"}),
     "kppkUsers": frozenset(
@@ -56,7 +56,8 @@ ALLOWED_KEYS: dict[str, frozenset[str]] = {
 
 # Dictionary columns: column key -> list name on the hidden sheet.
 REFERENCE_LISTS: dict[str, str] = {
-    "orgNames": "orgs",
+    # The «ДЗО» cell of a product position carries the enterprise dropdown.
+    "orgName": "orgs",
 }
 
 REALIZATION_SHEET_NAME = "Реализация"

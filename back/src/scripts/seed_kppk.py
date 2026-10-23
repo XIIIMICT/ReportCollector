@@ -508,6 +508,24 @@ async def _rebuild_org_products(connection: AsyncConnection, app_schema: str) ->
             message = f"Матрица продуктов ссылается на неизвестное ДЗО «{match['org']}»."
             raise CommandError(message)
 
+    # «Заполняемый акциз» is kept per product × ДЗО position, and the matrix is
+    # the source of the PAIRS only: the flags are hand-kept, so the rebuild
+    # carries them over instead of wiping them with the rows.
+    excise_pairs = {
+        (row.org_name, row.product_name)
+        for row in (
+            await connection.execute(
+                text(
+                    f"SELECT o.name AS org_name, p.name AS product_name "  # noqa: S608 — constant names
+                    f"FROM {links_table} op "
+                    f"JOIN {orgs_table} o ON o.id = op.org_id "
+                    f"JOIN {products_table} p ON p.id = op.product_id "
+                    "WHERE op.has_excise"
+                )
+            )
+        ).all()
+    }
+    org_names = [match["org"] for match in matrix_matches]
     await connection.execute(text(f"TRUNCATE TABLE {links_table} CASCADE"))
     await connection.execute(
         # The matrix pairs arrive as two parallel arrays: unnest zips them back
@@ -519,10 +537,21 @@ async def _rebuild_org_products(connection: AsyncConnection, app_schema: str) ->
             f"JOIN {orgs_table} o ON o.name = m.org_name "
             f"JOIN {products_table} p ON p.name = m.product_name"
         ).bindparams(
-            org_names=[match["org"] for match in matrix_matches],
+            org_names=org_names,
             product_names=link_product_names,
         )
     )
+    # Restore the hand-kept flags on the pairs that still exist in the matrix.
+    for org_name, product_name in sorted(excise_pairs):
+        await connection.execute(
+            text(
+                f"UPDATE {links_table} op SET has_excise = true "  # noqa: S608 — constant names
+                f"FROM {orgs_table} o, {products_table} p "
+                "WHERE o.id = op.org_id AND p.id = op.product_id "
+                "AND o.name = :org_name AND p.name = :product_name"
+            ),
+            {"org_name": org_name, "product_name": product_name},
+        )
     return {"matrix_products_created": created_products, "matrix_links": len(matrix_matches)}
 
 

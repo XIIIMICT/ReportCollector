@@ -44,6 +44,8 @@ from .dictionaries import (
     read_org_rows,
     read_product_position_rows,
     read_raw_rows,
+    replace_org,
+    replace_raw,
     update_org_cell,
     update_product_position_cell,
     update_raw_cell,
@@ -60,6 +62,7 @@ from .models import KppkCost, KppkRealization, KppkRealizationPlan
 from .realization import (
     read_cost_rows,
     read_current_period,
+    read_excise_products,
     read_market_codes,
     read_realization_row_by_id,
     read_realization_rows,
@@ -82,6 +85,7 @@ from .schemas import (
     KppkRealizationCellUpdate,
     KppkRealizationExportRequest,
     KppkRealizationViewRead,
+    KppkReplaceRequest,
     KppkUserCreateRequest,
     KppkUserRowRead,
     KppkUserUpdateRequest,
@@ -341,9 +345,16 @@ async def _undo_response(
 async def get_product_positions(
     session: SessionDependency,
     _access: AccessDependency,
+    view: Annotated[Literal["grouped", "positions"], Query()] = "grouped",
 ) -> list[KppkProductPositionRowRead]:
-    """«Продуктовые позиции»: products with their ДЗО set (Матрица продуктов в БД)."""
-    return await read_product_position_rows(session)
+    """
+    «Продуктовые позиции» (Матрица продуктов в БД).
+
+    `view=grouped` (default) returns one row per product with its whole ДЗО
+    set — the tab's historical look; `view=positions` returns one row per
+    product × ДЗО position, where «Заполняемый акциз» is edited per pair.
+    """
+    return await read_product_position_rows(session, grouped=view == "grouped")
 
 
 @router.post("/product-positions", response_model=KppkAppliedRead, status_code=status.HTTP_201_CREATED)
@@ -353,7 +364,7 @@ async def post_product_positions(
     access: AdminDependency,
     session_id: str = "",
 ) -> KppkAppliedRead:
-    """Create a product with its ДЗО set."""
+    """Add one product × ДЗО position (a new product gets its first one)."""
     try:
         row, applied = await create_product_position(session, request=request, user=access.user)
     except KppkValidationError as error:
@@ -368,23 +379,48 @@ async def post_product_positions(
     return KppkAppliedRead(row=row)
 
 
-@router.patch("/product-positions/{product_id}", response_model=KppkAppliedRead)
+@router.patch("/product-positions/{position_id}", response_model=KppkAppliedRead)
 async def patch_product_position(
-    product_id: UUID,
+    position_id: UUID,
     request: KppkProductPositionCellUpdate,
     session: SessionDependency,
     access: AdminDependency,
     session_id: str = "",
 ) -> KppkAppliedRead:
-    """Edit one cell of a «Продуктовые позиции» row (name / orgNames / productNum)."""
+    """Edit one cell of a product × ДЗО position (№ / наименование / ДЗО / акциз)."""
     try:
         applied = await update_product_position_cell(
-            session, product_id=product_id, field=request.field, value=request.value, user=access.user
+            session, position_id=position_id, field=request.field, value=request.value, user=access.user
         )
-        updated = next(row for row in await read_product_position_rows(session) if row.id == product_id)
+        # The echo is the POSITION shape. A grouped «ДЗО» edit can drop THIS
+        # position (an asset removed from the set) or even leave the product
+        # without any, so a missing row is a legitimate outcome, not an error:
+        # fall back to the product's first remaining position and else an empty
+        # row the client only uses for its applied cells.
+        rows = await read_product_position_rows(session)
+        updated = next((row for row in rows if row.id == position_id), None)
+        if updated is None:
+            product_id = next(
+                (
+                    cell.new_value.get("productId")
+                    for cell in applied
+                    if isinstance(cell.new_value, dict) and cell.new_value.get("productId")
+                ),
+                None,
+            )
+            updated = next((row for row in rows if str(row.productId) == str(product_id)), None)
     except (KppkValidationError, KppkNotFoundError) as error:
         status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=str(error)) from error
+    if updated is None:
+        await _record_kppk_updates(
+            session,
+            access=access,
+            section=KPPK_SECTION_PRODUCT_POSITIONS,
+            session_id=session_id,
+            applied=applied,
+        )
+        return KppkAppliedRead(row=None)
     await _record_kppk_updates(
         session,
         access=access,
@@ -395,16 +431,16 @@ async def patch_product_position(
     return KppkAppliedRead(row=updated)
 
 
-@router.delete("/product-positions/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/product-positions/{position_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def drop_product_position(
-    product_id: UUID,
+    position_id: UUID,
     session: SessionDependency,
     access: AdminDependency,
     session_id: str = "",
 ) -> None:
-    """Delete a product together with its ДЗО links."""
+    """Delete ONE product × ДЗО position (its product goes with the last one)."""
     try:
-        applied = await delete_product_position(session, product_id=product_id)
+        applied = await delete_product_position(session, position_id=position_id)
     except KppkNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     await _record_kppk_updates(
@@ -498,6 +534,29 @@ async def drop_raw(
     )
 
 
+@router.post("/raws/{raw_id}/replace", status_code=status.HTTP_204_NO_CONTENT)
+async def replace_raw_endpoint(
+    raw_id: UUID,
+    request: KppkReplaceRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str = "",
+) -> None:
+    """Replace a raw item with another (or delete it)."""
+    try:
+        applied = await replace_raw(session, raw_id=raw_id, target_id=request.targetId)
+    except (KppkValidationError, KppkNotFoundError) as error:
+        status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=str(error)) from error
+    await _record_kppk_updates(
+        session,
+        access=access,
+        section=KPPK_SECTION_RAWS,
+        session_id=session_id,
+        applied=applied,
+    )
+
+
 # ─── «ДЗО» ────────────────────────────────────────────────────────────────
 
 
@@ -581,6 +640,29 @@ async def drop_org(
     )
 
 
+@router.post("/orgs/{org_id}/replace", status_code=status.HTTP_204_NO_CONTENT)
+async def replace_org_endpoint(
+    org_id: UUID,
+    request: KppkReplaceRequest,
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str = "",
+) -> None:
+    """Replace a ДЗО with another, moving its product positions (or delete it)."""
+    try:
+        applied = await replace_org(session, org_id=org_id, target_id=request.targetId)
+    except (KppkNotFoundError, KppkValidationError) as error:
+        status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=str(error)) from error
+    await _record_kppk_updates(
+        session,
+        access=access,
+        section=KPPK_SECTION_ORGS,
+        session_id=session_id,
+        applied=applied,
+    )
+
+
 # ─── «Реализация» (Таблицы.xlsx sheet «Реализация») ──────────────────────
 
 
@@ -614,6 +696,7 @@ async def get_realization(
         period=period,
         markets=await read_market_codes(session),
         rows=rows,
+        exciseProducts=await read_excise_products(session, org_id=org_id),
     )
 
 
@@ -627,14 +710,19 @@ async def patch_realization(
     session_id: str = "",
 ) -> KppkAppliedRead:
     """Edit one numeric cell of a «Реализация» row (journal + room fan-out)."""
-    old_value, stored = await update_realization_cell(
-        session,
-        slice_id=slice_id,
-        row_id=row_id,
-        field=request.field,
-        value=request.value,
-        user=access.user,
-    )
+    try:
+        old_value, stored = await update_realization_cell(
+            session,
+            slice_id=slice_id,
+            row_id=row_id,
+            field=request.field,
+            value=request.value,
+            user=access.user,
+        )
+    except (KppkValidationError, KppkNotFoundError) as error:
+        # Includes the excise scope («у продукта … акциз не предусмотрен»).
+        status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=str(error)) from error
     model = KppkRealization if slice_id == "fact" else KppkRealizationPlan
     row = await session.get(model, row_id)
     applied = [
@@ -879,6 +967,8 @@ async def export_kppk_table(
     except ExportValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
     if request.section == KPPK_SECTION_PRODUCT_POSITIONS:
+        # Always the POSITION shape: an export must spell every product × ДЗО
+        # pair out (a grouped row would put a comma list into one cell).
         rows: list[KppkProductPositionRowRead | KppkRawRowRead | KppkOrgRowRead | KppkUserRowRead] = list(
             await read_product_position_rows(session)
         )

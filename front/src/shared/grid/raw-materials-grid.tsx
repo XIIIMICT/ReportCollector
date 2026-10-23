@@ -828,6 +828,7 @@ function RawMaterialsGridInner(
         return !(
             readOnly ||
             row.readOnlyRow === true ||
+            row.lockedCells?.includes(descriptor.key) ||
             row.isDeleted ||
             descriptor.fixed ||
             descriptor.kind === "calculated" ||

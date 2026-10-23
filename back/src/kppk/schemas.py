@@ -11,26 +11,55 @@ from src.raw_materials.schemas import ExportColumnRequest  # noqa: TC001
 
 
 class KppkProductPositionRowRead(BaseModel):
-    """One row of «Продуктовые позиции» (a product with its ДЗО set)."""
+    """One row of «Продуктовые позиции» — a product × ДЗО POSITION."""
 
+    # The POSITION (the link), not the product: the same product at two assets
+    # is two rows, each with its own «Заполняемый акциз».
     id: UUID
+    # The product this position belongs to (the product-level cells edit it).
+    productId: UUID
     # Source dictionary number («№») — editable and unique; `None` for products
     # the seeder created from the matrix outside the source dictionary or added
     # by hand.
     productNum: int | None
     name: str
-    orgNames: list[str]
+    # The asset of THIS position.
+    orgName: str
+    # The whole ДЗО set of the product — filled in the default (grouped) view
+    # only, where one row edits a product together with its assets.
+    orgNames: list[str] = []
+    # «Заполняемый акциз» of this position.
+    hasExcise: bool = False
     createdAt: datetime
     updatedAt: datetime
     updatedBy: str
 
 
+class KppkReplaceRequest(BaseModel):
+    """Dictionary value replacement: `null` deletes the value instead."""
+
+    targetId: UUID | None = None
+
+
 class KppkProductPositionCreateRequest(BaseModel):
-    """A new «Продуктовые позиции» row (a product with its ДЗО set)."""
+    """
+    A new «Продуктовые позиции» entry.
+
+    Two shapes over the same stored positions: the position view sends one
+    `orgName`, the default (grouped) view sends the whole `orgNames` set of a
+    product typed once.
+    """
 
     name: str = Field(min_length=1, max_length=255)
-    orgNames: list[str] = Field(default_factory=list)
+    # The asset of the new position — the position view only.
+    orgName: str | None = Field(default=None, max_length=255)
+    # The ДЗО set of the product — the grouped view only.
+    orgNames: list[str] | None = None
+    # «Заполняемый акциз» of the new positions.
+    hasExcise: bool = False
     # Optional source number («№») — unique; `None` starts the row unnumbered.
+    # Filled only when the product itself is new: another position of an
+    # existing product inherits its number.
     productNum: int | None = None
 
 
@@ -218,6 +247,11 @@ class KppkRealizationViewRead(BaseModel):
     period: KppkRealizationPeriodRead
     markets: list[str]
     rows: list[KppkRealizationRowRead]
+    # Product NAMES that carry an excise on THIS asset (the «Продуктовые
+    # позиции» flag). Empty = the asset has no excise at all, and the form then
+    # hides the excise column entirely; a product missing from the list keeps
+    # its excise cell read-only.
+    exciseProducts: list[str] = []
 
 
 class KppkCostRowRead(BaseModel):
@@ -271,9 +305,17 @@ class KppkRealizationExportRequest(BaseModel):
 
 
 class KppkAppliedRead(BaseModel):
-    """Mutation result with the new row payload (grid-friendly)."""
+    """
+    Mutation result with the new row payload (grid-friendly).
 
-    row: KppkProductPositionRowRead | KppkRawRowRead | KppkOrgRowRead | KppkRealizationRowRead | KppkCostRowRead
+    `row` is `None` when the edit removed the row it echoed back — a grouped
+    «ДЗО» edit that drops the position, or leaves the product with no assets at
+    all. The `applied` cells remain the record of what changed.
+    """
+
+    row: (
+        KppkProductPositionRowRead | KppkRawRowRead | KppkOrgRowRead | KppkRealizationRowRead | KppkCostRowRead | None
+    ) = None
 
 
 class KppkExportViewRequest(BaseModel):

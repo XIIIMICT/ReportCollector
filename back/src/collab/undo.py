@@ -27,7 +27,15 @@ from src.collab.store import lease_key
 from src.common.section_policy import section_policy
 from src.kppk.constants import KPPK_PROJECT_KEY
 from src.kppk.dictionaries import apply_kppk_cell_value
-from src.kppk.models import KppkCost, KppkOrg, KppkProduct, KppkRaw, KppkRealization, KppkRealizationPlan
+from src.kppk.models import (
+    KppkCost,
+    KppkOrg,
+    KppkOrgProduct,
+    KppkProduct,
+    KppkRaw,
+    KppkRealization,
+    KppkRealizationPlan,
+)
 from src.kppk.users import apply_kppk_user_value
 from src.raw_materials.models import (
     AssetRawMaterial,
@@ -59,6 +67,7 @@ RENOVATION_TABLES = frozenset(
 KPPK_TABLES = frozenset(
     {
         KppkProduct.__tablename__,
+        KppkOrgProduct.__tablename__,
         KppkRaw.__tablename__,
         KppkOrg.__tablename__,
         KppkRealization.__tablename__,

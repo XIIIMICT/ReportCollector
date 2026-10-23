@@ -16,6 +16,19 @@ from datetime import date
 
 MISSING_COMPONENT = "<NULL>"
 
+# «Направление деятельности» («Лот») — the loT code always ends with a dot.
+DIRECTION_CODE_FIELD = "col_189"
+
+# Whether the renovation-ID generator is ON.
+#
+# It is OFF: col_003 is a plain typed value now (imported from the template
+# as-is, edited by hand), because the agreement processes and the state of the
+# data made the derived value impractical. The whole generator below — the
+# component validation, `calculate_renovation_id`, the legacy formula metadata
+# and the import's correctness check — stays in the codebase untouched; flipping
+# this flag back to True restores the derived behaviour.
+RENOVATION_ID_FORMULA_ENABLED = False
+
 IMPROVEMENT_SECTION_LABEL = "проекты улучшения"
 IMPROVEMENT_CATEGORY_LABEL = "проект улучшения"
 IMPROVEMENT_CATEGORY_VALUE_ID = "work_category_007"
@@ -80,7 +93,7 @@ def _invalid_asset_repair_code(value: str) -> RenovationIdError:
 
 def _invalid_direction_code(value: str) -> RenovationIdError:
     return RenovationIdError(
-        f"некорректный код направления деятельности `{value}`: ожидаются три цифровые группы, например 1.1.1"
+        f"некорректный код направления деятельности `{value}`: ожидаются три цифровые группы, например 1.1.1 (точка в конце дописывается сама)"
     )
 
 
@@ -287,7 +300,26 @@ def _normalize_asset_repair_code(value: str | None) -> str | None:
     return value.upper()
 
 
+def normalize_direction_code(value: str | None) -> str | None:
+    """
+    Canonical activity-direction code: three digit groups ending with a dot.
+
+    `1.1.1` and `1.1.1.` both become `1.1.1.` — the loT codes carry the dot by
+    definition, so it is added instead of rejected. A value that is not a
+    direction code at all is returned unchanged (trimmed), so the ordinary
+    validation reports it in its own words.
+    """
+    text = _optional_trimmed(value)
+    if text is None:
+        return None
+    body = text.removesuffix(".")
+    parts = body.split(".")
+    valid = len(parts) == 3 and all(part and part.isascii() and part.isdigit() for part in parts)
+    return f"{body}." if valid else text
+
+
 def _normalize_direction_code(value: str | None) -> str | None:
+    """Validate the direction code and return its canonical dotted form (errors raise)."""
     value = _optional_trimmed(value)
     if value is None:
         return None
@@ -296,9 +328,7 @@ def _normalize_direction_code(value: str | None) -> str | None:
     valid = len(parts) == 3 and all(part and part.isascii() and part.isdigit() for part in parts)
     if not valid:
         raise _invalid_direction_code(value)
-    # Canonical form without the trailing dot (the spec's examples carry it in
-    # the source data, but the code component ends on the last digit).
-    return body
+    return f"{body}."
 
 
 def _validate_project_code(value: str) -> None:

@@ -18,6 +18,7 @@ export function expandExcise(
     updates: CellUpdate[],
     rows: ReadonlyArray<{ id: string; product: string }>,
     exciseKey: string,
+    allowed: (product: string) => boolean = () => true,
 ): CellUpdate[] {
     if (!updates.some((update) => update.field === exciseKey)) return updates;
     const byId = new Map(rows.map((row) => [row.id, row]));
@@ -28,10 +29,10 @@ export function expandExcise(
             continue;
         }
         const row = byId.get(update.rowId);
-        if (!row) {
-            expanded.push(update);
-            continue;
-        }
+        // An excise OUTSIDE the product's scope is dropped outright: the cell is
+        // locked on screen, and this guards a stale page or a paste that
+        // bypassed the lock. The server rejects it as well.
+        if (!row || !allowed(row.product)) continue;
         for (const sibling of rows) {
             if (sibling.product !== row.product) continue;
             expanded.push({ ...update, rowId: sibling.id });

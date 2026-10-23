@@ -27,7 +27,8 @@ import {
     type KppkUserRow,
     deleteOrg,
     deleteProductPosition,
-    replaceProductPosition,
+    replaceOrgRow,
+    replaceRawRow,
     deleteRaw,
     exportKppkTable,
     getKppkUndoState,
@@ -649,21 +650,20 @@ function KppkSection({
                 (row) => "isActive" in row && !row.isActive && row.email !== currentUserEmail,
             ));
 
-    const replaceBlockedReason =
-        section !== "kppkPositions"
-            ? null
-            : selectedRows.length === 0
-              ? "Выберите запись для замены."
-              : selectedRows.length > 1
-                ? "Выберите ровно одну запись."
-                : null;
+    // «Заменить»: raw items and ДЗО merge into another value; product
+    // positions are left out — their merge logic is not trivial yet.
+    const replaceable = section === "kppkRaws" || section === "kppkOrgs";
+    const replaceBlockedReason = !replaceable
+        ? null
+        : selectedRows.length === 0
+          ? "Выберите запись для замены."
+          : selectedRows.length > 1
+            ? "Выберите ровно одну запись."
+            : null;
     const canReplace =
-        isAdmin &&
-        section === "kppkPositions" &&
-        selectedRows.length === 1 &&
-        replaceBlockedReason === null;
+        isAdmin && replaceable && selectedRows.length === 1 && replaceBlockedReason === null;
     const replaceTargets: ReplaceTargetOption[] = useMemo(() => {
-        if (section !== "kppkPositions" || selectedRows.length !== 1) return [];
+        if (!replaceable || selectedRows.length !== 1) return [];
         const currentId = selectedRows[0]?.id;
         return (rows ?? [])
             .filter((row) => row.id !== currentId)
@@ -671,17 +671,17 @@ function KppkSection({
                 id: row.id,
                 name: String((row as { name?: unknown }).name ?? row.id),
             }));
-    }, [rows, section, selectedRows]);
+    }, [replaceable, rows, selectedRows]);
     const [replaceOpen, setReplaceOpen] = useState(false);
 
     useEffect(() => {
         onReplaceState({
-            show: section === "kppkPositions",
+            show: replaceable,
             canReplace,
             blockedReason: replaceBlockedReason,
             onReplace: () => setReplaceOpen(true),
         });
-    }, [canReplace, onReplaceState, replaceBlockedReason, section]);
+    }, [canReplace, onReplaceState, replaceBlockedReason, replaceable]);
 
     async function replaceRecord(targetId: string | null) {
         if (!canReplace) return;
@@ -689,7 +689,11 @@ function KppkSection({
         if (!row) return;
         setIsMutationPending(true);
         try {
-            await track(replaceProductPosition(row.id, targetId));
+            if (section === "kppkRaws") {
+                await track(replaceRawRow(row.id, targetId));
+            } else {
+                await track(replaceOrgRow(row.id, targetId));
+            }
             gridRef.current?.clearSelection();
             setSelectedRowIds([]);
             setReplaceOpen(false);

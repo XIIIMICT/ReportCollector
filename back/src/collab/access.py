@@ -66,7 +66,7 @@ RENOVATION_SECTIONS = {
 }
 # The «КППК» dictionaries: admin-edited copies, every member may read them.
 KPPK_SECTIONS = {
-    "kppkPositions": (KppkProduct, frozenset({"name", "productNum", "orgNames"})),
+    "kppkPositions": (KppkProduct, frozenset({"name", "productNum", "orgName", "hasExcise"})),
     "kppkRaws": (KppkRaw, frozenset({"name", "rawNum"})),
     "kppkOrgs": (KppkOrg, frozenset({"code", "name"})),
     "kppkUsers": (User, frozenset({"email", "fullname", "isAdmin", "isActive"})),

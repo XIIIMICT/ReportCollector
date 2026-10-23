@@ -68,13 +68,13 @@ export default function ErrorPage({
                                 </Button>
                                 {/* A crash is exactly when someone needs the
                                     developer: the second button is the same
-                                    support link the header offers, tinted as the
-                                    constructive way out. */}
+                                    support link the header offers, styled as
+                                    the primary way out. */}
                                 <SupportButton
                                     projectName={projectName}
                                     supportMail={supportMail}
                                     appearance="button"
-                                    success
+                                    primary
                                     withSeparator
                                 />
                             </ButtonGroup>

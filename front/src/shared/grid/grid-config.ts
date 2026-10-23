@@ -37,6 +37,12 @@ export type GridRow = Record<string, unknown> & {
     isPlaceholder?: boolean;
     /** View-only row (for example, the signed-in user's administration row). */
     readOnlyRow?: boolean;
+    /**
+     * Cells of THIS row that must not be edited, whatever their column says —
+     * the column descriptor is shared by the whole grid, the rule can depend on
+     * the row (the «Реализация» excise exists only for some products).
+     */
+    lockedCells?: readonly string[];
 };
 
 export type ReferenceOption = {
@@ -226,12 +232,14 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     // the source tables. Editing is admin-only (enforced server-side); the
     // tabs are visible to every project member.
     kppkPositions: [
-        // «Продуктовые позиции» follow the «Сырьевые позиции» form: the source
-        // number «№» leads (editable — uniqueness is enforced server-side),
-        // then the product and its ДЗО multi-select column.
+        // ONE ROW PER PRODUCT × ДЗО POSITION — the «Настройка акциза» mode of
+        // the tab. The default mode groups a product with its assets instead
+        // (`KPPK_GROUPED_POSITION_DESCRIPTORS`); both read the same stored
+        // positions, only the shape differs.
         number("productNum", "№", 90),
         text("name", "Продукт", 430),
-        { key: "orgNames", label: "ДЗО", width: 360, kind: "assetsMulti" },
+        { key: "orgName", label: "ДЗО", width: 380, kind: "asset" },
+        { key: "hasExcise", label: "Заполняемый акциз", width: 180, kind: "boolean" },
     ],
     kppkRaws: [number("rawNum", "№", 90), text("name", "Сырьевая позиция", 430)],
     kppkOrgs: [
@@ -260,8 +268,7 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
             exportable: false,
         },
     ],
-    // «Реализация» has no static descriptors: the layout follows the template
-    // (Продукция | Рынок сбыта | Выкуп{Объем, Цена FCA} | Реализация{Объем,
+    // «Реализация» has no static descriptors: the layout follows the template    // (Продукция | Рынок сбыта | Выкуп{Объем, Цена FCA} | Реализация{Объем,
     // Цена FCA}), and the editable columns come from the active slice pasted
     // as `columnDescriptors` by the section component.
     renovationUsers: [
@@ -293,6 +300,22 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
         },
     ],
 };
+
+/**
+ * «Продуктовые позиции» in the DEFAULT (grouped) mode.
+ *
+ * One row per product: the product is typed once, then its ДЗО set is
+ * multi-selected in a single cell. The same stored positions are listed one
+ * per row in the «Настройка акциза» mode (`DESCRIPTORS.kppkPositions`).
+ */
+export const KPPK_GROUPED_POSITION_DESCRIPTORS: ColumnDescriptor[] = [
+    number("productNum", "№", 90),
+    text("name", "Продукт", 430),
+    { key: "orgNames", label: "ДЗО", width: 380, kind: "assetsMulti" },
+];
+
+/** «Продуктовые позиции» in the «Настройка акциза» mode: one row per position. */
+export const KPPK_POSITION_DESCRIPTORS: ColumnDescriptor[] = DESCRIPTORS.kppkPositions ?? [];
 
 /** Service columns appended by «Показать служебные столбцы» (all grids). */
 export const SERVICE_DESCRIPTORS: ColumnDescriptor[] = [
@@ -623,6 +646,10 @@ function isCellReadOnly(
             descriptor.key === "deliveryBasisName") ||
         Boolean(row.isDeleted) ||
         row.readOnlyRow === true ||
+        // A row can lock specific cells: the «Реализация» excise of a product
+        // that does not carry one must not be editable at all (the server
+        // rejects it anyway — but the user must not be led into the error).
+        (row.lockedCells?.includes(descriptor.key) ?? false) ||
         descriptor.readOnly === true ||
         (context.keycloakEnabled &&
             (section === "users" || section === "kppkUsers") &&

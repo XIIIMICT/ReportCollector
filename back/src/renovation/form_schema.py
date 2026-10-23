@@ -22,6 +22,18 @@ FORM_DATA_PATH = Path(__file__).parent / "form_data" / "renovation-form.json"
 # (removing it from the JSON would shift every later field's position).
 HIDDEN_FIELDS = frozenset({"col_218"})
 
+# Fields whose legacy «calculated» / «read-only» flags the app overrides.
+#
+# col_003 (the renovation ID) used to be a read-only value the generator derived
+# from its components (`renovation_id.calculate_renovation_id`). The formula is
+# OFF for now: the agreement processes and the state of the data need the field
+# to be a plain typed value, loaded from the template as-is. The generator stays
+# in the codebase (`renovation_id.py`, the legacy JSON entry with its formula
+# metadata) so it can be switched back on by removing the entry from this map —
+# nothing is deleted.
+CALCULATED_OVERRIDES: dict[str, bool] = {"col_003": False}
+READ_ONLY_OVERRIDES: dict[str, bool] = {"col_003": False}
+
 
 @dataclass(frozen=True)
 class RenovationFieldMeta:
@@ -92,8 +104,8 @@ def field_metas() -> tuple[RenovationFieldMeta, ...]:
             label=field["label"],
             cell_type=field["cellType"],
             catalog=field.get("catalog"),
-            is_calculated=bool(field["isCalculated"]),
-            is_read_only=bool(field.get("isReadOnly")),
+            is_calculated=CALCULATED_OVERRIDES.get(field["dbName"], bool(field["isCalculated"])),
+            is_read_only=READ_ONLY_OVERRIDES.get(field["dbName"], bool(field.get("isReadOnly"))),
             decimals=field.get("decimals"),
             position=int(field["position"]),
             ordinal=int(field["ordinal"]),
@@ -120,7 +132,7 @@ def field_meta(db_name: str) -> RenovationFieldMeta | None:
 
 @lru_cache(maxsize=1)
 def editable_fields() -> tuple[str, ...]:
-    """Writable fields: neither calculated nor read-only (col_003 stays read-only)."""
+    """Writable fields: neither calculated nor read-only (the overrides decide)."""
     return tuple(meta.db_name for meta in field_metas() if not meta.is_calculated and not meta.is_read_only)
 
 

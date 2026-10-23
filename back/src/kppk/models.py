@@ -22,6 +22,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Column,
     Date,
@@ -110,6 +111,12 @@ class KppkOrgProduct(UpdaterDisplay, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     org_id: UUID = Field(sa_column=Column(ForeignKey("kppk_orgs.id", ondelete="RESTRICT"), nullable=False, index=True))
     product_id: UUID = Field(sa_column=Column(ForeignKey("kppk_products.id", ondelete="RESTRICT"), nullable=False))
+    # «Заполняемый акциз» of one position: whether THIS product carries an
+    # excise on THIS asset. «Продуктовые позиции» is one row per product × ДЗО,
+    # so the same product may carry an excise at one asset and none at another.
+    # The «Реализация» column appears for an asset when any of its positions
+    # has the flag.
+    has_excise: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default=text("false")))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=_updated_at_column())
     updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")

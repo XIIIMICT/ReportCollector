@@ -3,9 +3,9 @@
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import Table, func
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import SQLModel, col, select, update
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.collab.journal import AppliedCell
@@ -16,7 +16,6 @@ from src.kppk.models import (
     KppkOrg,
     KppkOrgProduct,
     KppkProduct,
-    KppkProductionPlan,
     KppkRaw,
     KppkRealization,
     KppkRealizationPlan,
@@ -496,68 +495,75 @@ async def delete_product_position(session: AsyncSession, *, position_id: UUID) -
     ]
 
 
-# The fact/plan tables share the (org_id, product_id) slice columns.
-_SCOPE_TABLES: tuple[Table, ...] = (
-    SQLModel.metadata.tables[KppkRealization.__tablename__],
-    SQLModel.metadata.tables[KppkRealizationPlan.__tablename__],
-    SQLModel.metadata.tables[KppkProductionPlan.__tablename__],
-    SQLModel.metadata.tables[KppkCost.__tablename__],
-)
-
-
-async def replace_product_position(
-    session: AsyncSession, *, position_id: UUID, target_id: UUID | None
-) -> list[AppliedCell]:
+async def replace_raw(session: AsyncSession, *, raw_id: UUID, target_id: UUID | None) -> list[AppliedCell]:
     """
-    Re-point a product × ДЗО position, merge products, then delete the source.
+    Replace one raw item with another, then delete the replaced one.
 
-    Replacing with another position moves every «Реализация»/«Себестоимость»
-    row of the source product's ДЗО slice to the target product, adds the
-    target product to that ДЗО (when it is not there yet), and deletes the
-    source position — and its product once no position uses it. With
-    `target_id=None` the position is deleted as usual.
+    No table references a raw item in this phase, so the replacement ends as the
+    deletion of the replaced row; the target is only checked to exist.
     """
-    source_link = await session.get(KppkOrgProduct, position_id)
-    if source_link is None:
-        message = "Позиция не найдена."
-        raise KppkNotFoundError(message)
     if target_id is None:
-        return await delete_product_position(session, position_id=position_id)
-    if target_id == position_id:
+        return await delete_raw(session, raw_id=raw_id)
+    if target_id == raw_id:
         message = "Нельзя заменить значение на него же."
         raise KppkValidationError(message)
-    target_link = await session.get(KppkOrgProduct, target_id)
-    if target_link is None:
-        message = "Позиция для замены не найдена."
+    target = await session.get(KppkRaw, target_id)
+    if target is None:
+        message = "Сырьё для замены не найдено."
         raise KppkNotFoundError(message)
-    source_product_id = source_link.product_id
-    source_org_id = source_link.org_id
-    source_product = await session.get(KppkProduct, source_product_id)
-    target_product = await session.get(KppkProduct, target_link.product_id)
-    snapshot: dict[str, object] = {
-        "productId": str(source_product_id),
-        "productNum": source_product.product_num if source_product is not None else None,
-        "name": source_product.name if source_product is not None else "",
-        "targetPositionId": str(target_id),
-    }
-    # Only the source ДЗО slice of that product moves; the other slices keep theirs.
-    for table in _SCOPE_TABLES:
-        statement = (
-            update(table)
-            .where(table.c.product_id == source_product_id, table.c.org_id == source_org_id)
-            .values(product_id=target_link.product_id)
-        )
-        await session.exec(statement)
-    await session.delete(source_link)
-    await session.flush()
-    remaining = (
-        await session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.product_id) == source_product_id))
-    ).all()
-    if not remaining and source_product is not None:
-        await session.delete(source_product)
-    if target_product is not None:
-        target_product.updated_at = _now()
-        session.add(target_product)
+    applied = await delete_raw(session, raw_id=raw_id)
+    target.updated_at = _now()
+    session.add(target)
+    try:
+        await session.flush()
+    except IntegrityError as error:
+        await session.rollback()
+        message = "Замена нарушила бы ограничения уникальности в связанных таблицах — ни одна запись не изменена."
+        raise KppkValidationError(message) from error
+    return applied
+
+
+async def replace_org(session: AsyncSession, *, org_id: UUID, target_id: UUID | None) -> list[AppliedCell]:
+    """
+    Replace one ДЗО with another, then delete the replaced one.
+
+    Every product position of the replaced ДЗО moves to the target; a product
+    already linked to the target is merged — the duplicate link is dropped, so
+    the product keeps exactly one position in that ДЗО. A ДЗО carrying a
+    source number is protected like a plain deletion: the fact/plan copies
+    still reference it. With `target_id=None` the ДЗО is deleted as usual.
+    """
+    source = await session.get(KppkOrg, org_id)
+    if source is None:
+        message = "ДЗО не найдено."
+        raise KppkNotFoundError(message)
+    if target_id is None:
+        return await delete_org(session, org_id=org_id)
+    if target_id == org_id:
+        message = "Нельзя заменить значение на него же."
+        raise KppkValidationError(message)
+    if source.num is not None:
+        message = "Это ДЗО из исходной выгрузки — на него ссылается копия данных факта/плана."
+        raise KppkValidationError(message)
+    target = await session.get(KppkOrg, target_id)
+    if target is None:
+        message = "ДЗО для замены не найдено."
+        raise KppkNotFoundError(message)
+    target_links = (await session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.org_id) == target_id))).all()
+    target_product_ids = {link.product_id for link in target_links}
+    for link in (await session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.org_id) == org_id))).all():
+        if link.product_id in target_product_ids:
+            # The target already holds this product: keep one row, drop the
+            # duplicate before the move (the position key is unique).
+            await session.delete(link)
+            await session.flush()
+        else:
+            link.org_id = target_id
+    source_name = source.name
+    source_code = source.code
+    target.updated_at = _now()
+    session.add(target)
+    await session.delete(source)
     try:
         await session.flush()
     except IntegrityError as error:
@@ -566,10 +572,10 @@ async def replace_product_position(
         raise KppkValidationError(message) from error
     return [
         AppliedCell(
-            target_table=KppkOrgProduct.__tablename__,
-            row_id=position_id,
+            target_table=KppkOrg.__tablename__,
+            row_id=org_id,
             field="__replaced",
-            old_value=snapshot,
+            old_value={"code": source_code, "name": source_name, "targetId": str(target_id)},
             new_value=None,
         )
     ]

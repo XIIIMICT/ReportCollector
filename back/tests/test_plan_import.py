@@ -54,6 +54,26 @@ def test_duplicate_codes_name_every_sheet_row() -> None:
     assert import_plan._duplicates_with_rows(["A", "B", "A"], [3, 4, 9]) == ["A (строки 3, 9)"]
 
 
+def test_the_sample_reports_duplicates_but_no_longer_bad_codes() -> None:
+    """
+    The archived correctness check does not fire; duplicates still do.
+
+    The sample's codes are the legacy generated ones, and with the formula off
+    the analyzer loads them as-is. Before the change every row mismatching the
+    generator was listed as «некорректно рассчитанный код»; now that list is
+    empty and the duplicates («Дублирующиеся коды») remain the only blocker.
+    """
+    if _SAMPLE is None:
+        pytest.skip("no template sample in docs/")
+    result = inspect_plan_file(
+        _SAMPLE,
+        existing_codes=set(),
+        asset_names_by_code={"BSZR": "АО «БСЗ»"},
+    )
+    assert result.invalid_calculated_codes == []
+    assert result.duplicate_codes, "the sample is expected to carry repeated codes"
+
+
 def test_sample_is_uploaded_through_the_api(tmp_path: Path) -> None:
     """The multipart upload must reach the analyzer intact (bytes + boundary)."""
     from fastapi.testclient import TestClient

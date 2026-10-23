@@ -55,11 +55,14 @@ from src.renovation.plan import (
     RPlanState,
 )
 from src.renovation.renovation_id import (
+    DIRECTION_CODE_FIELD,
     MISSING_COMPONENT,
+    RENOVATION_ID_FORMULA_ENABLED,
     RenovationIdError,
     RenovationIdInput,
     RenovationIdResult,
     calculate_renovation_id,
+    normalize_direction_code,
 )
 from src.renovation.schemas import (
     CellUpdate,
@@ -246,7 +249,6 @@ async def read_meta(
         await session.exec(
             select(RenovationReferenceValue).order_by(
                 col(RenovationReferenceValue.catalog),
-                col(RenovationReferenceValue.sort_order),
                 col(RenovationReferenceValue.label),
             )
         )
@@ -453,7 +455,7 @@ def _plan_export_scope(
         asset_condition = asset_condition | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
     condition = condition & asset_condition
     for column_filter in filters or []:
-        condition = condition & _column_filter_condition(column_filter, label_map or {})
+        condition = condition & _column_filter_condition(column_filter, label_map or {}, plan_id)
     return condition
 
 
@@ -638,7 +640,7 @@ async def iter_plan_export_rows(
     def _prepare(values: dict[str, object], repair_code: str) -> dict[str, object]:
         if any(values.get(field) is None for field in calculated_fields):
             engine.materialize(values)
-        if not values.get("col_003"):
+        if RENOVATION_ID_FORMULA_ENABLED and not values.get("col_003"):
             values["col_003"] = _sparse_row_renovation_id(values, repair_code, label_map)
         return values
 
@@ -784,18 +786,27 @@ def _sparse_row_renovation_id(
     return result.value
 
 
-def _renovation_id_is_correct_condition() -> ColumnElement[bool]:
+def _renovation_id_is_correct_condition(plan_id: UUID) -> ColumnElement[bool]:
     """
-    Rows whose stored renovation ID (`col_003`) is complete.
+    Rows of a plan whose renovation ID (`col_003`) is correct.
 
-    A row is «correct» when it has an ID and none of its components is the
-    `<NULL>` placeholder `_safe_renovation_id` substitutes for a missing input.
-    The «Идентификационный код» header filter offers exactly two buckets
-    (correct / incorrect) instead of a value list, because the IDs are unique
-    per row and a value list would be useless.
+    With the generator off (`RENOVATION_ID_FORMULA_ENABLED`), a code is judged
+    by uniqueness alone: a correct code is non-empty and appears exactly once in
+    the plan. «Некорректные» therefore means an empty code or a duplicate — the
+    two things that still block submit. The «Идентификационный код» header
+    filter offers exactly these two buckets (correct / incorrect) instead of a
+    value list, because a value list of mostly-unique codes would be useless.
     """
     raw = col(RenovationPlanRow.col_003)
-    return raw.is_not(None) & (raw != "") & raw.not_like(f"%{MISSING_COMPONENT}%")
+    non_empty = raw.is_not(None) & (raw != "")
+    duplicates = (
+        select(raw)
+        .where(col(RenovationPlanRow.plan_id) == plan_id, non_empty)
+        .group_by(raw)
+        .having(func.count() > 1)
+        .subquery()
+    )
+    return non_empty & raw.not_in(sa_select(duplicates))
 
 
 # How many offending row numbers the submit refusal lists. The counts stay
@@ -834,27 +845,31 @@ async def _plan_id_issues(
     plan_id: UUID,
 ) -> tuple[int, int, list[int], list[int]]:
     """
-    Collect the rows blocking submit: incorrect and duplicated work IDs.
+    Collect the rows blocking submit: incorrect (empty) and duplicated work IDs.
 
-    A row is «incorrect» when its stored `col_003` is empty or still carries the
-    `<NULL>` placeholder (`_renovation_id_is_correct_condition`); a duplicate is
-    a non-empty ID shared by more than one row. Returns the exact counts plus
-    the first `SUBMIT_ID_ISSUE_ROW_LIMIT` row positions («№») of each kind —
-    `submit_plan` refuses to freeze the version while either count is non-zero.
+    A row is «incorrect» when its stored `col_003` is empty; a duplicate is a
+    non-empty ID shared by more than one row — with the generator off
+    (`RENOVATION_ID_FORMULA_ENABLED`) both are the user's own text and there is
+    nothing else to check. Returns the exact counts plus the first
+    `SUBMIT_ID_ISSUE_ROW_LIMIT` row positions («№») of each kind — `submit_plan`
+    refuses to freeze the version while either count is non-zero.
     """
-    correct = _renovation_id_is_correct_condition()
     raw = col(RenovationPlanRow.col_003)
     position = col(RenovationPlanRow.position)
     plan_condition = col(RenovationPlanRow.plan_id) == plan_id
+    empty_condition = raw.is_(None) | (raw == "")
     incorrect_rows = list(
         (
             await session.exec(
-                select(position).where(plan_condition, ~correct).order_by(position).limit(SUBMIT_ID_ISSUE_ROW_LIMIT)
+                select(position)
+                .where(plan_condition, empty_condition)
+                .order_by(position)
+                .limit(SUBMIT_ID_ISSUE_ROW_LIMIT)
             )
         ).all()
     )
     incorrect = (
-        await session.exec(select(func.count()).select_from(RenovationPlanRow).where(plan_condition, ~correct))
+        await session.exec(select(func.count()).select_from(RenovationPlanRow).where(plan_condition, empty_condition))
     ).one()
     duplicate_ids = (
         select(raw).where(plan_condition, raw.is_not(None), raw != "").group_by(raw).having(func.count() > 1).subquery()
@@ -876,6 +891,7 @@ async def _plan_id_issues(
 def _column_filter_condition(
     column_filter: RenovationColumnFilter,
     label_map: dict[UUID, str],
+    plan_id: UUID | None = None,
 ) -> ColumnElement[bool]:
     """
     Build the SQL condition for one header filter (a column facet selection).
@@ -885,16 +901,23 @@ def _column_filter_condition(
     booleans → Да/Нет; numbers → Decimals. `includeNulls` adds the empty bucket
     (NULL or empty string). An empty condition already covers "all kept" — the
     client omits a filter whose every value is kept.
+
+    `plan_id` scopes the «Некорректные» bucket: a code is incorrect when it
+    repeats INSIDE the plan, so the duplicate lookup must not see other plans.
     """
     column = column_filter.column
     if column == _RENOVATION_ID_COLUMN:
         # The two-bucket ID filter (correct / incorrect), not a value list.
+        if plan_id is None:
+            message = "Фильтр идентификационных кодов требует план."
+            raise ValueError(message)
+        correct = _renovation_id_is_correct_condition(plan_id)
         conditions: list[ColumnElement[bool]] = []
         for value in column_filter.values:
             if value == _RENOVATION_ID_OK_LABEL:
-                conditions.append(_renovation_id_is_correct_condition())
+                conditions.append(correct)
             elif value == _RENOVATION_ID_BAD_LABEL:
-                conditions.append(~_renovation_id_is_correct_condition())
+                conditions.append(~correct)
         return or_(*conditions) if conditions else sa_false()
     value_conditions: list[ColumnElement[bool]] = []
     if column == _ASSET_COLUMN_PROP:
@@ -987,7 +1010,7 @@ def _plan_row_condition(
             | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
         )
     for column_filter in filters or []:
-        condition = condition & _column_filter_condition(column_filter, label_map)
+        condition = condition & _column_filter_condition(column_filter, label_map, plan.id)
     if position_from is not None:
         condition = condition & (col(RenovationPlanRow.position) >= position_from)
     if position_to is not None:
@@ -1219,7 +1242,7 @@ async def read_plan_facets(
     if column == _RENOVATION_ID_COLUMN:
         # The ID filter is two fixed buckets (correct / incorrect), not a value
         # list: every ID is unique, so a value list would be unusable.
-        correct = _renovation_id_is_correct_condition()
+        correct = _renovation_id_is_correct_condition(plan.id)
         ok_count, bad_count = (
             await session.exec(  # ty: ignore[no-matching-overload]
                 sa_select(func.count().filter(correct), func.count().filter(~correct))
@@ -1751,18 +1774,24 @@ def _row_renovation_id(
     asset: RAsset | None,
     label_map: dict[UUID, str],
 ) -> tuple[str | None, tuple[str, ...]]:
-    """Return the stored renovation ID; if empty — recompute it for UI highlighting."""
+    """
+    Return the stored renovation ID, previewing the generator when it is empty.
+
+    With the generator OFF the preview would show a code the database does not
+    hold — the cell must read as what will be saved, so an empty `col_003` stays
+    empty. The generator stays for the day it is switched back on.
+    """
     if row.col_003:
         return row.col_003, ()
-    if asset is None:
-        # An empty (asset-less) draft cannot form a renovation id.
+    if asset is None or not RENOVATION_ID_FORMULA_ENABLED:
         return None, ()
     result = _safe_renovation_id(_renovation_id_input(row, asset, label_map))
     return result.value, result.missing_components
 
 
 # The cells `calculate_renovation_id` reads. Editing any of them must rebuild
-# col_003 from the row's inputs instead of keeping the stored value.
+# col_003 from the row's inputs instead of keeping the stored value — but only
+# while the generator is ON (`RENOVATION_ID_FORMULA_ENABLED`).
 _RENOVATION_ID_INPUT_FIELDS = frozenset(
     {"col_011", "col_016", "col_017", "col_018", "col_023", "col_024", "col_136", "col_189"}
 )
@@ -1929,10 +1958,14 @@ async def update_plan_cells(
             )
         # Rebuild the id only when the edit touched one of its inputs (e.g.
         # clearing the defect number and filling the correction); otherwise the
-        # stored id stands.
+        # stored id stands. With the generator OFF the value is never rebuilt:
+        # col_003 is another editable cell and the user's text is kept verbatim.
         edited_fields = touched_fields.get(row.id) or set()
-        keep_existing = not (edited_fields & _RENOVATION_ID_INPUT_FIELDS)
-        result = _safe_renovation_id(_renovation_id_input(row, asset, label_map, keep_existing=keep_existing))
+        if RENOVATION_ID_FORMULA_ENABLED:
+            keep_existing = not (edited_fields & _RENOVATION_ID_INPUT_FIELDS)
+            result = _safe_renovation_id(_renovation_id_input(row, asset, label_map, keep_existing=keep_existing))
+        else:
+            result = RenovationIdResult(value=row.col_003 or "", missing_components=())
         id_changed = row.col_003 != result.value
         if id_changed:
             row.col_003 = result.value
@@ -2081,7 +2114,7 @@ async def recompute_plan_rows(
             calculated, row_changed = _materialize_row(row)
             asset = assets_by_id.get(row.asset_id)
             new_id = row.col_003
-            if asset is not None:
+            if asset is not None and RENOVATION_ID_FORMULA_ENABLED:
                 new_id = _safe_renovation_id(_renovation_id_input(row, asset, label_map)).value
             changed += row_changed or new_id != row.col_003
             scanned += 1
@@ -2141,6 +2174,8 @@ async def _coerce_cell(
         value_id = await _resolve_reference_id(session, meta.catalog, label)
         return label, value_id
     text = coerce_text(value)
+    if meta.db_name == DIRECTION_CODE_FIELD:
+        text = normalize_direction_code(text)
     return text, text
 
 
@@ -2312,8 +2347,9 @@ async def apply_renovation_cell_value(
     asset = await session.get(RAsset, row.asset_id)
     if asset is not None:
         _recalculate_row(session, row)
-        result = _safe_renovation_id(_renovation_id_input(row, asset, label_map))
-        row.col_003 = result.value
+        if RENOVATION_ID_FORMULA_ENABLED:
+            result = _safe_renovation_id(_renovation_id_input(row, asset, label_map))
+            row.col_003 = result.value
     session.add(row)
 
 

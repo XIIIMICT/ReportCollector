@@ -98,7 +98,7 @@ def test_real_form_id_materializes_documented_sample(form: dict) -> None:
             defect_number="1382467",
         )
     )
-    assert result.value == "2027_BSKR_1.1.1_1382467"
+    assert result.value == "2027_BSKR_1.1.1._1382467"
 
 
 def test_real_form_id_uses_null_placeholders_when_components_missing(form: dict) -> None:

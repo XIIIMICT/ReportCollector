@@ -108,14 +108,28 @@ export type KppkRealizationView = {
     period: KppkRealizationPeriod;
     markets: string[];
     rows: KppkRealizationRow[];
+    /**
+     * Product names that carry an excise on THIS asset (the «Продуктовые
+     * позиции» flag). Empty = the asset has no excise: the form hides the
+     * column entirely. A product missing from the list keeps its cell locked.
+     */
+    exciseProducts?: string[];
 };
 
 export type KppkProductPositionRow = {
+    /** The position (the product × ДЗО link) — what every row operation takes. */
     id: string;
-    /** Source dictionary number («№») — editable and unique; `null` when unnumbered. */
+    /** The product this position belongs to. */
+    productId: string;
+    /** Source dictionary number («№») - editable and unique; `null` when unnumbered. */
     productNum: number | null;
     name: string;
-    orgNames: string[];
+    /** The asset of this position. */
+    orgName: string;
+    /** The product's whole ДЗО set — filled in the grouped view only. */
+    orgNames?: string[];
+    /** «Заполняемый акциз» of this position. */
+    hasExcise: boolean;
     createdAt: string;
     updatedAt: string;
     updatedBy: string;
@@ -135,23 +149,45 @@ export type KppkOrgRow = {
     id: string;
     code: string;
     name: string;
+    /** «Заполняемый акциз»: this ДЗО levies an excise at all. */
+    hasExcise: boolean;
     createdAt: string;
     updatedAt: string;
     updatedBy: string;
 };
 
 /** A row payload returned by every mutation (the grid refetches anyway). */
-export type KppkApplied<T> = { row: T };
+/**
+ * Mutation result. `row` is `null` when the edit removed the row it echoed back
+ * (a grouped «ДЗО» edit may drop the position or leave the product bare).
+ */
+export type KppkApplied<T> = { row: T | null };
 
 // ─── Продуктовые позиции (a product with its ДЗО set) ──────────────────────────────────
 
-export async function getProductPositions(): Promise<KppkProductPositionRow[]> {
-    return requestJson("/api/kppk/product-positions");
+/**
+ * «Продуктовые позиции» in one of the tab's two shapes.
+ *
+ * `grouped` (default) — one row per product with its whole ДЗО set (`orgNames`),
+ * the historical look; `positions` — one row per product × ДЗО, where
+ * «Заполняемый акциз» is set per pair.
+ */
+export async function getProductPositions(
+    view: "grouped" | "positions" = "grouped",
+): Promise<KppkProductPositionRow[]> {
+    return requestJson(`/api/kppk/product-positions?view=${view}`);
 }
 
+/**
+ * Add a «Продуктовые позиции» entry. Two shapes of the same call: the position
+ * view sends one `orgName`, the default (grouped) view sends the product's
+ * whole `orgNames` set.
+ */
 export async function createProductPosition(payload: {
     name: string;
-    orgNames: string[];
+    orgName?: string;
+    orgNames?: string[];
+    hasExcise?: boolean;
     productNum: number | null;
 }): Promise<KppkApplied<KppkProductPositionRow>> {
     return requestWrite(
@@ -177,6 +213,26 @@ export async function deleteProductPosition(productId: string): Promise<void> {
     await requestWrite(
         `/api/kppk/product-positions/${productId}?session_id=${getCollabSessionId()}`,
         "DELETE",
+    );
+}
+
+export async function replaceRawRow(rawId: string, targetId: string | null): Promise<void> {
+    await requestWrite(
+        `/api/kppk/raws/${rawId}/replace?session_id=${getCollabSessionId()}`,
+        "POST",
+        {
+            targetId,
+        },
+    );
+}
+
+export async function replaceOrgRow(orgId: string, targetId: string | null): Promise<void> {
+    await requestWrite(
+        `/api/kppk/orgs/${orgId}/replace?session_id=${getCollabSessionId()}`,
+        "POST",
+        {
+            targetId,
+        },
     );
 }
 

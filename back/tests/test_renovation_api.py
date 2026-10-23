@@ -117,8 +117,10 @@ async def test_meta_lists_form_fields_and_catalogs(client: AsyncClient) -> None:
     assert len(body["catalogs"]) == 5
     assert {asset["code"] for asset in body["assets"]} >= {"bsk", "vos"}
     col_003 = next(field for field in body["fields"] if field["dbName"] == "col_003")
-    assert col_003["isCalculated"] is True
-    assert col_003["isReadOnly"] is True
+    # The renovation-ID formula is OFF: the code is a plain typed value, loaded
+    # from the template as-is (see RENOVATION_ID_FORMULA_ENABLED).
+    assert col_003["isCalculated"] is False
+    assert col_003["isReadOnly"] is False
     col_011 = next(field for field in body["fields"] if field["dbName"] == "col_011")
     assert col_011["isReadOnly"] is False
     assert col_011["cellType"] == "text"
@@ -218,8 +220,13 @@ async def test_read_plan_facets_asset_column(client: AsyncClient) -> None:
 
 
 async def test_renovation_id_filter_is_two_buckets(client: AsyncClient, db_session: AsyncSession) -> None:
-    """The ID column filter offers «Корректные»/«Некорректные», not a value list."""
-    # The seed backfill gives both rows a complete ID.
+    """
+    The ID column filter offers «Корректные»/«Некорректные», not a value list.
+
+    With the generator off a code is judged by uniqueness: «Некорректные» are the
+    codes repeated inside the plan plus the empty ones — exactly what blocks
+    submit.
+    """
     facets = await client.get("/api/renovation/plan/facets", headers=ADMIN_HEADERS, params={"column": "col_003"})
     assert facets.status_code == 200
     body = facets.json()
@@ -240,42 +247,54 @@ async def test_renovation_id_filter_is_two_buckets(client: AsyncClient, db_sessi
     assert await rows_for("Корректные") == 2
     assert await rows_for("Некорректные") == 0
 
-    # A `<NULL>` component (or an empty ID) makes a row incorrect.
-    row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
-    row.col_003 = "2027_BSKR_<NULL>_1382467_00"
+    # A repeated code makes BOTH of its rows incorrect.
+    first = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
+    second = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 2))).one()
+    second.col_003 = first.col_003
+    await db_session.flush()
+    facets = await client.get("/api/renovation/plan/facets", headers=ADMIN_HEADERS, params={"column": "col_003"})
+    assert [item["count"] for item in facets.json()["values"]] == [0, 2]
+    assert await rows_for("Некорректные") == 2
+
+    # An empty code is incorrect on its own, even with no duplicate around.
+    second.col_003 = "2027_BSKR_1.1.1_9999999"
+    first.col_003 = None
     await db_session.flush()
     facets = await client.get("/api/renovation/plan/facets", headers=ADMIN_HEADERS, params={"column": "col_003"})
     assert [item["count"] for item in facets.json()["values"]] == [1, 1]
     assert await rows_for("Некорректные") == 1
 
-    row.col_003 = None
-    await db_session.flush()
-    facets = await client.get("/api/renovation/plan/facets", headers=ADMIN_HEADERS, params={"column": "col_003"})
-    assert [item["count"] for item in facets.json()["values"]] == [1, 1]
 
-
-async def test_edit_rebuilds_renovation_id_when_defect_is_cleared(
+async def test_edit_keeps_the_renovation_id_when_a_component_changes(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """Clearing col_023 rebuilds col_003 as the no-DV composite (spec 5.2)."""
+    """
+    col_003 is a typed value now: editing its old inputs leaves the code alone.
+
+    The generator is off (`RENOVATION_ID_FORMULA_ENABLED`), so clearing the ДВ
+    number (col_023) must not rewrite the code behind the user's back.
+    """
     row = await _row_by_asset_code(db_session, "bsk")
+    before = row.col_003
+    assert before
     status, _ = await _patch(client, [{"rowId": str(row.id), "field": "col_023", "value": None}])
     assert status == 200
     await db_session.refresh(row)
-    assert row.col_003 == "2027_BSKR_1.1.1_Шкаф ПЛК*ТР*Январь"
+    assert row.col_003 == before
 
 
-async def test_renovation_id_pads_a_short_defect_number(
+async def test_edit_renovation_id_directly_is_allowed(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """A defect number stored as a number regains its leading zero in the id."""
+    """The code itself is an ordinary editable cell (it used to be read-only)."""
     row = await _row_by_asset_code(db_session, "bsk")
-    status, _ = await _patch(client, [{"rowId": str(row.id), "field": "col_023", "value": 706179}])
-    assert status == 200
+    status, body = await _patch(client, [{"rowId": str(row.id), "field": "col_003", "value": "  СВОЙ-КОД 1  "}])
+    assert status == 200, body
     await db_session.refresh(row)
-    assert "0706179" in (row.col_003 or "")
+    # Text cells are stored trimmed, the value itself is kept as typed.
+    assert row.col_003 == "СВОЙ-КОД 1"
 
 
 async def test_edit_rejects_a_value_breaking_the_field_rule(
@@ -382,7 +401,7 @@ async def test_plan_rows_total_all_is_the_whole_plan(
 ) -> None:
     """The «всего» counter (totalAll) is the plan's row count, filters or not."""
     row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
-    row.col_003 = "2027_BSKR_<NULL>_1382467_00"  # incorrect — hidden by «Корректные»
+    row.col_003 = None  # empty — «Некорректные», so «Корректные» hides it
     await db_session.flush()
 
     filters = json.dumps([{"column": "col_003", "values": ["Корректные"], "includeNulls": False}])
@@ -564,7 +583,7 @@ async def test_read_plan_rows_omits_empty_cells(client: AsyncClient) -> None:
 
 
 async def test_read_plan_rows_tolerates_invalid_renovation_id(client: AsyncClient, db_session: AsyncSession) -> None:
-    """A row with components outside the legacy ID rules must not 500 the window."""
+    """A row whose old ID components are nonsense reads back as-is (no 500)."""
     row = await _row_by_asset_code(db_session, "bsk")
     row.col_003 = None
     row.col_023 = Decimal(12345678)  # more than the required seven digits
@@ -580,8 +599,9 @@ async def test_read_plan_rows_tolerates_invalid_renovation_id(client: AsyncClien
     body = response.json()
     assert body["total"] == 2
     bad = next(entry for entry in body["rows"] if entry["assetCode"] == "bsk")
-    assert bad["renovationId"] == "<NULL>"
-    assert bad["missingComponents"] == ["invalid_components"]
+    # The generator is off: nothing is predicted, an empty cell reads empty.
+    assert bad["renovationId"] is None
+    assert bad["missingComponents"] == []
 
 
 async def test_export_tolerates_invalid_renovation_id(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -1037,9 +1057,9 @@ async def test_submit_drops_empty_draft_rows(client: AsyncClient, db_session: As
 
 
 async def test_submit_rejects_incorrect_work_ids(client: AsyncClient, db_session: AsyncSession) -> None:
-    """Submit is refused while a row's work ID is incomplete (`<NULL>`)."""
+    """Submit is refused while a row's work ID is empty."""
     row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
-    row.col_003 = "2027_BSKR_<NULL>_1382467_00"
+    row.col_003 = None
     await db_session.flush()
 
     response = await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
@@ -1047,6 +1067,25 @@ async def test_submit_rejects_incorrect_work_ids(client: AsyncClient, db_session
     assert "некорректных" in response.json()["detail"]
     # The version stays editable — the transition did not happen.
     assert (await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)).status_code == 200
+
+
+async def test_submit_accepts_a_code_carrying_the_null_placeholder(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """
+    `<NULL>` is no longer a verdict on a code.
+
+    It was the generator's mark for a missing component; with the generator off
+    the text is whatever the user typed (or the template carried), so a code
+    containing it is judged by its uniqueness like any other.
+    """
+    row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
+    row.col_003 = "2027_BSKR_<NULL>_1382467_00"
+    await db_session.flush()
+
+    response = await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
+    assert response.status_code == 200, response.text
 
 
 async def test_submit_rejects_duplicate_work_ids(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -1349,8 +1388,9 @@ async def test_diff_marks_new_rows(client: AsyncClient, db_session: AsyncSession
     new_row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.id) == added["id"]))).one()
     new_row.asset_id = asset.id
     new_row.col_028 = Decimal(15)
-    # The plan can only be submitted when every work ID is complete, so fill the
-    # components the ID is built from and materialize it, as the edit path does.
+    # The plan can only be submitted when every work ID is filled, and the code
+    # is a typed value now — set it like an import or a user would.
+    new_row.col_003 = "2027_BSKR_1.1.1_9999999"
     new_row.col_023 = Decimal(9999999)
     new_row.col_024 = date(2027, 1, 1)
     new_row.col_189 = "1.1.1."
@@ -1616,10 +1656,10 @@ async def test_export_header_borders_on_every_merged_cell(client: AsyncClient) -
 
 
 async def test_recompute_plan_rows_materializes_derived_values(db_session: AsyncSession) -> None:
-    """The backfill computes and stores the formula fields and the renovation ID."""
+    """The backfill computes the formula fields; the typed code is left alone."""
     plan = (await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()
     row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
-    # The seed backfilled the row; clear the derived values to exercise the backfill.
+    # The seed filled the row; clear the derived values to exercise the backfill.
     row.col_026 = None
     row.col_003 = None
     await db_session.flush()
@@ -1633,7 +1673,8 @@ async def test_recompute_plan_rows_materializes_derived_values(db_session: Async
     # col_026 = col_025 - col_024 (2027-01-31 - 2027-01-01); col_031 = 10 + 20.
     assert row.col_026 == Decimal(30)
     assert row.col_031 == Decimal(30)
-    assert row.col_003
+    # The renovation ID is not derived any more: an empty cell stays empty.
+    assert row.col_003 is None
 
     # Idempotent: a second pass finds nothing to change.
     second = await recompute_plan_rows(db_session, plan_id=plan.id)

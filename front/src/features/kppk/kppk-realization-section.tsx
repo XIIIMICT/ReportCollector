@@ -190,6 +190,12 @@ type KppkRealizationSectionProps = {
     onRoomChange?: (room: CollabRoom | null) => void;
     /** The loaded view's period banner (the toolbar renders it) — null while empty. */
     onPeriodTextChange: (period: string | null) => void;
+    /**
+     * Whether the ACTIVE asset levies an excise on any of its positions. The
+     * toolbar hides the «с учётом акциза» checkbox entirely for an asset without
+     * one — there is nothing to switch on.
+     */
+    onExciseScopeChange?: (hasExcise: boolean) => void;
 };
 
 export function KppkRealizationSection({
@@ -213,20 +219,21 @@ export function KppkRealizationSection({
     onResetState,
     onRoomChange,
     onPeriodTextChange,
+    onExciseScopeChange,
 }: KppkRealizationSectionProps) {
     const isCost = mode === "cost";
     const roomSection = isCost ? "kppkCost" : realizationRoomSection(slice);
-    // The excise is ONE figure per product (see migration
-    // 0016_kppk_excise_per_product): it is stored on every market row but is
-    // always the same value, so the grid renders it as one merged cell per
-    // product block and any edit below is fanned out to the whole block.
+    // The excise field of the active slice (one column per plan/fact copy).
     const exciseKey = slice === "bp" ? "exciseBp" : slice === "op" ? "exciseMaxPlan" : "exciseFact";
-    const showExcise = includeExcise && !isCost;
     const descriptors = useMemo<ColumnDescriptor[]>(() => {
         if (!isCost)
             return [
                 ...KPPK_REALIZATION_DESCRIPTORS[slice],
-                ...(showExcise
+                // The column is added here and REMOVED further down when the
+                // asset levies no excise at all (`showExcise` needs the loaded
+                // view). Keeping it declarative here means the descriptors stay
+                // independent of the fetch.
+                ...(includeExcise
                     ? [{ key: exciseKey, label: "Акциз", width: 130, kind: "number" as const }]
                     : []),
             ];
@@ -260,7 +267,7 @@ export function KppkRealizationSection({
                 kind: "number",
             })),
         ];
-    }, [exciseKey, isCost, showExcise, slice]);
+    }, [exciseKey, includeExcise, isCost, slice]);
 
     const [reloadKey, setReloadKey] = useState(0);
     const [isGridSorted, setIsGridSorted] = useState(false);
@@ -278,6 +285,26 @@ export function KppkRealizationSection({
         loader,
         reloadKey,
     ]);
+    // An excise exists only for SOME product × ДЗО pairs (today «Аммиак»,
+    // «Аммиачная селитра», «Фосфорные удобрения» of «Минудобрения»). The view
+    // reports the asset's flagged products, so: no flagged product → the column
+    // is hidden; a flagged asset → only those products get an editable cell.
+    // The figure itself is per product (migration 0016): the grid renders it as
+    // one merged cell per product block and fans an edit out to the whole block.
+    const exciseProducts = useMemo(() => {
+        const names = isCost ? [] : ((view as KppkRealizationView | null)?.exciseProducts ?? []);
+        return new Set(names.map((name) => name.toLowerCase().split(/\s+/).join(" ")));
+    }, [isCost, view]);
+    const showExcise = includeExcise && !isCost && exciseProducts.size > 0;
+    // Tell the toolbar whether this asset has an excise at all: the checkbox is
+    // hidden entirely when it does not.
+    useEffect(() => {
+        onExciseScopeChange?.(!isCost && exciseProducts.size > 0);
+    }, [exciseProducts, isCost, onExciseScopeChange]);
+    const productHasExcise = useCallback(
+        (product: string) => exciseProducts.has(product.toLowerCase().split(/\s+/).join(" ")),
+        [exciseProducts],
+    );
 
     // Collaboration room per slice storage; the section the room is keyed by
     // also carries the undo history scope.
@@ -380,7 +407,7 @@ export function KppkRealizationSection({
         // row (migration 0016), so an edit of the merged cell is fanned out to
         // the whole product block — otherwise the other two rows would keep the
         // old rate and a later sort would reveal the disagreement.
-        const expanded = expandExcise(updates, view?.rows ?? [], exciseKey);
+        const expanded = expandExcise(updates, view?.rows ?? [], exciseKey, productHasExcise);
         const write = (async () => {
             for (const update of expanded) {
                 if (isCost) await updateCostCell(update.rowId, update.field, update.value);
@@ -429,17 +456,32 @@ export function KppkRealizationSection({
                 isDeleted: false,
                 isPlaceholder: false,
                 canonicalCells: {},
+                // The excise cell of a product that does not carry one is not
+                // merely "empty": it must not be enterable at all — the row's
+                // lock makes react-aria start no editor and the grid skip it on
+                // paste, so the user never sees the server's rejection.
+                ...(showExcise && !productHasExcise(row.product)
+                    ? { lockedCells: [exciseKey] }
+                    : {}),
             };
-            if (!isCost && !isGridSorted && !isGroupStart && showExcise) {
-                // The covered cells of the merged excise block show nothing —
-                // the value belongs to the block, not to the market row.
-                gridRow[exciseKey] = null;
+            if (!isCost && showExcise) {
+                // An excise outside this product's scope: empty and LOCKED (the
+                // server enforces the same rule) — and with no canonical key, so
+                // it never publishes or receives a value.
+                if (!productHasExcise(row.product)) {
+                    gridRow[exciseKey] = null;
+                } else if (!isGridSorted && !isGroupStart) {
+                    // The covered cells of the merged excise block show nothing —
+                    // the value belongs to the block, not to the market row.
+                    gridRow[exciseKey] = null;
+                }
             }
             if (!isAdmin) return gridRow;
             const cells = gridRow.canonicalCells;
             for (const field of fields) {
                 if (!cells) return gridRow;
                 if (field === exciseKey && !isCost) {
+                    if (!productHasExcise(row.product)) continue;
                     // One key per PRODUCT for the excise (see above).
                     const key = `${roomSection}/${isGridSorted ? row.id : blockLeadId}/${field}`;
                     cells[field] = key;
@@ -459,6 +501,7 @@ export function KppkRealizationSection({
         isAdmin,
         isCost,
         isGridSorted,
+        productHasExcise,
         remoteCellValues,
         roomSection,
         showExcise,

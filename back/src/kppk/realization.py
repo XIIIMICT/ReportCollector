@@ -12,7 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.collab.locking import project_write
 from src.kppk.constants import KPPK_PROJECT_KEY, MARKET_CODES
-from src.kppk.models import KppkCost, KppkOrg, KppkProduct, KppkRealization, KppkRealizationPlan
+from src.kppk.models import KppkCost, KppkOrg, KppkOrgProduct, KppkProduct, KppkRealization, KppkRealizationPlan
 
 from .core import KppkNotFoundError, KppkValidationError
 from .schemas import KppkCostRowRead, KppkCostViewRead, KppkRealizationPeriodRead, KppkRealizationRowRead
@@ -59,6 +59,9 @@ _REALIZATION_FIELD_ATTRIBUTES: dict[str, str] = {
     "exciseMaxPlan": "excise_max_plan",
     "exciseFact": "excise_fact",
 }
+
+# The excise fields of the three slices (one column per plan/fact copy).
+EXCISE_FIELDS: frozenset[str] = frozenset({"exciseBp", "exciseMaxPlan", "exciseFact"})
 
 MONTH_NAMES = (
     "Январь",
@@ -218,6 +221,28 @@ def _product_number(number_map: dict[str, int], product: str) -> int | None:
     return prefix_matches[0] if len(prefix_matches) == 1 else None
 
 
+async def read_excise_products(session: AsyncSession, *, org_id: UUID) -> list[str]:
+    """
+    Return the product names that carry an excise on the given asset.
+
+    The excise is scoped by the «Заполняемый акциз» flag of the product
+    POSITION (`kppk_org_products.has_excise`): an asset whose positions are all
+    unflagged returns an empty list (the «Реализация» column is hidden), and on
+    a flagged asset only the flagged products count. The realization copies hold
+    the product by NAME, so the names are returned exactly as the dictionary
+    spells them.
+    """
+    rows = (
+        await session.exec(
+            select(KppkProduct.name)
+            .join(KppkOrgProduct, col(KppkOrgProduct.product_id) == col(KppkProduct.id))
+            .where(col(KppkOrgProduct.org_id) == org_id, col(KppkOrgProduct.has_excise).is_(True))
+            .order_by(col(KppkProduct.name))
+        )
+    ).all()
+    return list(rows)
+
+
 async def read_realization_rows(
     session: AsyncSession,
     *,
@@ -315,6 +340,30 @@ def _check_realization_decimal(value: object) -> Decimal | None:
     return number
 
 
+async def _check_excise_scope(
+    session: AsyncSession,
+    *,
+    row: KppkRealization | KppkRealizationPlan,
+    field: str,
+) -> None:
+    """
+    Refuse an excise edit for a product the asset does not levy it on.
+
+    The scope is the «Продуктовые позиции» flag (`has_excise`) of THIS product ×
+    ДЗО — the same rule the grid applies by making the cell read-only, enforced
+    again here so a stale page or a direct API call cannot smuggle a rate into a
+    product that has no excise. Clearing the cell (a zero/empty value) stays
+    allowed: it is how a wrongly entered rate is removed.
+    """
+    del field
+    levied = await read_excise_products(session, org_id=row.org_id)
+    product_key = " ".join(row.product.casefold().split())
+    if any(" ".join(name.casefold().split()) == product_key for name in levied):
+        return
+    message = f"У продукта «{row.product}» на этом ДЗО акциз не предусмотрен."
+    raise KppkValidationError(message)
+
+
 async def _apply_realization_cell(
     session: AsyncSession,
     *,
@@ -336,6 +385,10 @@ async def _apply_realization_cell(
         raise KppkNotFoundError(message)
     old_value = getattr(row, attribute)
     stored = _check_realization_decimal(value)
+    if field in EXCISE_FIELDS and stored:
+        # Outside the product × ДЗО scope an excise may not be SET; clearing it
+        # stays allowed so a wrongly entered rate can be removed.
+        await _check_excise_scope(session, row=row, field=field)
     if stored is None and field in {
         "buyoutBpPlan",
         "buyoutMaxPlan",

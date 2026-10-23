@@ -54,9 +54,35 @@ describe("expandExcise", () => {
         expect(expandExcise(updates, ROWS, "exciseBp")).toBe(updates);
     });
 
-    test("an unknown row is left as-is (the server will report it)", () => {
+    test("an unknown row is dropped (its product scope is unknown)", () => {
         const updates: CellUpdate[] = [{ rowId: "zz", field: "exciseBp", value: 1 }];
-        expect(expandExcise(updates, ROWS, "exciseBp")[0]?.rowId).toBe("zz");
+        expect(expandExcise(updates, ROWS, "exciseBp")).toHaveLength(0);
+    });
+
+    test("an excise outside the product's scope is dropped", () => {
+        // Only «Сода» levies an excise on this asset.
+        const allowed = (product: string) => product === "Сода";
+        const expanded = expandExcise(
+            [{ rowId: "b1", field: "exciseBp", value: 5 }],
+            ROWS,
+            "exciseBp",
+            allowed,
+        );
+        expect(expanded).toHaveLength(0);
+    });
+
+    test("a scoped product still fans out while another is rejected", () => {
+        const allowed = (product: string) => product === "Сода";
+        const expanded = expandExcise(
+            [
+                { rowId: "a1", field: "exciseBp", value: 5 },
+                { rowId: "b1", field: "exciseBp", value: 9 },
+            ],
+            ROWS,
+            "exciseBp",
+            allowed,
+        );
+        expect(expanded.map((update) => update.rowId).sort()).toEqual(["a1", "a2", "a3"]);
     });
 
     test("each slice has its own excise field", () => {

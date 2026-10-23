@@ -40,21 +40,21 @@ async def test_endpoints_require_kppk_access(client: AsyncClient) -> None:
 
 
 async def test_admin_reads_all_dictionaries(client: AsyncClient) -> None:
-    response = await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS)
+    response = await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})
     assert response.status_code == 200
     rows = response.json()
-    assert len(rows) == 3
-    # The default order is the source number; the unnumbered product is last.
+    # One row per product × ДЗО POSITION: only products listed at an asset have
+    # a row (an unlinked product is not a position at all).
+    assert len(rows) == 2
+    # The default order is the source number.
     assert [row["name"] for row in rows] == [
         "Сульфат натрия",
         "Сода кальцинированная марки Б",
-        "Сода кальцинированная марки А",
     ]
-    assert [row["productNum"] for row in rows] == [1, 2, None]
+    assert [row["productNum"] for row in rows] == [1, 2]
     by_product = {row["name"]: row for row in rows}
-    assert by_product["Сульфат натрия"]["orgNames"] == ["АО «СНХЗ»"]
-    # A product without links is still a row (its ДЗО cell is empty).
-    assert by_product["Сода кальцинированная марки А"]["orgNames"] == []
+    assert by_product["Сульфат натрия"]["orgName"] == "АО «СНХЗ»"
+    assert all(row["hasExcise"] is False for row in rows)
 
     response = await client.get("/api/kppk/orgs", headers=ADMIN_HEADERS)
     assert response.status_code == 200
@@ -86,23 +86,38 @@ async def test_product_position_create_updates_and_deletes(client: AsyncClient, 
     response = await client.post(
         "/api/kppk/product-positions",
         headers=ADMIN_HEADERS,
-        json={"name": "Каучук СКИ-3", "orgNames": [org.name]},
+        json={"name": "Каучук СКИ-3", "orgName": org.name},
     )
     assert response.status_code == 201
     created = response.json()["row"]
     assert created["name"] == "Каучук СКИ-3"
-    assert created["orgNames"] == ["АО «СНХЗ»"]
+    assert created["orgName"] == "АО «СНХЗ»"
+    assert created["hasExcise"] is False
     assert created["productNum"] is None
 
     # The new product went into the product dictionary without a source num.
     product = await _product_by_name(db_session, "Каучук СКИ-3")
     assert product.product_num is None
 
-    # A case-insensitively duplicate product is rejected.
+    # The SAME name at another ДЗО is a second position of that product.
+    other = await _org_by_name(db_session, "АО «Березниковский содовый завод»")
     response = await client.post(
         "/api/kppk/product-positions",
         headers=ADMIN_HEADERS,
-        json={"name": "каучук ски-3", "orgNames": []},
+        json={"name": "каучук ски-3", "orgName": other.name, "hasExcise": True},
+    )
+    assert response.status_code == 201
+    second = response.json()["row"]
+    assert second["productId"] == created["productId"]
+    assert second["hasExcise"] is True
+    response = await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})
+    assert [row["name"] for row in response.json()].count("Каучук СКИ-3") == 2
+
+    # The same pair twice is rejected.
+    response = await client.post(
+        "/api/kppk/product-positions",
+        headers=ADMIN_HEADERS,
+        json={"name": "Каучук СКИ-3", "orgName": org.name},
     )
     assert response.status_code == 400
 
@@ -110,7 +125,7 @@ async def test_product_position_create_updates_and_deletes(client: AsyncClient, 
     response = await client.post(
         "/api/kppk/product-positions",
         headers=ADMIN_HEADERS,
-        json={"name": "Каучук СКИ-5", "orgNames": ["АО «Неизвестное»"]},
+        json={"name": "Каучук СКИ-5", "orgName": "АО «Неизвестное»"},
     )
     assert response.status_code == 400
 
@@ -122,35 +137,40 @@ async def test_product_position_create_updates_and_deletes(client: AsyncClient, 
     assert response.status_code == 200
     assert response.json()["row"]["name"] == "Каучук СКИ-5"
 
-    # orgNames replaces the whole ДЗО set of the product.
+    # The position's ДЗО cell moves it to another asset.
     response = await client.patch(
         f"/api/kppk/product-positions/{created['id']}",
         headers=ADMIN_HEADERS,
-        json={"field": "orgNames", "value": ["АО «Березниковский содовый завод»"]},
+        json={"field": "orgName", "value": "АО «Березниковский содовый завод»"},
     )
-    assert response.status_code == 200
-    assert response.json()["row"]["orgNames"] == ["АО «Березниковский содовый завод»"]
+    assert response.status_code == 400  # that pair already exists (the second position)
 
     response = await client.patch(
         f"/api/kppk/product-positions/{created['id']}",
         headers=ADMIN_HEADERS,
-        json={"field": "orgNames", "value": []},
+        json={"field": "hasExcise", "value": True},
     )
     assert response.status_code == 200
-    assert response.json()["row"]["orgNames"] == []
+    assert response.json()["row"]["hasExcise"] is True
 
     # An unknown ДЗО is rejected on the cell edit as well.
     response = await client.patch(
         f"/api/kppk/product-positions/{created['id']}",
         headers=ADMIN_HEADERS,
-        json={"field": "orgNames", "value": ["АО «Неизвестное»"]},
+        json={"field": "orgName", "value": "АО «Неизвестное»"},
     )
     assert response.status_code == 400
 
+    # Deleting ONE position keeps the product (it still has the other one).
     response = await client.delete(f"/api/kppk/product-positions/{created['id']}", headers=ADMIN_HEADERS)
     assert response.status_code == 204
     remaining = (await db_session.exec(select(KppkOrgProduct))).all()
-    assert len(remaining) == 2
+    assert len(remaining) == 3
+    assert await _product_by_name(db_session, "Каучук СКИ-5") is not None
+
+    # The LAST position takes the product with it.
+    response = await client.delete(f"/api/kppk/product-positions/{second['id']}", headers=ADMIN_HEADERS)
+    assert response.status_code == 204
     deleted = (await db_session.exec(select(KppkProduct).where(col(KppkProduct.name) == "Каучук СКИ-5"))).first()
     assert deleted is None
 
@@ -181,8 +201,19 @@ async def test_raw_create_rename_delete(client: AsyncClient) -> None:
 
 async def test_source_numbers_are_editable_and_unique(client: AsyncClient) -> None:
     """The «№» of products and raws stays editable — and unique."""
-    product_rows = (await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS)).json()
-    unnumbered = next(row for row in product_rows if row["productNum"] is None)
+    product_rows = (
+        await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})
+    ).json()
+    # The fixture's positions are all numbered: unnumber one through the API.
+    numbered = product_rows[0]
+    response = await client.patch(
+        f"/api/kppk/product-positions/{numbered['id']}",
+        headers=ADMIN_HEADERS,
+        json={"field": "productNum", "value": None},
+    )
+    assert response.status_code == 200
+    unnumbered = response.json()["row"]
+    assert unnumbered["productNum"] is None
 
     # An occupied number («Сода ... Б» holds 2) is rejected with a clear message.
     response = await client.patch(
@@ -221,14 +252,14 @@ async def test_source_numbers_are_editable_and_unique(client: AsyncClient) -> No
     response = await client.post(
         "/api/kppk/product-positions",
         headers=ADMIN_HEADERS,
-        json={"name": "Сода кальцинированная марки В", "orgNames": [], "productNum": 30},
+        json={"name": "Сода кальцинированная марки В", "orgName": "АО «СНХЗ»", "productNum": 30},
     )
     assert response.status_code == 201
     assert response.json()["row"]["productNum"] == 30
     response = await client.post(
         "/api/kppk/product-positions",
         headers=ADMIN_HEADERS,
-        json={"name": "Сода кальцинированная марки Г", "orgNames": [], "productNum": 30},
+        json={"name": "Сода кальцинированная марки Г", "orgName": "АО «СНХЗ»", "productNum": 30},
     )
     assert response.status_code == 400
 
@@ -467,25 +498,199 @@ async def test_undo_redo_delete_brings_the_row_back(client: AsyncClient) -> None
     assert all(row["id"] != created["id"] for row in rows)
 
 
-async def test_undo_product_org_names_roundtrip(client: AsyncClient) -> None:
-    """A product undo restores the whole ДЗО set from the snapshot."""
-    rows = (await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS)).json()
+async def test_the_grouped_view_lists_a_product_with_its_org_names(client: AsyncClient) -> None:
+    """
+    The default (grouped) shape: one row per product, its whole ДЗО set inside.
+
+    Both views read the same stored positions — only the shape differs, so a
+    product typed once (grouped) and a position added per ДЗО (excise view) are
+    the same rows in the database.
+    """
+    response = await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "grouped"})
+    assert response.status_code == 200
+    rows = response.json()
+    # One row per PRODUCT (not per position) — the unlinked «марки А» included,
+    # with an empty ДЗО set: the dictionary knows the product exists.
+    assert [row["name"] for row in rows] == [
+        "Сульфат натрия",
+        "Сода кальцинированная марки Б",
+        "Сода кальцинированная марки А",
+    ], [(row["productNum"], row["id"], row["orgNames"]) for row in rows]
+    by_name = {row["name"]: row for row in rows}
+    assert by_name["Сульфат натрия"]["orgNames"] == ["АО «СНХЗ»"]
+    assert by_name["Сода кальцинированная марки А"]["orgNames"] == []
+
+    # A product at two assets folds into ONE grouped row with both names.
+    created = (
+        await client.post(
+            "/api/kppk/product-positions",
+            headers=ADMIN_HEADERS,
+            json={"name": "Сульфат натрия", "orgName": "АО «Березниковский содовый завод»"},
+        )
+    ).json()["row"]
+    assert created["productId"] == by_name["Сульфат натрия"]["productId"]
+    grouped = (
+        await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "grouped"})
+    ).json()
+    sulfate = next(row for row in grouped if row["name"] == "Сульфат натрия")
+    assert sorted(sulfate["orgNames"]) == [
+        "АО «Березниковский содовый завод»",
+        "АО «СНХЗ»",
+    ]
+    # The position view still spells the same product out twice.
+    positions = (
+        await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})
+    ).json()
+    assert [row["name"] for row in positions].count("Сульфат натрия") == 2
+
+
+async def test_the_grouped_view_creates_edits_and_drops_positions(client: AsyncClient) -> None:
+    """The grouped ДЗО multi-select writes the same positions as the position view."""
+    response = await client.post(
+        "/api/kppk/product-positions",
+        headers=ADMIN_HEADERS,
+        json={
+            "name": "Каучук СКИ-3",
+            "orgNames": ["АО «СНХЗ»", "АО «Березниковский содовый завод»", "АО «СНХЗ»"],
+            "productNum": 7,
+        },
+    )
+    assert response.status_code == 201, response.text
+    created = response.json()["row"]
+    assert created["productNum"] == 7
+    assert created["name"] == "Каучук СКИ-3"
+
+    positions = (
+        await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})
+    ).json()
+    mine = [row for row in positions if row["name"] == "Каучук СКИ-3"]
+    assert len(mine) == 2, [(row["orgName"], row["hasExcise"]) for row in mine]  # a repeated name is one position
+    assert {row["orgName"] for row in mine} == {"АО «СНХЗ»", "АО «Березниковский содовый завод»"}
+    assert all(row["hasExcise"] is False for row in mine)
+    assert len({row["productId"] for row in mine}) == 1
+
+    # Flag one position, then shrink the ДЗО set through the grouped cell: the
+    # surviving pair keeps its flag, the dropped one leaves the dictionary.
+    flagged = next(row for row in mine if row["orgName"] == "АО «СНХЗ»")
+    response = await client.patch(
+        f"/api/kppk/product-positions/{flagged['id']}",
+        headers=ADMIN_HEADERS,
+        json={"field": "hasExcise", "value": True},
+    )
+    assert response.status_code == 200
+
+    response = await client.patch(
+        f"/api/kppk/product-positions/{flagged['id']}",
+        headers=ADMIN_HEADERS,
+        json={"field": "orgNames", "value": ["АО «СНХЗ»"]},
+    )
+    assert response.status_code == 200, response.text
+    # The echo is the POSITION shape; the ДЗО set is read back grouped.
+    grouped = (
+        await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "grouped"})
+    ).json()
+    assert next(row for row in grouped if row["name"] == "Каучук СКИ-3")["orgNames"] == ["АО «СНХЗ»"]
+    positions = (
+        await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})
+    ).json()
+    mine = [row for row in positions if row["name"] == "Каучук СКИ-3"]
+    assert [(row["orgName"], row["hasExcise"]) for row in mine] == [("АО «СНХЗ»", True)]
+
+    # Adding an asset back is a new, unflagged position.
+    response = await client.patch(
+        f"/api/kppk/product-positions/{flagged['id']}",
+        headers=ADMIN_HEADERS,
+        json={
+            "field": "orgNames",
+            "value": ["АО «СНХЗ»", "АО «Березниковский содовый завод»"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    positions = (
+        await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})
+    ).json()
+    mine = [row for row in positions if row["name"] == "Каучук СКИ-3"]
+    assert {(row["orgName"], row["hasExcise"]) for row in mine} == {
+        ("АО «СНХЗ»", True),
+        ("АО «Березниковский содовый завод»", False),
+    }
+
+    # Clearing the whole set drops every position: the product keeps existing
+    # (the dictionary knows it) but has no assets left.
+    response = await client.patch(
+        f"/api/kppk/product-positions/{mine[0]['id']}",
+        headers=ADMIN_HEADERS,
+        json={"field": "orgNames", "value": []},
+    )
+    assert response.status_code == 200, response.text
+    grouped = (
+        await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "grouped"})
+    ).json()
+    remaining = next(row for row in grouped if row["name"] == "Каучук СКИ-3")
+    assert remaining["orgNames"] == []
+
+
+async def test_the_grouped_view_rejects_an_empty_or_unknown_org_set(client: AsyncClient) -> None:
+    """A product is typed once, but its ДЗО set must be known and non-empty."""
+    response = await client.post(
+        "/api/kppk/product-positions",
+        headers=ADMIN_HEADERS,
+        json={"name": "Каучук СКИ-5", "orgNames": []},
+    )
+    assert response.status_code == 400
+
+    response = await client.post(
+        "/api/kppk/product-positions",
+        headers=ADMIN_HEADERS,
+        json={"name": "Каучук СКИ-5", "orgNames": ["АО «Неизвестное»"]},
+    )
+    assert response.status_code == 400
+
+    # Neither request created the product.
+    positions = (
+        await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})
+    ).json()
+    assert all(row["name"] != "Каучук СКИ-5" for row in positions)
+
+
+async def test_undo_position_create_and_flag_roundtrip(client: AsyncClient) -> None:
+    """Adding a position is undoable; the excise flag toggles back the same way."""
+    rows = (await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})).json()
     product = next(row for row in rows if row["name"] == "Сульфат натрия")
-    assert product["orgNames"] == ["АО «СНХЗ»"]
+    assert product["orgName"] == "АО «СНХЗ»"
+    assert product["hasExcise"] is False
 
     response = await client.patch(
         f"/api/kppk/product-positions/{product['id']}",
         params={"session_id": TEST_SESSION_ID},
         headers=ADMIN_HEADERS,
-        json={"field": "orgNames", "value": []},
+        json={"field": "hasExcise", "value": True},
     )
     assert response.status_code == 200
+    assert response.json()["row"]["hasExcise"] is True
 
     undone = await _undo(client, "kppkPositions")
     assert undone["applied"] is True
-    assert undone["value"] == ["АО «СНХЗ»"]
-    rows = (await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS)).json()
-    assert next(row for row in rows if row["id"] == product["id"])["orgNames"] == ["АО «СНХЗ»"]
+    assert undone["value"] is False
+    rows = (await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})).json()
+    assert next(row for row in rows if row["id"] == product["id"])["hasExcise"] is False
+
+    # A second position of the same product, then undo removes exactly it.
+    second = (
+        await client.post(
+            "/api/kppk/product-positions",
+            headers=ADMIN_HEADERS,
+            params={"session_id": TEST_SESSION_ID},
+            json={"name": "Сульфат натрия", "orgName": "АО «Березниковский содовый завод»"},
+        )
+    ).json()["row"]
+    assert second["productId"] == product["productId"]
+    undone = await _undo(client, "kppkPositions")
+    assert undone["applied"] is True
+    rows = (await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})).json()
+    assert all(row["id"] != second["id"] for row in rows)
+    # The product itself survives: it still has its original position.
+    assert any(row["productId"] == product["productId"] for row in rows)
 
 
 async def test_undo_requires_admin(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -551,7 +756,8 @@ async def test_export_products_carry_the_orgs_dropdown(client: AsyncClient) -> N
             "columns": [
                 {"key": "productNum", "headerPath": ["№"], "width": 9},
                 {"key": "name", "headerPath": ["Продукт"], "width": 43},
-                {"key": "orgNames", "headerPath": ["ДЗО"], "width": 36},
+                # The «ДЗО» cell of a position keeps the enterprise dropdown.
+                {"key": "orgName", "headerPath": ["ДЗО"], "width": 36},
             ],
             "fileName": "Продуктовые позиции.xlsx",
         },
@@ -562,6 +768,10 @@ async def test_export_products_carry_the_orgs_dropdown(client: AsyncClient) -> N
     # The dropdown of the ДЗО column holds every enterprise name.
     listed = [row[0] for row in workbook["Списки"].iter_rows(values_only=True)]
     assert listed == ["АО «Березниковский содовый завод»", "АО «СНХЗ»"]
+    # Each row is one POSITION: the product name and its asset are real cells.
+    sheet = next(s for s in workbook.worksheets if s.title != "Списки")
+    values = [list(row) for row in sheet.iter_rows(values_only=True)]
+    assert ["Сульфат натрия", "АО «СНХЗ»"] in [row[1:] for row in values[1:]]
 
 
 async def test_export_rejects_hidden_columns(client: AsyncClient) -> None:

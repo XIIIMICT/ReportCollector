@@ -41,7 +41,7 @@ export function supportMailto(to: string, projectName: string): string {
  *     user tabbing onto an icon-only control would otherwise face an unlabeled
  *     one. `pinned` keeps it open (the «no access» screen does that).
  *   - `appearance="button"` (inside a dialog/error card): a real label-button
- *     next to «Обновить», optionally tinted as the constructive way out.
+ *     next to «Обновить», optionally tinted as the primary way out.
  *
  * `mailto:` needs an anchor, not a Button — the button component treats an
  * activation as handled and would swallow the link. The button shape therefore
@@ -54,7 +54,7 @@ export function SupportButton({
     pinned = false,
     appearance = "collapsed",
     label = "Связаться с разработчиком",
-    success = false,
+    primary = false,
     withSeparator = false,
 }: {
     /** The project the message is about — it goes into the subject. */
@@ -65,8 +65,8 @@ export function SupportButton({
     pinned?: boolean;
     appearance?: "collapsed" | "button";
     label?: string;
-    /** Tint the button shape as the constructive action (success). */
-    success?: boolean;
+    /** Tint the button shape as the primary way out (the crash screen). */
+    primary?: boolean;
     /** Render the group's dividing rule before the icon (the second button of a pair). */
     withSeparator?: boolean;
 }) {
@@ -81,7 +81,7 @@ export function SupportButton({
                     // `no-underline`: HeroUI's Link underlines on hover by
                     // default — a button-shaped control must not.
                     "button button--tertiary inline-flex items-center gap-2 no-underline",
-                    success && "support-link--success",
+                    primary && "support-link--primary",
                 ]
                     .filter(Boolean)
                     .join(" ")}
