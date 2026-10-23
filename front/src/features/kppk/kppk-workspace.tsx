@@ -241,8 +241,14 @@ type KppkUndoActions = {
 };
 
 function toGridRow<T extends { id: string }>(row: T): GridRow {
+    const shortNames = (row as { orgShortNames?: unknown }).orgShortNames;
     return {
         ...row,
+        // The cell TEXT of the grouped «ДЗО» column: the assets' short names.
+        // `orgNames` stays the editor's value (the full names it writes back).
+        ...(Array.isArray(shortNames) && shortNames.length > 0
+            ? { orgNamesDisplay: shortNames.join(", ") }
+            : {}),
         rowState: "unchanged",
         changedFields: [],
         isDeleted: false,

@@ -79,11 +79,14 @@ async def read_product_position_rows(
     )
     rows = (await session.exec(query)).all()
     if grouped:
-        grouped_rows: dict[UUID, tuple[KppkProduct, list[str]]] = {}
+        grouped_rows: dict[UUID, tuple[KppkProduct, list[str], list[str]]] = {}
         for product, _link, org in rows:
-            entry = grouped_rows.setdefault(product.id, (product, []))
+            entry = grouped_rows.setdefault(product.id, (product, [], []))
             if org is not None:
+                # `orgNames` carries the FULL names (the multi-select edits by
+                # them), `orgShortNames` the short ones the grid lists inline.
                 entry[1].append(org.name)
+                entry[2].append(org.code)
         return [
             KppkProductPositionRowRead(
                 id=product.id,
@@ -92,11 +95,12 @@ async def read_product_position_rows(
                 name=product.name,
                 orgName="",
                 orgNames=org_names,
+                orgShortNames=short_names,
                 createdAt=product.created_at,
                 updatedAt=product.updated_at,
                 updatedBy=product.updated_by,
             )
-            for product, org_names in (entry for _, entry in grouped_rows.items())
+            for product, org_names, short_names in (entry for _, entry in grouped_rows.items())
         ]
     return [
         KppkProductPositionRowRead(
@@ -105,6 +109,7 @@ async def read_product_position_rows(
             productNum=product.product_num,
             name=product.name,
             orgName=org.name,
+            orgCode=org.code,
             hasExcise=link.has_excise,
             createdAt=product.created_at,
             updatedAt=product.updated_at,

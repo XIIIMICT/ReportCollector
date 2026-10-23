@@ -84,6 +84,12 @@ export type ColumnDescriptor = {
      * Without the flag the checkbox is a plain binary toggle (dictionaries).
      */
     allowsNull?: boolean;
+    /**
+     * A second row field holding the cell's TEXT while `key` stays the editor's
+     * value (the grouped «ДЗО»: short names on screen, full names in the
+     * multi-select that writes them back).
+     */
+    displayKey?: string;
     horizontalAlignment?: "left" | "center" | "right";
     verticalAlignment?: "top" | "center" | "bottom";
 };
@@ -311,7 +317,13 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
 export const KPPK_GROUPED_POSITION_DESCRIPTORS: ColumnDescriptor[] = [
     number("productNum", "№", 90),
     text("name", "Продукт", 430),
-    { key: "orgNames", label: "ДЗО", width: 380, kind: "assetsMulti" },
+    {
+        key: "orgNames",
+        label: "ДЗО",
+        width: 380,
+        kind: "assetsMulti",
+        displayKey: "orgNamesDisplay",
+    },
 ];
 
 /** «Продуктовые позиции» in the «Настройка акциза» mode: one row per position. */
@@ -577,7 +589,16 @@ function buildLeaf(
     if (descriptor.kind === "assetsMulti") {
         column.editor = "multiAssets";
         column.source = context.assets.map(({ name }) => name);
-        column.cellTemplate = multiValueCellTemplate;
+        const displayKey = descriptor.displayKey;
+        // A `displayKey` swaps the rendered text for that row field; the cell's
+        // VALUE (what the editor and a commit read) stays `key`. A plain string
+        // is rendered as-is, so the display may already be the joined text.
+        column.cellTemplate = displayKey
+            ? (h, props) =>
+                  multiValueCellTemplate(h, {
+                      value: renderedDisplayValue(props.model, displayKey),
+                  })
+            : multiValueCellTemplate;
     }
     if (descriptor.kind === "select") {
         column.editor = "select";
@@ -784,14 +805,32 @@ function booleanCellTemplate(
 }
 
 function multiValueCellTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode {
-    const labels = Array.isArray(value)
-        ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
-        : [];
+    // A `displayKey` column hands over the ready text; the multi-select fields
+    // hand over an array of names.
+    const labels =
+        typeof value === "string"
+            ? value
+                  .split(",")
+                  .map((item) => item.trim())
+                  .filter(Boolean)
+            : Array.isArray(value)
+              ? value.filter(
+                    (item): item is string => typeof item === "string" && Boolean(item.trim()),
+                )
+              : [];
     return h(
         "span",
         { class: "report-cell__multi-value", title: labels.join(", ") },
         labels.join(", "),
     );
+}
+
+/** The row field a `displayKey` column renders (the cell's own value otherwise). */
+function renderedDisplayValue(
+    model: Record<string, unknown> | undefined,
+    displayKey: string,
+): unknown {
+    return model?.[displayKey];
 }
 
 function selectCellTemplate(

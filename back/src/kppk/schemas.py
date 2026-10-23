@@ -25,9 +25,15 @@ class KppkProductPositionRowRead(BaseModel):
     name: str
     # The asset of THIS position.
     orgName: str
+    # The short asset name (its code, e.g. «БСЗ») — the grouped view lists these
+    # comma-separated instead of the full names.
+    orgCode: str | None = None
     # The whole ДЗО set of the product — filled in the default (grouped) view
     # only, where one row edits a product together with its assets.
     orgNames: list[str] = []
+    # The SHORT names of the same set (the assets' codes), in the same order —
+    # the grid lists these comma-separated instead of the full names.
+    orgShortNames: list[str] = []
     # «Заполняемый акциз» of this position.
     hasExcise: bool = False
     createdAt: datetime
@@ -47,7 +53,8 @@ class KppkProductPositionCreateRequest(BaseModel):
 
     Two shapes over the same stored positions: the position view sends one
     `orgName`, the default (grouped) view sends the whole `orgNames` set of a
-    product typed once.
+    product typed once. A NEW product may carry no ДЗО at all — the positions
+    can be added later.
     """
 
     name: str = Field(min_length=1, max_length=255)

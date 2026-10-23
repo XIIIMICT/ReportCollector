@@ -518,7 +518,11 @@ async def test_the_grouped_view_lists_a_product_with_its_org_names(client: Async
     ], [(row["productNum"], row["id"], row["orgNames"]) for row in rows]
     by_name = {row["name"]: row for row in rows}
     assert by_name["Сульфат натрия"]["orgNames"] == ["АО «СНХЗ»"]
+    # The same set as SHORT names (the assets' codes) — what the grouped grid
+    # prints; the full names stay in `orgNames` for the multi-select.
+    assert by_name["Сульфат натрия"]["orgShortNames"] == ["СНХЗ"]
     assert by_name["Сода кальцинированная марки А"]["orgNames"] == []
+    assert by_name["Сода кальцинированная марки А"]["orgShortNames"] == []
 
     # A product at two assets folds into ONE grouped row with both names.
     created = (
@@ -630,27 +634,39 @@ async def test_the_grouped_view_creates_edits_and_drops_positions(client: AsyncC
     assert remaining["orgNames"] == []
 
 
-async def test_the_grouped_view_rejects_an_empty_or_unknown_org_set(client: AsyncClient) -> None:
-    """A product is typed once, but its ДЗО set must be known and non-empty."""
+async def test_a_new_product_may_start_without_assets(client: AsyncClient) -> None:
+    """A product is typed once; its ??? set may be empty and filled in later."""
     response = await client.post(
         "/api/kppk/product-positions",
         headers=ADMIN_HEADERS,
-        json={"name": "Каучук СКИ-5", "orgNames": []},
+        json={"name": "ПРОБА КППК-5", "orgNames": []},
     )
-    assert response.status_code == 400
+    assert response.status_code == 201
+    created = response.json()["row"]
+    assert created["name"] == "ПРОБА КППК-5"
+    assert created["orgName"] == ""
+    assert created["orgNames"] == []
+    # The row id is the PRODUCT: its own cells stay editable without positions.
+    renamed = await client.patch(
+        f"/api/kppk/product-positions/{created['id']}",
+        headers=ADMIN_HEADERS,
+        params={"session_id": "probe"},
+        json={"field": "name", "value": "ПРОБА КППК-5 bis"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["row"]["name"] == "ПРОБА КППК-5 bis"
 
+    # An UNKNOWN asset is still rejected ? the names must resolve.
     response = await client.post(
         "/api/kppk/product-positions",
         headers=ADMIN_HEADERS,
-        json={"name": "Каучук СКИ-5", "orgNames": ["АО «Неизвестное»"]},
+        json={"name": "ПРОБА КППК-6", "orgNames": ["АО «Неизвестное»"]},
     )
     assert response.status_code == 400
-
-    # Neither request created the product.
     positions = (
         await client.get("/api/kppk/product-positions", headers=ADMIN_HEADERS, params={"view": "positions"})
     ).json()
-    assert all(row["name"] != "Каучук СКИ-5" for row in positions)
+    assert all(row["name"] != "ПРОБА КППК-6" for row in positions)
 
 
 async def test_undo_position_create_and_flag_roundtrip(client: AsyncClient) -> None:
