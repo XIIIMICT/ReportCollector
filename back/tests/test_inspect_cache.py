@@ -55,6 +55,31 @@ def test_key_is_the_file_hash() -> None:
     assert inspect_cache_key(b"same").startswith("rc:planimport:")
 
 
+def test_key_carries_the_asset_and_plan_state_scope() -> None:
+    """The same file is cached separately per asset set and plan change time."""
+    plain = inspect_cache_key(b"file")
+    first = inspect_cache_key(b"file", scope="a1@2026-10-23T10:00:00+00:00")
+    same = inspect_cache_key(b"file", scope="a1@2026-10-23T10:00:00+00:00")
+    edited = inspect_cache_key(b"file", scope="a1@2026-10-23T11:00:00+00:00")
+    other_asset = inspect_cache_key(b"file", scope="a2@2026-10-23T10:00:00+00:00")
+
+    assert first == same
+    assert first != plain
+    assert first != edited
+    assert first != other_asset
+    assert first.startswith(plain + ":")
+
+
+async def test_scope_separates_entries_for_the_same_file() -> None:
+    cache = InspectResultCache(_FakeRedis())  # type: ignore[arg-type]
+    await cache.set(b"file", _report(), scope="a1@t1")
+
+    assert await cache.get(b"file", scope="a1@t1") is not None
+    # Another asset set / a newer plan change misses and is analysed again.
+    assert await cache.get(b"file", scope="a1@t2") is None
+    assert await cache.get(b"file", scope="a2@t1") is None
+
+
 async def test_report_is_reused_for_the_same_file_with_a_one_hour_ttl() -> None:
     redis = _FakeRedis()
     cache = InspectResultCache(redis)

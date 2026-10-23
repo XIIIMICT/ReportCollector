@@ -209,10 +209,12 @@ The endpoint reads the upload in memory: a Windows `NamedTemporaryFile` stays
 locked and cannot be reopened for reading.
 
 Reports are cached in Valkey (`src/renovation/inspect_cache.py`): the key is
-the SHA-256 of the uploaded bytes (`rc:planimport:<hash>`), the value is the
-JSON result, the TTL is one hour. Re-picking the same workbook returns the same
-report instantly; the cache is optional — without `VALKEY_URL` or when Valkey
-is unreachable the file is simply analysed again.
+`rc:planimport:<sha256 of the bytes>:<scope>`, where the scope is the file's
+assets («Наименование ДО» repaired codes → asset ids) plus the newest
+`updated_at` of the working plan rows **of those assets**. A plan edit in any
+other asset therefore keeps the cached report valid, while touching a loaded
+asset recomputes it. The TTL is one hour. The cache is optional — without
+`VALKEY_URL` or when Valkey is unreachable the file is analysed again.
 
 `inspect_plan_file` returns only; the actual import is a separate step.
 

@@ -18,9 +18,16 @@ from src.renovation.schemas import RenovationPlanImportResult
 INSPECT_CACHE_TTL_SECONDS = 3600
 
 
-def inspect_cache_key(payload: bytes) -> str:
-    """Valkey key of a workbook: its SHA-256 digest (the same file — one report)."""
-    return f"rc:planimport:{hashlib.sha256(payload).hexdigest()}"
+def inspect_cache_key(payload: bytes, *, scope: str = "") -> str:
+    """
+    Valkey key of a workbook: its SHA-256 digest plus the plan state scope.
+
+    The scope names the uploaded assets and the plan's last-change timestamp
+    *within those assets*, so an edit in another asset keeps this report valid
+    while any touch of a loaded asset recomputes it.
+    """
+    digest = hashlib.sha256(payload).hexdigest()
+    return f"rc:planimport:{digest}:{scope}" if scope else f"rc:planimport:{digest}"
 
 
 class InspectCacheClient(Protocol):
@@ -42,11 +49,11 @@ class InspectResultCache:
     def __init__(self, client: InspectCacheClient | None) -> None:
         self._redis = client
 
-    async def get(self, payload: bytes) -> RenovationPlanImportResult | None:
+    async def get(self, payload: bytes, *, scope: str = "") -> RenovationPlanImportResult | None:
         if self._redis is None:
             return None
         try:
-            raw = await self._redis.get(inspect_cache_key(payload))
+            raw = await self._redis.get(inspect_cache_key(payload, scope=scope))
         except RedisError:
             return None
         if raw is None:
@@ -57,12 +64,12 @@ class InspectResultCache:
         except ValueError:
             return None
 
-    async def set(self, payload: bytes, result: RenovationPlanImportResult) -> None:
+    async def set(self, payload: bytes, result: RenovationPlanImportResult, *, scope: str = "") -> None:
         if self._redis is None:
             return
         try:
             await self._redis.set(
-                inspect_cache_key(payload),
+                inspect_cache_key(payload, scope=scope),
                 result.model_dump_json(),
                 ex=INSPECT_CACHE_TTL_SECONDS,
             )

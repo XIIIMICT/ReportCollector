@@ -91,6 +91,41 @@ async def test_sample_upload_returns_the_preflight_report(client) -> None:
     assert body["status"] != "invalid_format", body
 
 
+def test_assets_in_file_are_the_cache_scope() -> None:
+    """The file's «Наименование ДО» codes decide which assets scope the cache."""
+    from src.renovation.import_plan import assets_in_file
+
+    if _SAMPLE is None:
+        pytest.skip("no template sample in docs/")
+    assert assets_in_file(_SAMPLE) == frozenset({"BSZR"})
+
+
+def test_assets_in_file_tolerates_a_broken_workbook(tmp_path: Path) -> None:
+    from src.renovation.import_plan import assets_in_file
+
+    path = tmp_path / "broken.xlsb"
+    path.write_bytes(b"not a workbook")
+    assert assets_in_file(path) == frozenset()
+
+
+def test_scope_is_stable_for_the_same_assets_and_change_time() -> None:
+    """Same assets + same last change → same scope; a newer edit → another scope."""
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from src.renovation.router import _import_cache_scope
+
+    first, second = uuid4(), uuid4()
+    stamp = datetime(2026, 10, 23, 10, 0, tzinfo=UTC)
+    later = datetime(2026, 10, 23, 11, 0, tzinfo=UTC)
+
+    assert _import_cache_scope([first, second], stamp) == _import_cache_scope([second, first], stamp)
+    assert _import_cache_scope([first], stamp) != _import_cache_scope([first], later)
+    assert _import_cache_scope([first], stamp) != _import_cache_scope([first, second], stamp)
+    assert _import_cache_scope([], stamp) == ""
+    assert _import_cache_scope([first], None).endswith("@none")
+
+
 def test_sample_defect_numbers_keep_seven_digits() -> None:
     """The ДВ number loses its leading zero in Excel and is restored for the ID."""
     from src.renovation.import_plan import _defect_text

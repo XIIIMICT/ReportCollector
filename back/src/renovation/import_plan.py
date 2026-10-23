@@ -110,6 +110,45 @@ _TEMPLATE_FIELDS: dict[str, str] = {
 }
 
 
+def assets_in_file(source: Path | BinaryIO) -> frozenset[str]:
+    """
+    Repair codes («Наименование ДО») present in the workbook's plan sheet.
+
+    Used to scope the cache key: a plan change in another asset does not
+    invalidate this file's report. Read errors yield an empty set, which the
+    caller treats as «unknown» (no caching).
+    """
+    try:
+        rows = _read_rows(source)
+    except BadZipFile, KeyError, OSError, ValueError:
+        return frozenset()
+    header, data_start = _locate_header(rows)
+    if header is None:
+        return frozenset()
+    code_index = next((i for i, value in enumerate(header) if _norm(value) == _norm(_CODE_HEADER)), None)
+    if data_start < len(rows) and code_index is not None and _is_numbering_row(rows[data_start], code_index):
+        data_start += 1
+    asset_index = next((i for i, value in enumerate(header) if _norm(value) == _norm(_ASSET_HEADER)), None)
+    if asset_index is None:
+        return frozenset()
+    codes = {
+        str(raw[asset_index]).strip().upper()
+        for raw in rows[data_start:]
+        if asset_index < len(raw) and raw[asset_index] not in (None, "")
+    }
+    return frozenset(code for code in codes if code)
+
+
+def _locate_header(rows: list[list[object]]) -> tuple[list[object] | None, int]:
+    """Return the header row and the first data row index (row 1 or row 2)."""
+    if not rows:
+        return None, 0
+    for level in (0, 1):
+        if level < len(rows) and any(_norm(value) == _norm(_CODE_HEADER) for value in rows[level]):
+            return rows[level], level + 1
+    return None, 0
+
+
 def _column_name(index: int) -> str:
     """Excel letters of a 0-based column index (0 → A, 27 → AB)."""
     result = ""
@@ -197,14 +236,8 @@ def inspect_plan_file(
     # Row 1 is the header; some drops prepend an info row, then the header is
     # row 2. A numbering row under the headers (if any) holds numbers only and
     # is skipped by `_is_numbering_row`.
-    header_row = rows[0]
-    data_start = 1
-    for level in (0, 1):
-        if any(_norm(value) == _norm(_CODE_HEADER) for value in rows[level]):
-            header_row = rows[level]
-            data_start = level + 1
-            break
-    else:
+    header_row, data_start = _locate_header(rows)
+    if header_row is None:
         if len(rows) < 2:
             return RenovationPlanImportResult(status="invalid_format")
         header_row = rows[1]

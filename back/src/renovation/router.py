@@ -3,6 +3,7 @@
 import hashlib
 import json
 from collections.abc import Sequence
+from datetime import datetime
 from io import BytesIO
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import quote
@@ -56,7 +57,7 @@ from src.renovation.export import (
     validate_export_request,
 )
 from src.renovation.export_jobs import ExportJob, ExportJobSpec, ExportQueueFullError, export_jobs
-from src.renovation.import_plan import inspect_plan_file
+from src.renovation.import_plan import assets_in_file, inspect_plan_file
 from src.renovation.inspect_cache import get_inspect_cache
 from src.renovation.models import RAsset, RProjectRole, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
@@ -177,6 +178,22 @@ async def require_renovation_admin(access: AccessDependency) -> RenovationAccess
 AdminDependency = Annotated[RenovationAccess, Depends(require_renovation_admin)]
 
 
+def _import_cache_scope(asset_ids: list[UUID], latest_change: datetime | None) -> str:
+    """
+    Plan-state fingerprint of the imported assets.
+
+    The asset ids plus the newest change in the working plan rows of exactly
+    those assets: an edit in any other asset keeps the cached report valid.
+    An empty id list means the file names no known asset, so the key carries no
+    plan state and only the TTL refreshes it.
+    """
+    if not asset_ids:
+        return ""
+    stamp = latest_change.isoformat() if latest_change is not None else "none"
+    ids = ",".join(sorted(str(asset_id) for asset_id in asset_ids))
+    return f"{ids}@{stamp}"
+
+
 @router.post("/plan/import/inspect", response_model=RenovationPlanImportResult)
 async def inspect_renovation_plan_import(
     session: SessionDependency,
@@ -189,18 +206,36 @@ async def inspect_renovation_plan_import(
     # Read the upload in memory: a NamedTemporaryFile stays locked on Windows,
     # so the workbook cannot be reopened from its path there.
     payload = await file.read()
-    cache = get_inspect_cache()
-    # The cached report is keyed by the file hash only, so it is reused for an
-    # unchanged plan state: a new row set invalidates it by TTL (one hour).
-    cached = await cache.get(payload)
-    if cached is not None:
-        return cached
-    existing_codes = {value for value in (await session.exec(select(col(RenovationPlanRow.col_003)))).all() if value}
+    # Which assets the file touches decides the cache scope: a plan edit in an
+    # asset the file does not mention must not invalidate this report.
+    file_asset_codes = assets_in_file(BytesIO(payload))
     assets = {
         asset.repair_code.upper(): asset.name
         for asset in (await session.exec(select(RAsset))).all()
         if asset.repair_code
     }
+    touched_asset_ids = [
+        asset.id
+        for raw_code in file_asset_codes
+        for asset in (await session.exec(select(RAsset).where(func.upper(RAsset.repair_code) == raw_code))).all()
+    ]
+    latest_change = (
+        (
+            await session.exec(
+                select(func.max(RenovationPlanRow.updated_at)).where(
+                    col(RenovationPlanRow.asset_id).in_(touched_asset_ids)
+                )
+            )
+        ).one()
+        if touched_asset_ids
+        else None
+    )
+    scope = _import_cache_scope(touched_asset_ids, latest_change)
+    cache = get_inspect_cache()
+    cached = await cache.get(payload, scope=scope) if file_asset_codes else None
+    if cached is not None:
+        return cached
+    existing_codes = {value for value in (await session.exec(select(col(RenovationPlanRow.col_003)))).all() if value}
     references: dict[str, set[str]] = {}
     for value in (await session.exec(select(RenovationReferenceValue))).all():
         references.setdefault(value.catalog.value, set()).add(value.label.casefold())
@@ -210,7 +245,8 @@ async def inspect_renovation_plan_import(
         asset_names_by_code=assets,
         reference_values=references,
     )
-    await cache.set(payload, result)
+    if file_asset_codes:
+        await cache.set(payload, result, scope=scope)
     return result
 
 
