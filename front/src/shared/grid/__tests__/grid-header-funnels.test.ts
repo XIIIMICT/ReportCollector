@@ -51,7 +51,13 @@ function renderHeader(section: Parameters<typeof buildGridColumns>[0], prop: str
         | undefined;
     if (template === undefined) return undefined;
     const node = template(h, { name: leaf?.name });
-    return { text: String(node.c), stamped: node.p["data-prop"] };
+    // The header renders the label AND the funnel button as its children.
+    const children = node.c as unknown[];
+    return {
+        text: String(children?.[0]),
+        stamped: node.p["data-prop"],
+        hasFunnel: (children?.[1] as VNode | undefined)?.p?.class === "header-filter-button",
+    };
 }
 
 test("each funnel's header stamps ITS OWN column prop", () => {

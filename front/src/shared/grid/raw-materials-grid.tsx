@@ -47,6 +47,7 @@ import {
     facetTextOf,
     getEditableKeys,
     getVisibleDescriptors,
+    HEADER_SHADOW_STYLES,
     markFilterableColumns,
     placeholderLastCellCompare,
     type ColumnDescriptor,
@@ -2045,7 +2046,9 @@ function RawMaterialsGridInner(
          */
         const handleFilterClickCapture = (event: Event) => {
             const target = event.target as Element | null;
-            const funnel = target?.closest?.(".rv-filter") ?? null;
+            // The funnel is ours (drawn by the column template); RevoGrid's own
+            // `.rv-filter` is hidden inside the shadow root.
+            const funnel = target?.closest?.(".header-filter-button") ?? null;
             if (!funnel || !filteringEnabled) return;
             if (!gridRef.current?.contains(funnel)) return;
             const cell = funnel.closest(".rgHeaderCell") as HTMLElement | null;
@@ -2056,7 +2059,9 @@ function RawMaterialsGridInner(
             // with it is right only while the grid is not grouped. Prefer the
             // prop the column template stamps into `.header-content`, and fall
             // back to the index.
-            const propFromHeader = cell.querySelector("[data-prop]")?.getAttribute("data-prop");
+            const propFromHeader =
+                funnel.getAttribute("data-prop") ??
+                cell.querySelector("[data-prop]")?.getAttribute("data-prop");
             const index = Number(cell.getAttribute("data-col"));
             const indexed = Number.isFinite(index) ? flatColumnsRef.current[index] : undefined;
             const prop = propFromHeader ?? (indexed ? String(indexed.prop) : null);
@@ -2394,7 +2399,13 @@ function RawMaterialsGridInner(
                         })
                     }
                     onBeforerange={(event) => updateSelectionRange(event.detail.newRange)}
-                />
+                >
+                    {/* Reaches INSIDE the header's shadow root: it hides the
+                        built-in `.rv-filter`, which our stylesheet cannot touch
+                        from outside. Our own funnel is drawn by the column
+                        template instead. */}
+                    <style slot="styles">{HEADER_SHADOW_STYLES}</style>
+                </RevoGrid>
             </div>
             <div
                 ref={horizontalScrollRef}

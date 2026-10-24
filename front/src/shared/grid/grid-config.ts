@@ -885,6 +885,16 @@ export function renderNumberText(value: unknown): string {
 }
 
 /**
+ * Styles injected into RevoGrid's header shadow root (`<style slot="styles">`).
+ * The header is a web component, so the app's stylesheet never reaches its
+ * built-in `.rv-filter` button: the shared funnel rules would not apply there
+ * and it would keep RevoGrid's own `visibility` reveal. Hiding it lets the
+ * column template draw our own funnel — the very element the plan uses, so the
+ * two animations cannot drift apart.
+ */
+export const HEADER_SHADOW_STYLES = "revogr-header .rv-filter { display: none !important; }";
+
+/**
  * How a column's filter list is ordered: text alphabetically, numbers and dates
  * NUMERICALLY — a string sort would put «10» before «9» and «01.02.2024»
  * before «31.01.2024», which reads as broken next to the cells.
@@ -933,18 +943,36 @@ export function markFilterableColumns(
             }
             const label = leaf.name;
             const prop = String(leaf.prop);
-            // The template only has to keep the header TEXT (a template REPLACES
-            // it — an empty one blanks the header); the funnel is RevoGrid's own
-            // button, restyled by the shared `.rv-filter` rules. It also stamps
-            // the column's prop: RevoGrid's header cell carries only a
-            // viewport-relative `data-col`, and the funnel click needs to know
-            // WHICH column it belongs to.
-            leaf.columnTemplate = (h: HyperFunc<VNode>, cell: { name?: string }) =>
-                h(
-                    "span",
-                    { class: "report-header__title", "data-prop": prop },
-                    cell?.name ?? label ?? "",
-                );
+            // RevoGrid's header lives in the `revogr-header` SHADOW root, so our
+            // stylesheet cannot restyle its built-in `.rv-filter` button — it
+            // keeps RevoGrid's own reveal (a `visibility` switch, no slide). The
+            // template therefore draws OUR funnel, the very element the
+            // renovation plan's overlay header uses, and `HEADER_SHADOW_STYLES`
+            // hides the built-in one inside the shadow root. That is what keeps
+            // the two animations identical by construction.
+            //
+            // The template also stamps the column's prop: a header cell carries
+            // only a viewport-relative `data-col`, and the funnel click needs to
+            // know WHICH column it belongs to.
+            leaf.columnTemplate = (h: HyperFunc<VNode>, cell: { name?: string }) => {
+                // The header node carries the text AND the funnel; the row-header
+                // overloads only declare single-node results.
+                const hyper = h as unknown as (
+                    tag: string,
+                    props: Record<string, unknown>,
+                    children?: unknown[],
+                ) => VNode;
+                const text = cell?.name ?? label ?? "";
+                return hyper("span", { class: "report-header__title", "data-prop": prop }, [
+                    text,
+                    hyper("button", {
+                        type: "button",
+                        class: "header-filter-button",
+                        "aria-label": `Фильтр: ${text}`,
+                        "data-prop": prop,
+                    }),
+                ]);
+            };
         }
     }
 }

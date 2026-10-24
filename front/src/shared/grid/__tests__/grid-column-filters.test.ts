@@ -67,10 +67,13 @@ test("the header template renders the column name, not an empty cell", () => {
     const { leaf, render } = templateOf("renovationAssets", "name");
     const node = render();
     expect(leaf?.name).toBe("Наименование");
-    expect(node?.c).toBe("Наименование");
+    const children = node?.c as unknown[];
+    expect(children?.[0]).toBe("Наименование");
 });
 
-test("a computed column carries no funnel and keeps the plain header", () => {
+test("a computed column is filterable like any other", () => {
+    // A computed cell holds a real per-row number, so «Число ремонтных работ»
+    // filters by its values — it is only not EDITABLE.
     const descriptors = getVisibleDescriptors("renovationAssets", true, false);
     const columns = buildGridColumns("renovationAssets", context);
     markFilterableColumns(columns, descriptors);
@@ -80,8 +83,7 @@ test("a computed column carries no funnel and keeps the plain header", () => {
             : [column as unknown as { prop: string; columnTemplate?: unknown }],
     );
     const byProp = new Map(leaves.map((leaf) => [String(leaf.prop), leaf]));
-    expect(byProp.get("name")?.columnTemplate).toBeFunction();
-    expect(byProp.get("repairCode")?.columnTemplate).toBeFunction();
-    expect(byProp.get("repairCount")?.columnTemplate).toBeUndefined();
-    expect(byProp.get("totalCost")?.columnTemplate).toBeUndefined();
+    for (const prop of ["name", "repairCode", "repairCount", "totalCost"]) {
+        expect(byProp.get(prop)?.columnTemplate).toBeFunction();
+    }
 });
