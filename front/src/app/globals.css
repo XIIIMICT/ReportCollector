@@ -1710,47 +1710,22 @@ body {
 /* ONE funnel across the whole app: iconoir's `Filter`, the same glyph the plan
    header, the «№» corner and the toolbar filters use. RevoGrid paints its own
    three-bar `.filter-img` inside the button and offers no icon option, so the
-   built-in image is hidden and the host span that `markFilterableColumns` puts
-   in the header (`.report-header__funnel`) draws the icon on top of the
-   button's hit area. Keep the two in the same box or the funnel drifts off the
-   button. */
+   built-in image is hidden and the button's `::after` draws the app's icon in
+   the same box — the click target stays RevoGrid's own button. */
 .raw-materials-grid revogr-header .rgHeaderCell .rv-filter .filter-img {
     display: none;
 }
 
-.raw-materials-grid revogr-header .rgHeaderCell .filter-button-wrapper {
-    position: relative;
-}
-
-.report-header__funnel {
-    position: absolute;
-    z-index: 2;
-    right: 0;
-    bottom: 0;
-    display: block;
-    width: 24px;
-    height: 100%;
-    pointer-events: none;
-}
-
-.report-header__funnel::after {
-    position: absolute;
-    top: 50%;
-    left: 50%;
+.raw-materials-grid revogr-header .rgHeaderCell .rv-filter::after {
     width: 11px;
     height: 11px;
-    transform: translate(-50%, -50%);
-    background-color: var(--muted);
+    background-color: currentColor;
     content: "";
-    /* The icon itself: iconoir's `Filter`, the glyph every filter affordance in
-       the app uses. Defined once, in `:root`, and reused by the plan's overlay
-       header and the row-number corner. */
     mask: var(--filter-icon) center / contain no-repeat;
 }
 
-/* A filtered column keeps the accent tint — the same signal as
-   `.renovation-grid__filter-button.is-active`. */
-.rgHeaderCell:has(.rv-filter.active) .report-header__funnel::after {
+/* A filtered column keeps the accent tint, like the plan header. */
+.raw-materials-grid revogr-header .rgHeaderCell .rv-filter.active::after {
     background-color: var(--accent);
 }
 

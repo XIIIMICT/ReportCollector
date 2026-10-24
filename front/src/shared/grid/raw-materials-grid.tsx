@@ -599,6 +599,9 @@ function RawMaterialsGridInner(
     // facets are computed from the rows already in memory instead of being
     // fetched. The grid only owns the plumbing: which column is open, where
     // its funnel is, and the filtered source the grid renders.
+    // The filters are the workspace's state, so they are also what enables the
+    // funnels: a form that passes the map gets them, a read-only/archive view
+    // that passes nothing renders a plain header.
     const filteringEnabled = columnFilters !== undefined && onFiltersChange !== undefined;
     // The «№» corner's go-to popover (shared component, own numbering). The
     // row-header template reaches the opener through a ref: the row headers are
@@ -846,6 +849,10 @@ function RawMaterialsGridInner(
         widthsVersion,
     ]);
 
+    // A ref mirror for the header-funnel click handler, which is registered once
+    // and must still read the columns of the CURRENT form tab.
+    const flatColumnsRef = useRef<ColumnRegular[]>([]);
+
     const flatColumns: ColumnRegular[] = useMemo(
         () =>
             columns.flatMap((column) =>
@@ -855,6 +862,7 @@ function RawMaterialsGridInner(
             ),
         [columns],
     );
+    flatColumnsRef.current = flatColumns;
 
     const headerRowCount = descriptors.some((descriptor) => descriptor.path?.length) ? 2 : 1;
     const headerHeight = headerRowCount * rowHeight;
@@ -2005,38 +2013,52 @@ function RawMaterialsGridInner(
         const handleAfterFilterApply = () => {
             void measureViewport();
         };
+        /**
+         * The header funnel opens OUR popover.
+         *
+         * RevoGrid's `.rv-filter` button is the click target (it is what renders
+         * something the user can see), but its own handler opens RevoGrid's
+         * condition panel — and a header click also starts a sort. Both run
+         * after a `click` that bubbles through the grid, so the interception is
+         * registered on `document` in the CAPTURE phase: the right target is
+         * still known, yet RevoGrid never sees the event it would react to.
+         *
+         * `document`, not the grid element: React's own listeners live on the
+         * container above it, so a capture listener on the grid would still run
+         * after the click had already reached RevoGrid's handlers.
+         */
+        const handleFilterClickCapture = (event: Event) => {
+            const target = event.target as Element | null;
+            const funnel = target?.closest?.(".rv-filter") ?? null;
+            if (!funnel || !filteringEnabled) return;
+            if (!gridRef.current?.contains(funnel)) return;
+            const cell = funnel.closest(".rgHeaderCell") as HTMLElement | null;
+            if (!cell) return;
+            // RevoGrid puts the column's sequential index on the header cell
+            // (`data-col`), not its prop — the prop is read back from the column
+            // by that index, so the filter is keyed like the rest of the app.
+            const index = Number(cell.getAttribute("data-col"));
+            const column = Number.isFinite(index) ? flatColumnsRef.current[index] : undefined;
+            const prop = column ? String(column.prop) : null;
+            if (!prop || !descriptorByKey.has(prop)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setFilterTarget({
+                column: prop,
+                label: descriptorByKey.get(prop)?.label ?? prop,
+                anchor: cell.getBoundingClientRect(),
+            });
+        };
         // A header click on RevoGrid's native filter funnel also falls through to
         // the column sort (`beforeheaderclick`), so opening a filter silently
-        // sorts the column as well. That extra sort is what makes the funnel
-        // (and the newly revealed sort indicator) jump from the left edge of the
-        // header cell to the right. Suppress the sort for funnel clicks in the
-        // capture phase — before the sorting plugin's bubble handler — while
-        // still letting the click reach the filter plugin (preventDefault does
-        // not stop propagation). `rv-filter` is RevoGrid's filter-button class.
+        // sorts the column as well. Suppress the sort for funnel clicks.
         const handleBeforeHeaderClickCapture = (event: Event) => {
             const originalEvent = (event as CustomEvent<{ originalEvent?: MouseEvent | null }>)
                 .detail?.originalEvent;
             const target = originalEvent?.target as Element | null;
             if (!target) return;
-            const funnel = target.closest?.(".rv-filter") ?? null;
-            const hit = target.classList?.contains("rv-filter") || funnel;
-            if (!hit) return;
-            event.preventDefault();
-            // Our own popover, not RevoGrid's condition panel. `prop` is the
-            // leaf column's key; the label comes from the descriptor so the
-            // popover's aria text matches the header the user clicked.
-            if (!filteringEnabled) return;
-            originalEvent?.preventDefault();
-            originalEvent?.stopPropagation();
-            const headerCell = (funnel as Element | null)?.closest?.("[data-prop]");
-            const column = headerCell?.getAttribute("data-prop");
-            if (!column) return;
-            const rect = (headerCell as HTMLElement).getBoundingClientRect();
-            setFilterTarget({
-                column,
-                label: descriptorByKey.get(column)?.label ?? column,
-                anchor: rect,
-            });
+            const hit = target.classList?.contains("rv-filter") || target.closest?.(".rv-filter");
+            if (hit) event.preventDefault();
         };
         const handleCancelEdit = () => {
             if (!activeLeaseRef.current) return;
@@ -2050,6 +2072,7 @@ function RawMaterialsGridInner(
         grid.addEventListener("afterfilterapply", handleAfterFilterApply);
         grid.addEventListener("canceledit", handleCancelEdit);
         grid.addEventListener("beforeheaderclick", handleBeforeHeaderClickCapture, true);
+        document.addEventListener("click", handleFilterClickCapture, true);
         return () => {
             window.removeEventListener("copy", handleCopy, true);
             window.removeEventListener("paste", handlePaste, true);
@@ -2058,6 +2081,7 @@ function RawMaterialsGridInner(
             grid.removeEventListener("afterfilterapply", handleAfterFilterApply);
             grid.removeEventListener("canceledit", handleCancelEdit);
             grid.removeEventListener("beforeheaderclick", handleBeforeHeaderClickCapture, true);
+            document.removeEventListener("click", handleFilterClickCapture, true);
         };
     }, [
         copySelection,

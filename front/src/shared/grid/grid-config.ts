@@ -862,19 +862,18 @@ export function facetTextOf(
 }
 
 /**
- * Tell RevoGrid which leaf columns carry the header filter funnel: every leaf
- * whose prop has a descriptor, minus the ones the grid cannot filter usefully
- * (a calculated column is a formula, not data).
+ * Mark the leaf columns that carry the header filter funnel: every leaf whose
+ * prop has a descriptor, minus the ones the grid cannot filter usefully (a
+ * calculated column is a formula, not data).
  *
- * `columnTemplate` is where RevoGrid looks for a custom header — with it the
- * grid draws its own `.rv-filter` button, which then opens OUR popover instead
- * of RevoGrid's condition panel. It must be an arrow function: it is called as
- * a method of the header props.
+ * RevoGrid draws `.rv-filter` only when the column has a `columnTemplate` (or
+ * when the grid gets a `filter` prop, which also brings its own condition panel
+ * — we do not want that). The template REPLACES the header text, so it must
+ * render `name` itself: a template that returns an empty span leaves the header
+ * blank. The only thing it adds is the funnel host.
  *
- * The button's ICON is a fixed SVG inside RevoGrid's `FilterButton` (a stack of
- * three filled bars), so it is drawn over per grid: the header cell keeps a
- * `report-header__funnel` host and the stylesheet paints the app's own funnel
- * (iconoir `Filter`) into it, exactly like the plan header and the row corner.
+ * It must be an arrow function: RevoGrid calls it as a method of the header
+ * props.
  */
 export function markFilterableColumns(
     columns: (ColumnRegular | ColumnGrouping)[],
@@ -891,8 +890,9 @@ export function markFilterableColumns(
             : [column as ColumnRegular];
         for (const leaf of leaves) {
             if (!filterable.has(String(leaf.prop))) continue;
-            leaf.columnTemplate = (h: HyperFunc<VNode>) =>
-                h("span", { class: "report-header__funnel" });
+            const label = leaf.name;
+            leaf.columnTemplate = (h: HyperFunc<VNode>, cell: { name?: string }) =>
+                h("span", { class: "report-header__title" }, cell?.name ?? label ?? "");
         }
     }
 }
