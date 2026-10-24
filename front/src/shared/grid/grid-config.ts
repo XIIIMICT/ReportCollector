@@ -8,6 +8,8 @@ import type {
     VNode,
 } from "@revolist/react-datagrid";
 
+import type { FacetOrder } from "@/shared/ui/column-filter-facets";
+
 export type SectionId =
     | "materialMovement"
     | "rawMaterialPrices"
@@ -858,13 +860,45 @@ export function facetTextOf(
         // filterable as itself too.
         return option ? option.label : value;
     }
+    if (descriptor.kind === "number" || descriptor.kind === "calculated") {
+        // The cell renders a RU-formatted number (`numberCellTemplate`), so the
+        // filter has to offer — and match by — the same text, not the raw
+        // value: "1 234,5" is what the user reads and therefore clicks.
+        const text = renderNumberText(value);
+        // An empty aggregate is the «Пустые» bucket, not a value named "".
+        return text === "" ? null : text;
+    }
     return value;
 }
 
 /**
+ * The text a numeric cell shows — the single formatting rule for numbers in
+ * the grid: its `numberCellTemplate` renders through it, and a filter matches
+ * through it, so the facet list and the cells can never disagree.
+ */
+export function renderNumberText(value: unknown): string {
+    if (value === null || value === undefined || value === "") return "";
+    const parsed = typeof value === "number" ? value : Number(String(value).replace(",", "."));
+    return Number.isFinite(parsed)
+        ? new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 6 }).format(parsed)
+        : String(value);
+}
+
+/**
+ * How a column's filter list is ordered: text alphabetically, numbers and dates
+ * NUMERICALLY — a string sort would put «10» before «9» and «01.02.2024»
+ * before «31.01.2024», which reads as broken next to the cells.
+ */
+export function facetOrderOf(descriptor: ColumnDescriptor | undefined): FacetOrder {
+    if (descriptor?.kind === "number" || descriptor?.kind === "calculated") return "number";
+    if (descriptor?.kind === "datetime") return "date";
+    return "text";
+}
+
+/**
  * Mark the leaf columns that carry the header filter funnel: every leaf whose
- * prop has a descriptor, minus the ones the grid cannot filter usefully (a
- * calculated column is a formula, not data).
+ * prop has a descriptor. Computed columns are included — they carry a real
+ * per-row number, just not an editable one.
  *
  * RevoGrid draws `.rv-filter` only when the column has a `columnTemplate` (or
  * when the grid gets a `filter` prop, which also brings its own condition panel
@@ -879,20 +913,38 @@ export function markFilterableColumns(
     columns: (ColumnRegular | ColumnGrouping)[],
     descriptors: readonly ColumnDescriptor[],
 ): void {
-    const filterable = new Set(
-        descriptors
-            .filter((descriptor) => descriptor.kind !== "calculated")
-            .map((descriptor) => descriptor.key),
-    );
+    // Every column is filterable, computed ones included: a computed cell still
+    // holds a per-row value (a sum, a count) that a user wants to narrow by —
+    // "show the assets with no repair works" is a normal question. What a
+    // computed column must not get is the `filter: false` opt-out below.
+    const filterable = new Set(descriptors.map((descriptor) => descriptor.key));
     for (const column of columns) {
         const leaves = (column as ColumnGrouping).children?.length
             ? ((column as ColumnGrouping).children as ColumnRegular[])
             : [column as ColumnRegular];
         for (const leaf of leaves) {
-            if (!filterable.has(String(leaf.prop))) continue;
+            if (!filterable.has(String(leaf.prop))) {
+                // The grid carries a `filter` prop (that is what makes RevoGrid
+                // render a funnel at all), and with it EVERY column gets one.
+                // A column with no descriptor (a service prop) has nothing to
+                // filter by, so it opts out explicitly.
+                leaf.filter = false;
+                continue;
+            }
             const label = leaf.name;
+            const prop = String(leaf.prop);
+            // The template only has to keep the header TEXT (a template REPLACES
+            // it — an empty one blanks the header); the funnel is RevoGrid's own
+            // button, restyled by the shared `.rv-filter` rules. It also stamps
+            // the column's prop: RevoGrid's header cell carries only a
+            // viewport-relative `data-col`, and the funnel click needs to know
+            // WHICH column it belongs to.
             leaf.columnTemplate = (h: HyperFunc<VNode>, cell: { name?: string }) =>
-                h("span", { class: "report-header__title" }, cell?.name ?? label ?? "");
+                h(
+                    "span",
+                    { class: "report-header__title", "data-prop": prop },
+                    cell?.name ?? label ?? "",
+                );
         }
     }
 }
@@ -909,11 +961,7 @@ function selectCellTemplate(
 
 function numberCellTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode {
     if (value === null || value === undefined || value === "") return h("span", {}, "");
-    const parsed = typeof value === "number" ? value : Number(String(value).replace(",", "."));
-    const label = Number.isFinite(parsed)
-        ? new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 6 }).format(parsed)
-        : String(value);
-    return h("span", { class: "report-cell__number" }, label);
+    return h("span", { class: "report-cell__number" }, renderNumberText(value));
 }
 
 function dateTimeCellTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode {

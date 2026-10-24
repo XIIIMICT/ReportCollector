@@ -43,6 +43,7 @@ import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
 import {
     buildGridColumns,
     exportColumnsFromGrid,
+    facetOrderOf,
     facetTextOf,
     getEditableKeys,
     getVisibleDescriptors,
@@ -641,6 +642,11 @@ function RawMaterialsGridInner(
             facetTextOf(descriptorByKey.get(column), row),
         [descriptorByKey],
     );
+    /** Text sorts alphabetically; numbers and dates sort numerically. */
+    const facetOrder = useCallback(
+        (column: string) => facetOrderOf(descriptorByKey.get(column)),
+        [descriptorByKey],
+    );
     facetTextRef.current = facetText;
 
     /**
@@ -659,10 +665,14 @@ function RawMaterialsGridInner(
                     : rows.filter(
                           (row) => row.isPlaceholder || rowMatchesFilters(row, others, facetText),
                       );
-            const facets = computeRowFacets(source, (row) => facetText(column, row));
+            const facets = computeRowFacets(
+                source,
+                (row) => facetText(column, row),
+                facetOrder(column),
+            );
             return async (_column, { offset, limit }) => facetWindow(facets, offset, limit);
         },
-        [activeFilters, facetText, rows],
+        [activeFilters, facetOrder, facetText, rows],
     );
 
     /**
@@ -2040,12 +2050,16 @@ function RawMaterialsGridInner(
             if (!gridRef.current?.contains(funnel)) return;
             const cell = funnel.closest(".rgHeaderCell") as HTMLElement | null;
             if (!cell) return;
-            // RevoGrid puts the column's sequential index on the header cell
-            // (`data-col`), not its prop — the prop is read back from the column
-            // by that index, so the filter is keyed like the rest of the app.
+            // RevoGrid's header cell carries only `data-col`, and that is the
+            // VIEWPORT's position (the leaf's index among the rendered
+            // columns), not the column's own order — reading `flatColumns`
+            // with it is right only while the grid is not grouped. Prefer the
+            // prop the column template stamps into `.header-content`, and fall
+            // back to the index.
+            const propFromHeader = cell.querySelector("[data-prop]")?.getAttribute("data-prop");
             const index = Number(cell.getAttribute("data-col"));
-            const column = Number.isFinite(index) ? flatColumnsRef.current[index] : undefined;
-            const prop = column ? String(column.prop) : null;
+            const indexed = Number.isFinite(index) ? flatColumnsRef.current[index] : undefined;
+            const prop = propFromHeader ?? (indexed ? String(indexed.prop) : null);
             if (!prop || !descriptorByKey.has(prop)) return;
             event.preventDefault();
             event.stopPropagation();
