@@ -9,46 +9,87 @@ test("renovation single-cell edit persists and Ctrl+A stays disabled", async ({ 
     });
     await page.goto("/renovation");
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 30000 });
-    const rowId = await page.evaluate(async () =>
-        String((await document.querySelector("revo-grid")!.getVisibleSource("rgRow"))[0].id),
-    );
+    // The first chunk arrives asynchronously: take the row once it is loaded.
+    // The plan OPENS AT ITS TAIL (rows are appended at the end), so this is not
+    // «№» 1 — the real position is kept alongside the id.
+    await expect
+        .poll(
+            () =>
+                page.evaluate(async () => {
+                    const grid = document.querySelector("revo-grid");
+                    if (!grid) return 0;
+                    const rows = await grid.getVisibleSource("rgRow");
+                    return rows.filter((row) => row && row.id).length;
+                }),
+            { timeout: 20000 },
+        )
+        .toBeGreaterThan(0);
+    const target = await page.evaluate(async () => {
+        const grid = document.querySelector("revo-grid")!;
+        const rows = await grid.getVisibleSource("rgRow");
+        const row = rows.find((candidate) => candidate && candidate.id);
+        return { rowId: String(row.id), position: Number(row.__position ?? 1) };
+    });
+    const rowId = target.rowId;
     await page.evaluate(async () => {
         const grid = document.querySelector("revo-grid")!;
         const columns = await grid.getColumns();
-        const index = columns.findIndex((column) => column.prop === "col_011");
-        if (index < 0) throw new Error("Missing col_011");
-        await grid.scrollToColumnIndex(index);
-        await grid.setCellsFocus({ x: index, y: 0 }, { x: index, y: 0 });
-        await grid.refresh();
+        const columnIndex = columns.findIndex((column) => column.prop === "col_011");
+        if (columnIndex < 0) throw new Error("Missing col_011");
+        const rows = await grid.getVisibleSource("rgRow");
+        const rowIndex = rows.findIndex((row) => row && row.id);
+        // `setCellEdit` opens the editor directly — on revo-grid 4.28 the old
+        // `setCellsFocus(...)` + `Enter` left focus on the body and never mounted
+        // `revogr-edit`. Both calls share ONE evaluate: scrolling re-renders the
+        // grid and would drop the editor's focus.
+        await grid.scrollToColumnIndex(columnIndex);
+        await grid.setCellEdit(rowIndex, "col_011");
     });
-    await page.keyboard.press("Enter");
     const editor = page.locator("revogr-edit input, revogr-edit textarea").first();
     await expect(editor).toBeVisible();
-    const value =
-        (await editor.inputValue()) === "CI renovation object"
-            ? "CI updated object"
-            : "CI renovation object";
-    await editor.fill(value);
+    // The editor mounts before it accepts input: type only once it holds focus,
+    // or `fill` lands nowhere and Enter commits the unchanged value.
+    await expect(editor).toBeFocused();
+    // A fresh value per run: the grid skips a commit when the text equals what
+    // is already stored.
+    const value = `CI renovation ${Date.now()}`;
     const saved = page.waitForResponse(
         (response) =>
             response.url().includes("/api/renovation/plan?") &&
             response.request().method() === "PATCH",
+        { timeout: 15000 },
     );
+    await editor.fill(value);
+    await expect(editor).toHaveValue(value);
     await editor.press("Enter");
     expect((await saved).ok()).toBe(true);
     await page.reload();
+    await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 30000 });
+    // The grid re-opens at its remembered (or tail) position: jump to the row's
+    // «№» first, then read it back by id.
+    await page.evaluate(async (position) => {
+        const grid = document.querySelector("revo-grid")!;
+        await grid.scrollToRow(position - 1);
+    }, target.position);
     await expect
-        .poll(() =>
-            page.evaluate(async (id) => {
-                const grid = document.querySelector("revo-grid");
-                if (!grid) return null;
-                return (await grid.getVisibleSource("rgRow")).find((row) => row.id === id)?.col_011;
-            }, rowId),
+        .poll(
+            () =>
+                page.evaluate(async (id) => {
+                    const grid = document.querySelector("revo-grid");
+                    if (!grid) return null;
+                    const row = (await grid.getVisibleSource("rgRow")).find(
+                        (candidate) => candidate.id === id,
+                    );
+                    return row ? (row.col_011 ?? "") : null;
+                }, rowId),
+            { timeout: 25000 },
         )
         .toBe(value);
     await page.evaluate(async () => {
         const grid = document.querySelector("revo-grid")!;
-        await grid.setCellsFocus({ x: 1, y: 0 }, { x: 1, y: 0 });
+        const columns = await grid.getColumns();
+        const index = columns.findIndex((column) => column.prop === "col_011");
+        await grid.setCellsFocus({ x: index, y: 0 }, { x: index, y: 0 });
         await grid.refresh();
     });
     const readRange = () =>
@@ -105,16 +146,28 @@ test("production forms load and a price edit survives reload", async ({ page }) 
         await grid.setCellsFocus({ x: index, y: 0 }, { x: index, y: 0 });
         await grid.refresh();
     });
-    await expect(page.locator(".form-status__selection")).toContainText("Объём");
-    await cell.dblclick({ delay: 100 });
+    // The status spells a single-cell selection as «столбец N, строка M» — the
+    // column NUMBER of the form, 1-based («Объём, т» is the 5th). It used to show
+    // the column label; the shared selection label now prefers the number, so
+    // the assertion follows the current contract.
+    await expect(page.locator(".form-status__selection")).toContainText("столбец 5");
+    // Open the editor programmatically: a `dblclick` races with the grid's own
+    // selection handling (and the focus moved by the click above).
+    await page.evaluate(async () => {
+        const grid = document.querySelector("revo-grid")!;
+        await grid.setCellEdit(0, "businessPlanQuantityTons");
+    });
     const editor = page.locator("revogr-edit input, revogr-edit textarea").first();
     await expect(editor).toBeVisible();
-    await editor.fill(value);
+    await expect(editor).toBeFocused();
     const saved = page.waitForResponse(
         (response) =>
             response.url().includes("/api/raw-materials/prices") &&
             response.request().method() === "PATCH",
+        { timeout: 15000 },
     );
+    await editor.fill(value);
+    await expect(editor).toHaveValue(value);
     await editor.press("Enter");
     expect((await saved).ok()).toBe(true);
     const undone = page.waitForResponse(
