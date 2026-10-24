@@ -2991,6 +2991,27 @@ body {
     flex: 0 0 auto;
 }
 
+/* The reveal: the funnel opens on hover/focus or while its column is filtered.
+   Without this rule the button keeps the collapsed `width: 0; opacity: 0` from
+   the base state and is simply never visible. */
+.renovation-grid__header-cell:hover .header-filter-button,
+.renovation-grid__header-cell:focus-within .header-filter-button,
+.renovation-grid__number-cell:hover .header-filter-button,
+.renovation-grid__number-cell:focus-within .header-filter-button,
+.renovation-grid__corner:hover .header-filter-button,
+.renovation-grid__corner:focus-within .header-filter-button,
+.raw-materials-grid revogr-header .rgHeaderCell:hover .header-filter-button,
+.raw-materials-grid revogr-header .rgHeaderCell:focus-within .header-filter-button,
+.header-filter-button.is-active {
+    width: 24px;
+    opacity: 1;
+}
+
+/* A filtered column keeps the accent tint — the plan's signal, everywhere. */
+.header-filter-button.is-active {
+    color: var(--accent);
+}
+
 /* RevoGrid draws its own three-bar picture inside the button and offers no icon
    option: hide it and let the icon element (or `::after`, when no icon node is
    rendered) paint the app's `Filter` glyph. Both the plan's button and
@@ -3010,11 +3031,11 @@ body {
     mask: var(--filter-icon) center / contain no-repeat;
 }
 
-/* RevoGrid's own `.rv-filter` button is positioned and sized by RevoGrid
-   (`visibility: hidden` until the cell is hovered, `width` from its stylesheet),
-   which fights the shared reveal. Give it exactly the plan's funnel geometry so
-   both tables open the same way: the button is only the hit target, the icon is
-   drawn by it, and the reveal is the shared `width`/`opacity` transition. */
+/* RevoGrid's own `.rv-filter` button carries RevoGrid's reveal — `visibility:
+   hidden` until its cell is hovered (an instant show, no fade), plus its own
+   `width`/`transform` transition. Both are neutralised here so the plan's
+   reveal is the only one: the button keeps the shared geometry below, and the
+   animation is exactly `opacity` + `width` on the shared curve and duration. */
 .raw-materials-grid revogr-header .rgHeaderCell .rv-filter {
     position: relative;
     display: flex;
@@ -3027,12 +3048,49 @@ body {
     border-radius: 4px;
     background: none;
     color: var(--muted);
+    /* Never toggle visibility: a `visibility` switch shows the funnel at once,
+       which is what made it look different from the plan. */
     visibility: visible;
     opacity: 0;
+    transform: none;
     cursor: pointer;
+    /* The same shorthand (and the same order) as the shared
+       `.header-filter-button` rule — RevoGrid's own base state declares its own
+       `transition` and would otherwise reshape it. */
     transition:
         opacity 267ms cubic-bezier(0.4, 0, 0.2, 1),
         width 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The plan's funnel is ABSOLUTELY positioned against the cell's right edge, so
+   widening it makes it slide out from the edge while the label eases away.
+   RevoGrid puts the button into the `.header-controls` flow instead, where
+   widening grows it to the left from a fixed left edge and nothing travels.
+   Pin it to the cell's right edge — that is what makes the two animations read
+   the same. */
+.raw-materials-grid revogr-header .rgHeaderCell .header-controls {
+    position: absolute;
+    top: 0;
+    right: 1px;
+    bottom: 1px;
+    display: flex;
+    align-items: center;
+}
+
+.raw-materials-grid revogr-header .rgHeaderCell .header-controls .sort-indicator {
+    /* The sort arrow keeps its place at the row's left; only the funnel travels. */
+    order: -1;
+}
+
+/* Fully transparent and zero-width means "not there" for the pointer either. */
+.raw-materials-grid revogr-header .rgHeaderCell .rv-filter:not(.active) {
+    pointer-events: none;
+}
+
+.raw-materials-grid revogr-header .rgHeaderCell:hover .rv-filter,
+.raw-materials-grid revogr-header .rgHeaderCell:focus-within .rv-filter,
+.raw-materials-grid revogr-header .rgHeaderCell .rv-filter.active {
+    pointer-events: auto;
 }
 
 .raw-materials-grid revogr-header .rgHeaderCell:hover .rv-filter,
@@ -3081,17 +3139,19 @@ body {
 }
 
 /* RevoGrid's header label (`.header-content`) makes room for the funnel the same
-   way the plan's labels do, so the two reveal animations read identically. */
-.raw-materials-grid revogr-header .rgHeaderCell:hover:has(.header-filter-button) .header-content,
-.raw-materials-grid
-    revogr-header
-    .rgHeaderCell:focus-within:has(.header-filter-button)
-    .header-content,
-.raw-materials-grid
-    revogr-header
-    .rgHeaderCell:has(.header-filter-button.is-active)
-    .header-content {
-    margin-right: 24px;
+   way the plan's labels do, so the two reveal animations read identically: the
+   text eases left while the funnel slides in from the cell's right edge. The
+   state is the BUTTON's (`:hover`/`:focus-within` on the cell, `.active` on the
+   button) — the shared `.is-active` class only exists on the plan's overlay
+   buttons, so keying on it left RevoGrid's label never moving. */
+.raw-materials-grid revogr-header .rgHeaderCell:hover .header-content,
+.raw-materials-grid revogr-header .rgHeaderCell:focus-within .header-content,
+.raw-materials-grid revogr-header .rgHeaderCell:has(.rv-filter.active) .header-content {
+    /* `padding`, not `margin`: the label is centred inside the cell, and only
+       padding moves the text itself — a margin merely shrinks the box and the
+       text stays put, which is why the two headers looked different. */
+    padding-right: 24px;
+    box-sizing: border-box;
 }
 
 /* The «№» corner hosts the row-number range funnel; reserve its width too. */
