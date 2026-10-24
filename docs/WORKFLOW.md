@@ -68,6 +68,25 @@ About `POSTGRES_HOST`: on the server it's the real DB address (not localhost); `
 
 **Postgres in the dev stack:** `compose.yaml` likewise pins `POSTGRES_HOST=postgres` for `back-dev`. The `rc-postgres` container is on both `rc-net` and `rc-net-dev`, so the service name resolves inside the dev network, like `valkey`. The `.env` value stays `localhost`/`host.docker.internal` for **host** runs (`just back`/`just front`, seeds, tests); inside a container `localhost` is the container itself — the symptom is `/health` 200 but every DB-backed request (e.g. `GET /api/me`) returns **500** with `ConnectionRefusedError: [Errno 111]`. After changing this, recreate the container (`docker compose --profile dev up -d back-dev`).
 
+### Framework upgrade audit (FastAPI 0.143 → 0.162, 2026-10-24)
+
+The 0.143 → 0.162 range is full of **breaking** changes to request parsing. Checked against this codebase — no code change is required, and none of the new features applies yet:
+
+| Change | Touches us? | Why |
+|---|---|---|
+| 0.162 / 0.147 / 0.149 — omitted or empty **form** fields become missing / `False` | no | the only `Form`/`File` inputs are two `UploadFile` `.xlsb` endpoints in `renovation/router.py`; there are no `Form(...)` fields, no form models, no OAuth2 form |
+| 0.153 / 0.158–0.161 — form **model** unions and combinations | no | no request models are parsed from forms |
+| 0.160 — a parameter model's `extra` config applies to sibling fields in the same location | no | query/header params are plain annotated scalars, not models; `extra="forbid"` exists only on **JSON body** schemas (`kppk/schemas.py`), which this change does not cover |
+| 0.151 — explicit JSON `null` ≠ omitted body value | no | handlers bind models directly (`payload: XRequest`) without optional body defaults; no client sends `null` to mean "use the default" |
+| 0.150 — unselected browser file input = missing | no | the import dialog requires a real file before the upload button enables; the endpoint 400s on a non-`.xlsb` name anyway |
+| 0.155 — `**extra` removed from `Path`/`Query`/`Header`/`Cookie`/`Body`/`Form`/`File` | no | grep finds no extra keyword on those parameters |
+| 0.146 / 0.145 — `root_path` deprecated, `openapi_prefix` removed | no | the app is served by plain `uvicorn` (Dockerfile) with nginx proxying `/api`; neither identifier appears in `back/` |
+| 0.152 / 0.156.x — header error `loc` uses the HTTP header name; `AliasChoices`/`Field` metadata fixes | beneficial | the identity headers (`X-ReportCollector-*`) now report their HTTP names in validation errors |
+| 0.156.8 — uploaded file position preserved when converting to bytes | beneficial | `GET/POST /plan/import/*` read the same `UploadFile` once (`await file.read()`), so we never depended on a re-read |
+| 0.144 — WebSocket support in security dependencies | not used | collab auth uses `Depends` in `collab/ws.py`, unchanged |
+
+Unused for now, worth remembering if the shape changes: **parameter models** (0.157/0.159) would let a router group its query flags into one model, and **`union` form models** (0.158–0.161) would replace hand-rolled "which payload did the client send" branching.
+
 ## Quality (what we check before delivery)
 
 ### Renovation table-name migration (0013)
