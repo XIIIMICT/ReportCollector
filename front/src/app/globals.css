@@ -603,16 +603,15 @@ body {
     min-width: 0;
 }
 
-/* HeroUI's pill adds a 0.25rem frame (`p-1` on `.tabs__list`) INSIDE the
-   container, so the first tab started 0.25rem right of the card's edge — while
-   the filter row below and the grid start flush. Offset the pill by exactly
-   that frame: the container moves left, the padding inside it stays, so the
-   pill's visible edge and the tab TEXT both land on the card's edge AND the
-   frame is still painted. Removing the padding instead (an earlier attempt)
-   deleted the frame, and a negative margin on `.section-tabs` clipped it
-   against the toolbar's `overflow: hidden`. */
-.section-tabs .tabs__list-container {
-    margin-inline-start: -0.25rem;
+/* The tab strip must start at the card's edge, like the filter row below it and
+   the grid. HeroUI insets the tabs twice: `.tabs__list` carries `p-1` (0.25rem)
+   INSIDE `.tabs__list-container`, and that padding is what pushed the pill's
+   content 4px right. The pill's FRAME is the container's own background
+   (`bg-default`), not this padding, so dropping the padding moves nothing but
+   the offset: the grey background and the first tab both land on the edge.
+   (Measured: pill 0 / tab text 0 after, vs pill 0 / text 4 before.) */
+.section-tabs .tabs__list {
+    padding-inline: 0;
 }
 
 .grid-viewport {
