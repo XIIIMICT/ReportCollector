@@ -601,11 +601,6 @@ body {
 .section-tabs .tabs__list-container {
     width: 100%;
     min-width: 0;
-    /* The pill sat 4px right of the card edge — the filter row below and the
-       grid start flush. Pull its own outer margin in by that amount; the width
-       grows by the same 4px so the shell's inside is unchanged (only the
-       shell's left edge moves). */
-    margin-inline: -0.25rem;
 }
 
 .grid-viewport {
