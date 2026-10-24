@@ -358,10 +358,11 @@ async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[st
         if source in {"kppk_f_realization", "kppk_f_realization_plan", "kppk_f_production_plan"}:
             copied = [column for column, _ in columns if column not in {"org_id", "period_id"}]
             target_columns = ", ".join(copied)
-            zero_fields = {"fact", "month_bp_plan", "month_max_plan", "excise_bp", "excise_max_plan", "excise_fact"}
-            source_columns = ", ".join(
-                f"coalesce(s.{column}, 0)" if column in zero_fields else _source_column_sql(column) for column in copied
-            )
+            # Values are copied VERBATIM, NULLs included: the source files keep
+            # volume/excise empty where nothing was measured, and the copies are
+            # nullable for exactly that reason. Filling them with 0 would invent
+            # figures on every re-seed.
+            source_columns = ", ".join(_source_column_sql(column) for column in copied)
             missing = (
                 await connection.execute(
                     text(

@@ -389,18 +389,9 @@ async def _apply_realization_cell(
         # Outside the product × ДЗО scope an excise may not be SET; clearing it
         # stays allowed so a wrongly entered rate can be removed.
         await _check_excise_scope(session, row=row, field=field)
-    if stored is None and field in {
-        "buyoutBpPlan",
-        "buyoutMaxPlan",
-        "buyoutFact",
-        "monthBpPlan",
-        "monthMaxPlan",
-        "fact",
-        "exciseBp",
-        "exciseMaxPlan",
-        "exciseFact",
-    }:
-        stored = Decimal(0)
+    # An emptied cell stays NULL — "not filled", the same state the source
+    # dumps carry. Coercing it to 0 would report a measurement nobody made and
+    # make "clear" indistinguishable from "zero".
     setattr(row, attribute, stored)
     await session.flush()
     return old_value, stored

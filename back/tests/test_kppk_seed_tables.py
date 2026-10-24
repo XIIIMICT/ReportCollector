@@ -1,5 +1,6 @@
 """Recover application copies without changing sources or unrelated projects."""
 
+from decimal import Decimal
 from types import SimpleNamespace
 
 from conftest import TEST_SCHEMA
@@ -29,8 +30,10 @@ async def test_seed_restores_all_missing_application_tables(db_session) -> None:
     assert "period_id" not in by_name
     assert str(by_name["period_date"]["type"]) == "DATE"
     for name in ("buyout_bp_plan", "month_bp_plan", "excise_bp"):
-        assert by_name[name]["nullable"] is False
-        assert by_name[name]["default"] is not None
+        # Volumes and excise are nullable like every other figure of the copies:
+        # "not filled" must be distinguishable from a measured zero.
+        assert by_name[name]["nullable"] is True
+        assert by_name[name]["default"] is None
     fks = await connection.run_sync(
         lambda sync: inspect(sync).get_foreign_keys("kppk_realization_plan", schema=TEST_SCHEMA)
     )
@@ -114,7 +117,26 @@ async def test_seed_recopies_sources_after_application_tables_were_deleted(db_se
             ).bindparams(product="Test product")
         )
     ).one()
-    assert tuple(row) == (0, 0, 0)
+    assert tuple(row) == (None, None, None)  # NULLs of the source stay NULL
+    # The fix exists because the copies used to coerce those NULLs to 0, which
+    # invented figures on every re-seed; a real value is still copied verbatim.
+    await connection.execute(
+        text(
+            f'UPDATE "{source_schema}".kppk_f_realization SET fact = 12.5, excise_fact = 3 '  # noqa: S608 — test schema
+            "WHERE product = 'Test product'"
+        )
+    )
+    await connection.execute(text(f'DELETE FROM "{TEST_SCHEMA}".kppk_realization'))  # noqa: S608 ? test schema
+    await seed_kppk.seed(db_session)
+    row = (
+        await connection.execute(
+            text(
+                f'SELECT fact, excise_fact, buyout_fact FROM "{TEST_SCHEMA}".kppk_realization '  # noqa: S608 — test schema
+                "WHERE product = :product AND region = 'RU'"
+            ).bindparams(product="Test product")
+        )
+    ).one()
+    assert tuple(row) == (Decimal("12.5"), Decimal(3), None)
     # The seed is idempotent as a whole: a second run copies nothing and adds
     # no period rows either (the generator only fills what is missing).
     assert (await seed_kppk.seed(db_session))["copy_tables_created"] == 0

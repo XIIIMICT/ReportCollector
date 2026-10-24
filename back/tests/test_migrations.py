@@ -176,7 +176,7 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         assert {table: after[table] for table in all_business_data} == all_business_data
         assert (
             await conn.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalar_one() == "0022_reference_payload_to_deleted_at"
+        ).scalar_one() == "0023_kppk_nullable_volume_excise"
         assert (await conn.execute(text("SELECT id, col_011 FROM r_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
         assert (
@@ -373,7 +373,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) ->
             await conn.run_sync(upgrade)
             assert (
                 await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "0022_reference_payload_to_deleted_at"
+            ).scalar_one() == "0023_kppk_nullable_volume_excise"
         assert all(not path.exists() for path in stale)
     finally:
         for path in stale:
@@ -403,7 +403,7 @@ async def test_reference_columns_drop_and_roundtrip(db_session, test_engine) -> 
         await conn.run_sync(lambda _: command.downgrade(config, "0018_kppk_excise_on_position"))
         before = (await conn.execute(text("SELECT catalog::text, label FROM r_reference_values ORDER BY label"))).all()
         assert before
-        await conn.run_sync(lambda _: command.upgrade(config, "0022_reference_payload_to_deleted_at"))
+        await conn.run_sync(lambda _: command.upgrade(config, "0023_kppk_nullable_volume_excise"))
         live = await conn.run_sync(columns)
         assert "sort_order" not in live
         assert "value_key" not in live

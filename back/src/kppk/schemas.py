@@ -233,19 +233,19 @@ class KppkRealizationRowRead(BaseModel):
     fcaPriceBpPlan: float | None = None
     monthBpPlan: float | None = None
     fcaPriceMarketBpPlan: float | None = None
-    exciseBp: float = 0
+    exciseBp: float | None = None
     # ── Срез «Оперплан» (`_max_plan` columns) ──
     buyoutMaxPlan: float | None = None
     fcaPriceMaxPlan: float | None = None
     monthMaxPlan: float | None = None
     fcaPriceMarketMaxPlan: float | None = None
-    exciseMaxPlan: float = 0
+    exciseMaxPlan: float | None = None
     # ── Срез «Факт» (kppk_realization) ──
     buyoutFact: float | None = None
     fcaPriceFact: float | None = None
     fact: float | None = None
     fcaPriceMarketFact: float | None = None
-    exciseFact: float = 0
+    exciseFact: float | None = None
 
 
 class KppkRealizationViewRead(BaseModel):

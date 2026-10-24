@@ -5,7 +5,7 @@ ReportCollector exists so that a business user can FILL these forms, not only
 read what the source dumps happened to contain. A period that nobody has loaded
 yet therefore must still show the grid: one row per (ДЗО × продукт из матрицы ×
 рынок) for «Реализация», and one row per (ДЗО × продукт) for «Себестоимость»,
-every numeric cell at zero.
+every numeric cell left empty (NULL — the form shows it as unfilled).
 
 Scope: every calendar month from January of the CURRENT year through December
 of the NEXT one. Existing rows are never touched — only combinations that are

@@ -142,15 +142,16 @@ class KppkRealization(SQLModel, table=True):
 
     # «Выкуп / Объем» of the «Факт» slice (the template's column slot before
     # fca_price_fact) — a program-side addition, NULL on the source dumps.
-    buyout_fact: Decimal = Field(
-        default=Decimal(0), sa_column=Column(Numeric(20, 3), nullable=False, server_default="0")
-    )
+    # Volume and excise are NULLABLE like every other figure of the copies: an
+    # empty cell is "not filled", never a measured zero. A 0 default would
+    # report a phantom "0" in the form and in the export the user never typed.
+    buyout_fact: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     month_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     month_part_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     fca_price_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     var_exp_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     export_duty_proc: Decimal | None = Field(default=None, sa_column=Column(Numeric(10, 3), nullable=True))
-    fact: Decimal = Field(default=Decimal(0), sa_column=Column(Numeric(20, 3), nullable=False, server_default="0"))
+    fact: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     fca_price_fact: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     var_exp_fact: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     stock: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
@@ -158,9 +159,7 @@ class KppkRealization(SQLModel, table=True):
     export_duty_fact: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     export_duty_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     excise_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
-    excise_fact: Decimal = Field(
-        default=Decimal(0), sa_column=Column(Numeric(20, 2), nullable=False, server_default="0")
-    )
+    excise_fact: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     full_cost_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     full_cost_fact: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     input_cost_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
@@ -191,18 +190,11 @@ class KppkRealizationPlan(SQLModel, table=True):
 
     # «Выкуп / Объем» of the plan slices (the template's column slot before
     # fca_price_*_plan) — a program-side addition, NULL on the source dumps.
-    buyout_bp_plan: Decimal = Field(
-        default=Decimal(0), sa_column=Column(Numeric(20, 3), nullable=False, server_default="0")
-    )
-    buyout_max_plan: Decimal = Field(
-        default=Decimal(0), sa_column=Column(Numeric(20, 3), nullable=False, server_default="0")
-    )
-    month_bp_plan: Decimal = Field(
-        default=Decimal(0), sa_column=Column(Numeric(20, 3), nullable=False, server_default="0")
-    )
-    month_max_plan: Decimal = Field(
-        default=Decimal(0), sa_column=Column(Numeric(20, 3), nullable=False, server_default="0")
-    )
+    # NULLABLE with no default, like every other figure of the copies.
+    buyout_bp_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
+    buyout_max_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
+    month_bp_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
+    month_max_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     month_opt_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     fca_price_bp_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     fca_price_max_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
@@ -212,10 +204,8 @@ class KppkRealizationPlan(SQLModel, table=True):
     export_duty_bp: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     export_duty_max_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     export_duty_opt_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
-    excise_bp: Decimal = Field(default=Decimal(0), sa_column=Column(Numeric(20, 2), nullable=False, server_default="0"))
-    excise_max_plan: Decimal = Field(
-        default=Decimal(0), sa_column=Column(Numeric(20, 2), nullable=False, server_default="0")
-    )
+    excise_bp: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
+    excise_max_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     excise_opt_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     input_cost_bp: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     input_cost_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))

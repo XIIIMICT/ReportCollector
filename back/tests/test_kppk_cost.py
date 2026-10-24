@@ -128,7 +128,8 @@ async def test_cost_api_number_order_scope_edit_undo_and_export(client: AsyncCli
     assert response.json()["rows"] == []
 
 
-async def test_calendar_schema_and_zero_numeric_cells(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_calendar_schema_and_empty_numeric_cells_stay_null(client: AsyncClient, db_session: AsyncSession) -> None:
+    """A cleared volume/excise is NULL, not a measured 0 (they used to be NOT NULL)."""
     connection = await db_session.connection()
     assert (await connection.execute(text("SELECT to_regclass(current_schema() || '.kppk_periods')"))).scalar() is None
     row = (await db_session.exec(select(KppkRealization))).first()
@@ -140,7 +141,19 @@ async def test_calendar_schema_and_zero_numeric_cells(client: AsyncClient, db_se
             json={"field": field, "value": None},
         )
         assert response.status_code == 200, response.text
-        assert response.json()["row"][field] == 0
+        assert response.json()["row"][field] is None
+    # The same rule on the plan slices (excise is nullable there too); each
+    # slice owns its own excise column.
+    plan_row = (await db_session.exec(select(KppkRealizationPlan))).first()
+    assert plan_row is not None
+    for slice_id, field in (("bp", "exciseBp"), ("bp", "monthBpPlan"), ("op", "exciseMaxPlan")):
+        response = await client.patch(
+            f"/api/kppk/realization/{plan_row.id}?slice={slice_id}&session_id=zero",
+            headers=HEADERS,
+            json={"field": field, "value": None},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["row"][field] is None
     response = await client.get(
         "/api/kppk/realization",
         headers=HEADERS,
