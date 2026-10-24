@@ -47,11 +47,24 @@ import {
 import { extractEdits, parseNumericText } from "./grid-edit";
 import { MultiAssetEditor, ReferenceEditor, SelectEditor } from "./grid-editors";
 import { parsePastedText, serializeCellValue } from "./index";
+import {
+    readScrollPosition,
+    scrollScopeKey,
+    writeScrollPosition,
+} from "./scroll-position";
 import { isChunkedSection } from "./section-policy";
 import { describeSelection } from "./selection-label";
 
 /** The pinned summary row's id (revo-grid `pinnedTopSource`) — never a real record. */
 export const SUMMARY_ROW_ID = "__summary__";
+
+/** Which form a remembered position belongs to, and in which scope. */
+export type ScrollPositionKey = {
+    /** Stable form key: project + section + variant (e.g. `renovation:plan`). */
+    form: string;
+    /** Filters/sorting/version the position was taken in. */
+    scope?: unknown;
+};
 
 /**
  * Stable empty pinned strip. The `pinnedTopSource` prop must ALWAYS be assigned
@@ -125,6 +138,14 @@ type Props = {
     sortable?: boolean;
     /** Distinguishes width/sorting persistence when several grids share a section id. */
     namespace?: string;
+    /**
+     * Remember the row the user left and reopen the form there. The KEY names
+     * the form (project + section), the value is the scope the position belongs
+     * to — filters, sorting, version — so a position is only reused inside the
+     * scope it was taken in. Omit it and the form keeps no position (it opens
+     * at its own default, e.g. the renovation plan at the tail).
+     */
+    scrollPosition?: ScrollPositionKey | undefined;
     /**
      * RevoGrid pro plugins (trial build) — the «Реализация» form passes
      * CellMergePlugin for its merged product cells.
@@ -288,6 +309,7 @@ function RawMaterialsGridInner(
         onClipboardStateChange,
         onSelectionChange,
         remoteCellInfo = new Map(),
+        scrollPosition,
     }: Props,
     forwardedRef: Ref<RawMaterialsGridHandle>,
 ) {
@@ -333,12 +355,21 @@ function RawMaterialsGridInner(
     // a dependency change to rebuild with default sizes.
     const [widthsVersion, setWidthsVersion] = useState(0);
     const widthKeySection = namespace ?? section;
+    // The form whose position is remembered; both parts are per scope.
+    const scrollFormKey = scrollPosition?.form ?? null;
+    const scrollScope = scrollScopeKey(scrollPosition?.scope);
     const sortingBySectionRef = useRef(new Map<SectionId, GridSortingConfig>());
     const userSortedSectionsRef = useRef(new Set<SectionId>());
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const selectedRowIdSet = useMemo(() => new Set(selectedRowIds), [selectedRowIds]);
     const rowSelectionAnchorRef = useRef<number | null>(null);
     const rowValuesRef = useRef<Map<string, Readonly<Record<string, unknown>>>>(new Map());
+    /** Set once the remembered row of this scope has been restored (or given up on). */
+    const scrollRestoredRef = useRef(false);
+    /** The scope the flags above belong to, so a form switch re-arms them. */
+    const lastScrollScopeRef = useRef<string | null>(null);
+    /** A restore is travelling: its transient scroll positions must not be saved. */
+    const scrollRestoringRef = useRef(false);
     const activeLeaseRef = useRef<string | null>(null);
     const [selectionRange, setSelectionRange] = useState<RangeArea | null>(null);
     const [canPaste, setCanPaste] = useState(false);
@@ -353,6 +384,140 @@ function RawMaterialsGridInner(
     useEffect(() => {
         rowValuesRef.current = new Map(rows.map((row) => [row.id, { ...row }]));
     }, [rows]);
+
+    // ── Remembered position ────────────────────────────────────────────────
+    // A form opens where the user left it. The stored value is the row ID, so
+    // the restore looks it up in the list that is on screen NOW — a row that was
+    // deleted (or hidden by a filter) simply leaves the form at its default
+    // instead of silently landing on somebody else's record.
+    useEffect(() => {
+        // A different form or scope is a different position: forget the old one.
+        scrollRestoredRef.current = false;
+        scrollRestoringRef.current = false;
+    }, [scrollFormKey, scrollScope]);
+
+    useEffect(() => {
+        if (scrollFormKey === null) return;
+        if (typeof window === "undefined") return;
+        // A form switch is a different position: re-arm for the new scope.
+        if (lastScrollScopeRef.current !== `${scrollFormKey}\u0000${scrollScope}`) {
+            lastScrollScopeRef.current = `${scrollFormKey}\u0000${scrollScope}`;
+            scrollRestoredRef.current = false;
+            scrollRestoringRef.current = false;
+        }
+        if (scrollRestoredRef.current) return;
+        const grid = gridRef.current;
+        if (!grid) return;
+        const realRows = rows.filter((row) => !row.isPlaceholder && !row.isDeleted);
+        if (realRows.length === 0) return;
+        const stored = readScrollPosition(scrollFormKey, scrollScope);
+        if (!stored) {
+            // Nothing remembered: the form keeps its own default (the top).
+            scrollRestoredRef.current = true;
+            return;
+        }
+        const index = realRows.findIndex((row) => row.id === stored.rowId);
+        // Give up after a bounded wait: the row may be filtered out for good, and
+        // a form must never sit waiting for a position that cannot arrive.
+        scrollRestoredRef.current = true;
+        if (index <= 0) return;
+        scrollRestoringRef.current = true;
+        let attempts = 0;
+        const attempt = () => {
+            const current = gridRef.current;
+            if (!current || attempts >= 20) {
+                scrollRestoringRef.current = false;
+                return;
+            }
+            attempts += 1;
+            // A grid that has not laid itself out cannot scroll: wait for height.
+            if (current.clientHeight < rowHeight * 3) {
+                window.setTimeout(attempt, 80);
+                return;
+            }
+            void (async () => {
+                try {
+                    await current.scrollToRow(index);
+                } catch {
+                    // Not upgraded yet — retried below.
+                }
+                window.setTimeout(() => {
+                    const settled = gridRef.current;
+                    const scroller = settled?.querySelector(
+                        "revogr-scroll-virtual.vertical",
+                    ) as HTMLElement | null;
+                    if (!settled || attempts >= 20) {
+                        scrollRestoringRef.current = false;
+                        return;
+                    }
+                    if (Math.abs((scroller?.scrollTop ?? 0) - index * rowHeight) <= rowHeight * 2) {
+                        scrollRestoringRef.current = false;
+                        return;
+                    }
+                    attempt();
+                }, 120);
+            })();
+        };
+        attempt();
+    }, [rows, rowHeight, scrollFormKey, scrollScope]);
+
+    const rememberScrollPosition = useCallback(() => {
+        if (scrollFormKey === null) return;
+        const grid = gridRef.current;
+        if (!grid) return;
+        if (!scrollRestoredRef.current || scrollRestoringRef.current) return;
+        void (async () => {
+            try {
+                const [visible, scroller] = await Promise.all([
+                    grid.getVisibleSource("rgRow"),
+                    Promise.resolve(
+                        grid.querySelector("revogr-scroll-virtual.vertical") as HTMLElement | null,
+                    ),
+                ]);
+                const top = scroller?.scrollTop ?? 0;
+                const index = Math.max(0, Math.round(top / rowHeight));
+                const row = (visible as GridRow[])[index];
+                // A placeholder slot (the «＋» add-row) is not a record: keep the
+                // last real position instead of forgetting the form.
+                if (!row || row.isPlaceholder || row.isDeleted) return;
+                writeScrollPosition(scrollFormKey, { rowId: row.id, scope: scrollScope });
+            } catch {
+                // Grid disposed mid-read — the next scroll saves instead.
+            }
+        })();
+    }, [rowHeight, scrollFormKey, scrollScope]);
+
+    /** Debounced save: a scroll fires dozens of events, one write is enough. */
+    const scrollRememberTimerRef = useRef<number | undefined>(undefined);
+    const scheduleScrollRemember = useCallback(() => {
+        if (scrollFormKey === null) return;
+        if (scrollRememberTimerRef.current !== undefined) {
+            window.clearTimeout(scrollRememberTimerRef.current);
+        }
+        scrollRememberTimerRef.current = window.setTimeout(() => {
+            scrollRememberTimerRef.current = undefined;
+            rememberScrollPosition();
+        }, 250);
+    }, [rememberScrollPosition, scrollFormKey]);
+
+    useEffect(
+        () => () => {
+            if (scrollRememberTimerRef.current !== undefined) {
+                window.clearTimeout(scrollRememberTimerRef.current);
+            }
+        },
+        [],
+    );
+
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid || scrollFormKey === null) return;
+        const onScroll = () => scheduleScrollRemember();
+        grid.addEventListener("scrollchange", onScroll);
+        return () => {
+            grid.removeEventListener("scrollchange", onScroll);
+        };
+    }, [scheduleScrollRemember, scrollFormKey]);
 
     const sorting =
         sortingBySectionRef.current.get(section) ??
@@ -1890,6 +2055,8 @@ function RawMaterialsGridInner(
                                     scrollbar.scrollLeft = event.detail.coordinate;
                                 }
                             }
+                        } else {
+                            scheduleScrollRemember();
                         }
                         void measureViewport();
                     }}

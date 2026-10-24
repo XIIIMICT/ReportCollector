@@ -761,6 +761,7 @@ export function RenovationDictionarySection({
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}
                 rowHeight={rowHeight}
+                scrollPosition={{ form: `renovation:${dictSection}` }}
                 pinnedTopSource={pinnedTopSource}
                 assets={assetOptions}
                 deliveryBases={deliveryBasisOptions}

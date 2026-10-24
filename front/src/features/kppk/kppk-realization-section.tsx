@@ -656,6 +656,7 @@ export function KppkRealizationSection({
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}
                 rowHeight={rowHeight}
+                scrollPosition={{ form: `kppk:${roomSection}` }}
                 columnDescriptors={visibleDescriptors}
                 // Merge only in the original product/market order. Keep the
                 // plugin mounted: replacing it would rebuild sorting too.
