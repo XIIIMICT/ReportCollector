@@ -38,6 +38,7 @@ import {
     type GridViewStats,
     type RawMaterialsGridHandle,
 } from "@/shared/grid/raw-materials-grid";
+import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { DeleteRecordDialog } from "@/shared/ui/action-items";
 import {
@@ -694,12 +695,22 @@ export function RenovationDictionarySection({
         onExportState({ pending: exportPending, onExport: (scope) => void exportTable(scope) });
     }, [exportPending, exportTable, onExportState]);
 
+    // Header column filters (client-side, shared with every table). ?????????
+    // ??? ??????? ? ??????????? must clear them like it clears RevoGrid's own.
+    const {
+        filters: columnFilters,
+        setFilters: setColumnFilters,
+        clearFilters,
+    } = useGridColumnFilters();
     useEffect(() => {
         onResetState({
             resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
-            resetFiltersSorting: () => void gridRef.current?.resetFiltersSorting(),
+            resetFiltersSorting: () => {
+                clearFilters();
+                void gridRef.current?.resetFiltersSorting();
+            },
         });
-    }, [onResetState]);
+    }, [clearFilters, onResetState]);
 
     // The users dictionary creates records through the modal, so the button is
     // delegated up like delete/export (stable identity — it feeds a footer
@@ -799,6 +810,8 @@ export function RenovationDictionarySection({
                 onSelectionChange={({ label }) =>
                     onSelectionLabelChange?.(label && label.length > 0 ? label : null)
                 }
+                filters={columnFilters}
+                onFiltersChange={setColumnFilters}
             />
             <DeleteRecordDialog
                 isOpen={deleteOpen}

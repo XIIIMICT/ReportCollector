@@ -28,16 +28,26 @@ import {
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import { reactEditor } from "@/shared/grid/react-editor";
 import { isFromTextEditor } from "@/shared/keyboard";
+import {
+    computeRowFacets,
+    facetWindow,
+    rowMatchesFilters,
+    withFilterMarkers,
+    type ColumnFilter,
+} from "@/shared/ui/column-filter-facets";
+import { ColumnFilterPopover, type FacetSource } from "@/shared/ui/column-filter-popover";
 import { hasOpenModal } from "@/shared/ui/modal-presence";
+import { RowGoToFilter } from "@/shared/ui/row-go-to-filter";
 import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
 
 import {
     buildGridColumns,
     exportColumnsFromGrid,
+    facetTextOf,
     getEditableKeys,
     getVisibleDescriptors,
+    markFilterableColumns,
     placeholderLastCellCompare,
-    RUSSIAN_FILTER_CONFIG,
     type ColumnDescriptor,
     type ExportColumn,
     type GridRow,
@@ -191,7 +201,37 @@ type Props = {
     }) => void;
     /** Keys of cells where other members are (highlight + tooltip). */
     remoteCellInfo?: ReadonlyMap<string, { name: string; label: string | null }>;
-};
+    /**
+     * The ??? corner's funnel was pressed (anchor = its rect). The owner opens
+     * `RowGoToFilter` ? the shared component ? with its own totals.
+     */
+    onOpenGoTo?: (anchor: DOMRect) => void;
+} & ClientColumnFilterOptions;
+
+/**
+ * What the grid needs to own its header filters client-side.
+ *
+ * Every column filter in the app is the same popover (see
+ * `shared/ui/column-filter-popover.tsx`); what differs is where the options
+ * come from. A client grid holds its rows in memory, so the WORKSPACE hands in
+ * the visible rows and the grid computes the facets itself
+ * (`computeRowFacets`) — no round trip, no server-side filter plumbing.
+ *
+ * `empty` when omitted: the grid then draws no funnels at all (an archived,
+ * read-only view can pass nothing).
+ */
+type ClientColumnFilterOptions =
+    | {
+          /** Active filters keyed by column prop; the grid shows the active funnel. */
+          filters: Record<string, ColumnFilter>;
+          /** Commit the whole filter map (an empty map clears every column). */
+          onFiltersChange: (filters: Record<string, ColumnFilter>) => void;
+      }
+    | {
+          filters?: undefined;
+          onFiltersChange?: undefined;
+      }
+    | undefined;
 
 /** Debounce for sending a completed selection to presence (after release). */
 const PRESENCE_DEBOUNCE_MS = 400;
@@ -313,6 +353,8 @@ function RawMaterialsGridInner(
         onClipboardStateChange,
         onSelectionChange,
         remoteCellInfo = EMPTY_CELL_INFO,
+        filters: columnFilters,
+        onFiltersChange,
         scrollPosition,
     }: Props,
     forwardedRef: Ref<RawMaterialsGridHandle>,
@@ -552,6 +594,119 @@ function RawMaterialsGridInner(
         [descriptors],
     );
 
+    // ── Header column filters (client-side) ────────────────────────────────
+    // Every table uses the SAME popover (`ColumnFilterPopover`); here the
+    // facets are computed from the rows already in memory instead of being
+    // fetched. The grid only owns the plumbing: which column is open, where
+    // its funnel is, and the filtered source the grid renders.
+    const filteringEnabled = columnFilters !== undefined && onFiltersChange !== undefined;
+    // The «№» corner's go-to popover (shared component, own numbering). The
+    // row-header template reaches the opener through a ref: the row headers are
+    // built once, and a setter in their dependency list would rebuild them on
+    // every render.
+    const [goToTarget, setGoToTarget] = useState<DOMRect | null>(null);
+    const openGoToRef = useRef<((anchor: DOMRect) => void) | null>(null);
+    openGoToRef.current = setGoToTarget;
+    const visibleRowCountRef = useRef(0);
+    const [filterTarget, setFilterTarget] = useState<{
+        column: string;
+        label: string;
+        anchor: DOMRect;
+    } | null>(null);
+
+    const activeFilters = useMemo(
+        () => (filteringEnabled ? Object.values(columnFilters) : []),
+        [columnFilters, filteringEnabled],
+    );
+    // A ref mirror for the filter plugins/columns built ONCE: they must read the
+    // live filters without being rebuilt on every keystroke of the popover.
+    const activeFiltersRef = useRef<ColumnFilter[]>(activeFilters);
+    activeFiltersRef.current = activeFilters;
+    const facetTextRef = useRef<(column: string, row: Record<string, unknown>) => unknown>(
+        () => undefined,
+    );
+
+    /** The text a column is filtered by — exactly what its cell renders. */
+    const facetText = useCallback(
+        (column: string, row: Record<string, unknown>) =>
+            facetTextOf(descriptorByKey.get(column), row),
+        [descriptorByKey],
+    );
+    facetTextRef.current = facetText;
+
+    /**
+     * A `FacetSource` over the rows visible under the OTHER filters: a column's
+     * option list must not collapse to what its own filter already kept, or the
+     * user could never bring a value back. Same rule the plan applies
+     * server-side (its facets are counted over the panel filters, never over the
+     * header filters themselves).
+     */
+    const facetSourceFor = useCallback(
+        (column: string): FacetSource => {
+            const others = activeFilters.filter((filter) => filter.column !== column);
+            const source =
+                others.length === 0
+                    ? rows
+                    : rows.filter(
+                          (row) => row.isPlaceholder || rowMatchesFilters(row, others, facetText),
+                      );
+            const facets = computeRowFacets(source, (row) => facetText(column, row));
+            return async (_column, { offset, limit }) => facetWindow(facets, offset, limit);
+        },
+        [activeFilters, facetText, rows],
+    );
+
+    /**
+     * The rows RevoGrid renders: the workspace source narrowed by the active
+     * filters. `isPlaceholder` (the «＋» row) always survives — it is the way to
+     * add a record and must not vanish because of a filter.
+     */
+    const visibleRows = useMemo(() => {
+        if (!filteringEnabled || activeFilters.length === 0) return rows;
+        return rows.filter(
+            (row) => row.isPlaceholder || rowMatchesFilters(row, activeFilters, facetText),
+        );
+    }, [activeFilters, facetText, filteringEnabled, rows]);
+
+    /** Scroll to a 1-based position in the rows the grid currently shows. */
+    const scrollToRowPosition = useCallback(async (position: number) => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        await grid.scrollToRow(position - 1);
+    }, []);
+
+    useEffect(() => {
+        visibleRowCountRef.current = 0;
+    }, [visibleRows]);
+
+    const applyColumnFilter = useCallback(
+        (column: string, filter: ColumnFilter | null) => {
+            if (!filteringEnabled) return;
+            const next = { ...columnFilters };
+            if (filter === null) delete next[column];
+            else next[column] = filter;
+            onFiltersChange(next);
+        },
+        [columnFilters, filteringEnabled, onFiltersChange],
+    );
+
+    // The active state of a column funnel is a RevoGrid column flag, and
+    // `updateColumns` is the public way to change a column after render.
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        void (async () => {
+            const current = (await grid.getColumns()) as (ColumnRegular | ColumnGrouping)[];
+            const leaves = current.flatMap((column) =>
+                (column as ColumnGrouping).children?.length
+                    ? ((column as ColumnGrouping).children as ColumnRegular[])
+                    : [column as ColumnRegular],
+            );
+            const changed = withFilterMarkers(leaves, columnFilters ?? {});
+            if (changed.length > 0) await grid.updateColumns(changed);
+        })();
+    }, [columnFilters]);
+
     const editableKeys = useMemo(
         () =>
             getEditableKeys(section, isAdmin, showAssetColumn, keycloakEnabled, columnDescriptors),
@@ -659,6 +814,14 @@ function RawMaterialsGridInner(
                 }
             }
         }
+        // Every leaf gets RevoGrid's own `.rv-filter` funnel so the header
+        // affordance is the one users already know; the filter itself is OURS
+        // (the popover reads the grid, not RevoGrid's panel).
+        // RevoGrid draws its own header (the plan replaces it with an overlay),
+        // so the funnels come through its API: `columnTemplate` makes the grid
+        // render a `.rv-filter` button. Ours is what the click opens — the click
+        // is intercepted in the capture phase below.
+        markFilterableColumns(next, descriptors);
         restoreColumnWidths(next, resizedWidthsRef.current, widthKeySection);
         return next;
     }, [
@@ -961,6 +1124,8 @@ function RawMaterialsGridInner(
                 if (row.id === SUMMARY_ROW_ID) {
                     return h("span", { class: "report-row-header__summary" });
                 }
+                // The go-to popover clamps to the running row number.
+                if (!row.isPlaceholder) visibleRowCountRef.current = rowIndex + 1;
                 const selected = selectedRowIds.includes(row.id);
                 // The trailing «добавить запись» row shows «+» instead of a
                 // number — same as the renovation plan grid.
@@ -992,6 +1157,36 @@ function RawMaterialsGridInner(
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [selectedRowIds, handleRowNumberClick],
     );
+
+    // RevoGrid draws its own header (the plan replaces it with an overlay), so
+    // the filter funnels have to come through the grid's API: `columnTemplate`
+    // is what makes RevoGrid render a `.rv-filter` button, and the grid's
+    // `.hasFilter` prop paints it as active. Both are re-applied whenever the
+    // active filter set changes — `updateColumns` is the public way to change a
+    // column after render.
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        void (async () => {
+            const current = (await grid.getColumns()) as (ColumnRegular | ColumnGrouping)[];
+            const changed: ColumnRegular[] = [];
+            const walk = (column: ColumnRegular | ColumnGrouping) => {
+                const leaves = (column as ColumnGrouping).children?.length
+                    ? ((column as ColumnGrouping).children as ColumnRegular[])
+                    : [column as ColumnRegular];
+                for (const leaf of leaves) {
+                    if (!descriptorByKey.has(String(leaf.prop))) continue;
+                    if (descriptorByKey.get(String(leaf.prop))?.kind === "calculated") continue;
+                    const active = columnFilters?.[String(leaf.prop)] !== undefined;
+                    if (Boolean(leaf.hasFilter) === active) continue;
+                    leaf.hasFilter = active;
+                    changed.push(leaf);
+                }
+            };
+            for (const column of current) walk(column);
+            if (changed.length > 0) await grid.updateColumns(changed);
+        })();
+    }, [columnFilters, descriptorByKey]);
 
     useEffect(() => {
         onSelectedRowsChange({
@@ -1799,8 +1994,25 @@ function RawMaterialsGridInner(
                 .detail?.originalEvent;
             const target = originalEvent?.target as Element | null;
             if (!target) return;
-            const hit = target.classList?.contains("rv-filter") || target.closest?.(".rv-filter");
-            if (hit) event.preventDefault();
+            const funnel = target.closest?.(".rv-filter") ?? null;
+            const hit = target.classList?.contains("rv-filter") || funnel;
+            if (!hit) return;
+            event.preventDefault();
+            // Our own popover, not RevoGrid's condition panel. `prop` is the
+            // leaf column's key; the label comes from the descriptor so the
+            // popover's aria text matches the header the user clicked.
+            if (!filteringEnabled) return;
+            originalEvent?.preventDefault();
+            originalEvent?.stopPropagation();
+            const headerCell = (funnel as Element | null)?.closest?.("[data-prop]");
+            const column = headerCell?.getAttribute("data-prop");
+            if (!column) return;
+            const rect = (headerCell as HTMLElement).getBoundingClientRect();
+            setFilterTarget({
+                column,
+                label: descriptorByKey.get(column)?.label ?? column,
+                anchor: rect,
+            });
         };
         const handleCancelEdit = () => {
             if (!activeLeaseRef.current) return;
@@ -1823,7 +2035,15 @@ function RawMaterialsGridInner(
             grid.removeEventListener("canceledit", handleCancelEdit);
             grid.removeEventListener("beforeheaderclick", handleBeforeHeaderClickCapture, true);
         };
-    }, [copySelection, onReleaseLease, pasteIntoSelection, updateSelectionRange, measureViewport]);
+    }, [
+        copySelection,
+        descriptorByKey,
+        filteringEnabled,
+        onReleaseLease,
+        pasteIntoSelection,
+        updateSelectionRange,
+        measureViewport,
+    ]);
     useImperativeHandle(
         forwardedRef,
         () => ({
@@ -2012,7 +2232,7 @@ function RawMaterialsGridInner(
                         .filter(Boolean)
                         .join(" ")}
                     columns={columns}
-                    source={rows}
+                    source={visibleRows}
                     pinnedTopSource={pinnedTopSource ?? EMPTY_PINNED_SOURCE}
                     plugins={plugins ?? EMPTY_PLUGIN_LIST}
                     theme="compact"
@@ -2021,7 +2241,6 @@ function RawMaterialsGridInner(
                     resize
                     rowHeaders={rowHeaders}
                     editors={editors}
-                    filter={RUSSIAN_FILTER_CONFIG}
                     {...(sorting ? { sorting } : {})}
                     hideAttribution
                     readonly={readOnly}
@@ -2120,6 +2339,30 @@ function RawMaterialsGridInner(
             >
                 <div style={{ width: horizontalContentWidth }} />
             </div>
+            {goToTarget ? (
+                <RowGoToFilter
+                    anchor={goToTarget}
+                    total={Math.max(1, visibleRowCountRef.current)}
+                    maxColumn={flatColumns.length}
+                    onGoTo={(position) => void scrollToRowPosition(position)}
+                    onGoToColumn={(number) => void gridRef.current?.scrollToColumnIndex(number - 1)}
+                    onClose={() => setGoToTarget(null)}
+                />
+            ) : null}
+            {filterTarget ? (
+                <ColumnFilterPopover
+                    column={filterTarget.column}
+                    columnLabel={filterTarget.label}
+                    anchor={filterTarget.anchor}
+                    facets={facetSourceFor(filterTarget.column)}
+                    initial={columnFilters?.[filterTarget.column] ?? null}
+                    // «По умолчанию» is the same state «Сбросить все фильтры
+                    // и сортировки» restores: no constraint on this column.
+                    defaultFilter={null}
+                    onApply={(filter) => applyColumnFilter(filterTarget.column, filter)}
+                    onClose={() => setFilterTarget(null)}
+                />
+            ) : null}
         </div>
     );
 }

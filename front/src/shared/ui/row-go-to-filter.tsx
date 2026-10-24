@@ -25,10 +25,32 @@ import { ExpandableButtonGroup } from "@/shared/ui/expandable-button-group";
  * react-aria's NumberField only commits typed text on blur/Enter, so closing
  * the popover right after typing would otherwise lose the number.
  */
+/**
+ * «Перейти к строке/столбцу» — the popover under a table's «№» corner.
+ *
+ * Shared by every table (the renovation plan and each project's grids): it
+ * knows nothing about a project, only about two numbers and two callbacks, so
+ * any grid that can count its rows and scroll can host it.
+ *
+ * Two NumberFields: the row's SEQUENTIAL number in the current (filtered)
+ * scope (1-based, clamped to [1, total]) and the column's number (1-based; the
+ * plan keeps it a FIXED strip number — the workbook ordinal — while a client
+ * grid numbers its visible columns). The grid owns the resolution: a number
+ * beyond the last visible column lands on the nearest one.
+ *
+ * The footer commits with «Применить»/Enter; «Отменить», outside press and
+ * Escape close without jumping. An empty field applies no jump for that field.
+ *
+ * Values are read from the inputs on close as well as from `onChange`:
+ * react-aria's NumberField only commits typed text on blur/Enter, so closing
+ * the popover right after typing would otherwise lose the number.
+ */
 export function RowGoToFilter({
     anchor,
     total,
     maxColumn,
+    rowLabel = "Номер строки",
+    columnLabel = "Номер столбца",
     onGoTo,
     onGoToColumn,
     onClose,
@@ -36,8 +58,11 @@ export function RowGoToFilter({
     anchor: DOMRect;
     /** Rows in the current filtered scope (the highest valid number). */
     total: number;
-    /** Highest column number in the current scope (the strip's last number). */
+    /** Highest column number in the current scope. */
     maxColumn: number;
+    /** Field captions — for tables whose rows are not a «строки» list. */
+    rowLabel?: string;
+    columnLabel?: string;
     onGoTo: (position: number) => void;
     onGoToColumn: (number: number) => void;
     onClose: () => void;
@@ -108,7 +133,7 @@ export function RowGoToFilter({
                     <Popover.Dialog>
                         <div className="row-go-to-filter">
                             <div className="row-go-to-filter__field">
-                                <Label className="row-go-to-filter__label">Номер строки</Label>
+                                <Label className="row-go-to-filter__label">{rowLabel}</Label>
                                 <NumberField
                                     value={value}
                                     onChange={setValue}
@@ -116,7 +141,7 @@ export function RowGoToFilter({
                                     minValue={1}
                                     maxValue={Math.max(1, total)}
                                     variant="secondary"
-                                    aria-label="Номер строки"
+                                    aria-label={rowLabel}
                                 >
                                     <NumberField.Group>
                                         <NumberField.Input
@@ -128,14 +153,14 @@ export function RowGoToFilter({
                                 </NumberField>
                             </div>
                             <div className="row-go-to-filter__field">
-                                <Label className="row-go-to-filter__label">Номер столбца</Label>
+                                <Label className="row-go-to-filter__label">{columnLabel}</Label>
                                 <NumberField
                                     value={column}
                                     onChange={setColumn}
                                     formatOptions={{ useGrouping: false }}
                                     minValue={1}
                                     variant="secondary"
-                                    aria-label="Номер столбца"
+                                    aria-label={columnLabel}
                                 >
                                     <NumberField.Group>
                                         <NumberField.Input

@@ -75,6 +75,7 @@ import {
     sectionPolicy,
 } from "@/shared/grid/section-policy";
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
+import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useRestoredState } from "@/shared/hooks/use-restored-state";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
@@ -755,12 +756,22 @@ function KppkSection({
         onDeleteState({ canDelete, onDelete: () => setDeleteOpen(true) });
     }, [canDelete, onDeleteState]);
 
+    // Header column filters (client-side, shared with every table). ?????????
+    // ??? ??????? ? ??????????? must clear them like it clears RevoGrid's own.
+    const {
+        filters: columnFilters,
+        setFilters: setColumnFilters,
+        clearFilters,
+    } = useGridColumnFilters();
     useEffect(() => {
         onResetState({
             resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
-            resetFiltersSorting: () => void gridRef.current?.resetFiltersSorting(),
+            resetFiltersSorting: () => {
+                clearFilters();
+                void gridRef.current?.resetFiltersSorting();
+            },
         });
-    }, [onResetState]);
+    }, [clearFilters, onResetState]);
 
     const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
 
@@ -948,6 +959,8 @@ function KppkSection({
                         onClipboardStateChange={handleClipboardState}
                         onSelectionChange={handleSelectionChange}
                         {...(columnDescriptors && { columnDescriptors })}
+                        filters={columnFilters}
+                        onFiltersChange={setColumnFilters}
                         plugins={cellMerge.length > 0 ? [CellMergePlugin] : []}
                         cellMerge={cellMerge}
                         onSortingChange={setSorted}

@@ -87,6 +87,7 @@ import {
     sectionPolicy,
 } from "@/shared/grid/section-policy";
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
+import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { ActionBar as SharedActionBar, type ActionItem } from "@/shared/ui/action-bar";
 import {
@@ -600,12 +601,22 @@ function SectionContent({
         });
     }, [deleteAllowed, deleteBlockedReason, onDeleteState]);
 
+    // Header column filters (client-side, shared with every table). ?????????
+    // ??? ??????? ? ??????????? must clear them like it clears RevoGrid's own.
+    const {
+        filters: columnFilters,
+        setFilters: setColumnFilters,
+        clearFilters,
+    } = useGridColumnFilters();
     useEffect(() => {
         onResetState({
             resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
-            resetFiltersSorting: () => void gridRef.current?.resetFiltersSorting(),
+            resetFiltersSorting: () => {
+                clearFilters();
+                void gridRef.current?.resetFiltersSorting();
+            },
         });
-    }, [onResetState]);
+    }, [clearFilters, onResetState]);
 
     // The users section creates records through the modal, so the action-bar
     // button is delegated up like delete/export (stable identity — it feeds a
@@ -954,7 +965,6 @@ function SectionContent({
         collabEnabled,
         isAdmin,
         isArchive,
-        MAIN_SECTIONS,
         onUndoState,
         redoCount,
         room.status,
@@ -1121,6 +1131,8 @@ function SectionContent({
                         onClipboardStateChange={handleClipboardState}
                         remoteCellInfo={remoteCellInfo}
                         onSelectionChange={handleSelectionChange}
+                        filters={columnFilters}
+                        onFiltersChange={setColumnFilters}
                     />
                 </GridErrorBoundary>
                 {displayRows.length === 0 && !canManageReferences ? (
@@ -1262,7 +1274,8 @@ export function RawMaterialsWorkspace({
     // The report workspace owns the project switcher and drives this component
     // through props; without them the workspace falls back to its own switch.
     const activeProjectKey = controlledProjectKey ?? internalProjectKey;
-    const [metaReloadKey, setMetaReloadKey] = useState(0);    const { data: meta, error } = useAsyncData<RawMaterialsMeta>(
+    const [metaReloadKey, setMetaReloadKey] = useState(0);
+    const { data: meta, error } = useAsyncData<RawMaterialsMeta>(
         () => getRawMaterialsMeta(),
         [metaReloadKey],
     );

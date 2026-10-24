@@ -833,6 +833,64 @@ function renderedDisplayValue(
     return model?.[displayKey];
 }
 
+/**
+ * What a filterable column must treat as one distinct VALUE — the string the
+ * cell renders, not the raw field.
+ *
+ * The header filter's facets are computed from the same text the user reads:
+ * a `displayKey` column (the grouped «ДЗО») offers its short names, a select
+ * column its labels, a checkbox «Да»/«Нет». Without this the filter would offer
+ * raw UUIDs and storage values that appear nowhere on screen.
+ */
+export function facetTextOf(
+    descriptor: ColumnDescriptor | undefined,
+    row: Record<string, unknown>,
+): unknown {
+    if (!descriptor) return undefined;
+    if (descriptor.displayKey) {
+        const display = row[descriptor.displayKey];
+        return display === undefined ? row[descriptor.key] : display;
+    }
+    const value = row[descriptor.key];
+    if (descriptor.kind === "select" && descriptor.options) {
+        const option = descriptor.options.find((candidate) => candidate.value === String(value));
+        // An unknown code stays visible as itself in the cell, so it stays
+        // filterable as itself too.
+        return option ? option.label : value;
+    }
+    return value;
+}
+
+/**
+ * Tell RevoGrid which leaf columns carry the header filter funnel: every leaf
+ * whose prop has a descriptor, minus the ones the grid cannot filter usefully
+ * (a calculated column is a formula, not data).
+ *
+ * `columnTemplate` is where RevoGrid looks for a custom header — with it the
+ * grid draws its own `.rv-filter` button, which then opens OUR popover instead
+ * of RevoGrid's condition panel. It must be an arrow function: it is called as
+ * a method of the header props.
+ */
+export function markFilterableColumns(
+    columns: (ColumnRegular | ColumnGrouping)[],
+    descriptors: readonly ColumnDescriptor[],
+): void {
+    const filterable = new Set(
+        descriptors
+            .filter((descriptor) => descriptor.kind !== "calculated")
+            .map((descriptor) => descriptor.key),
+    );
+    for (const column of columns) {
+        const leaves = (column as ColumnGrouping).children?.length
+            ? ((column as ColumnGrouping).children as ColumnRegular[])
+            : [column as ColumnRegular];
+        for (const leaf of leaves) {
+            if (!filterable.has(String(leaf.prop))) continue;
+            leaf.columnTemplate = (h: HyperFunc<VNode>) => h("span", {});
+        }
+    }
+}
+
 function selectCellTemplate(
     h: HyperFunc<VNode>,
     { value }: { value?: unknown },
@@ -869,38 +927,3 @@ function dateTimeCellTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown 
         }).format(date),
     );
 }
-
-export const RUSSIAN_FILTER_CONFIG = {
-    localization: {
-        filterNames: {
-            none: "Без фильтра",
-            empty: "Пусто",
-            notEmpty: "Не пусто",
-            eq: "Равно",
-            notEq: "Не равно",
-            begins: "Начинается с",
-            contains: "Содержит",
-            notContains: "Не содержит",
-            eqN: "Равно",
-            neqN: "Не равно",
-            gt: "Больше",
-            gte: "Больше или равно",
-            lt: "Меньше",
-            lte: "Меньше или равно",
-        },
-        captions: {
-            title: "Фильтр",
-            save: "Сохранить",
-            reset: "Сбросить",
-            ok: "Применить",
-            cancel: "Отмена",
-            add: "Добавить условие",
-            placeholder: "Значение",
-            and: "И",
-            or: "ИЛИ",
-            filterCondition: "Условие фильтра",
-            removeFilter: "Удалить условие",
-            reorderFilter: "Изменить порядок",
-        },
-    },
-};

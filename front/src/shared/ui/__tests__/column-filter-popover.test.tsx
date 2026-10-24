@@ -1,55 +1,36 @@
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-let facetHandler: (
-    column: string,
-    params?: { offset?: number; limit?: number },
-) => Promise<{
-    column: string;
-    values: { value: string; count: number }[];
-    total: number;
-    rowCount?: number;
-    hasNulls: boolean;
-    nullCount?: number;
-}>;
+import type { ColumnFilter, FacetSource, FacetWindow } from "../column-filter-facets";
 
-mock.module("@/shared/api/renovation", () => ({
-    getRenovationPlanFacets: (column: string, params?: { offset?: number; limit?: number }) => {
-        if (facetHandler) return facetHandler(column, params);
-        if (column === "col_002") {
-            return Promise.resolve({
-                column,
-                // The two-bucket ID filter: no value list, no «Пустые».
-                values: [
-                    { value: "Корректные", count: 10 },
-                    { value: "Некорректные", count: 2 },
-                ],
-                total: 2,
-                hasNulls: false,
-                rowCount: 12,
-            });
-        }
-        return Promise.resolve({
-            column,
-            values: [
-                { value: "Насос", count: 3 },
-                { value: "Шкаф", count: 2 },
-            ],
-            total: 2,
-            hasNulls: true,
-            rowCount: 17,
-        });
-    },
-}));
+/**
+ * The popover is generic: it is handed a `FacetSource` and nothing else — no
+ * project API, no project columns — so the tests drive it through the very seam
+ * every table uses.
+ */
+let facetHandler:
+    | ((column: string, params?: { offset?: number; limit?: number }) => Promise<FacetWindow>)
+    | undefined;
 
-import type { RenovationColumnFilter } from "@/shared/api/renovation";
+const defaultFacets: FacetSource = (column, params) => {
+    if (facetHandler) return facetHandler(column, params);
+    return Promise.resolve({
+        values: [
+            { value: "Насос", count: 3 },
+            { value: "Шкаф", count: 2 },
+        ],
+        total: 2,
+        hasNulls: true,
+        rowCount: 17,
+    });
+};
 
 const { ColumnFilterPopover } = await import("../column-filter-popover");
 
 afterEach(() => {
     cleanup();
-    facetHandler = undefined as never;
+    facetHandler = undefined;
 });
 
 const anchor = { left: 0, top: 0, width: 100 } as DOMRect;
@@ -60,6 +41,7 @@ async function openFilter(column = "col_010", firstLabel = "Насос") {
             column={column}
             columnLabel={column}
             anchor={anchor}
+            facets={defaultFacets}
             initial={null}
             onApply={() => {}}
             onClose={() => {}}
@@ -95,7 +77,7 @@ test("separator follows «Выбрать все» before «Пустые» and th
 
 async function openRecorded(
     initial: { column?: string; values?: string[]; includeNulls?: boolean } | null,
-    defaultFilter: RenovationColumnFilter | null = null,
+    defaultFilter: ColumnFilter | null = null,
 ) {
     const applied: unknown[] = [];
     let closes = 0;
@@ -104,6 +86,7 @@ async function openRecorded(
             column="col_010"
             columnLabel="col_010"
             anchor={anchor}
+            facets={defaultFacets}
             initial={
                 initial && {
                     column: "col_010",
@@ -207,7 +190,6 @@ test.each([undefined, Number.NaN])(
             const offset = params.offset ?? 0;
             requested.push(offset);
             return Promise.resolve({
-                column,
                 values: offset < 2 ? [{ value: offset === 0 ? "Насос" : "Шкаф", count: 2 }] : [],
                 total: 2,
                 hasNulls: true,
@@ -224,9 +206,8 @@ test.each([undefined, Number.NaN])(
 );
 
 test("a valid empty count survives a legacy response on the next page", async () => {
-    facetHandler = (column, params = {}) =>
+    facetHandler = (_column, params = {}) =>
         Promise.resolve({
-            column,
             values: [{ value: params.offset ? "Шкаф" : "Насос", count: 2 }],
             total: 2,
             hasNulls: true,
@@ -270,8 +251,42 @@ test("unchecking «Выбрать все» clears every option, «Пустые»
     );
 });
 
-test("ID column: unchecking both buckets unchecks «Выбрать все»", async () => {
-    await openFilter("col_002", "Корректные");
+/**
+ * A two-bucket column (the plan's repair-code semantics: «Корректные» /
+ * «Некорректные») needs no special case in the popover — it is just a source
+ * that returns two values and no «Пустые» bucket. The one thing the shared
+ * component can be asked for is hiding the unique-count suffix, since the row
+ * count already says everything there.
+ */
+const idBuckets: FacetSource = () =>
+    Promise.resolve({
+        values: [
+            { value: "Корректные", count: 10 },
+            { value: "Некорректные", count: 2 },
+        ],
+        total: 2,
+        hasNulls: false,
+        rowCount: 12,
+    });
+
+async function openIdBuckets(showUniqueCount = true) {
+    render(
+        <ColumnFilterPopover
+            column="repairCode"
+            columnLabel="Идентификационный код"
+            anchor={anchor}
+            facets={idBuckets}
+            initial={null}
+            showUniqueCount={showUniqueCount}
+            onApply={() => {}}
+            onClose={() => {}}
+        />,
+    );
+    await waitFor(() => expect(screen.getByRole("option", { name: /^Корректные/ })).toBeTruthy());
+}
+
+test("a two-bucket column: unchecking both buckets unchecks «Выбрать все»", async () => {
+    await openIdBuckets();
     expect(master().getAttribute("aria-selected")).toBe("true");
 
     fireEvent.click(screen.getByRole("option", { name: /^Корректные/ }));
@@ -280,14 +295,14 @@ test("ID column: unchecking both buckets unchecks «Выбрать все»", as
     await waitFor(() => expect(master().getAttribute("aria-selected")).toBe("false"));
 });
 
-test("ID column: «Выбрать все» shows rows without unique-count suffix", async () => {
-    await openFilter("col_002", "Корректные");
+test("showUniqueCount={false} hides the unique-count suffix only", async () => {
+    await openIdBuckets(false);
     expect(master().textContent).toBe("Выбрать все12");
     expect(master().textContent).not.toContain("уникальных");
 });
 
-test("ID column: checking both buckets back checks «Выбрать все»", async () => {
-    await openFilter("col_002", "Корректные");
+test("a two-bucket column: checking both buckets back checks «Выбрать все»", async () => {
+    await openIdBuckets();
     const correct = () => screen.getByRole("option", { name: /^Корректные/ });
     const incorrect = () => screen.getByRole("option", { name: /^Некорректные/ });
 
@@ -314,7 +329,6 @@ test("paged column: no «Загрузка…» caption, and new windows arrive c
         const offset = params.offset ?? 0;
         requested.push(offset);
         return Promise.resolve({
-            column,
             values: all
                 .slice(offset, offset + (params.limit ?? 200))
                 .map((value) => ({ value, count: 1 })),

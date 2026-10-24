@@ -50,7 +50,6 @@ import {
     submitRenovationPlan,
     undoCells,
     updateRenovationCells,
-    type RenovationColumnFilter,
     type RenovationDiff,
     type RenovationDiffRow,
     type RenovationMeta,
@@ -83,7 +82,7 @@ import {
     buildPrimaryAction,
     DeleteRecordDialog,
 } from "@/shared/ui/action-items";
-import { ColumnFilterPopover } from "@/shared/ui/column-filter-popover";
+import type { ColumnFilter } from "@/shared/ui/column-filter-facets";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
@@ -105,6 +104,7 @@ import { WorkspaceContent, WorkspaceFullscreenPanels } from "@/shared/ui/workspa
 import { useDeleteShortcut, useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
 
 import { PlanExcelImportModal } from "./plan-excel-import-modal";
+import { RenovationColumnFilterPopover } from "./renovation-column-filter";
 import {
     RenovationDictionarySection,
     renovationSectionTable,
@@ -142,7 +142,7 @@ const WORKING_VERSION_ID = "__working";
 function renovationGridScopeKey(params: {
     planId: string | null;
     asset: string | null;
-    filters: RenovationColumnFilter[];
+    filters: ColumnFilter[];
 }): string {
     return JSON.stringify([params.planId ?? "working", params.asset ?? "", params.filters]);
 }
@@ -255,17 +255,18 @@ export function RenovationWorkspace({
     // Active header filters, keyed by column prop (field dbName or the synthetic
     // asset column). A column keeps display values + the «Пустые» bucket; all
     // columns combine with AND (server-side).
-    const [columnFilters, setColumnFilters] = useRestoredState<
-        Record<string, RenovationColumnFilter>
-    >({}, () => {
-        const raw = readWorkspaceQuery("filters");
-        if (!raw) return {};
-        try {
-            return JSON.parse(raw) as Record<string, RenovationColumnFilter>;
-        } catch {
-            return {};
-        }
-    });
+    const [columnFilters, setColumnFilters] = useRestoredState<Record<string, ColumnFilter>>(
+        {},
+        () => {
+            const raw = readWorkspaceQuery("filters");
+            if (!raw) return {};
+            try {
+                return JSON.parse(raw) as Record<string, ColumnFilter>;
+            } catch {
+                return {};
+            }
+        },
+    );
     // Flat filter list for the rows API; a column with nothing kept selects
     // nothing, which the server treats as "no rows" (never "all").
     const activeColumnFilters = useMemo(
@@ -286,7 +287,7 @@ export function RenovationWorkspace({
     // The row-number («№») range filter popover anchor (the corner's rect).
     const [rowFilterTarget, setRowFilterTarget] = useState<DOMRect | null>(null);
     const activeFilterColumns = useMemo(() => new Set(Object.keys(columnFilters)), [columnFilters]);
-    const applyColumnFilter = (column: string) => (filter: RenovationColumnFilter | null) =>
+    const applyColumnFilter = (column: string) => (filter: ColumnFilter | null) =>
         setColumnFilters((current) => {
             const next = { ...current };
             if (filter === null) delete next[column];
@@ -1961,7 +1962,7 @@ export function RenovationWorkspace({
                 onProfileSaved={setUser}
             />
             {columnFilterTarget ? (
-                <ColumnFilterPopover
+                <RenovationColumnFilterPopover
                     column={columnFilterTarget.column}
                     columnLabel={columnFilterTarget.label}
                     anchor={columnFilterTarget.anchor}

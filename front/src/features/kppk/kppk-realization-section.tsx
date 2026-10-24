@@ -33,6 +33,7 @@ import {
     type RawMaterialsGridHandle,
 } from "@/shared/grid/raw-materials-grid";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
+import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
@@ -587,12 +588,22 @@ export function KppkRealizationSection({
     useEffect(() => {
         onDeleteState({ canDelete: false, onDelete: () => {} });
     }, [onDeleteState]);
+    // Header column filters (client-side, shared with every table). ?????????
+    // ??? ??????? ? ??????????? must clear them like it clears RevoGrid's own.
+    const {
+        filters: columnFilters,
+        setFilters: setColumnFilters,
+        clearFilters,
+    } = useGridColumnFilters();
     useEffect(() => {
         onResetState({
             resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
-            resetFiltersSorting: () => void gridRef.current?.resetFiltersSorting(),
+            resetFiltersSorting: () => {
+                clearFilters();
+                void gridRef.current?.resetFiltersSorting();
+            },
         });
-    }, [onResetState]);
+    }, [clearFilters, onResetState]);
     const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
 
     const handleSelectionChange = useCallback(
@@ -682,6 +693,8 @@ export function KppkRealizationSection({
                 onSelectedRowsChange={stableSelectedRowsChange}
                 onClipboardStateChange={handleClipboardState}
                 onSelectionChange={handleSelectionChange}
+                filters={columnFilters}
+                onFiltersChange={setColumnFilters}
             />
         </div>
     );
