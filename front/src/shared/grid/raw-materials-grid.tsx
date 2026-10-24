@@ -82,6 +82,12 @@ export type ScrollPositionKey = {
  */
 const EMPTY_PINNED_SOURCE: Record<string, unknown>[] = [];
 
+/**
+ * Empty RevoGrid filter config: it only enables the per-column funnel button.
+ * A fresh object per render would reconfigure the plugin every time.
+ */
+const EMPTY_FILTER_CONFIG = {};
+
 /** Stable empty plugin/merge lists: a fresh array would reset the plugin setup on every render. */
 const EMPTY_PLUGIN_LIST: GridPlugin[] = [];
 /**
@@ -2289,6 +2295,14 @@ function RawMaterialsGridInner(
                     resize
                     rowHeaders={rowHeaders}
                     editors={editors}
+                    // RevoGrid renders a header funnel only when the grid gets
+                    // a `filter` prop (`canFilter`); a column's
+                    // `columnTemplate` alone is not enough — it only keeps the
+                    // header from disappearing. An EMPTY config turns the
+                    // funnels on without bringing the condition panel: our
+                    // click handler stops the event first, and the filtering
+                    // itself is client-side (`visibleRows`).
+                    filter={EMPTY_FILTER_CONFIG}
                     {...(sorting ? { sorting } : {})}
                     hideAttribution
                     readonly={readOnly}
