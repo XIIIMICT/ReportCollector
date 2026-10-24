@@ -176,7 +176,8 @@ Language is chosen by audience: docs are written for their main reader. This is 
 | Identifiers, variable/function names | EN | already the case |
 | Code comments and docstrings (new **and existing**) | EN | code is read by agents on every task; a single-language codebase beats a mixed one |
 | Commit messages | EN | conventional commits require English headers; body — EN, the Why/What/Verified structure stays |
-| Agent documentation (`AGENTS.md`, `docs/*`) | EN | hot path: re-read on every task; EN costs ~1.5–2× fewer tokens for the same meaning |
+| Agent documentation (`AGENTS.md`, `docs/*`) | EN | hot path: re-read on every task; EN costs ~1.5–2× fewer tokens for the same meaning. Keep the **structure** in mind too: one fact per bullet with a bold lead, so an agent can jump to it instead of reading the page |
+| Design history ("why the old version was wrong", "this cost us a production incident") | EN, one clause | keep it — it stops a repeat — but compress it: state the rule, then the symptom in one clause. Full incident narratives belong in the commit message or the module docstring, not in a re-read doc |
 | User-facing strings: UI labels, toasts, API errors shown to the user | RU | the product is for Russian users — this is content, not documentation. **Never translate these** |
 | Future human/developer documentation | RU | read by humans, not agents |
 | Log events: event names (`keycloak_identity_received`) | EN | already the case |
@@ -218,6 +219,8 @@ Verified: typecheck, oxlint, 16 unit tests; e2e not run (no stack).
 ## Working principles
 
 - **Minimal changes:** edit existing files, don't create new ones needlessly; follow the file's style.
+- **Read the code before the doc when the two could disagree:** a doc line whose code changed is worse than no line. If a behaviour you touch has a doc bullet, update it in the same change; if you find a stale bullet, fix or delete it rather than adding another.
+- **Prefer a pointer to a repetition:** when the same fact is already in a `docs/*` section, `AGENTS.md` keeps one line plus the file name (e.g. «details — `docs/COLLAB.md`, "Lease, presence, idle"»). Two full copies drift apart and both get read.
 - **Check before delivery:** typecheck + lint + tests on both sides (table above). After collab changes — `test_collab.py`; after dictionaries/paste — `test_raw_materials.py` + `grid-clipboard.test.ts`.
 - **Remove debug artifacts:** probe scripts (`back/tests/debug_*.py`, `front/e2e/*-probe*`) are not committed; the root `.gitignore` silences `*.mjs`/`*.cjs`.
 - **Documentation is part of the change:** behavior/timings/protocol changed — update `AGENTS.md` and the corresponding file in `docs/`.

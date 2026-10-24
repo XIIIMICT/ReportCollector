@@ -2,6 +2,8 @@
 
 Raw-material planning system: Excel-like forms with real-time collaborative editing. Monorepo: `front/` (Next.js), `back/` (FastAPI), `infra/` (compose of external services), `docs/`.
 
+Sections: [System diagram](#system-diagram) · [Services and compose profiles](#services-and-compose-profiles) · [Environment variables](#environment-variables-root-env-single-source) · [Data model «Сырьё»](#data-model-project-сырьё-key-raw_materials) · [Dictionary ordering](#dictionary-ordering) · [Data model «КППК»](#data-model-project-кппк-key-kppk) · [Authentication](#authentication) · [API](#api-back-prefix-api) · [Logging](#logging) · [Deployment](#deployment-prod) · [Plan import](#renovation-plan-import-technical-directorate-xlsb) · [Export jobs](#renovation-plan-export-jobs) · [Transactional collaboration](#transactional-collaboration)
+
 ## System diagram
 
 ```
@@ -204,7 +206,7 @@ Errors: `CellValidationError` → 422, `DictionaryReferenceError` → 409, `Valu
 
 ## Deployment (prod)
 
-nginx is **not in Docker**, config `/etc/nginx/conf.d/reportcollector.conf`: `location /` → front `127.0.0.1:5000`; `location /api/ws/` → back `127.0.0.1:8000` with `Upgrade`/`Connection "Upgrade"` and large timeouts (`proxy_read_timeout 86400s`). HTTPS/WSS terminated by nginx (cert in SAN). Prod address: `https://m2v-form-1.h2-group.ru`. Details and WS diagnostics — `docs/COLLAB.md`, "Deployment and diagnostics" section.
+nginx is **not in Docker**, config `/etc/nginx/conf.d/reportcollector.conf`: `location /` → front `127.0.0.1:5000`; `location /api/ws/` → back `127.0.0.1:8000` with `Upgrade`/`Connection "Upgrade"` and large timeouts (`proxy_read_timeout 86400s`). HTTPS/WSS terminated by nginx (cert in SAN). Prod address: `https://m2v-form-1.h2-group.ru`. Details and WS diagnostics — `docs/COLLAB.md`, section "Deployment and WS diagnostics".
 
 ## Renovation plan import (technical directorate, `.xlsb`)
 
