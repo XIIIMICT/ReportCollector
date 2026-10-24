@@ -568,8 +568,6 @@ body {
     max-height: 3rem;
     /* Half the usual rhythm between the tabs row above and these filters. */
     margin-top: 0.26rem;
-    /* Align with the tab text inside the HeroUI pill (see above). */
-    padding-inline-start: 0.25rem;
 }
 
 .toolbar-filters__row--hidden {
@@ -603,6 +601,18 @@ body {
 .section-tabs .tabs__list-container {
     width: 100%;
     min-width: 0;
+}
+
+/* HeroUI's pill adds a 0.25rem frame (`p-1` on `.tabs__list`) INSIDE the
+   container, so the first tab started 0.25rem right of the card's edge — while
+   the filter row below and the grid start flush. Offset the pill by exactly
+   that frame: the container moves left, the padding inside it stays, so the
+   pill's visible edge and the tab TEXT both land on the card's edge AND the
+   frame is still painted. Removing the padding instead (an earlier attempt)
+   deleted the frame, and a negative margin on `.section-tabs` clipped it
+   against the toolbar's `overflow: hidden`. */
+.section-tabs .tabs__list-container {
+    margin-inline-start: -0.25rem;
 }
 
 .grid-viewport {
