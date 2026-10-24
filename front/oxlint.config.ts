@@ -58,6 +58,20 @@ export default defineConfig({
         // Refs are written from effects, handlers and ref callbacks — the rule
         // reports those as "modification after render", which is the React idiom.
         "react/immutability": "off",
+        // `someRef.current = value` in the render body is the OFFICIAL React
+        // pattern for "always call the latest callback" (`useLatest`): it keeps a
+        // document listener or a memoized handler identity-stable while still
+        // seeing fresh props. The rule flags every such write, plus the `ref`
+        // reads inside handlers, so on this codebase it is a false positive.
+        "react/refs": "off",
+        // `setState` inside an effect is how a form reset runs when the dialog
+        // opens (`if (isOpen) setTarget(null)`), how a section switch drops its
+        // placeholder row, and how any external store (matchMedia, WebSocket
+        // status) is mirrored into React state. The rule bans the whole idiom.
+        "react/set-state-in-effect": "off",
+        // Fires on `useMemo` bodies that switch over props and on the compiler's
+        // own memoization hints; the codebase memoizes by hand already.
+        "react/preserve-manual-memoization": "off",
 
         // Tests: `bun test` imports its helpers from `bun:test` rather than
         // using vitest globals, which those rules assume.
@@ -102,6 +116,10 @@ export default defineConfig({
             files: ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**", "e2e/**"],
             rules: {
                 "no-console": "off",
+                // A test harness assigns to a variable captured from the test
+                // body to drive the hook from outside React — the point of the
+                // trick, not module-level state in a component.
+                "react/globals": "off",
             },
         },
     ],
