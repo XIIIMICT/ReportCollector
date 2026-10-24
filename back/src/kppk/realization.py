@@ -11,6 +11,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.collab.locking import project_write
+from src.common.read_cache import cached
 from src.kppk.constants import KPPK_PROJECT_KEY, MARKET_CODES
 from src.kppk.models import KppkCost, KppkOrg, KppkOrgProduct, KppkProduct, KppkRealization, KppkRealizationPlan
 
@@ -231,16 +232,34 @@ async def read_excise_products(session: AsyncSession, *, org_id: UUID) -> list[s
     a flagged asset only the flagged products count. The realization copies hold
     the product by NAME, so the names are returned exactly as the dictionary
     spells them.
+
+    CACHED: this runs on every excise edit (`_check_excise_scope`) and on every
+    «Реализация» read, while the flag changes only when an admin edits a
+    position. The entry is keyed by `kppk_org_products`' own `count(*)` +
+    `max(updated_at)` — a flag toggle, an added position or a deleted one
+    changes the token, so the next read misses without any call site having to
+    remember. See `src/common/read_cache.py` for why only such tables qualify.
     """
-    rows = (
-        await session.exec(
-            select(KppkProduct.name)
-            .join(KppkOrgProduct, col(KppkOrgProduct.product_id) == col(KppkProduct.id))
-            .where(col(KppkOrgProduct.org_id) == org_id, col(KppkOrgProduct.has_excise).is_(True))
-            .order_by(col(KppkProduct.name))
-        )
-    ).all()
-    return list(rows)
+    token = (
+        await session.exec(select(func.count(col(KppkOrgProduct.id)), func.max(col(KppkOrgProduct.updated_at))))
+    ).one()
+
+    async def load() -> list[str]:
+        rows = (
+            await session.exec(
+                select(KppkProduct.name)
+                .join(KppkOrgProduct, col(KppkOrgProduct.product_id) == col(KppkProduct.id))
+                .where(col(KppkOrgProduct.org_id) == org_id, col(KppkOrgProduct.has_excise).is_(True))
+                .order_by(col(KppkProduct.name))
+            )
+        ).all()
+        return list(rows)
+
+    return await cached(
+        namespace=f"kppk.excise_products.{org_id}",
+        token=(int(token[0]), token[1]),
+        loader=load,
+    )
 
 
 async def read_realization_rows(

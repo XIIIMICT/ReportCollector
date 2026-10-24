@@ -322,8 +322,17 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
     session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         await _seed_session(session)
-        yield session
-        await session.rollback()
+        try:
+            yield session
+        finally:
+            await session.rollback()
+            # Every test recreates the schema, so a cached row set from the
+            # previous test would describe tables that no longer exist. The
+            # caches key on their own data token, which makes them correct in
+            # production; here the whole schema changes underneath them.
+            from src.common.read_cache import clear_read_cache
+
+            clear_read_cache()
 
 
 @pytest.fixture

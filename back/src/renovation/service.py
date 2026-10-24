@@ -584,6 +584,9 @@ async def read_plan_export_meta(
     )
     if row_ids is not None:
         count_query = count_query.where(col(RenovationPlanRow.id).in_(row_ids))
+    # ty cannot match this aggregate to the sqlmodel `exec` overloads: the
+    # `select()` it returns carries no row type once the query is an aggregate,
+    # so the call is typed by hand here rather than silenced for a real error.
     total = int((await session.exec(count_query)).one()[0])  # ty: ignore[no-matching-overload]
     totals = await _plan_export_totals(
         session,
@@ -2361,7 +2364,7 @@ async def _resolve_reference_id(session: AsyncSession, catalog: str | None, labe
 
 async def _reference_labels(session: AsyncSession) -> dict[UUID, str]:
     """Labels of the reference catalogue (cached until a catalogue row changes)."""
-    return cast("dict[UUID, str]", await cached_reference_labels(session))
+    return await cached_reference_labels(session)
 
 
 async def apply_renovation_cell_value(
