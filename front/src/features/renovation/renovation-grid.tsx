@@ -39,6 +39,7 @@ import {
     DEFAULT_COLUMN_WIDTH,
     HEADER_LEVEL_COUNT,
     HEADER_LEVEL_HEIGHT,
+    HEADER_LEVEL_HEIGHT_STORAGE_KEY,
     INFINITY_BUFFER_ROWS,
     INFINITY_CHUNK_ROWS,
     INFINITY_PRELOAD_THRESHOLD,
@@ -74,7 +75,6 @@ import type {
     RenovationHeaderCell,
 } from "@/shared/api/renovation";
 import { parsePastedText, serializeCellValue } from "@/shared/grid";
-import { SERVICE_DESCRIPTORS } from "@/shared/grid/grid-config";
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/raw-materials-grid";
@@ -110,6 +110,8 @@ import { renovationRowStats } from "./renovation-stats";
 
 export const RENOVATION_PLAN_ROWS_TABLE = "r_plan_rows";
 
+/** Stable empty pinned strip — a fresh `[]` per render makes revo-grid reprocess the pinned row. */
+const EMPTY_PINNED_SOURCE: RenovationGridRow[] = [];
 
 export type RenovationGridRow = {
     /** Canonical row id (UUID). */
