@@ -30,6 +30,7 @@ import {
 } from "react";
 
 import "@revolist/rv-pro-trial/styles.css";
+import { createChunkLoader } from "@/features/renovation/chunk-loader";
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import type {
     RenovationCatalog,
@@ -1432,22 +1433,43 @@ function RenovationGridInner(
     onLoadedRowsChangeRef.current = onLoadedRowsChange;
     const onCenterPositionChangeRef = useRef(onCenterPositionChange);
     onCenterPositionChangeRef.current = onCenterPositionChange;
+    /**
+     * How many structural jumps are still travelling. While a jump is in flight
+     * the viewport is on its way somewhere else, so its current row must not be
+     * remembered (see `reportCenterPosition`).
+     */
+    const jumpInFlightRef = useRef(0);
+    /**
+     * A restore is waiting for its scope read. While it is pending, an unscrolled
+     * viewport is not a position the user chose — see `reportCenterPosition`.
+     */
+    const restorePendingRef = useRef(false);
     const totalRowsRef = useRef(totalRows);
     totalRowsRef.current = totalRows;
     const summaryHeightRef = useRef(summaryHeight);
     summaryHeightRef.current = summaryHeight;
+    /** The chunk loader — supersedes an in-flight request on a newer one. */
+    const chunkLoaderRef = useRef<ReturnType<typeof createChunkLoader<RenovationGridRow>> | null>(
+        null,
+    );
+    if (chunkLoaderRef.current === null) {
+        chunkLoaderRef.current = createChunkLoader<RenovationGridRow>((offset, limit) =>
+            loadRowsRef.current(offset, limit),
+        );
+    }
+    const chunkLoader = chunkLoaderRef.current;
     const infinityScroll = useMemo(
         () => ({
             chunkSize: INFINITY_CHUNK_ROWS,
             bufferSize: INFINITY_BUFFER_ROWS,
             preloadThreshold: INFINITY_PRELOAD_THRESHOLD,
             total: totalRows,
-            loadData: async (skip: number, limit: number) => {
-                const page = await loadRowsRef.current(skip, limit);
-                return { data: page.rows, total: page.total };
-            },
+            // Never resolve a superseded chunk empty and never reject one as
+            // "cancelled": the plugin would either mark it loaded forever or
+            // surface an unhandled AbortError. See `chunk-loader.ts`.
+            loadData: chunkLoader,
         }),
-        [scopeKey, totalRows],
+        [chunkLoader, scopeKey, totalRows],
     );
 
     // Live updates: patch already-loaded rows in place. A full source reset
@@ -1490,6 +1512,7 @@ function RenovationGridInner(
             if (!grid) return () => {};
             let cancelled = false;
             let attempts = 0;
+            jumpInFlightRef.current += 1;
             // The scroll coordinate the row should end up at: its top, or — for a
             // centred jump — the middle of the data viewport (the pinned totals row
             // is not part of the scrollable rows).
@@ -1498,15 +1521,36 @@ function RenovationGridInner(
                 const dataHeight = Math.max(0, grid.clientHeight - summaryHeightRef.current);
                 return Math.max(0, target * rowHeight - (dataHeight - rowHeight) / 2);
             };
-            const landed = () => {
+            // How far the viewport actually scrolled, read from the row scroller.
+            const scrollTop = () => {
                 const internal = grid.querySelector(
                     "revogr-scroll-virtual.vertical",
                 ) as HTMLElement | null;
                 const external = document.querySelector(
                     ".revo-grid-vertical-scroller",
                 ) as HTMLElement | null;
-                const top = internal?.scrollTop || external?.scrollTop || 0;
+                return internal?.scrollTop || external?.scrollTop || 0;
+            };
+            // The scroller cannot go further, so the jump is as good as it gets:
+            // the target is within the reachable range (e.g. a centred jump near
+            // the top) or the content is too short to scroll at all.
+            const atLimit = () => {
+                const internal = grid.querySelector(
+                    "revogr-scroll-virtual.vertical",
+                ) as HTMLElement | null;
+                const max = Math.max(0, (internal?.scrollHeight ?? 0) - grid.clientHeight);
+                return scrollTop() >= max;
+            };
+            const landed = () => {
+                const top = scrollTop();
                 if (target === 0) return top <= rowHeight;
+                // The scroller is at its end, so this is as far as the jump can
+                // go (a short plan, or a centred jump on the last rows).
+                if (atLimit()) return true;
+                // Symmetric slack: being ABOVE the target is a miss too. Accepting
+                // a partial jump left the viewport on an early row and then the
+                // centre-row report saved THAT row — every open drifted further up
+                // until it stuck on the first row.
                 return Math.abs(top - targetTop()) <= rowHeight * 5;
             };
             const attempt = () => {
@@ -1529,6 +1573,7 @@ function RenovationGridInner(
             attempt();
             return () => {
                 cancelled = true;
+                jumpInFlightRef.current = Math.max(0, jumpInFlightRef.current - 1);
             };
         },
         [rowHeight],
@@ -1613,8 +1658,23 @@ function RenovationGridInner(
         // is known.
         if (totalRows <= 0) return;
         const target = Math.max(0, Math.min(totalRows - 1, scrollToPosition.position - 1));
+        // From here the viewport belongs to the jump, not to the user: a report
+        // taken mid-flight would remember whatever row the grid happened to show
+        // (on mount that is row 1, which is what clobbered the saved position).
+        restorePendingRef.current = scrollToPosition.centered === true;
         return jumpToRow(target, scrollToPosition.centered ?? false);
     }, [scrollToPosition, totalRows, jumpToRow]);
+
+    // The restore finished travelling: from now on the viewport row IS the
+    // user's position and may be remembered again.
+    useEffect(() => {
+        if (jumpInFlightRef.current > 0) return;
+        if (!restorePendingRef.current) return;
+        const timer = window.setTimeout(() => {
+            if (jumpInFlightRef.current === 0) restorePendingRef.current = false;
+        }, 250);
+        return () => window.clearTimeout(timer);
+    });
 
     // Report the stored position of the row in the middle of the data viewport.
     // The plugin evicts far chunks, so the centre slot itself may be a hole —
@@ -1625,12 +1685,27 @@ function RenovationGridInner(
         const grid = gridRef.current;
         const total = totalRowsRef.current;
         if (!grid || total <= 0) return;
+        // Never report while a structural jump is still travelling. On mount the
+        // viewport sits at the top and the remembered row is restored a moment
+        // later; the early report wrote THAT top row over the remembered one
+        // (100011 -> 12), so the reload always came back to the first rows.
+        if (jumpInFlightRef.current > 0) return;
         const scroll = grid.querySelector("revogr-scroll-virtual.vertical") as HTMLElement | null;
         const scrollTop = scroll?.scrollTop ?? 0;
+        // Nothing scrolled yet is not a position the user chose — on mount the
+        // viewport sits at the top until the restore lands. Reporting row 1 from
+        // there overwrote the remembered row on every reload.
+        if (scrollTop <= 0 && restorePendingRef.current) return;
         const dataHeight = Math.max(0, grid.clientHeight - summaryHeightRef.current);
+        // The remembered row is read from the VIEWPORT CENTRE, which is exactly
+        // the inverse of the centred jump used to restore it. Reading the top row
+        // instead desynchronised the two: a restored position that could not be
+        // centred (near the last rows the scroller stops early) sat at the BOTTOM
+        // edge, so the top row was not the saved one — and the position drifted
+        // on every open until it reached row 1.
         const centerIndex = Math.max(
             0,
-            Math.min(total - 1, Math.floor((scrollTop + dataHeight / 2) / rowHeight)),
+            Math.min(total - 1, Math.round((scrollTop + dataHeight / 2) / rowHeight)),
         );
         const source = (await grid.getSource("rgRow")) as RenovationGridRow[];
         let row = source[centerIndex];

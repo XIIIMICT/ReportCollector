@@ -54,6 +54,7 @@ from src.renovation.plan import (
     RenovationReferenceValue,
     RPlanState,
 )
+from src.renovation.read_cache import reference_labels as cached_reference_labels
 from src.renovation.renovation_id import (
     DIRECTION_CODE_FIELD,
     MISSING_COMPONENT,
@@ -1018,6 +1019,84 @@ def _plan_row_condition(
     return condition
 
 
+async def _window_anchor_position(
+    session: AsyncSession,
+    *,
+    row_condition: ColumnElement[bool],
+    offset: int,
+    positions_are_dense: bool,
+) -> int | None:
+    """
+    Return the `position` of the row just before a window's first row.
+
+    The window is addressed by its index in the FILTERED scope, so the anchor is
+    "the row at index offset-1". Two cases:
+
+    - the scope keeps every row of the plan and the «№» values are dense
+      (`positions_are_dense`) — then the row at index offset-1 is the one whose
+      `position == offset` (positions start at 1), so the anchor is `offset`
+      with no query at all;
+    - anything else — resolve it with ONE seek over the scope. With filters that
+      scope is much smaller than the plan, so the OFFSET stays shallow; without
+      dense «№» (deleted positions leave gaps) the seek is still one statement
+      in the same read order.
+
+    `None` means the offset is past the last matching row.
+    """
+    if positions_are_dense:
+        return offset
+    anchor = (
+        await session.exec(
+            select(col(RenovationPlanRow.position))
+            .where(row_condition)
+            .order_by(col(RenovationPlanRow.position))
+            .offset(offset - 1)
+            .limit(1)
+        )
+    ).first()
+    return int(anchor) if anchor is not None else None
+
+
+async def _count_plan_scope(
+    session: AsyncSession,
+    plan_id: UUID,
+    row_condition: ColumnElement[bool],
+) -> tuple[int, int]:
+    """Return `(rows matching the filters, rows in the whole plan)` in one round trip."""
+    total, total_all = (
+        await session.exec(
+            select(
+                func.count().filter(row_condition),
+                func.count().filter(col(RenovationPlanRow.plan_id) == plan_id),
+            ).select_from(RenovationPlanRow)
+        )
+    ).one()
+    return int(total), int(total_all)
+
+
+def _empty_plan_window(
+    plan: RenovationPlan,
+    *,
+    baseline_boundary: int | None,
+    total: int,
+    total_all: int,
+    anchor_offset: int | None,
+) -> RenovationPlanRowsRead:
+    """Return the plan header with no rows — an offset past the last matching row."""
+    return RenovationPlanRowsRead(
+        id=plan.id,
+        state=plan.state.value,
+        baselineGeneration=plan.baseline_generation,
+        updatedAt=plan.updated_at,
+        updatedBy=plan.updated_by,
+        rows=[],
+        total=total,
+        baselineBoundary=baseline_boundary,
+        totalAll=total_all,
+        anchorOffset=anchor_offset,
+    )
+
+
 async def read_plan_rows(
     session: AsyncSession,
     assets: list[RAsset],
@@ -1069,21 +1148,46 @@ async def read_plan_rows(
     # come from a single round-trip via conditional aggregation. The plan total
     # is ALWAYS returned — not only when the asset filter is active — so the
     # footer's «всего» stays the plan's row count under any filter.
-    total, total_all = (
-        await session.exec(
-            select(
-                func.count().filter(row_condition),
-                func.count().filter(col(RenovationPlanRow.plan_id) == plan.id),
-            ).select_from(RenovationPlanRow)
+    #
+    # Deliberately NOT cached: a token that would keep it correct across every
+    # write path (bulk import, undo replay, direct SQL) costs more than the
+    # count itself at 306k rows — see `read_cache`.
+    total, total_all = await _count_plan_scope(session, plan.id, row_condition)
+    # Keyset pagination, not OFFSET. `OFFSET n` walks n index entries — 2 seconds
+    # at n=150k on the 306k-row plan — while a seek is one index hop whatever n
+    # is. The client addresses rows by their FILTERED index, so the first row of
+    # a window is resolved in a scope where the seek is cheap:
+    #   * no filters — the grid index IS the «№» (`position`), so the window
+    #     starts at `position > anchor_position_of_offset`;
+    #   * with filters the row set is (much) smaller, so the OFFSET that finds
+    #     its first index stays shallow.
+    window_condition = row_condition
+    if offset > 0:
+        # Dense «№» is safe to assume only when the scope is every row of the
+        # plan: any filter (asset, position range, column) or a narrower asset
+        # set can skip positions, and then index != position.
+        dense = (
+            asset_name is None and not filters and position_from is None and position_to is None and total == total_all
         )
-    ).one()
+        anchor = await _window_anchor_position(
+            session, row_condition=row_condition, offset=offset, positions_are_dense=dense
+        )
+        if anchor is None:
+            baseline = await _baseline_boundary(session) if plan.state == RPlanState.WORKING else None
+            return _empty_plan_window(
+                plan,
+                baseline_boundary=baseline,
+                total=total,
+                total_all=total_all,
+                anchor_offset=None if anchor_position is None else total,
+            )
+        window_condition = row_condition & (col(RenovationPlanRow.position) > anchor)
     rows = (
         await session.exec(
             select(RenovationPlanRow, RAsset)
             .outerjoin(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
-            .where(row_condition)
+            .where(window_condition)
             .order_by(col(RenovationPlanRow.position))
-            .offset(offset)
             .limit(limit)
         )
     ).all()
@@ -2256,8 +2360,8 @@ async def _resolve_reference_id(session: AsyncSession, catalog: str | None, labe
 
 
 async def _reference_labels(session: AsyncSession) -> dict[UUID, str]:
-    rows = (await session.exec(select(RenovationReferenceValue))).all()
-    return {value.id: value.label for value in rows}
+    """Labels of the reference catalogue (cached until a catalogue row changes)."""
+    return cast("dict[UUID, str]", await cached_reference_labels(session))
 
 
 async def apply_renovation_cell_value(
