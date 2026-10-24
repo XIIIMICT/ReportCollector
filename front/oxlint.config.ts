@@ -24,6 +24,14 @@ export default defineConfig({
     categories: {
         correctness: "error",
         suspicious: "warn",
+        // `react-perf` lives here, deliberately as a HINT, not a debt. The rule
+        // asks for memoized JSX props, which only pay off under `React.memo` —
+        // and this codebase has no `memo()` at all: it relies on React Compiler
+        // (`reactCompiler: true` in next.config.ts), which memoizes JSX props,
+        // object literals and arrow functions by itself. Most of what is flagged
+        // is attributes on DOM nodes (style/onPointerDown on a <div>), which have
+        // no prop comparison to lose. If the compiler is ever turned off, or a
+        // component starts using `memo()`, these findings become real work.
         perf: "warn",
     },
     env: {

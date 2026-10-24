@@ -455,6 +455,10 @@ export function SmartSelect({
     const specialLabel = (option: SpecialOption) =>
         option.count !== undefined ? `${option.label} (${option.count})` : option.label;
 
+    // Every field of the two special options is listed in the dependency array
+    // below, which is the precise dependency; the linter wants the objects
+    // themselves, but callers build them inline and object identity would rebuild
+    // the whole list on every render.
     const renderedOptions = useMemo<ReactNode[]>(() => {
         const special = [
             ...(allOption?.present
