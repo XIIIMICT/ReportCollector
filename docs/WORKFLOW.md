@@ -16,9 +16,50 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 
 2. Dependencies: `just deps` (`uv sync --directory back` + `bun install --cwd front`).
 3. DB and services: `just db` (postgres+valkey), Keycloak if needed — `just keycloak`.
 4. Migrations: `just migrate`. The migration connection runs with `lock_timeout=30s` (`back/migrations/env.py`) — if the app holds a lock (classic idle-in-transaction pool connection), the migration aborts with "canceling statement due to lock timeout" after 30s instead of hanging forever. On prod prefer running migrations with the app stopped/idle. Seed: `just seed` (**recreates the schema!** only with consent, never on prod). `alembic_version.version_num` is `TEXT` (migration `0020_alembic_version_text`) — Alembic's default is `VARCHAR(32)`, and a longer revision id used to fail the whole upgrade on the closing bookkeeping `UPDATE` (`value too long for type character varying(32)`) *after* the schema change had already run. Keep revision ids descriptive; there is no length limit now.
-   - The renovation plan comes from the per-enterprise «РБ ПОФ_2027_*» workbooks in `docs/seed/Планы/` (each ships one «РБ…» sheet; header on row 1, data on row 3). `just seed-renovation-plan` (`uv run --directory back -m src.scripts.seed_database --renovation-plan`) rebuilds **only** the plan (truncates `renovation_plans`/`renovation_plan_rows`) while keeping the asset dictionary, the reference catalogs and the users — the importer resolves the enterprise by its «Наименование ДО» code against the existing `r_assets` ids. `just seed-renovation` (`--renovation`) additionally rebuilds the catalogs. Columns are matched by header text; a small **closed alias list** maps the workbooks' differing names to the form fields (e.g. «Лот» → the direction code `col_189`, the third segment of the work id, which the «РБ ПОФ» files name «Лот» rather than the form's «Код направления деятельности»). Values not in a catalog are added as marked options (label prefixed «@») that an admin can review and delete afterwards. Run seeds on the host with `POSTGRES_HOST=127.0.0.1` (the `.env` value `host.docker.internal` only resolves inside containers).
-   - The «КППК» copies come from the source dumps in `docs/kppk/` (`ddl.sql` + `kppk_*_<timestamp>.sql` + «Матрица продуктов.xlsx»). `just seed-kppk` (`uv run --directory back -m src.scripts.seed_kppk`) creates missing `raw`/`dict` source schemas and tables, restores any missing `rc.kppk_*` application tables from the current SQLModel metadata, then re-copies source tables (truncate + re-insert, one transaction) and rebuilds «Продуктовые позиции» from the matrix — products missing in the source dictionary are created without a `product_num` under an `@`-prefixed name, ДЗО/products are matched by exact display name. **Text values are normalized on the way in** by `normalize_text` (`src/kppk/constants.py`): the value is trimmed and every run of whitespace — doubled spaces, tabs, line breaks, the non-breaking space — collapses to one ordinary space. The copies are keyed by product/ДЗО NAME, so an untrimmed value would silently become a second product; the same rule runs in SQL while copying (`_normalized_sql` in the seeder) and in Python for the matrix and for every dictionary cell a user saves. **The seed finishes by generating the coming periods** (the same code as `just gen-kppk-periods`, called in the same transaction), so a fresh copy does not leave «Реализация»/«Себестоимость» empty for the months nobody has loaded; the counters are printed with the rest (`periods_created` etc.). It touches no other project; the `kppk` project row and its user links come from `just seed` / self-provisioning, so a fresh install runs `just seed` → `just seed-kppk`. Dictionary edits — the editable unique «№» included — are reconciled from the source on the next run.
-   - Missing КППК application tables are recreated in `POSTGRES_SCHEMA` before any truncation, including `kppk_cost` and `kppk_org_products`; the counter is `copy_tables_created`. Existing tables are not altered: this recovery is not a migration substitute. UUID organization references, calendar months, added buyout/cost fields, defaults, indexes and constraints come from the current application models, not `CREATE TABLE LIKE raw.*`. Existing source tables are read as-is; SQL dumps are used only for missing sources. Use the КППК-only seed to reload these copies; never run the full seed to recover them.
+- The renovation plan is seeded from the per-enterprise «РБ ПОФ_2027_*» workbooks in
+  `docs/seed/Планы/` (one «РБ…» sheet each; header on row 1, data from row 3).
+  `just seed-renovation-plan` (`uv run --directory back -m src.scripts.seed_database
+  --renovation-plan`) rebuilds **only** the plan (truncates
+  `renovation_plans`/`renovation_plan_rows`, keeps the asset dictionary, the
+  reference catalogs and the users — the importer resolves each enterprise by its
+  «Наименование ДО» code against the existing `r_assets` ids);
+  `just seed-renovation` (`--renovation`) also rebuilds the catalogs. Columns are
+  matched by header text through a small **closed alias list** (e.g. «Лот» → the
+  direction code `col_189`, the third segment of the work id — the «РБ ПОФ» files
+  name it «Лот» rather than the form's «Код направления деятельности»). A value
+  missing from a catalog is added as a marked «@»-prefixed option for an admin to
+  review and delete afterwards. Run host seeds with `POSTGRES_HOST=127.0.0.1` —
+  the `.env` value `host.docker.internal` only resolves inside containers.
+- The «КППК» copies come from the source dumps in `docs/kppk/` (`ddl.sql`,
+  `kppk_*_<timestamp>.sql`, «Матрица продуктов.xlsx»). `just seed-kppk`
+  (`uv run --directory back -m src.scripts.seed_kppk`) creates missing `raw`/`dict`
+  source schemas and tables, restores any missing `rc.kppk_*` application tables
+  from the current SQLModel metadata, then re-copies the source tables
+  (truncate + re-insert, one transaction) and rebuilds «Продуктовые позиции» from
+  the matrix — products missing in the source dictionary are created without a
+  `product_num` under an `@`-prefixed name, ДЗО/products are matched by exact
+  display name. **Text values are normalized on the way in** by `normalize_text`
+  (`src/kppk/constants.py`): the value is trimmed and every run of whitespace —
+  doubled spaces, tabs, line breaks, the non-breaking space — collapses to one
+  ordinary space. The copies are keyed by product/ДЗО NAME, so an untrimmed value
+  would silently become a second product; the same rule runs in SQL while copying
+  (`_normalized_sql` in the seeder) and in Python for the matrix and for every
+  dictionary cell a user saves. **The seed finishes by generating the coming
+  periods** (the same code as `just gen-kppk-periods`, called in the same
+  transaction), so a fresh copy does not leave «Реализация»/«Себестоимость» empty
+  for the months nobody has loaded; the counters are printed with the rest
+  (`periods_created` etc.). It touches no other project; the `kppk` project row
+  and its user links come from `just seed` / self-provisioning, so a fresh install
+  runs `just seed` → `just seed-kppk`. Dictionary edits — the editable unique «№»
+  included — are reconciled from the source on the next run.
+- Missing КППК application tables are recreated in `POSTGRES_SCHEMA` before any
+  truncation, including `kppk_cost` and `kppk_org_products`; the counter is
+  `copy_tables_created`. Existing tables are not altered: this recovery is not a
+  migration substitute. UUID organization references, calendar months, added
+  buyout/cost fields, defaults, indexes and constraints come from the current
+  application models, not `CREATE TABLE LIKE raw.*`. Existing source tables are
+  read as-is; SQL dumps are used only for missing sources. Use the КППК-only seed
+  to reload these copies; never run the full seed to recover them.
 5. Run: `just dev` (compose + hot-reload) or on the host `just back` / `just front`.
 
 About `POSTGRES_HOST`: on the server it's the real DB address (not localhost); `just migrate` uses whatever is in `.env`. In the compose network — `host.docker.internal` or the service name.
@@ -125,7 +166,16 @@ Business rows are preserved. Existing temporary Valkey undo stacks are not impor
 
 `0004_block_codes` renames the renovation responsibility-block labels of the native `r_block` enum from the owners' surnames (`tashpaev`/`borodiichuk`/`babaeva`) to the directorates (`tech`/`ksir`/`mto`). It creates a new enum type, remaps every `r_user_roles.block` value with `CASE` (`… ELSE NULL`), swaps the column type and drops the old type — old values are translated, never dropped, so no business row is lost (verified: legacy rows with the surname labels migrate to the matching directorate codes and the enum ends with exactly `{tech,ksir,mto}`). The `ALTER COLUMN … TYPE` takes a brief `ACCESS EXCLUSIVE` lock on `r_user_roles`; run it in the maintenance window with workers stopped, as with the other revisions, so the `lock_timeout=30s` guard does not fire. `migrations.adopt_baseline` recognises the pre-rename `r_block` labels as the known in-flight state, so an as-yet-unadopted `0015` installation still adopts and then converges through `0004` in the same `just migrate` run; any other `r_block` label difference is still rejected as schema drift. The downgrade maps the codes back to the surnames.
 
-**Adoption tolerates six legacy-only variants** (found when adopting a real `0015` installation): indexes that SQLModel named after the model class (`ix_app_user_email`, `ix_rm_asset_raw_material_…`, `ix_rm_report_snapshot_…`) instead of the current table-based names (`ix_app_users_email`, `ix_rm_asset_raw_materials_…`, …); a column whose uniqueness is a `UNIQUE CONSTRAINT` plus a plain index instead of one unique index (`r_assets.code`); the `r_reference_values.metadata` column the models dropped (nullable, unused); the `r_plan_rows.col_218` («Корректировка») column, dropped AFTER the baseline by `0007_drop_plan_correction`; indexes the model declares that a pre-adoption legacy schema does not carry yet because they are created by migrations running AFTER the baseline (`ix_user_roles_project`, `ix_r_user_roles_project` from `0005_user_role_project_indexes`); and the two `rm_raw_material_prices` audit timestamps (`business_plan_updated_at`, `storage_standard_updated_at`) still stored as `TEXT` before `0006_price_audit_timestamps` rewrites them. A `remove_index`/`add_index` pair covering the same table and columns is treated as equivalent (name and uniqueness-form differences only), the matching dropped constraint is accepted too, the extra columns are preserved (not dropped), a missing post-baseline index is allowed through the closed `_LEGACY_MISSING_INDEXES` list, and the audit-timestamp type/nullability/default changes are allowed only for those two columns and only when the target is the expected `timestamptz` / nullable / no-default shape (`_LEGACY_PRICE_TIMESTAMPS`). Anything else — an unpaired index, a different column set, an unknown extra column, an index not on that list, a type change on any other column — still fails closed. The refusal message lists the object names (`remove_index rm_x(col) [ix_…]`, `remove_constraint r_assets(code)`), not a raw dump.
+**Adoption tolerates six legacy-only variants** (found when adopting a real `0015` installation):
+
+1. Indexes SQLModel named after the model class (`ix_app_user_email`, `ix_rm_asset_raw_material_…`, `ix_rm_report_snapshot_…`) instead of the current table-based names (`ix_app_users_email`, `ix_rm_asset_raw_materials_…`).
+2. A column whose uniqueness is a `UNIQUE CONSTRAINT` plus a plain index instead of one unique index (`r_assets.code`).
+3. The `r_reference_values.metadata` column the models dropped (nullable, unused).
+4. The `r_plan_rows.col_218` («Корректировка») column, dropped AFTER the baseline by `0007_drop_plan_correction`.
+5. Indexes the model declares that a pre-adoption schema lacks because migrations create them AFTER the baseline (`ix_user_roles_project`, `ix_r_user_roles_project` from `0005_user_role_project_indexes`).
+6. The two `rm_raw_material_prices` audit timestamps (`business_plan_updated_at`, `storage_standard_updated_at`) still `TEXT` before `0006_price_audit_timestamps` rewrites them.
+
+A `remove_index`/`add_index` pair over the same table and columns counts as equivalent (name and uniqueness-form differences only), the matching dropped constraint is accepted, extra columns are preserved, a missing post-baseline index is allowed only through the closed `_LEGACY_MISSING_INDEXES` list, and the audit-timestamp type/nullability/default changes only for those two columns and only toward the expected `timestamptz` / nullable / no-default shape (`_LEGACY_PRICE_TIMESTAMPS`). Anything else — an unpaired index, a different column set, an unknown extra column, an index not on that list, a type change on another column — still fails closed. The refusal names objects (`remove_index rm_x(col) [ix_…]`, `remove_constraint r_assets(code)`), not a raw dump.
 
 `0007_drop_plan_correction` drops the obsolete `renovation_plan_rows.col_218` («Корректировка»). It was the fallback object code for the work ID when the defect statement was absent; the specification defines a composite object code for that case instead, so the field is neither read nor written anymore. Its form-JSON slot is hidden via `form_schema.HIDDEN_FIELDS` (removing it from the JSON would shift every later field's `position`). The migration is a plain `DROP COLUMN`, run in the maintenance window like the others.
 
