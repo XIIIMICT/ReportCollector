@@ -1101,7 +1101,31 @@ function RawMaterialsGridInner(
             prop: "__rowNumber",
             size: 52,
             columnTemplate: (h: HyperFunc<VNode>) =>
-                h("span", { class: "report-row-header__heading" }, "№"),
+                // The corner draws two nodes (the «№» and its funnel); the
+                // row-header template type only declares single-node overloads.
+                (h as unknown as (...args: unknown[]) => VNode)(
+                    "span",
+                    { class: "report-row-header__heading-wrap" },
+                    h("span", { class: "report-row-header__heading" }, "№"),
+                    // The «№» corner opens the shared «Перейти к строке/столбцу»
+                    // popover — the same component the renovation plan uses, so
+                    // every table navigates the same way. The funnel itself is
+                    // painted by CSS (`--filter-icon`): one glyph for every
+                    // filter affordance in the app.
+                    h("button", {
+                        type: "button",
+                        class: "report-row-header__filter-button",
+                        "aria-label": "Перейти к строке",
+                        onMouseDown: (event: MouseEvent) => event.stopPropagation(),
+                        onClick: (event: MouseEvent) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const host = (event.currentTarget as HTMLElement).parentElement;
+                            if (!host) return;
+                            openGoToRef.current?.(host.getBoundingClientRect());
+                        },
+                    }),
+                ),
             columnProperties: () => ({
                 className: {
                     "report-row-header": true,

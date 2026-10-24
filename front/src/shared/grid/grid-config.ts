@@ -870,6 +870,11 @@ export function facetTextOf(
  * grid draws its own `.rv-filter` button, which then opens OUR popover instead
  * of RevoGrid's condition panel. It must be an arrow function: it is called as
  * a method of the header props.
+ *
+ * The button's ICON is a fixed SVG inside RevoGrid's `FilterButton` (a stack of
+ * three filled bars), so it is drawn over per grid: the header cell keeps a
+ * `report-header__funnel` host and the stylesheet paints the app's own funnel
+ * (iconoir `Filter`) into it, exactly like the plan header and the row corner.
  */
 export function markFilterableColumns(
     columns: (ColumnRegular | ColumnGrouping)[],
@@ -886,7 +891,8 @@ export function markFilterableColumns(
             : [column as ColumnRegular];
         for (const leaf of leaves) {
             if (!filterable.has(String(leaf.prop))) continue;
-            leaf.columnTemplate = (h: HyperFunc<VNode>) => h("span", {});
+            leaf.columnTemplate = (h: HyperFunc<VNode>) =>
+                h("span", { class: "report-header__funnel" });
         }
     }
 }

@@ -82,6 +82,10 @@
     --cell-changed: oklch(95% 0.05 90);
     --cell-invalid: oklch(91% 0.055 22);
     --cell-border: oklch(80% 0 174.82);
+    /* THE filter glyph of the app — iconoir's `Filter`, the same shape every
+       filter affordance draws (the plan header, the «№» corner, the grids'
+       header funnels). Kept as a mask so it inherits the surrounding colour. */
+    --filter-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.99961 3H19.9997C20.552 3 20.9997 3.44764 20.9997 3.99987L20.9999 5.58569C21 5.85097 20.8946 6.10538 20.707 6.29295L14.2925 12.7071C14.105 12.8946 13.9996 13.149 13.9996 13.4142L13.9996 19.7192C13.9996 20.3698 13.3882 20.8472 12.7571 20.6894L10.7571 20.1894C10.3119 20.0781 9.99961 19.6781 9.99961 19.2192L9.99961 13.4142C9.99961 13.149 9.89425 12.8946 9.70672 12.7071L3.2925 6.29289C3.10496 6.10536 2.99961 5.851 2.99961 5.58579V4C2.99961 3.44772 3.44732 3 3.99961 3Z'/%3E%3C/svg%3E");
 }
 
 .dark,
@@ -1703,6 +1707,53 @@ body {
         transform 178ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* ONE funnel across the whole app: iconoir's `Filter`, the same glyph the plan
+   header, the «№» corner and the toolbar filters use. RevoGrid paints its own
+   three-bar `.filter-img` inside the button and offers no icon option, so the
+   built-in image is hidden and the host span that `markFilterableColumns` puts
+   in the header (`.report-header__funnel`) draws the icon on top of the
+   button's hit area. Keep the two in the same box or the funnel drifts off the
+   button. */
+.raw-materials-grid revogr-header .rgHeaderCell .rv-filter .filter-img {
+    display: none;
+}
+
+.raw-materials-grid revogr-header .rgHeaderCell .filter-button-wrapper {
+    position: relative;
+}
+
+.report-header__funnel {
+    position: absolute;
+    z-index: 2;
+    right: 0;
+    bottom: 0;
+    display: block;
+    width: 24px;
+    height: 100%;
+    pointer-events: none;
+}
+
+.report-header__funnel::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 11px;
+    height: 11px;
+    transform: translate(-50%, -50%);
+    background-color: var(--muted);
+    content: "";
+    /* The icon itself: iconoir's `Filter`, the glyph every filter affordance in
+       the app uses. Defined once, in `:root`, and reused by the plan's overlay
+       header and the row-number corner. */
+    mask: var(--filter-icon) center / contain no-repeat;
+}
+
+/* A filtered column keeps the accent tint — the same signal as
+   `.renovation-grid__filter-button.is-active`. */
+.rgHeaderCell:has(.rv-filter.active) .report-header__funnel::after {
+    background-color: var(--accent);
+}
+
 .raw-materials-grid:not(.raw-materials-grid--user-sorted) revogr-header .sort-indicator {
     display: none !important;
 }
@@ -2200,27 +2251,33 @@ body {
 }
 
 .report-row-header__filter-button {
-    position: absolute;
+    position: relative;
     z-index: 1;
-    top: 0;
-    right: 1px;
-    bottom: 1px;
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     width: 0;
+    height: 100%;
     padding: 0;
     border: 0;
     border-radius: 4px;
     background: none;
     color: var(--muted);
-    font-size: 12px;
-    line-height: 1;
     cursor: pointer;
     opacity: 0;
     transition:
         opacity 267ms cubic-bezier(0.4, 0, 0.2, 1),
         width 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The same funnel as every other filter affordance in the app. */
+.report-row-header__filter-button::after {
+    width: 11px;
+    height: 11px;
+    background-color: currentColor;
+    content: "";
+    mask: var(--filter-icon) center / contain no-repeat;
 }
 
 .report-row-header--heading:hover .report-row-header__filter-button,
