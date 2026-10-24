@@ -2731,7 +2731,7 @@ function RenovationGridInner(
                 {onOpenRowFilter ? (
                     <button
                         type="button"
-                        className="renovation-grid__filter-button"
+                        className="header-filter-button"
                         aria-label="Перейти к строке"
                         onPointerDown={(event) => {
                             event.preventDefault();
@@ -2747,7 +2747,7 @@ function RenovationGridInner(
                             );
                         }}
                     >
-                        <Filter className="renovation-grid__filter-icon" aria-hidden="true" />
+                        <Filter className="header-filter-button__icon" aria-hidden="true" />
                     </button>
                 ) : null}
             </div>
@@ -2787,8 +2787,8 @@ function RenovationGridInner(
                                 type="button"
                                 className={
                                     activeFilterColumns?.has(cell.filterColumn)
-                                        ? "renovation-grid__filter-button is-active"
-                                        : "renovation-grid__filter-button"
+                                        ? "header-filter-button is-active"
+                                        : "header-filter-button"
                                 }
                                 aria-label={`Фильтр: ${cell.text}`}
                                 aria-pressed={activeFilterColumns?.has(cell.filterColumn) ?? false}
@@ -2812,10 +2812,7 @@ function RenovationGridInner(
                                 {/* The same funnel as every other filter
                                     affordance in the app (iconoir), so the
                                     header button reads as a filter. */}
-                                <Filter
-                                    className="renovation-grid__filter-icon"
-                                    aria-hidden="true"
-                                />
+                                <Filter className="header-filter-button__icon" aria-hidden="true" />
                             </button>
                         ) : null}
                     </div>
@@ -2841,8 +2838,8 @@ function RenovationGridInner(
                                 type="button"
                                 className={
                                     activeFilterColumns?.has(cell.filterColumn)
-                                        ? "renovation-grid__filter-button is-active"
-                                        : "renovation-grid__filter-button"
+                                        ? "header-filter-button is-active"
+                                        : "header-filter-button"
                                 }
                                 aria-label={`Фильтр: ${cell.label ?? cell.text}`}
                                 aria-pressed={activeFilterColumns?.has(cell.filterColumn) ?? false}
@@ -2861,10 +2858,7 @@ function RenovationGridInner(
                                     );
                                 }}
                             >
-                                <Filter
-                                    className="renovation-grid__filter-icon"
-                                    aria-hidden="true"
-                                />
+                                <Filter className="header-filter-button__icon" aria-hidden="true" />
                             </button>
                         ) : null}
                     </div>
