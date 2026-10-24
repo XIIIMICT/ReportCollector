@@ -153,7 +153,7 @@ export function useViewState(projectKey: string): ViewStateControls {
                 return next;
             });
         },
-        [projectKey],
+        [projectKey, setState],
     );
 
     const setShowServiceColumns = useCallback(
@@ -165,7 +165,7 @@ export function useViewState(projectKey: string): ViewStateControls {
                 return next;
             });
         },
-        [projectKey],
+        [projectKey, setState],
     );
 
     const setRowHeight = useCallback(
@@ -174,7 +174,7 @@ export function useViewState(projectKey: string): ViewStateControls {
             setRowHeightState(value);
             writeRowHeight(projectKey, value);
         },
-        [projectKey],
+        [projectKey, setRowHeightState],
     );
 
     const resetRowHeight = useCallback(() => {

@@ -272,6 +272,10 @@ export function RenovationDictionarySection({
     const pendingCommitRef = useRef<Promise<boolean> | null>(null);
     /** The live `doCommit` — `commit` is memoized and must not capture the binding. */
     const doCommitRef = useRef<(updates: CellUpdate[]) => Promise<boolean>>(async () => true);
+    /** The same for `createRecord`: a local function that changes every render. */
+    const createRecordRef = useRef<(payload: Record<string, unknown>) => Promise<void>>(
+        async () => {},
+    );
     const placeholderCreatePendingRef = useRef(false);
     const [placeholderDraft, setPlaceholderDraft] = useState<Record<string, unknown>>(() =>
         initialPlaceholderDraft(isDictionarySection(section) ? section : RENOVATION_ASSETS_SECTION),
@@ -317,7 +321,7 @@ export function RenovationDictionarySection({
                 false,
                 catalogDescriptors(catalogId),
             ),
-        [dictSection],
+        [dictSection, catalogId],
     );
 
     // Section switch: reset the placeholder-row state and selection.
@@ -374,7 +378,7 @@ export function RenovationDictionarySection({
             base.push(placeholderRow(dictSection, placeholderDraftRef.current));
         }
         return base;
-    }, [currentUserEmail, collabEnabled, dictSection, editableFieldKeys, rows]);
+    }, [collabTable, currentUserEmail, collabEnabled, dictSection, editableFieldKeys, rows]);
 
     // Remote cell values (live edits of other users) override the local ones.
     const displayRows = useMemo(() => {
@@ -512,6 +516,7 @@ export function RenovationDictionarySection({
         }
     }
     doCommitRef.current = doCommit;
+    createRecordRef.current = createRecord;
 
     async function replaceRecord(targetId: string | null) {
         if (!canReplace) return;
@@ -632,10 +637,10 @@ export function RenovationDictionarySection({
             const payload = placeholderPayload(dictSection, next);
             // createRecord itself shows the error and keeps the placeholder-row draft,
             // so no source rollback is needed.
-            if (payload) await createRecord(payload);
+            if (payload) await createRecordRef.current(payload);
             return true;
         },
-        [createRecord, dictSection, isMutationPending],
+        [dictSection, isMutationPending],
     );
 
     async function deleteRecords() {

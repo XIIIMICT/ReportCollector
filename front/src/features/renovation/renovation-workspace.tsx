@@ -1178,7 +1178,7 @@ export function RenovationWorkspace({
             if (scope === "columnWidths") dictResetState.resetColumnWidths();
             else void dictResetState.resetFiltersSorting();
         },
-        [dictResetState, isPlanSection],
+        [dictResetState, isPlanSection, setAssetFilter, setBlockFilter, setColumnFilters],
     );
 
     // In-place reload (refresh()): re-read the rows the grid currently holds so

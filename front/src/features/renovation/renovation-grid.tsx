@@ -980,6 +980,11 @@ function RenovationGridInner(
                 return column;
             }),
         ];
+        // `selectionEpoch` is deliberate: Ctrl+A bumps it only to force this
+        // rebuild, since the selection overlay does not repaint from a store
+        // change alone. Same for `scopeKey` below — a version/filter switch must
+        // rebuild, even though the memo does not read it.
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [
         assetWidth,
         baselineBoundary,
@@ -989,11 +994,11 @@ function RenovationGridInner(
         fieldWidth,
         onCommit,
         onCommitFailed,
-        readOnly,
         remoteCellInfo,
         selectedRowIdSet,
+        // `selectionEpoch` is not read here — Ctrl+A bumps it purely to force
+        // this rebuild (the selection overlay does not repaint otherwise).
         selectionEpoch,
-        visibleFields,
     ]);
 
     /**
@@ -1261,9 +1266,9 @@ function RenovationGridInner(
             // surface an unhandled AbortError. See `chunk-loader.ts`.
             loadData: chunkLoader,
         }),
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
         [chunkLoader, scopeKey, totalRows],
     );
-
     // Live updates: patch already-loaded rows in place. A full source reset
     // would evict the loaded window and re-fetch it (the flicker this grid had
     // before); `setSourceByPhysicalIndex` + `refresh` touches only the rows
@@ -1452,7 +1457,7 @@ function RenovationGridInner(
             };
             attempt();
         },
-        [columnInfoAt, columns, visibleFields],
+        [columnInfoAt, displayFields],
     );
 
     // Structural scroll: open at the remembered centre row (the reload/filter

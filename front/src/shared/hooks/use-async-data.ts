@@ -27,6 +27,7 @@ export function useAsyncData<T>(loader: () => Promise<T>, deps: DependencyList):
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         let isCancelled = false;
         setError(null);
@@ -54,6 +55,10 @@ export function useAsyncData<T>(loader: () => Promise<T>, deps: DependencyList):
         return () => {
             isCancelled = true;
         };
+        // The caller owns the dependency list (`deps` is passed straight through), so
+        // the linter cannot verify it statically. The setState calls below run on
+        // mount and on every `deps` change — the intended "refetch" behaviour.
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, deps);
 
     return { data, error, loading };

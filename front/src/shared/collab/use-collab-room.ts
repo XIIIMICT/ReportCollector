@@ -142,7 +142,7 @@ export function useCollabRoom({
             client.disconnect();
             clientRef.current = null;
         };
-    }, [enabled, projectKey, reportMonth, scope, section]);
+    }, [enabled, filterMembers, projectKey, reportMonth, scope, section]);
 
     const acquireLeases = useCallback((keys: string[]) => {
         clientRef.current?.acquireLeases(keys);

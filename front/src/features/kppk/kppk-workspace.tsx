@@ -1238,7 +1238,7 @@ export function KppkWorkspace({
         if (realizationOrgId !== null) return;
         const first = orgOptions[0];
         if (first) setRealizationOrgId(first.id);
-    }, [orgOptions, realizationOrgId]);
+    }, [orgOptions, realizationOrgId, setRealizationOrgId]);
     // Default the period to the loaded view's month/year (the server picks
     // the data's newest period); the user's explicit choice overrides it.
     useEffect(() => {
@@ -1252,7 +1252,7 @@ export function KppkWorkspace({
             (current) => current ?? (monthIndex >= 0 ? String(monthIndex + 1) : null),
         );
         setRealizationYear((current) => current ?? year);
-    }, [realizationPeriodText]);
+    }, [realizationPeriodText, setRealizationMonth, setRealizationYear]);
 
     // Apply the saved user theme once on mount. next-themes' setTheme changes
     // the identity on every theme switch, so the effect must not depend on it —
@@ -1260,6 +1260,7 @@ export function KppkWorkspace({
     // the point, not an oversight.
     useEffect(() => {
         setTheme(user.theme);
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const selectedTab =

@@ -356,7 +356,9 @@ function RawMaterialsGridInner(
     }, []);
     const resizedWidthsRef = useRef(new Map<string, number>());
     // Bumped after a widths reset: the columns memo reads the ref, so it needs
-    // a dependency change to rebuild with default sizes.
+    // a dependency change to rebuild with default sizes. Read as a `void`
+    // statement inside the memo so the dependency is genuinely used — the linter
+    // cannot see through `restoreColumnWidths` into the ref it touches.
     const [widthsVersion, setWidthsVersion] = useState(0);
     const widthKeySection = namespace ?? section;
     // The form whose position is remembered; both parts are per scope.
@@ -566,6 +568,10 @@ function RawMaterialsGridInner(
     );
 
     const columns = useMemo(() => {
+        // Referenced on purpose: `restoreColumnWidths` below reads the widths
+        // through a ref (not reactive), so this counter is the only signal that
+        // a reset happened and the columns must be rebuilt.
+        void widthsVersion;
         const next = buildGridColumns(section, {
             isAdmin,
             showAssetColumn,
@@ -1033,6 +1039,10 @@ function RawMaterialsGridInner(
 
             return false;
         },
+        // `canEditDescriptor` is a MODULE-level function (pure, no captured state),
+        // so it never needs to be a dependency; the linter cannot tell a module
+        // function from a local one.
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
         [descriptorByKey, editableKeys, flatColumns, readOnly, remoteLocks, remotePresence],
     );
 
@@ -1437,7 +1447,7 @@ function RawMaterialsGridInner(
                 .filter((row) => !row.isPlaceholder && !row.isDeleted)
                 .map((row) => row.id),
         };
-    }, [rows, section, showAssetColumn, showServiceColumns, columnDescriptors]);
+    }, [rows, section, showAssetColumn, showServiceColumns, columnDescriptors, keycloakEnabled]);
 
     const lastStatsRef = useRef<GridViewStats | null>(null);
 
@@ -1813,7 +1823,7 @@ function RawMaterialsGridInner(
             grid.removeEventListener("canceledit", handleCancelEdit);
             grid.removeEventListener("beforeheaderclick", handleBeforeHeaderClickCapture, true);
         };
-    }, [copySelection, pasteIntoSelection, updateSelectionRange, measureViewport]);
+    }, [copySelection, onReleaseLease, pasteIntoSelection, updateSelectionRange, measureViewport]);
     useImperativeHandle(
         forwardedRef,
         () => ({

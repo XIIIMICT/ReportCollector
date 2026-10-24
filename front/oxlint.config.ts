@@ -20,16 +20,7 @@ import { defineConfig } from "oxlint";
  * the deliberate deviations, each with its reason inline.
  */
 export default defineConfig({
-    plugins: [
-        "react",
-        "react-perf",
-        "nextjs",
-        "vitest",
-        "promise",
-        "node",
-        "import",
-        "jsdoc",
-    ],
+    plugins: ["react", "react-perf", "nextjs", "vitest", "promise", "node", "import", "jsdoc"],
     categories: {
         correctness: "error",
         suspicious: "warn",
@@ -48,6 +39,9 @@ export default defineConfig({
         // Hooks: correctness stays on; the dependency list is a warning, since
         // several effects intentionally run once on mount.
         "react/rules-of-hooks": "error",
+        // Every hook in the codebase is checked; the handful of callbacks that
+        // depend on FIELDS of inline-built objects (rather than the objects) are
+        // documented at the call site.
         "react/exhaustive-deps": "warn",
         // The codebase composes components freely (section + row helpers).
         "react/no-multi-comp": "off",
@@ -72,6 +66,31 @@ export default defineConfig({
         // Fires on `useMemo` bodies that switch over props and on the compiler's
         // own memoization hints; the codebase memoizes by hand already.
         "react/preserve-manual-memoization": "off",
+
+        // The plan grid's synthetic row fields use the `__` prefix on purpose:
+        // `RenovationGridRow` is `& Record<string, unknown>`, so the prefix is
+        // what keeps these internal fields from ever colliding with a database
+        // column (`col_002`…`col_217`) — the same convention gives `__id`,
+        // `__position`, `__rowState`. The names are part of the row contract
+        // between the grid, the workspace and the export, so they are allow-listed
+        // rather than renamed.
+        "no-underscore-dangle": [
+            "warn",
+            {
+                allow: [
+                    "__id",
+                    "__index",
+                    "__position",
+                    "__assetId",
+                    "__assetName",
+                    "__renovationId",
+                    "__rowState",
+                    "__changedFields",
+                    "__missingComponents",
+                    "__invalidFields",
+                ],
+            },
+        ],
 
         // Tests: `bun test` imports its helpers from `bun:test` rather than
         // using vitest globals, which those rules assume.
