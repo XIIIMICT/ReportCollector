@@ -31,6 +31,42 @@ import {
 
 import "@revolist/rv-pro-trial/styles.css";
 import { createChunkLoader } from "@/features/renovation/chunk-loader";
+import {
+    ASSET_COLUMN_PROP,
+    ASSET_COLUMN_WIDTH,
+    ASSET_FIELD_DB_NAME,
+    BLOCK_HEADER_LABELS,
+    DEFAULT_COLUMN_WIDTH,
+    HEADER_LEVEL_COUNT,
+    HEADER_LEVEL_HEIGHT,
+    INFINITY_BUFFER_ROWS,
+    INFINITY_CHUNK_ROWS,
+    INFINITY_PRELOAD_THRESHOLD,
+    MAX_COLUMN_WIDTH,
+    MIN_COLUMN_WIDTH,
+    MISSING_COMPONENT,
+    ROW_HEADER_WIDTH,
+    SERVICE_COLUMNS,
+    SERVICE_DB_NAMES,
+    WIDTH_STORAGE_PREFIX,
+} from "@/features/renovation/renovation-grid-constants";
+import {
+    dateTemplate,
+    dateTimeTemplate,
+    normalizeDate,
+    numberTemplate,
+} from "@/features/renovation/renovation-grid-format";
+import {
+    clampLevelHeight,
+    clampWidth,
+    columnNumber,
+    defaultLevelHeights,
+    handleClipPath,
+    isGridTarget,
+    loadLevelHeights,
+    mergeBands,
+    type HandleBand,
+} from "@/features/renovation/renovation-grid-header";
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import type {
     RenovationCatalog,
@@ -74,69 +110,6 @@ import { renovationRowStats } from "./renovation-stats";
 
 export const RENOVATION_PLAN_ROWS_TABLE = "r_plan_rows";
 
-const HEADER_LEVEL_HEIGHT = 24;
-/** Limits of a header level's height (dragged on the level's bottom boundary). */
-const MIN_HEADER_LEVEL_HEIGHT = 12;
-const MAX_HEADER_LEVEL_HEIGHT = 400;
-/** Persisted header level heights — a JSON array, one entry per level. */
-const HEADER_LEVEL_HEIGHT_STORAGE_KEY = "renovation:headerLevelHeights";
-
-const HEADER_LEVEL_COUNT = 11;
-const ROW_HEADER_WIDTH = 52;
-
-const MIN_COLUMN_WIDTH = 60;
-const MAX_COLUMN_WIDTH = 600;
-const WIDTH_STORAGE_PREFIX = "renovation:colWidth:";
-const DEFAULT_COLUMN_WIDTH: Record<string, number> = {
-    number: 110,
-    date: 130,
-    boolean: 90,
-    reference: 160,
-    text: 200,
-};
-
-/** The synthetic first column showing the row's asset; an asset picker in the placeholder row. */
-const ASSET_COLUMN_PROP = "__assetName";
-const ASSET_COLUMN_WIDTH = 220;
-/** The form field the synthetic asset column replaces (its ordinal numbers the column). */
-const ASSET_FIELD_DB_NAME = "col_002";
-
-/** Placeholder a missing renovation-id component is replaced with (backend renovation_id.py). */
-const MISSING_COMPONENT = "<NULL>";
-
-/** Stable empty pinned strip — a fresh `[]` per render makes revo-grid reprocess the pinned row. */
-const EMPTY_PINNED_SOURCE: RenovationGridRow[] = [];
-
-/**
- * Rows per remote chunk. One scroll load = one request; the plugin keeps
- * `bufferSize` rows around the viewport and evicts the rest, so memory stays
- * flat no matter how far the user scrolls.
- */
-const INFINITY_CHUNK_ROWS = 100;
-/** Rows kept loaded around the viewport (chunks are evicted beyond it). */
-const INFINITY_BUFFER_ROWS = 400;
-/** Fraction of the last loaded chunk that triggers the next prefetch. */
-const INFINITY_PRELOAD_THRESHOLD = 0.5;
-
-/** Canonical responsibility-block labels — must match the «Все блоки» filter. */
-const BLOCK_HEADER_LABELS: Record<string, string> = {
-    tech: "1) Техническая дирекция",
-    ksir: "2) Дирекция КСиР",
-    mto: "3) Дирекция МТО",
-};
-
-/** Service columns revealed by the corner menu («Показать служебные столбцы»):
- * the same audit trio as every other dictionary (creation time, edit time and
- * the last editor) — not the internal id/position/revision. */
-const SERVICE_COLUMNS: ReadonlyArray<{ dbName: string; label: string; width: number }> =
-    SERVICE_DESCRIPTORS.map((descriptor) => ({
-        dbName: descriptor.key,
-        label: descriptor.label,
-        width: descriptor.width,
-    }));
-
-/** Row-model fields that are not plan values (the overlay never renders them). */
-const SERVICE_DB_NAMES = new Set(SERVICE_COLUMNS.map((column) => column.dbName));
 
 export type RenovationGridRow = {
     /** Canonical row id (UUID). */
@@ -297,195 +270,6 @@ export type RenovationGridHandle = {
 
 export function canonicalRenovationKey(rowId: string, field: string): string {
     return `${RENOVATION_PLAN_ROWS_TABLE}/${rowId}/${field}`;
-}
-
-function isGridTarget(event: Event, grid: HTMLRevoGridElement): boolean {
-    const target = event.target as Node | null;
-    if (!target) return false;
-    return target === grid || grid.contains(target) || (grid.shadowRoot?.contains(target) ?? false);
-}
-
-function clampWidth(width: number): number {
-    return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, width));
-}
-
-function clampLevelHeight(height: number): number {
-    return Math.min(MAX_HEADER_LEVEL_HEIGHT, Math.max(MIN_HEADER_LEVEL_HEIGHT, height));
-}
-
-/** A contiguous slice of a resize handle along its long axis (body coordinates). */
-type HandleBand = { from: number; to: number };
-
-/** Merge touching/overlapping bands — the tiling header cells share their edges. */
-function mergeBands(bands: HandleBand[]): HandleBand[] {
-    const sorted = [...bands].sort((a, b) => a.from - b.from);
-    const merged: HandleBand[] = [];
-    for (const band of sorted) {
-        const last = merged[merged.length - 1];
-        if (last && band.from <= last.to + 0.5) last.to = Math.max(last.to, band.to);
-        else merged.push({ ...band });
-    }
-    return merged;
-}
-
-/**
- * `clip-path` limiting a 6px-thick resize handle to the bands where its
- * boundary line is actually drawn: inside a merged (spanned) header cell there
- * is no line, and the handle must not react to the pointer there — otherwise
- * the resize bar pops up over the merged cells' interior. `null` when the
- * bands cover the whole box (nothing to clip).
- */
-function handleClipPath(bands: HandleBand[], length: number, vertical: boolean): string | null {
-    // No visible band — hide the handle entirely (defensive: the callers skip
-    // such handles, the column handles always carry the number strip's band).
-    if (bands.length === 0) return "inset(0 0 100% 0)";
-    const first = bands[0];
-    const last = bands[bands.length - 1];
-    if (
-        bands.length === 1 &&
-        first !== undefined &&
-        last !== undefined &&
-        first.from <= 0.5 &&
-        last.to >= length - 0.5
-    ) {
-        return null;
-    }
-    const px = (value: number): string => `${Math.round(value * 10) / 10}px`;
-    const points: string[] = [];
-    for (const band of bands) {
-        // A "staircase" polygon: disjoint bands, the connectors run along the
-        // handle's own edges, so nothing between the bands is painted or hit.
-        if (vertical) {
-            points.push(`0px ${px(band.from)}`, `6px ${px(band.from)}`);
-            points.push(`6px ${px(band.to)}`, `0px ${px(band.to)}`);
-        } else {
-            points.push(`${px(band.from)} 0px`, `${px(band.from)} 6px`);
-            points.push(`${px(band.to)} 6px`, `${px(band.to)} 0px`);
-        }
-    }
-    return `polygon(${points.join(", ")})`;
-}
-
-/**
- * The number a column shows in the strip: the workbook ordinal shifted so the
- * first data column («Предприятие») is 1 — the workbook counts the row-number
- * «№» column as 1, the app does not number it. Using the ordinal (not the
- * field's `position`, which the dropped col_218 skips) keeps the numbering
- * continuous whatever is hidden.
- */
-function columnNumber(field: RenovationField): number {
-    return field.ordinal - 1;
-}
-
-function defaultLevelHeights(): number[] {
-    return Array.from({ length: HEADER_LEVEL_COUNT }, () => HEADER_LEVEL_HEIGHT);
-}
-
-/** Persisted header level heights (a JSON array) with per-level clamping. */
-function loadLevelHeights(): number[] {
-    const fallback = defaultLevelHeights();
-    // Guard the lazy initializer: it runs during render, which can happen in an
-    // environment without `window` (SSR / early hydration / some e2e).
-    if (typeof window === "undefined") return fallback;
-    try {
-        const raw = window.localStorage.getItem(HEADER_LEVEL_HEIGHT_STORAGE_KEY);
-        if (!raw) return fallback;
-        const parsed: unknown = JSON.parse(raw);
-        if (!Array.isArray(parsed) || parsed.length !== HEADER_LEVEL_COUNT) return fallback;
-        return parsed.map((value, index) => {
-            const numeric = Number(value);
-            return Number.isFinite(numeric)
-                ? clampLevelHeight(numeric)
-                : (fallback[index] ?? HEADER_LEVEL_HEIGHT);
-        });
-    } catch {
-        return fallback;
-    }
-}
-
-function numberTemplate(decimals: number | null | undefined) {
-    const digits = decimals ?? 0;
-    const formatter = new Intl.NumberFormat("ru-RU", {
-        minimumFractionDigits: digits,
-        maximumFractionDigits: Math.max(digits, 6),
-    });
-    return (h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode => {
-        if (value === null || value === undefined || value === "") return h("span", {});
-        const parsed = typeof value === "number" ? value : Number(String(value).replace(",", "."));
-        const label = Number.isFinite(parsed) ? formatter.format(parsed) : String(value);
-        return h("span", { class: "report-cell__number" }, label);
-    };
-}
-
-// Unified date/datetime rendering (Russian): дд.мм.гггг and дд.мм.гггг, чч:мм:сс.
-// Date values arrive as 'YYYY-MM-DD'; datetimes as a full ISO string.
-function formatPlanDate(value: unknown): string {
-    if (value === null || value === undefined || value === "") return "";
-    const s = String(value);
-    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s.trim());
-    if (m) return `${m[3]}.${m[2]}.${m[1]}`;
-    const parsed = new Date(s);
-    return Number.isNaN(parsed.getTime())
-        ? s
-        : new Intl.DateTimeFormat("ru-RU", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-          }).format(parsed);
-}
-
-function formatPlanDateTime(value: unknown): string {
-    if (value === null || value === undefined || value === "") return "";
-    const s = String(value);
-    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(s.trim());
-    if (m) return `${m[3]}.${m[2]}.${m[1]}, ${m[4]}:${m[5]}:${m[6]}`;
-    const parsed = new Date(s);
-    return Number.isNaN(parsed.getTime())
-        ? s
-        : new Intl.DateTimeFormat("ru-RU", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-          }).format(parsed);
-}
-
-function dateTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode {
-    const label = formatPlanDate(value);
-    return label ? h("span", {}, label) : h("span", {});
-}
-
-function dateTimeTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode {
-    const label = formatPlanDateTime(value);
-    return label ? h("span", {}, label) : h("span", {});
-}
-
-function normalizeDate(text: string): string | null {
-    const dotted = text.split(".");
-    if (dotted.length === 3) {
-        const day = Number(dotted[0]);
-        const month = Number(dotted[1]);
-        const year = Number(dotted[2]);
-        if (
-            Number.isInteger(day) &&
-            Number.isInteger(month) &&
-            Number.isInteger(year) &&
-            day >= 1 &&
-            day <= 31 &&
-            month >= 1 &&
-            month <= 12 &&
-            year >= 1900 &&
-            year <= 2100
-        ) {
-            const pad = (item: number): string => String(item).padStart(2, "0");
-            return `${year}-${pad(month)}-${pad(day)}`;
-        }
-        return null;
-    }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
-    return null;
 }
 
 type NormalizeResult = { ok: true; value: unknown } | { ok: false; message: string };
@@ -1444,6 +1228,12 @@ function RenovationGridInner(
      * viewport is not a position the user chose — see `reportCenterPosition`.
      */
     const restorePendingRef = useRef(false);
+    /**
+     * Hard stop for the "jump in flight" block. A jump normally clears it in a
+     * few hundred milliseconds; the deadline guarantees that a jump which never
+     * resolves cannot freeze the remembered position forever.
+     */
+    const restoreDeadlineRef = useRef(0);
     const totalRowsRef = useRef(totalRows);
     totalRowsRef.current = totalRows;
     const summaryHeightRef = useRef(summaryHeight);
@@ -1513,6 +1303,9 @@ function RenovationGridInner(
             let cancelled = false;
             let attempts = 0;
             jumpInFlightRef.current += 1;
+            // A jump that never resolves must not block the position report:
+            // 50 attempts x 150 ms is the longest useful flight.
+            restoreDeadlineRef.current = Date.now() + 12_000;
             // The scroll coordinate the row should end up at: its top, or — for a
             // centred jump — the middle of the data viewport (the pinned totals row
             // is not part of the scrollable rows).
@@ -1538,7 +1331,14 @@ function RenovationGridInner(
                 const internal = grid.querySelector(
                     "revogr-scroll-virtual.vertical",
                 ) as HTMLElement | null;
-                const max = Math.max(0, (internal?.scrollHeight ?? 0) - grid.clientHeight);
+                // A collapsed viewport (the plan is still measuring) reports a
+                // content height that cannot reach the target — that is not a
+                // limit, it is "not laid out yet". Only trust the end once the
+                // scroller actually has room to move.
+                if (!internal || internal.scrollHeight - grid.clientHeight < rowHeight * 3) {
+                    return false;
+                }
+                const max = Math.max(0, internal.scrollHeight - grid.clientHeight);
                 return scrollTop() >= max;
             };
             const landed = () => {
@@ -1556,6 +1356,14 @@ function RenovationGridInner(
             const attempt = () => {
                 if (cancelled || attempts >= 50) return;
                 attempts += 1;
+                // A grid that has not laid itself out yet cannot scroll anywhere:
+                // its scroller is still tiny, so the jump is clamped to a few rows
+                // and `landed()` then sees it "at the limit". Wait for real height
+                // instead of burning the attempts on a collapsed viewport.
+                if (grid.clientHeight < rowHeight * 3) {
+                    window.setTimeout(attempt, 100);
+                    return;
+                }
                 void (async () => {
                     try {
                         if (centered) await grid.scrollToCoordinate({ y: targetTop() });
@@ -1666,15 +1474,16 @@ function RenovationGridInner(
     }, [scrollToPosition, totalRows, jumpToRow]);
 
     // The restore finished travelling: from now on the viewport row IS the
-    // user's position and may be remembered again.
+    // user's position and may be remembered again. Keyed on the jump itself —
+    // a bare mount-time effect ran before the jump had started, left the flag
+    // stuck ON and silenced every later report.
     useEffect(() => {
-        if (jumpInFlightRef.current > 0) return;
-        if (!restorePendingRef.current) return;
+        if (!scrollToPosition || jumpInFlightRef.current > 0) return;
         const timer = window.setTimeout(() => {
             if (jumpInFlightRef.current === 0) restorePendingRef.current = false;
         }, 250);
         return () => window.clearTimeout(timer);
-    });
+    }, [scrollToPosition]);
 
     // Report the stored position of the row in the middle of the data viewport.
     // The plugin evicts far chunks, so the centre slot itself may be a hole —
@@ -1689,7 +1498,9 @@ function RenovationGridInner(
         // viewport sits at the top and the remembered row is restored a moment
         // later; the early report wrote THAT top row over the remembered one
         // (100011 -> 12), so the reload always came back to the first rows.
-        if (jumpInFlightRef.current > 0) return;
+        // The block is bounded by a deadline: a jump that dies for any reason
+        // must not silence the saved position for the rest of the session.
+        if (jumpInFlightRef.current > 0 && Date.now() < restoreDeadlineRef.current) return;
         const scroll = grid.querySelector("revogr-scroll-virtual.vertical") as HTMLElement | null;
         const scrollTop = scroll?.scrollTop ?? 0;
         // Nothing scrolled yet is not a position the user chose — on mount the
