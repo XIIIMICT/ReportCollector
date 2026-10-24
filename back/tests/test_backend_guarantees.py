@@ -126,11 +126,12 @@ async def test_other_session_lease_blocks_patch(client, db_session, isolated_sto
     assert (await patch(client, row_id)).status_code == 422
 
 
-async def test_rollback_removes_edit_history_revisions_and_event(db_session, test_engine):
+@pytest.mark.real_schema
+async def test_rollback_removes_edit_history_revisions_and_event(db_session, my_engine):
     user, rows, assets = await admin_and_rows(db_session)
     row_id, old_value, user_id = rows[0].id, rows[0].balance_on_site_tons, user.id
     await db_session.rollback()
-    factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    factory = async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False)
     async with factory() as session:
         user = await session.get(User, user_id)
         assets = list((await session.exec(select(RawMaterialAsset))).all())
@@ -169,7 +170,8 @@ async def test_rollback_removes_edit_history_revisions_and_event(db_session, tes
             assert list((await session.exec(select(model))).all()) == []
 
 
-async def test_outbox_retries_without_losing_committed_data(db_session, test_engine, monkeypatch, isolated_store):
+@pytest.mark.real_schema
+async def test_outbox_retries_without_losing_committed_data(db_session, my_engine, monkeypatch, isolated_store):
     from src.collab import outbox
 
     user, rows, assets = await admin_and_rows(db_session)
@@ -194,7 +196,7 @@ async def test_outbox_retries_without_losing_committed_data(db_session, test_eng
     )
     await db_session.commit()
     monkeypatch.setattr(
-        outbox, "async_session_factory", async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+        outbox, "async_session_factory", async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False)
     )
     sender = AsyncMock(side_effect=RedisConnectionError("injected outage"))
     monkeypatch.setattr(isolated_store, "publish", sender)
@@ -242,12 +244,13 @@ async def test_undo_cannot_mutate_archive(client, db_session):
     assert (await db_session.get(RenovationPlanRow, row_id, populate_existing=True)).col_011 == "Saved"
 
 
-async def test_concurrent_renovation_edits_preserve_both_values_and_formula(db_session, test_engine):
+@pytest.mark.real_schema
+async def test_concurrent_renovation_edits_preserve_both_values_and_formula(db_session, my_engine):
     user = (await db_session.exec(select(User))).one()
     row = (await db_session.exec(select(RenovationPlanRow))).first()
     user_id, row_id = user.id, row.id
     await db_session.commit()
-    factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    factory = async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False)
 
     async def edit(field, value) -> None:
         async with factory() as session:
@@ -326,11 +329,12 @@ async def test_expired_history_is_unavailable_and_pruned(db_session):
     assert list((await db_session.exec(select(EditStack))).all()) == []
 
 
-async def test_readiness_checks_database_and_valkey(client, test_engine, monkeypatch, isolated_store):
+@pytest.mark.real_schema
+async def test_readiness_checks_database_and_valkey(client, my_engine, monkeypatch, isolated_store):
     from src import main
 
     monkeypatch.setattr(
-        main, "async_session_factory", async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+        main, "async_session_factory", async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False)
     )
     response = await client.get("/ready")
     assert response.status_code == 200
@@ -362,7 +366,8 @@ def test_transport_logs_redact_ticket_without_destroying_format_arguments(logger
     assert rendered.endswith("101")
 
 
-async def test_outbox_worker_retries_and_prunes_expired_history(db_session, test_engine, monkeypatch):
+@pytest.mark.real_schema
+async def test_outbox_worker_retries_and_prunes_expired_history(db_session, my_engine, monkeypatch):
     from src.collab import outbox
 
     user, _, _ = await admin_and_rows(db_session)
@@ -377,7 +382,7 @@ async def test_outbox_worker_retries_and_prunes_expired_history(db_session, test
     )
     await db_session.commit()
     monkeypatch.setattr(
-        outbox, "async_session_factory", async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+        outbox, "async_session_factory", async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False)
     )
     dispatch = AsyncMock(side_effect=[RedisConnectionError("outage"), None])
     monkeypatch.setattr(outbox, "dispatch_once", dispatch)
@@ -396,11 +401,12 @@ async def test_outbox_worker_retries_and_prunes_expired_history(db_session, test
     assert list((await db_session.exec(select(EditStack))).all()) == []
 
 
-async def test_session_dependency_commits_and_rolls_back(test_engine, monkeypatch):
+@pytest.mark.real_schema
+async def test_session_dependency_commits_and_rolls_back(my_engine, monkeypatch):
     from src import database
 
     monkeypatch.setattr(
-        database, "async_session_factory", async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+        database, "async_session_factory", async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False)
     )
     dependency = database.get_session()
     session = await anext(dependency)

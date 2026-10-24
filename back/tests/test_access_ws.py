@@ -147,7 +147,10 @@ async def test_lease_rejects_unknown_rows_and_read_only_fields(db_session, store
     assert socket.sent[-1]["type"] == "error"
 
 
+@pytest.mark.real_schema
 async def test_fifty_idle_sockets_release_database_connections(db_session, test_engine, store):
+    # This one measures `test_engine`'s pool itself, so it owns its schema: under
+    # the shared transaction that pool is already occupied by the session fixture.
     await db_session.close()
     sockets = [FakeWebSocket(project="raw_materials") for _ in range(50)]
     sessions = [AsyncSession(test_engine, expire_on_commit=False) for _ in sockets]

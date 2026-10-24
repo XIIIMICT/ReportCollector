@@ -652,6 +652,7 @@ async def test_undo_redo_dictionary_asset(client, store) -> None:
     )
 
 
+@pytest.mark.real_schema
 async def test_ws_project_isolation(client, db_session, store) -> None:
     """A project's leases and presence don't intersect other projects."""
     await _make_project(db_session, key="kppk", name="КППК")
@@ -672,6 +673,7 @@ async def test_ws_project_isolation(client, db_session, store) -> None:
     assert await store.room_members("rm:kppk:materialMovement:2026-08-01") == {}
 
 
+@pytest.mark.real_schema
 async def test_ws_ping_refreshes_presence(db_session, store, presence_expiry) -> None:
     """Heartbeat renews presence: the member doesn't vanish from the room."""
     room = "rm:raw_materials:materialMovement:2026-08-01"
@@ -694,6 +696,7 @@ async def test_ws_ping_refreshes_presence(db_session, store, presence_expiry) ->
     await task
 
 
+@pytest.mark.real_schema
 async def test_ws_ping_readds_expired_presence(db_session, store) -> None:
     """A returning member shows up in «На форме» on the very first heartbeat."""
     room = "rm:raw_materials:materialMovement:2026-08-01"
@@ -726,6 +729,7 @@ async def test_refresh_presence_reports_missing_member(store) -> None:
     assert await store.refresh_presence(room, "u-1") is True
 
 
+@pytest.mark.real_schema
 async def test_ws_rejects_unexpected_origin(db_session, store) -> None:
     """An Origin outside BACKEND_CORS_ORIGINS is rejected on the handshake."""
     fake = FakeWebSocket(project="raw_materials", origin="https://evil.example")
@@ -735,6 +739,7 @@ async def test_ws_rejects_unexpected_origin(db_session, store) -> None:
     assert not await store.room_members("rm:raw_materials:materialMovement:2026-08-01")
 
 
+@pytest.mark.real_schema
 async def test_ws_connect_keeps_undo_stack(client, db_session, store) -> None:
     """Undo/redo history survives reconnects (form switches, reload)."""
     row_id = await _movement_row_id(client)

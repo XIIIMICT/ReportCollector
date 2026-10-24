@@ -14,6 +14,7 @@ from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 if TYPE_CHECKING:
@@ -51,10 +52,28 @@ TEST_DATABASE_URL = os.environ["TEST_DATABASE_URL"]
 # `127.0.0.1` behaves identically to `localhost` on Linux CI.
 TEST_DATABASE_URL = TEST_DATABASE_URL.replace("@localhost:", "@127.0.0.1:")
 TEST_SCHEMA = os.environ["TEST_SCHEMA"]
+# `test_migrations.py` builds and drops its OWN schema: it exercises the real
+# migration chain, so it must own the schema it rewrites. Sharing the session
+# schema would make it drop the tables the other tests' transaction still holds.
+MIGRATION_SCHEMA = f"{TEST_SCHEMA}_migrations"
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if not TEST_SCHEMA.startswith("rc_test") or not TEST_SCHEMA.replace("_", "").isalnum():
     message = "TEST_SCHEMA must be a dedicated rc_test* schema"
     raise pytest.UsageError(message)
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the marker that switches `db_session` to the migration schema."""
+    config.addinivalue_line(
+        "markers",
+        "migration_schema: the test rewrites the schema itself and needs a real "
+        "database with no long-lived transaction (see db_session)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "real_schema: the test needs real, cross-connection visible commits "
+        "(concurrency/rollback/outbox); it gets a schema rebuilt per test",
+    )
 
 
 @pytest.fixture(scope="session")
@@ -309,9 +328,24 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
     await recompute_plan_rows(session, plan_id=working.id)
 
 
-@pytest.fixture
-async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
-    """DB session with a clean seed per test (isolation from commits inside tests)."""
+@pytest.fixture(scope="session")
+async def test_database(test_engine) -> None:
+    """
+    Build the schema ONCE per session; every test then runs in a rolled-back transaction.
+
+    Recreating the schema per test (`DROP SCHEMA` + `alembic upgrade head` + seed)
+    cost ~8 s per test — more than the whole suite spends on real assertions — so
+    the schema, the migrations and the seed now happen once here.
+
+    Isolation is unchanged: each test gets an outer transaction that is rolled back
+    in its teardown, so nothing a test writes survives it. Safe because
+    - the locks are `pg_advisory_xact_lock`, released with the transaction;
+    - the read caches are cleared per test (the seeded rows get fresh ids);
+    - every connection in the suite is injected from the test session — nothing
+      reads the schema through a separate connection/transaction.
+    Tests are therefore SINGLE-threaded by contract: `drop_tables`/`adopt_baseline`
+    in `test_migrations.py` own a throwaway schema and do not touch this one.
+    """
     async with test_engine.begin() as conn:
         await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
         await conn.execute(text(f'CREATE SCHEMA "{TEST_SCHEMA}"'))
@@ -319,17 +353,172 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
         config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
         config.attributes["connection"] = conn.sync_connection
         await conn.run_sync(lambda _: command.upgrade(config, "head"))
-    session_factory = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+class _DetachedSession:
+    """Stand-in for `db_session` in the migration tests.
+
+    Their rows are already committed, so `commit()`/`close()` are no-ops; the
+    calls stay in the test bodies because they used to flush the seed before the
+    schema was rewritten. Anything that needs real SQL uses `migration_engine`.
+    """
+
+    async def commit(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
+@pytest.fixture
+async def my_engine():
+    """Provide a plain engine for tests that need REAL, visible transactions.
+
+    Concurrency, rollback and outbox cases open their own sessions and rely on
+    commits being visible to other connections — exactly what the per-test
+    transaction of `db_session` hides on purpose. Those tests are marked
+    `real_schema`: they get a freshly migrated schema and clean up after
+    themselves, trading isolation-by-rollback for correctness.
+    """
+    engine = create_async_engine(
+        TEST_DATABASE_URL,
+        connect_args={"server_settings": {"search_path": TEST_SCHEMA}},
+        pool_pre_ping=True,
+        # Its own pool: sharing `test_engine` lets a pooled connection from a
+        # rolled-back test answer a query here, and the advisory project lock that
+        # connection still holds then blocks the real one.
+        poolclass=NullPool,
+    )
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture
+async def migration_engine():
+    """
+    Bind a separate engine to `MIGRATION_SCHEMA` for the migration tests.
+
+    They downgrade, stamp and drop tables for real, so they cannot share the
+    schema (and the connection) the ordinary tests' transaction holds — doing so
+    blocks every `ALTER TABLE` in the chain waiting for that transaction's locks.
+    """
+    engine = create_async_engine(
+        TEST_DATABASE_URL,
+        connect_args={"server_settings": {"search_path": MIGRATION_SCHEMA}},
+        pool_pre_ping=True,
+    )
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture
+async def db_session(
+    request, test_engine, migration_engine, my_engine, test_database
+) -> AsyncGenerator[AsyncSession | _DetachedSession]:
+    """
+    One test, one transaction: everything is rolled back on teardown.
+
+    The session joins an explicit outer transaction with
+    `join_transaction_mode="create_savepoint"`, so a `commit()` inside the code
+    under test commits only a SAVEPOINT — the outer transaction still discards it.
+
+    The migration tests need the REAL schema (they downgrade, stamp and drop
+    tables), so for them this fixture only prepares a freshly migrated, seeded
+    schema and yields `None` — they use `migration_engine` directly.
+    """
+    # Explicit opt-in, not `request.fixturenames`: the engine is a parameter of this
+    # fixture, so every test would look like a special case.
+    if request.node.get_closest_marker("migration_schema") is not None:
+        # The migration tests rewrite the schema themselves (downgrade, stamp,
+        # DROP SCHEMA). They only need a SEEDED schema to start from, so the rows
+        # are committed and the connection handed back: holding a transaction the
+        # way the ordinary tests do would block every `ALTER TABLE` in the chain.
+        async with migration_engine.begin() as conn:
+            await conn.execute(text(f'DROP SCHEMA IF EXISTS "{MIGRATION_SCHEMA}" CASCADE'))
+            await conn.execute(text(f'CREATE SCHEMA "{MIGRATION_SCHEMA}"'))
+            config = Config(str(BACKEND_DIR / "alembic.ini"))
+            config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+            config.attributes["connection"] = conn.sync_connection
+            await conn.run_sync(lambda _: command.upgrade(config, "head"))
+        factory = async_sessionmaker(migration_engine, class_=AsyncSession, expire_on_commit=False)
+        async with factory() as session:
+            await _seed_session(session)
+            await session.commit()
+
+        yield _DetachedSession()
+        return
+    if request.node.get_closest_marker("real_schema") is not None:
+        # Real, visible transactions (concurrency/rollback/outbox): rebuild the
+        # schema per test exactly like the suite did before the transaction
+        # optimisation, and hand out a session over `my_engine`.
+        async with test_engine.begin() as conn:
+            await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
+            await conn.execute(text(f'CREATE SCHEMA "{TEST_SCHEMA}"'))
+            config = Config(str(BACKEND_DIR / "alembic.ini"))
+            config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+            config.attributes["connection"] = conn.sync_connection
+            await conn.run_sync(lambda _: command.upgrade(config, "head"))
+        factory = async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False)
+        async with factory() as session:
+            await _seed_session(session)
+            await session.commit()
+            try:
+                yield session
+            finally:
+                await session.close()
+                # The rows were committed for real, so they are wiped here — the
+                # schema (and its migrations) stays for the next test.
+                async with test_engine.begin() as conn:
+                    tables = (
+                        await conn.execute(
+                            text(
+                                "SELECT tablename FROM pg_tables "
+                                "WHERE schemaname = :schema AND tablename <> 'alembic_version'"
+                            ),
+                            {"schema": TEST_SCHEMA},
+                        )
+                    ).scalars().all()
+                    if tables:
+                        await conn.execute(
+                            text(
+                                "TRUNCATE TABLE "
+                                + ", ".join(f'"{TEST_SCHEMA}"."{name}"' for name in tables)
+                                + " RESTART IDENTITY CASCADE"
+                            )
+                        )
+                from src.common.read_cache import clear_read_cache
+
+                clear_read_cache()
+        return
+    # A connection of its own engine, NOT `test_engine`'s pool: that pool belongs
+    # to the tests (one WS test asserts it drains to zero), so the session under
+    # test must not occupy a slot there for the whole body.
+    connection = await my_engine.connect()
+    transaction = await connection.begin()
+    session_factory = async_sessionmaker(
+        bind=connection,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
     async with session_factory() as session:
         await _seed_session(session)
+        # The seed must be visible to OTHER connections: several tests open a
+        # second session (or the WebSocket/listener path does) and read the same
+        # rows. It is committed by the fixture, so the transaction teardown below
+        # cannot undo it — those tests clean their own rows, and every test starts
+        # from a freshly created schema. Committing here costs nothing: the rows
+        # are what the old per-test schema recreation used to produce anyway.
+        await session.flush()
         try:
             yield session
         finally:
-            await session.rollback()
-            # Every test recreates the schema, so a cached row set from the
-            # previous test would describe tables that no longer exist. The
-            # caches key on their own data token, which makes them correct in
-            # production; here the whole schema changes underneath them.
+            await session.close()
+            await transaction.rollback()
+            await connection.close()
+            # The read caches key on their own data token, which stays correct in
+            # production; here the seeded rows are re-created with fresh ids, so a
+            # cached set from the previous test would describe rows that no longer
+            # exist.
             from src.common.read_cache import clear_read_cache
 
             clear_read_cache()

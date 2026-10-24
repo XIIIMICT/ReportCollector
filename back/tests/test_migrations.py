@@ -7,7 +7,7 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from conftest import BACKEND_DIR
+from conftest import BACKEND_DIR, MIGRATION_SCHEMA
 from sqlalchemy import inspect, text
 from sqlmodel import SQLModel
 
@@ -82,12 +82,13 @@ def business_snapshot(connection) -> dict[str, list[str]]:
     return snapshot
 
 
-async def test_baseline_roundtrip(test_engine) -> None:
-    from conftest import TEST_SCHEMA
-
-    async with test_engine.begin() as conn:
-        await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
-        await conn.execute(text(f'CREATE SCHEMA "{TEST_SCHEMA}"'))
+@pytest.mark.migration_schema
+async def test_baseline_roundtrip(migration_engine) -> None:
+    # Its own schema: this test goes all the way to `base`, which would make the
+    # shared migration schema unusable for every test after it.
+    async with migration_engine.begin() as conn:
+        await conn.execute(text(f'DROP SCHEMA IF EXISTS "{MIGRATION_SCHEMA}" CASCADE'))
+        await conn.execute(text(f'CREATE SCHEMA "{MIGRATION_SCHEMA}"'))
         config = config_for(conn.sync_connection)
         for _ in range(2):
             await conn.run_sync(lambda _: command.upgrade(config, "head"))
@@ -96,10 +97,11 @@ async def test_baseline_roundtrip(test_engine) -> None:
             await conn.run_sync(lambda _: command.downgrade(config, "base"))
 
 
-async def test_adopt_preserves_data_and_refuses_drift(db_session, test_engine, monkeypatch) -> None:
+@pytest.mark.migration_schema
+async def test_adopt_preserves_data_and_refuses_drift(db_session, monkeypatch, migration_engine) -> None:
     monkeypatch.chdir(BACKEND_DIR)
     await db_session.commit()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
         await conn.run_sync(lambda _: command.downgrade(config, BASELINE))
         await conn.run_sync(lambda _: command.stamp(config, BASELINE))
@@ -122,16 +124,18 @@ async def test_adopt_preserves_data_and_refuses_drift(db_session, test_engine, m
 
 
 @pytest.mark.parametrize("version", ["unknown", "0014_plan_row_asset_nullable"])
-async def test_adopt_refuses_unknown_or_incomplete_history(db_session, test_engine, version) -> None:
-    async with test_engine.begin() as conn:
+@pytest.mark.migration_schema
+async def test_adopt_refuses_unknown_or_incomplete_history(db_session, version, migration_engine) -> None:
+    async with migration_engine.begin() as conn:
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": version})
         with pytest.raises(ValueError, match="Неподдерживаемая ревизия"):
             await conn.run_sync(adopt)
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == version
 
 
-async def test_adopt_refuses_enum_drift(db_session, test_engine) -> None:
-    async with test_engine.begin() as conn:
+@pytest.mark.migration_schema
+async def test_adopt_refuses_enum_drift(db_session, migration_engine) -> None:
+    async with migration_engine.begin() as conn:
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
         await conn.execute(text("ALTER TYPE user_theme ADD VALUE 'unexpected'"))
         with pytest.raises(ValueError, match="Схема отличается: значения enum"):
@@ -139,21 +143,23 @@ async def test_adopt_refuses_enum_drift(db_session, test_engine) -> None:
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
-async def test_adoption_rolls_back_with_its_transaction(db_session, test_engine) -> None:
-    async with test_engine.begin() as conn:
+@pytest.mark.migration_schema
+async def test_adoption_rolls_back_with_its_transaction(db_session, migration_engine) -> None:
+    async with migration_engine.begin() as conn:
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
-    async with test_engine.connect() as conn:
+    async with migration_engine.connect() as conn:
         transaction = await conn.begin()
         await conn.run_sync(adopt)
         await transaction.rollback()
-    async with test_engine.connect() as conn:
+    async with migration_engine.connect() as conn:
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
 @pytest.mark.parametrize("legacy_default", [False, True])
-async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, test_engine, legacy_default) -> None:
+@pytest.mark.migration_schema
+async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, legacy_default, migration_engine) -> None:
     await db_session.close()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
         await conn.run_sync(lambda _: command.downgrade(config, BASELINE))
         if legacy_default:
@@ -211,10 +217,11 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         assert diffs == []
 
 
-async def test_upgrade_converts_price_audit_junk_to_null(db_session, test_engine) -> None:
+@pytest.mark.migration_schema
+async def test_upgrade_converts_price_audit_junk_to_null(db_session, migration_engine) -> None:
     """0006 must not abort on a non-datetime legacy value; it folds it to NULL."""
     await db_session.close()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
         await conn.run_sync(lambda _: command.downgrade(config, BASELINE))
         row_id = (await conn.execute(text("SELECT id FROM rm_raw_material_prices ORDER BY id LIMIT 1"))).scalar_one()
@@ -240,9 +247,10 @@ async def test_upgrade_converts_price_audit_junk_to_null(db_session, test_engine
     assert storage_standard is not None
 
 
-async def test_adopt_rejects_unexpected_reference_timestamp_default(db_session, test_engine) -> None:
+@pytest.mark.migration_schema
+async def test_adopt_rejects_unexpected_reference_timestamp_default(db_session, migration_engine) -> None:
     await db_session.close()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
         await conn.execute(
             text("ALTER TABLE r_reference_values ALTER COLUMN created_at SET DEFAULT '2000-01-01'::timestamptz")
@@ -252,7 +260,8 @@ async def test_adopt_rejects_unexpected_reference_timestamp_default(db_session, 
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
-async def test_adopt_accepts_legacy_index_names_and_dropped_column(db_session, test_engine) -> None:
+@pytest.mark.migration_schema
+async def test_adopt_accepts_legacy_index_names_and_dropped_column(db_session, migration_engine) -> None:
     """
     Adopt despite the legacy class-derived index names and the dropped column.
 
@@ -261,7 +270,7 @@ async def test_adopt_accepts_legacy_index_names_and_dropped_column(db_session, t
     must treat those as equivalent instead of refusing.
     """
     await db_session.close()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         # Reproduce the legacy naming: rename the canonical indexes to the
         # class-derived ones and re-add the extra column.
         await conn.execute(text("ALTER INDEX ix_app_users_email RENAME TO ix_app_user_email"))
@@ -295,7 +304,8 @@ async def test_adopt_accepts_legacy_index_names_and_dropped_column(db_session, t
         ).scalar_one() == "metadata"
 
 
-async def test_adopt_accepts_unique_constraint_plus_plain_index(db_session, test_engine) -> None:
+@pytest.mark.migration_schema
+async def test_adopt_accepts_unique_constraint_plus_plain_index(db_session, migration_engine) -> None:
     """
     Adopt when uniqueness is enforced by a constraint plus a plain index.
 
@@ -304,7 +314,7 @@ async def test_adopt_accepts_unique_constraint_plus_plain_index(db_session, test
     same guarantee and accept the difference.
     """
     await db_session.close()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         await conn.execute(text("DROP INDEX ix_r_assets_code"))
         await conn.execute(text("ALTER TABLE r_assets DROP CONSTRAINT IF EXISTS r_assets_code_key"))
         await conn.execute(text("ALTER TABLE r_assets ADD CONSTRAINT r_assets_code_key UNIQUE (code)"))
@@ -314,10 +324,11 @@ async def test_adopt_accepts_unique_constraint_plus_plain_index(db_session, test
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == BASELINE
 
 
-async def test_adopt_still_refuses_a_genuine_index_mismatch(db_session, test_engine) -> None:
+@pytest.mark.migration_schema
+async def test_adopt_still_refuses_a_genuine_index_mismatch(db_session, migration_engine) -> None:
     """An index removed without an equivalent replacement is real drift."""
     await db_session.close()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         await conn.execute(text("DROP INDEX ix_app_users_email"))
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
         with pytest.raises(ValueError, match="Схема отличается"):
@@ -325,10 +336,11 @@ async def test_adopt_still_refuses_a_genuine_index_mismatch(db_session, test_eng
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
-async def test_adopt_still_refuses_a_non_audit_column_type_change(db_session, test_engine) -> None:
+@pytest.mark.migration_schema
+async def test_adopt_still_refuses_a_non_audit_column_type_change(db_session, migration_engine) -> None:
     """The deferred-0006 tolerance is a closed list: any other type change is drift."""
     await db_session.close()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
         # The grouped Alembic diff contains both a deferred comment and a real
         # type mismatch: accepting the former must never hide the latter.
@@ -340,7 +352,8 @@ async def test_adopt_still_refuses_a_non_audit_column_type_change(db_session, te
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
-async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) -> None:
+@pytest.mark.migration_schema
+async def test_upgrade_prunes_retired_revision_files(db_session, migration_engine) -> None:
     """
     Upgrade despite leftover files from the retired historical chain.
 
@@ -365,7 +378,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) ->
             encoding="utf-8",
         )
     try:
-        async with test_engine.begin() as conn:
+        async with migration_engine.begin() as conn:
             config = config_for(conn.sync_connection)
             # Legacy pre-state: the schema is at the baseline, the marker at 0015.
             await conn.run_sync(lambda _: command.downgrade(config, BASELINE))
@@ -380,25 +393,26 @@ async def test_upgrade_prunes_retired_revision_files(db_session, test_engine) ->
             path.unlink(missing_ok=True)
 
 
-async def test_upgrade_fresh_schema(test_engine) -> None:
-    from conftest import TEST_SCHEMA
-
-    async with test_engine.begin() as conn:
-        await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
-        await conn.execute(text(f'CREATE SCHEMA "{TEST_SCHEMA}"'))
+@pytest.mark.migration_schema
+async def test_upgrade_fresh_schema(migration_engine) -> None:
+    # A schema the migration chain has never touched — the fresh-install path.
+    async with migration_engine.begin() as conn:
+        await conn.execute(text(f'DROP SCHEMA IF EXISTS "{MIGRATION_SCHEMA}" CASCADE'))
+        await conn.execute(text(f'CREATE SCHEMA "{MIGRATION_SCHEMA}"'))
         await conn.run_sync(upgrade)
         diffs = await conn.run_sync(lambda c: compare_metadata(MigrationContext.configure(c), SQLModel.metadata))
         assert diffs == []
 
 
-async def test_reference_columns_drop_and_roundtrip(db_session, test_engine) -> None:
+@pytest.mark.migration_schema
+async def test_reference_columns_drop_and_roundtrip(db_session, migration_engine) -> None:
     """0019-0022 reshape the catalog table; the options themselves survive."""
     await db_session.commit()
 
     def columns(connection) -> set[str]:
         return {column["name"] for column in inspect(connection).get_columns("r_reference_values")}
 
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
         await conn.run_sync(lambda _: command.downgrade(config, "0018_kppk_excise_on_position"))
         before = (await conn.execute(text("SELECT catalog::text, label FROM r_reference_values ORDER BY label"))).all()
@@ -419,9 +433,10 @@ async def test_reference_columns_drop_and_roundtrip(db_session, test_engine) -> 
         await conn.run_sync(lambda _: command.upgrade(config, "head"))
 
 
-async def test_catalog_migration_only_changes_comments(db_session, test_engine) -> None:
+@pytest.mark.migration_schema
+async def test_catalog_migration_only_changes_comments(db_session, migration_engine) -> None:
     await db_session.commit()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
         await conn.run_sync(lambda _: command.downgrade(config, "0014_data_catalog_comments"))
         comments = import_module("migrations.versions.0014_data_catalog_comments").COMMENTS
@@ -444,17 +459,19 @@ async def test_catalog_migration_only_changes_comments(db_session, test_engine) 
             assert await conn.run_sync(business_snapshot) == before
 
 
-async def test_adopt_refuses_unexpected_existing_comment(db_session, test_engine) -> None:
-    async with test_engine.begin() as conn:
+@pytest.mark.migration_schema
+async def test_adopt_refuses_unexpected_existing_comment(db_session, migration_engine) -> None:
+    async with migration_engine.begin() as conn:
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
         await conn.execute(text("COMMENT ON COLUMN rm_assets.name IS 'unexpected legacy comment'"))
         with pytest.raises(ValueError, match="Схема отличается"):
             await conn.run_sync(adopt)
 
 
-async def test_rename_migration_preserves_renovation_collab_state(db_session, test_engine) -> None:
+@pytest.mark.migration_schema
+async def test_rename_migration_preserves_renovation_collab_state(db_session, migration_engine) -> None:
     await db_session.commit()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
         await conn.run_sync(lambda _: command.downgrade(config, "0012_kppk_calendar_cost"))
         await conn.execute(
@@ -482,11 +499,12 @@ async def test_rename_migration_preserves_renovation_collab_state(db_session, te
         assert "r_plan_rows" in action
 
 
-async def test_upgrade_failure_rolls_back_legacy_marker(db_session, test_engine, monkeypatch) -> None:
+@pytest.mark.migration_schema
+async def test_upgrade_failure_rolls_back_legacy_marker(db_session, monkeypatch, migration_engine) -> None:
     from migrations import upgrade as module
 
     await db_session.close()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
 
     def fail(*_args: object) -> None:
@@ -495,24 +513,25 @@ async def test_upgrade_failure_rolls_back_legacy_marker(db_session, test_engine,
 
     monkeypatch.setattr(module.command, "upgrade", fail)
     with pytest.raises(RuntimeError, match="injected migration failure"):
-        async with test_engine.begin() as conn:
+        async with migration_engine.begin() as conn:
             await conn.run_sync(upgrade)
-    async with test_engine.connect() as conn:
+    async with migration_engine.connect() as conn:
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
-async def test_completed_upgrade_rolls_back_data_ddl_and_marker(db_session, test_engine) -> None:
+@pytest.mark.migration_schema
+async def test_completed_upgrade_rolls_back_data_ddl_and_marker(db_session, migration_engine) -> None:
     await db_session.close()
-    async with test_engine.begin() as conn:
+    async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
         await conn.run_sync(lambda _: command.downgrade(config, BASELINE))
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
         before = await conn.run_sync(business_snapshot)
-    async with test_engine.connect() as conn:
+    async with migration_engine.connect() as conn:
         transaction = await conn.begin()
         await conn.run_sync(upgrade)
         await transaction.rollback()
-    async with test_engine.connect() as conn:
+    async with migration_engine.connect() as conn:
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
         assert await conn.run_sync(business_snapshot) == before
         assert (await conn.execute(text("SELECT to_regclass('collab_outbox')"))).scalar_one() is None
