@@ -82,6 +82,7 @@ editing a KPPK membership.
 - `docs/BACKEND_DEDUP_AUDIT.md` — backend duplication/seam audit, shared platform boundaries and follow-up recommendations.
 - `docs/WORKFLOW.md` — environment, quality, languages standard, pre-commit (prek), branching/commits, working principles.
 - `docs/KEYCLOAK.md` — corporate Keycloak: OIDC flow, prod config, claims→user, provisioning, local stand, diagnostics. Prod artifacts — `docs/keycloak/` (OIDC discovery, access token example).
-- **Historical, not the current contract** (read only for background): `docs/RENOVATION_MIGRATION_CONTEXT.md`, `docs/KPPK_GAP_ANALYSIS.md`. Both open with a status note saying which passage is outdated.
+- `docs/samples/renovation_td_example.xlsb` — a real technical-directorate plan (~48 KB, committed): the template the plan importer is matched against, and what `back/tests/test_plan_import.py` runs on. Replace it when the customer's template changes.
+- **Historical, not the current contract** (read only for background): `docs/RENOVATION_MIGRATION_CONTEXT.md` — it opens with a status note saying which passage is outdated.
 
 **When behavior changes — update the corresponding file in `docs/`.** That's a requirement, not a wish: the docs are the only source of context for future agents.

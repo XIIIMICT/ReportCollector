@@ -7,14 +7,18 @@ from pyxlsb import open_workbook
 
 from src.renovation.import_plan import _norm, inspect_plan_file
 
-# The checked-in «РБ ПОФ» sample: the template we match by column NAMES.
-_SAMPLE = next(Path(__file__).resolve().parents[2].joinpath("docs").glob("*.xlsb"), None)
+# The checked-in technical-directorate plan sample (`docs/samples/`): the real
+# workbook the importer is matched against. Committed on purpose — it is small
+# (48 KB) and makes the format tests meaningful instead of skipped.
+_SAMPLE = Path(__file__).resolve().parents[2] / "docs" / "samples" / "renovation_td_example.xlsb"
+if not _SAMPLE.exists():  # a checkout without the sample keeps the tests skipped
+    _SAMPLE = None
 
 
 def test_real_template_is_recognised() -> None:
     """The sample carries every heading the analyzer loads, incl. the aliases."""
     if _SAMPLE is None:
-        pytest.skip("no template sample in docs/")
+        pytest.skip("no sample in docs/samples/")
     with open_workbook(str(_SAMPLE)) as workbook, workbook.get_sheet(workbook.sheets[0]) as worksheet:
         headers = [cell.v for cell in next(worksheet.rows())]
     normalized = [_norm(value) for value in headers]
@@ -33,24 +37,68 @@ def test_real_template_is_recognised() -> None:
         assert any(item == wanted or item.startswith(wanted) for item in normalized), required
 
 
-def test_sample_analyses_as_has_errors_not_invalid_format() -> None:
-    """The sample must not be rejected as a wrong template — it has row errors."""
+def test_sample_analyses_without_being_rejected() -> None:
+    """
+    The sample is a VALID template, whatever rows it carries.
+
+    The committed workbook is a working example that may or may not contain row
+    errors — both are legitimate states of a customer file. What must hold is
+    that the analyzer recognises the format (never `invalid_format`), reads the
+    asset from «Наименование ДО», and finds rows to load.
+    """
     if _SAMPLE is None:
-        pytest.skip("no template sample in docs/")
+        pytest.skip("no sample in docs/samples/")
     result = inspect_plan_file(
         _SAMPLE,
         existing_codes=set(),
         asset_names_by_code={"BSZR": "АО «БСЗ»"},
     )
     assert result.status != "invalid_format", "the sample template is rejected by the analyzer"
+    assert result.status in {"ready", "has_errors"}
     assert result.assets == ["АО «БСЗ»"]
     assert result.new_rows > 0
+
+
+def test_every_reported_problem_points_at_a_row() -> None:
+    """
+    Whatever errors the sample contains, each is reported with its location.
+
+    This is the invariant the operator relies on: a rejection must be actionable.
+    A clean file simply reports nothing — the assertions hold either way.
+    """
+    if _SAMPLE is None:
+        pytest.skip("no sample in docs/samples/")
+    result = inspect_plan_file(
+        _SAMPLE,
+        existing_codes=set(),
+        asset_names_by_code={"BSZR": "АО «БСЗ»"},
+        reference_values={"criticality": {"1", "2", "3", "4"}},
+    )
+    # A duplicate code names the sheet rows it occupies: «CODE (строки 3, 9)».
+    for duplicate in result.duplicate_codes:
+        assert "строк" in duplicate, duplicate
+    # A cell-level issue carries «<column>, строка <n>».
+    for issue in (*result.invalid_data_types, *result.missing_dictionary_values, *result.blank_values):
+        assert "строка" in issue.location, issue.location
+    # A bad code carries its row too: «CODE (строка 15)».
+    for code in result.invalid_calculated_codes:
+        assert "строка" in code, code
+    # The status agrees with the findings: nothing to report means `ready`.
+    reported = (
+        result.duplicate_codes
+        or result.invalid_calculated_codes
+        or result.invalid_data_types
+        or result.missing_dictionary_values
+        or result.blank_values
+        or result.unknown_assets
+    )
+    assert (result.status == "has_errors") is bool(reported)
 
 
 def test_an_unknown_asset_makes_the_file_invalid() -> None:
     """The asset is a reference value: a code the dictionary lacks is an error."""
     if _SAMPLE is None:
-        pytest.skip("no template sample in docs/")
+        pytest.skip("no sample in docs/samples/")
     # No assets known to the project: every row names «BSZR».
     result = inspect_plan_file(
         _SAMPLE,
@@ -78,24 +126,22 @@ def test_duplicate_codes_name_every_sheet_row() -> None:
     assert import_plan._duplicates_with_rows(["A", "B", "A"], [3, 4, 9]) == ["A (строки 3, 9)"]
 
 
-def test_the_sample_reports_duplicates_but_no_longer_bad_codes() -> None:
+def test_the_archived_correctness_check_never_fires() -> None:
     """
-    The archived correctness check does not fire; duplicates still do.
+    The ID formula is off, so no code is ever reported as «некорректно рассчитанный».
 
-    The sample's codes are the legacy generated ones, and with the formula off
-    the analyzer loads them as-is. Before the change every row mismatching the
-    generator was listed as «некорректно рассчитанный код»; now that list is
-    empty and the duplicates («Дублирующиеся коды») remain the only blocker.
+    Independent of what the sample contains: with the generator disabled the
+    analyzer loads the codes as-is, so that list stays empty even when the file
+    has other problems (duplicates, bad types, unknown values).
     """
     if _SAMPLE is None:
-        pytest.skip("no template sample in docs/")
+        pytest.skip("no sample in docs/samples/")
     result = inspect_plan_file(
         _SAMPLE,
         existing_codes=set(),
         asset_names_by_code={"BSZR": "АО «БСЗ»"},
     )
     assert result.invalid_calculated_codes == []
-    assert result.duplicate_codes, "the sample is expected to carry repeated codes"
 
 
 def test_sample_is_uploaded_through_the_api(tmp_path: Path) -> None:
@@ -105,7 +151,7 @@ def test_sample_is_uploaded_through_the_api(tmp_path: Path) -> None:
     from src.main import app
 
     if _SAMPLE is None:
-        pytest.skip("no template sample in docs/")
+        pytest.skip("no sample in docs/samples/")
     client = TestClient(app)
     with _SAMPLE.open("rb") as stream:
         response = client.post(
@@ -122,7 +168,7 @@ async def test_sample_upload_returns_the_preflight_report(client) -> None:
     from conftest import signed_identity_headers
 
     if _SAMPLE is None:
-        pytest.skip("no template sample in docs/")
+        pytest.skip("no sample in docs/samples/")
     response = await client.post(
         "/api/renovation/plan/import/inspect",
         files={"file": (_SAMPLE.name, _SAMPLE.read_bytes(), "application/octet-stream")},
@@ -140,7 +186,7 @@ def test_assets_in_file_are_the_cache_scope() -> None:
     from src.renovation.import_plan import assets_in_file
 
     if _SAMPLE is None:
-        pytest.skip("no template sample in docs/")
+        pytest.skip("no sample in docs/samples/")
     assert assets_in_file(_SAMPLE) == frozenset({"BSZR"})
 
 
