@@ -126,6 +126,7 @@ import {
 import { refreshUndoCounters } from "@/shared/ui/undo-counters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useToolbarFilters } from "@/shared/ui/use-toolbar-filters";
 import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
 import { GridLoadError, WorkspaceLoadError } from "@/shared/ui/workspace-feedback";
@@ -346,6 +347,7 @@ function SectionContent({
     headerPinned,
     showServiceColumns,
     rowHeight,
+    scrollForm,
     onUndoState,
     onApproveState,
     onArchiveState,
@@ -359,6 +361,8 @@ function SectionContent({
     section: SectionId;
     reportMonth: string | null;
     isAdmin: boolean;
+    /** Project key of the owning workspace — the form part of the scroll key. */
+    scrollForm: string;
     /** The signed-in user's email: the delete guard refuses to remove them. */
     currentUserEmail: string | undefined;
     assets: ReferenceOption[];
@@ -1098,6 +1102,7 @@ function SectionContent({
                         headerPinned={headerPinned}
                         showServiceColumns={showServiceColumns}
                         rowHeight={rowHeight}
+                        scrollPosition={{ form: `${scrollForm}:${section}` }}
                         assets={assets}
                         deliveryBases={deliveryBases}
                         remoteLocks={remoteLocks}
@@ -1248,8 +1253,16 @@ export function RawMaterialsWorkspace({
     onSectionChange,
     supportMail,
 }: RawMaterialsWorkspaceProps) {
-    const [metaReloadKey, setMetaReloadKey] = useState(0);
-    const { data: meta, error } = useAsyncData<RawMaterialsMeta>(
+    const [internalProjectKey, setInternalProjectKey] = useState<string>(
+        currentUser.access?.some((project) => project.key === RAW_MATERIALS_PROJECT_KEY)
+            ? RAW_MATERIALS_PROJECT_KEY
+            : (currentUser.access?.[0]?.key ?? RAW_MATERIALS_PROJECT_KEY),
+    );
+    // The active project decides the storage keys, so it is resolved up front.
+    // The report workspace owns the project switcher and drives this component
+    // through props; without them the workspace falls back to its own switch.
+    const activeProjectKey = controlledProjectKey ?? internalProjectKey;
+    const [metaReloadKey, setMetaReloadKey] = useState(0);    const { data: meta, error } = useAsyncData<RawMaterialsMeta>(
         () => getRawMaterialsMeta(),
         [metaReloadKey],
     );
@@ -1326,15 +1339,9 @@ export function RawMaterialsWorkspace({
         canCreate: false,
         onCreate: () => {},
     });
-    const [internalProjectKey, setInternalProjectKey] = useState<string>(
-        currentUser.access?.some((project) => project.key === RAW_MATERIALS_PROJECT_KEY)
-            ? RAW_MATERIALS_PROJECT_KEY
-            : (currentUser.access?.[0]?.key ?? RAW_MATERIALS_PROJECT_KEY),
-    );
     // The report workspace owns the project switcher and drives this component
     // through props; without them the raw-materials workspace falls back to
     // its own internal switcher state.
-    const activeProjectKey = controlledProjectKey ?? internalProjectKey;
     const { setTheme } = useTheme();
     const {
         headerPinned,
@@ -1445,6 +1452,14 @@ export function RawMaterialsWorkspace({
     }, [initialSection, tabs]);
 
     const selectedTab = tabs.find((tab) => tab.id === selectedTabId) ?? tabs[0] ?? null;
+
+    // Toolbar ("panel") filters of the OPEN tab, in the URL under its id
+    // (`f.materialMovement.…`). This project renders its filters as the grid's
+    // own header filters (RevoGrid state, deliberately not in the URL), so the
+    // set is empty today — the hook is wired so a future panel filter is
+    // restored on reload without inventing a second mechanism.
+    const { filters: panelFilters } = useToolbarFilters(selectedTab?.id ?? null);
+    void panelFilters;
 
     const collabEnabled =
         selectedTab !== null && collaborationAvailableFor(selectedTab.section, isAdmin);
@@ -1673,6 +1688,7 @@ export function RawMaterialsWorkspace({
                     headerPinned={headerPinned}
                     showServiceColumns={showServiceColumns}
                     rowHeight={rowHeight}
+                    scrollForm={activeProjectKey}
                     onUndoState={handleUndoState}
                     onApproveState={handleApproveState}
                     onArchiveState={handleArchiveState}

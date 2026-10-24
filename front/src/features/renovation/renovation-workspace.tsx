@@ -97,6 +97,7 @@ import { ToolbarFilters } from "@/shared/ui/toolbar-filters";
 import { refreshUndoCounters } from "@/shared/ui/undo-counters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { readToolbarFilters, useToolbarFilters } from "@/shared/ui/use-toolbar-filters";
 import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
 import { WorkspaceLoadError } from "@/shared/ui/workspace-feedback";
@@ -246,9 +247,11 @@ export function RenovationWorkspace({
     const [assetFilter, setAssetFilter] = useRestoredState<string | null>(null, () =>
         readWorkspaceQuery("asset"),
     );
-    const [blockFilter, setBlockFilter] = useRestoredState<string | null>(null, () =>
-        readWorkspaceQuery("block"),
-    );
+    // The plan tab's panel filter (block), restored from the URL under the tab id.
+    const [storedBlockFilter, setBlockFilter] = useRestoredState<string | null>(null, () => {
+        const stored = readToolbarFilters("plan")["block"];
+        return typeof stored === "string" ? stored : null;
+    });
     // Active header filters, keyed by column prop (field dbName or the synthetic
     // asset column). A column keeps display values + the «Пустые» bucket; all
     // columns combine with AND (server-side).
@@ -295,6 +298,10 @@ export function RenovationWorkspace({
     // plan-window reset effect keys off it. A section restored from the URL is
     // validated against the available sections by the guard effect below.
     const [activeSection, setActiveSection] = useState<string>(initialSection ?? "plan");
+    // Panel filters of the OPEN tab live in the URL under its id. The plan tab's
+    // panel is the block filter; dictionary tabs have no panel.
+    const currentTabId = activeSection;
+    const { setFilter: setPanelFilter } = useToolbarFilters(currentTabId);
     const isPlanSection = activeSection === "plan";
     const { data: meta, error } = useAsyncData<RenovationMeta | null>(
         () => getRenovationMeta().catch(() => null),
@@ -735,6 +742,16 @@ export function RenovationWorkspace({
         }
         return BLOCK_ORDER.filter((block) => present.has(block));
     }, [meta]);
+    // A block that no longer exists in this plan (a renamed/dropped directorate)
+    // must not survive a reload: it would filter every row away. The stored
+    // value is validated once the block list is known.
+    const blockFilter =
+        storedBlockFilter !== null && blocks.includes(storedBlockFilter) ? storedBlockFilter : null;
+    useEffect(() => {
+        if (storedBlockFilter === null || blockFilter === storedBlockFilter) return;
+        setBlockFilter(null);
+        setPanelFilter("plan", "block", null);
+    }, [blockFilter, setPanelFilter, setBlockFilter, storedBlockFilter]);
 
     // Section tabs: the plan grid first, then the reference dictionaries
     // (enterprises, the five catalogs and project users), mirroring the
@@ -1540,7 +1557,7 @@ export function RenovationWorkspace({
                     onSelectionChange={(key) => {
                         const value = key && key !== "__all" ? String(key) : null;
                         setBlockFilter(value);
-                        writeWorkspaceQuery("block", value);
+                        setPanelFilter(currentTabId, "block", value);
                     }}
                 />
             </div>

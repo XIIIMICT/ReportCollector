@@ -99,7 +99,6 @@ import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
-import { readWorkspaceQuery, writeWorkspaceQuery } from "@/shared/ui/query-state";
 import { ReplaceRecordDialog, type ReplaceTargetOption } from "@/shared/ui/replace-record-dialog";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { SmartSelect } from "@/shared/ui/smart-select";
@@ -112,6 +111,7 @@ import {
 import { ToolbarFilters } from "@/shared/ui/toolbar-filters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { readToolbarFilters, useToolbarFilters } from "@/shared/ui/use-toolbar-filters";
 import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
 import { GridLoadError } from "@/shared/ui/workspace-feedback";
@@ -134,6 +134,9 @@ const gridWarnings = gridWarningHandlers({ lockedVerb: "редактирует" 
  */
 
 const KPPK_PROJECT_KEY = "kppk";
+
+/** The tab whose toolbar carries panel filters (slice / ДЗО / month / year). */
+const KPPK_REALIZATION_TAB_ID = "kppkRealization";
 
 // The tab strip's tabs: «Реализация» carries the realization room id (the
 // per-slice scope is decided by the section), the dictionaries the grid id.
@@ -403,6 +406,7 @@ async function deleteRecord(section: KppkSectionId, id: string): Promise<void> {
 function KppkSection({
     section,
     isAdmin,
+    scrollForm,
     assets,
     headerPinned,
     showServiceColumns,
@@ -451,6 +455,8 @@ function KppkSection({
     onUserCreateState: (state: { canCreate: boolean; onCreate: () => void }) => void;
     /** «Настройка акциза»: one row per product × ДЗО, with the excise flag. */
     exciseMode: boolean;
+    /** Project key the form's saved scroll position is scoped to. */
+    scrollForm: string | undefined;
 }) {
     const loader = useMemo<() => Promise<KppkRow[]>>(() => {
         switch (section) {
@@ -922,6 +928,7 @@ function KppkSection({
                         headerPinned={headerPinned}
                         showServiceColumns={showServiceColumns}
                         rowHeight={rowHeight}
+                        scrollPosition={{ form: `${scrollForm ?? KPPK_PROJECT_KEY}:${section}` }}
                         assets={assets}
                         deliveryBases={NO_REFERENCES}
                         onCommit={commit}
@@ -1052,6 +1059,11 @@ export function KppkWorkspace({
             ? KPPK_PROJECT_KEY
             : (currentUser.access?.[0]?.key ?? KPPK_PROJECT_KEY),
     );
+    // The report workspace owns the project switcher and drives this component
+    // through props; without them the KPPK workspace falls back to its own
+    // internal switcher state.
+    // Declared above the form keys below, which are built from it.
+    const activeProjectKey = controlledProjectKey ?? internalProjectKey;
     const { setTheme } = useTheme();
     const {
         isFullscreen,
@@ -1093,19 +1105,28 @@ export function KppkWorkspace({
     // other subproject. A ДЗО is always selected — the first dictionary row
     // until the user picks one; the period defaults to the loaded view's
     // (server-fixed) month/year until a selection is made.
-    const [realizationOrgId, setRealizationOrgId] = useRestoredState<string | null>(null, () =>
-        readWorkspaceQuery("org"),
-    );
+    // The four controls are the tab's PANEL filters, restored from the URL on
+    // reload (`useToolbarFilters`, keyed by the tab id) so a refresh lands on
+    // the same slice/asset/period the user was working with.
+    const [realizationOrgId, setRealizationOrgId] = useRestoredState<string | null>(null, () => {
+        const stored = readToolbarFilters(KPPK_REALIZATION_TAB_ID)["org"];
+        return typeof stored === "string" ? stored : null;
+    });
     const [realizationSlice, setRealizationSlice] = useRestoredState<KppkRealizationSlice>(
         "bp",
-        () => (readWorkspaceQuery("slice") as KppkRealizationSlice) || "bp",
+        () => {
+            const stored = readToolbarFilters(KPPK_REALIZATION_TAB_ID)["slice"];
+            return typeof stored === "string" ? (stored as KppkRealizationSlice) : "bp";
+        },
     );
-    const [realizationMonth, setRealizationMonth] = useRestoredState<string | null>(null, () =>
-        readWorkspaceQuery("month"),
-    );
-    const [realizationYear, setRealizationYear] = useRestoredState<string | null>(null, () =>
-        readWorkspaceQuery("year"),
-    );
+    const [realizationMonth, setRealizationMonth] = useRestoredState<string | null>(null, () => {
+        const stored = readToolbarFilters(KPPK_REALIZATION_TAB_ID)["month"];
+        return typeof stored === "string" ? stored : null;
+    });
+    const [realizationYear, setRealizationYear] = useRestoredState<string | null>(null, () => {
+        const stored = readToolbarFilters(KPPK_REALIZATION_TAB_ID)["year"];
+        return typeof stored === "string" ? stored : null;
+    });
     const [realizationPeriodText, setRealizationPeriodText] = useState<string | null>(null);
     const [gridResetState, setGridResetState] = useState<{
         resetColumnWidths: () => void;
@@ -1116,7 +1137,6 @@ export function KppkWorkspace({
     // The report workspace owns the project switcher and drives this component
     // through props; without them the KPPK workspace falls back to its own
     // internal switcher state.
-    const activeProjectKey = controlledProjectKey ?? internalProjectKey;
     const {
         headerPinned,
         showServiceColumns,
@@ -1244,6 +1264,10 @@ export function KppkWorkspace({
 
     const selectedTab =
         visibleTabs.find((tab) => tab.id === selectedTabId) ?? visibleTabs[0] ?? null;
+    // Toolbar filters of the OPEN tab, kept in the URL under that tab's id
+    // (`f.kppkRealization.org=…`). Switching tabs leaves the other tab's
+    // parameters untouched, so a return restores its own filter set.
+    const { setFilter: setPanelFilter } = useToolbarFilters(selectedTab?.id ?? null);
 
     const header = (
         <AppHeader
@@ -1343,7 +1367,7 @@ export function KppkWorkspace({
                 onChange={(value) => {
                     if (typeof value !== "string") return;
                     setRealizationSlice(value as KppkRealizationSlice);
-                    writeWorkspaceQuery("slice", value);
+                    setPanelFilter(KPPK_REALIZATION_TAB_ID, "slice", value);
                 }}
             />
             <span className="kppk-realization-filter-text">по</span>
@@ -1359,7 +1383,7 @@ export function KppkWorkspace({
                     onSelectionChange={(key) => {
                         if (key === null) return;
                         setRealizationOrgId(String(key));
-                        writeWorkspaceQuery("org", String(key));
+                        setPanelFilter(KPPK_REALIZATION_TAB_ID, "org", String(key));
                     }}
                 />
             </div>
@@ -1378,7 +1402,7 @@ export function KppkWorkspace({
                 onChange={(value) => {
                     if (typeof value !== "string") return;
                     setRealizationMonth(value);
-                    writeWorkspaceQuery("month", value);
+                    setPanelFilter(KPPK_REALIZATION_TAB_ID, "month", value);
                 }}
             />
             <SmartSelect
@@ -1394,7 +1418,7 @@ export function KppkWorkspace({
                 onChange={(value) => {
                     if (typeof value !== "string") return;
                     setRealizationYear(value);
-                    writeWorkspaceQuery("year", value);
+                    setPanelFilter(KPPK_REALIZATION_TAB_ID, "year", value);
                 }}
             />
         </ToolbarFilters>
@@ -1542,6 +1566,7 @@ export function KppkWorkspace({
                             onUserCreateState={setUserCreateState}
                             onReplaceState={setReplaceState}
                             exciseMode={exciseMode}
+                            scrollForm={activeProjectKey}
                         />
                     )
                 ) : null}
