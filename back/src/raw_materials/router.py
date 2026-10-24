@@ -522,6 +522,8 @@ async def _export_rows(
 
 def _reorder_rows(rows: Sequence[BaseModel], row_ids: Sequence[UUID]) -> list[BaseModel]:
     """Visible selection: only the given ids, in grid order, skipping missing ones."""
+    # Every row model carries an `id`, but the declared type is the bare pydantic
+    # `BaseModel`, which does not — hence `getattr` rather than attribute access.
     by_id = {getattr(row, "id"): row for row in rows}  # noqa: B009
     return [by_id[row_id] for row_id in row_ids if row_id in by_id]
 

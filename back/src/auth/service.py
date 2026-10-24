@@ -22,6 +22,8 @@ from src.collab.events import publish_rows_changed
 from src.collab.persistence import JournalStore
 from src.config import get_settings
 from src.raw_materials.models import RawMaterialAsset, RawMaterialUserAsset
+from src.renovation.constants import RENOVATION_PROJECT_KEY
+from src.renovation.models import RProjectRole, RUserRole
 
 LOGGER = logging.getLogger("reportcollector.application")
 
@@ -269,8 +271,6 @@ async def sync_project_memberships(session: AsyncSession, user_id: UUID, *, acti
     # Skip non-renovation projects for users that only have renovation roles;
     # auto-activate the renovation project when an active RUserRole exists.
     if not activate_admin:
-        from src.renovation.models import RUserRole  # noqa: PLC0415 (avoids a circular import)
-
         r_roles = list((await session.exec(select(RUserRole).where(col(RUserRole.user_id) == user_id))).all())
         has_renovation_role = bool(r_roles)
         if has_renovation_role:
@@ -414,9 +414,6 @@ async def request_project_access(
     can grant access. Existing links are never modified. hasAccess reports
     whether the project is already usable right now.
     """
-    from src.renovation.constants import RENOVATION_PROJECT_KEY  # noqa: PLC0415
-    from src.renovation.models import RProjectRole, RUserRole  # noqa: PLC0415
-
     project = (await session.exec(select(Project).where(col(Project.key) == project_key))).one_or_none()
     if project is None:
         message = f"Проект «{project_key}» не найден."

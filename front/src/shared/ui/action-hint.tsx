@@ -13,6 +13,9 @@ const MODIFIER_LABEL: Record<Modifier, string> = {
     meta: "⌘",
 };
 
+/** Stable empty default: an inline `[]` would be a new array on every render. */
+const NO_MODIFIERS: Modifier[] = [];
+
 /** Parse an `aria-keyshortcuts` value («Control+Shift+Z») into Kbd parts. */
 export function parseShortcut(aria: string): { modifiers: Modifier[]; keyLabel: string } {
     const parts = aria.split("+").filter(Boolean);
@@ -55,7 +58,7 @@ export function ActionHint({
     top,
     label,
     keyLabel,
-    modifiers = [],
+    modifiers = NO_MODIFIERS,
 }: {
     left: number;
     top: number;

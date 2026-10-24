@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 
 import { KppkWorkspace } from "@/features/kppk/kppk-workspace";
 import { RawMaterialsWorkspace } from "@/features/raw-materials/raw-materials-workspace";
@@ -28,12 +28,10 @@ export function ReportWorkspace({
     supportMail,
 }: ReportWorkspaceProps) {
     const router = useRouter();
-    const [activeProjectKey, setActiveProjectKey] = useState(projectKey);
-
-    // The URL owns the active project (deep links, browser navigation).
-    useEffect(() => {
-        setActiveProjectKey(projectKey);
-    }, [projectKey]);
+    // The URL owns the active project (deep links, browser navigation), so the
+    // prop IS the state — mirroring it into `useState` via an effect cost an
+    // extra render and could show the previous project for a frame.
+    const activeProjectKey = projectKey;
 
     // A form change is mirrored into `?section=` so a reload lands on the same
     // form. `replace` (not `push`) keeps the back button on the previous page;

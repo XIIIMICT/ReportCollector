@@ -15,6 +15,8 @@ export function usePopoverDismiss(element: RefObject<HTMLElement | null>, onClos
         const frame = requestAnimationFrame(() => {
             const animations = element.current?.getAnimations?.() ?? [];
             void Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
+                // The settled value is unused: any outcome (finished, cancelled)
+                // means the exit animation is over.
                 if (!cancelled) onCloseRef.current();
             });
         });

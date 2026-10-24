@@ -1,5 +1,8 @@
 import type { ChangeEvent, KeyboardEvent } from "react";
 
+/** Stable empty default: an inline `[]` would be a new array on every render. */
+const NO_OPTIONS: Array<{ value: string; label: string }> = [];
+
 /**
  * Cell editor props
  */
@@ -79,7 +82,7 @@ export function SelectCellEditor({
     onChange,
     onBlur,
     autoFocus,
-    options = [],
+    options = NO_OPTIONS,
     disabled,
 }: CellEditorProps<string>) {
     return (

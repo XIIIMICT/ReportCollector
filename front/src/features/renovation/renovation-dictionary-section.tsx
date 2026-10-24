@@ -270,6 +270,8 @@ export function RenovationDictionarySection({
     const [exportPending, setExportPending] = useState(false);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const pendingCommitRef = useRef<Promise<boolean> | null>(null);
+    /** The live `doCommit` — `commit` is memoized and must not capture the binding. */
+    const doCommitRef = useRef<(updates: CellUpdate[]) => Promise<boolean>>(async () => true);
     const placeholderCreatePendingRef = useRef(false);
     const [placeholderDraft, setPlaceholderDraft] = useState<Record<string, unknown>>(() =>
         initialPlaceholderDraft(isDictionarySection(section) ? section : RENOVATION_ASSETS_SECTION),
@@ -471,7 +473,10 @@ export function RenovationDictionarySection({
         async (updates: CellUpdate[]): Promise<boolean> => {
             if (readOnly || !updates.length) return true;
             await pendingCommitRef.current;
-            const task = doCommit(updates);
+            // Held in a ref rather than captured by name: `doCommit` is declared
+            // below and changes on every render, so calling it directly from the
+            // memoized initializer reads the binding before it is initialized.
+            const task = doCommitRef.current(updates);
             pendingCommitRef.current = task;
             try {
                 return await task;
@@ -506,6 +511,7 @@ export function RenovationDictionarySection({
             setIsMutationPending(false);
         }
     }
+    doCommitRef.current = doCommit;
 
     async function replaceRecord(targetId: string | null) {
         if (!canReplace) return;
@@ -701,10 +707,6 @@ export function RenovationDictionarySection({
 
     const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
 
-    if (error) {
-        return <div className="grid-empty">Не удалось загрузить справочник: {String(error)}</div>;
-    }
-
     // Stabilize the props we hand to the grid: the `columns` memo inside
     // RawMaterialsGrid depends on `assets`/`deliveryBases`/`onPlaceholderCommit`,
     // and the selection row-identity depends on `onSelectedRowsChange`. Passing
@@ -747,6 +749,15 @@ export function RenovationDictionarySection({
         },
         [],
     );
+
+    // Every hook above must run on EVERY render: this guard sits after them on
+    // purpose. Put before the memos and callbacks it would change the number of
+    // hooks between a successful and a failed load, and React throws
+    // «Rendered more hooks than during the previous render» — the user would get
+    // a blank screen instead of the error message below.
+    if (error) {
+        return <div className="grid-empty">Не удалось загрузить справочник: {String(error)}</div>;
+    }
 
     return (
         <>

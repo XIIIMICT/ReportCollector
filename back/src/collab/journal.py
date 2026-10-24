@@ -16,6 +16,8 @@ from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from fastapi import HTTPException
+
 from src.collab.models import canonical_key
 from src.collab.store import lease_key
 
@@ -60,8 +62,6 @@ async def record_cell_updates(
         if owner is not None and (
             str(owner.get("userId")) != str(user_id) or owner.get("sessionId", session_id) != session_id
         ):
-            from fastapi import HTTPException  # noqa: PLC0415
-
             raise HTTPException(status_code=409, detail="Ячейка редактируется в другой сессии.")
     # Repeated edits of one cell in a batch undo to its first old value.
     merged: dict[str, AppliedCell] = {}

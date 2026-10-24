@@ -71,7 +71,7 @@ def test_key_carries_the_asset_and_plan_state_scope() -> None:
 
 
 async def test_scope_separates_entries_for_the_same_file() -> None:
-    cache = InspectResultCache(_FakeRedis())  # type: ignore[arg-type]
+    cache = InspectResultCache(_FakeRedis())
     await cache.set(b"file", _report(), scope="a1@t1")
 
     assert await cache.get(b"file", scope="a1@t1") is not None

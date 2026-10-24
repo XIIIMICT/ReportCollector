@@ -56,6 +56,8 @@ export function ExpandableButtonGroup({
             observer.observe(icon);
         let cancelled = false;
         void document.fonts?.ready.then(() => {
+            // The resolved value is unused — only the "fonts are ready" moment
+            // matters for re-measuring the group.
             if (!cancelled) measure();
         });
         return () => {

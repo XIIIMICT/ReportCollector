@@ -21,7 +21,7 @@ class JournalStore:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    def __getattr__(self, name: str) -> Any:  # noqa: ANN401
+    def __getattr__(self, name: str) -> Any:  # noqa: ANN401 - delegates to the store's own API
         return getattr(get_collab_store(), name)
 
     async def publish(self, room: str, message: dict) -> None:

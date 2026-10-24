@@ -11,6 +11,7 @@
 !bunfig.toml
 !next.config.ts
 !oxfmt.config.ts
+!oxlint.config.ts
 !package.json
 !playwright.config.ts
 !postcss.config.ts

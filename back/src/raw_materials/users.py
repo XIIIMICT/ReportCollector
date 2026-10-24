@@ -53,7 +53,7 @@ async def read_user_rows(
     query = (
         select(User, UserRole)
         .join(UserRole, col(UserRole.user_id) == col(User.id))
-        .where(col(UserRole.project_id) == project_id, col(User.is_deleted) == False)  # noqa: E712
+        .where(col(UserRole.project_id) == project_id, col(User.is_deleted).is_(False))
         .order_by(col(UserRole.is_active).desc(), func.coalesce(User.name, ""))
     )
     if user_id is not None:

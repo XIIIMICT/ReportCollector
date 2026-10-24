@@ -1256,10 +1256,10 @@ export function KppkWorkspace({
 
     // Apply the saved user theme once on mount. next-themes' setTheme changes
     // the identity on every theme switch, so the effect must not depend on it —
-    // otherwise it would reset the user's choice.
+    // otherwise it would reset the user's choice. The empty dependency list is
+    // the point, not an oversight.
     useEffect(() => {
         setTheme(user.theme);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const selectedTab =
@@ -1347,12 +1347,15 @@ export function KppkWorkspace({
     const [exciseMode, setExciseMode] = useState(false);
     const isPositionsTab = selectedTab?.id === "kppkPositions";
     const MONTH_OPTIONS = REALIZATION_MONTH_OPTIONS;
-    const yearOptions = useMemo(() => {
+    // Computed once per MOUNT, outside render: `new Date()` is impure, and a year
+    // captured inside a `useMemo` would freeze for the life of the tab — a
+    // December session would still offer the old year in January.
+    const [yearOptions] = useState(() => {
         const current = new Date().getFullYear();
         const years: string[] = [];
         for (let year = current + 1; year >= 2023; year -= 1) years.push(String(year));
         return years.map((year) => ({ id: year, name: year }));
-    }, []);
+    });
     const realizationFilters = (
         <ToolbarFilters placement="below" visible={isMainTab}>
             <SmartSelect

@@ -47,11 +47,7 @@ import {
 import { extractEdits, parseNumericText } from "./grid-edit";
 import { MultiAssetEditor, ReferenceEditor, SelectEditor } from "./grid-editors";
 import { parsePastedText, serializeCellValue } from "./index";
-import {
-    readScrollPosition,
-    scrollScopeKey,
-    writeScrollPosition,
-} from "./scroll-position";
+import { readScrollPosition, scrollScopeKey, writeScrollPosition } from "./scroll-position";
 import { isChunkedSection } from "./section-policy";
 import { describeSelection } from "./selection-label";
 
@@ -78,6 +74,14 @@ const EMPTY_PINNED_SOURCE: Record<string, unknown>[] = [];
 
 /** Stable empty plugin/merge lists: a fresh array would reset the plugin setup on every render. */
 const EMPTY_PLUGIN_LIST: GridPlugin[] = [];
+/**
+ * Shared empty lease map. `new Map()` as a default prop value is re-created on
+ * every render for every caller that omits the prop, which breaks referential
+ * equality and re-runs the column memo and the lease lookups with it.
+ */
+const EMPTY_LEASE_MAP: ReadonlyMap<string, { fullname: string; email: string }> = new Map();
+/** The same for the remote-cell previews (tooltips over other users' cells). */
+const EMPTY_CELL_INFO: ReadonlyMap<string, { name: string; label: string | null }> = new Map();
 
 export type RawMaterialsGridState = {
     columns: ExportColumn[];
@@ -299,8 +303,8 @@ function RawMaterialsGridInner(
         onValidationError,
         onPasteSkipped,
         onPasteTruncated,
-        remoteLocks = new Map(),
-        remotePresence = new Map(),
+        remoteLocks = EMPTY_LEASE_MAP,
+        remotePresence = EMPTY_LEASE_MAP,
         onLockedCellEdit,
         onAcquireLease,
         onReleaseLease,
@@ -308,7 +312,7 @@ function RawMaterialsGridInner(
         onSortingChange,
         onClipboardStateChange,
         onSelectionChange,
-        remoteCellInfo = new Map(),
+        remoteCellInfo = EMPTY_CELL_INFO,
         scrollPosition,
     }: Props,
     forwardedRef: Ref<RawMaterialsGridHandle>,

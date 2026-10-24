@@ -33,6 +33,8 @@ def project_write(project: str, *, exclusive: bool = False) -> Callable:
     """Keep a lifecycle gate until the caller commits, including service callers."""
 
     def decorate(function: Callable) -> Callable:
+        # The wrapper forwards whatever the decorated coroutine takes, so its own
+        # signature cannot be narrower than `Any`.
         @wraps(function)
         async def wrapped(session: AsyncSession, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             await lock_project(session, project, exclusive=exclusive)

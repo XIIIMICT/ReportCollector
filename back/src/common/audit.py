@@ -17,6 +17,8 @@ class UpdaterDisplay(SQLModel):
         # immediate responses do not show a projection loaded before the edit.
         session = object_session(self)
         if session is not None:
+            # Local on purpose: `src.auth.models` imports this module at load
+            # time, so a module-level import here is a cycle.
             from src.auth.models import User  # noqa: PLC0415
 
             user = session.identity_map.get((User, (user_id,), None))

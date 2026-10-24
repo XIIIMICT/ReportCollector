@@ -127,7 +127,7 @@ async def read_renovation_user_rows(
     query = (
         select(User, RUserRole)
         .join(RUserRole, col(RUserRole.user_id) == col(User.id))
-        .where(col(RUserRole.project_id) == project_id, col(User.is_deleted) == False)  # noqa: E712
+        .where(col(RUserRole.project_id) == project_id, col(User.is_deleted).is_(False))
         .order_by(col(RUserRole.is_active).desc(), func.coalesce(User.name, ""))
     )
     if user_id is not None:

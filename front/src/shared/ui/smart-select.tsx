@@ -60,6 +60,9 @@ export type SmartSelectOption = {
     description?: string;
 };
 
+/** Stable empty default: an inline `[]` would be a new array on every render. */
+const NO_OPTIONS: SmartSelectOption[] = [];
+
 /** A pinned non-value row (see `nullOption` / `allOption`). */
 export type SpecialOption = {
     /** The row's text («Пустые», «Все варианты»). */
@@ -201,7 +204,7 @@ export function hasOpenSmartSelect(): boolean {
 }
 
 export function SmartSelect({
-    options = [],
+    options = NO_OPTIONS,
     value,
     onChange,
     label,
