@@ -123,14 +123,30 @@ feature (`0022_reference_payload_to_deleted_at`, which also dropped the unused
 
 Phase 1 copies the source tables of the corporate КППК database into the program
 schema and exposes the four dictionaries the «Таблицы.xlsx» phase builds on.
-Sources are the dumps in `docs/kppk/` (`ddl.sql` + `kppk_*_<timestamp>.sql` +
-«Матрица продуктов.xlsx»).
+
+The **original data is not in the repository**: `raw.kppk_*` ships as SQL dumps
+the operator loads into the database. The seeder only needs the database — plus
+three small files of its own in `back/src/kppk/data/`:
+
+- `source_schema.sql` — the structure of the source tables (a fresh or CI
+  install creates them from it);
+- `demo_source_rows.sql` — a few rows (13 ДЗО, 137 products, one period, one
+  row per form) used **only** when the source tables are absent, so every form
+  works end to end on a demo install. A real installation loads the actual
+  dumps instead and this file is never merged with them;
+- `product_matrix.sql` — the product × ДЗО matrix **and** its «Заполняемый
+  акциз» flags. This is the one input the source dumps never carried (they have
+  products and ДЗО as separate dictionaries); it replaced «Матрица
+  продуктов.xlsx» and is the reason no spreadsheet is needed at seed time.
+
+The `dict` schema belongs to another project and is never created or touched.
 
 - **Source schemas** `raw` (`raw.kppk_d_org`, `raw.kppk_d_period`,
   `raw.kppk_d_product_seq`, `raw.kppk_d_raw_seq`, `raw.kppk_f_realization`,
-  `raw.kppk_f_realization_plan`) and `dict` — created + filled by the seeder
-  **only when missing**; on prod installations they already exist and are never
-  touched.
+  `raw.kppk_f_realization_plan`, `raw.kppk_f_production_plan`) — created from
+  `source_schema.sql` and filled with the demo rows **only when missing**; on
+  prod installations they already hold the real data and are only read. The
+  `dict` schema is another project's and is never touched.
 - **Program copies** (`back/src/kppk/models.py`, prefix `kppk_`): `kppk_orgs`,
   `kppk_periods`, `kppk_products`, `kppk_raws` (the dictionaries),
   `kppk_org_products` («Продуктовые позиции»: product × ДЗО links from the

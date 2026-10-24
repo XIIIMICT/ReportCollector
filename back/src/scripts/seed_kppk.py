@@ -1,17 +1,25 @@
 """
 Seed the «КППК» copies of the source tables without touching the other projects.
 
-The source tables ship as SQL dumps in `docs/kppk/` (`kppk_*` tables + the
-`dict.markets` dictionary; structure in `ddl.sql`). The seeder:
+The ORIGINAL data (`raw.kppk_*` tables with the real figures) is not part of the
+repository: it ships as SQL dumps the operator loads separately. The seeder:
 
-1. creates the `raw` / `dict` schemas and the source tables **only when
-   missing** — on prod installations they already exist and are never touched;
+1. creates the `raw` schema and the source tables **only when missing**, from
+   the structure in `back/src/kppk/data/source_schema.sql`; on a real
+   installation they already exist and are never touched. A fresh/CI database
+   gets a handful of demo rows (`demo_source_rows.sql`) so every form works —
+   the `dict` schema belongs to another project and is not touched at all;
 2. restores missing application tables from the current models, then re-copies
-   source data on every run; existing tables still evolve through migrations;
+   the source data on every run; existing tables still evolve through migrations;
 3. rebuilds «Продуктовые позиции» (`kppk_org_products`) from
-   «Матрица продуктов.xlsx»: products and ДЗО are matched by exact display
-   name, and a matrix product missing in the source dictionary is created
-   without a num under an `@`-prefixed name.
+   `back/src/kppk/data/product_matrix.sql` — the product x ДЗО pairs AND their
+   «Заполняемый акциз» flags, the one input the source dumps never carried. It
+   is a plain SQL table there (generated once from «Матрица продуктов.xlsx»), so
+   the seeder needs no spreadsheet. Products and ДЗО are matched by exact
+   display name, and a matrix product missing in the source dictionary is
+   created without a num under an `@`-prefixed name;
+4. finally materializes the coming periods (`generate_kppk_periods`) in the
+   same transaction.
 
 Re-copying on every run keeps the behavior deterministic: any manual dictionary
 edit is reconciled from the source at the next seed. The kppk project row and
@@ -26,7 +34,6 @@ import re
 from pathlib import Path
 from typing import Final, TypedDict
 
-import openpyxl
 from sqlalchemy import CursorResult, MetaData, func, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlmodel import SQLModel, col, select
@@ -38,17 +45,20 @@ from src.database import async_session_factory
 from src.kppk import models as _kppk_models  # noqa: F401 — register current application table definitions
 from src.kppk.constants import (
     KPPK_PROJECT_KEY,
-    KPPK_SOURCE_SCHEMA_DICT,
     KPPK_SOURCE_SCHEMA_RAW,
     KPPK_SOURCE_TABLES,
     normalize_text,
 )
 from src.scripts.generate_kppk_periods import generate
 
-# docs/kppk/ of the repository (`back/src/scripts/seed_kppk.py` → 3 levels up).
-KPPK_DOCS_DIR: Final[Path] = Path(__file__).resolve().parents[3] / "docs" / "kppk"
-MATRIX_XLSX_NAME: Final[str] = "Матрица продуктов.xlsx"
-MATCH_COLUMN_VALUE: Final[str] = "да"
+# The seeder's own inputs (`back/src/kppk/data/`), NOT the original dumps:
+# `source_schema.sql` is the structure of the source tables, `product_matrix.sql`
+# the one input the sources never carried (product x ДЗО + excise flags), and
+# `demo_source_rows.sql` a handful of rows for an install with no source data.
+KPPK_DATA_DIR: Final[Path] = Path(__file__).resolve().parents[1] / "kppk" / "data"
+SOURCE_SCHEMA_PATH: Final[Path] = KPPK_DATA_DIR / "source_schema.sql"
+DEMO_ROWS_PATH: Final[Path] = KPPK_DATA_DIR / "demo_source_rows.sql"
+PRODUCT_MATRIX_PATH: Final[Path] = KPPK_DATA_DIR / "product_matrix.sql"
 KPPK_ADMIN_EMAILS: Final[tuple[str, ...]] = ("evtushenko.sn@ruschem.ru", "lavrova.mg@ruschem.ru")
 # Only the four dictionary copies get audit stamps; the fact/plan copies stay
 # verbatim (the migration does not create audit columns for them).
@@ -182,10 +192,11 @@ class CommandError(RuntimeError):
 
 
 class MatrixMatch(TypedDict):
-    """One matched «Матрица продуктов» row: ДЗО id + product."""
+    """One row of the product matrix: a ДЗО + product pair and its excise flag."""
 
     org: str
     product: str
+    hasExcise: bool
 
 
 def split_sql_statements(sql: str) -> list[str]:
@@ -229,11 +240,6 @@ def split_sql_statements(sql: str) -> list[str]:
     return statements
 
 
-def _is_table_dump(name: str, table: str) -> bool:
-    """Return True when a docs/kppk file name is `<table>_<timestamp>.sql`."""
-    return re.fullmatch(rf"{re.escape(table)}_[0-9]+\.sql", name) is not None
-
-
 def _qualified(schema: str, table: str) -> str:
     return f'"{schema}"."{table}"'
 
@@ -258,12 +264,6 @@ def _read_sql_file(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-async def _run_file(connection: AsyncConnection, path: Path) -> None:
-    """Execute a dump file statement by statement."""
-    for statement in split_sql_statements(_read_sql_file(path)):
-        await connection.execute(text(statement))
-
-
 async def _schema_exists(connection: AsyncConnection, schema: str) -> bool:
     result = await connection.execute(
         text("SELECT 1 FROM information_schema.schemata WHERE schema_name = :schema").bindparams(schema=schema)
@@ -281,37 +281,54 @@ async def _table_exists(connection: AsyncConnection, schema: str, table: str) ->
 
 
 async def _ensure_schemas(connection: AsyncConnection) -> list[str]:
-    """Create the missing raw/dict schemas; returns the created names."""
+    """
+    Create the missing `raw` schema; returns the created names.
+
+    Only `raw` is ours — the КППК source tables live there. The `dict` schema
+    belongs to another project and is never created or touched here.
+    """
     created: list[str] = []
-    for schema in (KPPK_SOURCE_SCHEMA_RAW, KPPK_SOURCE_SCHEMA_DICT):
-        if not await _schema_exists(connection, schema):
-            await connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
-            created.append(schema)
+    if not await _schema_exists(connection, KPPK_SOURCE_SCHEMA_RAW):
+        await connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{KPPK_SOURCE_SCHEMA_RAW}"'))
+        created.append(KPPK_SOURCE_SCHEMA_RAW)
     return created
 
 
 async def _ensure_source_tables(connection: AsyncConnection) -> int:
-    """Create + fill the missing source tables from docs/kppk; returns the count."""
+    """
+    Create the missing source tables and fill them from the demo rows.
+
+    A real installation already has these tables (they come with the original
+    dumps) and the seeder only READS them — this path exists for a fresh or CI
+    database, where a handful of demo rows keeps every form working. The tables
+    are created from `source_schema.sql` and filled from `demo_source_rows.sql`,
+    both shipped with the code; the original dumps are never required.
+
+    Returns how many tables were created.
+    """
     created = 0
-    ddl_path = KPPK_DOCS_DIR / "ddl.sql"
-    if not ddl_path.exists():
-        message = f"Не найден файл структуры исходных таблиц: {ddl_path}."
+    if not SOURCE_SCHEMA_PATH.exists():
+        message = f"Не найден файл структуры исходных таблиц: {SOURCE_SCHEMA_PATH}."
         raise CommandError(message)
-    for statement in split_sql_statements(_read_sql_file(ddl_path)):
+    statements = split_sql_statements(_read_sql_file(SOURCE_SCHEMA_PATH))
+    missing: list[str] = []
+    for statement in statements:
         target = _statement_target(statement)
         if target is None or await _table_exists(connection, *target):
             continue
-        schema, table = target
         await connection.execute(text(statement))
-        # The dump of the same table holds both the structure and the data;
-        # the stem match stays exact — `kppk_f_realization` must not swallow
-        # the `kppk_f_realization_plan` dumps.
-        dumps = sorted(path for path in KPPK_DOCS_DIR.glob(f"{table}_*.sql") if _is_table_dump(path.name, table))
-        if not dumps:
-            message = f"Не найден дамп для таблицы {schema}.{table}: docs/kppk/{table}_*.sql."
-            raise CommandError(message)
-        await _run_file(connection, dumps[-1])
+        missing.append(target[1])
         created += 1
+    if missing:
+        # Demo rows are one file covering every source table: they are inserted
+        # only into the tables this run just created, so an existing part-filled
+        # installation never gains test data on top of its own.
+        demo = _read_sql_file(DEMO_ROWS_PATH) if DEMO_ROWS_PATH.exists() else ""
+        for statement in split_sql_statements(demo):
+            target = _statement_target(statement)
+            if target is not None:
+                continue
+            await connection.execute(text(statement))
     return created
 
 
@@ -475,41 +492,60 @@ async def _rebuild_costs(connection: AsyncConnection, app_schema: str) -> int:
 
 
 def _matrix_matches() -> list[MatrixMatch]:
-    """(ДЗО, product) pairs out of «Матрица продуктов.xlsx» («да» cells)."""
-    matrix = KPPK_DOCS_DIR / MATRIX_XLSX_NAME
-    if not matrix.exists():
-        message = f"Не найдена матрица продуктов: {matrix}."
+    """
+    (ДЗО, product, has_excise) rows out of `product_matrix.sql`.
+
+    This replaced reading «Матрица продуктов.xlsx»: the pair set is the one input
+    the original dumps never carried, so it is versioned as a plain SQL table
+    (`kppk_product_matrix`, generated from the spreadsheet once). Names are
+    normalized exactly like the copies, so they match `kppk_orgs`/`kppk_products`.
+    """
+    if not PRODUCT_MATRIX_PATH.exists():
+        message = f"Не найдена матрица продуктов: {PRODUCT_MATRIX_PATH}."
         raise CommandError(message)
-    sheet = openpyxl.load_workbook(matrix, data_only=True).worksheets[0]
-    rows = list(sheet.iter_rows(values_only=True))
+    _load_product_matrix_table()
+    rows = _PRODUCT_MATRIX
     if not rows:
-        message = f"Матрица продуктов пуста: {matrix}."
+        message = f"Матрица продуктов пуста: {PRODUCT_MATRIX_PATH}."
         raise CommandError(message)
-    # Names are normalised the same way the copies were: the matrix columns and
-    # its product column must match the stored ДЗО/product names exactly.
-    orgs = [normalize_text(str(cell)) for cell in rows[0][1:] if cell is not None]
-    if not orgs:
-        message = f"В матрице продуктов нет колонок ДЗО: {matrix}."
-        raise CommandError(message)
-    matches: list[MatrixMatch] = []
-    for row in rows[1:]:
-        product = normalize_text(str(row[0])) if row[0] is not None else ""
-        if not product:
-            continue
-        for org_name, cell in zip(orgs, row[1 : len(orgs) + 1], strict=False):
-            if normalize_text(str(cell)) == MATCH_COLUMN_VALUE:
-                matches.append({"org": org_name, "product": product})
-    return matches
+    return list(rows)
+
+
+# Parsed once per process: the matrix is a static file.
+_PRODUCT_MATRIX: list[MatrixMatch] = []
+
+
+def _load_product_matrix_table() -> None:
+    """Parse `product_matrix.sql` into `_PRODUCT_MATRIX` (idempotent)."""
+    global _PRODUCT_MATRIX  # noqa: PLW0603 — a module-level cache of a static file
+    if _PRODUCT_MATRIX:
+        return
+    sql = _read_sql_file(PRODUCT_MATRIX_PATH)
+    rows: list[MatrixMatch] = []
+    # `('АО "СНХЗ"', 'Сульфат натрия', false),` — one VALUES tuple per line.
+    for match in re.finditer(
+        r"\(\s*'((?:[^']|'')*)'\s*,\s*'((?:[^']|'')*)'\s*,\s*(true|false)\s*\)",
+        sql,
+    ):
+        org = normalize_text(match.group(1).replace("''", "'"))
+        product = normalize_text(match.group(2).replace("''", "'"))
+        if org and product:
+            rows.append({"org": org, "product": product, "hasExcise": match.group(3) == "true"})
+    _PRODUCT_MATRIX = rows
 
 
 async def _rebuild_org_products(connection: AsyncConnection, app_schema: str) -> dict[str, int]:
     """
-    Rebuild kppk_org_products from «Матрица продуктов.xlsx».
+    Rebuild kppk_org_products from the versioned product matrix.
 
-    ДЗО are matched by their exact display name (the matrix columns carry the
-    same «АО "…"» names as kppk_d_org). A matrix product missing in
-    kppk_products is created without a source num under an `@`-prefixed name —
-    the mark of "brought in by the matrix, unknown to the source dictionary".
+    ДЗО are matched by their exact display name (the matrix carries the same
+    «АО "…"» names as kppk_d_org). A matrix product missing in kppk_products is
+    created without a source num under an `@`-prefixed name — the mark of
+    "brought in by the matrix, unknown to the source dictionary".
+
+    «Заполняемый акциз» comes from the matrix too (`has_excise`): the pair set
+    and the flags are one versioned input, so a rebuild reproduces exactly what
+    the file says instead of carrying hand-kept state out of the old rows.
     """
     matrix_matches = _matrix_matches()
     orgs_table = _qualified(app_schema, "kppk_orgs")
@@ -526,6 +562,7 @@ async def _rebuild_org_products(connection: AsyncConnection, app_schema: str) ->
     }
     created_products = 0
     link_product_names: list[str] = []
+    link_flags: list[bool] = []
     for match in matrix_matches:
         product = match["product"]
         # A matrix product missing in the source dictionary becomes a row
@@ -541,55 +578,35 @@ async def _rebuild_org_products(connection: AsyncConnection, app_schema: str) ->
             )
             created_products += 1
         link_product_names.append(effective)
+        link_flags.append(match["hasExcise"])
         if match["org"] not in org_id_by_name:
             message = f"Матрица продуктов ссылается на неизвестное ДЗО «{match['org']}»."
             raise CommandError(message)
 
-    # «Заполняемый акциз» is kept per product × ДЗО position, and the matrix is
-    # the source of the PAIRS only: the flags are hand-kept, so the rebuild
-    # carries them over instead of wiping them with the rows.
-    excise_pairs = {
-        (row.org_name, row.product_name)
-        for row in (
-            await connection.execute(
-                text(
-                    f"SELECT o.name AS org_name, p.name AS product_name "  # noqa: S608 — constant names
-                    f"FROM {links_table} op "
-                    f"JOIN {orgs_table} o ON o.id = op.org_id "
-                    f"JOIN {products_table} p ON p.id = op.product_id "
-                    "WHERE op.has_excise"
-                )
-            )
-        ).all()
-    }
     org_names = [match["org"] for match in matrix_matches]
     await connection.execute(text(f"TRUNCATE TABLE {links_table} CASCADE"))
     await connection.execute(
-        # The matrix pairs arrive as two parallel arrays: unnest zips them back
-        # into rows server-side (one statement, no per-row round trips).
+        # The matrix rows arrive as parallel arrays: unnest zips them back into
+        # rows server-side (one statement, no per-row round trips).
         text(
-            f"INSERT INTO {links_table} (id, org_id, product_id, created_at, updated_at) "  # noqa: S608
-            "SELECT gen_random_uuid(), o.id, p.id, now(), now() "
-            "FROM unnest(CAST(:org_names AS text[]), CAST(:product_names AS text[])) AS m(org_name, product_name) "
+            f"INSERT INTO {links_table} (id, org_id, product_id, has_excise, created_at, updated_at) "  # noqa: S608
+            "SELECT gen_random_uuid(), o.id, p.id, m.has_excise, now(), now() "
+            "FROM unnest("
+            "CAST(:org_names AS text[]), CAST(:product_names AS text[]), CAST(:has_excise AS boolean[])"
+            ") AS m(org_name, product_name, has_excise) "
             f"JOIN {orgs_table} o ON o.name = m.org_name "
             f"JOIN {products_table} p ON p.name = m.product_name"
         ).bindparams(
             org_names=org_names,
             product_names=link_product_names,
+            has_excise=link_flags,
         )
     )
-    # Restore the hand-kept flags on the pairs that still exist in the matrix.
-    for org_name, product_name in sorted(excise_pairs):
-        await connection.execute(
-            text(
-                f"UPDATE {links_table} op SET has_excise = true "  # noqa: S608 — constant names
-                f"FROM {orgs_table} o, {products_table} p "
-                "WHERE o.id = op.org_id AND p.id = op.product_id "
-                "AND o.name = :org_name AND p.name = :product_name"
-            ),
-            {"org_name": org_name, "product_name": product_name},
-        )
-    return {"matrix_products_created": created_products, "matrix_links": len(matrix_matches)}
+    return {
+        "matrix_products_created": created_products,
+        "matrix_links": len(matrix_matches),
+        "matrix_excise": sum(1 for flag in link_flags if flag),
+    }
 
 
 async def seed_administrators(session: AsyncSession) -> int:

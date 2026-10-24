@@ -1,9 +1,11 @@
 """
 Domain models of the «КППК» project (prefix kppk_).
 
-This phase works with the normalized copies of the source tables: the seeder
-fills `raw.kppk_*` verbatim from the dumps in `docs/kppk/`, then copies them
-into the program schema. Every copy is uuid-keyed; the source integer id stays
+This phase works with the normalized copies of the source tables: the
+`raw.kppk_*` source tables come with the original data (the operator loads the
+dumps; a demo install gets a few rows from `data/demo_source_rows.sql`), and the
+seeder copies them into the program schema. Every copy is uuid-keyed; the source
+integer id stays
 as a unique column (`org_id`, `period_id`, `product_num`, `raw_num`) — both the
 seeder's re-copy key and the join key the fact/plan tables reference;
 `product_num`/`raw_num` are admin-editable in the UI and stay unique. The

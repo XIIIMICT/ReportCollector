@@ -63,7 +63,7 @@ async def test_seed_recopies_sources_after_application_tables_were_deleted(db_se
     connection = await db_session.connection()
     source_schema = f"{TEST_SCHEMA}_kppk_source"
     await connection.execute(text(f'CREATE SCHEMA "{source_schema}"'))
-    for statement in seed_kppk.split_sql_statements(seed_kppk._read_sql_file(seed_kppk.KPPK_DOCS_DIR / "ddl.sql")):
+    for statement in seed_kppk.split_sql_statements(seed_kppk._read_sql_file(seed_kppk.SOURCE_SCHEMA_PATH)):
         target = seed_kppk._statement_target(statement)
         if target is not None and target[0] == "raw":
             await connection.execute(text(statement.replace("raw.", f'"{source_schema}".')))
@@ -101,7 +101,11 @@ async def test_seed_recopies_sources_after_application_tables_were_deleted(db_se
     monkeypatch.setattr(seed_kppk, "get_settings", lambda: SimpleNamespace(postgres_schema=TEST_SCHEMA))
     monkeypatch.setattr(seed_kppk, "_ensure_schemas", source_schemas)
     monkeypatch.setattr(seed_kppk, "_ensure_source_tables", source_tables)
-    monkeypatch.setattr(seed_kppk, "_matrix_matches", lambda: [{"org": "Test org", "product": "Test product"}])
+    monkeypatch.setattr(
+        seed_kppk,
+        "_matrix_matches",
+        lambda: [{"org": "Test org", "product": "Test product", "hasExcise": False}],
+    )
     counters = await seed_kppk.seed(db_session)
     assert counters["copy_tables_created"] == len(TABLES)
     assert counters["kppk_realization"] == 1

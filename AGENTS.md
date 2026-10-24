@@ -6,7 +6,8 @@ Cheat sheet for agents. Read only the section your task needs; `docs/*` holds th
 
 Corporate raw-material planning system («Сырьё»): Excel-like **«Движение»** and **«Цены»** forms + dictionaries (Сырьевые позиции, Активы, Базисы поставки, Пользователи), real-time collaborative editing (cell leases, presence), report-month fixing with a version archive and Excel export.
 
-The «КППК» project (`/kppk`) copies `raw.kppk_*` seed inputs from `docs/kppk/`.
+The «КППК» project (`/kppk`) copies the corporate `raw.kppk_*` source tables
+(that data is **not** in the repo — it ships as dumps the operator loads).
 Its workspace exposes product positions, raw positions, ДЗО, realization slices
 and an admin-only users dictionary. Product/raw numbers are editable and unique;
 missing matrix products use an unnumbered `@`-prefixed name. Periods remain
@@ -36,8 +37,9 @@ editing a KPPK membership.
 | Migrations | `just migrate` (never edit already-applied prod migrations — only new ones). The migration connection sets `lock_timeout=30s` — a blocked migration (e.g. an ALTER waiting behind the running app) fails loudly instead of hanging |
 | New empty DB / baseline adoption | New: `just migrate`. Existing old head `0015_plan_row_col_218`: backed-up, stopped installation + `uv run --directory back python -m migrations.adopt_baseline` once, then `just migrate`. Guarded schema comparison; details in `docs/WORKFLOW.md` |
 | Seed | `just seed` — **fully recreates the DB schema**, don't run without asking |
-| КППК seed | `just seed-kppk` — re-copies the `raw.kppk_*` sources (only creates them when missing), rebuilds «Продуктовые позиции» and **finishes by generating the periods** (same code as `just gen-kppk-periods`, same transaction). Text values are normalized on copy and on save (`normalize_text` in `src/kppk/constants.py`): trimmed, single spaces, non-breaking space included — the copies are keyed by NAME, so stray spaces would create a second product. Other projects untouched |
+| КППК seed | `just seed-kppk` — re-copies the `raw.kppk_*` sources (creates them **only when missing**, from `back/src/kppk/data/source_schema.sql` + `demo_source_rows.sql`; the `dict` schema is never touched), rebuilds «Продуктовые позиции» from `back/src/kppk/data/product_matrix.sql` (pairs + «Заполняемый акциз») and **finishes by generating the periods** (same code as `just gen-kppk-periods`, same transaction). Text values are normalized on copy and on save (`normalize_text` in `src/kppk/constants.py`): trimmed, single spaces, non-breaking space included — the copies are keyed by NAME, so stray spaces would create a second product. Other projects untouched |
 | КППК periods | `just gen-kppk-periods` (`-dry` for a count only) — inserts the missing «Реализация» (one row per ДЗО × product × market) and «Себестоимость» (per ДЗО × product) rows for every month of the current and next year, all values zero. Existing rows are never touched; safe to re-run. Products come from the «Продуктовые позиции» matrix. Also runs at the end of `just seed-kppk` |
+| КППК source data | The **original** `raw.kppk_*` data is not in the repository: the operator loads the SQL dumps. What the repo does keep (`back/src/kppk/data/`) is the structure, the demo rows for a database without sources, and the product × ДЗО matrix with its excise flags — the only input the dumps never carried |
 
 ## Landmines (critical!)
 

@@ -125,21 +125,21 @@ CREATE TABLE raw.kppk_f_realization_plan (
 );
 
 -- dict.markets definition
+--
+-- NOT created or touched by the КППК seeder: the `dict` schema belongs to
+-- another project. The definition stays here only as documentation of the
+-- source layout the dumps were taken from.
 
--- Drop table
-
--- DROP TABLE dict.markets;
-
-CREATE TABLE dict.markets (
-	id uuid DEFAULT gen_random_uuid() NOT NULL,
-	code text NOT NULL,
-	"name" text NOT NULL,
-	created_at timestamptz DEFAULT now() NOT NULL,
-	updated_at timestamptz NULL,
-	deleted_at timestamptz NULL,
-	CONSTRAINT markets_name_key UNIQUE (name),
-	CONSTRAINT markets_pkey PRIMARY KEY (id)
-);
+-- CREATE TABLE dict.markets (
+-- 	id uuid DEFAULT gen_random_uuid() NOT NULL,
+-- 	code text NOT NULL,
+-- 	"name" text NOT NULL,
+-- 	created_at timestamptz DEFAULT now() NOT NULL,
+-- 	updated_at timestamptz NULL,
+-- 	deleted_at timestamptz NULL,
+-- 	CONSTRAINT markets_name_key UNIQUE (name),
+-- 	CONSTRAINT markets_pkey PRIMARY KEY (id)
+-- );
 
 
 -- raw.kppk_f_production_plan definition

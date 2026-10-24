@@ -30,10 +30,18 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 
   missing from a catalog is added as a marked «@»-prefixed option for an admin to
   review and delete afterwards. Run host seeds with `POSTGRES_HOST=127.0.0.1` —
   the `.env` value `host.docker.internal` only resolves inside containers.
-- The «КППК» copies come from the source dumps in `docs/kppk/` (`ddl.sql`,
-  `kppk_*_<timestamp>.sql`, «Матрица продуктов.xlsx»). `just seed-kppk`
-  (`uv run --directory back -m src.scripts.seed_kppk`) creates missing `raw`/`dict`
-  source schemas and tables, restores any missing `rc.kppk_*` application tables
+- The «КППК» copies come from the corporate source tables (`raw.kppk_*`). That
+  **original data is not in the repository** — it ships as SQL dumps the operator
+  loads into the database; the seeder only reads the tables. The seeder's own
+  inputs live in `back/src/kppk/data/`: `source_schema.sql` (the structure),
+  `demo_source_rows.sql` (a minimal set used **only** when the source tables are
+  absent — 13 ДЗО, 137 products, one period and one row per form, enough for a
+  CI/demo install to work end to end) and `product_matrix.sql` (the product × ДЗО
+  pairs with their «Заполняемый акциз» flags — the one input the dumps never
+  carried; it replaced «Матрица продуктов.xlsx»). `just seed-kppk`
+  (`uv run --directory back -m src.scripts.seed_kppk`) creates the missing `raw`
+  schema and source tables (**never** `dict` — that belongs to another project),
+  restores any missing `rc.kppk_*` application tables
   from the current SQLModel metadata, then re-copies the source tables
   (truncate + re-insert, one transaction) and rebuilds «Продуктовые позиции» from
   the matrix — products missing in the source dictionary are created without a

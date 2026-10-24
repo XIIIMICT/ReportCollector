@@ -26,7 +26,7 @@ def normalize_text(value: str | None) -> str:
 KPPK_PROJECT_KEY = "kppk"
 KPPK_PROJECT_NAME = "КППК"
 
-# Source schema the seeder fills from docs/kppk/*.sql (as on the prod DB).
+# Source schema the seeder reads the original dumps from (as on the prod DB).
 KPPK_SOURCE_SCHEMA_RAW = "raw"
 KPPK_SOURCE_SCHEMA_DICT = "dict"
 
