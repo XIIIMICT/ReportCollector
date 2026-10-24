@@ -52,10 +52,15 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 
   ordinary space. The copies are keyed by product/ДЗО NAME, so an untrimmed value
   would silently become a second product; the same rule runs in SQL while copying
   (`_normalized_sql` in the seeder) and in Python for the matrix and for every
-  dictionary cell a user saves. **The seed finishes by generating the coming
-  periods** (the same code as `just gen-kppk-periods`, called in the same
-  transaction), so a fresh copy does not leave «Реализация»/«Себестоимость» empty
-  for the months nobody has loaded; the counters are printed with the rest
+  dictionary cell a user saves. **The seed REBUILDS the period rows** for every
+  month from September 2023 to December of the next year: it truncates
+  «Реализация» (plan and fact) and «Себестоимость» and inserts one row per
+  (ДЗО × product of the matrix × market) and per (ДЗО × product), every figure
+  zero — the forms exist to be filled. Overwriting (not topping up) is
+  deliberate and matches how the renovation plan is seeded: the seed owns these
+  rows, so a product dropped from the matrix cannot leave a stale period behind.
+  The costs are re-derived from the fresh realization rows afterwards. All of it
+  happens in the seed transaction; the counters are printed with the rest
   (`periods_created` etc.). It touches no other project; the `kppk` project row
   and its user links come from `just seed` / self-provisioning, so a fresh install
   runs `just seed` → `just seed-kppk`. Dictionary edits — the editable unique «№»

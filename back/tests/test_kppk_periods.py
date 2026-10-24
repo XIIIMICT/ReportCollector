@@ -1,73 +1,84 @@
-"""The `gen-kppk-periods` command: rows for the coming periods, idempotently."""
+"""Period rows of the КППК seed: the whole window, rebuilt from scratch."""
 
 from datetime import date
 
-from sqlmodel import select
+from sqlalchemy import func, text
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.kppk.constants import MARKET_CODES
-from src.kppk.models import KppkOrgProduct
-from src.scripts.generate_kppk_periods import generate, target_periods
+from src.kppk.models import KppkCost, KppkOrgProduct, KppkRealization, KppkRealizationPlan
+from src.scripts import seed_kppk
+from src.scripts.seed_kppk import target_periods
 
 
-def test_target_periods_covers_this_and_next_year() -> None:
-    """January of the current year through December of the next one — 24 months."""
+def test_target_periods_starts_in_september_2023_and_reaches_next_december() -> None:
+    """September 2023 through December of the year after `today`, calendar-aligned."""
     periods = target_periods(date(2026, 10, 20))
-    assert len(periods) == 24
-    assert periods[0] == date(2026, 1, 1)
+    assert periods[0] == date(2023, 9, 1)
     assert periods[-1] == date(2027, 12, 1)
-    # Every month, calendar-aligned (the copies reject a mid-month period_date).
+    # Every month of every year in between — no gaps, calendar-aligned.
     assert all(period.day == 1 for period in periods)
+    assert len(periods) == 4 + 12 * 3 + 12  # Sep..Dec 2023 + 2024..2026 + 2027
 
 
-async def test_generate_adds_the_missing_rows_once(db_session: AsyncSession) -> None:
+def test_target_periods_shifts_with_the_current_year() -> None:
+    """The end of the window is relative: next December, whatever "today" is."""
+    assert target_periods(date(2025, 3, 1))[-1] == date(2026, 12, 1)
+    assert target_periods(date(2030, 1, 1))[-1] == date(2031, 12, 1)
+    assert target_periods(date(2030, 1, 1))[0] == date(2023, 9, 1)
+
+
+async def test_seed_rebuilds_the_periods_and_clears_stale_rows(db_session: AsyncSession) -> None:
     """
-    Add one row per market (and one cost row) per matrix product and period, once.
+    The seed owns the period rows: a re-run replaces them instead of topping up.
 
-    A second run adds nothing — the command is idempotent. The seeded fixture
-    already holds some rows for 2026, so the generator only tops up what is
-    missing; the assertion is on the SHAPE (every matrix pair has all markets in
-    the first and the last period), not on the raw count.
+    A stale row (a product removed from the matrix, a period outside the window)
+    must not survive — that is why the generation truncates before inserting.
     """
     pairs = (await db_session.exec(select(KppkOrgProduct))).all()
     assert pairs, "the КППК fixture must link products to organizations"
 
-    first = await generate(session=db_session)
-    assert first["kppk_realization_plan"] > 0
-    assert first["kppk_realization"] > 0
-    assert first["kppk_cost"] > 0
+    # A row outside the window: the rebuild must remove it.
+    db_session.add(
+        KppkRealization(
+            org_id=pairs[0].org_id,
+            period_date=date(2020, 1, 1),
+            rep_date=date(2020, 1, 31),
+            product="Устаревший продукт",
+            region=MARKET_CODES[0],
+        )
+    )
+    await db_session.commit()
 
-    second = await generate(session=db_session)
-    assert second == {
-        "kppk_realization_plan": 0,
-        "kppk_realization": 0,
-        "kppk_cost": 0,
-    }
-
-    from sqlalchemy import func
-    from sqlmodel import col
-
-    from src.kppk.models import KppkCost, KppkRealizationPlan
+    connection = await db_session.connection()
+    schema = (await connection.execute(text("SELECT current_schema()"))).scalar_one()
+    counts = await seed_kppk._generate_periods(connection, schema)
 
     periods = target_periods()
+    markets = len(MARKET_CODES)
+    assert counts["kppk_realization_plan"] == len(pairs) * len(periods) * markets
+    assert counts["kppk_realization"] == len(pairs) * len(periods) * markets
+    assert counts["kppk_cost"] == len(pairs) * len(periods)
+
+    # The stale row is gone.
+    stale = (
+        await db_session.exec(
+            select(func.count())
+            .select_from(KppkRealization)
+            .where(col(KppkRealization.product) == "Устаревший продукт")
+        )
+    ).one()
+    assert stale == 0
+
+    # Every market exists in the first and the last month, for every pair.
     for period in (periods[0], periods[-1]):
-        for pair in pairs:
+        for model in (KppkRealizationPlan, KppkRealization):
             rows = (
-                await db_session.exec(
-                    select(func.count())
-                    .select_from(KppkRealizationPlan)
-                    .where(col(KppkRealizationPlan.org_id) == pair.org_id)
-                    .where(col(KppkRealizationPlan.period_date) == period)
-                )
+                await db_session.exec(select(func.count()).select_from(model).where(col(model.period_date) == period))
             ).one()
-            # All three markets exist, whatever the source dump held.
-            assert rows >= len(MARKET_CODES), f"realization rows for {pair.org_id} in {period}: {rows}"
-            costs = (
-                await db_session.exec(
-                    select(func.count())
-                    .select_from(KppkCost)
-                    .where(col(KppkCost.org_id) == pair.org_id)
-                    .where(col(KppkCost.period_date) == period)
-                )
-            ).one()
-            assert costs, f"no cost rows for {pair.org_id} in {period}"
+            assert rows == len(pairs) * markets, f"{model.__name__} in {period}: {rows}"
+
+    # The figures start at zero — the forms exist to be filled.
+    total = (await db_session.exec(select(func.coalesce(func.sum(col(KppkCost.full_cost_bp)), 0)))).one()
+    assert float(total) == 0.0

@@ -1,6 +1,5 @@
 """Recover application copies without changing sources or unrelated projects."""
 
-from decimal import Decimal
 from types import SimpleNamespace
 
 from conftest import TEST_SCHEMA
@@ -108,39 +107,43 @@ async def test_seed_recopies_sources_after_application_tables_were_deleted(db_se
     )
     counters = await seed_kppk.seed(db_session)
     assert counters["copy_tables_created"] == len(TABLES)
-    assert counters["kppk_realization"] == 1
-    assert counters["kppk_realization_plan"] == 1
+    # The period tables are REBUILT by the seed: the counter is the generated
+    # row count (one matrix pair × the whole window), not the copied rows.
+    assert counters["periods_realization_plan"] > 0
+    assert counters["periods_realization"] > 0
+    # The pure copies keep the source rows verbatim.
     assert counters["kppk_production_plan"] == 1
-    assert counters["kppk_cost"] == 1
     assert counters["matrix_links"] == 1
-    row = (
+    # A source figure in a PERIOD table is replaced by the empty period rows:
+    # those three tables are the seed's scaffolding, filled by the business.
+    period_rows = (
         await connection.execute(
             text(
-                f'SELECT fact, excise_fact, buyout_fact FROM "{TEST_SCHEMA}".kppk_realization '  # noqa: S608 — test schema
-                "WHERE product = :product AND region = 'RU'"
+                f'SELECT count(*) FROM "{TEST_SCHEMA}".kppk_realization r '  # noqa: S608 — test schema
+                "WHERE r.product = :product AND r.region = 'RU' AND r.fact IS NOT NULL"
             ).bindparams(product="Test product")
         )
-    ).one()
-    assert tuple(row) == (None, None, None)  # NULLs of the source stay NULL
-    # The fix exists because the copies used to coerce those NULLs to 0, which
-    # invented figures on every re-seed; a real value is still copied verbatim.
-    await connection.execute(
-        text(
-            f'UPDATE "{source_schema}".kppk_f_realization SET fact = 12.5, excise_fact = 3 '  # noqa: S608 — test schema
-            "WHERE product = 'Test product'"
+    ).scalar_one()
+    assert period_rows == 0, "the seed rebuilds the period tables, source figures included"
+    # The build order carries the period window (September 2023 → next December).
+    span = (
+        await connection.execute(
+            text(f'SELECT min(period_date), count(DISTINCT period_date) FROM "{TEST_SCHEMA}".kppk_cost')  # noqa: S608
         )
-    )
-    await connection.execute(text(f'DELETE FROM "{TEST_SCHEMA}".kppk_realization'))  # noqa: S608 ? test schema
-    await seed_kppk.seed(db_session)
-    row = (
+    ).one()
+    assert str(span[0]) == "2023-09-01"
+    assert span[1] == len(seed_kppk.target_periods())
+    # The seed is idempotent as a whole: a second run copies nothing and the
+    # generator produces the same rows again (it truncates, it does not append).
+    again = await seed_kppk.seed(db_session)
+    assert again["copy_tables_created"] == 0
+    assert again["periods_realization_plan"] == counters["periods_realization_plan"]
+    duplicates = (
         await connection.execute(
             text(
-                f'SELECT fact, excise_fact, buyout_fact FROM "{TEST_SCHEMA}".kppk_realization '  # noqa: S608 — test schema
-                "WHERE product = :product AND region = 'RU'"
-            ).bindparams(product="Test product")
+                f"SELECT count(*) - count(DISTINCT (org_id, period_date, product, region)) "  # noqa: S608
+                f'FROM "{TEST_SCHEMA}".kppk_realization_plan'
+            )
         )
-    ).one()
-    assert tuple(row) == (Decimal("12.5"), Decimal(3), None)
-    # The seed is idempotent as a whole: a second run copies nothing and adds
-    # no period rows either (the generator only fills what is missing).
-    assert (await seed_kppk.seed(db_session))["copy_tables_created"] == 0
+    ).scalar_one()
+    assert duplicates == 0, "the period rebuild must not duplicate rows"

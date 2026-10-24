@@ -18,8 +18,10 @@ repository: it ships as SQL dumps the operator loads separately. The seeder:
    the seeder needs no spreadsheet. Products and ДЗО are matched by exact
    display name, and a matrix product missing in the source dictionary is
    created without a num under an `@`-prefixed name;
-4. finally materializes the coming periods (`generate_kppk_periods`) in the
-   same transaction.
+4. finally rebuilds the «Реализация» / «Себестоимость» rows for every month from
+   September 2023 to December of the next year (overwriting the previous ones)
+   and re-derives the costs from them — the same "the seed owns its rows"
+   approach as the renovation plan.
 
 Re-copying on every run keeps the behavior deterministic: any manual dictionary
 edit is reconciled from the source at the next seed. The kppk project row and
@@ -31,6 +33,8 @@ Usage: uv run --directory back -m src.scripts.seed_kppk
 
 import asyncio
 import re
+from calendar import monthrange
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Final, TypedDict
 
@@ -47,9 +51,13 @@ from src.kppk.constants import (
     KPPK_PROJECT_KEY,
     KPPK_SOURCE_SCHEMA_RAW,
     KPPK_SOURCE_TABLES,
+    MARKET_CODES,
     normalize_text,
 )
-from src.scripts.generate_kppk_periods import generate
+
+# Rows per INSERT: one statement of ~50k rows would exceed the bound-parameter
+# limit of the driver.
+PERIOD_INSERT_CHUNK: Final[int] = 1000
 
 # The seeder's own inputs (`back/src/kppk/data/`), NOT the original dumps:
 # `source_schema.sql` is the structure of the source tables, `product_matrix.sql`
@@ -632,17 +640,95 @@ async def seed_administrators(session: AsyncSession) -> int:
     return len(KPPK_ADMIN_EMAILS)
 
 
-async def _generate_periods(session: AsyncSession) -> dict[str, int]:
-    """
-    Materialize the coming «Реализация» / «Себестоимость» rows.
+# The period window: the «Реализация»/«Себестоимость» forms open from September
+# 2023 (the first month the business works with) through December of the next
+# calendar year.
+PERIOD_START = date(2023, 9, 1)
 
-    Delegates to `generate_kppk_periods` so the seeder and `just
-    gen-kppk-periods` can never drift: the same month window, the same market
-    list, the same "only combinations that are missing" rule. It runs inside
-    the seed transaction (no commit of its own), so a failed seed leaves no
-    half-written periods behind.
+
+def target_periods(today: date | None = None) -> list[date]:
+    """First day of every month from September 2023 to December of the next year."""
+    today = today or datetime.now(UTC).date()
+    months: list[date] = []
+    year, month = PERIOD_START.year, PERIOD_START.month
+    while (year, month) <= (today.year + 1, 12):
+        months.append(date(year, month, 1))
+        month += 1
+        if month > 12:
+            year, month = year + 1, 1
+    return months
+
+
+async def _generate_periods(connection: AsyncConnection, app_schema: str) -> dict[str, int]:
     """
-    return await generate(session=session)
+    Rebuild the empty «Реализация» / «Себестоимость» rows for the whole window.
+
+    The forms must exist for every month of the business window even when the
+    source has nothing for it, so the seed materializes one row per (ДЗО ×
+    product of the matrix × market) and one per (ДЗО × product), all figures
+    NULL. Rows the SOURCE brought are never touched: they are real data and the
+    copy step above wrote them.
+
+    Overwriting applies to the GENERATED rows only: a matrix pair that no longer
+    exists (or a period outside the window) would otherwise leave a stale empty
+    row behind forever. "Generated" is recognisable — every figure is NULL and
+    the source contributed nothing for that key — so the cleanup deletes exactly
+    those, never a row that carries source data.
+    """
+    periods = target_periods()
+    products = (
+        await connection.execute(
+            text(
+                f"SELECT op.org_id, p.name AS product "  # noqa: S608 — server-owned identifiers
+                f"FROM {_qualified(app_schema, 'kppk_org_products')} op "
+                f"JOIN {_qualified(app_schema, 'kppk_products')} p ON p.id = op.product_id"
+            )
+        )
+    ).all()
+    if not products or not periods:
+        return {"kppk_realization_plan": 0, "kppk_realization": 0, "kppk_cost": 0}
+
+    counts = {"kppk_realization_plan": 0, "kppk_realization": 0, "kppk_cost": 0}
+    realization: list[dict[str, object]] = []
+    cost: list[dict[str, object]] = []
+    for product_row in products:
+        for period in periods:
+            cost.append({"org_id": product_row.org_id, "period_date": period, "product": product_row.product})
+            last_day = monthrange(period.year, period.month)[1]
+            for region in MARKET_CODES:
+                realization.append(
+                    {
+                        "org_id": product_row.org_id,
+                        "period_date": period,
+                        # The copies require the report day: the month's last day,
+                        # which is what every read filters on.
+                        "rep_date": date(period.year, period.month, last_day),
+                        "product": product_row.product,
+                        "region": region,
+                    }
+                )
+
+    # Overwrite: the seed owns these three tables. «Реализация»/«Себестоимость»
+    # are period scaffolding — the forms are filled by the business — so the
+    # source figures in them are replaced by the empty rows below, the same way
+    # the renovation plan is re-seeded. What the source contributes is the
+    # DICTIONARIES (ДЗО, products, raws), which the copy step wrote.
+    for table in ("kppk_realization_plan", "kppk_realization", "kppk_cost"):
+        await connection.execute(text(f"TRUNCATE TABLE {_qualified(app_schema, table)}"))
+    for table, rows in (("kppk_realization_plan", realization), ("kppk_realization", realization), ("kppk_cost", cost)):
+        columns = list(rows[0])
+        # `id` has no DB default (the models mint the uuid in Python), so it is
+        # generated here for the rows that bypass the ORM.
+        statement = (
+            f"INSERT INTO {_qualified(app_schema, table)} (id, {', '.join(columns)}) "  # noqa: S608
+            f"VALUES (gen_random_uuid(), {', '.join(f':{column}' for column in columns)})"
+        )
+        # One statement per chunk: a single insert of ~50k rows would exceed the
+        # bound-parameter limit.
+        for index in range(0, len(rows), PERIOD_INSERT_CHUNK):
+            await connection.execute(text(statement), rows[index : index + PERIOD_INSERT_CHUNK])
+        counts[table] = len(rows)
+    return counts
 
 
 async def seed(session: AsyncSession) -> dict[str, int]:
@@ -667,10 +753,12 @@ async def seed(session: AsyncSession) -> dict[str, int]:
     await _truncate_copies(connection, app_schema)
     per_table = await _copy_sources(connection, app_schema)
     org_products = await _rebuild_org_products(connection, app_schema)
+    # Periods BEFORE the costs: the cost rebuild derives «Себестоимость» from the
+    # realization rows, so it must run on the final period set. Both are rebuilt
+    # from scratch — the seed owns these tables.
+    periods = await _generate_periods(connection, app_schema)
     costs = await _rebuild_costs(connection, app_schema)
     administrators = await seed_administrators(session)
-    # Last: the matrix is final only after the rebuild above.
-    periods = await _generate_periods(session)
     return {
         **per_table,
         **org_products,
@@ -694,7 +782,7 @@ async def run() -> None:
     details = ", ".join(f"{name}={count}" for name, count in sorted(counters.items()))
     print(f"Сидирование КППК завершено: {details}.")
     print(
-        f"Периоды (как `just gen-kppk-periods`): «Реализация» (план) — "
+        f"Периоды: «Реализация» (план) — "
         f"{counters['periods_realization_plan']}, «Реализация» (факт) — "
         f"{counters['periods_realization']}, «Себестоимость» — {counters['periods_cost']}."
     )
