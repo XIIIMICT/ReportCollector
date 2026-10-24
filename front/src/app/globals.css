@@ -541,12 +541,16 @@ body {
     white-space: nowrap;
 }
 
-/* The filters own a SECOND row of the stacked toolbar (`.table-toolbar--row`).
+/* The filters own a SECOND row of the stacked toolbar (`.table-toolbar__row`).
    They appear by GROWING downwards — a height + fade transition of the row
    itself, so the toolbar (and the grid beneath it) grows/shrinks as one block
    instead of a control sliding in from the left. `overflow: hidden` clips the
    controls while the height animates. `ToolbarFilters placement="below"`
-   renders this; the inline variant reuses `toolbar-collapse` (width). */
+   renders this; the inline variant reuses `toolbar-collapse` (width).
+   The row is indented by HeroUI's pill padding (`p-1`, 0.25rem): the tabs sit
+   inside that pill, so indenting here lines the filter controls up with the tab
+   TEXT while the pill keeps its frame — a negative margin on the strip instead
+   would clip it against the toolbar's `overflow: hidden`. */
 .toolbar-filters__row {
     display: flex;
     min-width: 0;
@@ -564,6 +568,8 @@ body {
     max-height: 3rem;
     /* Half the usual rhythm between the tabs row above and these filters. */
     margin-top: 0.26rem;
+    /* Align with the tab text inside the HeroUI pill (see above). */
+    padding-inline-start: 0.25rem;
 }
 
 .toolbar-filters__row--hidden {
