@@ -1432,20 +1432,24 @@ export function KppkWorkspace({
     // filters sit BELOW it in their own row, so they open downwards (height)
     // rather than sideways (width) — the upper panel then grows/shrinks with
     // them instead of having one control slide in from the left.
+    // The row's children follow the SAME rule as «Сырьё»/«Ремонт»: the toolbar
+    // container spaces its own children (`.table-toolbar__row > *`), so a
+    // control is a DIRECT child here too — no private wrapper that would take
+    // the spacing onto itself and leave the switch glued to the tabs.
     const toolbar = (
         <div className="table-toolbar table-toolbar--stacked">
             <div className="table-toolbar__row">
+                <ToolbarFilters placement="inline" visible={isPositionsTab}>
+                    <Switch isSelected={exciseMode} onChange={setExciseMode}>
+                        <Switch.Content>
+                            <Switch.Control>
+                                <Switch.Thumb />
+                            </Switch.Control>
+                            Настройка акциза
+                        </Switch.Content>
+                    </Switch>
+                </ToolbarFilters>
                 <div className="table-toolbar__controls">
-                    <ToolbarFilters placement="inline" visible={isPositionsTab}>
-                        <Switch isSelected={exciseMode} onChange={setExciseMode}>
-                            <Switch.Content>
-                                <Switch.Control>
-                                    <Switch.Thumb />
-                                </Switch.Control>
-                                Настройка акциза
-                            </Switch.Content>
-                        </Switch>
-                    </ToolbarFilters>
                     <SectionTabs
                         tabs={visibleTabs}
                         value={selectedTab?.id ?? ""}

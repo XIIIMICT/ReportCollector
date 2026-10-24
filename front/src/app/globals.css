@@ -507,21 +507,18 @@ body {
     padding: 0.52rem 0;
 }
 
+/* The ONE rule that spaces a stacked toolbar's row: every direct child gets the
+   same trailing margin, the last one none. `margin`, not `gap`, because a
+   collapsed control (`.toolbar-collapse--hidden` — КППК's «Настройка акциза»
+   outside «Продуктовые позиции») stays a flex item with zero width, and `gap`
+   would keep reserving its space. `margin-right` obeys the element's own
+   `display` instead: a hidden wrapper contributes nothing. */
 .table-toolbar__row > * {
     flex: 0 0 auto;
     margin-right: 0.75rem;
 }
 
 .table-toolbar__row > :last-child {
-    margin-right: 0;
-}
-
-/* A stacked toolbar's LAST ROW child ends at the card edge, exactly like
-   `.table-toolbar > :last-child` does for a single-row toolbar. In КППК the
-   view strip is the last child of `.table-toolbar__row` while the filter row
-   below it is the last child of the toolbar, so without this the strip kept its
-   right margin and left a gap to the card edge. */
-.table-toolbar--stacked .table-toolbar__row > :last-child {
     margin-right: 0;
 }
 
@@ -540,21 +537,12 @@ body {
     overflow: hidden;
 }
 
-/* Spacing between the controls of ONE group (КППК puts the «Настройка акциза»
-   switch before the tab strip) is a MARGIN, not `gap`: a collapsed control
-   keeps zero width but is still a flex item, and `gap` would keep reserving its
-   space. The margin is cancelled by the collapsed control below. */
-.table-toolbar__controls > * + * {
-    margin-inline-start: 0.8rem;
-}
-
-/* A collapsed control contributes no space at all — neither its own width nor
-   the margin it would have pushed onto the next control. КППК hides the
-   «Настройка акциза» switch outside «Продуктовые позиции»; without this the
-   tabs still started one margin inside the card. */
-.table-toolbar__controls > .toolbar-collapse--hidden + * {
-    margin-inline-start: 0;
-}
+/* NOTE: no gap and no margin between `.table-toolbar__controls` children. The
+   controls sit flush against each other and the TABS carry their own left edge
+   through the pill — КППК's «Настройка акциза» switch is a plain flex item
+   before them. Spacing here would either reserve space for a COLLAPSED control
+   (`gap` does exactly that: a `.toolbar-collapse--hidden` is zero-width but
+   still a flex item) or shift the tabs away from the card edge. */
 
 .section-tabs {
     width: 100%;
