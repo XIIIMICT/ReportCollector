@@ -846,8 +846,13 @@ body {
     gap: 0.45rem;
 }
 
+/* «Вид таблицы» shows its label without hovering on wide screens (see the
+   label rule below), so the base `.expandable-button` (which only opens the gap
+   on `:hover`) would leave the icon and the text touching. The gap therefore
+   follows the LABEL's visibility instead of the pointer: it is set here and
+   dropped again wherever the label is collapsed (the compact block below). */
 .expandable-button.view-strip__view-button {
-    gap: 0.45rem;
+    gap: var(--expandable-button-gap);
 }
 
 .view-strip__view-button .expandable-button__label {
@@ -855,9 +860,23 @@ body {
     opacity: 1;
 }
 
+/* COMPACT «Вид таблицы» (narrow screens): the label collapses and comes back on
+   hover / open menu, like the shared `.expandable-button`. The gap must follow
+   the LABEL — `gap: 0` here alone (a two-class selector) used to win over
+   `.expandable-button:hover`/`--expanded`, so the label appeared with no space
+   from the icon. Reset the gap from the wide-screen rule and let the shared
+   hover/expanded rules open it again. */
 @media (width <= 40rem) {
     .expandable-button.view-strip__view-button {
         gap: 0;
+    }
+
+    /* Restated at the SAME specificity as the hover/expanded rules so the
+       pointer (or an open menu) still opens the gap. */
+    .expandable-button.view-strip__view-button:hover,
+    .expandable-button.view-strip__view-button[data-focus-visible="true"],
+    .expandable-button.view-strip__view-button.expandable-button--expanded {
+        gap: var(--expandable-button-gap);
     }
 
     .view-strip__view-button .expandable-button__label {
