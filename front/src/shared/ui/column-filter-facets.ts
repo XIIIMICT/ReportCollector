@@ -77,7 +77,18 @@ export function withFilterMarkers<TColumn extends { prop: string | number; hasFi
 /** One window of a column's distinct values, plus the counts behind them. */
 export type FacetWindow = {
     values: Array<{ value: string; count: number }>;
+    /** Distinct values matching the current search (the loaded list length). */
     total: number;
+    /**
+     * Distinct values in the WHOLE column, IGNORING the search — the column's
+     * real size. When nothing is searched it equals `total`.
+     *
+     * The popover's «does this list need a search control» question is answered
+     * by THIS number: a filter that narrowed a long column down to a handful of
+     * matches must not take the control away, or the user could never widen the
+     * range again without resetting everything.
+     */
+    totalWithoutSearch?: number | undefined;
     hasNulls: boolean;
     nullCount?: number | undefined;
     rowCount?: number | undefined;
@@ -98,10 +109,18 @@ export type FacetWindow = {
  */
 export type FacetSearch =
     | { kind: "text"; query: string }
-    | { kind: "range"; min: number | null; max: number | null };
+    | { kind: "range"; min: number | null; max: number | null }
+    | { kind: "datetime"; min: number | null; max: number | null };
 
 /** An inclusive numeric window, either bound optional. */
 export type FacetRange = { min: number | null; max: number | null };
+
+/**
+ * The same window for a timestamp column. Both bounds are EPOCH MILLISECONDS —
+ * one comparable number for every zone, so a source can compare them against a
+ * parsed ISO value without agreeing on a display format first.
+ */
+export type FacetDateRange = { min: number | null; max: number | null };
 
 /** Where a column filter gets its options from. */
 export type FacetSource = (
@@ -349,13 +368,25 @@ export type FacetNumberWindow = {
 };
 
 /** Cut one window out of the computed facets. */
-export function facetWindow(facets: RowFacets, offset: number, limit: number): FacetWindow {
+export function facetWindow(
+    facets: RowFacets,
+    offset: number,
+    limit: number,
+    /**
+     * The set's size BEFORE any search narrowed it — the popover decides whether
+     * a list needs a search control from this, not from the matches.
+     */
+    totalWithoutSearch?: number,
+): FacetWindow {
     return {
         values: facets.values.slice(offset, offset + limit).map((value) => ({
             value,
             count: facets.counts.get(value) ?? 0,
         })),
         total: facets.values.length,
+        // The size BEFORE the search narrowed it — the popover decides whether a
+        // list needs a search control from this, not from the matches.
+        ...(totalWithoutSearch !== undefined && { totalWithoutSearch }),
         hasNulls: facets.hasNulls,
         nullCount: facets.nullCount,
         rowCount: facets.rowCount,
@@ -379,6 +410,40 @@ export function parseFacetNumber(display: string): number | null {
 }
 
 /**
+ * The instant behind a timestamp bucket's DISPLAY string, in epoch ms.
+ *
+ * A timestamp cell carries an ISO value, but the bucket KEY is what the cell
+ * prints («03.02.2026, 08:45:00»). A source that knows the raw value reports it
+ * (see `FacetNumberWindow`'s doc for the numeric twin); one that can only ship
+ * strings falls back to `Date.parse`, which reads the locale formats the app
+ * prints and returns `null` for anything else.
+ */
+export function parseFacetInstant(display: string): number | null {
+    // The app prints «03.02.2026, 08:45:00» (ru-RU, day first, 24-hour). V8's
+    // `Date.parse` cannot read that — it wants the US month-first order — and
+    // silently returned `null`, so every timestamp bucket fell out of a range.
+    // The parts are read explicitly instead, in the SAME order the formatter
+    // prints them; anything else falls back to the native parser.
+    const parts = /^(\d{2})\.(\d{2})\.(\d{4})(?:,\s*(\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(
+        display.trim(),
+    );
+    if (parts) {
+        const [, day, month, year, hour, minute, second] = parts;
+        const instant = new Date(
+            Number(year),
+            Number(month) - 1,
+            Number(day),
+            Number(hour ?? 0),
+            Number(minute ?? 0),
+            Number(second ?? 0),
+        ).getTime();
+        return Number.isFinite(instant) ? instant : null;
+    }
+    const parsed = Date.parse(display);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
  * Keep only the buckets a search matches. Runs on the WHOLE computed set, so
  * «Выбрать найденные» and paging see every match rather than the loaded slice.
  */
@@ -389,6 +454,9 @@ export function searchRowFacets(
     if (!search) return facets;
     const needle = search.kind === "text" ? search.query.trim().toLocaleLowerCase("ru-RU") : "";
     if (search.kind === "text" && needle === "") return facets;
+    // Fixed OUTSIDE the filter: narrowing the union inside the callback makes the
+    // compiler forget it on every iteration.
+    const byDate = search.kind === "datetime";
     const values = facets.values.filter((value) => {
         if (search.kind === "text") return value.toLocaleLowerCase("ru-RU").includes(needle);
         // The source's own value wins. A MISSING entry means the source does
@@ -396,11 +464,14 @@ export function searchRowFacets(
         // under `nonNumeric` means this particular bucket is not a number. The
         // two must not be confused, or every bucket of every column would fall
         // through to the string parser.
+        // A timestamp bucket carries no numeric value of its own, so the two
+        // kinds resolve their comparable number differently.
         const known = facets.numbers.get(value);
-        const numeric = known ?? (facets.nonNumeric.has(value) ? null : parseFacetNumber(value));
-        if (numeric === null) return false;
-        if (search.min !== null && numeric < search.min) return false;
-        if (search.max !== null && numeric > search.max) return false;
+        const fallback = byDate ? parseFacetInstant(value) : parseFacetNumber(value);
+        const comparable = known ?? (facets.nonNumeric.has(value) ? null : fallback);
+        if (comparable === null) return false;
+        if (search.min !== null && comparable < search.min) return false;
+        if (search.max !== null && comparable > search.max) return false;
         return true;
     });
     return { ...facets, values };
@@ -420,5 +491,5 @@ export function rowFacetSource(
 ): FacetSource {
     const facets = computeRowFacets(rows, text, order, number);
     return async (_column, { offset, limit, search }) =>
-        facetWindow(searchRowFacets(facets, search), offset, limit);
+        facetWindow(searchRowFacets(facets, search), offset, limit, facets.values.length);
 }

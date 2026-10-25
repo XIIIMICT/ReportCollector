@@ -7,8 +7,14 @@ import { createPortal } from "react-dom";
 
 import { usePopoverDismiss } from "@/shared/hooks/use-popover-dismiss";
 import {
+    ColumnFilterDateRange,
+    EMPTY_DATE_RANGE,
+    isDateRangeEmpty,
+} from "@/shared/ui/column-filter-date-range";
+import {
     FACET_PAGE,
     type ColumnFilter,
+    type FacetDateRange,
     type FacetOrder,
     type FacetRange,
     type FacetSearch,
@@ -23,6 +29,8 @@ export type { ColumnFilter, FacetSource } from "@/shared/ui/column-filter-facets
 /** Sentinel keys for the two pinned options (never column values). */
 const ALL_KEY = "__all__";
 const NULL_KEY = "__null__";
+/** Below this many options the popover renders no search control at all. */
+const SEARCH_MIN_OPTIONS = 10;
 /** Start loading the next window this close (px) to the list's bottom. */
 const FACET_LOAD_THRESHOLD = 120;
 
@@ -98,6 +106,10 @@ export function ColumnFilterPopover({
     // Distinct value count across the whole filtered scope — shown on the
     // master item as «Выбрать все (N)» and it doubles as the "load more" guard.
     const [total, setTotal] = useState(0);
+    // The column's size IGNORING the search. Once a filter narrowed a long list
+    // down to a few matches, the search controls must stay: hiding them would
+    // remove the only way to widen the range again (short of resetting the filter).
+    const [totalWithoutSearch, setTotalWithoutSearch] = useState(0);
     const [rowCount, setRowCount] = useState(0);
     const [allActive, setAllActive] = useState(true);
     // «Пустые» is on by default so the default state really is "everything".
@@ -157,30 +169,38 @@ export function ColumnFilterPopover({
      */
     const [query, setQuery] = useState("");
     const [range, setRange] = useState<FacetRange>(EMPTY_RANGE);
+    const [dateRange, setDateRange] = useState<FacetDateRange>(EMPTY_DATE_RANGE);
+    const isDate = order === "date";
     // A reversed range (`мин > макс`) is a typo, not «everything»: it matches
     // nothing. Without this guard the popover compared against it, found the
     // reversed window empty, and — because «nothing kept, nothing searched» also
     // reads as an EMPTY filter — sent "no constraint" to the grid, so the funnel
     // lit up while every row stayed.
-    const rangeReversed = range.min !== null && range.max !== null && range.min > range.max;
-    const rangeSearch = order === "number" && !isRangeEmpty(range) ? range : null;
+    const activeRange = isDate ? dateRange : range;
+    const rangeReversed =
+        activeRange.min !== null && activeRange.max !== null && activeRange.min > activeRange.max;
+    const rangeEmpty = isDate ? isDateRangeEmpty(dateRange) : isRangeEmpty(range);
     const search: FacetSearch | null =
-        order === "number"
-            ? rangeReversed
-                ? { kind: "range", min: 1, max: 0 }
-                : rangeSearch
-                  ? { kind: "range", min: rangeSearch.min, max: rangeSearch.max }
-                  : null
-            : query.trim() === ""
+        order === "text"
+            ? query.trim() === ""
+                ? null
+                : { kind: "text", query }
+            : rangeEmpty
               ? null
-              : { kind: "text", query };
+              : rangeReversed
+                ? { kind: isDate ? "datetime" : "range", min: 1, max: 0 }
+                : {
+                      kind: isDate ? "datetime" : "range",
+                      min: activeRange.min,
+                      max: activeRange.max,
+                  };
     // Identity of the search, so the reload effect fires on a real change only.
     const searchKey =
         search === null
             ? ""
             : search.kind === "text"
               ? `t:${search.query}`
-              : `r:${search.min ?? ""}:${search.max ?? ""}`;
+              : `${search.kind[0]}:${search.min ?? ""}:${search.max ?? ""}`;
 
     // The live search travels to the source with every request. It is read
     // through a ref: the loaders are memoized without it, and a stale closure
@@ -214,6 +234,7 @@ export function ColumnFilterPopover({
                         : undefined,
                 );
                 setTotal(facets.total);
+                setTotalWithoutSearch(facets.totalWithoutSearch ?? facets.total);
                 setRowCount(
                     typeof facets.rowCount === "number" && Number.isFinite(facets.rowCount)
                         ? facets.rowCount
@@ -587,10 +608,19 @@ export function ColumnFilterPopover({
         return () => window.cancelAnimationFrame(frame);
     }, []);
 
+    // A SHORT list needs no search control — this is the SmartSelect rule with
+    // its threshold of ten: below that the popover shows no text field, no
+    // number pair and no date pair. The list is small enough to read, and the
+    // master «Выбрать все» stays the only action above it.
+    //
+    // The count is `total` (matches in the WHOLE scope under the other filters),
+    // not the loaded window, so a paged column reports its real size.
+    const showSearch = Math.max(totalWithoutSearch, total) >= SEARCH_MIN_OPTIONS;
+
     const content = (
         <SmartSelect
             multiple
-            forceSearchable
+            forceSearchable={showSearch}
             defaultOpen
             isOpen={isOpen}
             popoverRef={popoverRef}
@@ -623,12 +653,18 @@ export function ColumnFilterPopover({
             searchMode="custom"
             renderListbox={() => (
                 <>
-                    <div className="column-filter__search">
+                    <div className="column-filter__search" hidden={!showSearch}>
                         {order === "number" ? (
                             <ColumnFilterRange
                                 columnLabel={columnLabel}
                                 value={range}
                                 onChange={setRange}
+                            />
+                        ) : order === "date" ? (
+                            <ColumnFilterDateRange
+                                columnLabel={columnLabel}
+                                value={dateRange}
+                                onChange={setDateRange}
                             />
                         ) : (
                             <SearchField

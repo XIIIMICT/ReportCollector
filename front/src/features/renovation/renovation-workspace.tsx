@@ -282,7 +282,7 @@ export function RenovationWorkspace({
     const [columnFilterTarget, setColumnFilterTarget] = useState<{
         column: string;
         label: string;
-        order: "text" | "number";
+        order: "text" | "number" | "date";
         anchor: DOMRect;
     } | null>(null);
     // The row-number («№») range filter popover anchor (the corner's rect).
@@ -1869,7 +1869,9 @@ export function RenovationWorkspace({
                                                     field?.cellType === "number" ||
                                                     field?.isCalculated
                                                         ? "number"
-                                                        : "text",
+                                                        : field?.cellType === "date"
+                                                          ? "date"
+                                                          : "text",
                                                 anchor,
                                             });
                                         }}

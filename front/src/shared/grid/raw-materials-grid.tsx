@@ -729,7 +729,7 @@ function RawMaterialsGridInner(
             // — the same rule `rowFacetSource` applies, kept here because this
             // source is already narrowed by the other columns' filters.
             return async (_column, { offset, limit, search }) =>
-                facetWindow(searchRowFacets(facets, search), offset, limit);
+                facetWindow(searchRowFacets(facets, search), offset, limit, facets.values.length);
         },
         [activeFilters, facetNumber, facetOrder, facetText, realRows],
     );

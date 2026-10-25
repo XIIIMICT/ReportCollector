@@ -3314,6 +3314,45 @@ body {
     user-select: none;
 }
 
+/* The timestamp column's search: MIN above MAX, each a full date-time field.
+   A date AND a time needs the whole width, so the pair stacks instead of
+   sharing a row; the dash sits between them, on its own line. */
+.column-filter__date-range {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding-block: 0.125rem;
+    padding-inline: 0.375rem;
+}
+
+/* One bound per line: a caption on the LEFT, the field filling the rest. */
+.column-filter__date-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.column-filter__date-field {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* The caption is a normal-size label, not a tiny hint: it names which bound the
+   field below it is. */
+.column-filter__date-label {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: inherit;
+    white-space: nowrap;
+}
+
+.column-filter__date-dash {
+    align-self: center;
+    color: var(--muted);
+    line-height: 1;
+    user-select: none;
+}
+
 /* The commit-mode footer («По умолчанию / Отменить / Применить») of a
    SmartSelect without hover dismissal: a separate zone pinned under the
    scrolling list, right-aligned, divided from it by a rule.
