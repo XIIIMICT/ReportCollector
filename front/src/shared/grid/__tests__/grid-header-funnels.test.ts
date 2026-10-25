@@ -85,15 +85,19 @@ test("the header still renders the column's own label", () => {
     expect(renderHeader("renovationAssets", "repairCount")?.text).toBe("Число ремонтных работ");
 });
 
-test("computed columns are filterable — they carry a per-row number", () => {
-    // «Покажи предприятия без ремонтных работ» is a normal question, so a
-    // computed column must keep its funnel instead of being opted out.
-    for (const prop of ["repairCount", "totalCost"]) {
-        const leaf = leavesOf("renovationAssets").find(
-            (candidate) => String(candidate.prop) === prop,
-        );
-        expect(typeof leaf?.columnTemplate).toBe("function");
-        expect(leaf?.filter).not.toBe(false);
+test("every column opts out of RevoGrid's own filter UI", () => {
+    // RevoGrid's `.rv-filter` lives in a shadow root, so it cannot be restyled
+    // and it opens RevoGrid's condition panel. The grid opts every column out
+    // (`filter: false`) and renders the app's own funnel in the header template
+    // instead — computed columns included, since they still carry a per-row
+    // value.
+    const leaves = leavesOf("renovationAssets");
+    for (const leaf of leaves) {
+        expect(leaf.filter).toBe(false);
+    }
+    for (const prop of ["name", "repairCode", "repairCount", "totalCost"]) {
+        const header = renderHeader("renovationAssets", prop);
+        expect(header?.hasFunnel).toBe(true);
     }
 });
 
