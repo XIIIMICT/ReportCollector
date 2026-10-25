@@ -1,7 +1,7 @@
 "use client";
 
-import { EmptyState, ListBox, Separator, type Key } from "@heroui/react";
-import { List, TaskList } from "iconoir-react";
+import { EmptyState, ListBox, SearchField, Separator, type Key } from "@heroui/react";
+import { List, ListSelect, TaskList } from "iconoir-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -113,6 +113,18 @@ export function ColumnFilterPopover({
     // is rebuilt whenever the rows change, and re-running the effect on every
     // rebuild would reset the user's selection under their hands.
     const facetSourceRef = useRef(facets);
+
+    // «Выбрать найденные» replaces the whole selection, and react-aria re-emits
+    // the previous one (still carrying ALL_KEY) right after. Ignore that echo for
+    // a moment, or the master would flip straight back to «Снять выбор».
+    const ignoreMasterEchoRef = useRef(false);
+    // True between «Выбрать найденные» and the next deliberate selection change:
+    // the user has just SET the selection, so the caption reads «Снять выбор»
+    // even though the kept set is only the matched window. It is a REF because
+    // the caption is derived during the same render; the value is reset by any
+    // other selection change.
+    const foundAppliedRef = useRef(false);
+
     facetSourceRef.current = facets;
 
     useEffect(() => {
@@ -267,11 +279,89 @@ export function ColumnFilterPopover({
         return keys;
     }, [allActive, hasNulls, includeNulls, kept]);
 
+    /**
+     * The master item is an ACTION with three states:
+     * - `clear` — «Снять выбор» while everything is kept;
+     * - `found` — «Выбрать найденные» while a query narrows the list and
+     *   something is excluded: it selects only the values the query matched —
+     *   the LOADED ones, because the rest are not fetched yet;
+     * - `all` — «Выбрать все» once something is excluded and no query is typed.
+     *
+     * Clearing the query keeps the selection as it is; only the caption moves
+     * on (a kept-everything state stays `clear`, a partial one becomes `all`).
+     */
+    // The query narrows the LOADED window only (a column can hold hundreds of
+    // thousands of values, fetched in pages) — the caption therefore says
+    // «найденные», never «все».
+    const [query, setQuery] = useState("");
+    const normalizedQuery = query.trim().toLocaleLowerCase("ru-RU");
+    const filteredValues = useMemo(
+        () =>
+            normalizedQuery === ""
+                ? values
+                : values.filter((value) =>
+                      value.toLocaleLowerCase("ru-RU").includes(normalizedQuery),
+                  ),
+        [normalizedQuery, values],
+    );
+
+    const masterState: "clear" | "found" | "all" =
+        allActive || foundAppliedRef.current ? "clear" : normalizedQuery !== "" ? "found" : "all";
+    const masterLabel =
+        masterState === "clear"
+            ? "Снять выбор"
+            : masterState === "found"
+              ? "Выбрать найденные"
+              : "Выбрать все";
+
+    /**
+     * «Выбрать найденные»: keep exactly what the query matched, drop the rest.
+     * The unmatched tail is not loaded, so this is a POSITIVE list of the
+     * matched values — no more and no less than «найденные» shows.
+     */
+    const selectFound = () => {
+        setKept(new Set(filteredValues));
+        // «Пустые» is not a value a query can match.
+        setIncludeNulls(false);
+        setAllActive(false);
+        allStillSelectedRef.current = false;
+        ignoreMasterEchoRef.current = true;
+        foundAppliedRef.current = true;
+        window.setTimeout(() => {
+            ignoreMasterEchoRef.current = false;
+        }, 0);
+    };
+
     const onSelectionChange = (keys: Key[]) => {
         const next = new Set(keys);
         const hadAll = selectedKeys.includes(ALL_KEY);
         const hasAll = next.has(ALL_KEY);
-        if (hasAll !== hadAll) {
+        if (ignoreMasterEchoRef.current) return;
+        // Any deliberate selection change ends the "just applied the found set"
+        // state — otherwise its caption («Снять выбор») would stick even after
+        // the user unchecks a value.
+        foundAppliedRef.current = false;
+        // In the «Выбрать найденные» state the master does NOT mean "select
+        // everything" — it means "select what I found".
+        if (hasAll && !hadAll && masterState === "found") {
+            selectFound();
+            return;
+        }
+        // The master's OWN toggle. Its key disappears on every individual
+        // uncheck too (react-aria drops it from the selection), so the removal
+        // counts as a master toggle only when the whole selection became empty —
+        // that is the case where the user really switched it off.
+        // The master's own toggle has two shapes:
+        //  - the key comes BACK → "select everything";
+        //  - the key is gone AND nothing is left → "clear everything".
+        // Everything in between is an individual value being unchecked: react-aria
+        // drops ALL_KEY from the selection then, which used to look like a
+        // master toggle and re-selected the whole column.
+        // Unchecking the master removes ALL_KEY, and react-aria may keep the
+        // individual keys in the same event — but the user asked for "nothing".
+        // The distinction from an individual uncheck: there ALL_KEY stays.
+        const switchedAllOff = hadAll && !hasAll;
+        if ((hasAll && !hadAll) || switchedAllOff) {
             // The master toggle: select everything (the values plus «Пустые») or
             // clear every option, «Пустые» included — unchecking «Выбрать все»
             // must leave nothing selected.
@@ -283,6 +373,7 @@ export function ColumnFilterPopover({
             allStillSelectedRef.current = hasAll;
             return;
         }
+        foundAppliedRef.current = false;
         const nextKept = new Set<string>();
         for (const key of next) {
             const text = String(key);
@@ -297,19 +388,20 @@ export function ColumnFilterPopover({
         // must not flip on its own — the `allStillSelectedRef` guard below owns
         // the tail top-up instead.
         const keepsNulls = hasNulls && next.has(NULL_KEY);
-        const keepsNothing = nextKept.size === 0 && !keepsNulls;
         const keepsEverything =
             values.length > 0 && nextKept.size === values.length && (keepsNulls || !hasNulls);
-        if (keepsNothing) setAllActive(false);
-        else if (keepsEverything) setAllActive(true);
+        // «Выбрать все»/«Снять выбор» mirror the extremes: everything kept — on,
+        // nothing kept — off, and ANY exclusion also counts as "off" (the caption
+        // then offers «Выбрать все»/«Выбрать найденные», which is what the user
+        // needs at that point). Re-selecting everything by hand turns it on again.
+        if (keepsEverything) setAllActive(true);
+        else setAllActive(false);
         // Only a selection that still keeps EVERYTHING leaves the tail top-up
         // armed (it also re-arms after the user unchecks something and then
         // restores every option by hand).
         allStillSelectedRef.current = keepsEverything;
         setIncludeNulls(next.has(NULL_KEY));
     };
-
-    const filteredValues = values;
 
     const applied = useMemo(() => {
         const keptValues = values.filter((value) => kept.has(value));
@@ -396,54 +488,80 @@ export function ColumnFilterPopover({
             }}
             ariaLabel={`Фильтр: ${columnLabel}`}
             placeholder="Поиск..."
+            // react-aria derives the popover's INLINE `max-height` from the space
+            // between the anchor and the viewport edge. The funnel sits near the
+            // top of a table, so that space is small; anchoring the popover a
+            // little lower buys the list a usable slice (the footer and the
+            // search field are fixed rows inside it).
             anchor={{ left: anchor.left, top: anchor.top, width: anchor.width }}
             popoverClassName="column-filter__popover"
+            searchMode="custom"
             renderListbox={() => (
-                <ListBox
-                    ref={listRef}
-                    className="column-filter__list"
-                    selectionMode="multiple"
-                    renderEmptyState={() => <EmptyState>Нет значений</EmptyState>}
-                    onScroll={onListScroll}
-                >
-                    <ListBox.Item
-                        key={ALL_KEY}
-                        id={ALL_KEY}
-                        textValue={allActive ? "Снять выбор" : "Выбрать все"}
+                <>
+                    <SearchField
+                        autoFocus
+                        name="column-filter-search"
+                        aria-label={`Поиск: ${columnLabel}`}
+                        variant="secondary"
+                        value={query}
+                        onChange={setQuery}
                     >
-                        {allActive ? (
-                            <List className="column-filter__master-icon" aria-hidden="true" />
-                        ) : (
-                            <TaskList className="column-filter__master-icon" aria-hidden="true" />
-                        )}
-                        <span>{allActive ? "Снять выбор" : "Выбрать все"}</span>
-                        {rowCount > 0 ? (
-                            <span className="text-muted ms-1">
-                                {rowCount}
-                                {showUniqueCount ? ` (${total} уникальных)` : null}
-                            </span>
+                        <SearchField.Group>
+                            <SearchField.SearchIcon />
+                            <SearchField.Input placeholder="Поиск..." />
+                            <SearchField.ClearButton />
+                        </SearchField.Group>
+                    </SearchField>
+                    <ListBox
+                        ref={listRef}
+                        className="column-filter__list"
+                        selectionMode="multiple"
+                        renderEmptyState={() => <EmptyState>Нет значений</EmptyState>}
+                        onScroll={onListScroll}
+                    >
+                        <ListBox.Item key={ALL_KEY} id={ALL_KEY} textValue={masterLabel}>
+                            {masterState === "clear" ? (
+                                <List className="column-filter__master-icon" aria-hidden="true" />
+                            ) : masterState === "found" ? (
+                                <ListSelect
+                                    className="column-filter__master-icon"
+                                    aria-hidden="true"
+                                />
+                            ) : (
+                                <TaskList
+                                    className="column-filter__master-icon"
+                                    aria-hidden="true"
+                                />
+                            )}
+                            <span>{masterLabel}</span>
+                            {rowCount > 0 ? (
+                                <span className="text-muted ms-1">
+                                    {rowCount}
+                                    {showUniqueCount ? ` (${total} уникальных)` : null}
+                                </span>
+                            ) : null}
+                        </ListBox.Item>
+                        <Separator className="smart-select__separator" />
+                        {hasNulls ? (
+                            <ListBox.Item key={NULL_KEY} id={NULL_KEY} textValue="Пустые">
+                                <span>Пустые</span>
+                                {nullCount !== undefined ? (
+                                    <span className="text-muted ms-1">{nullCount}</span>
+                                ) : null}
+                                <ListBox.ItemIndicator />
+                            </ListBox.Item>
                         ) : null}
-                    </ListBox.Item>
-                    <Separator className="smart-select__separator" />
-                    {hasNulls ? (
-                        <ListBox.Item key={NULL_KEY} id={NULL_KEY} textValue="Пустые">
-                            <span>Пустые</span>
-                            {nullCount !== undefined ? (
-                                <span className="text-muted ms-1">{nullCount}</span>
-                            ) : null}
-                            <ListBox.ItemIndicator />
-                        </ListBox.Item>
-                    ) : null}
-                    {filteredValues.map((value) => (
-                        <ListBox.Item key={value} id={value} textValue={value}>
-                            <span>{value}</span>
-                            {counts.get(value) !== undefined ? (
-                                <span className="text-muted ms-1">{counts.get(value)}</span>
-                            ) : null}
-                            <ListBox.ItemIndicator />
-                        </ListBox.Item>
-                    ))}
-                </ListBox>
+                        {filteredValues.map((value) => (
+                            <ListBox.Item key={value} id={value} textValue={value}>
+                                <span>{value}</span>
+                                {counts.get(value) !== undefined ? (
+                                    <span className="text-muted ms-1">{counts.get(value)}</span>
+                                ) : null}
+                                <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                        ))}
+                    </ListBox>
+                </>
             )}
         />
     );

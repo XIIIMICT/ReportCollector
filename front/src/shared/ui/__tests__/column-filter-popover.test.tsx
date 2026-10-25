@@ -59,7 +59,7 @@ async function openFilter(column = "col_010", firstLabel = "Насос") {
  * fixed caption.
  */
 function master() {
-    return screen.getByRole("option", { name: /Снять выбор|Выбрать все/ });
+    return screen.getByRole("option", { name: /Снять выбор|Выбрать все|Выбрать найденные/ });
 }
 
 /** The same item, whichever caption it currently shows. */
@@ -238,6 +238,32 @@ test("unchecking the last option unchecks «Выбрать все»", async () =
     fireEvent.click(screen.getByRole("option", { name: "Пустые" }));
 
     await waitFor(() => expect(master().getAttribute("aria-selected")).toBe("false"));
+});
+
+test("a query turns the master into «Выбрать найденные», and clearing it restores «Выбрать все»", async () => {
+    // Three states: everything kept → «Снять выбор»; something excluded with a
+    // query → «Выбрать найденные» (it selects only the matched values); the
+    // query cleared → «Выбрать все», with the selection untouched.
+    await openFilter();
+    const search = document.querySelector<HTMLInputElement>('input[name="column-filter-search"]');
+
+    expect(masterCaption()).toContain("Снять выбор");
+
+    fireEvent.click(master());
+    await waitFor(() => expect(masterCaption()).toContain("Выбрать все"));
+
+    fireEvent.change(search!, { target: { value: "Нас" } });
+    await waitFor(() => expect(masterCaption()).toContain("Выбрать найденные"));
+
+    fireEvent.click(master());
+    await waitFor(() => expect(masterCaption()).toContain("Снять выбор"));
+
+    fireEvent.change(search!, { target: { value: "" } });
+    await waitFor(() => expect(masterCaption()).toContain("Снять выбор"));
+    // The selection survives a changed query — only the list is narrowed.
+    expect(screen.getByRole("option", { name: /^Насос/ }).getAttribute("aria-selected")).toBe(
+        "true",
+    );
 });
 
 test("the master toggle renames itself between «Снять выбор» and «Выбрать все»", async () => {

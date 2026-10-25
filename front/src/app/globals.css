@@ -3129,9 +3129,20 @@ body {
 .column-filter__popover {
     z-index: 1000;
     display: flex;
-    max-height: 340px;
+    /* react-aria sets `max-height` INLINE to whatever space is left above the
+       funnel, so the popover's own height is not ours to choose. What matters
+       is that its children fit INSIDE it: the list is the only grower, the
+       search field and the commit footer keep their size. */
     flex-direction: column;
     gap: 0.4rem;
+    overflow: hidden;
+    /* A flex column shrinks to its content, so the list would collapse instead of
+       scrolling. Give the popover a real height — and OVERRIDE react-aria's inline
+       `max-height`, which is only the space between the anchor and the viewport
+       edge (208px here) and left the list two rows tall. The list scrolls, so a
+       taller popover costs nothing. */
+    height: min(460px, 70vh);
+    max-height: min(460px, 70vh) !important;
     padding: 0.5rem;
     border: 1px solid var(--border);
     /* HeroUI's default popover radius, so the column filter matches the other
@@ -3153,9 +3164,26 @@ body {
 }
 
 .column-filter__list {
+    /* `flex-basis: 0` + `min-height: 0` lets the list take exactly the height
+       left between the search field and the commit footer, and scroll inside it.
+       Without the basis the list kept its content height and the footer floated
+       over the last options — they looked clickable but the press landed on the
+       footer's buttons. */
     min-height: 0;
-    flex: 1;
+    flex: 1 1 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+/* The search field lives INSIDE the scrolling list and sticks to its top, so a
+   short popover (react-aria sizes it from the space above the funnel) does not
+   lose room to a separate row. */
+.column-filter__search {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+    padding-bottom: 0.3rem;
+    background: var(--surface);
 }
 
 /* The commit-mode footer («По умолчанию / Отменить / Применить») of a

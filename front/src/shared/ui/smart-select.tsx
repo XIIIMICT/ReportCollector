@@ -145,6 +145,13 @@ export type SmartSelectProps = {
      * every hover/open/anchor mechanic of this component.
      */
     renderListbox?: (context: { searchable: boolean }) => ReactNode;
+    /**
+     * `"builtin"` — `Autocomplete.Filter` narrows the items by the query.
+     * `"custom"` — the listbox renders the search field itself and filters its
+     * own window (the column filter needs the query for «Выбрать найденные»,
+     * and its window is paged, so the wrapper's item filtering is wrong anyway).
+     */
+    searchMode?: "builtin" | "custom";
     /** Always render the searchable control regardless of the option count. */
     forceSearchable?: boolean;
     /** The trigger is an invisible anchor at (left, top) — the column filter. */
@@ -227,6 +234,7 @@ export function SmartSelect({
     popoverFooter,
     renderListbox,
     forceSearchable = false,
+    searchMode = "builtin",
     anchor,
     popoverClassName,
     defaultOpen = false,
@@ -701,21 +709,25 @@ export function SmartSelect({
                             .join(" ")}
                     >
                         {renderListbox ? (
-                            <Autocomplete.Filter filter={contains}>
-                                <SearchField
-                                    autoFocus
-                                    name="smart-select-search"
-                                    aria-label={label ?? placeholder}
-                                    variant="secondary"
-                                >
-                                    <SearchField.Group>
-                                        <SearchField.SearchIcon />
-                                        <SearchField.Input placeholder="Найти…" />
-                                        <SearchField.ClearButton />
-                                    </SearchField.Group>
-                                </SearchField>
-                                {renderListbox({ searchable: true })}
-                            </Autocomplete.Filter>
+                            searchMode === "custom" ? (
+                                renderListbox({ searchable: true })
+                            ) : (
+                                <Autocomplete.Filter filter={contains}>
+                                    <SearchField
+                                        autoFocus
+                                        name="smart-select-search"
+                                        aria-label={label ?? placeholder}
+                                        variant="secondary"
+                                    >
+                                        <SearchField.Group>
+                                            <SearchField.SearchIcon />
+                                            <SearchField.Input placeholder="Найти…" />
+                                            <SearchField.ClearButton />
+                                        </SearchField.Group>
+                                    </SearchField>
+                                    {renderListbox({ searchable: true })}
+                                </Autocomplete.Filter>
+                            )
                         ) : (
                             <Autocomplete.Filter filter={contains}>
                                 <SearchField
