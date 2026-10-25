@@ -195,6 +195,27 @@ jobs:
           deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0, LGPL-3.0
           comment-summary-in-pr: on-failure
 
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The FULL history: a secret that was committed and then deleted is
+          # still in every clone, so a shallow scan would miss exactly the leak
+          # that matters most.
+          fetch-depth: 0
+      - name: Scan the history for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Findings are reported, not silently ignored: no GITLEAKS_CONFIG, no
+          # allowlist file — a false positive is fixed in .gitleaks.toml with a
+          # reason, never by lowering the gate.
+          GITLEAKS_ENABLE_SUMMARY: true
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
   production:
     name: Production images and browser smoke
     needs: config
@@ -282,7 +303,7 @@ jobs:
   required:
     name: CI required
     if: always()
-    needs: [config, back, coverage, front, production]
+    needs: [config, back, coverage, front, dependencies, secrets, production]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:

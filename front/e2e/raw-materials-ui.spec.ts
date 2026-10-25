@@ -1,18 +1,14 @@
 import { expect, test } from "@playwright/test";
 
+import { loginAsLocalUser } from "./helpers/auth";
+
 test("evtushenko: raw-materials workspace shows movement, prices and dictionaries", async ({
     page,
 }) => {
-    await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
-    await page.waitForURL(
-        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
-        { timeout: 20000 },
-    );
-
-    await page.locator("#username").fill("evtushenko");
-    await page.locator("#password").fill("TestPassword123");
-    await page.locator('button[type="submit"]').click();
-    await page.waitForURL(/127\.0\.0\.1:5000/, { timeout: 20000 });
+    await loginAsLocalUser(page, {
+        email: "evtushenko.sn@ruschem.ru",
+        password: "TestPassword123",
+    });
     // The workspace defaults to «Ремонт»; this spec runs on «Сырьё» forms.
     const switcher = page.locator(".brand__edition--button");
     await expect(switcher).toBeVisible({ timeout: 20000 });
@@ -61,16 +57,10 @@ test("evtushenko: raw-materials workspace shows movement, prices and dictionarie
 });
 
 test("evtushenko: project switcher and dictionary CRUD", async ({ page }) => {
-    await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
-    await page.waitForURL(
-        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
-        { timeout: 20000 },
-    );
-
-    await page.locator("#username").fill("evtushenko");
-    await page.locator("#password").fill("TestPassword123");
-    await page.locator('button[type="submit"]').click();
-    await page.waitForURL(/127\.0\.0\.1:5000/, { timeout: 20000 });
+    await loginAsLocalUser(page, {
+        email: "evtushenko.sn@ruschem.ru",
+        password: "TestPassword123",
+    });
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
 
     // The workspace defaults to «Ремонт» — switch to «Сырьё» first.
@@ -181,15 +171,10 @@ test("evtushenko: project switcher and dictionary CRUD", async ({ page }) => {
 });
 
 test("evtushenko: undo/redo works on dictionaries (asset rename)", async ({ page }) => {
-    await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
-    await page.waitForURL(
-        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
-        { timeout: 20000 },
-    );
-    await page.locator("#username").fill("evtushenko");
-    await page.locator("#password").fill("TestPassword123");
-    await page.locator('button[type="submit"]').click();
-    await page.waitForURL(/127\.0\.0\.1:5000/, { timeout: 20000 });
+    await loginAsLocalUser(page, {
+        email: "evtushenko.sn@ruschem.ru",
+        password: "TestPassword123",
+    });
 
     // The workspace defaults to «Ремонт» — switch to «Сырьё» first.
     const switcher = page.locator(".brand__edition--button");
@@ -251,16 +236,10 @@ test("evtushenko: undo/redo works on dictionaries (asset rename)", async ({ page
 test("evtushenko: header shows fullname, profile modal works with theme + password", async ({
     page,
 }) => {
-    await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
-    await page.waitForURL(
-        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
-        { timeout: 20000 },
-    );
-
-    await page.locator("#username").fill("evtushenko");
-    await page.locator("#password").fill("TestPassword123");
-    await page.locator('button[type="submit"]').click();
-    await page.waitForURL(/127\.0\.0\.1:5000/, { timeout: 20000 });
+    await loginAsLocalUser(page, {
+        email: "evtushenko.sn@ruschem.ru",
+        password: "TestPassword123",
+    });
 
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
 

@@ -1,0 +1,33 @@
+# Review ownership for the paths where a mistake is expensive.
+#
+# GitHub matches the LAST pattern that fits, so the specific rules sit below the
+# catch-all. This file only REQUESTS a reviewer — enforcing it (and blocking a
+# merge without the review) is the "Require review from Code Owners" branch
+# protection setting, which lives in the repository, not here.
+#
+# Keep it short: every line here is a claim that somebody must look at that
+# change. A file that lists everything protects nothing.
+
+# Default: the maintainer reviews everything.
+* @XIIIMICT
+
+# Applied migrations are immutable and a wrong one cannot be undone on a stand
+# that already ran it — DROP COLUMN in production has no rollback.
+/back/migrations/ @XIIIMICT
+
+# The schema itself: a model change without a matching migration is the most
+# common way a deploy breaks an existing installation.
+/back/src/collab/models.py @XIIIMICT
+/back/src/auth/models.py @XIIIMICT
+
+# Wiring that decides who may read what, and how the outside world is trusted.
+/back/src/auth/ @XIIIMICT
+/back/src/config.py @XIIIMICT
+/back/src/main.py @XIIIMICT
+
+# The CI contract: a change here can turn a broken build green.
+/.github/ @XIIIMICT
+
+# Deployment: compose profiles, images and the reverse-proxy contract.
+/compose.yaml @XIIIMICT
+/infra/ @XIIIMICT

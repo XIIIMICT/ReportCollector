@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+import { loginAsLocalUser } from "./helpers/auth";
+
 // HoverDropdown regression coverage (see docs/GRID.md «Responsive layout»):
 // the dropdown must not flicker while the pointer sits still on the trigger
 // (react-aria sets `inert` on the rest of the page while the modal popover is
@@ -9,16 +11,13 @@ import { test, expect } from "@playwright/test";
 // otherwise re-open it). The compact action menu (below sm) and the view
 // strip's «Вид таблицы» menu run on the same HoverDropdown.
 
+// The shared local-login helper: these suites exercise hover behaviour, not
+// SSO, so they must not require a Keycloak redirect to run.
 async function login(page: import("@playwright/test").Page) {
-    await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
-    await page.waitForURL(
-        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
-        { timeout: 20000 },
-    );
-    await page.locator("#username").fill("evtushenko");
-    await page.locator("#password").fill("TestPassword123");
-    await page.locator('button[type="submit"]').click();
-    await page.waitForURL(/127\.0\.0\.1:5000/, { timeout: 20000 });
+    await loginAsLocalUser(page, {
+        email: "evtushenko.sn@ruschem.ru",
+        password: "TestPassword123",
+    });
     await expect(page.locator(".app-shell")).toBeVisible({ timeout: 30000 });
 }
 

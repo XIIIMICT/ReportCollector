@@ -30,7 +30,9 @@ async function loginAndOpenMovement(page: Page) {
 const fixAction = (page: Page) => page.getByRole("button", { name: "Зафиксировать", exact: true });
 const fixDialog = (page: Page) => page.getByRole("alertdialog");
 
-test("the fix dialog opens, explains the consequence and closes without writing", async ({ page }) => {
+test("the fix dialog opens, explains the consequence and closes without writing", async ({
+    page,
+}) => {
     await loginAndOpenMovement(page);
 
     const action = fixAction(page);
@@ -76,7 +78,10 @@ test("the fix action is not offered outside «Движение»", async ({ page
     await loginAndOpenMovement(page);
 
     // «Цены» is a different form; fixing is a movement-month operation only.
-    await page.getByRole("tab", { name: /^Цены/ }).first().click();
+    await page
+        .getByRole("tab", { name: /^Цены/ })
+        .first()
+        .click();
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 20000 });
 
     await expect(fixAction(page)).toHaveCount(0);

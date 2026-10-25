@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { loginAsLocalUser } from "./helpers/auth";
+
 // Regression coverage for the toolbar hover-open autocompletes/selects
 // (version picker, section/asset/block filters):
 //  - hovering the trigger opens the popover,
@@ -8,16 +10,13 @@ import { expect, test } from "@playwright/test";
 //    the trigger when the popover is open, so structural mouseleave timers loop),
 //  - it closes shortly after the pointer leaves the trigger and the popover.
 
+// The shared local-login helper: these suites exercise hover behaviour, not
+// SSO, so they must not require a Keycloak redirect to run.
 async function login(page: import("@playwright/test").Page) {
-    await page.goto("http://127.0.0.1:5000/", { waitUntil: "domcontentloaded" });
-    await page.waitForURL(
-        /127\.0\.0\.1:8080\/realms\/reportcollector\/protocol\/openid-connect\/auth/,
-        { timeout: 20000 },
-    );
-    await page.locator("#username").fill("evtushenko");
-    await page.locator("#password").fill("TestPassword123");
-    await page.locator('button[type="submit"]').click();
-    await page.waitForURL(/127\.0\.0\.1:5000/, { timeout: 20000 });
+    await loginAsLocalUser(page, {
+        email: "evtushenko.sn@ruschem.ru",
+        password: "TestPassword123",
+    });
 }
 
 async function switchToRenovation(page: import("@playwright/test").Page) {

@@ -20,16 +20,14 @@ export default defineConfig({
     projects: [
         {
             name: "smoke",
-            testMatch: /(?:auth|health|smoke|clipboard|collab|fix-month)\.spec\.ts/,
-            use: { ...devices["Desktop Chrome"] },
-        },
-        {
-            name: "keycloak",
-            testMatch: [
-                "hover-dropdown.spec.ts",
-                "raw-materials-ui.spec.ts",
-                "renovation-hover.spec.ts",
-            ],
+            // Every suite signs in through the shared LOCAL login helper, so the
+            // whole set runs against one stand — no Keycloak redirect needed.
+            // The suites were split into a separate "keycloak" project only
+            // because they logged in through SSO; that project was never started
+            // by CI, so those regressions (hover flicker, dictionary undo) were
+            // silently never checked.
+            testMatch:
+                /(?:auth|health|smoke|clipboard|collab|fix-month|hover-dropdown|renovation-hover|raw-materials-ui)\.spec\.ts/,
             use: { ...devices["Desktop Chrome"] },
         },
     ],

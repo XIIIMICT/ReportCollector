@@ -160,7 +160,7 @@ Tailwind 4 is a hard dependency of HeroUI — `@heroui/styles` is built on it (`
 
 ### e2e (Playwright)
 
-Select the authentication environment explicitly: `bun run --cwd front test:e2e --project=smoke` uses local login; `--project=keycloak` runs the existing Keycloak scenarios against a seeded local Keycloak stack on ports 5000/8080. The smoke helper honors `E2E_BASE_URL`. Missing local login is a failure, never a silent skip. Probe files are excluded from discovery and Git.
+Select the authentication environment explicitly: `bun run --cwd front test:e2e --project=smoke` uses local login; every suite now runs in that one project (the former `--project=keycloak` group signed in through SSO and was never started by CI, so its hover and dictionary regressions went unchecked — the suites moved to the shared local-login helper instead). The smoke helper honors `E2E_BASE_URL`. Missing local login is a failure, never a silent skip. Probe files are excluded from discovery and Git.
 
 Both projects require a running stack and seed. `just e2e` selects smoke; its default origin is `http://127.0.0.1:5000`. The smoke project also includes clipboard and collaboration regression tests: login/logout, rejected passwords, anonymous redirects, both workspaces, persisted price/renovation edits, disabled Ctrl+A on renovation, undo/redo, sorted Excel paste, Russian-layout copy, reference validation, two-user lease denial/update propagation, asset-scoped presence and multi-tab selection. Do not run either project against an unprepared stack.
 
@@ -177,7 +177,7 @@ Both projects require a running stack and seed. `just e2e` selects smoke; its de
 
 Local reproduction: build with `docker compose -f infra/compose.ci.yaml build`, start `postgres valkey` with `up -d --wait`. For the host migration set `DATABASE_URL=postgresql+asyncpg://postgres:ci_password@127.0.0.1:15432/rc_ci`, `POSTGRES_SCHEMA=rc`, `AUTH_SECRET=ci-only-secret-at-least-32-characters-long`, then run `uv run --directory back python -m alembic upgrade head`. Insert data with `docker compose -f infra/compose.ci.yaml run --rm --no-deps back python -m src.scripts.seed_database --data-only` and start `up -d --no-build --wait back front`. Set `E2E_BASE_URL=http://127.0.0.1:15000` and run the smoke project. Cleanup only this isolated project with `docker compose -f infra/compose.ci.yaml down --volumes`.
 
-Keycloak-specific profile/hover suites and large-workbook performance checks remain explicit local checks; they are not represented as passing PR checks. Corporate SSO, external nginx/TLS and deployment rollback require a separate staging environment. Unit/component tests cover API errors/contracts, signed sessions, WebSocket lifecycle/protocol, grid edit mapping, export and real HeroUI tab selection; they do not imply exhaustive UI coverage.
+Keycloak-specific SSO checks and large-workbook performance checks remain explicit local checks; they are not represented as passing PR checks. Corporate SSO, external nginx/TLS and deployment rollback require a separate staging environment. Unit/component tests cover API errors/contracts, signed sessions, WebSocket lifecycle/protocol, grid edit mapping, export and real HeroUI tab selection; they do not imply exhaustive UI coverage.
 
 ### CodeQL security analysis
 
