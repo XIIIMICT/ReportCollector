@@ -913,56 +913,38 @@ export function markFilterableColumns(
     columns: (ColumnRegular | ColumnGrouping)[],
     descriptors: readonly ColumnDescriptor[],
 ): void {
-    // Every column is filterable, computed ones included: a computed cell still
-    // holds a per-row value (a sum, a count) that a user wants to narrow by —
-    // "show the assets with no repair works" is a normal question. What a
-    // computed column must not get is the `filter: false` opt-out below.
-    const filterable = new Set(descriptors.map((descriptor) => descriptor.key));
+    const byKey = new Map(descriptors.map((descriptor) => [descriptor.key, descriptor]));
     for (const column of columns) {
         const leaves = (column as ColumnGrouping).children?.length
             ? ((column as ColumnGrouping).children as ColumnRegular[])
             : [column as ColumnRegular];
         for (const leaf of leaves) {
-            if (!filterable.has(String(leaf.prop))) {
-                // The grid carries a `filter` prop (that is what makes RevoGrid
-                // render its own funnel), and with it EVERY column gets one.
-                // Two kinds of columns opt out explicitly:
-                //  - a prop with no descriptor (a service column) has nothing to
-                //    filter by;
-                //  - a column with NO template is the row-number column, which
-                //    RevoGrid renders through `rowHeaders` and never marks with
-                //    `data-prop`. Without this it borrowed the FIRST column's
-                //    funnel — the "funnel in the row-number column" bug.
-                leaf.filter = false;
-                continue;
-            }
-            const label = leaf.name;
+            // Turn RevoGrid's filter UI OFF for good. Its funnel lives in a
+            // shadow root, so it cannot be restyled and it opens ITS condition
+            // panel — neither is wanted: every table uses the app's own popover.
+            // `filter: false` is the documented per-column opt-out, which is
+            // stronger than hiding the button after the fact.
+            leaf.filter = false;
             const prop = String(leaf.prop);
-            // The header template renders the column's TEXT only (a template
-            // replaces the default label). The FUNNEL is not part of it: it is
-            // drawn as an overlay by `RawMaterialsGrid`, in app-land, using the
-            // very same `.header-filter-button` element the renovation plan
-            // uses. RevoGrid's built-in button is a shadow-DOM control with its
-            // own look — restyling it from outside is impossible, and copying it
-            // is how the two headers drifted apart in the first place.
-            //
-            // The template still stamps the column's prop: a header cell carries
-            // only a viewport-relative `data-col`, and the overlay needs to know
-            // WHICH column a funnel belongs to.
+            if (!byKey.has(prop)) continue;
+            // Our own header carries the label + the app's funnel button; the
+            // button's handler reads the prop from here.
+            const label = leaf.name ?? byKey.get(prop)?.label ?? prop;
             leaf.columnTemplate = (h: HyperFunc<VNode>, cell: { name?: string }) => {
                 const hyper = h as unknown as (
                     tag: string,
                     props: Record<string, unknown>,
                     children?: unknown[],
                 ) => VNode;
-                return hyper(
-                    "span",
-                    {
-                        class: "report-header__title",
+                return hyper("span", { class: "report-header__title", "data-prop": prop }, [
+                    cell?.name ?? label,
+                    hyper("button", {
+                        type: "button",
+                        class: "header-filter-button",
+                        "aria-label": `Фильтр: ${cell?.name ?? label}`,
                         "data-prop": prop,
-                    },
-                    [cell?.name ?? label ?? ""],
-                );
+                    }),
+                ]);
             };
         }
     }

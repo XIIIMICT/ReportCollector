@@ -83,12 +83,6 @@ export type ScrollPositionKey = {
  */
 const EMPTY_PINNED_SOURCE: Record<string, unknown>[] = [];
 
-/**
- * Empty RevoGrid filter config: it only enables the per-column funnel button.
- * A fresh object per render would reconfigure the plugin every time.
- */
-const EMPTY_FILTER_CONFIG = {};
-
 /** Stable empty plugin/merge lists: a fresh array would reset the plugin setup on every render. */
 const EMPTY_PLUGIN_LIST: GridPlugin[] = [];
 /**
@@ -610,24 +604,6 @@ function RawMaterialsGridInner(
     // funnels: a form that passes the map gets them, a read-only/archive view
     // that passes nothing renders a plain header.
     const filteringEnabled = columnFilters !== undefined && onFiltersChange !== undefined;
-    /**
-     * The funnels drawn over RevoGrid's header.
-     *
-     * RevoGrid's own filter control lives inside the header's shadow root, so
-     * it cannot be restyled and its reveal differs from the plan's. Instead the
-     * grid renders the plan's own `.header-filter-button` at each filterable
-     * column's right edge, positioned from the header cells' real rects and
-     * refreshed on scroll, resize and content change.
-     */
-    const funnelLayerRef = useRef<HTMLDivElement>(null);
-    // The column whose header cell is under the pointer — the overlay reveals
-    // that funnel. RevoGrid's cell is a shadow-free node inside the grid, so a
-    // plain enter/leave on the grid is enough to track it.
-    const [hoveredHeaderProp, setHoveredHeaderProp] = useState<string | null>(null);
-    const [funnels, setFunnels] = useState<
-        Array<{ prop: string; label: string; left: number; top: number; height: number }>
-    >([]);
-
     // The «№» corner's go-to popover (shared component, own numbering). The
     // row-header template reaches the opener through a ref: the row headers are
     // built once, and a setter in their dependency list would rebuild them on
@@ -1712,113 +1688,6 @@ function RawMaterialsGridInner(
 
     const lastStatsRef = useRef<GridViewStats | null>(null);
 
-    /**
-     * Read the header cells' geometry and place the funnel overlays.
-     *
-     * The header cells live in RevoGrid's shadow root, but `getBoundingClientRect`
-     * is shared coordinates, so their positions can be mirrored into our own
-     * absolutely-positioned row without touching their internals. Called on
-     * every layout-changing event: scroll, resize, source change.
-     */
-    useEffect(() => {
-        const grid = gridRef.current;
-        if (!grid || !filteringEnabled) return;
-        const onPointerMove = (event: PointerEvent) => {
-            const target = event.target as Element | null;
-            // Our own overlay buttons are `data-prop` carriers inside the grid;
-            // they are not header cells and must not drive the hover state.
-            const cell = target?.closest?.(".rgHeaderCell");
-            const prop =
-                cell && !target?.closest?.(".report-header-funnels")
-                    ? (cell.querySelector("[data-prop]")?.getAttribute("data-prop") ?? null)
-                    : null;
-            setHoveredHeaderProp((previous) => (previous === prop ? previous : prop));
-        };
-        const onPointerLeave = () => setHoveredHeaderProp(null);
-        grid.addEventListener("pointermove", onPointerMove);
-        grid.addEventListener("pointerleave", onPointerLeave);
-        return () => {
-            grid.removeEventListener("pointermove", onPointerMove);
-            grid.removeEventListener("pointerleave", onPointerLeave);
-        };
-    }, [filteringEnabled]);
-
-    const measureFunnels = useCallback(async () => {
-        const grid = gridRef.current;
-        const layer = funnelLayerRef.current;
-        if (!grid || !layer || !filteringEnabled) return;
-        // `revogr-header` is only the shadow host: the cells are rendered in
-        // light DOM, so they are looked up on the grid itself. The row-header
-        // column has no `data-prop` and is skipped below.
-        const cells = Array.from(grid.querySelectorAll(".rgHeaderCell")).filter(
-            (cell): cell is HTMLElement => cell instanceof HTMLElement,
-        );
-        const gridRect = grid.getBoundingClientRect();
-        const next: Array<{
-            prop: string;
-            label: string;
-            left: number;
-            top: number;
-            height: number;
-        }> = [];
-        let top = Number.POSITIVE_INFINITY;
-        let bottom = Number.NEGATIVE_INFINITY;
-        for (const cell of cells) {
-            const rect = cell.getBoundingClientRect();
-            top = Math.min(top, rect.top - gridRect.top);
-            bottom = Math.max(bottom, rect.bottom - gridRect.top);
-        }
-        layer.style.height = Number.isFinite(top) ? `${Math.round(bottom - top)}px` : "";
-        layer.style.top = Number.isFinite(top) ? `${Math.round(top)}px` : "";
-        for (const cell of cells) {
-            // The row-number corner carries neither a descriptor nor a template
-            // that stamps `data-prop`; falling back to `data-col` would hand it
-            // the first column's funnel.
-            const prop = cell.querySelector("[data-prop]")?.getAttribute("data-prop") ?? null;
-            if (!prop || !descriptorByKey.has(prop)) continue;
-            const rect = cell.getBoundingClientRect();
-            next.push({
-                prop,
-                label: descriptorByKey.get(prop)?.label ?? prop,
-                left: rect.right - gridRect.left,
-                top: rect.top - (gridRect.top + top),
-                height: rect.height,
-            });
-        }
-        // RevoGrid can render one column twice while the header settles (the
-        // pinned and scrolling layers both hold a cell); the overlay keeps the
-        // first of each prop, so a key is unique.
-        const seen = new Set<string>();
-        setFunnels(next.filter((funnel) => !seen.has(funnel.prop) && seen.add(funnel.prop)));
-    }, [descriptorByKey, filteringEnabled]);
-
-    /**
-     * RevoGrid paints its header cells asynchronously and keeps adding them
-     * after the first frame, so the overlay is re-read until the count stops
-     * growing (and again whenever the columns change). The grid exposes no
-     * "header rendered" event; a bounded poll is the honest way to see it.
-     */
-    useEffect(() => {
-        if (!filteringEnabled) return;
-        let cancelled = false;
-        let attempts = 0;
-        let lastCount = -1;
-        const tick = () => {
-            if (cancelled) return;
-            void measureFunnels();
-            const grid = gridRef.current;
-            const count = grid ? grid.querySelectorAll(".rgHeaderCell").length : 0;
-            attempts += 1;
-            const settled = count === lastCount && count > 1;
-            lastCount = count;
-            if (!settled && attempts < 40) window.setTimeout(tick, 100);
-        };
-        tick();
-        return () => {
-            cancelled = true;
-        };
-    }, [columns, filteringEnabled, measureFunnels]);
-
     const measureViewport = useCallback(async () => {
         const grid = gridRef.current;
         if (!grid || !onViewStatsChange) return;
@@ -2416,42 +2285,6 @@ function RawMaterialsGridInner(
                 </Tooltip.Trigger>
                 <Tooltip.Content placement="top">{remoteTooltip?.text}</Tooltip.Content>
             </Tooltip>
-            {/* Our funnels, drawn over RevoGrid's header. The header is a shadow
-                DOM web component whose own filter button cannot be restyled —
-                so it is not used at all, and the very same
-                `.header-filter-button` element the renovation plan renders is
-                placed here instead, at each filterable column's right edge. */}
-            <div ref={funnelLayerRef} className="report-header-funnels" aria-hidden={false}>
-                {funnels.map((funnel) => (
-                    <button
-                        key={funnel.prop}
-                        type="button"
-                        className={
-                            columnFilters?.[funnel.prop] !== undefined
-                                ? "header-filter-button is-active"
-                                : "header-filter-button"
-                        }
-                        aria-label={`Фильтр: ${funnel.label}`}
-                        data-prop={funnel.prop}
-                        data-cell-hover={hoveredHeaderProp === funnel.prop ? "true" : undefined}
-                        style={{
-                            left: funnel.left,
-                            top: funnel.top,
-                            height: funnel.height,
-                            right: "auto",
-                        }}
-                        onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            setFilterTarget({
-                                column: funnel.prop,
-                                label: funnel.label,
-                                anchor: event.currentTarget.getBoundingClientRect(),
-                            });
-                        }}
-                    />
-                ))}
-            </div>
             <div ref={verticalScrollRef} className="revo-grid-vertical-scroller">
                 <RevoGrid
                     ref={gridRef}
@@ -2474,14 +2307,6 @@ function RawMaterialsGridInner(
                     resize
                     rowHeaders={rowHeaders}
                     editors={editors}
-                    // RevoGrid renders a header funnel only when the grid gets
-                    // a `filter` prop (`canFilter`); a column's
-                    // `columnTemplate` alone is not enough — it only keeps the
-                    // header from disappearing. An EMPTY config turns the
-                    // funnels on without bringing the condition panel: our
-                    // click handler stops the event first, and the filtering
-                    // itself is client-side (`visibleRows`).
-                    filter={EMPTY_FILTER_CONFIG}
                     {...(sorting ? { sorting } : {})}
                     hideAttribution
                     readonly={readOnly}
@@ -2491,7 +2316,6 @@ function RawMaterialsGridInner(
                     onAftersourceset={() => {
                         void refreshHorizontalScrollbar();
                         void measureViewport();
-                        void measureFunnels();
                     }}
                     onBeforesorting={() => {
                         // Remove index-based merges before RevoGrid reorders
@@ -2521,10 +2345,7 @@ function RawMaterialsGridInner(
                             !!collection && Object.keys(collection).length > 0;
                         setTimeout(() => void measureViewport(), 0);
                     }}
-                    onContentsizechanged={() => {
-                        void refreshHorizontalScrollbar();
-                        void measureFunnels();
-                    }}
+                    onContentsizechanged={() => void refreshHorizontalScrollbar()}
                     onViewportscroll={(event) => {
                         if (event.detail.dimension === "rgCol") {
                             if (!headerPinned) {
@@ -2533,7 +2354,6 @@ function RawMaterialsGridInner(
                                     scrollbar.scrollLeft = event.detail.coordinate;
                                 }
                             }
-                            void measureFunnels();
                         } else {
                             scheduleScrollRemember();
                         }
@@ -2550,7 +2370,6 @@ function RawMaterialsGridInner(
                         }
                         void refreshHorizontalScrollbar();
                         void measureViewport();
-                        void measureFunnels();
                     }}
                     onBeforeeditstart={beforeEditStart}
                     onBeforeedit={beforeEdit}

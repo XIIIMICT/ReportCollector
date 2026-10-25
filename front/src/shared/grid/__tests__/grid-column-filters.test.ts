@@ -30,7 +30,11 @@ type Hyper = (
 ) => VNode;
 
 /** Minimal stand-in for RevoGrid's `h`, enough to read what a template renders. */
-const h: Hyper = (tag, props, children) => ({ t: tag, p: props, c: children });
+const h: Hyper = (tag, props, ...rest) => {
+    // RevoGrid's `h` takes the text (or the children) as its 3rd argument.
+    const children = rest.length > 1 ? (rest as (string | VNode)[]) : rest[0];
+    return { t: tag, p: props, c: children as string | (string | VNode)[] | undefined };
+};
 
 function templateOf(section: Parameters<typeof buildGridColumns>[0], prop: string) {
     const descriptors = getVisibleDescriptors(section, true, false);
@@ -54,21 +58,24 @@ function templateOf(section: Parameters<typeof buildGridColumns>[0], prop: strin
             const template = leaf?.columnTemplate as
                 | ((hyper: Hyper, column: { name?: string | undefined }) => VNode)
                 | undefined;
-            return template === undefined ? undefined : template(h, { name: leaf?.name });
+            return template === undefined
+                ? undefined
+                : template(h, { name: String(leaf?.name ?? "") });
         },
     };
 }
 
-test("the header template renders the column name, not an empty cell", () => {
-    // The header funnel is RevoGrid's `.rv-filter`, which renders only for a
-    // column carrying `columnTemplate`. That template REPLACES the header text,
-    // so it has to draw the column name itself — an empty template blanked every
-    // dictionary header.
+test("the header renders the label AND our funnel button", () => {
+    // A custom `columnTemplate` REPLACES the header text, so it draws the label
+    // itself; the funnel is ours (the app's button), never RevoGrid's — the grid
+    // opts its own filter UI out with `filter: false`.
     const { leaf, render } = templateOf("renovationAssets", "name");
-    const node = render();
     expect(leaf?.name).toBe("Наименование");
-    const children = node?.c as unknown[];
-    expect(children?.[0]).toBe("Наименование");
+    const node = render();
+    const children = node?.c as Array<string | { p: Record<string, unknown> }>;
+    expect(children[0]).toBe("Наименование");
+    expect(children[1]?.p.class).toBe("header-filter-button");
+    expect(children[1]?.p["data-prop"]).toBe("name");
 });
 
 test("a computed column is filterable like any other", () => {
