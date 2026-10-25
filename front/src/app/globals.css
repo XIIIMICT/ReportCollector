@@ -3144,6 +3144,12 @@ body {
     /* react-aria's inline `max-height` is the space above the anchor; the search
        field is one more row inside it, so the cap is raised a little rather than
        overridden — the panel shrinks to its content otherwise. */
+    /* A flex column shrinks to its CONTENT unless it is given a height, and with
+       no height the list collapses to nothing. The panel takes a real height and
+       overrides react-aria's inline `max-height` (that one is only the space
+       between the anchor and the viewport edge — with the search field added the
+       list got two rows). The list scrolls inside it. */
+    height: min(460px, 70vh);
     max-height: min(460px, 70vh) !important;
     padding: 0.5rem;
     border: 1px solid var(--border);
@@ -3225,6 +3231,22 @@ body {
     gap: 0.5rem;
     justify-content: flex-end;
     padding: 0.5rem;
+}
+
+/* The commit group reserves room for the widest state of its labels (269px here)
+   while the buttons themselves take 127px. Right-aligned, that reserve sits to
+   their LEFT, so expanding a label slid every neighbour sideways — the "jump"
+   between «По умолчанию» and «Отменить». Anchoring the row to the LEFT keeps the
+   buttons still and lets the extra room fall to their right, where nothing moves;
+   the footer itself stays right-aligned, so the group sits where it did. */
+.smart-select__footer .button-group {
+    justify-content: flex-start;
+}
+
+.smart-select__footer .button-group > .expandable-button {
+    /* No flexing: a fixed slot per button, so re-labelling never re-flows. */
+    flex: 0 0 auto;
+    justify-content: center;
 }
 
 /* Divides «Выбрать все»/«Пустые» from the value list. */
