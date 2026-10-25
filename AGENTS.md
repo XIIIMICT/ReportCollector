@@ -41,6 +41,22 @@ editing a KPPK membership.
 | КППК periods | No separate command: `just seed-kppk` **rebuilds** the «Реализация» (one row per ДЗО × product × market) and «Себестоимость» (per ДЗО × product) rows for every month from **September 2023 to December of the next year**, all values zero. It TRUNCATES those tables first — the seed owns them, like the renovation plan — so a product dropped from the matrix leaves no stale period. The costs are re-derived from the fresh rows afterwards |
 | КППК source data | The **original** `raw.kppk_*` data is not in the repository: the operator loads the SQL dumps. What the repo does keep (`back/src/kppk/data/`) is the structure, the demo rows for a database without sources, and the product × ДЗО matrix with its excise flags — the only input the dumps never carried |
 
+## Tooling
+
+The commands above are the contract — use them as written. **If one of the required tools is missing, stop and ask the user to install it; never substitute an equivalent.** `python -m pytest` instead of `uv run pytest` silently picks another interpreter (and skips the locked versions); `npx` instead of `bunx` picks another resolver. The result looks fine and is not what CI runs.
+
+- **Required:** `uv`, `bun`, `docker`, `git`, `just` — the table above and `justfile` do not work without them.
+- **Available, prefer them over hand-rolled code:** `rg` (ripgrep — the same binary the built-in `grep`/`glob`/`read` tools are built on; inside a session those tools are usually the better route because they avoid quoting and shell-layout traps, but an `rg` invocation in a pipeline is perfectly fine). `jq` / `yq` / `gh` — optional; their absence never blocks a task.
+- **MCP servers** — `.mcp.json` (root, committed) declares two, both launched through `bunx`, so `bun` is a hard prerequisite for them as well: `heroui-react` (HeroUI **v3** component docs/source — the frontend is on v3; v2 examples are wrong) and `next-devtools` (Next.js runtime tooling: docs for the installed version, dev-server inspection). Use them for framework questions instead of guessing from memory. If a server is unavailable, say so and ask the user — do not fall back on recollection.
+
+**Do not write throwaway helper scripts** (a bespoke JSON parser, a file-walker, a search loop) when one command or one built-in tool does the job. Ask first — a helper left in the tree is untracked work that the next agent has to discover and delete.
+
+**Cyrillic does not survive the PowerShell pipeline.** The data is fine — `psql` prints «Российская Федерация» correctly — but a value that passes *through* the shell comes back as mojibake (`Выкуп` → `��룯`), and a `Select-String`/`-replace` built on such output will miss or corrupt it. Consequences:
+
+- read and edit **files** containing Russian with the `read`/`edit`/`write` tools, never with shell text replacement — a bulk Cyrillic `Substring`/`-replace` silently rewrites the wrong bytes;
+- when a shell command's output looks garbled, the command may still have succeeded: re-read the result with a tool (`read`, or a fresh `psql` call writing to a file) before "fixing" anything;
+- for comparisons of Russian labels, prefer a query that returns a boolean/count (`SELECT count(*) … WHERE name = :v`) over eyeballing printed text.
+
 ## Landmines (critical!)
 
 1. **`AUTH_APP_ORIGIN` — no trailing slash.** compose derives the CORS origins from it; the browser never sends a slash in `Origin` → the WS handshake fails with 403. `back/src/config.py` normalizes slashes, but the correct `.env` has none.

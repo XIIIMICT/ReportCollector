@@ -9,6 +9,7 @@
 !/.env.example
 !/.gitattributes
 !/.gitignore
+!/.mcp.json
 !/compose.yaml
 !/justfile
 !/AGENTS.md

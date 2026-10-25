@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "next-devtools": {
+      "command": "bunx",
+      "args": ["-y", "next-devtools-mcp@latest"]
+    },
+    "heroui-react": {
+      "command": "bunx",
+      "args": ["-y", "@heroui/react-mcp@latest"]
+    }
+  }
+}
