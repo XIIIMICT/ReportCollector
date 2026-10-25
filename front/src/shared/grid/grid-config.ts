@@ -885,23 +885,6 @@ export function renderNumberText(value: unknown): string {
 }
 
 /**
- * Styles injected into RevoGrid's header shadow root (`<style slot="styles">`).
- * The header is a web component, so the app's stylesheet never reaches its
- * built-in `.rv-filter` button: the shared funnel rules would not apply there
- * and it would keep RevoGrid's own `visibility` reveal. Hiding it lets the
- * column template draw our own funnel — the very element the plan uses, so the
- * two animations cannot drift apart.
- */
-export const HEADER_SHADOW_STYLES = `
-  revogr-header .rv-filter { display: none !important; }
-  /* RevoGrid's own shadow stylesheet makes the label inherit the compact
-     theme's 9px header padding; the plan's labels have none and the funnel is
-     pinned to the cell edge, so the inherited padding held the text (and the
-     funnel's slot) away from it. */
-  revogr-header .rgHeaderCell .header-content { padding: 0 !important; }
-`.trim();
-
-/**
  * How a column's filter list is ordered: text alphabetically, numbers and dates
  * NUMERICALLY — a string sort would put «10» before «9» and «01.02.2024»
  * before «31.01.2024», which reads as broken next to the cells.
@@ -942,43 +925,44 @@ export function markFilterableColumns(
         for (const leaf of leaves) {
             if (!filterable.has(String(leaf.prop))) {
                 // The grid carries a `filter` prop (that is what makes RevoGrid
-                // render a funnel at all), and with it EVERY column gets one.
-                // A column with no descriptor (a service prop) has nothing to
-                // filter by, so it opts out explicitly.
+                // render its own funnel), and with it EVERY column gets one.
+                // Two kinds of columns opt out explicitly:
+                //  - a prop with no descriptor (a service column) has nothing to
+                //    filter by;
+                //  - a column with NO template is the row-number column, which
+                //    RevoGrid renders through `rowHeaders` and never marks with
+                //    `data-prop`. Without this it borrowed the FIRST column's
+                //    funnel — the "funnel in the row-number column" bug.
                 leaf.filter = false;
                 continue;
             }
             const label = leaf.name;
             const prop = String(leaf.prop);
-            // RevoGrid's header lives in the `revogr-header` SHADOW root, so our
-            // stylesheet cannot restyle its built-in `.rv-filter` button — it
-            // keeps RevoGrid's own reveal (a `visibility` switch, no slide). The
-            // template therefore draws OUR funnel, the very element the
-            // renovation plan's overlay header uses, and `HEADER_SHADOW_STYLES`
-            // hides the built-in one inside the shadow root. That is what keeps
-            // the two animations identical by construction.
+            // The header template renders the column's TEXT only (a template
+            // replaces the default label). The FUNNEL is not part of it: it is
+            // drawn as an overlay by `RawMaterialsGrid`, in app-land, using the
+            // very same `.header-filter-button` element the renovation plan
+            // uses. RevoGrid's built-in button is a shadow-DOM control with its
+            // own look — restyling it from outside is impossible, and copying it
+            // is how the two headers drifted apart in the first place.
             //
-            // The template also stamps the column's prop: a header cell carries
-            // only a viewport-relative `data-col`, and the funnel click needs to
-            // know WHICH column it belongs to.
+            // The template still stamps the column's prop: a header cell carries
+            // only a viewport-relative `data-col`, and the overlay needs to know
+            // WHICH column a funnel belongs to.
             leaf.columnTemplate = (h: HyperFunc<VNode>, cell: { name?: string }) => {
-                // The header node carries the text AND the funnel; the row-header
-                // overloads only declare single-node results.
                 const hyper = h as unknown as (
                     tag: string,
                     props: Record<string, unknown>,
                     children?: unknown[],
                 ) => VNode;
-                const text = cell?.name ?? label ?? "";
-                return hyper("span", { class: "report-header__title", "data-prop": prop }, [
-                    text,
-                    hyper("button", {
-                        type: "button",
-                        class: "header-filter-button",
-                        "aria-label": `Фильтр: ${text}`,
+                return hyper(
+                    "span",
+                    {
+                        class: "report-header__title",
                         "data-prop": prop,
-                    }),
-                ]);
+                    },
+                    [cell?.name ?? label ?? ""],
+                );
             };
         }
     }
