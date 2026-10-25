@@ -395,7 +395,26 @@ def inspect_plan_file(
         assets=sorted(assets),
         new_rows=sum(code not in existing_codes for code in codes),
         rows_to_update=sum(code in existing_codes for code in codes),
+        columns=_loaded_column_labels(columns),
     )
+
+
+def _loaded_column_labels(columns: dict[str, int]) -> list[str]:
+    """
+    Form labels of the mapped template columns, in workbook order.
+
+    `columns` maps a resolved header to its sheet index; the order is how the
+    template presents them, which is what the operator compares against the file.
+    Calculated fields are skipped: the load never writes them.
+    """
+    by_field = {meta.db_name: meta for meta in field_metas()}
+    labels: list[str] = []
+    for field, _index in sorted(columns.items(), key=lambda pair: pair[1]):
+        meta = by_field.get(field)
+        if meta is None or meta.is_calculated:
+            continue
+        labels.append(meta.label)
+    return labels
 
 
 def _duplicates_with_rows(codes: list[str], row_numbers: list[int]) -> list[str]:

@@ -27,6 +27,8 @@ export type PlanExcelImportResult =
           assets: string[];
           newRows: number;
           rowsToUpdate: number;
+          /** Form labels of the columns the load writes, in workbook order. */
+          columns?: string[];
       };
 
 /** What the dialog shows after the load finished (or failed). */
@@ -217,6 +219,18 @@ export function PlanExcelImportModal({
                                 <p>
                                     <strong>Строк для обновления: {result.rowsToUpdate}</strong>
                                 </p>
+                                {result.columns?.length ? (
+                                    <div className="plan-excel-import-modal__columns">
+                                        <p>
+                                            <strong>Столбцы для загрузки:</strong>
+                                        </p>
+                                        <ul>
+                                            {result.columns.map((column) => (
+                                                <li key={column}>{column}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ) : null}
                             </div>
                         ) : null}
                     </Modal.Body>

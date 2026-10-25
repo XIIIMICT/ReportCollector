@@ -782,6 +782,32 @@ body {
     gap: 1rem;
 }
 
+/* The analysis summary reads as one block: line by line, no blank lines between
+   «Активы», «Новых строк» and the column list. */
+.plan-excel-import-modal__summary {
+    gap: 0;
+}
+
+.plan-excel-import-modal__summary p {
+    margin: 0;
+    line-height: 1.6;
+}
+
+/* The columns the load writes, under the counts. */
+.plan-excel-import-modal__columns {
+    margin-top: 0.5rem;
+}
+
+.plan-excel-import-modal__columns ul {
+    margin: 0.25rem 0 0;
+    padding-left: 1.25rem;
+    list-style: disc;
+}
+
+.plan-excel-import-modal__columns li {
+    line-height: 1.5;
+}
+
 .plan-excel-import-modal__errors section {
     display: flex;
     flex-direction: column;

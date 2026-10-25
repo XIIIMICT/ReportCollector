@@ -477,6 +477,10 @@ class RenovationPlanImportResult(BaseModel):
     assets: list[str] = Field(default_factory=list)
     new_rows: int = 0
     rows_to_update: int = 0
+    # Human-readable labels of the columns the load will write, in the order the
+    # template presents them. The analyser already resolves every header to a form
+    # field; this exposes that set instead of making the UI parse the workbook.
+    columns: list[str] = Field(default_factory=list)
 
 
 class RenovationPlanImportApplyResult(BaseModel):
