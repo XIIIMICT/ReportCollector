@@ -25,7 +25,7 @@ keycloak:
     docker compose --profile standalone up -d keycloak
 
 logging:
-    docker compose --profile standalone up -d loki grafana alloy
+    docker compose --profile standalone up -d loki grafana alloy prometheus alertmanager
 
 down:
     docker compose --profile standalone down

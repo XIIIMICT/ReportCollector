@@ -1,0 +1,70 @@
+# Alerting rules for ReportCollector.
+#
+# Scope: 5xx errors only — the "something bad is happening, go look" signal.
+# Latency and saturation thresholds are deliberately NOT here yet: with no load
+# test there is no baseline to compare against, and a made-up threshold either
+# rings constantly or stays silent through a real degradation. Add them once
+# `docs/SCALING_BACKLOG.md` §1 has produced numbers.
+
+groups:
+  - name: reportcollector-http
+    interval: 30s
+    rules:
+      # A 5xx means the server broke on a request that was otherwise valid.
+      # A single one is worth a look but not a page (a user may have hit a
+      # genuinely broken row); a sustained rate is unambiguously bad.
+      - alert: BackendServerErrors
+        expr: |
+          sum(rate(http_requests_total{job="reportcollector-back",status=~"5.."}[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Бэкенд отвечает 5xx ({{ $value | printf \"%.2f\" }} ошибок/с)"
+          description: >-
+            Более 0,05 серверных ошибок в секунду в течение 2 минут.
+            Откройте дашборд «ReportCollector · Ошибки», найдите request_id
+            и посмотрите стектрейс.
+
+      # Any 5xx at all, seen over a longer window: catches a low, steady leak
+      # (one broken endpoint someone uses rarely) that the rate rule ignores.
+      - alert: BackendServerErrorsPersisting
+        expr: |
+          sum(increase(http_requests_total{job="reportcollector-back",status=~"5.."}[1h])) > 20
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | printf \"%.0f\" }} ответов 5xx за час"
+          description: >-
+            Ошибки не взрывные, но постоянные — скорее всего один сломанный
+            маршрут. Смотрите панель «Самые медленные маршруты» и логи по
+            level="ERROR".
+
+      # Without this, a scrape that stops entirely (backend down, port closed)
+      # looks exactly like a healthy system: no 5xx, because no requests.
+      - alert: BackendUnreachable
+        expr: up{job="reportcollector-back"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus не может достучаться до бэкенда"
+          description: >-
+            Контейнер упал, порт не проброшен или /metrics недоступен.
+            Запущено ли приложение вообще?
+
+      # Collaboration-specific: a client whose queue fills is dropped and
+      # reconnects SILENTLY — nothing errors, so no 5xx rule fires. At scale
+      # this is the first sign the real-time layer cannot keep up.
+      - alert: CollaborationSlowConsumers
+        expr: |
+          sum(increase(ws_slow_consumers_total[10m])) > 5
+        labels:
+          severity: warning
+        annotations:
+          summary: "Клиенты не успевают получать события ({{ $value | printf \"%.0f\" }})"
+          description: >-
+            За 10 минут отброшено более 5 соединений по переполнению очереди.
+            Пользователи видят «не обновляется» и переподключаются.
+            Смотрите дашборд «Сотрудничество».

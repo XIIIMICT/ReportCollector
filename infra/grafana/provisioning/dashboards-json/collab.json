@@ -1,0 +1,175 @@
+{
+  "uid": "rc-collab",
+  "title": "ReportCollector · Сотрудничество",
+  "description": "WebSocket-нагрузка: соединения, комнаты, события, медленные потребители. При сотнях пользователей и постоянном редактировании это первый экран при жалобах «не обновляется».",
+  "tags": ["reportcollector", "collab"],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "15s",
+  "templating": {
+    "list": [
+      {
+        "name": "section",
+        "label": "Форма",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+        "query": "label_values(ws_events_relayed_total, room_section)",
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Активных соединений",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [{ "expr": "ws_connections_active", "legendFormat": "connections", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Активных комнат",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [{ "expr": "ws_rooms_active", "legendFormat": "rooms", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Событий в секунду",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(ws_events_relayed_total{room_section=~\"$section\"}[5m]))",
+          "legendFormat": "events/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Медленных потребителей (за 6ч)",
+      "description": "Клиенты, отброшенные по переполнению очереди. Каждый такой случай = разрыв соединения и полная перезагрузка состояния на клиенте. Растущее число значит, что люди не успевают получать события.",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(ws_slow_consumers_total{room_section=~\"$section\"}[6h]))",
+          "legendFormat": "dropped",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Соединения и комнаты",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "ws_connections_active", "legendFormat": "соединений", "refId": "A" },
+        { "expr": "ws_rooms_active", "legendFormat": "комнат", "refId": "B" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "События по формам",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (room_section) (rate(ws_events_relayed_total{room_section=~\"$section\"}[5m]))",
+          "legendFormat": "{{room_section}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 20, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Медленные потребители во времени",
+      "description": "Счётчик — монотонный; `increase` показывает, сколько клиентов отвалилось в окне. Всплеск = сеть или сервер не справляется.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (room_section) (increase(ws_slow_consumers_total{room_section=~\"$section\"}[10m]))",
+          "legendFormat": "{{room_section}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 70 }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    }
+  ]
+}

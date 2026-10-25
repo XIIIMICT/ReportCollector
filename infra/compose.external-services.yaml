@@ -80,6 +80,51 @@ services:
     ports:
       - "3100:3100"
 
+  prometheus:
+    container_name: rc-prometheus
+    image: prom/prometheus:v3.6.0
+    profiles: [standalone]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 15 days of raw samples at a 15s scrape: enough to compare "now" against
+      # "last week" and to re-evaluate an incident, without the disk growing
+      # forever. Retention is the metrics counterpart of Loki's.
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus-data:/prometheus
+    # Same resolution as Alloy: the Linux Docker daemon does not provide
+    # `host.docker.internal` on its own.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [net, net-dev]
+    ports:
+      - "9090:9090"
+
+  alertmanager:
+    container_name: rc-alertmanager
+    image: prom/alertmanager:v0.28.1
+    profiles: [standalone]
+    restart: unless-stopped
+    environment:
+      SUPPORT_MAIL: ${SUPPORT_MAIL:-}
+      ALERT_SMTP_FROM: ${ALERT_SMTP_FROM:-}
+      ALERT_SMTP_SMARTHOST: ${ALERT_SMTP_SMARTHOST:-}
+      ALERT_SMTP_USER: ${ALERT_SMTP_USER:-}
+      ALERT_SMTP_PASSWORD: ${ALERT_SMTP_PASSWORD:-}
+    volumes:
+      - ./alertmanager/alertmanager.tpl.yml:/etc/alertmanager/alertmanager.tpl.yml:ro
+      - ./alertmanager/entrypoint.sh:/entrypoint.sh:ro
+      - alertmanager-data:/alertmanager
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    networks: [net, net-dev]
+    ports:
+      - "9093:9093"
+
   grafana:
     container_name: rc-grafana
     image: grafana/grafana:13.1-slim
@@ -121,3 +166,7 @@ volumes:
     name: rc-loki-data
   grafana-data:
     name: rc-grafana-data
+  prometheus-data:
+    name: rc-prometheus-data
+  alertmanager-data:
+    name: rc-alertmanager-data

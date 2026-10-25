@@ -1,0 +1,16 @@
+apiVersion: 1
+
+datasources:
+  - name: ReportCollector Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    uid: reportcollector-prometheus
+    # NOT the default: Loki is, so "Explore" and a bare dashboard panel open on
+    # logs. Metrics panels pick this datasource explicitly by uid.
+    isDefault: false
+    editable: true
+    jsonData:
+      # The scrape interval Prometheus uses; Grafana needs it to pick a sensible
+      # default step (otherwise it guesses and the percentiles look staircase-y).
+      timeInterval: 15s

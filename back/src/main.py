@@ -13,6 +13,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
 
 from .api import api_router
@@ -22,6 +23,12 @@ from .collab.store import get_collab_store
 from .common.export_jobs import table_export_jobs
 from .config import get_settings
 from .database import async_session_factory
+from .metrics import (
+    HTTP_REQUEST_DURATION,
+    HTTP_REQUESTS_IN_PROGRESS,
+    HTTP_REQUESTS_TOTAL,
+    REGISTRY,
+)
 from .renovation.export_jobs import export_jobs
 
 settings = get_settings()
@@ -134,6 +141,7 @@ async def log_request(
 ) -> Response:
     start = monotonic_ms()
     request_id = str(uuid4())
+    HTTP_REQUESTS_IN_PROGRESS.inc()
     try:
         response = await call_next(request)
     except Exception:
@@ -141,12 +149,22 @@ async def log_request(
             "Request failed", extra={"request_id": request_id, "path": request.url.path, "method": request.method}
         )
         raise
+    finally:
+        HTTP_REQUESTS_IN_PROGRESS.dec()
     response.headers["X-Request-ID"] = request_id
     duration_ms = round(monotonic_ms() - start, 1)
     status = response.status_code
     path = request.url.path
 
-    # Skip frequent healthcheck requests — they spam the log
+    # The ROUTE TEMPLATE, not the raw path: a per-row uuid would create one
+    # Prometheus time series per row. `scope["route"]` is set by the router, so
+    # an unmatched path (a 404) falls back to a single shared bucket.
+    route = getattr(request.scope.get("route"), "path", None) or "unmatched"
+    HTTP_REQUESTS_TOTAL.labels(method=request.method, route=route, status=str(status)).inc()
+    HTTP_REQUEST_DURATION.labels(method=request.method, route=route).observe(duration_ms / 1000)
+
+    # Skip frequent healthcheck requests — they spam the log. The METRICS above
+    # are recorded for them too: a scrape should still see the readiness probe.
     if path in {"/health", "/ready"}:
         return response
 
@@ -189,6 +207,18 @@ async def log_request(
 @app.get("/health")
 async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    """
+    Prometheus scrape endpoint.
+
+    Unauthenticated by design: Prometheus scrapes it over the internal network.
+    The payload is aggregate counts and histogram buckets only — no user data,
+    and route TEMPLATES rather than paths, so no ids leak.
+    """
+    return Response(content=generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/ready")

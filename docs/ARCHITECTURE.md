@@ -27,7 +27,7 @@ Keycloak ── OIDC (login; local container or corporate)
 | `back` / `back-dev` | `rc-back` / `rc-back-dev` | prod / dev | FastAPI, uvicorn, port `BACKEND_PORT` |
 | `front` / `front-dev` | `rc-front` / `rc-front-dev` | prod / dev | Next.js standalone (prod) or `bun dev` (dev, hot-reload) |
 | postgres, keycloak, valkey | `rc-postgres` etc. | standalone | external dependencies (`just db`, `just keycloak`) |
-| loki, grafana, alloy | — | standalone | logs (`just logging`) |
+| loki, grafana, alloy, prometheus | — | standalone | logs + metrics (`just logging`) |
 
 Key point: **ports and hosts are set once in the root `.env`** and spread into the Dockerfiles (build-arg `PORT`/`BACKEND_PORT`), port publishing, healthchecks, and internal URLs. All mandatory (`:?` in compose — fails with a clear error instead of staying silent). No defaults in Dockerfiles.
 
@@ -241,6 +241,23 @@ Errors: `CellValidationError` → 422, `DictionaryReferenceError` → 409, `Valu
 ## Logging
 
 `back/src/app_logging.py`: structured events (`application_started`, `http_request`, `collab.ws_*`, `keycloak_identity_received`, …) to the `LOG_FILE` file and to Loki via Alloy; viewing — Grafana (`{app="reportcollector"}`). No tokens/secrets in logs.
+
+The file rotates (`RotatingFileHandler`, 64 MB × 5 backups — at most ~320 MB; a plain handler reached 174 MB in 33 hours). Rotation **renames** the active file, so Alloy's path-based tail re-reads the new one on its 5 s `sync_period`; a handful of lines can be missed at a rollover, which is the accepted price of a bounded disk. Loki keeps 7 days (`retention_period: 168h` + the compactor that actually enforces it) — without both, retention is inert and chunks are never deleted.
+
+`request_id` is recorded by the middleware, returned to the client in `X-Request-ID`, and ingested as Loki **structured metadata** (not a label — a uuid per request would explode the index). Trace one request end to end with `{app="reportcollector"} | request_id="<id>"`.
+
+## Monitoring
+
+Logs answer "what exactly happened"; metrics answer "how many and how often". **Percentiles exist only in metrics** — they are computed from histogram buckets at write time and cannot be derived from log lines.
+
+- `back/src/metrics.py` — a dedicated `CollectorRegistry`; `/metrics` (unauthenticated, aggregate values only) is scraped by Prometheus.
+- HTTP: `http_requests_total{method,route,status}`, `http_request_duration_seconds{method,route}` (buckets 5 ms…30 s), `http_requests_in_progress`. The `route` label is the **route template** (`/kppk/product-positions/{position_id}`), never the raw path — otherwise every row id would create its own time series; unmatched paths share `route="unmatched"`. `/health` and `/ready` are skipped in the LOG but still measured.
+- Collaboration: `ws_connections_active`, `ws_rooms_active`, `ws_events_relayed_total{room_section}`, `ws_slow_consumers_total{room_section}`. The last one matters most at scale: a client whose queue fills is **disconnected on purpose** and reconnects silently, so nothing errors — only this counter reveals it. `room_section` drops the month and the ДЗО scope, keeping one series per form.
+- Dashboards (`infra/grafana/provisioning/dashboards-json/`): **Сервис** (percentiles, error rate, slowest routes), **Сотрудничество** (WS load, slow consumers), **Ошибки** (Loki, with `request_id` correlation). Provisioned from git, `allowUiUpdates: false` — edit the JSON, not the browser.
+- Prometheus scrapes `host.docker.internal:<BACKEND_PORT>` (15 s, 15 days retention); the port is in `infra/prometheus/prometheus.yml` because Prometheus does not expand compose variables.
+- **Alerts** (`infra/prometheus/alert-rules.yml`, 4 rules): a 5xx burst (>0.05/s for 2 min), accumulating 5xx (>20/h), `up == 0` (an unreachable backend otherwise looks healthy — no requests, no errors), and collaboration slow consumers. Alertmanager groups them (`group_wait 30s`, repeat 4h) and exposes them at `http://localhost:9093`.
+- **Mail delivery is NOT working yet** — every SMTP port (25/465/587) is closed from this network, verified on the host and inside Docker. `entrypoint.sh` renders `alertmanager.tpl.yml` with `ALERT_SMTP_*`/`SUPPORT_MAIL` from `.env` (Alertmanager does not expand variables in `to`/`smarthost`), so only a reachable relay is missing. Tracked in `docs/SCALING_BACKLOG.md` §2.
+- Scaling work that observability does not solve by itself (load tests, WS horizontal scaling, further metrics) — `docs/SCALING_BACKLOG.md`.
 
 ## Deployment (prod)
 

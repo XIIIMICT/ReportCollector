@@ -44,6 +44,12 @@ from src.config import get_settings
 from src.database import get_session
 from src.kppk.constants import KPPK_PROJECT_KEY
 from src.kppk.service import NoKppkAccessError, resolve_kppk_access
+from src.metrics import (
+    WS_CONNECTIONS_ACTIVE,
+    WS_EVENTS_RELAYED_TOTAL,
+    WS_ROOMS_ACTIVE,
+    WS_SLOW_CONSUMERS_TOTAL,
+)
 from src.raw_materials.service import NoRawMaterialsAccessError, resolve_raw_materials_access
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.models import RBlock
@@ -100,7 +106,8 @@ class RoomManager:
 
     async def join(self, room: str, websocket: WebSocket, member: dict, access: RoomAccess | None = None) -> None:
         members = self._members.setdefault(room, {})
-        if not members:
+        new_room = not members
+        if new_room:
             self._ready[room] = asyncio.Event()
             self._relay_tasks[room] = asyncio.create_task(self._relay(room))
         queue: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_SIZE)
@@ -109,6 +116,11 @@ class RoomManager:
         self._queues.setdefault(room, {})[websocket] = queue
         self._writers.setdefault(room, {})[websocket] = asyncio.create_task(self._writer(websocket, queue))
         members[websocket] = member
+        # Gauges track the LIVE state, so they move with every join/leave — a
+        # scrape reads whatever the last lifecycle event left behind.
+        WS_CONNECTIONS_ACTIVE.inc()
+        if new_room:
+            WS_ROOMS_ACTIVE.inc()
         await asyncio.wait_for(self._ready[room].wait(), timeout=10)
         if self._relay_tasks[room].done():
             error = "Room subscription failed"
@@ -118,6 +130,8 @@ class RoomManager:
         members = self._members.get(room)
         if members is None:
             return
+        if websocket in members:
+            WS_CONNECTIONS_ACTIVE.dec()
         members.pop(websocket, None)
         self._access.pop(websocket, None)
         writer = self._writers.get(room, {}).pop(websocket, None)
@@ -127,6 +141,7 @@ class RoomManager:
                 await writer
         self._queues.get(room, {}).pop(websocket, None)
         if not members:
+            WS_ROOMS_ACTIVE.dec()
             task = self._relay_tasks.pop(room, None)
             if task is not None:
                 task.cancel()
@@ -137,7 +152,20 @@ class RoomManager:
             self._writers.pop(room, None)
             self._ready.pop(room, None)
 
+    @staticmethod
+    def _room_section(room: str) -> str:
+        """
+        Return the room's section part for metric labels (`rawMaterials`, `kppkCost`…).
+
+        The room key is `{project}:{section}:{reportMonth}:{scope}`; the month and
+        the ДЗО scope are dropped so the label set stays small and stable — one
+        series per form, not one per month times per asset.
+        """
+        parts = room.split(":")
+        return parts[1] if len(parts) > 1 else "unknown"
+
     async def _relay(self, room: str) -> None:
+        section = self._room_section(room)
         try:
             async for message in self._store.subscribe(room, ready=self._ready[room]):
                 if message.get("type") == "transport:resync":
@@ -147,10 +175,15 @@ class RoomManager:
                     continue
                 for websocket, queue in list(queues.items()):
                     if queue.full():
+                        # The client cannot keep up and is dropped ON PURPOSE: it
+                        # reconnects and refetches. Nothing fails, so only this
+                        # counter can reveal a rising rate.
+                        WS_SLOW_CONSUMERS_TOTAL.labels(room_section=section).inc()
                         await self._close(websocket, 1013)
                         continue
                     with suppress(asyncio.QueueFull):
                         queue.put_nowait(message)
+                        WS_EVENTS_RELAYED_TOTAL.labels(room_section=section).inc()
         except asyncio.CancelledError:
             return
         except Exception:

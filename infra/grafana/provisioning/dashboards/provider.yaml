@@ -1,0 +1,17 @@
+apiVersion: 1
+
+providers:
+  - name: ReportCollector
+    orgId: 1
+    folder: ReportCollector
+    type: file
+    # Editable in the UI is off on purpose: these dashboards are versioned in
+    # git. Change the JSON and restart Grafana (or reload its provisioning)
+    # rather than editing through the browser — otherwise the live dashboard
+    # silently diverges from what the next `git pull` installs.
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards-json
+      foldersFromFilesStructure: false

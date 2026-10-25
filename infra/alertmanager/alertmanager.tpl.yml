@@ -1,0 +1,59 @@
+# Alertmanager: routing and delivery.
+#
+# DELIVERY IS NOT WIRED, deliberately and visibly.
+#
+# Every SMTP port — the corporate MX and mail.ru (25/465/587) — is closed from
+# this machine BOTH on the host and from inside Docker (verified with a
+# `nc -z` probe from an alpine container). Alertmanager therefore has nothing to
+# send through; it cannot invent a route that the network refuses.
+#
+# What IS wired: the rules (`infra/prometheus/alert-rules.yml`) fire, Alertmanager
+# groups them, and they are visible in the UI (http://localhost:9093) and in
+# Grafana. What is NOT: the mail itself.
+#
+# To finish, once an SMTP relay is reachable:
+#   1. set ALERT_SMTP_* in `.env` (already present, pointing at smtp.mail.ru:465);
+#   2. start the stack — the `email_configs` block below picks them up via
+#      `alertmanager --config.file … --storage.path …` + the compose `command`
+#      flag `--setenv` semantics are NOT needed: Alertmanager does NOT expand
+#      `${VAR}` in `to`/`smarthost`, so those two are rendered at CONTAINER
+#      START by `entrypoint.sh` next to this file (envsubst), not here.
+#
+# Until the relay exists, treat "alerts by mail" as NOT DONE. It is also listed
+# in `docs/SCALING_BACKLOG.md` §2 so it cannot be mistaken for finished work.
+
+global:
+  resolve_timeout: 5m
+  smtp_require_tls: true
+
+route:
+  receiver: support-mail
+  group_by: [alertname]
+  # A 5xx burst must not send one mail per minute: group for 30 s, then keep
+  # updating every 4 h while it is still firing.
+  group_wait: 30s
+  group_interval: 4h
+  repeat_interval: 4h
+
+receivers:
+  - name: support-mail
+    email_configs:
+      # `to`/`from`/`smarthost` are filled by `entrypoint.sh` (envsubst) from
+      # `.env` — Alertmanager does not expand variables in these fields itself.
+      - to: "${SUPPORT_MAIL}"
+        from: "${ALERT_SMTP_FROM}"
+        smarthost: "${ALERT_SMTP_SMARTHOST}"
+        auth_username: "${ALERT_SMTP_USER}"
+        auth_password: "${ALERT_SMTP_PASSWORD}"
+        send_resolved: true
+        headers:
+          Subject: '[ReportCollector] {{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+        html: |
+          <h3>{{ .Status | toUpper }}: {{ .CommonLabels.alertname }} ({{ .CommonLabels.severity }})</h3>
+          {{ range .Alerts }}
+          <p><strong>{{ .Annotations.summary }}</strong></p>
+          <p>{{ .Annotations.description }}</p>
+          {{ end }}
+          <p>Дашборды: <a href="http://localhost:3000">Grafana</a> ·
+             <a href="http://localhost:9090/alerts">Prometheus</a> ·
+             <a href="http://localhost:9093">Alertmanager</a></p>

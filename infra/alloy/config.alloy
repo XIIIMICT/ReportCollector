@@ -33,6 +33,14 @@ loki.process "reportcollector" {
       "rows_affected"   = "rows_affected",
       "method"          = "method",
       "path"            = "path",
+      // Correlation: every log line of one request carries the same id, and the
+      // same id is returned to the client in `X-Request-ID`. Without it here a
+      // reported error cannot be traced to its exception and its call sequence —
+      // the field exists in the JSON but died at ingest.
+      "request_id"      = "request_id",
+      "error_type"      = "error_type",
+      "error"           = "error",
+      "exception"       = "exception",
     }
   }
 
@@ -55,6 +63,12 @@ loki.process "reportcollector" {
       "rows_affected" = "rows_affected",
       "method"        = "method",
       "path"          = "path",
+      // Same reasoning as above: queryable but NOT a label — a uuid per request
+      // as a label would explode the index, which is why it is metadata.
+      "request_id"    = "request_id",
+      "error_type"    = "error_type",
+      "error"         = "error",
+      "exception"     = "exception",
     }
   }
 

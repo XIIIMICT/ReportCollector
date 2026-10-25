@@ -1,0 +1,152 @@
+{
+  "uid": "rc-errors",
+  "title": "ReportCollector · Ошибки",
+  "description": "Ошибки из Loki с переходом по request_id. Логи отвечают на «что именно и в каком порядке», метрики — на «как часто»; здесь — первое.",
+  "tags": ["reportcollector", "logs"],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "event",
+        "label": "Событие",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "reportcollector-loki" },
+        "query": "label_values({app=\"reportcollector\"}, event)",
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Ошибки (5xx и исключения) за период",
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "loki", "uid": "reportcollector-loki" },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({app=\"reportcollector\", level=\"ERROR\"} [$__range]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Предупреждения (4xx) за период",
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "loki", "uid": "reportcollector-loki" },
+      "targets": [
+        { "expr": "sum(count_over_time({app=\"reportcollector\", level=\"WARN\"} [$__range]))", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Отклонено WS-идентичностей",
+      "description": "Рост этого значения при живом Keycloak означает рассинхрон тикета или поломку авторизации — пользователи не могут подключиться к формам.",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "loki", "uid": "reportcollector-loki" },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({app=\"reportcollector\"} |= \"ws_identity_rejected\" [$__range]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Ошибки по времени",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 5 },
+      "datasource": { "type": "loki", "uid": "reportcollector-loki" },
+      "targets": [
+        {
+          "expr": "sum by (level) (count_over_time({app=\"reportcollector\"} | level =~ \"ERROR|WARN\" [$__auto]))",
+          "legendFormat": "{{level}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 70 }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] } }
+    },
+    {
+      "id": 5,
+      "type": "logs",
+      "title": "Ошибки и предупреждения (выбор события → фильтр)",
+      "description": "Выберите request_id в строке — все логи этого запроса ищутся так: {app=\"reportcollector\"} | request_id=\"<id>\". request_id также возвращается клиенту в заголовке X-Request-ID.",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 13 },
+      "datasource": { "type": "loki", "uid": "reportcollector-loki" },
+      "targets": [
+        {
+          "expr": "{app=\"reportcollector\"} | json | level =~ \"ERROR|WARN\" | event =~ \"$event\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}
