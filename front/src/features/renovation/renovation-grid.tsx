@@ -1174,6 +1174,21 @@ function RenovationGridInner(
         [baselineBoundary, handleRowNumberClick, selectedRowIds],
     );
 
+    /**
+     * The plan's applied filters as header chains, leaf last — the status
+     * tooltip lists exactly these. The plan's columns are FLAT (one header
+     * level), so a chain is the field's own label; the asset panel filter is not
+     * a column and has no chain.
+     */
+    const filteredColumnPaths = useMemo(
+        () =>
+            [...(activeFilterColumns ?? [])]
+                .map((column) => displayFields.find((field) => field.dbName === column)?.label)
+                .filter((label): label is string => label !== undefined)
+                .map((label) => [label]),
+        [activeFilterColumns, displayFields],
+    );
+
     useEffect(() => {
         onViewStatsChange({
             // «Найдено» — the filtered plan size the server reports for the
@@ -1184,6 +1199,7 @@ function RenovationGridInner(
                 totalRowsAll,
                 assetFilter !== null,
                 activeFilterColumns,
+                filteredColumnPaths,
             ),
             totalCols: displayFields.length,
             immutableCols: displayFields.filter((field) => field.isReadOnly && !field.isCalculated)

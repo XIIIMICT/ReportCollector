@@ -1,6 +1,7 @@
 "use client";
 
 import { Tooltip } from "@heroui/react";
+import { Fragment } from "react";
 
 import {
     COLLAB_STATUS_LABELS,
@@ -158,6 +159,7 @@ export function FormStatus({
                             </span>
                         </div>
                     ) : null}
+                    <FilterSection chains={gridStats?.filteredColumns ?? []} />
                 </div>
             </Tooltip.Content>
         </Tooltip>
@@ -175,5 +177,45 @@ function PresenceRow({ member }: { member: CollabMember }) {
             </span>
             {cells ? <span className="form-status-detail__cells">{cells}</span> : null}
         </li>
+    );
+}
+
+/**
+ * «Фильтры:» — the applied column filters, one bullet per column, each spelled
+ * out as its full header CHAIN (group first, leaf last: «Иерархия → Лист»), the
+ * way the headers stack on screen. Preceded by one empty line so it reads as its
+ * own block.
+ *
+ * Nothing is rendered when no filter is applied — an empty section would claim
+ * the table has a filter feature it is not using.
+ */
+export function FilterSection({ chains }: { chains: string[][] }) {
+    if (chains.length === 0) return null;
+    return (
+        <>
+            <div className="form-status-detail__gap" aria-hidden="true" />
+            <div className="form-status-detail__filters">
+                <b>Фильтры:</b>
+                <ul className="form-status-detail__filters-list">
+                    {chains.map((path) => (
+                        <li key={path.join(" → ")} className="form-status-detail__filters-item">
+                            {path.map((label, index) => (
+                                <Fragment key={`${label}-${index}`}>
+                                    {index > 0 ? (
+                                        <span
+                                            className="form-status-detail__filters-sep"
+                                            aria-hidden="true"
+                                        >
+                                            {" → "}
+                                        </span>
+                                    ) : null}
+                                    <span>{label}</span>
+                                </Fragment>
+                            ))}
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        </>
     );
 }

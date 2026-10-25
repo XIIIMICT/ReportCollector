@@ -107,6 +107,12 @@ export type GridViewStats = {
     totalCols: number;
     /** Whether any column filter is currently applied. */
     filtersApplied: boolean;
+    /**
+     * The columns an applied filter narrows, each as its full header CHAIN —
+     * group first, leaf last (a grouped column reads «Иерархия → Лист»), which
+     * is what the status tooltip lists. Empty when nothing is filtered.
+     */
+    filteredColumns: string[][];
     /** Fixed (non-calculated) columns — not editable. */
     immutableCols: number;
     /** Calculated columns. */
@@ -595,6 +601,21 @@ function RawMaterialsGridInner(
         () => new Map(descriptors.map((descriptor) => [descriptor.key, descriptor])),
         [descriptors],
     );
+
+    /**
+     * The applied filters spelled out as header chains, leaf LAST: a grouped
+     * column reads «Иерархия → Лист», exactly the order its headers stack on
+     * screen. `path` holds the group labels of a descriptor; a column without a
+     * group is just its own label.
+     */
+    const filteredColumnPaths = useCallback(() => {
+        const applied = new Set(Object.keys(columnFilters ?? {}));
+        // Ordered by the DESCRIPTOR list (the columns' on-screen order), not by
+        // the filter object — the tooltip must read left to right like the table.
+        return descriptors
+            .filter((descriptor) => applied.has(descriptor.key))
+            .map((descriptor) => [...(descriptor.path ?? []), descriptor.label]);
+    }, [columnFilters, descriptors]);
 
     // ── Header column filters (client-side) ────────────────────────────────
     // Every table uses the SAME popover (`ColumnFilterPopover`); here the
@@ -1927,6 +1948,7 @@ function RawMaterialsGridInner(
             filteredRows: visible.length,
             totalCols: columns.length,
             filtersApplied: filtersAppliedRef.current,
+            filteredColumns: filteredColumnPaths(),
             immutableCols: counted.immutable,
             calculatedCols: counted.calculated,
             editableCols: counted.editable,
@@ -1938,6 +1960,7 @@ function RawMaterialsGridInner(
             previous.filteredRows === next.filteredRows &&
             previous.totalCols === next.totalCols &&
             previous.filtersApplied === next.filtersApplied &&
+            previous.filteredColumns.length === next.filteredColumns.length &&
             previous.immutableCols === next.immutableCols &&
             previous.calculatedCols === next.calculatedCols &&
             previous.editableCols === next.editableCols

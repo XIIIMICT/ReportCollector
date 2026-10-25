@@ -1038,6 +1038,34 @@ body {
     margin-top: 0.6rem;
 }
 
+/* One empty line between the stats block and the «Фильтры:» list. */
+.form-status-detail__gap {
+    height: 0.5rem;
+}
+
+.form-status-detail__filters {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+/* Marked list of the columns a filter narrows: a bullet per column, indented
+   under the bold «Фильтры:» caption. The entries read in the normal text colour —
+   this is a list of names, not a de-emphasised hint. */
+.form-status-detail__filters-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    list-style: disc;
+}
+
+.form-status-detail__filters-item {
+    color: inherit;
+}
+
+.form-status-detail__filters-sep {
+    color: inherit;
+}
+
 .form-status-detail__presence {
     display: grid;
     gap: 0.3rem;

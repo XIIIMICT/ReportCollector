@@ -6,10 +6,12 @@ export function renovationRowStats(
     totalRows: number,
     hasAssetFilter: boolean,
     activeFilterColumns?: ReadonlySet<string>,
-): Pick<GridViewStats, "filteredRows" | "totalRows" | "filtersApplied"> {
+    filteredColumns?: string[][],
+): Pick<GridViewStats, "filteredRows" | "totalRows" | "filtersApplied" | "filteredColumns"> {
     return {
         filteredRows,
         totalRows,
         filtersApplied: hasAssetFilter || (activeFilterColumns?.size ?? 0) > 0,
+        filteredColumns: filteredColumns ?? [],
     };
 }
