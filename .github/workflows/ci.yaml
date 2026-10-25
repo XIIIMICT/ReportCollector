@@ -253,6 +253,13 @@ jobs:
           target: prod
           load: true
           tags: rc-front:ci
+          # The Turbopack build is memory-hungry; the runner killed it with SIGKILL
+          # ("cannot allocate memory"). An explicit V8 ceiling makes it collect
+          # early instead of growing until the OOM killer wins.
+          build-args: |
+            NODE_OPTIONS=--max-old-space-size=3072
+          # `mode=max` keeps the intermediate `deps`/`build` layers as well as the
+          # final image, which is what makes a warm run skip `bun install`.
           cache-from: type=gha,scope=front
           cache-to: type=gha,mode=max,scope=front
       - name: Initialize isolated database

@@ -9,6 +9,7 @@
 !postcss.config.ts
 !tsconfig.json
 !src/**
+!scripts/coverage-gate.ts
 !public/**
 src/**/.DS_Store
 public/**/.DS_Store

@@ -1,5 +1,10 @@
 #:schema https://www.schemastore.org/prek.json
 
+# prek runs a nested config's hooks from ITS OWN directory, so every entry is a
+# plain frontend command and every `files` pattern is relative to `front/`.
+# Every hook receives just the STAGED files — a project-wide run would rewrite
+# whatever another agent is editing mid-task.
+
 orphan = true
 default_stages = ["pre-commit"]
 
@@ -17,7 +22,10 @@ files = '^package\.json$'
 [[repos.hooks]]
 id = "oxfmt"
 name = "oxfmt"
-entry = "bun format"
+# `oxfmt` takes the files to format as positional arguments, so the hook calls
+# the binary directly: `bun run format` would run the project-wide script and
+# rewrite whatever another agent is editing right now.
+entry = "bunx oxfmt"
 language = "system"
 files = '\.(cjs|css|cts|js|json|jsonc|jsx|mjs|mts|scss|ts|tsx)$'
 
@@ -26,8 +34,8 @@ id = "oxlint"
 name = "oxlint"
 entry = "bunx oxlint --fix"
 language = "system"
-# JS/TS only: oxlint can't lint CSS/SCSS/JSON and fails when given only
-# those files (a CSS-only commit would be blocked).
+# JS/TS only: oxlint can't lint CSS/SCSS/JSON and fails when given only those
+# files (a CSS-only commit would be blocked).
 files = '\.(cjs|cts|js|jsx|mjs|mts|ts|tsx)$'
 
 [[repos.hooks]]
@@ -36,13 +44,15 @@ name = "stylelint"
 entry = "bunx stylelint --fix"
 language = "system"
 # CSS only — the counterpart of the note above: oxlint handles JS/TS, stylelint
-# handles the stylesheets, so a CSS-only commit runs just this one.
+# the stylesheets, so a CSS-only commit runs just this one.
 files = '\.css$'
 
 [[repos.hooks]]
 id = "bun-test"
 name = "bun test"
-entry = "bun test"
+# The whole suite: it is the project's regression net and a partial run would
+# claim a green commit on evidence it never gathered. Fast enough (~5 s).
+entry = "bun run test"
 language = "system"
 pass_filenames = false
 files = '^(package\.json|bunfig\.toml|tsconfig.*\.json|.*\.(cts|mts|ts|tsx))$'
@@ -50,7 +60,9 @@ files = '^(package\.json|bunfig\.toml|tsconfig.*\.json|.*\.(cts|mts|ts|tsx))$'
 [[repos.hooks]]
 id = "bun-typecheck"
 name = "bun check"
-entry = "bun typecheck"
+# TypeScript resolves types across module boundaries, so this is project-wide by
+# nature; it is opt-in at commit time and always runs in CI.
+entry = "bun run typecheck"
 language = "system"
+stages = ["manual"]
 pass_filenames = false
-files = '^(package\.json|bunfig\.toml|tsconfig.*\.json|.*\.(cts|mts|ts|tsx))$'

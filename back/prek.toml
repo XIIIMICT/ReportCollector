@@ -1,5 +1,8 @@
 #:schema https://www.schemastore.org/prek.json
 
+# prek runs a nested config's hooks from ITS OWN directory, so every entry is a
+# plain backend command and every `files` pattern is relative to `back/`.
+
 orphan = true
 default_stages = ["pre-commit"]
 
@@ -12,6 +15,9 @@ name = "ruff format"
 entry = "uv run ruff format"
 language = "system"
 files = '\.py$'
+# Only the staged files: formatting the whole tree rewrites whatever another
+# agent is editing and turns an unrelated commit into a merge conflict.
+require_serial = true
 
 [[repos.hooks]]
 id = "ruff-check"
@@ -23,10 +29,13 @@ files = '\.py$'
 [[repos.hooks]]
 id = "ty-check"
 name = "ty check"
+# `ty` is a whole-project checker: it resolves imports across the package, so it
+# cannot narrow to one file. It is therefore opt-in rather than part of the
+# pre-commit gate — `just typecheck` and CI still run it on every change.
 entry = "uv run ty check"
 language = "system"
+stages = ["manual"]
 pass_filenames = false
-files = '^(.*\.py|pyproject\.toml)$'
 
 [[repos.hooks]]
 id = "uv-lock"

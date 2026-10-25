@@ -247,6 +247,31 @@ only CSS files. The root large-file guard excludes exactly the two versioned
 `docs/kppk/kppk_f_realization[_plan]_202610160910.sql` seed dumps; all other new
 files retain the default limit.
 
+**Nested configs run from their own directory.** `back/prek.toml` and
+`front/prek.toml` are picked up as the hooks for files under those folders, and
+prek executes each hook **inside that folder** — so every `entry` is a plain
+local command (`uv run ruff check --fix`, `bunx oxlint --fix`) and every `files`
+pattern is relative to it (`\.py$`, not `^back/.*\.py$`).
+
+**Hooks never touch the whole tree.** `ruff format`, `ruff check`, `oxfmt`,
+`oxlint` and `stylelint` receive exactly the STAGED files. A project-wide
+formatter rewrites whatever another agent has open, which turns an unrelated
+commit into somebody else's merge conflict — with several agents in one checkout
+that is the normal case, not the exception.
+
+**`ty check` and `bun typecheck` are `stages = ["manual"]`.** Both resolve
+imports across the whole package, so they cannot be narrowed to a file, and prek
+stashes the working tree to run them — which breaks every parallel agent and was
+the reason commits kept needing `--no-verify`. They still run in CI and through
+`just typecheck`; run them locally with `uv run --directory back ty check` /
+`bun run --cwd front typecheck`.
+
+**`--no-verify` is a last resort, and it does NOT skip the formatters.** A commit
+made with it must be followed by `uv run --directory back ruff format` and
+`bun run --cwd front format` before pushing: CI enforces both (`ruff format
+--check`, `bun run format:check`), and a skipped hook has silently shipped
+unformatted files more than once.
+
 ### Line endings & encoding (LF, UTF-8, no BOM)
 
 The repo is **LF**: `/.gitattributes` (`* text=auto eol=lf`) normalizes every text file to LF in the index and in working copies, overriding `core.autocrlf` — so editors/tools writing LF never cause "phantom" modifications or "LF will be replaced by CRLF" noise, on any OS.

@@ -1,6 +1,5 @@
 FROM oven/bun:1.4-slim AS base
-# Порт фронтенда. Единственная точка в Dockerfile: значение задаёт
-# compose.yaml из FRONT_PORT в .env.
+# Port из compose.yaml (FRONT_PORT в .env) — не решается внутри Dockerfile.
 ARG PORT=5000
 ENV NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
@@ -19,8 +18,16 @@ COPY . .
 CMD ["bun", "dev"]
 
 FROM deps AS build
+# V8's heap ceiling for the build; CI passes a larger one because Turbopack was
+# killed by the runner's OOM killer at the default size.
+ARG NODE_OPTIONS
+ENV NODE_OPTIONS=${NODE_OPTIONS}
 COPY . .
-RUN bun run build
+# Persist Next's compiler cache between builds. Without it every CI run
+# recompiles from scratch and the Turbopack build peaks at over a gigabyte —
+# it was killed with SIGKILL ("cannot allocate memory") on the runner.
+RUN --mount=type=cache,target=/app/.next/cache \
+    NEXT_TELEMETRY_DISABLED=1 bun run build
 
 FROM node:26-alpine AS prod
 ARG PORT=5000
