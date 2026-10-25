@@ -147,9 +147,7 @@ async def test_the_grouped_row_id_is_the_product(db_session: AsyncSession) -> No
 
     assert applied[0].field == "__replaced"
     assert await db_session.get(KppkProduct, source.id) is None
-    links = (
-        await db_session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.product_id) == target.id))
-    ).all()
+    links = (await db_session.exec(select(KppkOrgProduct).where(col(KppkOrgProduct.product_id) == target.id))).all()
     assert [link.org_id for link in links] == [org.id]
 
 

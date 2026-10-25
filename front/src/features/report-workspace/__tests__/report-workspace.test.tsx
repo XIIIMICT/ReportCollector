@@ -26,7 +26,9 @@ mock.module("@/features/raw-materials/raw-materials-workspace", () => ({
         <button
             data-testid="raw"
             data-project={String(props.activeProjectKey)}
-            onClick={() => (props.onSectionChange as (section: string | null) => void)("materialMovement")}
+            onClick={() =>
+                (props.onSectionChange as (section: string | null) => void)("materialMovement")
+            }
         >
             raw
         </button>
@@ -47,7 +49,10 @@ mock.module("@/features/renovation/renovation-workspace", () => ({
 }));
 mock.module("@/features/kppk/kppk-workspace", () => ({
     KppkWorkspace: (props: Record<string, unknown>) => (
-        <button data-testid="kppk" onClick={() => (props.onProjectChange as (key: string) => void)("renovation")}>
+        <button
+            data-testid="kppk"
+            onClick={() => (props.onProjectChange as (key: string) => void)("renovation")}
+        >
             kppk
         </button>
     ),
@@ -80,7 +85,9 @@ afterEach(() => {
 
 describe("report workspace routing", () => {
     test("an unknown or missing user renders an empty shell, not a workspace", () => {
-        render(<ReportWorkspace currentUser={null as never} projectKey="renovation" supportMail="" />);
+        render(
+            <ReportWorkspace currentUser={null as never} projectKey="renovation" supportMail="" />,
+        );
         expect(screen.queryByTestId("renovation")).toBeNull();
         expect(screen.queryByTestId("raw")).toBeNull();
     });
@@ -125,7 +132,14 @@ describe("report workspace routing", () => {
     });
 
     test("the restored section is handed to the workspace", () => {
-        render(<ReportWorkspace currentUser={user} projectKey="renovation" initialSection="kppkCost" supportMail="" />);
+        render(
+            <ReportWorkspace
+                currentUser={user}
+                projectKey="renovation"
+                initialSection="kppkCost"
+                supportMail=""
+            />,
+        );
         expect(screen.getByTestId("renovation").dataset.section).toBe("kppkCost");
     });
 

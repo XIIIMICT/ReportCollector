@@ -60,7 +60,9 @@ function main(): void {
     try {
         lcov = readFileSync(path, "utf8");
     } catch {
-        console.error(`coverage gate: ${path} not found — run "bun test --coverage-reporter=lcov" first.`);
+        console.error(
+            `coverage gate: ${path} not found — run "bun test --coverage-reporter=lcov" first.`,
+        );
         process.exit(1);
     }
 

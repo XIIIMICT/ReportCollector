@@ -123,6 +123,7 @@ def test_blank_cells_are_left_out_instead_of_stored_empty(sheet) -> None:
     assert "col_005" not in values
     assert values["col_009"] == "ЕО-1"
 
+
 def test_a_sheet_without_the_code_column_is_refused(sheet) -> None:
     """The code header is present (so the sheet IS a plan), the asset column is not."""
     sheet["rows"] = [["", _CODE_HEADER, "Что-то другое"], ["", "Р-001", "значение"]]
