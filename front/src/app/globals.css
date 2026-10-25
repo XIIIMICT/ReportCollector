@@ -3259,6 +3259,19 @@ body {
     min-width: 0;
 }
 
+/* No stepper buttons inside the range: they eat the width the two boxes share
+   and are useless for typing a bound. */
+.column-filter__range-field input::-webkit-outer-spin-button,
+.column-filter__range-field input::-webkit-inner-spin-button {
+    margin: 0;
+    appearance: none;
+}
+
+.column-filter__range-field input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
 .column-filter__range-dash {
     flex: 0 0 auto;
     color: var(--muted);

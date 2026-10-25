@@ -1,7 +1,7 @@
 "use client";
 
 import { EmptyState, ListBox, SearchField, Separator, type Key } from "@heroui/react";
-import { ListSelect, TaskList } from "iconoir-react";
+import { List, ListSelect, TaskList } from "iconoir-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -133,11 +133,8 @@ export function ColumnFilterPopover({
     // the previous one (still carrying ALL_KEY) right after. Ignore that echo for
     // a moment, or the master would flip straight back to «Снять выбор».
     const ignoreMasterEchoRef = useRef(false);
-    // True between «Выбрать найденные» and the next deliberate selection change:
-    // the user has just SET the selection, so the caption reads «Снять выбор»
-    // even though the kept set is only the matched window. It is a REF because
-    // the caption is derived during the same render; the value is reset by any
-    // other selection change.
+    // True while the selection IS what a search produced: the caption then reads
+    // «Снять выбор» (its own action), not «Выбрать найденные» again.
     const foundAppliedRef = useRef(false);
 
     facetSourceRef.current = facets;
@@ -360,23 +357,13 @@ export function ColumnFilterPopover({
 
     searchRef.current = search;
 
-    // The caption follows the SEARCH, not the selection — each caption is its own
-    // action («Выбрать найденные», «Выбрать все», «Снять выбор»), and the press
-    // applies it. Tying it to `allActive`/`foundAppliedRef` instead made it flip
-    // back to «Снять выбор» the moment anything touched the selection, so a press
-    // on «Выбрать найденные» could be read as «clear everything».
-    const masterState: "found" | "all" = search !== null ? "found" : "all";
-    const masterLabel = masterState === "found" ? "Выбрать найденные" : "Выбрать все";
-
     /**
-     * «Выбрать найденные»: keep exactly what the search matched, drop the rest.
-     * The list holds every match (the source narrowed, so `total` is the match
-     * count) — the remaining windows are loaded just below so the positive list
-     * is complete, not just the visible slice.
+     * ???????? ??????????: keep exactly what the search matched, drop the rest.
+     * The source narrowed the list, so `values` IS the found set.
      */
     const selectFound = () => {
         setKept(new Set(values));
-        // «Пустые» is not a value a search can match.
+        // ???????? is not a value a search can match.
         setIncludeNulls(false);
         setAllActive(false);
         allStillSelectedRef.current = false;
@@ -387,70 +374,76 @@ export function ColumnFilterPopover({
         }, 0);
     };
 
-    /**
-     * What the master row DOES, decided by the caption the user actually saw:
-     * - «Выбрать найденные» — keep exactly what the search matched;
-     * - «Выбрать все» — everything visible, «Пустые» included.
-     *
-     * It is an ACTION, not a checkbox. react-aria still reports the row through
-     * `onSelectionChange` (it is a list item), and that change arrives AFTER the
-     * caption has moved on — so `masterState` is stale there. The decision is
-     * therefore taken on the row's PRESS, before anything else moves, and the
-     * later selection echo is swallowed.
+    /*
+     * The master row is an ACTION whose caption says what a press will do:
+     * - «Снять выбор» — everything is kept, so the press takes everything away;
+     * - «Выбрать найденные» — a search narrows the list, so the press keeps
+     *   exactly what it found;
+     * - «Выбрать все» — something was taken away, so the press puts everything
+     *   back.
+     * The caption and the icon follow the SELECTION state, because that is what
+     * the user is looking at while they pick values.
      */
-    const decidingMasterAction = useRef(false);
-    const onMasterPress = () => {
-        if (masterState === "found") {
-            foundAppliedRef.current = true;
-            selectFound();
-        } else {
-            setKept(new Set(values));
-            setIncludeNulls(true);
-            allStillSelectedRef.current = true;
-            foundAppliedRef.current = false;
-        }
-        window.setTimeout(() => {
-            ignoreMasterEchoRef.current = false;
-            decidingMasterAction.current = false;
-        }, 0);
-    };
+    // «Выбрать найденные» answers a search that also EXCLUDED something — with
+    // everything still kept its press would change nothing, so the caption stays
+    // «Снять выбор» (which is a real action).
+    const somethingExcluded =
+        kept.size !== values.length || (hasNulls && !includeNulls) || !allActive;
+    const masterState: "clear" | "found" | "all" =
+        allActive || foundAppliedRef.current
+            ? "clear"
+            : search !== null && somethingExcluded
+              ? "found"
+              : "all";
+    const masterLabel =
+        masterState === "clear"
+            ? "Снять выбор"
+            : masterState === "found"
+              ? "Выбрать найденные"
+              : "Выбрать все";
 
     const onSelectionChange = (keys: Key[]) => {
         const next = new Set(keys);
         const hadAll = selectedKeys.includes(ALL_KEY);
         const hasAll = next.has(ALL_KEY);
         if (ignoreMasterEchoRef.current) return;
+        // In the «Выбрать найденные» state the master does NOT mean "select
+        // everything" — it means "select what I found". Checked BEFORE the
+        // generic "ends the found state" reset below: that reset cleared the
+        // flag first, so the caption fell back to «Выбрать все» and the press
+        // was read as a plain master toggle — which, since the found values were
+        // already kept, UNCHECKED them and sent an empty filter to the grid.
+        if (hasAll && !hadAll && masterState === "found") {
+            selectFound();
+            return;
+        }
+        // The OTHER way round: the state is what it is, and the press toggles
+        // it. React-aria does not reliably hand back the master's key (`__all__`)
+        // — a press on the row arrives as "the visible values are selected, the
+        // master is not", which is exactly what «Выбрать найденные» leaves
+        // behind. Reading that as "an individual value was checked" made the
+        // first press on «Снять выбор» a no-op: it re-adopted the found set and
+        // only the SECOND press cleared anything.
+        if ((hasAll && !hadAll) || (masterState === "clear" && !hasAll)) {
+            // «Снять выбор» clears, «Выбрать все» restores; after a search that
+            // left nothing kept, the press is «Выбрать найденные» again.
+            const turnOn = masterState === "all";
+            setAllActive(turnOn);
+            setKept(turnOn ? new Set(values) : new Set());
+            setIncludeNulls(turnOn);
+            allStillSelectedRef.current = turnOn;
+            foundAppliedRef.current = false;
+            return;
+        }
         // Any deliberate selection change ends the "just applied the found set"
         // state — otherwise its caption («Снять выбор») would stick even after
         // the user unchecks a value.
         foundAppliedRef.current = false;
-        // The master's OWN toggle. Its key disappears on every individual
+        // The master's own toggle. Its key disappears on every individual
         // uncheck too (react-aria drops it from the selection), so the removal
-        // counts as a master toggle only when the whole selection became empty —
-        // that is the case where the user really switched it off.
-        // The master's own toggle has two shapes:
-        //  - the key comes BACK → "select everything";
-        //  - the key is gone AND nothing is left → "clear everything".
-        // Everything in between is an individual value being unchecked: react-aria
-        // drops ALL_KEY from the selection then, which used to look like a
-        // master toggle and re-selected the whole column.
-        // Unchecking the master removes ALL_KEY, and react-aria may keep the
-        // individual keys in the same event — but the user asked for "nothing".
-        // The distinction from an individual uncheck: there ALL_KEY stays.
-        const switchedAllOff = hadAll && !hasAll;
-        if ((hasAll && !hadAll) || switchedAllOff) {
-            // The master toggle: select everything (the values plus «Пустые») or
-            // clear every option, «Пустые» included — unchecking «Выбрать все»
-            // must leave nothing selected.
-            setAllActive(hasAll);
-            setKept(hasAll ? new Set(values) : new Set());
-            setIncludeNulls(hasAll);
-            // Re-checking the master re-arms the tail top-up: the windows that
-            // load later join the kept set again.
-            allStillSelectedRef.current = hasAll;
-            return;
-        }
-        foundAppliedRef.current = false;
+        // counts as a master toggle only when the key comes back or the whole
+        // selection became empty. The distinction from an individual uncheck is
+        // that there ALL_KEY stays.
         const nextKept = new Set<string>();
         for (const key of next) {
             const text = String(key);
@@ -661,21 +654,14 @@ export function ColumnFilterPopover({
                         renderEmptyState={() => <EmptyState>Нет значений</EmptyState>}
                         onScroll={onListScroll}
                     >
-                        {/* The master is an ACTION, not a checkbox — so it is
-                            `textValue`-only with NO selection toggle. With an
-                            `id` react-aria treated it as a selectable row: a
-                            mouse press on it FOCUSED the listbox, the focus
-                            change re-committed the selection and rebuilt the
-                            rows, and the press landed on a node that was already
-                            replaced — the click reported no change. Its own
-                            handler below is the only thing that acts. */}
-                        <ListBox.Item
-                            key={ALL_KEY}
-                            id={ALL_KEY}
-                            textValue={masterLabel}
-                            onPointerDown={onMasterPress}
-                        >
-                            {masterState === "found" ? (
+                        {/* The master is an ACTION: its caption names the press,
+                            and the icon follows the caption — «Снять выбор» a
+                            list, «Выбрать все» a task list, «Выбрать найденные»
+                            a list with a selection. */}
+                        <ListBox.Item key={ALL_KEY} id={ALL_KEY} textValue={masterLabel}>
+                            {masterState === "clear" ? (
+                                <List className="column-filter__master-icon" aria-hidden="true" />
+                            ) : masterState === "found" ? (
                                 <ListSelect
                                     className="column-filter__master-icon"
                                     aria-hidden="true"
