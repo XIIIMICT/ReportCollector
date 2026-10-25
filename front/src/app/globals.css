@@ -3210,10 +3210,10 @@ body {
     display: flex;
     flex: none;
     flex-direction: column;
-    /* The gap above the actions (under the rule); below them NOTHING: a negative
-       margin cancels the popover's own bottom padding for this row only, so the
-       buttons end flush with the panel's edge. */
-    gap: 0.5rem;
+    /* Tight gap above the actions (under the rule); below them NOTHING — the
+       negative margin cancels the popover's own bottom padding for this row, so
+       the buttons end flush with the panel's edge. */
+    gap: 0.25rem;
     margin-block-end: -0.5rem;
 }
 

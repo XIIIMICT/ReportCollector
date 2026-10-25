@@ -463,6 +463,24 @@ export function ColumnFilterPopover({
         dismiss();
     };
 
+    // react-aria sizes the popover from the anchor; the commit group is wider
+    // than that once its labels expand, and it re-measures on hover — which made
+    // the panel jump between «По умолчанию» and «Отменить». The group's own
+    // reserved width becomes the panel's floor, so it never moves again.
+    const [minWidth, setMinWidth] = useState<number>();
+    useEffect(() => {
+        if (typeof document === "undefined" || minWidth !== undefined) return;
+        const frame = window.requestAnimationFrame(() => {
+            const group = document.querySelector<HTMLElement>(
+                ".column-filter__popover .smart-select__footer .button-group",
+            );
+            if (!group) return;
+            const width = group.getBoundingClientRect().width;
+            if (width > 0) setMinWidth(Math.ceil(width));
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [minWidth]);
+
     const content = (
         <SmartSelect
             multiple
@@ -495,6 +513,7 @@ export function ColumnFilterPopover({
             // search field are fixed rows inside it).
             anchor={{ left: anchor.left, top: anchor.top, width: anchor.width }}
             popoverClassName="column-filter__popover"
+            {...(minWidth !== undefined && { popoverMinWidth: minWidth })}
             searchMode="custom"
             renderListbox={() => (
                 <>

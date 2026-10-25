@@ -158,6 +158,12 @@ export type SmartSelectProps = {
     anchor?: { left: number; top: number; width: number };
     /** Extra class on the popover. */
     popoverClassName?: string;
+    /**
+     * A minimum width for the popover, in px. react-aria sizes it from the
+     * anchor; a caller whose footer re-measures itself (the column filter's
+     * commit group) needs a floor so the panel does not jump.
+     */
+    popoverMinWidth?: number;
     /** Open the popover on mount (the column filter's anchor popover). */
     defaultOpen?: boolean;
     /**
@@ -237,6 +243,7 @@ export function SmartSelect({
     searchMode = "builtin",
     anchor,
     popoverClassName,
+    popoverMinWidth,
     defaultOpen = false,
     isOpen: controlledOpen,
     popoverRef: externalPopoverRef,
@@ -707,6 +714,9 @@ export function SmartSelect({
                         className={["smart-select-popover", popoverClassName]
                             .filter(Boolean)
                             .join(" ")}
+                        {...(popoverMinWidth !== undefined && {
+                            style: { minWidth: popoverMinWidth },
+                        })}
                     >
                         {renderListbox ? (
                             searchMode === "custom" ? (
