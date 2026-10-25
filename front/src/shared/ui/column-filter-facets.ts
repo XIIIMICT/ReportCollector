@@ -2,8 +2,9 @@
  * The column filter's data contract, shared by EVERY table in the app.
  *
  * The popover (`column-filter-popover.tsx`) only ever asks its source for «the
- * distinct values of column X, window [offset, limit)» — it never learns where
- * they come from. Two kinds of source implement the contract:
+ * distinct values of column X, window [offset, limit)» — and, when the search
+ * narrows the list, «only those matching this query/range» — it never learns
+ * where they come from. Two kinds of source implement the contract:
  *
  * - `serverFacetSource` — the renovation plan. Hundreds of thousands of
  *   distinct values live in PostgreSQL, so the list is paged over the wire
@@ -82,10 +83,30 @@ export type FacetWindow = {
     rowCount?: number | undefined;
 };
 
+/**
+ * What a source is asked for: a window of the column's distinct values, and —
+ * when the search narrows the list — only the values that SEARCH matches.
+ *
+ * `search` is part of the REQUEST, not something the popover applies to the
+ * loaded slice, so a narrowed list can be paged properly: a text query over a
+ * column of 248k distinct values would otherwise only ever search the first
+ * window. Two shapes, decided by the column's type:
+ * - `text` — a case-insensitive substring of the display value;
+ * - `range` — an inclusive min/max over the NUMERIC value behind the display,
+ *   either bound optional. A source that cannot see numbers simply returns an
+ *   empty window.
+ */
+export type FacetSearch =
+    | { kind: "text"; query: string }
+    | { kind: "range"; min: number | null; max: number | null };
+
+/** An inclusive numeric window, either bound optional. */
+export type FacetRange = { min: number | null; max: number | null };
+
 /** Where a column filter gets its options from. */
 export type FacetSource = (
     column: string,
-    window: { offset: number; limit: number },
+    window: { offset: number; limit: number; search?: FacetSearch | null },
 ) => Promise<FacetWindow>;
 
 /** The popover's own page size — matches the backend default. */
@@ -107,13 +128,28 @@ export function serverFacetSource(
         rowCount?: number | undefined;
     }>,
 ): FacetSource {
-    return async (column, { offset, limit }) => {
+    return async (column, { offset, limit, search }) => {
+        // `GET /plan/facets` cannot narrow yet, and guessing would silently
+        // filter the first window only. A RANGE search therefore reports «no
+        // match» until the endpoint learns it — an honest empty list instead of
+        // a wrong one. A text query is narrowed here, over the whole loaded
+        // window, which is exact as long as the caller pages through it.
+        if (search?.kind === "range") {
+            return { values: [], total: 0, hasNulls: false, rowCount: 0 };
+        }
         const facets = await load(column, { offset, limit });
+        const values = facets.values
+            .filter((entry): entry is { value: string; count: number } => entry.value !== null)
+            .map((entry) => ({ value: entry.value, count: entry.count }));
+        const needle =
+            search?.kind === "text" ? search.query.trim().toLocaleLowerCase("ru-RU") : "";
+        const matched =
+            needle === ""
+                ? values
+                : values.filter((entry) => entry.value.toLocaleLowerCase("ru-RU").includes(needle));
         return {
-            values: facets.values
-                .filter((entry): entry is { value: string; count: number } => entry.value !== null)
-                .map((entry) => ({ value: entry.value, count: entry.count })),
-            total: facets.total,
+            values: matched,
+            total: needle === "" ? facets.total : matched.length,
             hasNulls: facets.hasNulls,
             nullCount: facets.nullCount,
             rowCount: facets.rowCount,
@@ -287,9 +323,48 @@ export function facetWindow(facets: RowFacets, offset: number, limit: number): F
 }
 
 /**
+ * Parse a value the facet list carries as a NUMBER. Display strings come from
+ * the cells' own formatter, so they may carry thousands spaces and either a
+ * decimal point or a comma. `null` for anything that is not a finite number —
+ * callers then treat the value as unmatched rather than silently keeping it.
+ *
+ * Lives here (not in the popover) because BOTH sides parse: `searchRowFacets`
+ * and any source that filters by range.
+ */
+export function parseFacetNumber(display: string): number | null {
+    const compact = display.replace(/[\s\u00a0\u202f]/g, "").replace(",", ".");
+    if (compact === "") return null;
+    const parsed = Number(compact);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Keep only the buckets a search matches. Runs on the WHOLE computed set, so
+ * «Выбрать найденные» and paging see every match rather than the loaded slice.
+ */
+export function searchRowFacets(
+    facets: RowFacets,
+    search: FacetSearch | null | undefined,
+): RowFacets {
+    if (!search) return facets;
+    const needle = search.kind === "text" ? search.query.trim().toLocaleLowerCase("ru-RU") : "";
+    if (search.kind === "text" && needle === "") return facets;
+    const values = facets.values.filter((value) => {
+        if (search.kind === "text") return value.toLocaleLowerCase("ru-RU").includes(needle);
+        const numeric = parseFacetNumber(value);
+        if (numeric === null) return false;
+        if (search.min !== null && numeric < search.min) return false;
+        if (search.max !== null && numeric > search.max) return false;
+        return true;
+    });
+    return { ...facets, values };
+}
+
+/**
  * A `FacetSource` over rows already in memory. It keeps the paged contract —
  * a big dictionary pages instead of rendering thousands of options at once —
- * and computes the buckets ONCE, so paging itself is free.
+ * and computes the buckets ONCE, so paging itself is free. A search narrows the
+ * computed set before the window is cut, so every match stays reachable.
  */
 export function rowFacetSource(
     rows: readonly Record<string, unknown>[],
@@ -297,5 +372,6 @@ export function rowFacetSource(
     order: FacetOrder = "text",
 ): FacetSource {
     const facets = computeRowFacets(rows, text, order);
-    return async (_column, { offset, limit }) => facetWindow(facets, offset, limit);
+    return async (_column, { offset, limit, search }) =>
+        facetWindow(searchRowFacets(facets, search), offset, limit);
 }

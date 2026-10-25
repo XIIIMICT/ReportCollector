@@ -6,7 +6,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { usePopoverDismiss } from "@/shared/hooks/use-popover-dismiss";
-import { FACET_PAGE, type ColumnFilter, type FacetSource } from "@/shared/ui/column-filter-facets";
+import {
+    FACET_PAGE,
+    type ColumnFilter,
+    type FacetOrder,
+    type FacetRange,
+    type FacetSearch,
+    type FacetSource,
+} from "@/shared/ui/column-filter-facets";
+import { ColumnFilterRange, EMPTY_RANGE, isRangeEmpty } from "@/shared/ui/column-filter-range";
 import { SmartSelect } from "@/shared/ui/smart-select";
 
 /** The contract lives with the sources; re-exported for the popover's callers. */
@@ -53,6 +61,7 @@ export function ColumnFilterPopover({
     initial,
     defaultFilter = null,
     showUniqueCount = true,
+    order = "text",
     onApply,
     onClose,
 }: {
@@ -73,6 +82,12 @@ export function ColumnFilterPopover({
      * repeat the row count.
      */
     showUniqueCount?: boolean;
+    /**
+     * How the column is searched. `number` swaps the text search for the MIN–MAX
+     * pair: for numbers a substring query matches 312 and 1200 for «12», which
+     * is not what anyone means. Defaults to `text`.
+     */
+    order?: FacetOrder;
     onApply: (filter: ColumnFilter | null) => void;
     onClose: () => void;
 }) {
@@ -127,13 +142,57 @@ export function ColumnFilterPopover({
 
     facetSourceRef.current = facets;
 
+    /**
+     * The master item is an ACTION with three states:
+     * - `clear` — «Снять выбор» while everything is kept;
+     * - `found` — «Выбрать найденные» while a search narrows the list and
+     *   something is excluded: it selects only the values the search matched;
+     * - `all` — «Выбрать все» once something is excluded and no search is active.
+     *
+     * Clearing the search keeps the selection as it is; only the caption moves
+     * on (a kept-everything state stays `clear`, a partial one becomes `all`).
+     *
+     * The search goes to the SOURCE, not to the loaded slice: a client table
+     * filters its whole computed set, and a paged source narrows inside its
+     * query — so «найденные» means every match, not the first page of them.
+     * A TEXT column gets a substring search; a NUMBER column gets the MIN–MAX
+     * pair, because «12» as a substring also matches 312 and 1200.
+     */
+    const [query, setQuery] = useState("");
+    const [range, setRange] = useState<FacetRange>(EMPTY_RANGE);
+    const rangeSearch = order === "number" && !isRangeEmpty(range) ? range : null;
+    const search: FacetSearch | null =
+        order === "number"
+            ? rangeSearch
+                ? { kind: "range", min: rangeSearch.min, max: rangeSearch.max }
+                : null
+            : query.trim() === ""
+              ? null
+              : { kind: "text", query };
+    // Identity of the search, so the reload effect fires on a real change only.
+    const searchKey =
+        search === null
+            ? ""
+            : search.kind === "text"
+              ? `t:${search.query}`
+              : `r:${search.min ?? ""}:${search.max ?? ""}`;
+
+    // The live search travels to the source with every request. It is read
+    // through a ref: the loaders are memoized without it, and a stale closure
+    // would page the PREVIOUS query after the user typed.
+    const searchRef = useRef<FacetSearch | null>(null);
+
     useEffect(() => {
         let cancelled = false;
         loadingRef.current = true;
         exhaustedRef.current = false;
         loadedCountRef.current = 0;
+        // A new search REPLACES the list: the old window's values are not part
+        // of the narrowed result and would make the count and the paging lie.
+        setValues([]);
+        valuesRef.current = [];
         void facetSourceRef
-            .current(column, { offset: 0, limit: FACET_PAGE })
+            .current(column, { offset: 0, limit: FACET_PAGE, search: searchRef.current })
             .then((facets) => {
                 if (cancelled) return;
                 const loaded = facets.values.map((entry) => entry.value);
@@ -176,8 +235,8 @@ export function ColumnFilterPopover({
             loadingRef.current = false;
         };
         // Not `facetSource`: a rebuilt client source must not restart the list
-        // (see `facetSourceRef`) — only a different column resets it.
-    }, [column]);
+        // (see `facetSourceRef`) — only a different column or search does.
+    }, [column, searchKey]);
 
     /**
      * Append the next window of distinct values.
@@ -192,6 +251,7 @@ export function ColumnFilterPopover({
             const facets = await facetSourceRef.current(column, {
                 offset: loadedCountRef.current,
                 limit: FACET_PAGE,
+                search: searchRef.current,
             });
             const loaded = facets.values.map((entry) => entry.value);
             setCounts((previous) => {
@@ -279,34 +339,10 @@ export function ColumnFilterPopover({
         return keys;
     }, [allActive, hasNulls, includeNulls, kept]);
 
-    /**
-     * The master item is an ACTION with three states:
-     * - `clear` — «Снять выбор» while everything is kept;
-     * - `found` — «Выбрать найденные» while a query narrows the list and
-     *   something is excluded: it selects only the values the query matched —
-     *   the LOADED ones, because the rest are not fetched yet;
-     * - `all` — «Выбрать все» once something is excluded and no query is typed.
-     *
-     * Clearing the query keeps the selection as it is; only the caption moves
-     * on (a kept-everything state stays `clear`, a partial one becomes `all`).
-     */
-    // The query narrows the LOADED window only (a column can hold hundreds of
-    // thousands of values, fetched in pages) — the caption therefore says
-    // «найденные», never «все».
-    const [query, setQuery] = useState("");
-    const normalizedQuery = query.trim().toLocaleLowerCase("ru-RU");
-    const filteredValues = useMemo(
-        () =>
-            normalizedQuery === ""
-                ? values
-                : values.filter((value) =>
-                      value.toLocaleLowerCase("ru-RU").includes(normalizedQuery),
-                  ),
-        [normalizedQuery, values],
-    );
+    searchRef.current = search;
 
     const masterState: "clear" | "found" | "all" =
-        allActive || foundAppliedRef.current ? "clear" : normalizedQuery !== "" ? "found" : "all";
+        allActive || foundAppliedRef.current ? "clear" : search !== null ? "found" : "all";
     const masterLabel =
         masterState === "clear"
             ? "Снять выбор"
@@ -315,13 +351,14 @@ export function ColumnFilterPopover({
               : "Выбрать все";
 
     /**
-     * «Выбрать найденные»: keep exactly what the query matched, drop the rest.
-     * The unmatched tail is not loaded, so this is a POSITIVE list of the
-     * matched values — no more and no less than «найденные» shows.
+     * «Выбрать найденные»: keep exactly what the search matched, drop the rest.
+     * The list holds every match (the source narrowed, so `total` is the match
+     * count) — the remaining windows are loaded just below so the positive list
+     * is complete, not just the visible slice.
      */
     const selectFound = () => {
-        setKept(new Set(filteredValues));
-        // «Пустые» is not a value a query can match.
+        setKept(new Set(values));
+        // «Пустые» is not a value a search can match.
         setIncludeNulls(false);
         setAllActive(false);
         allStillSelectedRef.current = false;
@@ -533,20 +570,30 @@ export function ColumnFilterPopover({
             searchMode="custom"
             renderListbox={() => (
                 <>
-                    <SearchField
-                        autoFocus
-                        name="column-filter-search"
-                        aria-label={`Поиск: ${columnLabel}`}
-                        variant="secondary"
-                        value={query}
-                        onChange={setQuery}
-                    >
-                        <SearchField.Group>
-                            <SearchField.SearchIcon />
-                            <SearchField.Input placeholder="Поиск..." />
-                            <SearchField.ClearButton />
-                        </SearchField.Group>
-                    </SearchField>
+                    <div className="column-filter__search">
+                        {order === "number" ? (
+                            <ColumnFilterRange
+                                columnLabel={columnLabel}
+                                value={range}
+                                onChange={setRange}
+                            />
+                        ) : (
+                            <SearchField
+                                autoFocus
+                                name="column-filter-search"
+                                aria-label={`Поиск: ${columnLabel}`}
+                                variant="secondary"
+                                value={query}
+                                onChange={setQuery}
+                            >
+                                <SearchField.Group>
+                                    <SearchField.SearchIcon />
+                                    <SearchField.Input placeholder="Поиск..." />
+                                    <SearchField.ClearButton />
+                                </SearchField.Group>
+                            </SearchField>
+                        )}
+                    </div>
                     <ListBox
                         ref={listRef}
                         className="column-filter__list"
@@ -586,7 +633,7 @@ export function ColumnFilterPopover({
                                 <ListBox.ItemIndicator />
                             </ListBox.Item>
                         ) : null}
-                        {filteredValues.map((value) => (
+                        {values.map((value) => (
                             <ListBox.Item key={value} id={value} textValue={value}>
                                 <span>{value}</span>
                                 {counts.get(value) !== undefined ? (

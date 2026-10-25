@@ -282,6 +282,7 @@ export function RenovationWorkspace({
     const [columnFilterTarget, setColumnFilterTarget] = useState<{
         column: string;
         label: string;
+        order: "text" | "number";
         anchor: DOMRect;
     } | null>(null);
     // The row-number («№») range filter popover anchor (the corner's rect).
@@ -1855,16 +1856,23 @@ export function RenovationWorkspace({
                                         rowPatches={rowPatches}
                                         scrollToPosition={scrollToPosition}
                                         activeFilterColumns={activeFilterColumns}
-                                        onOpenColumnFilter={(column, anchor) =>
+                                        onOpenColumnFilter={(column, anchor) => {
+                                            const field = meta.fields.find(
+                                                (candidate) => candidate.dbName === column,
+                                            );
                                             setColumnFilterTarget({
                                                 column,
-                                                label:
-                                                    meta.fields.find(
-                                                        (field) => field.dbName === column,
-                                                    )?.label ?? column,
+                                                label: field?.label ?? column,
+                                                // Numeric fields search by MIN–MAX,
+                                                // not by a text query.
+                                                order:
+                                                    field?.cellType === "number" ||
+                                                    field?.isCalculated
+                                                        ? "number"
+                                                        : "text",
                                                 anchor,
-                                            })
-                                        }
+                                            });
+                                        }}
                                         onOpenRowFilter={setRowFilterTarget}
                                     />
                                 </GridErrorBoundary>
@@ -1966,6 +1974,7 @@ export function RenovationWorkspace({
                     column={columnFilterTarget.column}
                     columnLabel={columnFilterTarget.label}
                     anchor={columnFilterTarget.anchor}
+                    order={columnFilterTarget.order}
                     {...(viewPlanId && { planId: viewPlanId })}
                     asset={assetFilter}
                     initial={columnFilters[columnFilterTarget.column] ?? null}

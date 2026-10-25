@@ -32,6 +32,7 @@ import {
     computeRowFacets,
     facetWindow,
     rowMatchesFilters,
+    searchRowFacets,
     withFilterMarkers,
     type ColumnFilter,
 } from "@/shared/ui/column-filter-facets";
@@ -685,7 +686,11 @@ function RawMaterialsGridInner(
                 (row) => facetText(column, row),
                 facetOrder(column),
             );
-            return async (_column, { offset, limit }) => facetWindow(facets, offset, limit);
+            // The search narrows the WHOLE computed set before the window is cut
+            // — the same rule `rowFacetSource` applies, kept here because this
+            // source is already narrowed by the other columns' filters.
+            return async (_column, { offset, limit, search }) =>
+                facetWindow(searchRowFacets(facets, search), offset, limit);
         },
         [activeFilters, facetOrder, facetText, realRows],
     );
@@ -2640,6 +2645,7 @@ function RawMaterialsGridInner(
                     columnLabel={filterTarget.label}
                     anchor={filterTarget.anchor}
                     facets={facetSourceFor(filterTarget.column)}
+                    order={facetOrder(filterTarget.column)}
                     initial={columnFilters?.[filterTarget.column] ?? null}
                     // «По умолчанию» is the same state «Сбросить все фильтры
                     // и сортировки» restores: no constraint on this column.

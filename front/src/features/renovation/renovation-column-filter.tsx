@@ -1,7 +1,11 @@
 "use client";
 
 import { getRenovationPlanFacets } from "@/shared/api/renovation";
-import { serverFacetSource, type ColumnFilter } from "@/shared/ui/column-filter-facets";
+import {
+    serverFacetSource,
+    type ColumnFilter,
+    type FacetOrder,
+} from "@/shared/ui/column-filter-facets";
 import { ColumnFilterPopover } from "@/shared/ui/column-filter-popover";
 
 /**
@@ -34,6 +38,7 @@ export function RenovationColumnFilterPopover({
     anchor,
     planId,
     asset,
+    order = "text",
     initial,
     defaultFilter,
     onApply,
@@ -47,6 +52,8 @@ export function RenovationColumnFilterPopover({
     planId?: string | undefined;
     /** The «Предприятие» panel filter the facets are counted within. */
     asset?: string | null | undefined;
+    /** How the column is searched: `number` gives the MIN–MAX pair. */
+    order?: FacetOrder;
     initial: ColumnFilter | null;
     defaultFilter?: ColumnFilter | null;
     onApply: (filter: ColumnFilter | null) => void;
@@ -66,6 +73,7 @@ export function RenovationColumnFilterPopover({
             columnLabel={columnLabel}
             anchor={anchor}
             facets={facets}
+            order={order}
             showUniqueCount={column !== RENOVATION_ID_COLUMN}
             initial={initial}
             defaultFilter={defaultFilter ?? null}

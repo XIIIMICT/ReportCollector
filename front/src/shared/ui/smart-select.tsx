@@ -206,7 +206,11 @@ const HOVER_CLOSE_DELAY_MS = 200;
  * the panel sideways whenever it is wider than the cell. RTL would mirror it.
  */
 const ANCHOR_PLACEMENT = "bottom end" as const;
-const ANCHOR_OFFSET = 2;
+/* The anchor is a ZERO-HEIGHT box pinned at the header cell's top edge, so the
+   popover's top sits flush against that line unless the offset lifts it. The
+   plan's panel was the accepted look: it opens a little above the row it
+   belongs to. One constant, so every anchored popover agrees. */
+const ANCHOR_OFFSET = -20;
 /** Sentinels for the pinned rows (never real option ids). */
 const NULL_OPTION_ID = "__null_option__";
 const ALL_OPTION_ID = "__all_option__";
