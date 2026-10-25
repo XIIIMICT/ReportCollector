@@ -943,9 +943,14 @@ export function markFilterableColumns(
                     props: Record<string, unknown>,
                     children?: unknown[],
                 ) => VNode;
-                return hyper("span", { class: "report-header__title", "data-prop": prop }, [
-                    cell?.name ?? label,
-                ]);
+                // `data-prop` is the hooks' column lookup; `data-header` is the
+                // one CSS can match on (an attribute selector needs a STABLE
+                // name, and `[data-prop="…"]` would need the value).
+                return hyper(
+                    "span",
+                    { class: "report-header__title", "data-prop": prop, "data-header": "true" },
+                    [cell?.name ?? label],
+                );
             };
         }
     }

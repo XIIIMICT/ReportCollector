@@ -3087,13 +3087,21 @@ body {
     transition: padding-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* The label steps aside while its funnel is open.
-   Keyed on the label's own `data-hovered` marker (the grid sets it from the
-   hovered column) plus an active filter. `:hover` on the cell cannot work: the
-   funnel is an overlay outside the cell, so the pointer leaves the cell the
-   instant it reaches the button, and the text froze halfway.
+/* The label steps aside exactly while its funnel TAKES SPACE — that is, while the
+   button is rendered. The button lives in the OVERLAY (a sibling of the grid), so
+   the label cannot see it and CSS cannot correlate the two; the grid publishes
+   the visible columns as `data-funnel-<prop>` on itself, and the label matches
+   its own `data-prop` in that attribute.
+   One rule per column: an attribute selector cannot test «my `data-prop` value
+   appears in the grid's list», so the pairs are enumerated where the columns are
+   declared (`SELECTOR` below) and mirrored by `syncFunnelShiftMarkers`, which
+   applies the match at runtime.
+   A column with an APPLIED filter keeps its funnel open at all times, so the
+   shift follows the BUTTON, not the pointer: it used to key on hover alone, and
+   the text slid back under a funnel that was still there.
    NOT `:focus-within`: the filter popover keeps focus in the cell after it
    closes, and the text stayed shifted with an invisible funnel beside it. */
+.report-header__title[data-funnel-open="true"],
 .report-header__title[data-hovered="true"],
 .report-header__title:has(.header-filter-button.is-active) {
     padding-right: 12px;

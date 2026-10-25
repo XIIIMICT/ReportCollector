@@ -1834,6 +1834,23 @@ function RawMaterialsGridInner(
     // onto its funnel: a collapsed button is zero-width, so it can never receive
     // the hover that would open it.
     const [hoveredHeaderProp, setHoveredHeaderProp] = useState<string | null>(null);
+    // The columns whose funnel is VISIBLE right now (hovered, or pinned by an
+    // applied filter). Published to the DOM as `data-funnel-"<prop>"` on the
+    // grid: the button lives in the overlay, so a header label cannot see it, and
+    // CSS cannot correlate the two otherwise.
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        const open = new Set(Object.keys(columnFilters ?? {}));
+        if (hoveredHeaderProp !== null) open.add(hoveredHeaderProp);
+        for (const label of grid.querySelectorAll<HTMLElement>(".report-header__title")) {
+            const prop = label.getAttribute("data-prop");
+            // The label's own marker: the funnel is an overlay sibling, so this
+            // is the only thing CSS can read from the header side.
+            if (prop !== null && open.has(prop)) label.setAttribute("data-funnel-open", "true");
+            else label.removeAttribute("data-funnel-open");
+        }
+    }, [columnFilters, hoveredHeaderProp, funnels]);
     useEffect(() => {
         const grid = gridRef.current;
         if (!grid || !filteringEnabled) return;
