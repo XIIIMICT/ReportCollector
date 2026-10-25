@@ -122,6 +122,17 @@ jobs:
           pattern: backend-reports-*
           path: back/store-reports
       - run: uv sync --locked
+      - name: Require a report from EVERY store
+        # `upload-artifact` runs with `if: always()`, so a failed matrix leg still
+        # uploads a partial report. Combining whatever arrived would then report a
+        # healthy percentage for half the codebase — the number must not lie.
+        run: |
+          for store in memory valkey; do
+            test -f "store-reports/backend-reports-$store/coverage-data" || {
+              echo "::error::missing coverage for the $store store — the matrix leg failed or uploaded nothing"
+              exit 1
+            }
+          done
       - name: Require coverage across both transport implementations
         run: |
           uv run --no-sync coverage combine store-reports/backend-reports-memory/coverage-data store-reports/backend-reports-valkey/coverage-data
@@ -154,13 +165,35 @@ jobs:
       - run: bun run typecheck
       - run: bun run lint:check
       - run: bun run format:check
-      - run: bun test --coverage --coverage-reporter=lcov
+      - name: Unit tests with a coverage floor
+        # `bun test` has no --coverage-threshold; `test:coverage` runs the LCOV
+        # report through scripts/coverage-gate.ts, which enforces the floor.
+        run: bun run test:coverage
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: frontend-coverage
           path: front/coverage
           retention-days: 7
+
+  dependencies:
+    name: Dependency review
+    # CodeQL reviews the code we write; nothing reviewed what we PULL IN.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v4
+        with:
+          # Block a PR that introduces a known-vulnerable or badly licensed package.
+          fail-on-severity: moderate
+          # GPL/AGPL in a dependency is a legal problem for this product.
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0, LGPL-3.0
+          comment-summary-in-pr: on-failure
 
   production:
     name: Production images and browser smoke
