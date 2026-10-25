@@ -3102,6 +3102,10 @@ body {
 /* The reveal: a funnel opens while its header cell is hovered, or while its
    column has an active filter. The base rule collapses it to zero width –
    without this block the buttons are never visible at all.
+   The plan keys on its own header cells (the funnel is a child there). The
+   RevoGrid tables key on the grid's `data-cell-hover` marker instead: their
+   funnel is an OVERLAY SIBLING of `revo-grid`, so it never inherits the cell's
+   `:hover` — see the traps list in `docs/GRID.md`.
    NOT `:focus-within`: the filter popover keeps focus inside the cell after it
    closes, which would leave the funnel open until another column was opened. */
 .renovation-grid__header-cell:hover .header-filter-button,
@@ -3109,16 +3113,10 @@ body {
 .renovation-grid__number-cell:hover .header-filter-button,
 .renovation-grid__corner:hover .header-filter-button,
 .renovation-grid__corner:has(.header-filter-button.is-active) .header-filter-button,
-.raw-materials-grid revogr-header .rgHeaderCell:hover .header-filter-button,
-.rgHeaderCell:hover .header-filter-button,
-.report-header__title:hover .header-filter-button,
+.header-filter-button[data-cell-hover="true"],
 .header-filter-button.is-active {
     width: 24px;
     opacity: 1;
-}
-
-.header-filter-button.is-active {
-    color: var(--accent);
 }
 
 .header-filter-button.is-active {
@@ -3129,12 +3127,10 @@ body {
     width: 11px;
     height: 11px;
     flex: 0 0 auto;
-}
-
-/* The grid's header renders the icon as an EMPTY `<svg>` (the plan uses the
-   iconoir component, which brings its own path). The shared glyph is painted
-   onto it as a mask, so both headers show the same funnel. */
-.report-header__title .header-filter-button__icon {
+    /* ONE icon source for every header funnel: the iconoir glyph, painted as a
+       mask. The plan used to render the React component while the RevoGrid
+       tables rendered an empty `<span>` here — two sources for one glyph that
+       would drift apart silently the next time the icon changed. */
     background-color: currentColor;
     mask: var(--filter-icon) center / contain no-repeat;
 }

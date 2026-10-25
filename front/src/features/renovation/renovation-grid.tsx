@@ -15,7 +15,6 @@ import {
     type VNode,
 } from "@revolist/react-datagrid";
 import { InfinityScrollPlugin } from "@revolist/rv-pro-trial";
-import { Filter } from "iconoir-react";
 import {
     forwardRef,
     Fragment,
@@ -2747,7 +2746,7 @@ function RenovationGridInner(
                             );
                         }}
                     >
-                        <Filter className="header-filter-button__icon" aria-hidden="true" />
+                        <span className="header-filter-button__icon" aria-hidden="true" />
                     </button>
                 ) : null}
             </div>
@@ -2812,7 +2811,7 @@ function RenovationGridInner(
                                 {/* The same funnel as every other filter
                                     affordance in the app (iconoir), so the
                                     header button reads as a filter. */}
-                                <Filter className="header-filter-button__icon" aria-hidden="true" />
+                                <span className="header-filter-button__icon" aria-hidden="true" />
                             </button>
                         ) : null}
                     </div>
@@ -2858,7 +2857,7 @@ function RenovationGridInner(
                                     );
                                 }}
                             >
-                                <Filter className="header-filter-button__icon" aria-hidden="true" />
+                                <span className="header-filter-button__icon" aria-hidden="true" />
                             </button>
                         ) : null}
                     </div>
