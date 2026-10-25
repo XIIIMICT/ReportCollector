@@ -1643,7 +1643,7 @@ function RawMaterialsGridInner(
                 document.body.style.cursor = "ew-resize";
             });
         };
-        const onPointerMove = (event: PointerEvent) => {
+        const onPointerMove = (event: MouseEvent) => {
             if (!drag) return;
             const next = Math.round(
                 Math.min(
@@ -1814,7 +1814,7 @@ function RawMaterialsGridInner(
     useEffect(() => {
         const grid = gridRef.current;
         if (!grid || !filteringEnabled) return;
-        const onPointerMove = (event: PointerEvent) => {
+        const onPointerMove = (event: MouseEvent) => {
             const target = event.target as Element | null;
             // Moving onto OUR overlay button must not close it: the button is
             // the thing the user is aiming at, so its own column stays hovered.
@@ -1828,10 +1828,15 @@ function RawMaterialsGridInner(
             setHoveredHeaderProp((previous) => (previous === prop ? previous : prop));
         };
         const onPointerLeave = () => setHoveredHeaderProp(null);
+        // BOTH events: a real mouse fires `pointermove`, while synthetic input
+        // (and some environments) only delivers `mousemove`. Listening to one and
+        // not the other left the funnel closed under a real pointer.
         grid.addEventListener("pointermove", onPointerMove);
+        grid.addEventListener("mousemove", onPointerMove);
         grid.addEventListener("pointerleave", onPointerLeave);
         return () => {
             grid.removeEventListener("pointermove", onPointerMove);
+            grid.removeEventListener("mousemove", onPointerMove);
             grid.removeEventListener("pointerleave", onPointerLeave);
         };
     }, [filteringEnabled]);
