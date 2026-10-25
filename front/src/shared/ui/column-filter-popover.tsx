@@ -481,12 +481,15 @@ export function ColumnFilterPopover({
                 return;
             }
             // The panel must be the widest state the group ever takes: its
-            // reserved `minWidth` plus the popover's own padding on both sides.
+            // reserved `minWidth` (computed from the labels that will expand)
+            // plus a margin. The extra room is deliberately generous — the group
+            // re-measures while its labels animate, and the panel was chasing
+            // those frames, which read as the whole popover twitching.
             const reserved = Number.parseFloat(getComputedStyle(group).minWidth) || 0;
             const width = Math.max(group.getBoundingClientRect().width, reserved);
             if (width > 0 && Math.abs(width - last) > 0.5) {
                 last = width;
-                setMinWidth(Math.ceil(width) + 24);
+                setMinWidth(Math.ceil(width) + 64);
             }
             frame = window.requestAnimationFrame(measure);
         };

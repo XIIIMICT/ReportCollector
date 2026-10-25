@@ -3129,6 +3129,12 @@ body {
 .column-filter__popover {
     z-index: 1000;
     display: flex;
+    /* Sized by its content (the list caps itself) — never stretched to the max. */
+    align-content: flex-start;
+    /* ONE width for the whole panel. The list sizes itself to the longest
+       option, so a re-measured commit group could not set the panel's width —
+       it is pinned here and the list wraps inside it. */
+    width: min(420px, 90vw);
     /* react-aria sets `max-height` INLINE to whatever space is left above the
        funnel, so the popover's own height is not ours to choose. What matters
        is that its children fit INSIDE it: the list is the only grower, the
@@ -3149,7 +3155,9 @@ body {
        overrides react-aria's inline `max-height` (that one is only the space
        between the anchor and the viewport edge — with the search field added the
        list got two rows). The list scrolls inside it. */
-    height: min(460px, 70vh);
+    /* No fixed height: a short list (two buckets, a handful of values) must not
+       be stretched to the panel's maximum. The list takes what it needs up to
+       the cap below. */
     max-height: min(460px, 70vh) !important;
     padding: 0.5rem;
     border: 1px solid var(--border);
@@ -3172,13 +3180,14 @@ body {
 }
 
 .column-filter__list {
-    /* `flex-basis: 0` + `min-height: 0` lets the list take exactly the height
-       left between the search field and the commit footer, and scroll inside it.
-       Without the basis the list kept its content height and the footer floated
-       over the last options — they looked clickable but the press landed on the
-       footer's buttons. */
+    /* The list takes what its content needs and scrolls past the cap — the panel
+       is sized by its content, so the ceiling lives here. `flex: 0 1 auto` lets
+       it SHRINK below its content (that is what makes it scroll) but never GROW
+       beyond it: a two-bucket column then gets a two-row panel instead of a
+       full-height one. */
     min-height: 0;
-    flex: 1 1 0;
+    flex: 0 1 auto;
+    max-height: 320px;
     overflow-y: auto;
     overscroll-behavior: contain;
 }
@@ -3239,15 +3248,6 @@ body {
    between «По умолчанию» and «Отменить». Anchoring the row to the LEFT keeps the
    buttons still and lets the extra room fall to their right, where nothing moves;
    the footer itself stays right-aligned, so the group sits where it did. */
-.smart-select__footer .button-group {
-    justify-content: flex-start;
-}
-
-.smart-select__footer .button-group > .expandable-button {
-    /* No flexing: a fixed slot per button, so re-labelling never re-flows. */
-    flex: 0 0 auto;
-    justify-content: center;
-}
 
 /* Divides «Выбрать все»/«Пустые» from the value list. */
 .column-filter__separator {
