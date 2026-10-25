@@ -650,15 +650,22 @@ function RawMaterialsGridInner(
      * server-side (its facets are counted over the panel filters, never over the
      * header filters themselves).
      */
+    /** Real records only: the «＋» row and deleted ghosts are not data. */
+    const realRows = useMemo(
+        () => rows.filter((row) => !row.isPlaceholder && !row.isDeleted),
+        [rows],
+    );
+
     const facetSourceFor = useCallback(
         (column: string): FacetSource => {
             const others = activeFilters.filter((filter) => filter.column !== column);
+            // Virtual rows are not records: the «＋» placeholder has no values at
+            // all, so counting it put a phantom entry in the «Пустые» bucket and
+            // inflated every count by one.
             const source =
                 others.length === 0
-                    ? rows
-                    : rows.filter(
-                          (row) => row.isPlaceholder || rowMatchesFilters(row, others, facetText),
-                      );
+                    ? realRows
+                    : realRows.filter((row) => rowMatchesFilters(row, others, facetText));
             const facets = computeRowFacets(
                 source,
                 (row) => facetText(column, row),
@@ -666,7 +673,7 @@ function RawMaterialsGridInner(
             );
             return async (_column, { offset, limit }) => facetWindow(facets, offset, limit);
         },
-        [activeFilters, facetOrder, facetText, rows],
+        [activeFilters, facetOrder, facetText, realRows],
     );
 
     /**
