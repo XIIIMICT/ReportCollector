@@ -1827,17 +1827,26 @@ function RawMaterialsGridInner(
             const prop = cell?.querySelector?.("[data-prop]")?.getAttribute("data-prop") ?? null;
             setHoveredHeaderProp((previous) => (previous === prop ? previous : prop));
         };
-        const onPointerLeave = () => setHoveredHeaderProp(null);
+        // On the DOCUMENT, not the grid: the funnel layer is a SIBLING of
+        // `revo-grid` (it has to be — it must sit in the shell's stacking
+        // context, above the header), so a listener on the grid never sees the
+        // pointer entering the button. That is why the funnel closed exactly as
+        // the pointer reached it.
+        //
         // BOTH events: a real mouse fires `pointermove`, while synthetic input
-        // (and some environments) only delivers `mousemove`. Listening to one and
-        // not the other left the funnel closed under a real pointer.
-        grid.addEventListener("pointermove", onPointerMove);
-        grid.addEventListener("mousemove", onPointerMove);
-        grid.addEventListener("pointerleave", onPointerLeave);
+        // delivers `mousemove`. The handler reads only `target`.
+        const onPointerLeave = (event: MouseEvent) => {
+            const target = event.target as Element | null;
+            if (!target?.closest?.(".revo-grid-shell")) return;
+            setHoveredHeaderProp(null);
+        };
+        document.addEventListener("pointermove", onPointerMove, true);
+        document.addEventListener("mousemove", onPointerMove, true);
+        document.addEventListener("pointerleave", onPointerLeave, true);
         return () => {
-            grid.removeEventListener("pointermove", onPointerMove);
-            grid.removeEventListener("mousemove", onPointerMove);
-            grid.removeEventListener("pointerleave", onPointerLeave);
+            document.removeEventListener("pointermove", onPointerMove, true);
+            document.removeEventListener("mousemove", onPointerMove, true);
+            document.removeEventListener("pointerleave", onPointerLeave, true);
         };
     }, [filteringEnabled]);
 
