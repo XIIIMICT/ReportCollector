@@ -53,8 +53,18 @@ async function openFilter(column = "col_010", firstLabel = "Насос") {
     return view;
 }
 
+/**
+ * The master toggle. It is TWO-STATE: «Снять выбор» while everything is kept,
+ * «Выбрать все» once something was excluded — so the tests must not assume a
+ * fixed caption.
+ */
 function master() {
-    return screen.getByRole("option", { name: /Выбрать все/ });
+    return screen.getByRole("option", { name: /Снять выбор|Выбрать все/ });
+}
+
+/** The same item, whichever caption it currently shows. */
+function masterCaption() {
+    return master().textContent ?? "";
 }
 
 test("separator follows «Выбрать все» before «Пустые» and the values", async () => {
@@ -72,7 +82,7 @@ test("separator follows «Выбрать все» before «Пустые» and th
     expect(
         nullOption.compareDocumentPosition(firstValue) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(master().textContent).toContain("17 (2 уникальных)");
+    expect(masterCaption()).toContain("17 (2 уникальных)");
 });
 
 async function openRecorded(
@@ -230,6 +240,20 @@ test("unchecking the last option unchecks «Выбрать все»", async () =
     await waitFor(() => expect(master().getAttribute("aria-selected")).toBe("false"));
 });
 
+test("the master toggle renames itself between «Снять выбор» and «Выбрать все»", async () => {
+    // It reads as an ACTION, not a checkbox: while everything is kept it offers
+    // to take the selection away, and once nothing is kept it offers to put it
+    // back. Clicking it twice returns to the starting caption.
+    await openFilter();
+    expect(masterCaption()).toContain("Снять выбор");
+
+    fireEvent.click(master());
+    await waitFor(() => expect(masterCaption()).toContain("Выбрать все"));
+
+    fireEvent.click(master());
+    await waitFor(() => expect(masterCaption()).toContain("Снять выбор"));
+});
+
 test("unchecking «Выбрать все» clears every option, «Пустые» included", async () => {
     await openFilter();
     expect(master().getAttribute("aria-selected")).toBe("true");
@@ -297,8 +321,8 @@ test("a two-bucket column: unchecking both buckets unchecks «Выбрать в�
 
 test("showUniqueCount={false} hides the unique-count suffix only", async () => {
     await openIdBuckets(false);
-    expect(master().textContent).toBe("Выбрать все12");
-    expect(master().textContent).not.toContain("уникальных");
+    expect(masterCaption()).toBe("Снять выбор12");
+    expect(masterCaption()).not.toContain("уникальных");
 });
 
 test("a two-bucket column: checking both buckets back checks «Выбрать все»", async () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { EmptyState, ListBox, Separator, type Key } from "@heroui/react";
+import { List, TaskList } from "iconoir-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -405,15 +406,23 @@ export function ColumnFilterPopover({
                     renderEmptyState={() => <EmptyState>Нет значений</EmptyState>}
                     onScroll={onListScroll}
                 >
-                    <ListBox.Item key={ALL_KEY} id={ALL_KEY} textValue="Выбрать все">
-                        <span>Выбрать все</span>
+                    <ListBox.Item
+                        key={ALL_KEY}
+                        id={ALL_KEY}
+                        textValue={allActive ? "Снять выбор" : "Выбрать все"}
+                    >
+                        {allActive ? (
+                            <List className="column-filter__master-icon" aria-hidden="true" />
+                        ) : (
+                            <TaskList className="column-filter__master-icon" aria-hidden="true" />
+                        )}
+                        <span>{allActive ? "Снять выбор" : "Выбрать все"}</span>
                         {rowCount > 0 ? (
                             <span className="text-muted ms-1">
                                 {rowCount}
                                 {showUniqueCount ? ` (${total} уникальных)` : null}
                             </span>
                         ) : null}
-                        <ListBox.ItemIndicator />
                     </ListBox.Item>
                     <Separator className="smart-select__separator" />
                     {hasNulls ? (

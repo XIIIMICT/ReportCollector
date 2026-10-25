@@ -3142,6 +3142,16 @@ body {
     box-shadow: 0 0.6rem 1.8rem rgb(22 25 24 / 18%);
 }
 
+/* The master toggle's icon (list / task-list): sits before the caption and
+   inherits the muted tone of the item's hint text. */
+.column-filter__master-icon {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    margin-right: 0.35rem;
+    color: var(--muted);
+}
+
 .column-filter__list {
     min-height: 0;
     flex: 1;

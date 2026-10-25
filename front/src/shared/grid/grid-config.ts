@@ -862,10 +862,17 @@ export function facetTextOf(
     }
     if (descriptor.kind === "number" || descriptor.kind === "calculated") {
         // The cell renders a RU-formatted number (`numberCellTemplate`), so the
-        // filter has to offer — and match by — the same text, not the raw
+        // filter has to offer - and match by - the same text, not the raw
         // value: "1 234,5" is what the user reads and therefore clicks.
         const text = renderNumberText(value);
         // An empty aggregate is the «Пустые» bucket, not a value named "".
+        return text === "" ? null : text;
+    }
+    if (descriptor.kind === "datetime") {
+        // The cell renders the timestamp through `renderDateTimeText`, so the
+        // filter must offer the same text — the raw ISO string reads poorly and
+        // would not match what the user sees in the column.
+        const text = renderDateTimeText(value);
         return text === "" ? null : text;
     }
     return value;
@@ -977,20 +984,30 @@ function numberCellTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown })
     return h("span", { class: "report-cell__number" }, renderNumberText(value));
 }
 
-function dateTimeCellTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode {
-    if (typeof value !== "string" || !value) return h("span", {}, "");
+/**
+ * The text a timestamp shows — the ONE rule for dates, shared by the cell and
+ * the column filter, so a value selected in the filter is spelled exactly as the
+ * cell spells it.
+ *
+ * The timezone is deliberately not rendered: a table of timestamps would be
+ * unreadable with the offset repeated in every cell, and the app works in the
+ * user's local zone (the browser's `Intl` uses it).
+ */
+export function renderDateTimeText(value: unknown): string {
+    if (typeof value !== "string" || !value) return "";
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return h("span", {}, value);
-    return h(
-        "span",
-        {},
-        new Intl.DateTimeFormat("ru-RU", {
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-        }).format(date),
-    );
+    if (Number.isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat("ru-RU", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+    }).format(date);
+}
+
+function dateTimeCellTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode {
+    const text = renderDateTimeText(value);
+    return h("span", {}, text);
 }
