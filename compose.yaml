@@ -96,6 +96,12 @@ services:
       target: prod
       args:
         PORT: ${FRONT_PORT:?}
+        # The Turbopack build peaks over a gigabyte and, at V8's default heap
+        # ceiling, spends minutes collecting garbage instead of compiling — on a
+        # smaller runner it is killed outright (SIGKILL, "cannot allocate
+        # memory"). CI passes 3072 for the same reason; without it here a local
+        # `just prod-build` was the slow path nobody could explain.
+        NODE_OPTIONS: ${NODE_OPTIONS_BUILD:---max-old-space-size=4096}
     restart: unless-stopped
     env_file:
       - path: ./.env

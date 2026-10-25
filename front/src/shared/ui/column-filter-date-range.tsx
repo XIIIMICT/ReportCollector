@@ -2,11 +2,12 @@
 
 import { Calendar, DateField, DatePicker } from "@heroui/react";
 import {
+    type CalendarDateTime,
     DateFormatter,
+    type DateValue,
     getLocalTimeZone,
     parseAbsoluteToLocal,
     toCalendarDateTime,
-    type DateValue,
 } from "@internationalized/date";
 
 import type { FacetDateRange } from "@/shared/ui/column-filter-facets";
@@ -43,14 +44,28 @@ export function isDateRangeEmpty(range: FacetDateRange): boolean {
 }
 
 /**
- * The value a picker shows for a stored bound. `DatePicker` speaks
- * `@internationalized/date` values, the filter stores epoch ms — one conversion,
- * here, so the rest of the popover never deals with calendar objects.
+ * Convert a stored epoch-ms bound into a picker value.
+ *
+ * `DatePicker` speaks `@internationalized/date` values, the filter stores epoch
+ * ms — one conversion, here, so the rest of the popover never deals with
+ * calendar objects. `parseAbsoluteToLocal` maps the instant into the browser's
+ * zone, which is the one the cells print.
  */
-function toDateValue(epochMs: number | null): DateValue | null {
+export function toDateValue(epochMs: number | null): CalendarDateTime | null {
     if (epochMs === null) return null;
     const parsed = parseAbsoluteToLocal(new Date(epochMs).toISOString());
     return toCalendarDateTime(parsed);
+}
+
+/**
+ * Convert a picker value back into the stored epoch-ms bound.
+ *
+ * A cleared picker yields `null` («no bound»), not `NaN` — the filter treats a
+ * missing bound as «unconstrained», and every comparison against `NaN` is false,
+ * which would silently empty the table.
+ */
+export function fromDateValue(next: DateValue | null): number | null {
+    return next === null ? null : next.toDate(getLocalTimeZone()).getTime();
 }
 
 /**
@@ -68,8 +83,7 @@ export function ColumnFilterDateRange({
     value: FacetDateRange;
     onChange: (next: FacetDateRange) => void;
 }) {
-    const bound = (next: DateValue | null): number | null =>
-        next === null ? null : next.toDate(getLocalTimeZone()).getTime();
+    const bound = fromDateValue;
     return (
         <div
             className="column-filter__date-range"

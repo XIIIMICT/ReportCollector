@@ -28,8 +28,14 @@ export function columnFiltersStorageKey(project: string, section: string): strin
     return `${STORAGE_PREFIX}${project}:${section}`;
 }
 
-/** Drop anything that is not a well-formed `ColumnFilter`. */
-function reviveFilters(raw: string): Record<string, ColumnFilter> {
+/**
+ * Drop anything that is not a well-formed `ColumnFilter`.
+ *
+ * Storage is shared with the user's own edits and with older code versions, so
+ * the input is untrusted: a hand-edited entry or a shape from a previous release
+ * must leave the table working (unfiltered), not crash it on mount.
+ */
+export function reviveFilters(raw: string): Record<string, ColumnFilter> {
     let parsed: unknown;
     try {
         parsed = JSON.parse(raw);

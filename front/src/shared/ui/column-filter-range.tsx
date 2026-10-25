@@ -26,6 +26,20 @@ export function isRangeEmpty(range: FacetRange): boolean {
 }
 
 /**
+ * Parse one box into a bound.
+ *
+ * An empty box is `""` in the DOM and `null` in the state: «no bound», which is
+ * NOT the same as zero — `0` is a real value a numeric column can be filtered
+ * by. Anything that does not parse to a finite number is also «no bound»
+ * rather than `NaN`, which no comparison would match.
+ */
+export function parseRangeBound(raw: string): number | null {
+    if (raw.trim() === "") return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
  * Two numeric boxes with a dash between them — the filter's search field for a
  * number column. The parent spaces them (flex, one gap), so the row reads as a
  * single control.
@@ -45,11 +59,7 @@ export function ColumnFilterRange({
 }) {
     // An empty box is `""` in the DOM and `null` in the state: «no bound»,
     // which is NOT the same as zero.
-    const bound = (raw: string): number | null => {
-        if (raw.trim() === "") return null;
-        const parsed = Number(raw);
-        return Number.isFinite(parsed) ? parsed : null;
-    };
+    const bound = parseRangeBound;
     return (
         <div className="column-filter__range" role="group" aria-label={`Диапазон: ${columnLabel}`}>
             {/* NOT `NumberField`: its text input reports the typed value only
