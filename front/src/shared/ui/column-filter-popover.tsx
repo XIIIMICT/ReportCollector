@@ -1,7 +1,7 @@
 "use client";
 
 import { EmptyState, ListBox, SearchField, Separator, type Key } from "@heroui/react";
-import { List, ListSelect, TaskList } from "iconoir-react";
+import { ListSelect, TaskList } from "iconoir-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -160,12 +160,20 @@ export function ColumnFilterPopover({
      */
     const [query, setQuery] = useState("");
     const [range, setRange] = useState<FacetRange>(EMPTY_RANGE);
+    // A reversed range (`мин > макс`) is a typo, not «everything»: it matches
+    // nothing. Without this guard the popover compared against it, found the
+    // reversed window empty, and — because «nothing kept, nothing searched» also
+    // reads as an EMPTY filter — sent "no constraint" to the grid, so the funnel
+    // lit up while every row stayed.
+    const rangeReversed = range.min !== null && range.max !== null && range.min > range.max;
     const rangeSearch = order === "number" && !isRangeEmpty(range) ? range : null;
     const search: FacetSearch | null =
         order === "number"
-            ? rangeSearch
-                ? { kind: "range", min: rangeSearch.min, max: rangeSearch.max }
-                : null
+            ? rangeReversed
+                ? { kind: "range", min: 1, max: 0 }
+                : rangeSearch
+                  ? { kind: "range", min: rangeSearch.min, max: rangeSearch.max }
+                  : null
             : query.trim() === ""
               ? null
               : { kind: "text", query };
@@ -216,7 +224,11 @@ export function ColumnFilterPopover({
                 );
                 loadedCountRef.current = loaded.length;
                 exhaustedRef.current = loaded.length >= facets.total;
-                if (allStillSelectedRef.current) {
+                // While a search narrows the list, a new window is NOT a new
+                // default: the user's found set must survive the reload that the
+                // next keystroke triggers, or ???????? ?????????? switches itself
+                // off (???????? ???? again) just by typing the upper bound.
+                if (allStillSelectedRef.current && searchRef.current === null) {
                     setKept(new Set(loaded));
                 }
             })
@@ -335,20 +347,26 @@ export function ColumnFilterPopover({
         // react-aria keeps keys it can't match to an item, so a stale
         // `NULL_KEY` would linger in `onChange` and look like a kept bucket.
         if (includeNulls && hasNulls) keys.push(NULL_KEY);
-        for (const value of kept) keys.push(value);
+        // Only keys that are IN THE LIST right now: a search hides most values,
+        // and the master then mirrors what is visible — otherwise «Выбрать
+        // найденные» (which keeps exactly the found set) would read as
+        // «selected» and pressing it would toggle the found values OFF, sending
+        // an EMPTY filter to the grid while the funnel still lit up.
+        for (const value of values) {
+            if (kept.has(value)) keys.push(value);
+        }
         return keys;
-    }, [allActive, hasNulls, includeNulls, kept]);
+    }, [allActive, hasNulls, includeNulls, kept, values]);
 
     searchRef.current = search;
 
-    const masterState: "clear" | "found" | "all" =
-        allActive || foundAppliedRef.current ? "clear" : search !== null ? "found" : "all";
-    const masterLabel =
-        masterState === "clear"
-            ? "Снять выбор"
-            : masterState === "found"
-              ? "Выбрать найденные"
-              : "Выбрать все";
+    // The caption follows the SEARCH, not the selection — each caption is its own
+    // action («Выбрать найденные», «Выбрать все», «Снять выбор»), and the press
+    // applies it. Tying it to `allActive`/`foundAppliedRef` instead made it flip
+    // back to «Снять выбор» the moment anything touched the selection, so a press
+    // on «Выбрать найденные» could be read as «clear everything».
+    const masterState: "found" | "all" = search !== null ? "found" : "all";
+    const masterLabel = masterState === "found" ? "Выбрать найденные" : "Выбрать все";
 
     /**
      * «Выбрать найденные»: keep exactly what the search matched, drop the rest.
@@ -369,6 +387,34 @@ export function ColumnFilterPopover({
         }, 0);
     };
 
+    /**
+     * What the master row DOES, decided by the caption the user actually saw:
+     * - «Выбрать найденные» — keep exactly what the search matched;
+     * - «Выбрать все» — everything visible, «Пустые» included.
+     *
+     * It is an ACTION, not a checkbox. react-aria still reports the row through
+     * `onSelectionChange` (it is a list item), and that change arrives AFTER the
+     * caption has moved on — so `masterState` is stale there. The decision is
+     * therefore taken on the row's PRESS, before anything else moves, and the
+     * later selection echo is swallowed.
+     */
+    const decidingMasterAction = useRef(false);
+    const onMasterPress = () => {
+        if (masterState === "found") {
+            foundAppliedRef.current = true;
+            selectFound();
+        } else {
+            setKept(new Set(values));
+            setIncludeNulls(true);
+            allStillSelectedRef.current = true;
+            foundAppliedRef.current = false;
+        }
+        window.setTimeout(() => {
+            ignoreMasterEchoRef.current = false;
+            decidingMasterAction.current = false;
+        }, 0);
+    };
+
     const onSelectionChange = (keys: Key[]) => {
         const next = new Set(keys);
         const hadAll = selectedKeys.includes(ALL_KEY);
@@ -378,12 +424,6 @@ export function ColumnFilterPopover({
         // state — otherwise its caption («Снять выбор») would stick even after
         // the user unchecks a value.
         foundAppliedRef.current = false;
-        // In the «Выбрать найденные» state the master does NOT mean "select
-        // everything" — it means "select what I found".
-        if (hasAll && !hadAll && masterState === "found") {
-            selectFound();
-            return;
-        }
         // The master's OWN toggle. Its key disappears on every individual
         // uncheck too (react-aria drops it from the selection), so the removal
         // counts as a master toggle only when the whole selection became empty —
@@ -420,13 +460,19 @@ export function ColumnFilterPopover({
         // «Выбрать все» mirrors the extremes: unchecking the last kept option
         // unchecks it, selecting everything again checks it back. In between it
         // keeps whatever the user left (so «всё, кроме некоторых» stays checked).
-        // The comparison is against the window loaded SO FAR: a window that
-        // arrives right after a selection only widens `values`, and the master
-        // must not flip on its own — the `allStillSelectedRef` guard below owns
-        // the tail top-up instead.
+        // The comparison is against the KEPT SET, not the loaded window: a
+        // window that arrives right after a selection only widens `values`, and
+        // an untouched column kept every value from page one — comparing with
+        // `values.length` read it as «something excluded» and flipped the master
+        // off by itself.
         const keepsNulls = hasNulls && next.has(NULL_KEY);
         const keepsEverything =
-            values.length > 0 && nextKept.size === values.length && (keepsNulls || !hasNulls);
+            nextKept.size > 0 &&
+            [...values].every((value) => nextKept.has(value)) &&
+            (keepsNulls || !hasNulls) &&
+            // A window is a SLICE; only a selection that also still holds every
+            // value loaded so far counts as «everything».
+            nextKept.size >= values.length;
         // «Выбрать все»/«Снять выбор» mirror the extremes: everything kept — on,
         // nothing kept — off, and ANY exclusion also counts as "off" (the caption
         // then offers «Выбрать все»/«Выбрать найденные», which is what the user
@@ -451,12 +497,26 @@ export function ColumnFilterPopover({
         // «всё, кроме одного» into a 199-value whitelist. The tail top-up ref is
         // the reliable «nothing was taken away» signal (the master stays checked
         // in between), and then the request carries no constraint at all.
-        if (allStillSelectedRef.current && (includeNulls || !hasNulls)) return null;
+        //
+        // NEVER while a search narrows the list: the kept set is then a POSITIVE
+        // choice of the found values, and «no constraint» would silently undo it.
+        if (search === null && allStillSelectedRef.current && (includeNulls || !hasNulls)) {
+            return null;
+        }
         // Without that state, every value the user actually saw must be kept —
         // otherwise the selection would claim values that are merely unloaded.
+        // Judged on the KEPT SET (what the filter would send), not on the
+        // visible window — see `onSelectionChange`. Right after a value is
+        // UNCHECKED the set still holds it (react-aria reports the change
+        // before React commits), and reading it here would claim "everything"
+        // and silently drop the exclusion.
+        const excludedSomewhere = keptValues.length !== kept.size;
+        if (search === null && allStillSelectedRef.current && !excludedSomewhere) return null;
         const keepsEverything =
-            values.length > 0 && keptValues.length === values.length && (keepsNulls || !hasNulls);
-        if (keepsEverything) return null;
+            keptValues.length > 0 &&
+            keptValues.length === values.length &&
+            (keepsNulls || !hasNulls);
+        if (search === null && keepsEverything) return null;
         return {
             column,
             values: keptValues,
@@ -464,7 +524,7 @@ export function ColumnFilterPopover({
         } satisfies ColumnFilter;
         // `allActive` stays in the deps: it re-runs the memo after the master
         // toggle even though the decision reads the ref (which is not reactive).
-    }, [allActive, column, hasNulls, includeNulls, kept, values]);
+    }, [allActive, column, hasNulls, includeNulls, kept, search, values]);
 
     // The filter this popover opened with. «Отменить» (the footer, Escape, a
     // click outside) drops the pending selection, so the owner keeps exactly
@@ -601,10 +661,21 @@ export function ColumnFilterPopover({
                         renderEmptyState={() => <EmptyState>Нет значений</EmptyState>}
                         onScroll={onListScroll}
                     >
-                        <ListBox.Item key={ALL_KEY} id={ALL_KEY} textValue={masterLabel}>
-                            {masterState === "clear" ? (
-                                <List className="column-filter__master-icon" aria-hidden="true" />
-                            ) : masterState === "found" ? (
+                        {/* The master is an ACTION, not a checkbox — so it is
+                            `textValue`-only with NO selection toggle. With an
+                            `id` react-aria treated it as a selectable row: a
+                            mouse press on it FOCUSED the listbox, the focus
+                            change re-committed the selection and rebuilt the
+                            rows, and the press landed on a node that was already
+                            replaced — the click reported no change. Its own
+                            handler below is the only thing that acts. */}
+                        <ListBox.Item
+                            key={ALL_KEY}
+                            id={ALL_KEY}
+                            textValue={masterLabel}
+                            onPointerDown={onMasterPress}
+                        >
+                            {masterState === "found" ? (
                                 <ListSelect
                                     className="column-filter__master-icon"
                                     aria-hidden="true"

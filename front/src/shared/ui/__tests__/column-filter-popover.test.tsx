@@ -59,7 +59,7 @@ async function openFilter(column = "col_010", firstLabel = "Насос") {
  * fixed caption.
  */
 function master() {
-    return screen.getByRole("option", { name: /Снять выбор|Выбрать все|Выбрать найденные/ });
+    return screen.getByRole("option", { name: /Выбрать все|Выбрать найденные/ });
 }
 
 /** The same item, whichever caption it currently shows. */
@@ -241,43 +241,53 @@ test("unchecking the last option unchecks «Выбрать все»", async () =
 });
 
 test("a query turns the master into «Выбрать найденные», and clearing it restores «Выбрать все»", async () => {
-    // Three states: everything kept → «Снять выбор»; something excluded with a
-    // query → «Выбрать найденные» (it selects only the matched values); the
-    // query cleared → «Выбрать все», with the selection untouched.
+    // The caption follows the SEARCH, not the selection: «Выбрать найденные»
+    // while a query narrows the list, «Выбрать все» otherwise. Each caption is
+    // its own action, and the press is taken on `pointerdown` — before react-aria
+    // moves the selection and reports a change that is already stale.
     await openFilter();
     const search = document.querySelector<HTMLInputElement>('input[name="column-filter-search"]');
 
-    expect(masterCaption()).toContain("Снять выбор");
-
-    fireEvent.click(master());
-    await waitFor(() => expect(masterCaption()).toContain("Выбрать все"));
+    expect(masterCaption()).toContain("Выбрать все");
 
     fireEvent.change(search!, { target: { value: "Нас" } });
     await waitFor(() => expect(masterCaption()).toContain("Выбрать найденные"));
 
-    fireEvent.click(master());
-    await waitFor(() => expect(masterCaption()).toContain("Снять выбор"));
-
-    fireEvent.change(search!, { target: { value: "" } });
-    await waitFor(() => expect(masterCaption()).toContain("Снять выбор"));
-    // The selection survives a changed query — only the list is narrowed.
-    expect(screen.getByRole("option", { name: /^Насос/ }).getAttribute("aria-selected")).toBe(
-        "true",
+    // «Выбрать найденные» keeps exactly the matched values.
+    fireEvent.pointerDown(master());
+    await waitFor(() =>
+        expect(screen.getByRole("option", { name: /^Насос/ }).getAttribute("aria-selected")).toBe(
+            "true",
+        ),
     );
+
+    // Clearing the query brings the whole column back under the caption.
+    fireEvent.change(search!, { target: { value: "" } });
+    await waitFor(() => expect(masterCaption()).toContain("Выбрать все"));
 });
 
-test("the master toggle renames itself between «Снять выбор» and «Выбрать все»", async () => {
-    // It reads as an ACTION, not a checkbox: while everything is kept it offers
-    // to take the selection away, and once nothing is kept it offers to put it
-    // back. Clicking it twice returns to the starting caption.
+test("the master is an action: «Выбрать все» restores every option", async () => {
+    // It reads as an ACTION, not a checkbox — the caption names what a press
+    // does, and the press does exactly that. Unticking a value leaves the
+    // caption on «Выбрать все» (that IS the way back), and pressing it keeps
+    // every option again.
     await openFilter();
-    expect(masterCaption()).toContain("Снять выбор");
+    expect(masterCaption()).toContain("Выбрать все");
+
+    fireEvent.click(screen.getByRole("option", { name: /^Шкаф/ }));
+    await waitFor(() =>
+        expect(screen.getByRole("option", { name: /^Шкаф/ }).getAttribute("aria-selected")).toBe(
+            "false",
+        ),
+    );
+    expect(masterCaption()).toContain("Выбрать все");
 
     fireEvent.click(master());
-    await waitFor(() => expect(masterCaption()).toContain("Выбрать все"));
-
-    fireEvent.click(master());
-    await waitFor(() => expect(masterCaption()).toContain("Снять выбор"));
+    await waitFor(() =>
+        expect(screen.getByRole("option", { name: /^Шкаф/ }).getAttribute("aria-selected")).toBe(
+            "true",
+        ),
+    );
 });
 
 test("unchecking «Выбрать все» clears every option, «Пустые» included", async () => {
@@ -347,7 +357,7 @@ test("a two-bucket column: unchecking both buckets unchecks «Выбрать в�
 
 test("showUniqueCount={false} hides the unique-count suffix only", async () => {
     await openIdBuckets(false);
-    expect(masterCaption()).toBe("Снять выбор12");
+    expect(masterCaption()).toBe("Выбрать все12");
     expect(masterCaption()).not.toContain("уникальных");
 });
 
