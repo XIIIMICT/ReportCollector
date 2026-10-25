@@ -1684,6 +1684,11 @@ body {
     align-items: center;
     justify-content: center;
     overflow: hidden;
+    /* RevoGrid's shadow stylesheet declares `padding: inherit` here, which picks
+       up the compact theme's 9px header padding. The plan's labels have none,
+       and the funnel is pinned to the cell edge — without this the text and the
+       funnel sit 9px away from it. */
+    padding: 0;
     /* The header carries our funnel button as a child (the column template
        renders text + button); it is absolutely positioned against the cell, so
        it must not become a flex item here. */

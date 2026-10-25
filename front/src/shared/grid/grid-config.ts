@@ -892,7 +892,14 @@ export function renderNumberText(value: unknown): string {
  * column template draw our own funnel — the very element the plan uses, so the
  * two animations cannot drift apart.
  */
-export const HEADER_SHADOW_STYLES = "revogr-header .rv-filter { display: none !important; }";
+export const HEADER_SHADOW_STYLES = `
+  revogr-header .rv-filter { display: none !important; }
+  /* RevoGrid's own shadow stylesheet makes the label inherit the compact
+     theme's 9px header padding; the plan's labels have none and the funnel is
+     pinned to the cell edge, so the inherited padding held the text (and the
+     funnel's slot) away from it. */
+  revogr-header .rgHeaderCell .header-content { padding: 0 !important; }
+`.trim();
 
 /**
  * How a column's filter list is ordered: text alphabetically, numbers and dates
