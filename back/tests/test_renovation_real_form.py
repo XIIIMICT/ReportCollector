@@ -35,9 +35,37 @@ def _compile_real_engine(form: dict) -> FormulaEngine:
 
 
 def test_real_form_compiles_all_formulas(form: dict) -> None:
+    """Every formula of the real form compiles and evaluates without raising.
+
+    Before, the test only called `materialize` and asserted nothing: a formula
+    that silently started returning garbage (or None for a number) left it green.
+    It now pins two things: on a BLANK row the engine still materializes a solid
+    share of the calculated fields (a chain that broke would collapse to zero),
+    and every materialized value has a sane type. Fields that stay absent on a
+    blank row do so by design — their dependency is empty.
+    """
     engine = _compile_real_engine(form)
-    engine.materialize({})
-    engine.materialize({"col_024": date(2027, 1, 1)})
+    calculated = [f["dbName"] for f in form["fields"] if f["isCalculated"]]
+    assert calculated, "the form has no calculated fields to check"
+
+    blank: dict[str, object] = {}
+    engine.materialize(blank)
+    # 110 calculated fields; ~57 resolve from constants and empty-safe chains.
+    # The floor is a regression guard, not an exact count.
+    assert len(blank) >= 50, f"only {len(blank)} calculated fields resolved on a blank row"
+
+    dated: dict[str, object] = {"col_024": date(2027, 1, 1)}
+    engine.materialize(dated)
+    assert set(blank) <= set(dated), "a field materialized on a blank row vanished once dated"
+
+    for values in (blank, dated):
+        for field in calculated:
+            if field not in values:
+                continue
+            value = values[field]
+            assert value is None or isinstance(value, Decimal | int | str | date), (
+                f"{field} materialized a {type(value).__name__}"
+            )
 
 
 def test_real_form_formula_chain_materializes_sample_row(form: dict) -> None:
