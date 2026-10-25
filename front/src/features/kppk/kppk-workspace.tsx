@@ -762,7 +762,7 @@ function KppkSection({
         filters: columnFilters,
         setFilters: setColumnFilters,
         clearFilters,
-    } = useGridColumnFilters("kppk");
+    } = useGridColumnFilters();
     useEffect(() => {
         onResetState({
             resetColumnWidths: () => gridRef.current?.resetColumnWidths(),

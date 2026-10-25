@@ -594,7 +594,7 @@ export function KppkRealizationSection({
         filters: columnFilters,
         setFilters: setColumnFilters,
         clearFilters,
-    } = useGridColumnFilters("realization");
+    } = useGridColumnFilters();
     useEffect(() => {
         onResetState({
             resetColumnWidths: () => gridRef.current?.resetColumnWidths(),

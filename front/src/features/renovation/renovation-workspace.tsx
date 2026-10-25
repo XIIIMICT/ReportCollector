@@ -88,7 +88,7 @@ import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
-import { readWorkspaceQuery, writeWorkspaceQuery } from "@/shared/ui/query-state";
+import { readWorkspaceQuery } from "@/shared/ui/query-state";
 import { RowGoToFilter } from "@/shared/ui/row-go-to-filter";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { errorMessage, updateClipboardActions } from "@/shared/ui/text-helpers";
@@ -252,21 +252,20 @@ export function RenovationWorkspace({
         const stored = readToolbarFilters("plan")["block"];
         return typeof stored === "string" ? stored : null;
     });
-    // Active header filters, keyed by column prop (field dbName or the synthetic
-    // asset column). A column keeps display values + the «Пустые» bucket; all
-    // columns combine with AND (server-side).
-    const [columnFilters, setColumnFilters] = useRestoredState<Record<string, ColumnFilter>>(
-        {},
-        () => {
-            const raw = readWorkspaceQuery("filters");
-            if (!raw) return {};
-            try {
-                return JSON.parse(raw) as Record<string, ColumnFilter>;
-            } catch {
-                return {};
-            }
-        },
-    );
+    /**
+     * Active HEADER filters, keyed by column prop (field dbName or the synthetic
+     * asset column). A column keeps display values + the «Пустые» bucket; all
+     * columns combine with AND (server-side).
+     *
+     * Deliberately NOT in the URL. The address carries the PANEL filters — few,
+     * and they describe which slice of the data is open — while a header filter
+     * carries the values it keeps, and the plan's ID column alone can hold
+     * hundreds of thousands. Putting that in `?filters=` grew the address past
+     * what browsers and proxies accept and pushed a table's filters onto the
+     * plan (a «Предприятия» filter once arrived there as a server error). The
+     * state lives while the workspace is mounted; a reload starts clean.
+     */
+    const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilter>>({});
     // Flat filter list for the rows API; a column with nothing kept selects
     // nothing, which the server treats as "no rows" (never "all").
     const activeColumnFilters = useMemo(
@@ -293,7 +292,6 @@ export function RenovationWorkspace({
             const next = { ...current };
             if (filter === null) delete next[column];
             else next[column] = filter;
-            writeWorkspaceQuery("filters", Object.keys(next).length ? JSON.stringify(next) : null);
             return next;
         });
     // Active section (plan vs dictionary) — declared early because the

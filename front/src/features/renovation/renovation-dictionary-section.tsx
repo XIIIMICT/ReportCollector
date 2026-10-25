@@ -701,7 +701,7 @@ export function RenovationDictionarySection({
         filters: columnFilters,
         setFilters: setColumnFilters,
         clearFilters,
-    } = useGridColumnFilters(`dict-${section}`);
+    } = useGridColumnFilters();
     useEffect(() => {
         onResetState({
             resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
