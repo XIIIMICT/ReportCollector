@@ -268,6 +268,10 @@ export type RowFacets = {
     hasNulls: boolean;
     nullCount: number;
     rowCount: number;
+    /** The numeric value behind each display string (range searches only). */
+    numbers: Map<string, number>;
+    /** Display strings that are not numbers — never matched by a range. */
+    nonNumeric: Set<string>;
 };
 
 /**
@@ -277,13 +281,22 @@ export type RowFacets = {
  * `text` maps a row to the string the TABLE shows for the column, resolved per
  * row: a column whose text comes from another field (a `displayKey`) must offer
  * what the user actually reads. A resolved `null`/`""` is the «Пустые» bucket.
+ *
+ * `number` maps a row to the value a RANGE compares against, when that has to
+ * be the raw one. Without it the source parses the display string, which only
+ * works while the formatter's separators are the plain ones — «3 361» becomes
+ * 3361, but a column printing «1 234,5» is a guess. Reporting the value removes
+ * the guess entirely.
  */
 export function computeRowFacets(
     rows: Iterable<Record<string, unknown>>,
     text: (row: Record<string, unknown>) => unknown,
     order: FacetOrder = "text",
+    number?: (row: Record<string, unknown>) => unknown,
 ): RowFacets {
     const counts = new Map<string, number>();
+    const numbers = new Map<string, number>();
+    const nonNumeric = new Set<string>();
     let hasNulls = false;
     let nullCount = 0;
     let rowCount = 0;
@@ -296,6 +309,14 @@ export function computeRowFacets(
             continue;
         }
         counts.set(display, (counts.get(display) ?? 0) + 1);
+        if (!number || numbers.has(display) || nonNumeric.has(display)) continue;
+        const raw = number(row);
+        const numeric = typeof raw === "number" ? raw : Number(raw);
+        if (raw === null || raw === undefined || raw === "" || !Number.isFinite(numeric)) {
+            nonNumeric.add(display);
+        } else {
+            numbers.set(display, numeric);
+        }
     }
     return {
         values: [...counts.keys()].sort((first, second) =>
@@ -305,8 +326,27 @@ export function computeRowFacets(
         hasNulls,
         nullCount,
         rowCount,
+        numbers,
+        nonNumeric,
     };
 }
+
+/**
+ * The number behind a numeric bucket's DISPLAY string.
+ *
+ * Buckets are keyed by the display text («3 361», «1,5»), but a range search has
+ * to compare numbers. Parsing the text would turn «3 361» into 3361 and «1,5»
+ * into 1.5 — right only while the formatter's separator guesses hold, and wrong
+ * the moment a column prints its own decimals or a non-breaking separator.
+ * A source that KNOWS its rows therefore reports the value directly, in the
+ * same window as `values`.
+ */
+export type FacetNumberWindow = {
+    /** Display string → the numeric value it stands for. */
+    numbers: Map<string, number>;
+    /** Display strings whose value is not a number (never range-matched). */
+    nonNumeric: Set<string>;
+};
 
 /** Cut one window out of the computed facets. */
 export function facetWindow(facets: RowFacets, offset: number, limit: number): FacetWindow {
@@ -351,7 +391,13 @@ export function searchRowFacets(
     if (search.kind === "text" && needle === "") return facets;
     const values = facets.values.filter((value) => {
         if (search.kind === "text") return value.toLocaleLowerCase("ru-RU").includes(needle);
-        const numeric = parseFacetNumber(value);
+        // The source's own value wins. A MISSING entry means the source does
+        // not resolve numbers at all (it only ships display strings) — an entry
+        // under `nonNumeric` means this particular bucket is not a number. The
+        // two must not be confused, or every bucket of every column would fall
+        // through to the string parser.
+        const known = facets.numbers.get(value);
+        const numeric = known ?? (facets.nonNumeric.has(value) ? null : parseFacetNumber(value));
         if (numeric === null) return false;
         if (search.min !== null && numeric < search.min) return false;
         if (search.max !== null && numeric > search.max) return false;
@@ -370,8 +416,9 @@ export function rowFacetSource(
     rows: readonly Record<string, unknown>[],
     text: (row: Record<string, unknown>) => unknown,
     order: FacetOrder = "text",
+    number?: (row: Record<string, unknown>) => unknown,
 ): FacetSource {
-    const facets = computeRowFacets(rows, text, order);
+    const facets = computeRowFacets(rows, text, order, number);
     return async (_column, { offset, limit, search }) =>
         facetWindow(searchRowFacets(facets, search), offset, limit);
 }

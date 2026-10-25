@@ -1,5 +1,7 @@
 "use client";
 
+import { InputGroup, TextField } from "@heroui/react";
+
 import type { FacetRange } from "@/shared/ui/column-filter-facets";
 
 /**
@@ -53,31 +55,32 @@ export function ColumnFilterRange({
             {/* NOT `NumberField`: its text input reports the typed value only
                 through react-aria's change events, which never reached our
                 `onChange` here (the field kept the text, the range stayed empty,
-                and the list never narrowed). A plain controlled input carrying
-                `type="number"` gives the same numeric semantics — the browser's
-                own numeric keyboard and spinners — and commits on every
-                keystroke. */}
-            <input
-                type="number"
-                inputMode="decimal"
-                aria-label={`Минимум: ${columnLabel}`}
+                and the list never narrowed). A `TextField` + `InputGroup` gives
+                the app's own secondary field chrome and commits on every
+                keystroke, like the rest of the forms. */}
+            <TextField
                 className="column-filter__range-field"
-                placeholder="мин"
-                value={value.min ?? ""}
-                onChange={(event) => onChange({ ...value, min: bound(event.currentTarget.value) })}
-            />
+                aria-label={`Минимум: ${columnLabel}`}
+                value={value.min === null ? "" : String(value.min)}
+                onChange={(next) => onChange({ ...value, min: bound(next) })}
+            >
+                <InputGroup fullWidth variant="secondary">
+                    <InputGroup.Input inputMode="decimal" type="number" placeholder="мин" />
+                </InputGroup>
+            </TextField>
             <span className="column-filter__range-dash" aria-hidden="true">
                 —
             </span>
-            <input
-                type="number"
-                inputMode="decimal"
-                aria-label={`Максимум: ${columnLabel}`}
+            <TextField
                 className="column-filter__range-field"
-                placeholder="макс"
-                value={value.max ?? ""}
-                onChange={(event) => onChange({ ...value, max: bound(event.currentTarget.value) })}
-            />
+                aria-label={`Максимум: ${columnLabel}`}
+                value={value.max === null ? "" : String(value.max)}
+                onChange={(next) => onChange({ ...value, max: bound(next) })}
+            >
+                <InputGroup fullWidth variant="secondary">
+                    <InputGroup.Input inputMode="decimal" type="number" placeholder="макс" />
+                </InputGroup>
+            </TextField>
         </div>
     );
 }

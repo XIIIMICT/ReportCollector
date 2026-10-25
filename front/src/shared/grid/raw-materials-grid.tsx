@@ -656,6 +656,23 @@ function RawMaterialsGridInner(
         (column: string) => facetOrderOf(descriptorByKey.get(column)),
         [descriptorByKey],
     );
+    /**
+     * The NUMERIC value behind a numeric column's display text. A range search
+     * compares numbers, and the display string is formatted («3 361») — parsing
+     * it back is a guess; the row already holds the value.
+     */
+    const facetNumber = useCallback(
+        (column: string, row: Record<string, unknown>) => {
+            const descriptor = descriptorByKey.get(column);
+            if (!descriptor) return undefined;
+            if (descriptor.kind !== "number" && descriptor.kind !== "calculated") return undefined;
+            const raw = row[descriptor.displayKey ?? descriptor.key];
+            if (raw === null || raw === undefined || raw === "") return undefined;
+            const parsed = typeof raw === "number" ? raw : Number(raw);
+            return Number.isFinite(parsed) ? parsed : undefined;
+        },
+        [descriptorByKey],
+    );
     facetTextRef.current = facetText;
 
     /**
@@ -685,6 +702,7 @@ function RawMaterialsGridInner(
                 source,
                 (row) => facetText(column, row),
                 facetOrder(column),
+                (row) => facetNumber(column, row),
             );
             // The search narrows the WHOLE computed set before the window is cut
             // — the same rule `rowFacetSource` applies, kept here because this
@@ -692,7 +710,7 @@ function RawMaterialsGridInner(
             return async (_column, { offset, limit, search }) =>
                 facetWindow(searchRowFacets(facets, search), offset, limit);
         },
-        [activeFilters, facetOrder, facetText, realRows],
+        [activeFilters, facetNumber, facetOrder, facetText, realRows],
     );
 
     /**
