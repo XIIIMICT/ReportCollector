@@ -607,7 +607,7 @@ function SectionContent({
         filters: columnFilters,
         setFilters: setColumnFilters,
         clearFilters,
-    } = useGridColumnFilters();
+    } = useGridColumnFilters("raw-materials", "plan");
     useEffect(() => {
         onResetState({
             resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
