@@ -1827,6 +1827,7 @@ function RawMaterialsGridInner(
             const prop = cell?.querySelector?.("[data-prop]")?.getAttribute("data-prop") ?? null;
             setHoveredHeaderProp((previous) => (previous === prop ? previous : prop));
         };
+
         // On the DOCUMENT, not the grid: the funnel layer is a SIBLING of
         // `revo-grid` (it has to be — it must sit in the shell's stacking
         // context, above the header), so a listener on the grid never sees the
@@ -1849,6 +1850,18 @@ function RawMaterialsGridInner(
             document.removeEventListener("pointerleave", onPointerLeave, true);
         };
     }, [filteringEnabled]);
+
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        for (const label of grid.querySelectorAll<HTMLElement>(".report-header__title")) {
+            if (label.getAttribute("data-prop") === hoveredHeaderProp) {
+                label.setAttribute("data-hovered", "true");
+            } else {
+                label.removeAttribute("data-hovered");
+            }
+        }
+    }, [hoveredHeaderProp]);
 
     const measureViewport = useCallback(async () => {
         const grid = gridRef.current;
