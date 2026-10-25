@@ -72,10 +72,11 @@ test("the header renders the label AND our funnel button", () => {
     const { leaf, render } = templateOf("renovationAssets", "name");
     expect(leaf?.name).toBe("Наименование");
     const node = render();
-    const children = node?.c as Array<string | { p: Record<string, unknown> }>;
+    const children = node?.c as Array<{ p: Record<string, unknown> } | string>;
     expect(children[0]).toBe("Наименование");
-    expect(children[1]?.p.class).toBe("header-filter-button");
-    expect(children[1]?.p["data-prop"]).toBe("name");
+    const button = children[1] as { p: Record<string, unknown> } | undefined;
+    expect(button?.p.class).toBe("header-filter-button");
+    expect(button?.p["data-prop"]).toBe("name");
 });
 
 test("a computed column is filterable like any other", () => {

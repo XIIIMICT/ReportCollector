@@ -3008,9 +3008,58 @@ body {
     margin-right: 12px;
 }
 
+/* The «№» corner is only 52px wide: the funnel needs its own room, and the
+   label must not be pushed twice (once by the margin above, once by the cell's
+   own centring). Keep the corner's funnel inside the cell's padding box so it
+   slides out of the edge like the leaf ones. */
+.renovation-grid__corner .header-filter-button {
+    right: 0;
+    width: 0;
+}
+
+.renovation-grid__corner:hover .header-filter-button,
+.renovation-grid__corner:focus-within .header-filter-button {
+    width: 20px;
+}
+
+/* In a RevoGrid header the funnel sits IN the header's label row — the cell
+   layout RevoGrid gives us — instead of an overlay anchored to `.header-content`
+   (which is what made it drift and its hover chain never match). */
+.report-header__title .header-filter-button {
+    position: relative;
+    inset: auto;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    margin-left: 2px;
+}
+
+/* The label reserves the funnel's room the way the plan does — the same 12px,
+   so the two headers move alike. */
+.report-header__title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding-right: 0;
+    transition: padding-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.report-header__title:has(.header-filter-button.is-active),
+.rgHeaderCell:hover .report-header__title,
+.rgHeaderCell:focus-within .report-header__title {
+    padding-right: 12px;
+}
+
 /* The reveal: a funnel opens while its header cell is hovered or focused, or
    while its column has an active filter. The base rule collapses it to zero
    width — without this block the buttons are never visible at all. */
+/* The plan's overlay cells AND RevoGrid's header cells: both own a funnel, and
+   both reveal it the same way. The grid's cell is `.rgHeaderCell`, whose own
+   `.rv-filter` no longer exists (the grid opts out of RevoGrid's filter UI). */
 .renovation-grid__header-cell:hover .header-filter-button,
 .renovation-grid__header-cell:focus-within .header-filter-button,
 .renovation-grid__header-cell:has(.header-filter-button.is-active) .header-filter-button,
@@ -3018,6 +3067,12 @@ body {
 .renovation-grid__number-cell:focus-within .header-filter-button,
 .renovation-grid__corner:hover .header-filter-button,
 .renovation-grid__corner:focus-within .header-filter-button,
+.raw-materials-grid revogr-header .rgHeaderCell:hover .header-filter-button,
+.raw-materials-grid revogr-header .rgHeaderCell:focus-within .header-filter-button,
+.rgHeaderCell:hover .header-filter-button,
+.rgHeaderCell:focus-within .header-filter-button,
+.report-header__title:hover .header-filter-button,
+.report-header__title:focus-within .header-filter-button,
 .header-filter-button.is-active {
     width: 24px;
     opacity: 1;
