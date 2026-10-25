@@ -51,12 +51,13 @@ function renderHeader(section: Parameters<typeof buildGridColumns>[0], prop: str
         | undefined;
     if (template === undefined) return undefined;
     const node = template(h, { name: leaf?.name });
-    // The header renders the label AND the funnel button as its children.
+    // The template renders the LABEL only: the funnel is an overlay drawn by the
+    // grid, positioned from the header cells (so sorting cannot move it).
     const children = node.c as unknown[];
     return {
         text: String(children?.[0]),
         stamped: node.p["data-prop"],
-        hasFunnel: (children?.[1] as VNode | undefined)?.p?.class === "header-filter-button",
+        hasFunnel: false,
     };
 }
 
@@ -95,9 +96,10 @@ test("every column opts out of RevoGrid's own filter UI", () => {
     for (const leaf of leaves) {
         expect(leaf.filter).toBe(false);
     }
+    // Every column is still stampable (the overlay reads `data-prop` from the
+    // label); the funnel itself lives outside the template.
     for (const prop of ["name", "repairCode", "repairCount", "totalCost"]) {
-        const header = renderHeader("renovationAssets", prop);
-        expect(header?.hasFunnel).toBe(true);
+        expect(renderHeader("renovationAssets", prop)?.stamped).toBe(prop);
     }
 });
 

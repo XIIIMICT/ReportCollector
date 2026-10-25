@@ -945,24 +945,6 @@ export function markFilterableColumns(
                 ) => VNode;
                 return hyper("span", { class: "report-header__title", "data-prop": prop }, [
                     cell?.name ?? label,
-                    // The button carries the SAME icon element the plan renders
-                    // (a masked SVG), so both headers show one glyph — a `::after`
-                    // alone did not paint on this element.
-                    hyper(
-                        "button",
-                        {
-                            type: "button",
-                            class: "header-filter-button",
-                            "aria-label": `Фильтр: ${cell?.name ?? label}`,
-                            "data-prop": prop,
-                        },
-                        [
-                            hyper("svg", {
-                                class: "header-filter-button__icon",
-                                "aria-hidden": "true",
-                            }),
-                        ],
-                    ),
                 ]);
             };
         }

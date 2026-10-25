@@ -74,9 +74,10 @@ test("the header renders the label AND our funnel button", () => {
     const node = render();
     const children = node?.c as Array<{ p: Record<string, unknown> } | string>;
     expect(children[0]).toBe("Наименование");
-    const button = children[1] as { p: Record<string, unknown> } | undefined;
-    expect(button?.p.class).toBe("header-filter-button");
-    expect(button?.p["data-prop"]).toBe("name");
+    // The template carries the label only: the funnel is an overlay drawn by the
+    // grid from the header cells' rects, immune to sorting.
+    expect(node?.p["data-prop"]).toBe("name");
+    expect(children).toHaveLength(1);
 });
 
 test("a computed column is filterable like any other", () => {

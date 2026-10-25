@@ -3249,6 +3249,55 @@ body {
    buttons still and lets the extra room fall to their right, where nothing moves;
    the footer itself stays right-aligned, so the group sits where it did. */
 
+/* ─── Header funnel overlay ────────────────────────────────── */
+
+/* The funnels are drawn over RevoGrid's header, positioned from the header
+   cells' rects — never inside the header template, because RevoGrid rewrites
+   `.header-content` when a column is sorted and that dragged anything inside it
+   sideways. The layer clips (a column scrolled out must not leave its funnel
+   floating over its neighbour) and lets pointer events through except on the
+   buttons themselves. */
+.report-header-funnels {
+    position: absolute;
+    z-index: 6;
+    right: 0;
+    left: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.report-header-funnels .header-filter-button {
+    position: absolute;
+    /* Anchored by its RIGHT edge: `left` is the cell's right edge, and the
+       button grows leftwards from it — the plan's geometry. */
+    right: auto;
+    transform: translateX(-100%);
+    pointer-events: auto;
+}
+
+/* A collapsed funnel must not swallow clicks aimed at the header. */
+.report-header-funnels .header-filter-button:not(.is-active) {
+    pointer-events: none;
+}
+
+.report-header-funnels .header-filter-button:hover,
+.report-header-funnels .header-filter-button.is-active {
+    width: 24px;
+    opacity: 1;
+}
+
+.report-header-funnels .header-filter-button:not(.is-active):not(:hover) {
+    pointer-events: none;
+}
+
+.report-header-funnels .header-filter-button__icon {
+    width: 11px;
+    height: 11px;
+    flex: 0 0 auto;
+    background-color: currentColor;
+    mask: var(--filter-icon) center / contain no-repeat;
+}
+
 /* Divides «Выбрать все»/«Пустые» from the value list. */
 .column-filter__separator {
     margin: 0.25rem 0;

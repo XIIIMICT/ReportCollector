@@ -604,6 +604,20 @@ function RawMaterialsGridInner(
     // funnels: a form that passes the map gets them, a read-only/archive view
     // that passes nothing renders a plain header.
     const filteringEnabled = columnFilters !== undefined && onFiltersChange !== undefined;
+    /**
+     * The header funnels, drawn as an OVERLAY over RevoGrid's header.
+     *
+     * They cannot live in the header template: RevoGrid mounts that template
+     * inside `.header-content`, and its sorted state rewrites that box
+     * (`position: absolute` + `margin-left: 24px` for the sort arrow), dragging
+     * anything inside it sideways. Positioned from the header CELLS' rects — the
+     * one geometry RevoGrid keeps between states — a funnel is immune to sorting,
+     * resizing and re-rendering alike.
+     */
+    const funnelLayerRef = useRef<HTMLDivElement>(null);
+    const [funnels, setFunnels] = useState<
+        Array<{ prop: string; label: string; left: number; top: number; height: number }>
+    >([]);
     // The «№» corner's go-to popover (shared component, own numbering). The
     // row-header template reaches the opener through a ref: the row headers are
     // built once, and a setter in their dependency list would rebuild them on
@@ -1713,6 +1727,86 @@ function RawMaterialsGridInner(
         }
     }, [columnFilters, filteringEnabled, rows]);
 
+    /**
+     * Place the funnel overlays from the header cells' real rects.
+     *
+     * Called on the FRAME AFTER a scroll/resize: RevoGrid emits `viewportscroll`
+     * before it re-lays the header out, so measuring inside the handler would
+     * copy the previous position (that is what broke the first attempt at this
+     * overlay).
+     */
+    const measureFunnels = useCallback(() => {
+        const grid = gridRef.current;
+        const layer = funnelLayerRef.current;
+        if (!grid || !layer || !filteringEnabled) return;
+        const gridRect = grid.getBoundingClientRect();
+        const cells = Array.from(grid.querySelectorAll(".rgHeaderCell")).filter(
+            (cell): cell is HTMLElement => cell instanceof HTMLElement,
+        );
+        let top = Number.POSITIVE_INFINITY;
+        let bottom = Number.NEGATIVE_INFINITY;
+        const next: Array<{
+            prop: string;
+            label: string;
+            left: number;
+            top: number;
+            height: number;
+        }> = [];
+        const seen = new Set<string>();
+        for (const cell of cells) {
+            // The row-number corner has no `data-prop`: it is not a filterable
+            // column and must not borrow the first column's funnel.
+            const prop = cell.querySelector("[data-prop]")?.getAttribute("data-prop") ?? null;
+            if (!prop || !descriptorByKey.has(prop) || seen.has(prop)) continue;
+            seen.add(prop);
+            const rect = cell.getBoundingClientRect();
+            top = Math.min(top, rect.top - gridRect.top);
+            bottom = Math.max(bottom, rect.bottom - gridRect.top);
+            next.push({
+                prop,
+                label: descriptorByKey.get(prop)?.label ?? prop,
+                left: rect.right - gridRect.left,
+                top: rect.top - gridRect.top,
+                height: rect.height,
+            });
+        }
+        if (Number.isFinite(top)) {
+            layer.style.top = `${Math.round(top)}px`;
+            layer.style.height = `${Math.round(bottom - top)}px`;
+        }
+        setFunnels(next);
+    }, [descriptorByKey, filteringEnabled]);
+
+    /** Re-measure on the frame after the grid has settled. */
+    const scheduleFunnelMeasure = useCallback(() => {
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => measureFunnels());
+        });
+    }, [measureFunnels]);
+
+    // First placement, and again whenever the columns change (the header is laid
+    // out asynchronously, so a single early frame is not enough).
+    useEffect(() => {
+        if (!filteringEnabled) return;
+        let cancelled = false;
+        let attempts = 0;
+        let lastCount = -1;
+        const tick = () => {
+            if (cancelled) return;
+            measureFunnels();
+            const grid = gridRef.current;
+            const count = grid ? grid.querySelectorAll(".rgHeaderCell [data-prop]").length : 0;
+            attempts += 1;
+            const settled = count === lastCount && count > 0;
+            lastCount = count;
+            if (!settled && attempts < 40) window.setTimeout(tick, 100);
+        };
+        tick();
+        return () => {
+            cancelled = true;
+        };
+    }, [columns, filteringEnabled, measureFunnels]);
+
     const measureViewport = useCallback(async () => {
         const grid = gridRef.current;
         if (!grid || !onViewStatsChange) return;
@@ -2310,6 +2404,42 @@ function RawMaterialsGridInner(
                 </Tooltip.Trigger>
                 <Tooltip.Content placement="top">{remoteTooltip?.text}</Tooltip.Content>
             </Tooltip>
+            {/* The funnels: OUR buttons, positioned over the header cells. See
+                `measureFunnels` for why they cannot live in the header template. */}
+            <div ref={funnelLayerRef} className="report-header-funnels">
+                {funnels.map((funnel) => (
+                    <button
+                        key={funnel.prop}
+                        type="button"
+                        className={
+                            columnFilters?.[funnel.prop] !== undefined
+                                ? "header-filter-button is-active"
+                                : "header-filter-button"
+                        }
+                        aria-label={`Фильтр: ${funnel.label}`}
+                        data-prop={funnel.prop}
+                        style={{
+                            left: funnel.left,
+                            top: funnel.top,
+                            height: funnel.height,
+                        }}
+                        onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const cell = gridRef.current
+                                ?.querySelector(`.rgHeaderCell [data-prop="${funnel.prop}"]`)
+                                ?.closest(".rgHeaderCell");
+                            setFilterTarget({
+                                column: funnel.prop,
+                                label: funnel.label,
+                                anchor: (cell ?? event.currentTarget).getBoundingClientRect(),
+                            });
+                        }}
+                    >
+                        <span className="header-filter-button__icon" aria-hidden="true" />
+                    </button>
+                ))}
+            </div>
             <div ref={verticalScrollRef} className="revo-grid-vertical-scroller">
                 <RevoGrid
                     ref={gridRef}
@@ -2341,6 +2471,7 @@ function RawMaterialsGridInner(
                     onAftersourceset={() => {
                         void refreshHorizontalScrollbar();
                         void measureViewport();
+                        scheduleFunnelMeasure();
                     }}
                     onBeforesorting={() => {
                         // Remove index-based merges before RevoGrid reorders
@@ -2357,6 +2488,7 @@ function RawMaterialsGridInner(
                         const sorting = sortingConfigFromEvent(event.detail);
                         sortingBySectionRef.current.set(section, sorting);
                         onSortingChange?.(sorting.columns.length > 0);
+                        scheduleFunnelMeasure();
                     }}
                     onBeforefilterapply={(event) => {
                         // Filtering trims the data source synchronously, and there
@@ -2370,7 +2502,10 @@ function RawMaterialsGridInner(
                             !!collection && Object.keys(collection).length > 0;
                         setTimeout(() => void measureViewport(), 0);
                     }}
-                    onContentsizechanged={() => void refreshHorizontalScrollbar()}
+                    onContentsizechanged={() => {
+                        void refreshHorizontalScrollbar();
+                        scheduleFunnelMeasure();
+                    }}
                     onViewportscroll={(event) => {
                         if (event.detail.dimension === "rgCol") {
                             if (!headerPinned) {
@@ -2383,6 +2518,7 @@ function RawMaterialsGridInner(
                             scheduleScrollRemember();
                         }
                         void measureViewport();
+                        scheduleFunnelMeasure();
                     }}
                     onAftercolumnresize={(event) => {
                         for (const column of Object.values(event.detail)) {
@@ -2395,6 +2531,7 @@ function RawMaterialsGridInner(
                         }
                         void refreshHorizontalScrollbar();
                         void measureViewport();
+                        scheduleFunnelMeasure();
                     }}
                     onBeforeeditstart={beforeEditStart}
                     onBeforeedit={beforeEdit}
