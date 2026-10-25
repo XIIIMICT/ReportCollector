@@ -3272,22 +3272,24 @@ body {
        button grows leftwards from it — the plan's geometry. */
     right: auto;
     transform: translateX(-100%);
-    pointer-events: auto;
-}
-
-/* A collapsed funnel must not swallow clicks aimed at the header. */
-.report-header-funnels .header-filter-button:not(.is-active) {
+    /* A collapsed funnel keeps its box (zero width) but must not swallow clicks
+       aimed at the header; it becomes clickable only once it is open. */
     pointer-events: none;
 }
 
-.report-header-funnels .header-filter-button:hover,
+/* The reveal comes from the CELL under the pointer, not from the button: a
+   collapsed button is zero-width and could never be hovered to open itself. The
+   grid mirrors the hovered header cell onto the matching funnel via
+   `[data-cell-hover]`. */
+.report-header-funnels .header-filter-button[data-cell-hover="true"],
 .report-header-funnels .header-filter-button.is-active {
     width: 24px;
     opacity: 1;
+    pointer-events: auto;
 }
 
-.report-header-funnels .header-filter-button:not(.is-active):not(:hover) {
-    pointer-events: none;
+.report-header-funnels .header-filter-button.is-active {
+    color: var(--accent);
 }
 
 .report-header-funnels .header-filter-button__icon {

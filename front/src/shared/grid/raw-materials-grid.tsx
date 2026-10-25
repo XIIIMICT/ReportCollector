@@ -1807,6 +1807,31 @@ function RawMaterialsGridInner(
         };
     }, [columns, filteringEnabled, measureFunnels]);
 
+    // The column whose header CELL is under the pointer. The overlay mirrors it
+    // onto its funnel: a collapsed button is zero-width, so it can never receive
+    // the hover that would open it.
+    const [hoveredHeaderProp, setHoveredHeaderProp] = useState<string | null>(null);
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid || !filteringEnabled) return;
+        const onPointerMove = (event: PointerEvent) => {
+            const target = event.target as Element | null;
+            // Our own overlay buttons are inside the grid too; they carry
+            // `data-prop` but are not header cells.
+            if (target?.closest?.(".report-header-funnels")) return;
+            const cell = target?.closest?.(".rgHeaderCell");
+            const prop = cell?.querySelector?.("[data-prop]")?.getAttribute("data-prop") ?? null;
+            setHoveredHeaderProp((previous) => (previous === prop ? previous : prop));
+        };
+        const onPointerLeave = () => setHoveredHeaderProp(null);
+        grid.addEventListener("pointermove", onPointerMove);
+        grid.addEventListener("pointerleave", onPointerLeave);
+        return () => {
+            grid.removeEventListener("pointermove", onPointerMove);
+            grid.removeEventListener("pointerleave", onPointerLeave);
+        };
+    }, [filteringEnabled]);
+
     const measureViewport = useCallback(async () => {
         const grid = gridRef.current;
         if (!grid || !onViewStatsChange) return;
@@ -2418,6 +2443,7 @@ function RawMaterialsGridInner(
                         }
                         aria-label={`Фильтр: ${funnel.label}`}
                         data-prop={funnel.prop}
+                        data-cell-hover={hoveredHeaderProp === funnel.prop ? "true" : undefined}
                         style={{
                             left: funnel.left,
                             top: funnel.top,
