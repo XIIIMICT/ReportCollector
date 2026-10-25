@@ -20,7 +20,7 @@ export default defineConfig({
     projects: [
         {
             name: "smoke",
-            testMatch: /(?:auth|health|smoke|clipboard|collab)\.spec\.ts/,
+            testMatch: /(?:auth|health|smoke|clipboard|collab|fix-month)\.spec\.ts/,
             use: { ...devices["Desktop Chrome"] },
         },
         {
