@@ -1688,6 +1688,24 @@ function RawMaterialsGridInner(
 
     const lastStatsRef = useRef<GridViewStats | null>(null);
 
+    /**
+     * Keep each funnel's `is-active` state in step with the stored filters.
+     *
+     * The header template is built from the columns (which do not change when a
+     * filter is applied), so the marker is written onto the rendered buttons —
+     * the same class the plan's overlay buttons carry, which keeps a filtered
+     * column's funnel permanently visible.
+     */
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid || !filteringEnabled) return;
+        for (const button of grid.querySelectorAll<HTMLElement>(".header-filter-button")) {
+            const prop = button.getAttribute("data-prop");
+            const active = prop !== null && columnFilters?.[prop] !== undefined;
+            button.classList.toggle("is-active", active);
+        }
+    }, [columnFilters, filteringEnabled, rows]);
+
     const measureViewport = useCallback(async () => {
         const grid = gridRef.current;
         if (!grid || !onViewStatsChange) return;
