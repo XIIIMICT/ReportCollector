@@ -52,6 +52,7 @@ from src.kppk.constants import (
     KPPK_SOURCE_SCHEMA_RAW,
     KPPK_SOURCE_TABLES,
     MARKET_CODES,
+    MARKET_NAMES,
     normalize_text,
 )
 
@@ -81,7 +82,7 @@ STAMPED_COPY_TABLES: Final[frozenset[str]] = frozenset({"kppk_d_org", "kppk_d_pr
 TEXT_COPY_COLUMNS: Final[frozenset[str]] = frozenset({"code", "name", "product", "region"})
 
 
-def _normalized_sql(column: str) -> str:
+def _normalized_sql(column: str, alias: str = "s") -> str:
     r"""
     Build the SQL form of `normalize_text`.
 
@@ -91,7 +92,7 @@ def _normalized_sql(column: str) -> str:
     `replace`), then every run of whitespace collapses to one ordinary space,
     and the edges are trimmed.
     """
-    return f"""regexp_replace(btrim(replace(s."{column}", chr(160), ' ')), '[[:space:]]+', ' ', 'g')"""
+    return f"""regexp_replace(btrim(replace({alias}."{column}", chr(160), ' ')), '[[:space:]]+', ' ', 'g')"""
 
 
 def _source_column_sql(column: str) -> str:
@@ -347,7 +348,7 @@ async def _truncate_copies(connection: AsyncConnection, app_schema: str) -> None
 
 async def _ensure_copy_tables(connection: AsyncConnection, app_schema: str) -> int:
     """Restore only missing КППК application tables; never alter existing tables."""
-    names = (*KPPK_SOURCE_TABLES.values(), "kppk_org_products", "kppk_cost")
+    names = (*KPPK_SOURCE_TABLES.values(), "kppk_org_products", "kppk_cost", "kppk_markets")
     metadata = MetaData()
     # Resolve the external audit FK without creating or modifying app_users.
     SQLModel.metadata.tables["app_users"].to_metadata(metadata, schema=app_schema)
@@ -368,6 +369,32 @@ async def _ensure_copy_tables(connection: AsyncConnection, app_schema: str) -> i
     return missing
 
 
+async def _ensure_markets(connection: AsyncConnection, app_schema: str) -> int:
+    """
+    Fill the market dictionary with the source markets that are missing.
+
+    The markets normally come from migration 0024, which seeds «РФ», «ДЗ» и «БЗ»
+    in that order. A restored schema (`_ensure_copy_tables` recreates a missing
+    `kppk_markets`) starts empty, and an empty dictionary would make the seed
+    produce no realization rows at all — so the seed tops it up. `ON CONFLICT DO
+    NOTHING` keeps this idempotent and non-destructive: an existing market, even
+    a renamed one, is left alone.
+    """
+    table = _qualified(app_schema, "kppk_markets")
+    created = 0
+    for code in MARKET_CODES:
+        result = await connection.execute(
+            text(
+                f"INSERT INTO {table} (id, code, name, created_at, updated_at) "  # noqa: S608 — server-owned identifiers
+                "VALUES (gen_random_uuid(), :code, :name, now(), now()) "
+                "ON CONFLICT (code) DO NOTHING"
+            ),
+            {"code": code, "name": MARKET_NAMES[code]},
+        )
+        created += int(result.rowcount or 0)
+    return created
+
+
 async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[str, int]:
     """Re-copy every source table into its rc copy; returns per-table counters."""
     per_table: dict[str, int] = {}
@@ -381,25 +408,51 @@ async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[st
         stamp_columns = ", created_at, updated_at" if stamped else ""
         stamp_values = ", now(), now()" if stamped else ""
         if source in {"kppk_f_realization", "kppk_f_realization_plan", "kppk_f_production_plan"}:
-            copied = [column for column, _ in columns if column not in {"org_id", "period_id"}]
-            target_columns = ", ".join(copied)
+            # `product` and (for the realization copies) `region` are dictionaries
+            # now: the copy resolves the source TEXT into a uuid here. This is the
+            # one place a name is matched, and it happens on load.
+            has_market = "region" in {column for column, _ in columns}
+            skipped = {"org_id", "period_id", "product", "region"} if has_market else {"org_id", "period_id", "product"}
+            copied = [column for column, _ in columns if column not in skipped]
+            target_columns = ", ".join(["product_id", *(["market_id"] if has_market else []), *copied])
             # Values are copied VERBATIM, NULLs included: the source files keep
             # volume/excise empty where nothing was measured, and the copies are
             # nullable for exactly that reason. Filling them with 0 would invent
             # figures on every re-seed.
-            source_columns = ", ".join(_source_column_sql(column) for column in copied)
+            source_columns = ", ".join(
+                ["prod.id", *(["mkt.id"] if has_market else []), *(_source_column_sql(c) for c in copied)]
+            )
+            joins = (
+                f"JOIN {_qualified(app_schema, 'kppk_products')} prod ON prod.name = {_normalized_sql('product')} "
+                + (
+                    f"JOIN {_qualified(app_schema, 'kppk_markets')} mkt ON mkt.code = {_normalized_sql('region')} "
+                    if has_market
+                    else ""
+                )
+            )
             missing = (
                 await connection.execute(
                     text(
                         f"SELECT count(*) FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)} s "  # noqa: S608 — server-owned identifiers
                         f"LEFT JOIN {_qualified(KPPK_SOURCE_SCHEMA_RAW, 'kppk_d_period')} p ON p.id = s.period_id "
                         f"LEFT JOIN {_qualified(app_schema, 'kppk_orgs')} o ON o.num = s.org_id "
-                        "WHERE p.id IS NULL OR o.id IS NULL"
+                        f"LEFT JOIN {_qualified(app_schema, 'kppk_products')} prod ON prod.name = {_normalized_sql('product')} "
+                        + (
+                            f"LEFT JOIN {_qualified(app_schema, 'kppk_markets')} mkt ON mkt.code = {_normalized_sql('region')} "
+                            if has_market
+                            else ""
+                        )
+                        + "WHERE p.id IS NULL OR o.id IS NULL OR prod.id IS NULL"
+                        + (" OR mkt.id IS NULL" if has_market else "")
                     )
                 )
             ).scalar_one()
             if missing:
-                message = f"Источник {source}: {missing} строк с неизвестным ДЗО или периодом."
+                message = (
+                    f"Источник {source}: {missing} строк с неизвестным ДЗО, периодом, продуктом"
+                    + (" или рынком" if has_market else "")
+                    + " — приведите справочники в соответствие."
+                )
                 raise CommandError(message)
             result = await connection.execute(
                 text(
@@ -407,7 +460,8 @@ async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[st
                     f"SELECT gen_random_uuid(), o.id, date_trunc('month', p.first_date)::date, {source_columns} "
                     f"FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)} s "
                     f"JOIN {_qualified(KPPK_SOURCE_SCHEMA_RAW, 'kppk_d_period')} p ON p.id = s.period_id "
-                    f"JOIN {_qualified(app_schema, 'kppk_orgs')} o ON o.num = s.org_id"
+                    f"JOIN {_qualified(app_schema, 'kppk_orgs')} o ON o.num = s.org_id "
+                    f"{joins}"
                 )
             )
         else:
@@ -466,16 +520,16 @@ async def _rebuild_costs(connection: AsyncConnection, app_schema: str) -> int:
         active = f"coalesce({volume}, 0) <> 0" if volume else "true"
         candidates = (
             f"WITH scoped AS (SELECT *, bool_or({active}) OVER "  # noqa: S608 — server-owned identifiers
-            f"(PARTITION BY org_id, period_date, product) AS has_sales FROM {qualified} WHERE {scope}), "
+            f"(PARTITION BY org_id, period_date, product_id) AS has_sales FROM {qualified} WHERE {scope}), "
             f"candidates AS (SELECT * FROM scoped WHERE NOT has_sales OR {active}) "
         )
         for field in mapping:
             conflicts = (
                 await connection.execute(
                     text(
-                        candidates + "SELECT org_id, period_date, product, "  # noqa: S608 — server-owned identifiers
+                        candidates + "SELECT org_id, period_date, product_id, "  # noqa: S608 — server-owned identifiers
                         f"array_agg(DISTINCT {field} ORDER BY {field}) FILTER (WHERE {field} <> 0) AS cost_values "
-                        f"FROM candidates GROUP BY org_id, period_date, product "
+                        f"FROM candidates GROUP BY org_id, period_date, product_id "
                         f"HAVING count(DISTINCT nullif({field}, 0)) > 1"
                     )
                 )
@@ -483,7 +537,7 @@ async def _rebuild_costs(connection: AsyncConnection, app_schema: str) -> int:
             for conflict in conflicts:
                 print(
                     f"Предупреждение: разные ненулевые значения {table}.{field}: "
-                    f"ДЗО {conflict.org_id}, {conflict.period_date}, {conflict.product}: "
+                    f"ДЗО {conflict.org_id}, {conflict.period_date}, {conflict.product_id}: "
                     f"{conflict.cost_values}. Берём максимум {max(conflict.cost_values)}."
                 )
         columns = ", ".join(mapping.values())
@@ -491,9 +545,10 @@ async def _rebuild_costs(connection: AsyncConnection, app_schema: str) -> int:
         updates = ", ".join(f"{column} = excluded.{column}" for column in mapping.values())
         await connection.execute(
             text(
-                candidates + f"INSERT INTO {cost} (id, org_id, period_date, product, {columns}) "  # noqa: S608 — server-owned identifiers
-                f"SELECT gen_random_uuid(), org_id, period_date, product, {aggregates} FROM candidates "
-                f"GROUP BY org_id, period_date, product ON CONFLICT (org_id, period_date, product) DO UPDATE SET {updates}"
+                candidates + f"INSERT INTO {cost} (id, org_id, period_date, product_id, {columns}) "  # noqa: S608 — server-owned identifiers
+                f"SELECT gen_random_uuid(), org_id, period_date, product_id, {aggregates} FROM candidates "
+                f"GROUP BY org_id, period_date, product_id "
+                f"ON CONFLICT (org_id, period_date, product_id) DO UPDATE SET {updates}"
             )
         )
     return int((await connection.execute(text(f"SELECT count(*) FROM {cost}"))).scalar_one())  # noqa: S608 — server-owned identifier
@@ -679,13 +734,24 @@ async def _generate_periods(connection: AsyncConnection, app_schema: str) -> dic
     products = (
         await connection.execute(
             text(
-                f"SELECT op.org_id, p.name AS product "  # noqa: S608 — server-owned identifiers
+                f"SELECT op.org_id, p.id AS product_id "  # noqa: S608 — server-owned identifiers
                 f"FROM {_qualified(app_schema, 'kppk_org_products')} op "
                 f"JOIN {_qualified(app_schema, 'kppk_products')} p ON p.id = op.product_id"
             )
         )
     ).all()
-    if not products or not periods:
+    market_ids = [
+        (row.id, row.code)
+        for row in (
+            await connection.execute(
+                text(
+                    f"SELECT id, code FROM {_qualified(app_schema, 'kppk_markets')} "  # noqa: S608
+                    "ORDER BY created_at, code"
+                )
+            )
+        ).all()
+    ]
+    if not products or not periods or not market_ids:
         return {"kppk_realization_plan": 0, "kppk_realization": 0, "kppk_cost": 0}
 
     counts = {"kppk_realization_plan": 0, "kppk_realization": 0, "kppk_cost": 0}
@@ -693,9 +759,15 @@ async def _generate_periods(connection: AsyncConnection, app_schema: str) -> dic
     cost: list[dict[str, object]] = []
     for product_row in products:
         for period in periods:
-            cost.append({"org_id": product_row.org_id, "period_date": period, "product": product_row.product})
+            cost.append(
+                {
+                    "org_id": product_row.org_id,
+                    "period_date": period,
+                    "product_id": product_row.product_id,
+                }
+            )
             last_day = monthrange(period.year, period.month)[1]
-            for region in MARKET_CODES:
+            for market_id, _code in market_ids:
                 realization.append(
                     {
                         "org_id": product_row.org_id,
@@ -703,8 +775,8 @@ async def _generate_periods(connection: AsyncConnection, app_schema: str) -> dic
                         # The copies require the report day: the month's last day,
                         # which is what every read filters on.
                         "rep_date": date(period.year, period.month, last_day),
-                        "product": product_row.product,
-                        "region": region,
+                        "product_id": product_row.product_id,
+                        "market_id": market_id,
                     }
                 )
 
@@ -748,6 +820,7 @@ async def seed(session: AsyncSession) -> dict[str, int]:
     # its `execute` is deprecated — the session's connection is the clean path.
     connection = await session.connection()
     copy_tables_created = await _ensure_copy_tables(connection, app_schema)
+    markets_created = await _ensure_markets(connection, app_schema)
     schemas_created = await _ensure_schemas(connection)
     source_tables_created = await _ensure_source_tables(connection)
     await _truncate_copies(connection, app_schema)
@@ -766,6 +839,7 @@ async def seed(session: AsyncSession) -> dict[str, int]:
         "schemas_created": len(schemas_created),
         "source_tables_created": source_tables_created,
         "copy_tables_created": copy_tables_created,
+        "markets_created": markets_created,
         "administrators": administrators,
         "periods_created": sum(periods.values()),
         "periods_realization_plan": periods["kppk_realization_plan"],

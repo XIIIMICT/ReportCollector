@@ -63,7 +63,7 @@ from .models import KppkCost, KppkRealization, KppkRealizationPlan
 from .realization import (
     read_cost_rows,
     read_current_period,
-    read_excise_products,
+    read_excise_product_names,
     read_market_codes,
     read_realization_row_by_id,
     read_realization_rows,
@@ -726,7 +726,7 @@ async def get_realization(
         period=period,
         markets=await read_market_codes(session),
         rows=rows,
-        exciseProducts=await read_excise_products(session, org_id=org_id),
+        exciseProducts=await read_excise_product_names(session, org_id=org_id),
     )
 
 

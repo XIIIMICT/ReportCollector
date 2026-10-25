@@ -6,8 +6,7 @@ from sqlalchemy import func, text
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.kppk.constants import MARKET_CODES
-from src.kppk.models import KppkCost, KppkOrgProduct, KppkRealization, KppkRealizationPlan
+from src.kppk.models import KppkCost, KppkMarket, KppkOrgProduct, KppkRealization, KppkRealizationPlan
 from src.scripts import seed_kppk
 from src.scripts.seed_kppk import target_periods
 
@@ -40,13 +39,15 @@ async def test_seed_rebuilds_the_periods_and_clears_stale_rows(db_session: Async
     assert pairs, "the КППК fixture must link products to organizations"
 
     # A row outside the window: the rebuild must remove it.
+    market_id = (await db_session.exec(select(col(KppkMarket.id)))).first()
+    assert market_id is not None
     db_session.add(
         KppkRealization(
             org_id=pairs[0].org_id,
             period_date=date(2020, 1, 1),
             rep_date=date(2020, 1, 31),
-            product="Устаревший продукт",
-            region=MARKET_CODES[0],
+            product_id=pairs[0].product_id,
+            market_id=market_id,
         )
     )
     await db_session.commit()
@@ -56,17 +57,17 @@ async def test_seed_rebuilds_the_periods_and_clears_stale_rows(db_session: Async
     counts = await seed_kppk._generate_periods(connection, schema)
 
     periods = target_periods()
-    markets = len(MARKET_CODES)
+    markets = (await db_session.exec(select(func.count()).select_from(KppkMarket))).one()
     assert counts["kppk_realization_plan"] == len(pairs) * len(periods) * markets
     assert counts["kppk_realization"] == len(pairs) * len(periods) * markets
     assert counts["kppk_cost"] == len(pairs) * len(periods)
 
-    # The stale row is gone.
+    # The stale row (a period outside the window) is gone.
     stale = (
         await db_session.exec(
             select(func.count())
             .select_from(KppkRealization)
-            .where(col(KppkRealization.product) == "Устаревший продукт")
+            .where(col(KppkRealization.period_date) == date(2020, 1, 1))
         )
     ).one()
     assert stale == 0

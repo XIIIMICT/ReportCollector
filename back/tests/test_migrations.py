@@ -157,7 +157,9 @@ async def test_adoption_rolls_back_with_its_transaction(db_session, migration_en
 
 @pytest.mark.parametrize("legacy_default", [False, True])
 @pytest.mark.migration_schema
-async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, legacy_default, migration_engine) -> None:
+async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(
+    db_session, legacy_default, migration_engine
+) -> None:
     await db_session.close()
     async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
@@ -182,7 +184,7 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(db_session, 
         assert {table: after[table] for table in all_business_data} == all_business_data
         assert (
             await conn.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalar_one() == "0023_kppk_nullable_volume_excise"
+        ).scalar_one() == "0024_kppk_product_market_refs"
         assert (await conn.execute(text("SELECT id, col_011 FROM r_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
         assert (
@@ -386,7 +388,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, migration_engin
             await conn.run_sync(upgrade)
             assert (
                 await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "0023_kppk_nullable_volume_excise"
+            ).scalar_one() == "0024_kppk_product_market_refs"
         assert all(not path.exists() for path in stale)
     finally:
         for path in stale:
@@ -404,6 +406,30 @@ async def test_upgrade_fresh_schema(migration_engine) -> None:
         assert diffs == []
 
 
+_KPPK_COPY_TABLES = (
+    "kppk_realization",
+    "kppk_realization_plan",
+    "kppk_cost",
+    "kppk_production_plan",
+    "kppk_org_products",
+    "kppk_products",
+)
+
+
+async def _clear_kppk_copies(conn) -> None:
+    """
+    Empty the КППК copies before a roundtrip that re-applies 0024.
+
+    That migration normalizes the copies by MATCHING THEIR TEXT against the
+    dictionaries and aborts on a row it cannot resolve; the shared fixture seeds
+    such rows (products with no dictionary entry), and these roundtrip tests are
+    about other tables. The products go last-to-first so the restricting FKs
+    stay satisfied.
+    """
+    for table in _KPPK_COPY_TABLES:
+        await conn.execute(text(f'DELETE FROM "{table}"'))  # noqa: S608 — literal table names
+
+
 @pytest.mark.migration_schema
 async def test_reference_columns_drop_and_roundtrip(db_session, migration_engine) -> None:
     """0019-0022 reshape the catalog table; the options themselves survive."""
@@ -415,6 +441,7 @@ async def test_reference_columns_drop_and_roundtrip(db_session, migration_engine
     async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
         await conn.run_sync(lambda _: command.downgrade(config, "0018_kppk_excise_on_position"))
+        await _clear_kppk_copies(conn)
         before = (await conn.execute(text("SELECT catalog::text, label FROM r_reference_values ORDER BY label"))).all()
         assert before
         await conn.run_sync(lambda _: command.upgrade(config, "0023_kppk_nullable_volume_excise"))
@@ -474,6 +501,7 @@ async def test_rename_migration_preserves_renovation_collab_state(db_session, mi
     async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
         await conn.run_sync(lambda _: command.downgrade(config, "0012_kppk_calendar_cost"))
+        await _clear_kppk_copies(conn)
         await conn.execute(
             text(
                 "INSERT INTO collab_cell_states (key, state) VALUES "

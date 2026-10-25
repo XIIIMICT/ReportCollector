@@ -9,7 +9,7 @@ from src.kppk.constants import KPPK_SOURCE_TABLES
 from src.scripts import seed_kppk
 from src.scripts.seed_kppk import _ensure_copy_tables, _truncate_copies
 
-TABLES = (*KPPK_SOURCE_TABLES.values(), "kppk_org_products", "kppk_cost")
+TABLES = (*KPPK_SOURCE_TABLES.values(), "kppk_org_products", "kppk_cost", "kppk_markets")
 
 
 async def test_seed_restores_all_missing_application_tables(db_session) -> None:
@@ -40,7 +40,7 @@ async def test_seed_restores_all_missing_application_tables(db_session) -> None:
     unique = await connection.run_sync(
         lambda sync: inspect(sync).get_unique_constraints("kppk_cost", schema=TEST_SCHEMA)
     )
-    assert any(item["column_names"] == ["org_id", "period_date", "product"] for item in unique)
+    assert any(item["column_names"] == ["org_id", "period_date", "product_id"] for item in unique)
     await _truncate_copies(connection, TEST_SCHEMA)
 
 
@@ -90,6 +90,25 @@ async def test_seed_recopies_sources_after_application_tables_were_deleted(db_se
     for name in reversed(TABLES):
         await connection.execute(text(f'DROP TABLE IF EXISTS "{TEST_SCHEMA}"."{name}" CASCADE'))
 
+    # `_ensure_copy_tables` recreates `kppk_markets` EMPTY and the seed fills it
+    # with the source markets («РФ», «ДЗ», «БЗ») — this test's source rows use
+    # «RU», so that market is added right after the tables are restored and
+    # before the copies resolve their references.
+    real_ensure_copy_tables = seed_kppk._ensure_copy_tables
+
+    async def ensure_with_source_market(conn, schema: str) -> int:
+        created = await real_ensure_copy_tables(conn, schema)
+        await conn.execute(
+            text(
+                f'INSERT INTO "{schema}".kppk_markets (id, code, name, created_at, updated_at) '  # noqa: S608 — test schema
+                "VALUES (gen_random_uuid(), 'RU', 'Российская Федерация (RU)', now(), now()) "
+                "ON CONFLICT (code) DO NOTHING"
+            )
+        )
+        return created
+
+    monkeypatch.setattr(seed_kppk, "_ensure_copy_tables", ensure_with_source_market)
+
     async def source_schemas(_connection) -> list[str]:
         return []
 
@@ -120,7 +139,9 @@ async def test_seed_recopies_sources_after_application_tables_were_deleted(db_se
         await connection.execute(
             text(
                 f'SELECT count(*) FROM "{TEST_SCHEMA}".kppk_realization r '  # noqa: S608 — test schema
-                "WHERE r.product = :product AND r.region = 'RU' AND r.fact IS NOT NULL"
+                f'JOIN "{TEST_SCHEMA}".kppk_products p ON p.id = r.product_id '
+                f'JOIN "{TEST_SCHEMA}".kppk_markets m ON m.id = r.market_id '
+                "WHERE p.name = :product AND m.code = 'RU' AND r.fact IS NOT NULL"
             ).bindparams(product="Test product")
         )
     ).scalar_one()
@@ -141,7 +162,7 @@ async def test_seed_recopies_sources_after_application_tables_were_deleted(db_se
     duplicates = (
         await connection.execute(
             text(
-                f"SELECT count(*) - count(DISTINCT (org_id, period_date, product, region)) "  # noqa: S608
+                f"SELECT count(*) - count(DISTINCT (org_id, period_date, product_id, market_id)) "  # noqa: S608
                 f'FROM "{TEST_SCHEMA}".kppk_realization_plan'
             )
         )

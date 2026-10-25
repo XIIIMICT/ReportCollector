@@ -15,7 +15,7 @@ from src.auth.service import verify_signed_identity
 from src.collab.access import KPPK_SECTIONS, RoomAccess, RoomAccessDeniedError
 from src.collab.events import room_key
 from src.collab.ws import _resolve_kppk_access, kppk_ws
-from src.kppk.models import KppkCost, KppkOrg
+from src.kppk.models import KppkCost, KppkOrg, KppkProduct
 
 
 async def _member(db_session, *, active: bool = True) -> User:
@@ -108,10 +108,13 @@ async def test_kppk_socket_rejects_another_project(db_session, store) -> None:
 
 async def test_kppk_cells_are_isolated_by_org_and_month(db_session) -> None:
     orgs = list((await db_session.exec(select(KppkOrg))).all())
+    product = KppkProduct(name="Scoped product")
+    db_session.add(product)
+    await db_session.flush()
     rows = [
-        KppkCost(org_id=orgs[0].id, period_date=date(2026, 6, 1), product="Scoped product"),
-        KppkCost(org_id=orgs[1].id, period_date=date(2026, 6, 1), product="Scoped product"),
-        KppkCost(org_id=orgs[0].id, period_date=date(2026, 7, 1), product="Scoped product"),
+        KppkCost(org_id=orgs[0].id, period_date=date(2026, 6, 1), product_id=product.id),
+        KppkCost(org_id=orgs[1].id, period_date=date(2026, 6, 1), product_id=product.id),
+        KppkCost(org_id=orgs[0].id, period_date=date(2026, 7, 1), product_id=product.id),
     ]
     db_session.add_all(rows)
     await db_session.commit()

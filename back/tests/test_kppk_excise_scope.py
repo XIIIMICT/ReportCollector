@@ -26,7 +26,7 @@ async def test_toggling_the_flag_keeps_the_entered_excise(client, db_session) ->
     # pair is created when missing (the flag is what this test is about).
     row = (await db_session.exec(select(KppkRealizationPlan))).first()
     assert row is not None
-    product = (await db_session.exec(select(KppkProduct).where(col(KppkProduct.name) == row.product))).first()
+    product = (await db_session.exec(select(KppkProduct).where(col(KppkProduct.id) == row.product_id))).first()
     assert product is not None
     position = (
         await db_session.exec(
@@ -83,9 +83,9 @@ async def test_an_asset_without_the_flag_has_no_excise_products(client, db_sessi
         update(KppkOrgProduct).where(col(KppkOrgProduct.org_id) == org.id).values(has_excise=False)
     )
     await db_session.commit()
-    from src.kppk.realization import read_excise_products
+    from src.kppk.realization import read_excise_product_ids
 
-    assert await read_excise_products(db_session, org_id=org.id) == []
+    assert await read_excise_product_ids(db_session, org_id=org.id) == set()
 
 
 async def test_an_excise_outside_the_scope_is_rejected(client, db_session) -> None:
@@ -115,7 +115,7 @@ async def test_an_excise_outside_the_scope_is_rejected(client, db_session) -> No
 
 async def test_the_flag_lists_only_its_own_products(client, db_session) -> None:
     """Only the flagged product × ДЗО positions come back for the asset."""
-    from src.kppk.realization import read_excise_products
+    from src.kppk.realization import read_excise_product_ids
 
     org = (await db_session.exec(select(KppkOrg))).first()
     assert org is not None
@@ -131,4 +131,4 @@ async def test_the_flag_lists_only_its_own_products(client, db_session) -> None:
     await db_session.commit()
 
     product = (await db_session.exec(select(KppkProduct).where(col(KppkProduct.id) == flagged.product_id))).one()
-    assert await read_excise_products(db_session, org_id=org.id) == [product.name]
+    assert await read_excise_product_ids(db_session, org_id=org.id) == {product.id}

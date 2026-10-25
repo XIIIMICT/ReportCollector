@@ -148,27 +148,44 @@ The `dict` schema belongs to another project and is never created or touched.
   prod installations they already hold the real data and are only read. The
   `dict` schema is another project's and is never touched.
 - **Program copies** (`back/src/kppk/models.py`, prefix `kppk_`): `kppk_orgs`,
-  `kppk_periods`, `kppk_products`, `kppk_raws` (the dictionaries),
-  `kppk_org_products` («Продуктовые позиции»: product × ДЗО links from the
-  matrix), and the verbatim read-only `kppk_realization` /
+  `kppk_periods`, `kppk_products`, `kppk_raws`, `kppk_markets` (the
+  dictionaries), `kppk_org_products` («Продуктовые позиции»: product × ДЗО links
+  from the matrix), and the read-only `kppk_realization` /
   `kppk_realization_plan` copies for the next phase. Every copy is uuid-keyed;
   the source integer id stays as a unique column (`org_id`, `period_id`,
   `product_num`, `raw_num`) — the seeder's re-copy key and the join key the
   fact/plan copies reference. `product_num`/`raw_num` are admin-editable in the
   UI and stay unique; the dictionary names are unique as well
   (`kppk_orgs.code`/`name`, `kppk_products.name`, `kppk_raws.name`,
-  `kppk_periods` by `(month_name, year_num)`); several NULL source numbers stay
-  allowed (PostgreSQL treats NULLs as distinct) — the matrix brings in products
-  without a number.
+  `kppk_markets.code`/`name`, `kppk_periods` by `(month_name, year_num)`);
+  several NULL source numbers stay allowed (PostgreSQL treats NULLs as distinct)
+  — the matrix brings in products without a number.
+- **Normalized references (0024).** The source dumps carry the product NAME and
+  the market CODE as free text in every realization row. The copies reference
+  them by uuid instead: `product_id` → `kppk_products.id` and `market_id` →
+  `kppk_markets.id` (`ON DELETE RESTRICT`) on `kppk_realization`,
+  `kppk_realization_plan`, `kppk_cost` and `kppk_production_plan`; the text
+  columns are gone. The one and only name comparison happens in the migration
+  back-fill (and in the seeder's copy step), and both **abort on an unmatched
+  row** rather than skipping it. `kppk_markets` holds «РФ»/«ДЗ»/«БЗ» (code +
+  full name), seeded by the migration; the seeder tops it up with
+  `ON CONFLICT DO NOTHING`. `uq_kppk_cost_scope` keys on
+  `(org_id, period_date, product_id)`. The API contract is unchanged
+  (`product`/`region` stay strings) — the backend joins the dictionaries.
 - **Seeder** `just seed-kppk` (`back/src/scripts/seed_kppk.py`, one
   transaction): re-copies the source tables on every run (truncate + re-insert,
   audit stamps on the four dictionaries) and rebuilds `kppk_org_products` from
   the matrix; products and ДЗО are matched by exact display name — no
-  normalization (spaces stay significant). The ДЗО copy keeps the source id,
+  normalization (spaces stay significant). The realization/production copies
+  resolve that text into `product_id`/`market_id` on the way in, and the seed
+  FAILS on a source row whose product or market is not in the dictionaries
+  instead of writing an unresolvable copy. The ДЗО copy keeps the source id,
   code and name only — `raw.kppk_d_org.time_zone` is not copied. A matrix
   product missing in the source dictionary is created without a `product_num`
   under an `@`-prefixed name; a dictionary product missing in the matrix keeps
-  an empty ДЗО. The `kppk` project row and its user links are owned by
+  an empty ДЗО. The market dictionary is topped up to the source codes («РФ»,
+  «ДЗ», «БЗ») when a restored schema left it empty (`markets_created` in the
+  counters). The `kppk` project row and its user links are owned by
   `just seed` / self-provisioning, not by this seeder.
 - **Workspace** `front/src/features/kppk/kppk-workspace.tsx`: three static tabs
   over the copies («Продуктовые позиции» follow the «Сырьевые позиции» form —

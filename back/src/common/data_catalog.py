@@ -29,6 +29,7 @@ TABLE_COMMENTS: dict[str, str] = {
     "kppk_products": "КППК → Продуктовые позиции; копия raw.kppk_d_product_seq и дополнения из матрицы продуктов.",
     "kppk_raws": "КППК → Сырьевые позиции; копия raw.kppk_d_raw_seq.",
     "kppk_org_products": "КППК → Связи продуктовых позиций с ДЗО по матрице продуктов.",
+    "kppk_markets": "КППК → Справочник рынков сбыта формы «Реализация» (РФ, ДЗ, БЗ).",
     "kppk_realization": "КППК → Реализация, фактический срез; копия raw.kppk_f_realization с календарным месяцем и UUID ДЗО.",
     "kppk_realization_plan": "КППК → Реализация, бизнес-план и оперплан; копия raw.kppk_f_realization_plan.",
     "kppk_production_plan": "КППК → План производства; копия raw.kppk_f_production_plan.",
@@ -157,6 +158,24 @@ SPECIFIC_COLUMNS: dict[str, dict[str, str]] = {
     },
     "kppk_org_products": {
         "has_excise": "Заполняемый акциз этой позиции: у этого продукта на этом ДЗО есть акциз. Включает акциз в форме «Реализация»",
+    },
+    "kppk_markets": {
+        "code": "Короткий код рынка сбыта, как в исходной таблице: РФ, ДЗ, БЗ.",
+        "name": "Полное наименование рынка сбыта.",
+    },
+    "kppk_realization": {
+        "product_id": "Идентификатор продукта → kppk_products.id; заменил текстовое имя из источника.",
+        "market_id": "Идентификатор рынка сбыта → kppk_markets.id; заменил текстовый код региона из источника.",
+    },
+    "kppk_realization_plan": {
+        "product_id": "Идентификатор продукта → kppk_products.id; заменил текстовое имя из источника.",
+        "market_id": "Идентификатор рынка сбыта → kppk_markets.id; заменил текстовый код региона из источника.",
+    },
+    "kppk_cost": {
+        "product_id": "Идентификатор продукта → kppk_products.id; заменил текстовое имя из источника.",
+    },
+    "kppk_production_plan": {
+        "product_id": "Идентификатор продукта → kppk_products.id; заменил текстовое имя из источника.",
     },
     "kppk_products": {
         "product_num": "Уникальный номер продуктовой позиции; NULL для ненумерованных дополнений из матрицы.",

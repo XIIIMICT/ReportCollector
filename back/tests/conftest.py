@@ -354,6 +354,7 @@ async def test_database(test_engine) -> None:
         config.attributes["connection"] = conn.sync_connection
         await conn.run_sync(lambda _: command.upgrade(config, "head"))
 
+
 class _DetachedSession:
     """Stand-in for `db_session` in the migration tests.
 
@@ -469,14 +470,18 @@ async def db_session(
                 # schema (and its migrations) stays for the next test.
                 async with test_engine.begin() as conn:
                     tables = (
-                        await conn.execute(
-                            text(
-                                "SELECT tablename FROM pg_tables "
-                                "WHERE schemaname = :schema AND tablename <> 'alembic_version'"
-                            ),
-                            {"schema": TEST_SCHEMA},
+                        (
+                            await conn.execute(
+                                text(
+                                    "SELECT tablename FROM pg_tables "
+                                    "WHERE schemaname = :schema AND tablename <> 'alembic_version'"
+                                ),
+                                {"schema": TEST_SCHEMA},
+                            )
                         )
-                    ).scalars().all()
+                        .scalars()
+                        .all()
+                    )
                     if tables:
                         await conn.execute(
                             text(
@@ -665,22 +670,45 @@ async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> No
     # products are seeded in a deliberately WRONG insertion order: the read must
     # sort them by the «Продуктовые позиции» number, not by the copy's text.
 
-    from src.kppk.models import KppkRealization, KppkRealizationPlan
+    from sqlmodel import select
 
-    for product, region in [
+    from src.kppk.models import KppkMarket, KppkRealization, KppkRealizationPlan
+
+    # The market dictionary is seeded BY THE MIGRATION (0024 creates «РФ», «ДЗ»,
+    # «БЗ» in that order), so the fixture only resolves those codes; «RU»/«KZ» are
+    # added because the realization rows reference a market by uuid and the read
+    # only needs SOME markets to order the rows by.
+    markets = {market.code: market for market in (await session.exec(select(KppkMarket))).all()}
+    for code, name in (("RU", "Российская Федерация (RU)"), ("KZ", "Казахстан")):
+        if code not in markets:
+            market = KppkMarket(code=code, name=name, created_at=now, updated_at=now)
+            session.add(market)
+            markets[code] = market
+    await session.flush()
+
+    # A product the dictionary does not hold: it has no «№» and sorts last. The
+    # sources used free text for exactly this case; the dictionary row carries it.
+    unnumbered = products.get("Неизвестный продукт")
+    if unnumbered is None:
+        unnumbered = KppkProduct(name="Неизвестный продукт", created_at=now, updated_at=now, updater_user_id=None)
+        session.add(unnumbered)
+        await session.flush()
+
+    for product_name, market_code in [
         ("Сода кальцинированная марки Б", "RU"),
         ("Сульфат натрия", "RU"),
         ("Сода кальцинированная марки Б", "KZ"),
-        # A name the dictionary does not hold: it sorts last.
+        # A product without a «№»: it sorts last.
         ("Неизвестный продукт", "RU"),
     ]:
+        product_id = unnumbered.id if product_name == "Неизвестный продукт" else products[product_name].id
         session.add(
             KppkRealizationPlan(
                 org_id=orgs["АО «СНХЗ»"].id,
                 period_date=date(2026, 6, 1),
                 rep_date=date(2026, 6, 30),
-                product=product,
-                region=region,
+                product_id=product_id,
+                market_id=markets[market_code].id,
                 month_bp_plan=Decimal("10.000"),
             )
         )
@@ -689,8 +717,8 @@ async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> No
                 org_id=orgs["АО «СНХЗ»"].id,
                 period_date=date(2026, 6, 1),
                 rep_date=date(2026, 6, 30),
-                product=product,
-                region=region,
+                product_id=product_id,
+                market_id=markets[market_code].id,
                 fact=Decimal("1.000"),
             )
         )

@@ -22,9 +22,12 @@ from src.renovation.form_schema import (
 
 
 def test_catalog_covers_every_application_table_and_column() -> None:
-    assert len(SQLModel.metadata.tables) == 30
-    # 494: 0021 dropped `value_key`, 0022 swapped `payload` for `deleted_at`.
-    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 494
+    # 0024 added `kppk_markets` (+6 columns) and swapped the text `product`/
+    # `region` of the realization copies for `product_id`/`market_id` (same count).
+    assert len(SQLModel.metadata.tables) == 31
+    # 494: 0021 dropped `value_key`, 0022 swapped `payload` for `deleted_at`,
+    # 0024 added the market dictionary's 6 columns.
+    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 500
     assert set(TABLE_COMMENTS) == set(SQLModel.metadata.tables)
     for table in SQLModel.metadata.tables.values():
         assert table.comment == TABLE_COMMENTS[table.name].rstrip(".")
@@ -50,14 +53,13 @@ def test_frozen_migration_matches_current_catalog() -> None:
     }
     # 0019/0020 dropped `r_reference_values.sort_order` and `.value_key`: the
     # frozen snapshot still describes them, the live metadata does not.
+    # 0024 replaced the text `product`/`region` of the realization copies with
+    # `product_id`/`market_id`, so the snapshot keeps the text descriptions.
+    _replaced = {"sort_order", "value_key", "payload", "product", "region"}
     migration_tables = {
         name: (
             description,
-            {
-                column: comment
-                for column, comment in columns.items()
-                if column not in {"sort_order", "value_key", "payload"}
-            },
+            {column: comment for column, comment in columns.items() if column not in _replaced},
         )
         for name, (description, columns) in migration.COMMENTS.items()
     }
@@ -66,6 +68,11 @@ def test_frozen_migration_matches_current_catalog() -> None:
         columns.update(
             {column.name: column.comment for column in SQLModel.metadata.tables[name].c if column.name not in columns}
         )
+    # 0024 added `kppk_markets` — a table the frozen snapshot cannot know about,
+    # so it is described by the LIVE catalog only.
+    for name, (description, columns) in expected.items():
+        if name not in migration_tables:
+            migration_tables[name] = (description, dict(columns))
     assert expected == migration_tables
     assert migration.PREVIOUS_COMMENTS == import_module("migrations.versions.0014_data_catalog_comments").COMMENTS
 

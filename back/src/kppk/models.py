@@ -101,6 +101,26 @@ class KppkRaw(UpdaterDisplay, table=True):
     updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
 
 
+class KppkMarket(UpdaterDisplay, table=True):
+    """
+    A sales market of the «Реализация» form («Российская Федерация», «Дальнее…»).
+
+    The source kept the market as free text in every realization row; the
+    program normalizes it into a dictionary so a row references ONE market by
+    uuid. The code is the short label the form prints («РФ», «ДЗ», «БЗ»), the
+    name its full wording.
+    """
+
+    __tablename__ = "kppk_markets"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    code: str = Field(sa_column=Column(Text, unique=True, nullable=False))
+    name: str = Field(sa_column=Column(Text, unique=True, nullable=False))
+    created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
+    updated_at: datetime = Field(default_factory=utc_now, sa_column=_updated_at_column())
+    updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
+
+
 class KppkOrgProduct(UpdaterDisplay, table=True):
     """«Продуктовые позиции»: a product × ДЗО link (Матрица продуктов.xlsx)."""
 
@@ -125,12 +145,12 @@ class KppkOrgProduct(UpdaterDisplay, table=True):
 
 
 class KppkRealization(SQLModel, table=True):
-    """Copy of raw.kppk_f_realization (uuid PK, FKs by source ids)."""
+    """Copy of raw.kppk_f_realization (uuid PK, FKs by the dictionaries)."""
 
     __tablename__ = "kppk_realization"
     __table_args__ = (
-        Index("ix_kppk_realization_scope", "period_date", "org_id", "product"),
-        Index("ix_kppk_realization_region_product", "region", "product"),
+        Index("ix_kppk_realization_scope", "period_date", "org_id", "product_id"),
+        Index("ix_kppk_realization_region_product", "market_id", "product_id"),
         CheckConstraint("extract(day from period_date) = 1", name="ck_kppk_realization_calendar_month"),
     )
 
@@ -139,8 +159,11 @@ class KppkRealization(SQLModel, table=True):
     period_date: date = Field(sa_column=Column(Date, nullable=False))
     load_id: int | None = Field(default=None, sa_column=Column(Integer, nullable=True))
     rep_date: date = Field(sa_column=Column(Date, nullable=False))
-    product: str = Field(sa_column=Column(Text, nullable=False))
-    region: str = Field(sa_column=Column(Text, nullable=False))
+    # The dictionaries. The source carried a product NAME and a market CODE as
+    # text in every row; both are uuid references now, so a rename in the
+    # dictionary cannot orphan the history and a typo cannot invent a product.
+    product_id: UUID = Field(sa_column=Column(ForeignKey("kppk_products.id", ondelete="RESTRICT"), nullable=False))
+    market_id: UUID = Field(sa_column=Column(ForeignKey("kppk_markets.id", ondelete="RESTRICT"), nullable=False))
 
     # «Выкуп / Объем» of the «Факт» slice (the template's column slot before
     # fca_price_fact) — a program-side addition, NULL on the source dumps.
@@ -173,12 +196,12 @@ class KppkRealization(SQLModel, table=True):
 
 
 class KppkRealizationPlan(SQLModel, table=True):
-    """Copy of raw.kppk_f_realization_plan (uuid PK, FKs by source ids)."""
+    """Copy of raw.kppk_f_realization_plan (uuid PK, FKs by the dictionaries)."""
 
     __tablename__ = "kppk_realization_plan"
     __table_args__ = (
-        Index("ix_kppk_realization_plan_scope", "period_date", "org_id", "product"),
-        Index("ix_kppk_realization_plan_region_product", "region", "product"),
+        Index("ix_kppk_realization_plan_scope", "period_date", "org_id", "product_id"),
+        Index("ix_kppk_realization_plan_region_product", "market_id", "product_id"),
         CheckConstraint("extract(day from period_date) = 1", name="ck_kppk_realization_plan_calendar_month"),
     )
 
@@ -187,8 +210,8 @@ class KppkRealizationPlan(SQLModel, table=True):
     period_date: date = Field(sa_column=Column(Date, nullable=False))
     load_id: int | None = Field(default=None, sa_column=Column(Integer, nullable=True))
     rep_date: date = Field(sa_column=Column(Date, nullable=False))
-    product: str = Field(sa_column=Column(Text, nullable=False))
-    region: str = Field(sa_column=Column(Text, nullable=False))
+    product_id: UUID = Field(sa_column=Column(ForeignKey("kppk_products.id", ondelete="RESTRICT"), nullable=False))
+    market_id: UUID = Field(sa_column=Column(ForeignKey("kppk_markets.id", ondelete="RESTRICT"), nullable=False))
 
     # «Выкуп / Объем» of the plan slices (the template's column slot before
     # fca_price_*_plan) — a program-side addition, NULL on the source dumps.
@@ -222,15 +245,15 @@ class KppkCost(SQLModel, table=True):
 
     __tablename__ = "kppk_cost"
     __table_args__ = (
-        UniqueConstraint("org_id", "period_date", "product", name="uq_kppk_cost_scope"),
-        Index("ix_kppk_cost_scope", "period_date", "org_id", "product"),
+        UniqueConstraint("org_id", "period_date", "product_id", name="uq_kppk_cost_scope"),
+        Index("ix_kppk_cost_scope", "period_date", "org_id", "product_id"),
         CheckConstraint("extract(day from period_date) = 1", name="ck_kppk_cost_calendar_month"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     org_id: UUID = Field(sa_column=Column(ForeignKey("kppk_orgs.id", ondelete="RESTRICT"), nullable=False))
     period_date: date = Field(sa_column=Column(Date, nullable=False))
-    product: str = Field(sa_column=Column(Text, nullable=False))
+    product_id: UUID = Field(sa_column=Column(ForeignKey("kppk_products.id", ondelete="RESTRICT"), nullable=False))
     full_cost_bp: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     production_cost_bp: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
     variable_cost_bp: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 2), nullable=True))
@@ -247,7 +270,7 @@ class KppkProductionPlan(SQLModel, table=True):
 
     __tablename__ = "kppk_production_plan"
     __table_args__ = (
-        Index("ix_kppk_production_plan_scope", "period_date", "org_id", "product"),
+        Index("ix_kppk_production_plan_scope", "period_date", "org_id", "product_id"),
         CheckConstraint("extract(day from period_date) = 1", name="ck_kppk_production_plan_calendar_month"),
     )
 
@@ -256,7 +279,7 @@ class KppkProductionPlan(SQLModel, table=True):
     period_date: date = Field(sa_column=Column(Date, nullable=False))
     rep_date: date = Field(sa_column=Column(Date, nullable=False))
     load_id: int | None = Field(default=None, sa_column=Column(Integer, nullable=True))
-    product: str = Field(sa_column=Column(Text, nullable=False))
+    product_id: UUID = Field(sa_column=Column(ForeignKey("kppk_products.id", ondelete="RESTRICT"), nullable=False))
     month_bp_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     month_plan: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
     goods: Decimal | None = Field(default=None, sa_column=Column(Numeric(20, 3), nullable=True))
@@ -276,6 +299,7 @@ for _model in (
     KppkOrg,
     KppkProduct,
     KppkRaw,
+    KppkMarket,
     KppkOrgProduct,
     KppkRealization,
     KppkRealizationPlan,

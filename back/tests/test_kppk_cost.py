@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.kppk.models import KppkCost, KppkOrg, KppkProductionPlan, KppkRealization, KppkRealizationPlan
+from src.kppk.models import KppkCost, KppkOrg, KppkProduct, KppkProductionPlan, KppkRealization, KppkRealizationPlan
 from src.scripts.seed_kppk import _rebuild_costs
 
 HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
@@ -19,11 +19,14 @@ HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
 
 async def test_cost_import_selects_selling_markets_per_slice(db_session: AsyncSession) -> None:
     """Zero-volume markets may carry stale prices; BP/OP choose independently."""
+    product_id = (
+        await db_session.exec(select(KppkProduct.id).where(col(KppkProduct.name) == "Сода кальцинированная марки Б"))
+    ).one()
     plan_rows = list((await db_session.exec(select(KppkRealizationPlan))).all())
     for row in plan_rows:
         row.month_bp_plan = Decimal(0)
         row.month_max_plan = Decimal(0)
-    selling, inactive = [row for row in plan_rows if row.product == "Сода кальцинированная марки Б"]
+    selling, inactive = [row for row in plan_rows if row.product_id == product_id]
     selling.month_bp_plan = Decimal(5)
     selling.input_cost_bp = Decimal(100)
     selling.var_exp_bp_plan = Decimal(60)
@@ -40,7 +43,7 @@ async def test_cost_import_selects_selling_markets_per_slice(db_session: AsyncSe
             org_id=selling.org_id,
             period_date=date(2026, 6, 1),
             rep_date=date(2026, 6, 30),
-            product=selling.product,
+            product_id=selling.product_id,
             full_cost_bp=Decimal(150),
             full_cost_plan=Decimal(170),
         )
@@ -48,22 +51,25 @@ async def test_cost_import_selects_selling_markets_per_slice(db_session: AsyncSe
     await db_session.flush()
     connection = await db_session.connection()
     await _rebuild_costs(connection, TEST_SCHEMA)
-    row = (await db_session.exec(select(KppkCost).where(col(KppkCost.product) == selling.product))).one()
+    row = (await db_session.exec(select(KppkCost).where(col(KppkCost.product_id) == selling.product_id))).one()
     assert (row.production_cost_bp, row.variable_cost_bp) == (Decimal(100), Decimal(60))
     assert (row.production_cost_op, row.variable_cost_op) == (Decimal(120), Decimal(70))
     assert (row.full_cost_bp, row.full_cost_op) == (Decimal(150), Decimal(170))
 
 
 async def test_cost_import_keeps_no_sales_production_and_reports_conflicts(db_session: AsyncSession, capsys) -> None:
+    product_id = (
+        await db_session.exec(select(KppkProduct.id).where(col(KppkProduct.name) == "Сода кальцинированная марки Б"))
+    ).one()
     rows = list((await db_session.exec(select(KppkRealizationPlan))).all())
-    product_rows = [row for row in rows if row.product == "Сода кальцинированная марки Б"]
+    product_rows = [row for row in rows if row.product_id == product_id]
     for row in product_rows:
         row.month_bp_plan = Decimal(0)
         row.input_cost_bp = Decimal(25)
     await db_session.flush()
     connection = await db_session.connection()
     await _rebuild_costs(connection, TEST_SCHEMA)
-    cost = (await db_session.exec(select(KppkCost).where(col(KppkCost.product) == product_rows[0].product))).one()
+    cost = (await db_session.exec(select(KppkCost).where(col(KppkCost.product_id) == product_rows[0].product_id))).one()
     assert cost.production_cost_bp == Decimal(25)
     product_rows[0].month_bp_plan = Decimal(1)
     product_rows[1].month_bp_plan = Decimal(2)
@@ -72,7 +78,7 @@ async def test_cost_import_keeps_no_sales_production_and_reports_conflicts(db_se
     product_rows[1].var_exp_bp_plan = Decimal(51)
     await db_session.flush()
     assert await _rebuild_costs(connection, TEST_SCHEMA) > 0
-    cost = (await db_session.exec(select(KppkCost).where(col(KppkCost.product) == product_rows[0].product))).one()
+    cost = (await db_session.exec(select(KppkCost).where(col(KppkCost.product_id) == product_rows[0].product_id))).one()
     assert cost.production_cost_bp == Decimal(26)
     assert cost.variable_cost_bp == Decimal(51)
     warnings = capsys.readouterr().out
@@ -86,7 +92,10 @@ async def test_cost_import_keeps_no_sales_production_and_reports_conflicts(db_se
 async def test_cost_api_number_order_scope_edit_undo_and_export(client: AsyncClient, db_session: AsyncSession) -> None:
     org = (await db_session.exec(select(KppkOrg).where(col(KppkOrg.num) == 2))).one()
     for name in ("Сода кальцинированная марки Б", "Сульфат натрия"):
-        db_session.add(KppkCost(org_id=org.id, period_date=date(2026, 6, 1), product=name, full_cost_bp=Decimal(15)))
+        product_id = (await db_session.exec(select(KppkProduct.id).where(col(KppkProduct.name) == name))).one()
+        db_session.add(
+            KppkCost(org_id=org.id, period_date=date(2026, 6, 1), product_id=product_id, full_cost_bp=Decimal(15))
+        )
     await db_session.commit()
     params = {"orgId": str(org.id), "month": 6, "year": 2026}
     response = await client.get("/api/kppk/cost", params=params, headers=HEADERS)

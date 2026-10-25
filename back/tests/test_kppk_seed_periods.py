@@ -2,11 +2,11 @@
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlmodel import col, select
 
-from src.kppk.models import KppkCost, KppkRealization, KppkRealizationPlan
+from src.kppk.models import KppkCost, KppkProduct, KppkRealization, KppkRealizationPlan
 from src.scripts import seed_kppk
 
 if TYPE_CHECKING:
@@ -68,10 +68,32 @@ async def test_seed_generates_the_periods_before_the_costs(db_session: AsyncSess
     assert rows > 0
 
 
-async def test_seeded_rows_have_no_stray_whitespace(db_session: AsyncSession) -> None:
-    """The copies keep names trimmed and single-spaced: the seed normalizes them."""
-    plan_products = (await db_session.exec(select(col(KppkRealizationPlan.product)))).all()
-    fact_products = (await db_session.exec(select(col(KppkRealization.product)))).all()
-    cost_products = (await db_session.exec(select(col(KppkCost.product)))).all()
-    for value in (*plan_products, *fact_products, *cost_products):
-        assert value == " ".join(value.split()), repr(value)
+async def test_every_period_row_references_a_dictionary_row(db_session: AsyncSession) -> None:
+    """
+    The period rows point at the dictionaries by uuid, never by name.
+
+    The text columns are gone: a product or market is a reference, so an
+    orphaned row is impossible by construction — this pins that the FK columns
+    are filled for every row the generation writes. The rows have to be
+    generated here: the fixture only seeds the dictionaries and the matrix, the
+    period rows belong to the seed.
+    """
+    connection = await db_session.connection()
+    schema = (await connection.execute(text("SELECT current_schema()"))).scalar_one()
+    counts = await seed_kppk._generate_periods(connection, schema)
+    assert counts["kppk_realization_plan"] > 0
+    assert counts["kppk_realization"] > 0
+    assert counts["kppk_cost"] > 0
+
+    plan_rows = (await db_session.exec(select(KppkRealizationPlan))).all()
+    fact_rows = (await db_session.exec(select(KppkRealization))).all()
+    cost_rows = (await db_session.exec(select(KppkCost))).all()
+    for rows in (plan_rows, fact_rows, cost_rows):
+        assert rows
+        for row in rows:
+            assert row.product_id is not None
+    for row in (*plan_rows, *fact_rows):
+        assert row.market_id is not None
+    # And the dictionaries themselves are intact (no name duplicates either).
+    names = (await db_session.exec(select(col(KppkProduct.name)))).all()
+    assert len(names) == len(set(names))

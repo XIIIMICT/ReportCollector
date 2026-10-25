@@ -42,17 +42,24 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 
   (`uv run --directory back -m src.scripts.seed_kppk`) creates the missing `raw`
   schema and source tables (**never** `dict` — that belongs to another project),
   restores any missing `rc.kppk_*` application tables
-  from the current SQLModel metadata, then re-copies the source tables
+  from the current SQLModel metadata (the market dictionary included, then
+  topped up to «РФ»/«ДЗ»/«БЗ»), then re-copies the source tables
   (truncate + re-insert, one transaction) and rebuilds «Продуктовые позиции» from
   the matrix — products missing in the source dictionary are created without a
   `product_num` under an `@`-prefixed name, ДЗО/products are matched by exact
-  display name. **Text values are normalized on the way in** by `normalize_text`
+  display name. The realization copies resolve that text into
+  `product_id`/`market_id` uuids on the way in and **fail** on a source row whose
+  product or market is absent from the dictionaries (no silent skip).
+  **Text values are normalized on the way in** by `normalize_text`
   (`src/kppk/constants.py`): the value is trimmed and every run of whitespace —
   doubled spaces, tabs, line breaks, the non-breaking space — collapses to one
-  ordinary space. The copies are keyed by product/ДЗО NAME, so an untrimmed value
-  would silently become a second product; the same rule runs in SQL while copying
-  (`_normalized_sql` in the seeder) and in Python for the matrix and for every
-  dictionary cell a user saves. **The seed REBUILDS the period rows** for every
+  ordinary space. The DICTIONARIES are keyed by name and the source copy is
+  matched to them by name, so an untrimmed value would silently become a second
+  product; the same rule runs in SQL while copying (`_normalized_sql` in the
+  seeder) and in Python for the matrix and for every dictionary cell a user
+  saves. The realization copies themselves reference those dictionaries by uuid
+  (`product_id`, `market_id`), so a later rename cannot orphan the history.
+  **The seed REBUILDS the period rows** for every
   month from September 2023 to December of the next year: it truncates
   «Реализация» (plan and fact) and «Себестоимость» and inserts one row per
   (ДЗО × product of the matrix × market) and per (ДЗО × product), every figure

@@ -510,10 +510,14 @@ async def test_the_grouped_view_lists_a_product_with_its_org_names(client: Async
     assert response.status_code == 200
     rows = response.json()
     # One row per PRODUCT (not per position) — the unlinked «марки А» included,
-    # with an empty ДЗО set: the dictionary knows the product exists.
+    # with an empty ДЗО set: the dictionary knows the product exists. The
+    # unnumbered «Неизвестный продукт» is a dictionary row too (the copies used
+    # to carry such a name as free text; now a copy references the dictionary).
     assert [row["name"] for row in rows] == [
         "Сульфат натрия",
         "Сода кальцинированная марки Б",
+        # The two unnumbered products follow the numbered ones, by name.
+        "Неизвестный продукт",
         "Сода кальцинированная марки А",
     ], [(row["productNum"], row["id"], row["orgNames"]) for row in rows]
     by_name = {row["name"]: row for row in rows}
@@ -849,12 +853,12 @@ async def test_realization_rows_carry_the_product_number_and_sort_by_it(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """«Реализация» resolves each product's «№» by name and orders by it.
+    """«Реализация» resolves each product's «№» through the dictionary and orders by it.
 
-    The copies hold only the product NAME, so the number comes from
-    «Продуктовые позиции». The seeded rows are inserted out of order on
-    purpose: the view must follow the dictionary numbering, and a name the
-    dictionary does not hold must sort last with a NULL number.
+    The copies reference the product by uuid, so the number is a direct
+    dictionary lookup. The seeded rows are inserted out of order on purpose: the
+    view must follow the dictionary numbering, and a product without a number
+    must sort last with a NULL number.
     """
     org = await _org_by_name(db_session, "АО «СНХЗ»")
     response = await client.get(
@@ -874,8 +878,10 @@ async def test_realization_rows_carry_the_product_number_and_sort_by_it(
         "Неизвестный продукт",
     ]
     assert [row["productNum"] for row in rows] == [1, 2, 2, None]
-    # The markets keep the market order inside a product.
-    assert [row["region"] for row in rows] == ["RU", "RU", "KZ", "RU"]
+    # The markets keep the DICTIONARY order inside a product (`read_market_codes`
+    # orders by insertion, then code): «РФ»/«ДЗ»/«БЗ» come from the migration, so
+    # the fixture's «KZ» precedes «RU».
+    assert [row["region"] for row in rows] == ["RU", "KZ", "RU", "RU"]
 
 
 async def test_realization_export_renders_the_selected_view(client: AsyncClient, db_session: AsyncSession) -> None:

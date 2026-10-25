@@ -125,5 +125,15 @@ KPPK_SOURCE_TABLES: dict[str, str] = {
     "kppk_f_production_plan": "kppk_production_plan",
 }
 
-# The realization form has a fixed market order from the source workbook.
+# The market order of the source workbook. The markets themselves live in the
+# `kppk_markets` dictionary (migration 0024 seeded it from this tuple, in this
+# order); the constant stays as the reference for a fresh database and for tests.
 MARKET_CODES: tuple[str, ...] = ("РФ", "ДЗ", "БЗ")
+
+# Full wording of each market code, as the dictionary spells it. The source
+# carried only the code; the name is the readable form the dictionary editor shows.
+MARKET_NAMES: dict[str, str] = {
+    "РФ": "Российская Федерация",
+    "ДЗ": "Дальнее зарубежье",
+    "БЗ": "Ближнее зарубежье",
+}
