@@ -1816,9 +1816,13 @@ function RawMaterialsGridInner(
         if (!grid || !filteringEnabled) return;
         const onPointerMove = (event: PointerEvent) => {
             const target = event.target as Element | null;
-            // Our own overlay buttons are inside the grid too; they carry
-            // `data-prop` but are not header cells.
-            if (target?.closest?.(".report-header-funnels")) return;
+            // Moving onto OUR overlay button must not close it: the button is
+            // the thing the user is aiming at, so its own column stays hovered.
+            const funnel = target?.closest?.(".report-header-funnels [data-prop]");
+            if (funnel) {
+                setHoveredHeaderProp(funnel.getAttribute("data-prop"));
+                return;
+            }
             const cell = target?.closest?.(".rgHeaderCell");
             const prop = cell?.querySelector?.("[data-prop]")?.getAttribute("data-prop") ?? null;
             setHoveredHeaderProp((previous) => (previous === prop ? previous : prop));
