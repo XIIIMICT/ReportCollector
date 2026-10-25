@@ -2965,7 +2965,7 @@ body {
    also stand in for RevoGrid's own `.rv-filter` styling. */
 .header-filter-button {
     position: absolute;
-    z-index: 1;
+    z-index: 3;
     top: 0;
     right: 1px;
     bottom: 1px;
@@ -3004,36 +3004,43 @@ body {
     .renovation-grid__number-label,
 .renovation-grid__number-cell:has(.header-filter-button.is-active) .renovation-grid__number-label,
 .renovation-grid__corner:hover:has(.header-filter-button) .renovation-grid__corner-label,
-.renovation-grid__corner:focus-within:has(.header-filter-button) .renovation-grid__corner-label {
+.renovation-grid__corner:focus-within:has(.header-filter-button) .renovation-grid__corner-label,
+.renovation-grid__corner:has(.header-filter-button.is-active) .renovation-grid__corner-label {
     margin-right: 12px;
 }
 
-/* The «№» corner is only 52px wide: the funnel needs its own room, and the
-   label must not be pushed twice (once by the margin above, once by the cell's
-   own centring). Keep the corner's funnel inside the cell's padding box so it
-   slides out of the edge like the leaf ones. */
-.renovation-grid__corner .header-filter-button {
-    right: 0;
-    width: 0;
-}
-
-.renovation-grid__corner:hover .header-filter-button,
-.renovation-grid__corner:focus-within .header-filter-button {
-    width: 20px;
-}
-
-/* In a RevoGrid header the funnel sits IN the header's label row — the cell
-   layout RevoGrid gives us — instead of an overlay anchored to `.header-content`
-   (which is what made it drift and its hover chain never match). */
+/* In a RevoGrid header the funnel is pinned to the COLUMN's right edge, exactly
+   like the plan's: it is absolutely positioned against the header cell (not
+   against `.header-content`, which is only the label's box) and grows leftwards
+   from that edge. */
 .report-header__title .header-filter-button {
-    position: relative;
-    inset: auto;
+    position: absolute;
+    /* Above `.header-content`: that box is positioned too, so a lower z-index
+       put the funnel UNDER the text and the click sorted the column instead. */
+    z-index: 3;
+    top: 0;
+    right: 0;
+    bottom: 0;
     display: flex;
     flex: 0 0 auto;
     align-items: center;
     justify-content: center;
-    height: 100%;
-    margin-left: 2px;
+    height: auto;
+    margin-left: 0;
+}
+
+/* The label row hosts the funnel, so it is the positioning context AND a
+   stacking context that sits above RevoGrid's own `.header-content` — that box
+   is `position: relative` and would otherwise swallow the click, which is what
+   made the header sort instead of opening the filter. */
+.report-header__title {
+    position: relative;
+    z-index: 2;
+}
+
+.raw-materials-grid revogr-header .rgHeaderCell .header-content {
+    position: static;
+    z-index: auto;
 }
 
 /* The label reserves the funnel's room the way the plan does — the same 12px,
@@ -3067,6 +3074,7 @@ body {
 .renovation-grid__number-cell:focus-within .header-filter-button,
 .renovation-grid__corner:hover .header-filter-button,
 .renovation-grid__corner:focus-within .header-filter-button,
+.renovation-grid__corner:has(.header-filter-button.is-active) .header-filter-button,
 .raw-materials-grid revogr-header .rgHeaderCell:hover .header-filter-button,
 .raw-materials-grid revogr-header .rgHeaderCell:focus-within .header-filter-button,
 .rgHeaderCell:hover .header-filter-button,
@@ -3086,6 +3094,14 @@ body {
     width: 11px;
     height: 11px;
     flex: 0 0 auto;
+}
+
+/* The grid's header renders the icon as an EMPTY `<svg>` (the plan uses the
+   iconoir component, which brings its own path). The shared glyph is painted
+   onto it as a mask, so both headers show the same funnel. */
+.report-header__title .header-filter-button__icon {
+    background-color: currentColor;
+    mask: var(--filter-icon) center / contain no-repeat;
 }
 
 /* The Autocomplete trigger is an invisible zero-height anchor placed at the
