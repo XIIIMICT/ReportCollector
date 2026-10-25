@@ -2189,11 +2189,19 @@ body {
     justify-content: center;
     width: 100%;
     height: 100%;
+    /* The corner's content box is `width: 100%`, so the funnel's `right: 0`
+       lands on the cell's edge — not on the text's. */
+    box-sizing: border-box;
 }
 
 .report-row-header__filter-button {
-    position: relative;
+    position: absolute;
     z-index: 1;
+    top: 0;
+    /* Same offset as the column funnels in the grids (their label row is inset
+       the same way), so the corner matches them instead of hugging the edge. */
+    right: -4px;
+    bottom: 0;
     display: flex;
     flex-shrink: 0;
     align-items: center;
@@ -2222,14 +2230,14 @@ body {
 }
 
 .report-row-header--heading:hover .report-row-header__filter-button,
-.report-row-header--heading:focus-within .report-row-header__filter-button {
+.report-row-header__heading-wrap:hover .report-row-header__filter-button {
     width: 24px;
     opacity: 1;
 }
 
 .report-row-header--heading:hover .report-row-header__heading,
 .report-row-header--heading:focus-within .report-row-header__heading {
-    margin-right: 20px;
+    margin-right: 12px;
 }
 
 .report-row-header__heading {
@@ -3019,7 +3027,11 @@ body {
        put the funnel UNDER the text and the click sorted the column instead. */
     z-index: 3;
     top: 0;
-    right: 0;
+    /* The label row is the positioning box and it is already inset from the
+       cell's edge (RevoGrid's own content padding). A NEGATIVE offset puts the
+       funnel back on the column's edge with the small gap the grids want —
+       half of the plan's. */
+    right: -4px;
     bottom: 0;
     display: flex;
     flex: 0 0 auto;
@@ -3061,29 +3073,26 @@ body {
     padding-right: 12px;
 }
 
-/* The reveal: a funnel opens while its header cell is hovered or focused, or
-   while its column has an active filter. The base rule collapses it to zero
-   width — without this block the buttons are never visible at all. */
-/* The plan's overlay cells AND RevoGrid's header cells: both own a funnel, and
-   both reveal it the same way. The grid's cell is `.rgHeaderCell`, whose own
-   `.rv-filter` no longer exists (the grid opts out of RevoGrid's filter UI). */
+/* The reveal: a funnel opens while its header cell is hovered, or while its
+   column has an active filter. The base rule collapses it to zero width –
+   without this block the buttons are never visible at all.
+   NOT `:focus-within`: the filter popover keeps focus inside the cell after it
+   closes, which would leave the funnel open until another column was opened. */
 .renovation-grid__header-cell:hover .header-filter-button,
-.renovation-grid__header-cell:focus-within .header-filter-button,
 .renovation-grid__header-cell:has(.header-filter-button.is-active) .header-filter-button,
 .renovation-grid__number-cell:hover .header-filter-button,
-.renovation-grid__number-cell:focus-within .header-filter-button,
 .renovation-grid__corner:hover .header-filter-button,
-.renovation-grid__corner:focus-within .header-filter-button,
 .renovation-grid__corner:has(.header-filter-button.is-active) .header-filter-button,
 .raw-materials-grid revogr-header .rgHeaderCell:hover .header-filter-button,
-.raw-materials-grid revogr-header .rgHeaderCell:focus-within .header-filter-button,
 .rgHeaderCell:hover .header-filter-button,
-.rgHeaderCell:focus-within .header-filter-button,
 .report-header__title:hover .header-filter-button,
-.report-header__title:focus-within .header-filter-button,
 .header-filter-button.is-active {
     width: 24px;
     opacity: 1;
+}
+
+.header-filter-button.is-active {
+    color: var(--accent);
 }
 
 .header-filter-button.is-active {

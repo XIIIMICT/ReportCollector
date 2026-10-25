@@ -2,7 +2,7 @@
 
 import { Label, NumberField, Popover } from "@heroui/react";
 import { Check, Xmark } from "iconoir-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { usePopoverDismiss } from "@/shared/hooks/use-popover-dismiss";
 import { ExpandableButton } from "@/shared/ui/expandable-button";
@@ -74,6 +74,14 @@ export function RowGoToFilter({
     const popoverRef = useRef<HTMLElement | null>(null);
     const { isOpen, dismiss } = usePopoverDismiss(popoverRef, onClose);
     const settled = useRef(false);
+
+    // Focus the row field once the popover has been painted. Doing it with
+    // `autoFocus` focused the input mid-render of the parent, which react-aria
+    // performs as a `flushSync` call from a lifecycle method.
+    useEffect(() => {
+        const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
+        return () => window.cancelAnimationFrame(frame);
+    }, []);
 
     const apply = () => {
         if (settled.current) return;
@@ -147,7 +155,6 @@ export function RowGoToFilter({
                                         <NumberField.Input
                                             ref={inputRef}
                                             placeholder={`1…${total}`}
-                                            autoFocus
                                         />
                                     </NumberField.Group>
                                 </NumberField>
