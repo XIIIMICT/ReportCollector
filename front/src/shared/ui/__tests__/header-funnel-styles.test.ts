@@ -35,14 +35,22 @@ test("RevoGrid's funnel is pinned to the cell's right edge", () => {
     expect(block.slice(0, block.indexOf("}"))).toContain("right: 1px");
 });
 
-test("RevoGrid's label makes room for the funnel on the button's own states", () => {
+test("the grid's label makes room for the funnel on the button's own states", () => {
     // Keyed on `.is-active` (which only the plan's buttons carry) the label
     // never moved; keyed on `margin` it shrank around a centred text instead of
     // shifting it. It must be `padding`, on the states the funnel itself uses.
     const block = css.slice(css.indexOf(".rgHeaderCell:hover .header-content"));
     const rule = block.slice(0, block.indexOf("}"));
-    expect(rule).toContain(".rgHeaderCell:has(.rv-filter.active) .header-content");
+    expect(rule).toContain(".rgHeaderCell:has(.header-filter-button.is-active)");
     expect(rule).toContain("padding-right: 24px");
+});
+
+test("the funnel sits flush against the cell's right edge", () => {
+    // `right: 1px` plus the cell's own border put the icon visibly away from
+    // the edge compared with the plan's overlay.
+    const block = css.slice(css.indexOf(".header-filter-button {"));
+    const rule = block.slice(0, block.indexOf("}"));
+    expect(rule).toContain("right: 0;");
 });
 
 test("no stale per-project funnel class is left in the stylesheet", () => {

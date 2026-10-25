@@ -1684,6 +1684,10 @@ body {
     align-items: center;
     justify-content: center;
     overflow: hidden;
+    /* The header carries our funnel button as a child (the column template
+       renders text + button); it is absolutely positioned against the cell, so
+       it must not become a flex item here. */
+    position: relative;
     line-height: 1.18;
     min-width: 0;
     text-overflow: clip;
@@ -2967,7 +2971,10 @@ body {
     position: absolute;
     z-index: 1;
     top: 0;
-    right: 1px;
+    /* Flush with the cell's edge: `right: 1px` left a visible gap in the plan
+       too, and inside RevoGrid's header the cell's own border eats another
+       pixel, so the icon drifted away from the edge. */
+    right: 0;
     bottom: 1px;
     display: flex;
     align-items: center;
@@ -3138,20 +3145,33 @@ body {
     margin-right: 24px;
 }
 
-/* RevoGrid's header label (`.header-content`) makes room for the funnel the same
-   way the plan's labels do, so the two reveal animations read identically: the
-   text eases left while the funnel slides in from the cell's right edge. The
-   state is the BUTTON's (`:hover`/`:focus-within` on the cell, `.active` on the
-   button) — the shared `.is-active` class only exists on the plan's overlay
-   buttons, so keying on it left RevoGrid's label never moving. */
+/* The header's label makes room for the funnel exactly like the plan's: the text
+   eases left while the funnel slides in from the cell's right edge. The state is
+   the BUTTON's (`:hover`/`:focus-within` on the cell, `.active` on the button).
+   `padding`, not `margin`: the label is centred, and only padding moves the
+   glyphs. Reserved ONCE, on the centring box — the title inside it just fills. */
+.raw-materials-grid revogr-header .rgHeaderCell .header-content {
+    transition: padding-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 .raw-materials-grid revogr-header .rgHeaderCell:hover .header-content,
 .raw-materials-grid revogr-header .rgHeaderCell:focus-within .header-content,
-.raw-materials-grid revogr-header .rgHeaderCell:has(.rv-filter.active) .header-content {
-    /* `padding`, not `margin`: the label is centred inside the cell, and only
-       padding moves the text itself — a margin merely shrinks the box and the
-       text stays put, which is why the two headers looked different. */
+.raw-materials-grid
+    revogr-header
+    .rgHeaderCell:has(.header-filter-button.is-active)
+    .header-content {
     padding-right: 24px;
     box-sizing: border-box;
+}
+
+/* The title wrapper only carries the text: full width, centred by its parent. */
+.raw-materials-grid revogr-header .rgHeaderCell .report-header__title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 0;
 }
 
 /* The «№» corner hosts the row-number range funnel; reserve its width too. */
