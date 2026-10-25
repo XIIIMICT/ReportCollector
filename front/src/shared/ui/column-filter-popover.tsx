@@ -469,17 +469,30 @@ export function ColumnFilterPopover({
     // reserved width becomes the panel's floor, so it never moves again.
     const [minWidth, setMinWidth] = useState<number>();
     useEffect(() => {
-        if (typeof document === "undefined" || minWidth !== undefined) return;
-        const frame = window.requestAnimationFrame(() => {
+        if (typeof document === "undefined") return;
+        let frame = 0;
+        let last = 0;
+        const measure = () => {
             const group = document.querySelector<HTMLElement>(
                 ".column-filter__popover .smart-select__footer .button-group",
             );
-            if (!group) return;
-            const width = group.getBoundingClientRect().width;
-            if (width > 0) setMinWidth(Math.ceil(width));
-        });
+            if (!group) {
+                frame = window.requestAnimationFrame(measure);
+                return;
+            }
+            // The panel must be the widest state the group ever takes: its
+            // reserved `minWidth` plus the popover's own padding on both sides.
+            const reserved = Number.parseFloat(getComputedStyle(group).minWidth) || 0;
+            const width = Math.max(group.getBoundingClientRect().width, reserved);
+            if (width > 0 && Math.abs(width - last) > 0.5) {
+                last = width;
+                setMinWidth(Math.ceil(width) + 24);
+            }
+            frame = window.requestAnimationFrame(measure);
+        };
+        frame = window.requestAnimationFrame(measure);
         return () => window.cancelAnimationFrame(frame);
-    }, [minWidth]);
+    }, []);
 
     const content = (
         <SmartSelect

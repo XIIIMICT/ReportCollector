@@ -3141,7 +3141,9 @@ body {
        `max-height`, which is only the space between the anchor and the viewport
        edge (208px here) and left the list two rows tall. The list scrolls, so a
        taller popover costs nothing. */
-    height: min(460px, 70vh);
+    /* react-aria's inline `max-height` is the space above the anchor; the search
+       field is one more row inside it, so the cap is raised a little rather than
+       overridden — the panel shrinks to its content otherwise. */
     max-height: min(460px, 70vh) !important;
     padding: 0.5rem;
     border: 1px solid var(--border);
@@ -3210,11 +3212,6 @@ body {
     display: flex;
     flex: none;
     flex-direction: column;
-    /* Tight gap above the actions (under the rule); below them NOTHING — the
-       negative margin cancels the popover's own bottom padding for this row, so
-       the buttons end flush with the panel's edge. */
-    gap: 0.25rem;
-    margin-block-end: -0.5rem;
 }
 
 .smart-select__footer-separator {
@@ -3227,10 +3224,7 @@ body {
     flex: none;
     gap: 0.5rem;
     justify-content: flex-end;
-    /* More room on the sides than the popover's own padding gives, none below:
-       the buttons sit on the panel's bottom edge and are inset from its right. */
-    padding-inline: 0.5rem;
-    padding-block: 0;
+    padding: 0.5rem;
 }
 
 /* Divides «Выбрать все»/«Пустые» from the value list. */
