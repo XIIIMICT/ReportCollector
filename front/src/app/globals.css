@@ -3182,8 +3182,25 @@ body {
     position: sticky;
     z-index: 1;
     top: 0;
-    padding-bottom: 0.3rem;
+    padding: 0;
     background: var(--surface);
+}
+
+/* The search field lines up with the option TEXT, not with the list's box: an
+   option row adds its own inline padding and the indicator's gap, so a field
+   that starts at the list's edge reads as too far left. The field is a plain
+   input row (no card), so it drops its own inline padding and takes the row's. */
+.column-filter__popover .search-field,
+.column-filter__popover [data-slot="search-field"] {
+    padding-inline: 0;
+    /* Measured against an option row (which is the reference the panel is built
+       around): the row box starts at the list's edge and its LABEL sits 32px
+       further in (its own 4px `padding-inline-start`, the 20px tick box and the
+       8px gap). The field's own inner padding is 8px, so a 0.75rem start margin
+       lands the input's text there; the right side mirrors the row's 10px
+       `padding-inline-end` minus the field's, i.e. a hair of margin. */
+    margin-inline-start: 0.75rem;
+    margin-inline-end: 0.125rem;
 }
 
 /* The commit-mode footer («По умолчанию / Отменить / Применить») of a
@@ -3196,9 +3213,13 @@ body {
     display: flex;
     flex: none;
     flex-direction: column;
+    /* Space ABOVE the actions (between the list and the buttons); below them the
+       popover's own padding is all that should remain. */
+    padding-block-start: 0.5rem;
 }
 
 .smart-select__footer-separator {
+    /* The one place the gap between the list and the actions comes from. */
     margin: 0;
     background: var(--border);
 }
@@ -3208,7 +3229,10 @@ body {
     flex: none;
     gap: 0.5rem;
     justify-content: flex-end;
-    padding: 0.5rem;
+    /* No box of its own: the popover pads the panel, and the separator above the
+       group provides the breathing room. A padding here stacked on top of both and
+       lifted the buttons off the panel's bottom edge. */
+    padding: 0;
 }
 
 /* Divides «Выбрать все»/«Пустые» from the value list. */
