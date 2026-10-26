@@ -1372,15 +1372,17 @@ body {
     padding: 0;
 }
 
-/* The card's padding comes from the shared `card` component (16px). Its top
-   inset is trimmed by the tab cluster's extra height: the tabs are 40px tall
-   next to 36px controls (they carry their own 4px padding, and removing it
-   clips them), so the panel starts 2px lower and the top gap would read larger
-   than the side ones. Compensation, not a new frame — the panel itself keeps
-   no vertical padding of its own (see below).
-   NOT in fullscreen: there the card's padding is gone entirely. */
-.workspace-card:not(.workspace-card--fullscreen) {
-    padding-top: calc(1rem - 2px);
+/* Breathing room between the panel and the grid below it. The card's content is
+   a flex column whose 4px `gap` was the ONLY separation once every panel took
+   its height from its content — in «Сырьё», where «Рабочая версия» is one line,
+   the grid sat 4px under the panel and the table read as glued to it.
+   The gap is set to the card's own side inset (1rem): the vertical rhythm then
+   matches the frame the table sits in, on every project, whatever the panel's
+   own controls are.
+   NOT in fullscreen: the card's padding is gone there and the panels ARE the
+   frame of the screen. */
+.workspace-card:not(.workspace-card--fullscreen) .workspace-card__content {
+    row-gap: 1rem;
 }
 
 /* The CARD already frames its content (`padding: 16px` on all sides), and the
