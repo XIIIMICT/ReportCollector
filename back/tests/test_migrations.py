@@ -17,6 +17,24 @@ from migrations.upgrade import upgrade
 _AUDIT_TABLES = frozenset(import_module("migrations.versions.0015_updater_user_catalog").TABLES)
 
 
+def _head_revision() -> str:
+    """Read the chain's head instead of pinning a literal.
+
+    These assertions mean "at head", not "at revision X" — a new migration used
+    to break them for no reason.
+    """
+    from alembic.script import ScriptDirectory
+
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
+    head = ScriptDirectory.from_config(config).get_current_head()
+    assert head is not None, "the migration chain has no head"
+    return head
+
+
+HEAD_REVISION = _head_revision()
+
+
 def config_for(connection) -> Config:
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
@@ -182,9 +200,7 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(
         # the pre-existing tables must keep their data unchanged.
         after = await conn.run_sync(business_snapshot)
         assert {table: after[table] for table in all_business_data} == all_business_data
-        assert (
-            await conn.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalar_one() == "0024_kppk_product_market_refs"
+        assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == HEAD_REVISION
         assert (await conn.execute(text("SELECT id, col_011 FROM r_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
         assert (
@@ -386,9 +402,7 @@ async def test_upgrade_prunes_retired_revision_files(db_session, migration_engin
             await conn.run_sync(lambda _: command.downgrade(config, BASELINE))
             await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
             await conn.run_sync(upgrade)
-            assert (
-                await conn.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one() == "0024_kppk_product_market_refs"
+            assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == HEAD_REVISION
         assert all(not path.exists() for path in stale)
     finally:
         for path in stale:
