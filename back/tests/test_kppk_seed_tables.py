@@ -254,3 +254,86 @@ async def test_copy_resolves_product_whose_punctuation_differs(db_session, monke
         .all()
     )
     assert stored == ["Прочая продукция (некондиция, восстановленные, РКО)"]
+
+
+async def test_copy_creates_product_missing_from_the_source_dictionary(db_session, monkeypatch) -> None:
+    """A plan row naming an unknown product seeds under «@» instead of aborting.
+
+    The source dumps are not self-consistent: prod's production plan references
+    «Абсорбент А-2/Л/очищенный», which `raw.kppk_d_product_seq` never carried.
+    """
+    connection = await db_session.connection()
+    source_schema = f"{TEST_SCHEMA}_kppk_absent"
+    await connection.execute(text(f'CREATE SCHEMA "{source_schema}"'))
+    for statement in seed_kppk.split_sql_statements(seed_kppk._read_sql_file(seed_kppk.SOURCE_SCHEMA_PATH)):
+        target = seed_kppk._statement_target(statement)
+        if target is not None and target[0] == "raw":
+            await connection.execute(text(statement.replace("raw.", f'"{source_schema}".')))
+    inserts = (
+        "INSERT INTO kppk_d_org VALUES (1, 'TEST', 'Test org', 0)",
+        "INSERT INTO kppk_d_period VALUES (1, 'Июнь', 2026, '2026-06-01', '2026-06-30')",
+        # The dictionary knows only this product …
+        "INSERT INTO kppk_d_product_seq VALUES (1, 'Known product')",
+        "INSERT INTO kppk_d_raw_seq VALUES (1, 'Test raw')",
+        # … while the production plan also references one it never carried.
+        (
+            "INSERT INTO kppk_f_production_plan (org_id, period_id, rep_date, product) "
+            "VALUES (1, 1, '2026-06-30', 'Абсорбент А-2')"
+        ),
+    )
+    for statement in inserts:
+        await connection.execute(text(statement.replace("INSERT INTO ", f'INSERT INTO "{source_schema}".')))
+    for name in reversed(TABLES):
+        await connection.execute(text(f'DROP TABLE IF EXISTS "{TEST_SCHEMA}"."{name}" CASCADE'))
+
+    async def source_schemas(_connection) -> list[str]:
+        return []
+
+    async def source_tables(_connection) -> int:
+        return 0
+
+    monkeypatch.setattr(seed_kppk, "KPPK_SOURCE_SCHEMA_RAW", source_schema)
+    monkeypatch.setattr(seed_kppk, "get_settings", lambda: SimpleNamespace(postgres_schema=TEST_SCHEMA))
+    monkeypatch.setattr(seed_kppk, "_ensure_schemas", source_schemas)
+    monkeypatch.setattr(seed_kppk, "_ensure_source_tables", source_tables)
+    monkeypatch.setattr(seed_kppk, "_matrix_matches", list)
+    counters = await seed_kppk.seed(db_session)
+    # The plan row loaded instead of aborting the whole seed.
+    assert counters["kppk_production_plan"] == 1
+    # It is a real product row, without a source num, under the «@» marker.
+    created = (
+        await connection.execute(
+            text(
+                f'SELECT name, product_num FROM "{TEST_SCHEMA}".kppk_products '  # noqa: S608 — test schema
+                "WHERE name LIKE '@%'"
+            )
+        )
+    ).all()
+    assert [(name, num) for name, num in created] == [("@Абсорбент А-2", None)]
+    # The copy resolved the plan row to that product rather than skipping it.
+    linked = (
+        (
+            await connection.execute(
+                text(
+                    f'SELECT p.name FROM "{TEST_SCHEMA}".kppk_production_plan pp '  # noqa: S608 — test schema
+                    f'JOIN "{TEST_SCHEMA}".kppk_products p ON p.id = pp.product_id'
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert linked == ["@Абсорбент А-2"]
+
+    # A second run reuses the product: no duplicate, no extra counter.
+    again = await seed_kppk.seed(db_session)
+    assert again["kppk_production_plan"] == 1
+    duplicates = (
+        await connection.execute(
+            text(
+                f'SELECT count(*) FROM "{TEST_SCHEMA}".kppk_products '  # noqa: S608 — test schema
+                "WHERE name LIKE '@%'"
+            )
+        )
+    ).scalar_one()
+    assert duplicates == 1, "the auto-created product must not be duplicated on re-seed"

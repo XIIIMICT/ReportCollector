@@ -417,12 +417,13 @@ async def _missing_dictionary_rows(
     from_table = f"FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)} s"
     joins = [(f"LEFT JOIN {_qualified(KPPK_SOURCE_SCHEMA_RAW, 'kppk_d_period')} p ON p.id = s.period_id", "p.id")]
     joins.append((f"LEFT JOIN {_qualified(app_schema, 'kppk_orgs')} o ON o.num = s.org_id", "o.id"))
-    joins.append(
-        (
-            f"LEFT JOIN {_qualified(app_schema, 'kppk_products')} prod ON prod.name = {_normalized_sql('product')}",
-            "prod.id",
-        )
+    # Same match as the copy: the plain name OR the «@» form.
+    normalized_product = _normalized_sql("product")
+    product_join = (
+        f"LEFT JOIN {_qualified(app_schema, 'kppk_products')} prod "
+        f"ON prod.name IN ({normalized_product}, '@' || {normalized_product})"
     )
+    joins.append((product_join, "prod.id"))
     if has_market:
         joins.append(
             (
@@ -495,6 +496,57 @@ async def _missing_dictionary_samples(
     return samples
 
 
+async def _create_products_missing_from_dictionary(
+    connection: AsyncConnection,
+    app_schema: str,
+    source: str,
+) -> list[str]:
+    """
+    Create the products a fact/plan source references but the dictionary lacks.
+
+    The source dumps are not self-consistent: `raw.kppk_f_production_plan` names
+    products that `raw.kppk_d_product_seq` never carried (prod: «Абсорбент А-2»,
+    «Абсорбент Л», «Абсорбент очищенный»). Refusing the whole file over them
+    blocks a seed that is otherwise fine, so they are created under an
+    `@`-prefixed name without a `product_num` — the SAME convention the product
+    matrix already uses for products unknown to the source dictionary
+    (`_rebuild_org_products`). The prefix is what marks them as such in the UI.
+    """
+    products_table = _qualified(app_schema, "kppk_products")
+    # Normalized DISTINCT source names with no dictionary row behind them.
+    missing = (
+        (
+            await connection.execute(
+                text(
+                    f"SELECT DISTINCT {_normalized_sql('product')} AS name "  # noqa: S608 — server-owned identifiers
+                    f"FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)} s "
+                    f"WHERE NOT EXISTS (SELECT 1 FROM {products_table} p "
+                    f"WHERE p.name = {_normalized_sql('product')})"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    created: list[str] = []
+    for name in missing:
+        if not name:
+            # A blank product is a data defect, not a product: the copy's strict
+            # check reports it instead of inventing an «@» row.
+            continue
+        prefixed = f"@{name}"
+        await connection.execute(
+            text(
+                f"INSERT INTO {products_table} (id, name, created_at, updated_at) "  # noqa: S608 — server-owned identifiers
+                "SELECT gen_random_uuid(), :name, now(), now() "
+                "WHERE NOT EXISTS (SELECT 1 FROM "
+                f"{products_table} p WHERE p.name = :name)"
+            ).bindparams(name=prefixed)
+        )
+        created.append(name)
+    return created
+
+
 async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[str, int]:
     """Re-copy every source table into its rc copy; returns per-table counters."""
     per_table: dict[str, int] = {}
@@ -523,13 +575,25 @@ async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[st
                 ["prod.id", *(["mkt.id"] if has_market else []), *(_source_column_sql(c) for c in copied)]
             )
             joins = (
-                f"JOIN {_qualified(app_schema, 'kppk_products')} prod ON prod.name = {_normalized_sql('product')} "
+                # A product is matched by its name OR by the «@» form the same
+                # seed gives a product the source dictionary never carried.
+                f"JOIN {_qualified(app_schema, 'kppk_products')} prod "
+                f"ON prod.name IN ({_normalized_sql('product')}, '@' || {_normalized_sql('product')}) "
                 + (
                     f"JOIN {_qualified(app_schema, 'kppk_markets')} mkt ON mkt.code = {_normalized_sql('region')} "
                     if has_market
                     else ""
                 )
             )
+            # Create the products this source references but the dictionary
+            # lacks BEFORE the strict check below, so they resolve instead of
+            # aborting the seed (prod: the «Абсорбент» family).
+            produced = await _create_products_missing_from_dictionary(connection, app_schema, source)
+            if produced:
+                print(
+                    f"Источник {source}: в справочнике не было продуктов — добавлены без номера "
+                    f"под именами «@…»: {', '.join(sorted(produced))}."
+                )
             missing_by_kind = await _missing_dictionary_rows(connection, app_schema, source, has_market)
             if any(missing_by_kind.values()):
                 detail = "; ".join(f"{kind}: {count}" for kind, count in missing_by_kind.items() if count)

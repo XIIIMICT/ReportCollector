@@ -36,10 +36,13 @@ from src.kppk.constants import KPPK_SOURCE_SCHEMA_RAW
 _WITH_MARKET = ("kppk_f_realization", "kppk_f_realization_plan")
 _WITHOUT_MARKET = ("kppk_f_production_plan",)
 
-# One dictionary check: kind, table, join key, source expression, and a label for
-# the operator. The source expression MUST mirror `_normalized_sql` in the
-# seeder — a bare `btrim` would not see the non-breaking space or a doubled
-# internal space, and the check would disagree with the seed it is diagnosing.
+# One dictionary check: kind, table, join key, source expression, a label for the
+# operator, and the JOIN condition. The source expression MUST mirror
+# `_normalized_sql` in the seeder — a bare `btrim` would not see the
+# non-breaking space or a doubled internal space, and the check would disagree
+# with the seed it is diagnosing. The product condition mirrors the seeder's
+# match too: a name OR its «@» form (products the source dictionary never
+# carried), so the report does not flag a product the seed would resolve.
 _PRODUCT_EXPR = (
     """replace(regexp_replace(btrim(replace(s."product", chr(160), ' ')), '[[:space:]]+', ' ', 'g'), ';', ',')"""
 )
@@ -47,11 +50,39 @@ _REGION_EXPR = (
     """replace(regexp_replace(btrim(replace(s."region", chr(160), ' ')), '[[:space:]]+', ' ', 'g'), ';', ',')"""
 )
 
-_DICTIONARIES: tuple[tuple[str, str, str, str, str], ...] = (
-    ("period", "raw.kppk_d_period", "id", "s.period_id", "raw.kppk_d_period.id = raw.*.period_id"),
-    ("org", "app.kppk_orgs", "num", "s.org_id", "kppk_orgs.num = raw.*.org_id"),
-    ("product", "app.kppk_products", "name", _PRODUCT_EXPR, "kppk_products.name = raw.*.product"),
-    ("market", "app.kppk_markets", "code", _REGION_EXPR, "kppk_markets.code = raw.*.region"),
+_DICTIONARIES: tuple[tuple[str, str, str, str, str, str], ...] = (
+    (
+        "period",
+        "raw.kppk_d_period",
+        "id",
+        "s.period_id",
+        "raw.kppk_d_period.id = raw.*.period_id",
+        "d{index}.id = s.period_id",
+    ),
+    (
+        "org",
+        "app.kppk_orgs",
+        "num",
+        "s.org_id",
+        "kppk_orgs.num = raw.*.org_id",
+        "d{index}.num = s.org_id",
+    ),
+    (
+        "product",
+        "app.kppk_products",
+        "name",
+        _PRODUCT_EXPR,
+        "kppk_products.name = raw.*.product (или «@»-форма)",
+        "d{index}.name IN (" + _PRODUCT_EXPR + ", '@' || " + _PRODUCT_EXPR + ")",
+    ),
+    (
+        "market",
+        "app.kppk_markets",
+        "code",
+        _REGION_EXPR,
+        "kppk_markets.code = raw.*.region",
+        "d{index}.code = " + _REGION_EXPR,
+    ),
 )
 
 
@@ -66,7 +97,7 @@ def _table(schema: str, name: str) -> str:
     return _qualified(KPPK_SOURCE_SCHEMA_RAW if owner == "raw" else schema, table)
 
 
-def _checks(has_market: bool) -> tuple[tuple[str, str, str, str, str], ...]:
+def _checks(has_market: bool) -> tuple[tuple[str, str, str, str, str, str], ...]:
     return tuple(check for check in _DICTIONARIES if has_market or check[0] != "market")
 
 
@@ -110,11 +141,11 @@ async def _report_source(
     # Every join is kept in every count: a row is counted for ONE dictionary,
     # whatever the other three resolve to.
     joins = " ".join(
-        f"LEFT JOIN {_table(schema, target)} d{index} ON d{index}.{key} = {expression}"
-        for index, (_, target, key, expression, _) in enumerate(checks)
+        f"LEFT JOIN {_table(schema, target)} d{index} ON {condition.format(index=index)}"
+        for index, (_, target, _key, _expression, _label, condition) in enumerate(checks)
     )
     failed = False
-    for index, (kind, _, key, expression, label) in enumerate(checks):
+    for index, (kind, _, key, expression, label, _condition) in enumerate(checks):
         missing = await _count(
             connection,
             f"SELECT count(*) FROM {table} s {joins} WHERE d{index}.{key} IS NULL",

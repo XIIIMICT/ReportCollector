@@ -48,15 +48,22 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 
   the matrix — products missing in the source dictionary are created without a
   `product_num` under an `@`-prefixed name, ДЗО/products are matched by exact
   display name. The realization copies resolve that text into
-  `product_id`/`market_id` uuids on the way in and **fail** on a source row whose
-  product or market is absent from the dictionaries (no silent skip). The error
+  `product_id`/`market_id` uuids on the way in. A source row naming a product
+  the dictionary lacks is **not** a failure: the seeder creates that product
+  without a `product_num` under an `@`-prefixed name — the same convention the
+  matrix uses — and the row resolves to it (prod needed this for «Абсорбент
+  А-2», «Абсорбент Л», «Абсорбент очищенный», which `raw.kppk_d_product_seq`
+  never carried). The match accepts the plain name OR its `@` form, so a re-run
+  finds the product it created. A missing ДЗО, period or market still **fails**
+  the seed (no silent skip) — there the value cannot be invented. The error
   names the failing dictionary and up to three offending source values
-  (`product: 165. Примеры: product — «Сульфат натрия»`), counted per dictionary
+  (`market: 3. Примеры: market — «Казахстан»`), counted per dictionary
   so one missing product is never reported as a missing market. To get the same
   breakdown **before** re-running the seed, use the read-only
   `uv run --directory back python -m src.scripts.diagnose_kppk_seed`: it prints
   the dictionary sizes and, per source and per dictionary (period / ДЗО / product
-  / market), how many rows fail and which values are absent. It is deliberately
+  / market), how many rows fail and which values are absent (products the seed
+  would auto-create are not flagged). It is deliberately
   **self-contained** — it imports nothing from `seed_kppk`, so this one file can
   be dropped onto an installation whose seeder predates this error and run as-is.
   A restored schema is diagnosed the same way, since `raw.*` may hold rows the
