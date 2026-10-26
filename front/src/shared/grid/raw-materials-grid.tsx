@@ -113,6 +113,12 @@ export type GridViewStats = {
      * is what the status tooltip lists. Empty when nothing is filtered.
      */
     filteredColumns: string[][];
+    /**
+     * The columns the table is SORTED by, in the order RevoGrid applies them —
+     * each as its header chain (like `filteredColumns`) plus the direction.
+     * Empty when the table is unsorted.
+     */
+    sortedColumns: Array<{ path: string[]; order: "asc" | "desc" }>;
     /** Fixed (non-calculated) columns — not editable. */
     immutableCols: number;
     /** Calculated columns. */
@@ -608,6 +614,25 @@ function RawMaterialsGridInner(
      * screen. `path` holds the group labels of a descriptor; a column without a
      * group is just its own label.
      */
+    /**
+     * The active sorting spelled out as header chains, in RevoGrid's own order
+     * (its `sortingOrder` decides which column wins). A sorted column whose
+     * descriptor is missing — a synthetic one — is skipped: its label would be
+     * meaningless in a tooltip.
+     */
+    const sortedColumnPaths = useCallback(() => {
+        const sorting = sortingBySectionRef.current.get(section);
+        if (!sorting) return [];
+        return sorting.columns
+            .map((column) => {
+                const descriptor = descriptorByKey.get(column.prop);
+                return descriptor
+                    ? { path: [...(descriptor.path ?? []), descriptor.label], order: column.order }
+                    : null;
+            })
+            .filter((entry): entry is { path: string[]; order: "asc" | "desc" } => entry !== null);
+    }, [descriptorByKey, section]);
+
     const filteredColumnPaths = useCallback(() => {
         const applied = new Set(Object.keys(columnFilters ?? {}));
         // Ordered by the DESCRIPTOR list (the columns' on-screen order), not by
@@ -1949,6 +1974,7 @@ function RawMaterialsGridInner(
             totalCols: columns.length,
             filtersApplied: filtersAppliedRef.current,
             filteredColumns: filteredColumnPaths(),
+            sortedColumns: sortedColumnPaths(),
             immutableCols: counted.immutable,
             calculatedCols: counted.calculated,
             editableCols: counted.editable,
@@ -1961,6 +1987,12 @@ function RawMaterialsGridInner(
             previous.totalCols === next.totalCols &&
             previous.filtersApplied === next.filtersApplied &&
             previous.filteredColumns.length === next.filteredColumns.length &&
+            previous.sortedColumns.length === next.sortedColumns.length &&
+            previous.sortedColumns.every(
+                (entry, index) =>
+                    entry.order === next.sortedColumns[index]?.order &&
+                    entry.path.join("→") === next.sortedColumns[index]?.path.join("→"),
+            ) &&
             previous.immutableCols === next.immutableCols &&
             previous.calculatedCols === next.calculatedCols &&
             previous.editableCols === next.editableCols

@@ -160,6 +160,7 @@ export function FormStatus({
                         </div>
                     ) : null}
                     <FilterSection chains={gridStats?.filteredColumns ?? []} />
+                    <SortSection entries={gridStats?.sortedColumns ?? []} />
                 </div>
             </Tooltip.Content>
         </Tooltip>
@@ -177,6 +178,55 @@ function PresenceRow({ member }: { member: CollabMember }) {
             </span>
             {cells ? <span className="form-status-detail__cells">{cells}</span> : null}
         </li>
+    );
+}
+
+/**
+ * «Сортировка:» — the columns the table is sorted by, in the order the grid
+ * applies them, each as its header CHAIN plus the direction.
+ *
+ * It sits after «Фильтры:» because it answers the same kind of question — what
+ * is currently narrowing or reordering the view — and, like it, renders nothing
+ * when the table is unsorted.
+ */
+export function SortSection({
+    entries,
+}: {
+    entries: Array<{ path: string[]; order: "asc" | "desc" }>;
+}) {
+    if (entries.length === 0) return null;
+    return (
+        <>
+            <div className="form-status-detail__gap" aria-hidden="true" />
+            <div className="form-status-detail__filters">
+                <b>Сортировка:</b>
+                <ul className="form-status-detail__filters-list">
+                    {entries.map((entry) => (
+                        <li
+                            key={`${entry.path.join(" → ")}:${entry.order}`}
+                            className="form-status-detail__filters-item"
+                        >
+                            {entry.path.map((label, index) => (
+                                <Fragment key={`${label}-${index}`}>
+                                    {index > 0 ? (
+                                        <span
+                                            className="form-status-detail__filters-sep"
+                                            aria-hidden="true"
+                                        >
+                                            {" → "}
+                                        </span>
+                                    ) : null}
+                                    <span>{label}</span>
+                                </Fragment>
+                            ))}
+                            <span className="form-status-detail__sort-order">
+                                {entry.order === "asc" ? " ↑" : " ↓"}
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        </>
     );
 }
 

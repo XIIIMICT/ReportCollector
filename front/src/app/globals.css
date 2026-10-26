@@ -1066,6 +1066,11 @@ body {
     color: inherit;
 }
 
+/* The sorting direction: a small arrow after the column name. */
+.form-status-detail__sort-order {
+    color: var(--muted);
+}
+
 .form-status-detail__presence {
     display: grid;
     gap: 0.3rem;

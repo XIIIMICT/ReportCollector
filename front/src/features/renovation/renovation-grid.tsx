@@ -1201,6 +1201,9 @@ function RenovationGridInner(
                 activeFilterColumns,
                 filteredColumnPaths,
             ),
+            // The plan reports no header sorting: this grid sorts server-side and
+            // keeps no client sort state of its own.
+            sortedColumns: [],
             totalCols: displayFields.length,
             immutableCols: displayFields.filter((field) => field.isReadOnly && !field.isCalculated)
                 .length,

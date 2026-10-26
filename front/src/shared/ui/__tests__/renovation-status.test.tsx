@@ -4,7 +4,7 @@ import { cleanup, render } from "@testing-library/react";
 
 import { renovationRowStats } from "@/features/renovation/renovation-stats";
 
-import { FilterSection, FormStatus } from "../form-status";
+import { FilterSection, FormStatus, SortSection } from "../form-status";
 
 afterEach(cleanup);
 
@@ -28,6 +28,7 @@ test.each([
             selectionLabel={null}
             gridStats={{
                 ...rows,
+                sortedColumns: [],
                 totalCols: 216,
                 immutableCols: 0,
                 calculatedCols: 0,
@@ -59,5 +60,26 @@ test("the filter section renders the header chains it is given", () => {
 
 test("no applied filters -> no filter section", () => {
     const view = render(<FilterSection chains={[]} />);
+    expect(view.container.querySelector(".form-status-detail__filters")).toBeNull();
+});
+
+test("the status lists the active sorting with its direction", () => {
+    const view = render(
+        <SortSection
+            entries={[
+                { path: ["Техническая дирекция", "Код работы"], order: "asc" },
+                { path: ["Наименование"], order: "desc" },
+            ]}
+        />,
+    );
+    const items = [...view.container.querySelectorAll(".form-status-detail__filters-item")].map(
+        (node) => node.textContent,
+    );
+    expect(items).toEqual(["Техническая дирекция → Код работы ↑", "Наименование ↓"]);
+    expect(view.container.textContent).toContain("Сортировка:");
+});
+
+test("an unsorted table renders no sorting section", () => {
+    const view = render(<SortSection entries={[]} />);
     expect(view.container.querySelector(".form-status-detail__filters")).toBeNull();
 });
