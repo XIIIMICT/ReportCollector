@@ -185,10 +185,18 @@ export function serverFacetSource(
                             .includes(search.query.trim().toLocaleLowerCase("ru-RU")),
                     )
                   : values.filter((entry) => {
-                        const numeric = parseFacetNumber(entry.value);
-                        if (numeric === null) return false;
-                        if (search.min !== null && numeric < search.min) return false;
-                        if (search.max !== null && numeric > search.max) return false;
+                        // A `datetime` range compares INSTANTS, a numeric one
+                        // compares numbers. Reading a date as a number returned
+                        // `null` for every value, so the whole list vanished the
+                        // moment a bound was typed (the client tables parse dates
+                        // through `parseFacetInstant`; this branch did not).
+                        const comparable =
+                            search.kind === "datetime"
+                                ? parseFacetInstant(entry.value)
+                                : parseFacetNumber(entry.value);
+                        if (comparable === null) return false;
+                        if (search.min !== null && comparable < search.min) return false;
+                        if (search.max !== null && comparable > search.max) return false;
                         return true;
                     });
         return {
