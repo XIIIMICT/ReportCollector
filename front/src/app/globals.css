@@ -977,7 +977,10 @@ body {
     display: flex;
     min-width: 0;
     flex-direction: column;
-    gap: 0.1rem;
+    /* NO row `gap`: the collapsible «Выделено» row owns its own spacing, so a
+       collapsed line contributes nothing at all (a `gap` would still reserve
+       room for the mounted-but-hidden row). */
+    gap: 0;
 }
 
 .form-status__presence,
@@ -985,6 +988,52 @@ body {
 .form-status__rows {
     color: var(--text);
     font-size: 0.8rem;
+}
+
+/* Recreate the old `gap: 0.1rem` between lines that are actually VISIBLE. The
+   selection row is always mounted, so ":first-child"/":last-child" cannot
+   express this; the row supplies its own margin while open. */
+.form-status__rows:not(:first-child) {
+    margin-block-start: 0.1rem;
+}
+
+/* The «Выделено» line is COLLAPSIBLE, not conditional: it stays mounted and
+   animates its own height, so the footer (whose height follows its content —
+   `.workspace-card:not(--fullscreen) .table-footer` has `max-height: none`)
+   grows and shrinks smoothly instead of jumping by one line. A `0fr → 1fr` grid
+   row animates an unknown height with no measurement and no JS. The line is
+   removed from the accessibility tree while collapsed, so a hidden fragment is
+   never announced. */
+.form-status__selection {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    margin-block-start: 0;
+    transition:
+        grid-template-rows 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        /* The spacing above the line animates too, or the bar jumps by it.
+           Named explicitly: only `margin-block-start` changes, and the
+           shorthand would leave the other sides interpolating needlessly. */
+        margin-block-start 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.form-status__selection--shown {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    margin-block-start: 0.1rem;
+}
+
+/* The inner wrapper clips the line to the animated row height. */
+.form-status__selection > * {
+    min-height: 0;
+    overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .form-status__selection {
+        transition: none;
+    }
 }
 
 /* While collaboration is off or still connecting there is no member list —

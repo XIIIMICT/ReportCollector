@@ -1,7 +1,7 @@
 "use client";
 
 import { Tooltip } from "@heroui/react";
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef } from "react";
 
 import {
     COLLAB_STATUS_LABELS,
@@ -56,6 +56,15 @@ export function FormStatus({
         : room && room.status !== "online"
           ? COLLAB_STATUS_LABELS[room.status]
           : null;
+    // The «Выделено» row is collapsed, not unmounted (see below), so it must
+    // keep a value to render while it fades OUT — otherwise the closing frame
+    // would read a bare «Выделено:» with nothing after it. Written in an effect,
+    // never during render.
+    const lastSelectionRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (selectionLabel !== null) lastSelectionRef.current = selectionLabel;
+    }, [selectionLabel]);
+    const shownSelection = selectionLabel ?? lastSelectionRef.current;
 
     return (
         <Tooltip delay={250}>
@@ -89,11 +98,23 @@ export function FormStatus({
                                 )}
                             </div>
                         ) : null}
-                        {selectionLabel ? (
-                            <div className="form-status__selection">
-                                <b>Выделено:</b> {selectionLabel}
+                        {/* Mounted even when empty — BOTH the row and its
+                            text: the row animates its own height, and if the
+                            text unmounted on clear there would be nothing left
+                            to animate out (the line would vanish in one frame
+                            while it slides in smoothly). The row clips it. */}
+                        <div
+                            className={
+                                selectionLabel
+                                    ? "form-status__selection form-status__selection--shown"
+                                    : "form-status__selection"
+                            }
+                            aria-hidden={selectionLabel ? undefined : true}
+                        >
+                            <div>
+                                <b>Выделено:</b> {shownSelection ?? ""}
                             </div>
-                        ) : null}
+                        </div>
                         {gridStats ? (
                             <div className="form-status__rows">
                                 <b>Строки:</b> {gridStats.filteredRows} найдено,{" "}
