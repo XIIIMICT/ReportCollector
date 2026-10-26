@@ -168,3 +168,89 @@ async def test_seed_recopies_sources_after_application_tables_were_deleted(db_se
         )
     ).scalar_one()
     assert duplicates == 0, "the period rebuild must not duplicate rows"
+
+
+async def test_normalized_sql_matches_python_normalization(db_session) -> None:
+    """The SQL twin of `normalize_text` must produce the same string, always.
+
+    It is duplicated on purpose (the copy runs server-side), so a rule added to
+    one side and forgotten on the other silently breaks the copy — exactly how a
+    `;`/`,` mismatch once made the seed abort on «неизвестный продукт».
+    """
+    connection = await db_session.connection()
+    expression = seed_kppk._normalized_sql("product")
+    samples = (
+        "Прочая продукция (некондиция; восстановленные; РКО)",
+        "Прочая продукция (некондиция, восстановленные, РКО)",
+        'Средство "Белизна"; тыс. шт',
+        '  Средство  "Белизна" ,  тыс.\u00a0шт ',
+        "Строка\nс переносом",
+        "двойной  пробел",
+        "",
+    )
+    for sample in samples:
+        sql_value = (
+            await connection.execute(
+                # The expression is built from server-owned column names only.
+                text(f"SELECT {expression} FROM (SELECT CAST(:value AS text) AS product) s").bindparams(  # noqa: S608
+                    value=sample
+                )
+            )
+        ).scalar_one()
+        assert sql_value == seed_kppk.normalize_text(sample), f"SQL and Python disagree on {sample!r}"
+
+
+async def test_copy_resolves_product_whose_punctuation_differs(db_session, monkeypatch) -> None:
+    """A dump spelled with `;` matches its dictionary entry spelled with `,`."""
+    connection = await db_session.connection()
+    source_schema = f"{TEST_SCHEMA}_kppk_punct"
+    await connection.execute(text(f'CREATE SCHEMA "{source_schema}"'))
+    for statement in seed_kppk.split_sql_statements(seed_kppk._read_sql_file(seed_kppk.SOURCE_SCHEMA_PATH)):
+        target = seed_kppk._statement_target(statement)
+        if target is not None and target[0] == "raw":
+            await connection.execute(text(statement.replace("raw.", f'"{source_schema}".')))
+    # The DICTIONARY keeps commas; the FACT rows carry semicolons.
+    inserts = (
+        "INSERT INTO kppk_d_org VALUES (1, 'TEST', 'Test org', 0)",
+        "INSERT INTO kppk_d_period VALUES (1, 'Июнь', 2026, '2026-06-01', '2026-06-30')",
+        "INSERT INTO kppk_d_product_seq VALUES (1, 'Прочая продукция (некондиция, восстановленные, РКО)')",
+        "INSERT INTO kppk_d_raw_seq VALUES (1, 'Test raw')",
+        (
+            "INSERT INTO kppk_f_realization (org_id, period_id, rep_date, product, region) "
+            "VALUES (1, 1, '2026-06-30', 'Прочая продукция (некондиция; восстановленные; РКО)', 'РФ')"
+        ),
+        (
+            "INSERT INTO kppk_f_realization_plan (org_id, period_id, rep_date, product, region) "
+            "VALUES (1, 1, '2026-06-30', 'Прочая продукция (некондиция; восстановленные; РКО)', 'РФ')"
+        ),
+    )
+    for statement in inserts:
+        await connection.execute(text(statement.replace("INSERT INTO ", f'INSERT INTO "{source_schema}".')))
+    for name in reversed(TABLES):
+        await connection.execute(text(f'DROP TABLE IF EXISTS "{TEST_SCHEMA}"."{name}" CASCADE'))
+
+    async def source_schemas(_connection) -> list[str]:
+        return []
+
+    async def source_tables(_connection) -> int:
+        return 0
+
+    monkeypatch.setattr(seed_kppk, "KPPK_SOURCE_SCHEMA_RAW", source_schema)
+    monkeypatch.setattr(seed_kppk, "get_settings", lambda: SimpleNamespace(postgres_schema=TEST_SCHEMA))
+    monkeypatch.setattr(seed_kppk, "_ensure_schemas", source_schemas)
+    monkeypatch.setattr(seed_kppk, "_ensure_source_tables", source_tables)
+    monkeypatch.setattr(seed_kppk, "_matrix_matches", list)
+    counters = await seed_kppk.seed(db_session)
+    # The row resolved instead of aborting the whole seed.
+    assert counters["kppk_products"] == 1
+    # What got stored is the NORMALIZED name, so it matches the dictionary row.
+    stored = (
+        (
+            await connection.execute(
+                text(f'SELECT name FROM "{TEST_SCHEMA}".kppk_products')  # noqa: S608 — test schema
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert stored == ["Прочая продукция (некондиция, восстановленные, РКО)"]

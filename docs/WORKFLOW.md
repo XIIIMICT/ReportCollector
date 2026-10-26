@@ -49,16 +49,33 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 
   `product_num` under an `@`-prefixed name, ДЗО/products are matched by exact
   display name. The realization copies resolve that text into
   `product_id`/`market_id` uuids on the way in and **fail** on a source row whose
-  product or market is absent from the dictionaries (no silent skip).
+  product or market is absent from the dictionaries (no silent skip). The error
+  names the failing dictionary and up to three offending source values
+  (`product: 165. Примеры: product — «Сульфат натрия»`), counted per dictionary
+  so one missing product is never reported as a missing market. To get the same
+  breakdown **before** re-running the seed, use the read-only
+  `uv run --directory back python -m src.scripts.diagnose_kppk_seed`: it prints
+  the dictionary sizes and, per source and per dictionary (period / ДЗО / product
+  / market), how many rows fail and which values are absent. It is deliberately
+  **self-contained** — it imports nothing from `seed_kppk`, so this one file can
+  be dropped onto an installation whose seeder predates this error and run as-is.
+  A restored schema is diagnosed the same way, since `raw.*` may hold rows the
+  recreated dictionaries do not know.
   **Text values are normalized on the way in** by `normalize_text`
-  (`src/kppk/constants.py`): the value is trimmed and every run of whitespace —
+  (`src/kppk/constants.py`): the value is trimmed, every run of whitespace —
   doubled spaces, tabs, line breaks, the non-breaking space — collapses to one
-  ordinary space. The DICTIONARIES are keyed by name and the source copy is
+  ordinary space, and **`;` folds into `,`**. The semicolon rule exists because
+  the dictionaries and the fact dumps spell the SAME product differently:
+  `raw.kppk_d_product_seq` has «Прочая продукция (некондиция, восстановленные,
+  РКО)» while `raw.kppk_f_realization` says «(некондиция; восстановленные; РКО)» —
+  a punctuation-only difference that used to abort the copy with «неизвестный
+  продукт». The DICTIONARIES are keyed by name and the source copy is
   matched to them by name, so an untrimmed value would silently become a second
   product; the same rule runs in SQL while copying (`_normalized_sql` in the
   seeder) and in Python for the matrix and for every dictionary cell a user
-  saves. The realization copies themselves reference those dictionaries by uuid
-  (`product_id`, `market_id`), so a later rename cannot orphan the history.
+  saves. The two forms are kept in step by a test
+  (`test_normalized_sql_matches_python_normalization`) — changing one without the
+  other silently breaks the copy.
   **The seed REBUILDS the period rows** for every
   month from September 2023 to December of the next year: it truncates
   «Реализация» (plan and fact) and «Себестоимость» and inserts one row per

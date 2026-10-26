@@ -3,7 +3,7 @@
 
 def normalize_text(value: str | None) -> str:
     """
-    Canonical form of a КППК text value: trimmed, single spaces.
+    Canonical form of a КППК text value: trimmed, single spaces, `;` as `,`.
 
     Names, codes and regions in the source dumps carry stray whitespace —
     leading/trailing spaces, tabs, line breaks, doubled and non-breaking spaces.
@@ -11,6 +11,12 @@ def normalize_text(value: str | None) -> str:
     (the matrix, the realization copies keyed by product NAME) miss. Every text
     value the seeder writes and every text cell a user saves goes through here,
     so the stored strings and the incoming ones always compare equal.
+
+    The semicolon is folded into a comma because the dictionaries and the fact
+    dumps disagree on it for the SAME product: `raw.kppk_d_product_seq` spells it
+    `Прочая продукция (некондиция, восстановленные, РКО)` while the realization
+    dump says `(некондиция; восстановленные; РКО)` — a difference of punctuation
+    only, which used to make the copy abort on «неизвестный продукт».
 
     An empty result stays an empty string: for an optional field the caller
     decides whether that means NULL.
@@ -20,7 +26,7 @@ def normalize_text(value: str | None) -> str:
     # `split()` on its own handles every Unicode whitespace, and `join` puts
     # exactly one ordinary space back — this also drops the non-breaking space
     # Excel loves to embed.
-    return " ".join(value.split())
+    return " ".join(value.split()).replace(";", ",")
 
 
 KPPK_PROJECT_KEY = "kppk"

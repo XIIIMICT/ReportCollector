@@ -18,6 +18,16 @@ def test_normalize_text_keeps_meaningful_values_untouched() -> None:
     assert normalize_text("1.1.1") == "1.1.1"
 
 
+def test_normalize_text_folds_semicolons_into_commas() -> None:
+    """`;` and `,` are the same separator: the dictionaries and dumps disagree."""
+    assert normalize_text("Прочая продукция (некондиция; восстановленные; РКО)") == normalize_text(
+        "Прочая продукция (некондиция, восстановленные, РКО)"
+    )
+    assert normalize_text('Средство "Белизна"; тыс. шт') == 'Средство "Белизна", тыс. шт'
+    # A comma survives untouched, so the normalized form is stable.
+    assert normalize_text('Средство "Белизна", тыс. шт') == 'Средство "Белизна", тыс. шт'
+
+
 def test_normalize_text_turns_blank_into_empty_string() -> None:
     """Whitespace only is "no value"; NULL is "no value" too."""
     assert normalize_text("   ") == ""

@@ -90,9 +90,15 @@ def _normalized_sql(column: str, alias: str = "s") -> str:
     mirrors `" ".join(value.split())` step by step: the non-breaking space is a
     plain space for us (PostgreSQL's `\s` does not match it, hence the explicit
     `replace`), then every run of whitespace collapses to one ordinary space,
-    and the edges are trimmed.
+    and the edges are trimmed. The trailing `replace` is `normalize_text`'s
+    `;` → `,` fold — the dictionaries and the fact dumps spell the same product
+    with different punctuation, and without this the copy aborts on it.
     """
-    return f"""regexp_replace(btrim(replace({alias}."{column}", chr(160), ' ')), '[[:space:]]+', ' ', 'g')"""
+    return (
+        "replace("
+        f"""regexp_replace(btrim(replace({alias}."{column}", chr(160), ' ')), '[[:space:]]+', ' ', 'g')"""
+        ", ';', ',')"
+    )
 
 
 def _source_column_sql(column: str) -> str:
@@ -395,6 +401,100 @@ async def _ensure_markets(connection: AsyncConnection, app_schema: str) -> int:
     return created
 
 
+async def _missing_dictionary_rows(
+    connection: AsyncConnection,
+    app_schema: str,
+    source: str,
+    has_market: bool,
+) -> dict[str, int]:
+    """
+    Count, PER DICTIONARY, the source rows that resolve to nothing.
+
+    One total over all four joins only says "165 rows are broken"; the operator
+    needs to know WHICH dictionary and WHICH value. Each kind is counted on its
+    own, so a missing product is never reported as a missing market.
+    """
+    from_table = f"FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)} s"
+    joins = [(f"LEFT JOIN {_qualified(KPPK_SOURCE_SCHEMA_RAW, 'kppk_d_period')} p ON p.id = s.period_id", "p.id")]
+    joins.append((f"LEFT JOIN {_qualified(app_schema, 'kppk_orgs')} o ON o.num = s.org_id", "o.id"))
+    joins.append(
+        (
+            f"LEFT JOIN {_qualified(app_schema, 'kppk_products')} prod ON prod.name = {_normalized_sql('product')}",
+            "prod.id",
+        )
+    )
+    if has_market:
+        joins.append(
+            (
+                f"LEFT JOIN {_qualified(app_schema, 'kppk_markets')} mkt ON mkt.code = {_normalized_sql('region')}",
+                "mkt.id",
+            )
+        )
+    kinds = ["period", "org", "product", *(("market",) if has_market else ())]
+    # Every join is kept in every count: a row is counted for ONE dictionary,
+    # whatever the other three resolve to.
+    all_joins = " ".join(join_sql for join_sql, _ in joins)
+    counts: dict[str, int] = {}
+    for (_, missing_column), kind in zip(joins, kinds, strict=True):
+        counts[kind] = int(
+            (
+                await connection.execute(
+                    text(f"SELECT count(*) {from_table} {all_joins} WHERE {missing_column} IS NULL")
+                )
+            ).scalar_one()
+        )
+    return counts
+
+
+async def _missing_dictionary_samples(
+    connection: AsyncConnection,
+    app_schema: str,
+    source: str,
+    has_market: bool,
+) -> dict[str, list[str]]:
+    """Collect a few offending source values per dictionary — what to fix."""
+    from_table = f"FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)} s"
+    joins = [
+        (
+            f"LEFT JOIN {_qualified(KPPK_SOURCE_SCHEMA_RAW, 'kppk_d_period')} p ON p.id = s.period_id",
+            "p.id",
+            "s.period_id",
+        ),
+        (f"LEFT JOIN {_qualified(app_schema, 'kppk_orgs')} o ON o.num = s.org_id", "o.id", "s.org_id"),
+        (
+            f"LEFT JOIN {_qualified(app_schema, 'kppk_products')} prod ON prod.name = {_normalized_sql('product')}",
+            "prod.id",
+            _normalized_sql("product"),
+        ),
+    ]
+    if has_market:
+        joins.append(
+            (
+                f"LEFT JOIN {_qualified(app_schema, 'kppk_markets')} mkt ON mkt.code = {_normalized_sql('region')}",
+                "mkt.id",
+                _normalized_sql("region"),
+            )
+        )
+    kinds = ["period", "org", "product", *(("market",) if has_market else ())]
+    all_joins = " ".join(join_sql for join_sql, _, _ in joins)
+    samples: dict[str, list[str]] = {}
+    for (_, missing_column, value_column), kind in zip(joins, kinds, strict=True):
+        rows = (
+            (
+                await connection.execute(
+                    text(
+                        f"SELECT DISTINCT {value_column} {from_table} {all_joins} "
+                        f"WHERE {missing_column} IS NULL LIMIT 3"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        samples[kind] = [str(value) for value in rows if value is not None]
+    return samples
+
+
 async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[str, int]:
     """Re-copy every source table into its rc copy; returns per-table counters."""
     per_table: dict[str, int] = {}
@@ -430,28 +530,15 @@ async def _copy_sources(connection: AsyncConnection, app_schema: str) -> dict[st
                     else ""
                 )
             )
-            missing = (
-                await connection.execute(
-                    text(
-                        f"SELECT count(*) FROM {_qualified(KPPK_SOURCE_SCHEMA_RAW, source)} s "  # noqa: S608 — server-owned identifiers
-                        f"LEFT JOIN {_qualified(KPPK_SOURCE_SCHEMA_RAW, 'kppk_d_period')} p ON p.id = s.period_id "
-                        f"LEFT JOIN {_qualified(app_schema, 'kppk_orgs')} o ON o.num = s.org_id "
-                        f"LEFT JOIN {_qualified(app_schema, 'kppk_products')} prod ON prod.name = {_normalized_sql('product')} "
-                        + (
-                            f"LEFT JOIN {_qualified(app_schema, 'kppk_markets')} mkt ON mkt.code = {_normalized_sql('region')} "
-                            if has_market
-                            else ""
-                        )
-                        + "WHERE p.id IS NULL OR o.id IS NULL OR prod.id IS NULL"
-                        + (" OR mkt.id IS NULL" if has_market else "")
-                    )
-                )
-            ).scalar_one()
-            if missing:
+            missing_by_kind = await _missing_dictionary_rows(connection, app_schema, source, has_market)
+            if any(missing_by_kind.values()):
+                detail = "; ".join(f"{kind}: {count}" for kind, count in missing_by_kind.items() if count)
+                samples = await _missing_dictionary_samples(connection, app_schema, source, has_market)
+                example = "; ".join(f"{kind} — {', '.join(values)}" for kind, values in samples.items() if values)
                 message = (
-                    f"Источник {source}: {missing} строк с неизвестным ДЗО, периодом, продуктом"
-                    + (" или рынком" if has_market else "")
-                    + " — приведите справочники в соответствие."
+                    f"Источник {source}: не удалось сопоставить строки со справочниками ({detail}). "
+                    f"Примеры значений, которых нет в базе: {example}. "
+                    "Приведите справочники в соответствие — сид ничего не записал."
                 )
                 raise CommandError(message)
             result = await connection.execute(
