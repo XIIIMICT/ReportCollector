@@ -1372,6 +1372,17 @@ body {
     padding: 0;
 }
 
+/* The card's padding comes from the shared `card` component (16px). Its top
+   inset is trimmed by the tab cluster's extra height: the tabs are 40px tall
+   next to 36px controls (they carry their own 4px padding, and removing it
+   clips them), so the panel starts 2px lower and the top gap would read larger
+   than the side ones. Compensation, not a new frame — the panel itself keeps
+   no vertical padding of its own (see below).
+   NOT in fullscreen: there the card's padding is gone entirely. */
+.workspace-card:not(.workspace-card--fullscreen) {
+    padding-top: calc(1rem - 2px);
+}
+
 /* The CARD already frames its content (`padding: 16px` on all sides), and the
    panels added their own frame on top of it: a vertical padding PLUS a fixed
    height (`3.8rem`) that keeps a taller box than their controls need — with
