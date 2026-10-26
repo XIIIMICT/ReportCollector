@@ -1,5 +1,6 @@
 """Recover application copies without changing sources or unrelated projects."""
 
+from decimal import Decimal
 from types import SimpleNamespace
 
 from conftest import TEST_SCHEMA
@@ -337,3 +338,101 @@ async def test_copy_creates_product_missing_from_the_source_dictionary(db_sessio
         )
     ).scalar_one()
     assert duplicates == 1, "the auto-created product must not be duplicated on re-seed"
+
+
+async def test_generated_periods_keep_the_source_figures(db_session, monkeypatch) -> None:
+    """The period rebuild adds empty rows AROUND the source data, never over it.
+
+    The seed used to TRUNCATE «Реализация»/«Реализация план» after copying the
+    source facts, so every figure vanished and the form looked empty for every
+    period — the reported symptom.
+    """
+    connection = await db_session.connection()
+    source_schema = f"{TEST_SCHEMA}_kppk_figures"
+    await connection.execute(text(f'CREATE SCHEMA "{source_schema}"'))
+    for statement in seed_kppk.split_sql_statements(seed_kppk._read_sql_file(seed_kppk.SOURCE_SCHEMA_PATH)):
+        target = seed_kppk._statement_target(statement)
+        if target is not None and target[0] == "raw":
+            await connection.execute(text(statement.replace("raw.", f'"{source_schema}".')))
+    inserts = (
+        "INSERT INTO kppk_d_org VALUES (1, 'TEST', 'Test org', 0)",
+        "INSERT INTO kppk_d_period VALUES (1, 'Июнь', 2026, '2026-06-01', '2026-06-30')",
+        "INSERT INTO kppk_d_product_seq VALUES (1, 'Test product')",
+        "INSERT INTO kppk_d_raw_seq VALUES (1, 'Test raw')",
+        # The source carries real numbers on this row.
+        (
+            "INSERT INTO kppk_f_realization (org_id, period_id, rep_date, product, region, fact, fca_price_fact) "
+            "VALUES (1, 1, '2026-06-30', 'Test product', 'РФ', 10, 20)"
+        ),
+        (
+            "INSERT INTO kppk_f_realization_plan (org_id, period_id, rep_date, product, region, month_bp_plan) "
+            "VALUES (1, 1, '2026-06-30', 'Test product', 'РФ', 30)"
+        ),
+    )
+    for statement in inserts:
+        await connection.execute(text(statement.replace("INSERT INTO ", f'INSERT INTO "{source_schema}".')))
+    for name in reversed(TABLES):
+        await connection.execute(text(f'DROP TABLE IF EXISTS "{TEST_SCHEMA}"."{name}" CASCADE'))
+
+    async def source_schemas(_connection) -> list[str]:
+        return []
+
+    async def source_tables(_connection) -> int:
+        return 0
+
+    monkeypatch.setattr(seed_kppk, "KPPK_SOURCE_SCHEMA_RAW", source_schema)
+    monkeypatch.setattr(seed_kppk, "get_settings", lambda: SimpleNamespace(postgres_schema=TEST_SCHEMA))
+    monkeypatch.setattr(seed_kppk, "_ensure_schemas", source_schemas)
+    monkeypatch.setattr(seed_kppk, "_ensure_source_tables", source_tables)
+    monkeypatch.setattr(seed_kppk, "_matrix_matches", list)
+    counters = await seed_kppk.seed(db_session)
+
+    carried = (
+        await connection.execute(
+            text(
+                f'SELECT fact, fca_price_fact FROM "{TEST_SCHEMA}".kppk_realization '  # noqa: S608 — test schema
+                "WHERE fact IS NOT NULL"
+            )
+        )
+    ).all()
+    assert [(fact, price) for fact, price in carried] == [(Decimal("10.000"), Decimal("20.00"))]
+    planned = (
+        (
+            await connection.execute(
+                text(
+                    f'SELECT month_bp_plan FROM "{TEST_SCHEMA}".kppk_realization_plan '  # noqa: S608 — test schema
+                    "WHERE month_bp_plan IS NOT NULL"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert planned == [Decimal("30.000")]
+    # The scaffolding is still generated around it: the source row is one of
+    # many, not the only one (the matrix is empty here, so the count is just
+    # the source rows — what matters is that no duplicate was added).
+    assert counters["kppk_realization"] >= 1
+    # Exactly one row per key: the rebuild did not add a duplicate next to the
+    # source row.
+    duplicates = (
+        await connection.execute(
+            text(
+                "SELECT count(*) - count(DISTINCT (org_id, period_date, product_id, market_id)) "  # noqa: S608
+                f'FROM "{TEST_SCHEMA}".kppk_realization'
+            )
+        )
+    ).scalar_one()
+    assert duplicates == 0
+    # A second run is stable and keeps the figure.
+    assert (await seed_kppk.seed(db_session))["kppk_realization"] == counters["kppk_realization"]
+    again = (
+        (
+            await connection.execute(
+                text(f'SELECT fact FROM "{TEST_SCHEMA}".kppk_realization WHERE fact IS NOT NULL')  # noqa: S608
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert again == [Decimal("10.000")]

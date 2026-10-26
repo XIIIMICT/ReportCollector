@@ -6,13 +6,13 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.collab.locking import project_write
 from src.common.read_cache import cached
-from src.kppk.constants import KPPK_PROJECT_KEY
+from src.kppk.constants import KPPK_PROJECT_KEY, market_order_sql
 from src.kppk.models import (
     KppkCost,
     KppkMarket,
@@ -114,16 +114,24 @@ async def read_current_period(
 
 async def read_market_codes(session: AsyncSession) -> list[str]:
     """
-    Return the market codes of the «Реализация» form, in the dictionary order.
+    Return the market codes of the «Реализация» form, in the SOURCE order.
 
-    The markets used to be a constant in this module; they are a dictionary now,
-    so the order comes from the rows themselves (`kppk_markets` is small and
-    stable — «РФ», «ДЗ», «БЗ» — and its insertion order is the source order).
+    The order is «РФ», «ДЗ», «БЗ» (`MARKET_CODES`) — the order the business reads
+    them in, not alphabetical. It cannot come from `created_at`: the seeder
+    inserts all three in one transaction, so they share a timestamp and the old
+    `ORDER BY created_at, code` silently degraded to «БЗ, ДЗ, РФ».
     """
-    codes = (
-        await session.exec(select(KppkMarket.code).order_by(col(KppkMarket.created_at), col(KppkMarket.code)))
+    rows = (
+        await session.exec(
+            select(KppkMarket.code).order_by(
+                # A code outside MARKET_CODES sorts NULL, i.e. LAST, so a
+                # hand-added market stays visible instead of vanishing.
+                text(f"{market_order_sql('kppk_markets.code')} NULLS LAST"),
+                col(KppkMarket.code),
+            )
+        )
     ).all()
-    return list(codes)
+    return list(rows)
 
 
 def _plan_realization_row_read(

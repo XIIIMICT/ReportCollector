@@ -53,6 +53,7 @@ from src.kppk.constants import (
     KPPK_SOURCE_TABLES,
     MARKET_CODES,
     MARKET_NAMES,
+    market_order_sql,
     normalize_text,
 )
 
@@ -851,6 +852,70 @@ async def seed_administrators(session: AsyncSession) -> int:
 # calendar year.
 PERIOD_START = date(2023, 9, 1)
 
+# The figure columns of the period tables. A row where ANY of them is non-NULL
+# carries data (from the source or from a user) and is never treated as empty
+# scaffolding — this is what keeps the rebuild from discarding real numbers.
+_FIGURE_COLUMNS: Final[dict[str, tuple[str, ...]]] = {
+    "kppk_realization_plan": (
+        "month_bp_plan",
+        "month_max_plan",
+        "month_opt_plan",
+        "fca_price_bp_plan",
+        "fca_price_max_plan",
+        "fca_price_opt_plan",
+        "var_exp_bp_plan",
+        "var_exp_plan",
+        "export_duty_bp",
+        "export_duty_max_plan",
+        "export_duty_opt_plan",
+        "excise_bp",
+        "excise_max_plan",
+        "excise_opt_plan",
+        "input_cost_bp",
+        "input_cost_plan",
+        "fca_price_market_bp_plan",
+        "fca_price_market_max_plan",
+        "fca_price_market_opt_plan",
+        "buyout_bp_plan",
+        "buyout_max_plan",
+    ),
+    "kppk_realization": (
+        "month_plan",
+        "month_part_plan",
+        "fca_price_plan",
+        "var_exp_plan",
+        "export_duty_proc",
+        "fact",
+        "fca_price_fact",
+        "var_exp_fact",
+        "stock",
+        "plan_to_sell",
+        "export_duty_fact",
+        "export_duty_plan",
+        "excise_plan",
+        "excise_fact",
+        "full_cost_plan",
+        "full_cost_fact",
+        "input_cost_plan",
+        "input_cost_fact",
+        "stock_current",
+        "fca_price_market_plan",
+        "fca_price_market_fact",
+        "buyout_fact",
+    ),
+    "kppk_cost": (
+        "full_cost_bp",
+        "production_cost_bp",
+        "variable_cost_bp",
+        "full_cost_op",
+        "production_cost_op",
+        "variable_cost_op",
+        "full_cost_fact",
+        "production_cost_fact",
+        "variable_cost_fact",
+    ),
+}
+
 
 def target_periods(today: date | None = None) -> list[date]:
     """First day of every month from September 2023 to December of the next year."""
@@ -891,13 +956,15 @@ async def _generate_periods(connection: AsyncConnection, app_schema: str) -> dic
             )
         )
     ).all()
+    # «РФ», «ДЗ», «БЗ» — the source order, NOT `created_at` (all three share one
+    # transaction timestamp, so that order degrades to alphabetical).
     market_ids = [
         (row.id, row.code)
         for row in (
             await connection.execute(
                 text(
                     f"SELECT id, code FROM {_qualified(app_schema, 'kppk_markets')} "  # noqa: S608
-                    "ORDER BY created_at, code"
+                    f"ORDER BY {market_order_sql('code')} NULLS LAST, code"
                 )
             )
         ).all()
@@ -931,26 +998,53 @@ async def _generate_periods(connection: AsyncConnection, app_schema: str) -> dic
                     }
                 )
 
-    # Overwrite: the seed owns these three tables. «Реализация»/«Себестоимость»
-    # are period scaffolding — the forms are filled by the business — so the
-    # source figures in them are replaced by the empty rows below, the same way
-    # the renovation plan is re-seeded. What the source contributes is the
-    # DICTIONARIES (ДЗО, products, raws), which the copy step wrote.
-    for table in ("kppk_realization_plan", "kppk_realization", "kppk_cost"):
-        await connection.execute(text(f"TRUNCATE TABLE {_qualified(app_schema, table)}"))
-    for table, rows in (("kppk_realization_plan", realization), ("kppk_realization", realization), ("kppk_cost", cost)):
+    # The generated rows are the EMPTY scaffolding for every month of the window;
+    # what the source brought is real data and stays. The two are told apart by
+    # their key: a row whose (org, period, product[, market]) matches a copied
+    # source row belongs to the source, everything else is scaffolding. So the
+    # scaffolding is removed and rebuilt, and a source row is not even in the
+    # delete's scope — a source figure is never thrown away.
+    for table, rows in (
+        ("kppk_realization_plan", realization),
+        ("kppk_realization", realization),
+        ("kppk_cost", cost),
+    ):
+        source_key = (
+            f"SELECT 1 FROM {_qualified(app_schema, table)} src "  # noqa: S608 — server-owned identifiers
+            "WHERE src.org_id = t.org_id AND src.period_date = t.period_date "
+            "AND src.product_id = t.product_id "
+            + ("AND src.market_id = t.market_id " if table != "kppk_cost" else "")
+            + "AND ("
+            + " OR ".join(f"src.{column} IS NOT NULL" for column in _FIGURE_COLUMNS[table])
+            + ")"
+        )
+        await connection.execute(
+            text(
+                f"DELETE FROM {_qualified(app_schema, table)} t "  # noqa: S608
+                f"WHERE NOT EXISTS ({source_key})"
+            )
+        )
+        # Fill the gap: a key the source does not own gets its scaffolding row.
         columns = list(rows[0])
-        # `id` has no DB default (the models mint the uuid in Python), so it is
-        # generated here for the rows that bypass the ORM.
         statement = (
             f"INSERT INTO {_qualified(app_schema, table)} (id, {', '.join(columns)}) "  # noqa: S608
-            f"VALUES (gen_random_uuid(), {', '.join(f':{column}' for column in columns)})"
+            f"SELECT gen_random_uuid(), {', '.join(f':{column}' for column in columns)} "
+            "WHERE NOT EXISTS (SELECT 1 FROM "
+            f"{_qualified(app_schema, table)} e "
+            "WHERE e.org_id = :org_id AND e.period_date = :period_date "
+            "AND e.product_id = :product_id " + ("AND e.market_id = :market_id" if table != "kppk_cost" else "") + ")"
         )
         # One statement per chunk: a single insert of ~50k rows would exceed the
         # bound-parameter limit.
         for index in range(0, len(rows), PERIOD_INSERT_CHUNK):
             await connection.execute(text(statement), rows[index : index + PERIOD_INSERT_CHUNK])
-        counts[table] = len(rows)
+        counts[table] = int(
+            (
+                await connection.execute(
+                    text(f"SELECT count(*) FROM {_qualified(app_schema, table)}")  # noqa: S608 — constant name
+                )
+            ).scalar_one()
+        )
     return counts
 
 

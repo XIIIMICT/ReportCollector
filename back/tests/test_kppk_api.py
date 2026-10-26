@@ -14,8 +14,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.auth.models import ProjectRole, User
 from src.auth.service import activate_project_user, grant_project_role
 from src.downloads import XLSX_MEDIA_TYPE
-from src.kppk.constants import KPPK_PROJECT_KEY
-from src.kppk.models import KppkOrg, KppkOrgProduct, KppkProduct
+from src.kppk.constants import KPPK_PROJECT_KEY, MARKET_CODES
+from src.kppk.models import KppkMarket, KppkOrg, KppkOrgProduct, KppkProduct
+from src.kppk.realization import read_market_codes
 
 ADMIN_HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
 VIEWER_HEADERS = signed_identity_headers(email="viewer@example.ru", name="Viewer User")
@@ -27,6 +28,34 @@ async def _org_by_name(session: AsyncSession, name: str) -> KppkOrg:
 
 async def _product_by_name(session: AsyncSession, name: str) -> KppkProduct:
     return (await session.exec(select(KppkProduct).where(col(KppkProduct.name) == name))).one()
+
+
+async def test_market_codes_follow_the_source_order_not_the_alphabet(
+    db_session: AsyncSession,
+) -> None:
+    """«РФ», «ДЗ», «БЗ» — never `БЗ, ДЗ, РФ`.
+
+    `created_at` cannot order them: the seeder inserts all three in ONE
+    transaction, so they share a timestamp and the order silently degraded to
+    the alphabetical tiebreaker. The order comes from `MARKET_CODES` instead.
+    """
+    stored = list((await db_session.exec(select(col(KppkMarket.code)))).all())
+    codes = await read_market_codes(db_session)
+
+    # Every market is still returned — a code outside MARKET_CODES sorts LAST
+    # instead of disappearing.
+    assert sorted(codes) == sorted(stored)
+    # The source markets come first, in MARKET_CODES order, never alphabetical.
+    source_codes = [code for code in codes if code in MARKET_CODES]
+    assert source_codes == [code for code in MARKET_CODES if code in stored]
+    # Everything else follows them, ordered by code as the tiebreak.
+    others = [code for code in codes if code not in MARKET_CODES]
+    assert others == sorted(others)
+    assert codes == source_codes + others
+    # The regression itself: with all three source markets present, «БЗ» is
+    # NOT first (alphabetical would put it there).
+    if set(MARKET_CODES) <= set(stored):
+        assert codes[0] == "РФ"
 
 
 # ─── Access ────────────────────────────────────────────────────────────────
@@ -878,9 +907,8 @@ async def test_realization_rows_carry_the_product_number_and_sort_by_it(
         "Неизвестный продукт",
     ]
     assert [row["productNum"] for row in rows] == [1, 2, 2, None]
-    # The markets keep the DICTIONARY order inside a product (`read_market_codes`
-    # orders by insertion, then code): «РФ»/«ДЗ»/«БЗ» come from the migration, so
-    # the fixture's «KZ» precedes «RU».
+    # Neither «RU» nor «KZ» is a source market, so both sort last and fall back
+    # to their code — alphabetical only as the tiebreaker within that group.
     assert [row["region"] for row in rows] == ["RU", "KZ", "RU", "RU"]
 
 

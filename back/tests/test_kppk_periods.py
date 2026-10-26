@@ -30,13 +30,34 @@ def test_target_periods_shifts_with_the_current_year() -> None:
 
 async def test_seed_rebuilds_the_periods_and_clears_stale_rows(db_session: AsyncSession) -> None:
     """
-    The seed owns the period rows: a re-run replaces them instead of topping up.
+    The rebuild regenerates the EMPTY scaffolding and keeps what carries data.
 
     A stale row (a product removed from the matrix, a period outside the window)
-    must not survive — that is why the generation truncates before inserting.
+    must not survive — but a row that holds figures is real data (the source's or
+    a user's) and is never thrown away. The fixture already seeds three rows
+    carrying figures at 2026-06.
     """
     pairs = (await db_session.exec(select(KppkOrgProduct))).all()
     assert pairs, "the КППК fixture must link products to organizations"
+
+    # Rows that carry figures BEFORE the rebuild — they must survive it.
+    kept_realization = int(
+        (
+            await db_session.exec(
+                select(func.count()).select_from(KppkRealization).where(col(KppkRealization.fact).is_not(None))
+            )
+        ).one()
+    )
+    kept_plan = int(
+        (
+            await db_session.exec(
+                select(func.count())
+                .select_from(KppkRealizationPlan)
+                .where(col(KppkRealizationPlan.month_bp_plan).is_not(None))
+            )
+        ).one()
+    )
+    assert kept_realization > 0, "the fixture is expected to seed data-carrying rows"
 
     # A row outside the window: the rebuild must remove it.
     market_id = (await db_session.exec(select(col(KppkMarket.id)))).first()
@@ -58,8 +79,23 @@ async def test_seed_rebuilds_the_periods_and_clears_stale_rows(db_session: Async
 
     periods = target_periods()
     markets = (await db_session.exec(select(func.count()).select_from(KppkMarket))).one()
-    assert counts["kppk_realization_plan"] == len(pairs) * len(periods) * markets
-    assert counts["kppk_realization"] == len(pairs) * len(periods) * markets
+    after_plan = (
+        await db_session.exec(
+            select(func.count())
+            .select_from(KppkRealizationPlan)
+            .where(col(KppkRealizationPlan.month_bp_plan).is_not(None))
+        )
+    ).one()
+    # Generated scaffolding + the data-carrying rows the rebuild preserved.
+    assert after_plan == kept_plan, f"data-carrying plan rows: {kept_plan} -> {after_plan}"
+    # One row per key: the scaffolding never sits beside a preserved row.
+    rows = (await db_session.exec(select(KppkRealizationPlan))).all()
+    keys = {(row.org_id, row.period_date, row.product_id, row.market_id) for row in rows}
+    assert len(keys) == len(rows), "one row per key"
+    # Every generated pair is present, and the preserved rows are on top of it
+    # (a preserved row may occupy a key the scaffolding would also generate).
+    assert len(rows) >= len(pairs) * len(periods) * markets
+    assert counts["kppk_realization_plan"] == len(rows)
     assert counts["kppk_cost"] == len(pairs) * len(periods)
 
     # The stale row (a period outside the window) is gone.

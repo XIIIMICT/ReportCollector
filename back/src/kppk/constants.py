@@ -136,6 +136,19 @@ KPPK_SOURCE_TABLES: dict[str, str] = {
 # order); the constant stays as the reference for a fresh database and for tests.
 MARKET_CODES: tuple[str, ...] = ("РФ", "ДЗ", "БЗ")
 
+
+# The explicit presentation order of the markets, as a SQL sort key. `created_at`
+# CANNOT be used for this: the seeder inserts all three markets in one
+# transaction, so they share a timestamp and the order collapses to the
+# alphabetical tiebreaker — «БЗ, ДЗ, РФ», the opposite of the source. A code that
+# is not in MARKET_CODES sorts last (`array_position` returns NULL), so a
+# hand-added market stays visible instead of vanishing from the form.
+def market_order_sql(column: str) -> str:
+    """Build the ORDER BY key that puts markets in `MARKET_CODES` order."""
+    codes = ", ".join(f"'{code}'" for code in MARKET_CODES)
+    return f"array_position(CAST(ARRAY[{codes}] AS text[]), {column})"
+
+
 # Full wording of each market code, as the dictionary spells it. The source
 # carried only the code; the name is the readable form the dictionary editor shows.
 MARKET_NAMES: dict[str, str] = {

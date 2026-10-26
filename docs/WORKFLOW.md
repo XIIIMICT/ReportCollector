@@ -83,19 +83,28 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 
   saves. The two forms are kept in step by a test
   (`test_normalized_sql_matches_python_normalization`) — changing one without the
   other silently breaks the copy.
-  **The seed REBUILDS the period rows** for every
-  month from September 2023 to December of the next year: it truncates
-  «Реализация» (plan and fact) and «Себестоимость» and inserts one row per
-  (ДЗО × product of the matrix × market) and per (ДЗО × product), every figure
-  zero — the forms exist to be filled. Overwriting (not topping up) is
-  deliberate and matches how the renovation plan is seeded: the seed owns these
-  rows, so a product dropped from the matrix cannot leave a stale period behind.
-  The costs are re-derived from the fresh realization rows afterwards. All of it
+  **The seed REBUILDS the EMPTY period rows** for every
+  month from September 2023 to December of the next year: it inserts one row per
+  (ДЗО × product of the matrix × market) and per (ДЗО × product) with every figure
+  NULL — the form exists to be filled. It does **not** truncate: a row that
+  carries a figure is real data (copied from the source, or entered by a user)
+  and is preserved. The two are told apart by their key — a period row whose
+  (ДЗО, month, product[, market]) matches a row holding data belongs to it;
+  everything else is scaffolding and is rebuilt, so a product dropped from the
+  matrix cannot leave a stale EMPTY row behind. A preserved row keeps its
+  figures and no duplicate scaffolding row is created beside it. (This used to be
+  a plain `TRUNCATE`, which silently discarded every source figure — the
+  «Реализация» form looked empty for every period.) The costs are re-derived
+  from the fresh realization rows afterwards. All of it
   happens in the seed transaction; the counters are printed with the rest
   (`periods_created` etc.). It touches no other project; the `kppk` project row
   and its user links come from `just seed` / self-provisioning, so a fresh install
   runs `just seed` → `just seed-kppk`. Dictionary edits — the editable unique «№»
-  included — are reconciled from the source on the next run.
+  included — are reconciled from the source on the next run. The **market column
+  order is «РФ», «ДЗ», «БЗ»** (`MARKET_CODES`): it is not alphabetical and not by
+  `created_at` — all three markets are inserted in one transaction, so they share
+  a timestamp and `created_at` ordering degrades to `БЗ, ДЗ, РФ`. A market code
+  outside the tuple sorts last by code.
 - Missing КППК application tables are recreated in `POSTGRES_SCHEMA` before any
   truncation, including `kppk_cost` and `kppk_org_products`; the counter is
   `copy_tables_created`. Existing tables are not altered: this recovery is not a
