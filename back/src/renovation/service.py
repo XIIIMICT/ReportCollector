@@ -976,11 +976,24 @@ def _column_filter_condition(
 
 
 def _facet_number(value: str) -> Decimal | None:
-    """Parse a facet display number back to a Decimal (None when not numeric)."""
+    """
+    Parse a facet display number back to a Decimal (None when not numeric).
+
+    Accepts both the RU form ("1 234,5") and a plain/exponential one
+    ("1.00001E+6", "1000005") — a number column's facets may be rendered by the
+    client, so nothing guarantees the display spelling here.
+    """
+    text = value.replace("\u00a0", "").replace("\u202f", "").replace(" ", "").replace(",", ".")
     try:
-        return Decimal(value.replace(",", "."))
+        return Decimal(text)
     except InvalidOperation, ValueError:
         return None
+
+
+def _number_or_zero(value: str) -> Decimal:
+    """Return the numeric sort key of a facet value (non-numeric text sorts as zero)."""
+    parsed = _facet_number(value)
+    return parsed if parsed is not None else Decimal(0)
 
 
 def _facet_date(value: str) -> date | None:
@@ -1391,7 +1404,13 @@ async def read_plan_facets(
         else:
             counts[display] = counts.get(display, 0) + int(count)
 
-    ordered = sorted(counts.items(), key=lambda item: (item[0].casefold(), item[0]))
+    # A NUMERIC column orders numerically, the client's rule too: a plain string
+    # sort put "9" after "10", and over raw digits it would put "1000010" before
+    # "900". Everything else stays casefold-then-value, so windows concatenate.
+    if meta is not None and meta.cell_type == "number":
+        ordered = sorted(counts.items(), key=lambda item: (_number_or_zero(item[0]), item[0]))
+    else:
+        ordered = sorted(counts.items(), key=lambda item: (item[0].casefold(), item[0]))
     window = ordered[offset : offset + limit]
     return RenovationFacetsRead(
         column=column,
@@ -1408,7 +1427,14 @@ def _facet_display(
     meta: RenovationFieldMeta | None,
     label_map: dict[UUID, str],
 ) -> str | None:
-    """Display string of a grouped facet value; None for the «Пустые» bucket."""
+    """
+    Render the display string of a grouped facet value (None for «Пустые»).
+
+    A NUMBER column answers with its RAW digits: formatting server-side would
+    split one number into several buckets whenever two stored Decimals differ in
+    scale (18.0 and 18.0000 are the same value to the user, and str() gives two
+    different strings). The client prints them with the cells' own formatter.
+    """
     if raw_value is None:
         return None
     if meta is None:
@@ -1421,8 +1447,17 @@ def _facet_display(
     if meta.cell_type == "boolean":
         return "Да" if raw_value else "Нет"
     if meta.cell_type == "number":
-        parsed = float(raw_value) if isinstance(raw_value, Decimal) else raw_value
-        return f"{parsed:g}"
+        # A NUMBER column's facets are the raw digits, formatted on the client —
+        # whose own rule is `Intl.NumberFormat("ru-RU")` ("1 000 005"), the same
+        # text the cells and the selected values carry. `f"{float(...):g}"` used
+        # to turn every seven-digit value into "1.00001e+06": the filter list
+        # showed exponents instead of numbers, the selected values stopped
+        # matching the cells, and the order was alphabetical over exponents.
+        if raw_value is None or raw_value == "":
+            return None
+        if isinstance(raw_value, Decimal):
+            return format(raw_value.normalize(), "f")
+        return str(raw_value)
     if meta.cell_type == "date":
         rendered = raw_value.isoformat() if isinstance(raw_value, date) else str(raw_value)
         return rendered or None
