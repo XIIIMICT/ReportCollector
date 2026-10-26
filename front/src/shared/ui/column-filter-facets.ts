@@ -354,6 +354,11 @@ export function computeRowFacets(
             continue;
         }
         counts.set(display, (counts.get(display) ?? 0) + 1);
+        // A DATE column has no numeric value to report: its buckets are compared
+        // as instants, and marking them `nonNumeric` here made `searchRowFacets`
+        // drop every one of them before the date branch could look. The two
+        // concepts are different — «not a number» vs «not comparable at all».
+        if (order === "date") continue;
         if (!number || numbers.has(display) || nonNumeric.has(display)) continue;
         const raw = number(row);
         const numeric = typeof raw === "number" ? raw : Number(raw);
