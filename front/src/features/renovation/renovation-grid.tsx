@@ -1615,14 +1615,15 @@ function RenovationGridInner(
         };
         grid.addEventListener("aftersourceset", schedule);
         grid.addEventListener("scrollchange", schedule);
-        grid.addEventListener("cellclick", onSelect);
-        grid.addEventListener("rowselected", onSelect);
+        // `afterfocus` is what RevoGrid actually fires when a CELL is clicked in
+        // this grid — `cellclick`/`rowselected` never arrive, so subscribing to
+        // them alone meant the position was never written.
+        grid.addEventListener("afterfocus", onSelect);
         reportAndRetry();
         return () => {
             grid.removeEventListener("aftersourceset", schedule);
             grid.removeEventListener("scrollchange", schedule);
-            grid.removeEventListener("cellclick", onSelect);
-            grid.removeEventListener("rowselected", onSelect);
+            grid.removeEventListener("afterfocus", onSelect);
             if (timer !== undefined) window.clearTimeout(timer);
         };
     }, [reportCenterPosition, reportLoadedRows, scopeKey]);

@@ -437,8 +437,6 @@ function RawMaterialsGridInner(
      * stale entry fight the user's own clicks.
      */
     const restoredSortingRef = useRef(new Set<SectionId>());
-    /** Pushed the remembered sorting into the grid? Once per mount, no more. */
-    const restoredAppliedRef = useRef(false);
     /**
      * The storage scope of this grid's sorting. `namespace` is meant to name the
      * PROJECT (several grids sharing a section id), but some call sites pass
@@ -2689,28 +2687,37 @@ function RawMaterialsGridInner(
                         // draws the indicator is applied only when the sorting is
                         // re-emitted.
                         //
-                        // ONCE, though. `aftersourceset` also fires after a FILTER
-                        // trims the source, and re-applying the stored sorting
-                        // there overwrote the user's own click — the first click
-                        // looked dead, and only the second one showed.
-                        if (
-                            !restoredAppliedRef.current &&
-                            sortingBySectionRef.current.has(section)
-                        ) {
-                            restoredAppliedRef.current = true;
+                        if (sortingBySectionRef.current.has(section)) {
                             setTimeout(() => {
                                 const grid = gridRef.current;
                                 if (!grid) return;
-                                grid.classList.add("raw-materials-grid--user-sorted");
-                                const restored = sortingBySectionRef.current.get(section);
-                                if (restored) {
-                                    grid.sorting = {
-                                        columns: restored.columns.map((column) => ({
-                                            prop: column.prop,
-                                            order: column.order,
-                                        })),
-                                    };
+                                const stored = sortingBySectionRef.current.get(section);
+                                if (!stored) return;
+                                // The state ALREADY matches what is stored: a click
+                                // was applied while this tick was pending, or the
+                                // push already happened. Re-pushing would undo the
+                                // user's click — that is what made the first click
+                                // look dead and the second one look like the first.
+                                const live = (grid.sorting as { columns?: Array<{ prop: string }> })
+                                    ?.columns;
+                                const same =
+                                    Array.isArray(live) &&
+                                    live.length === stored.columns.length &&
+                                    live.every(
+                                        (column, index) =>
+                                            column.prop === stored.columns[index]?.prop,
+                                    );
+                                if (same) {
+                                    grid.classList.add("raw-materials-grid--user-sorted");
+                                    return;
                                 }
+                                grid.classList.add("raw-materials-grid--user-sorted");
+                                grid.sorting = {
+                                    columns: stored.columns.map((column) => ({
+                                        prop: column.prop,
+                                        order: column.order,
+                                    })),
+                                };
                             }, 0);
                         }
                     }}
