@@ -379,12 +379,18 @@ function RawMaterialsGridInner(
     // through the same property watcher as `hideColumns` (the plugin's setter
     // interceptor fires on any later assignment too), but the React wrapper's
     // typings don't know the prop — so it's assigned directly on the element.
+    //
+    // The merges are INDEX-based, so they only hold for the rows they were
+    // computed on: once the view is FILTERED or SORTED, a merge can join two
+    // unrelated records. Both triggers therefore turn them off, and this effect
+    // must not put them back — it used to, because filtering does not change the
+    // prop, but the state below survives only while nothing re-applies it.
+    const [mergesDropped, setMergesDropped] = useState(false);
     useEffect(() => {
         const grid = gridRef.current;
-        if (grid && cellMerge !== undefined) {
-            grid.cellMerge = cellMerge;
-        }
-    }, [cellMerge]);
+        if (!grid || cellMerge === undefined || mergesDropped) return;
+        grid.cellMerge = cellMerge;
+    }, [cellMerge, mergesDropped]);
     const shellRef = useRef<HTMLDivElement>(null);
     const verticalScrollRef = useRef<HTMLDivElement>(null);
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
@@ -2684,7 +2690,9 @@ function RawMaterialsGridInner(
                         // this event; queue the plugin update so it cannot reset
                         // the sort while the lifecycle event is still running.
                         queueMicrotask(() => {
-                            if (onSortingChange && gridRef.current) gridRef.current.cellMerge = [];
+                            if (!onSortingChange || !gridRef.current) return;
+                            gridRef.current.cellMerge = [];
+                            setMergesDropped(true);
                         });
                         userSortedSectionsRef.current.add(section);
                         gridRef.current?.classList.add("raw-materials-grid--user-sorted");
@@ -2723,6 +2731,17 @@ function RawMaterialsGridInner(
                         ).detail?.collection;
                         filtersAppliedRef.current =
                             !!collection && Object.keys(collection).length > 0;
+                        // Merges are INDEX-based: they were computed for the rows
+                        // that were visible before the filter. Once the source is
+                        // trimmed, a merge can span two unrelated records — the
+                        // same hazard sorting already guards against (see
+                        // `onBeforesorting`). Dropped on the same microtask, so
+                        // the plugin update cannot fight the lifecycle event.
+                        queueMicrotask(() => {
+                            if (!gridRef.current) return;
+                            gridRef.current.cellMerge = [];
+                            setMergesDropped(true);
+                        });
                         setTimeout(() => void measureViewport(), 0);
                     }}
                     onContentsizechanged={() => {

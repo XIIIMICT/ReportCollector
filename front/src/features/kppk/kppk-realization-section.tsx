@@ -250,6 +250,12 @@ export function KppkRealizationSection({
 
     const [reloadKey, setReloadKey] = useState(0);
     const [isGridSorted, setIsGridSorted] = useState(false);
+    // A FILTER narrows the rows for the same reason a sort reorders them: the
+    // merges are INDEX ranges over the view, so a trimmed view can pair rows of
+    // different products. Both drop them.
+    const [hasFilters, setHasFilters] = useState(false);
+    /** Sorted OR filtered — the merges only hold on an untouched view. */
+    const mergesOff = isGridSorted || hasFilters;
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
     const loader = useCallback(
         () =>
@@ -499,7 +505,7 @@ export function KppkRealizationSection({
     // trailing excise column, whose figure belongs to the product, not to the
     // market.
     const cellMerge = useMemo<MergeData[]>(() => {
-        if (isCost || isGridSorted) return [];
+        if (isCost || mergesOff) return [];
         const rows = view?.rows ?? [];
         const sweeps: MergeData[] = [];
         // The single Level/leaf array the merged columns sit in.
@@ -520,7 +526,7 @@ export function KppkRealizationSection({
         }
         if (start >= 0) push(start, rows.length);
         return sweeps;
-    }, [isCost, isGridSorted, showExcise, slice, view?.rows]);
+    }, [isCost, mergesOff, showExcise, slice, view?.rows]);
 
     // ── Workspace wiring (footer actions, strip handlers) ──
     const gridRef = useRef<RawMaterialsGridHandle>(null);
@@ -694,7 +700,12 @@ export function KppkRealizationSection({
                 onClipboardStateChange={handleClipboardState}
                 onSelectionChange={handleSelectionChange}
                 filters={columnFilters}
-                onFiltersChange={setColumnFilters}
+                onFiltersChange={(next) => {
+                    setColumnFilters(next);
+                    // The merges are dropped the moment a column is filtered and
+                    // stay off until every filter is cleared — see `mergesOff`.
+                    setHasFilters(Object.keys(next).length > 0);
+                }}
             />
         </div>
     );
