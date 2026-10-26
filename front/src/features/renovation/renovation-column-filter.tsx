@@ -1,7 +1,7 @@
 "use client";
 
 import { getRenovationPlanFacets } from "@/shared/api/renovation";
-import { renderNumberText } from "@/shared/grid/grid-config";
+import { renderDateText, renderNumberText } from "@/shared/grid/grid-config";
 import {
     serverFacetSource,
     type ColumnFilter,
@@ -63,11 +63,19 @@ export function RenovationColumnFilterPopover({
     onApply: (filter: ColumnFilter | null) => void;
     onClose: () => void;
 }) {
-    // The plan's facet values arrive as the RAW digits of a number column — the
-    // server never formats them (formatting there split one value into several
-    // buckets and, worse, printed seven-digit numbers as "1.00001e+06"). The
-    // client applies the cells' own rule, so the filter list offers exactly what
-    // the column shows and what the applied filter will be compared against.
+    // The plan's facet values arrive RAW: the digits of a number column, the ISO
+    // string of a date. The server never formats them — formatting there split
+    // one number into several buckets, printed seven-digit values as
+    // "1.00001e+06", and left dates as «2027-01-01» while the cells print
+    // «01.01.2027». The client applies the cells' OWN rule, so the filter list
+    // offers exactly what the column shows and what the applied filter is
+    // compared against.
+    const render =
+        order === "number"
+            ? renderNumberText
+            : order === "date"
+              ? (raw: string) => renderDateText(raw.slice(0, 10))
+              : null;
     const facets = serverFacetSource(async (target, page) => {
         const window = await getRenovationPlanFacets(target, {
             planId,
@@ -75,13 +83,11 @@ export function RenovationColumnFilterPopover({
             offset: page.offset,
             limit: page.limit,
         });
-        if (order !== "number") return window;
+        if (render === null) return window;
         return {
             ...window,
             values: window.values.map((entry) =>
-                entry.value === null
-                    ? entry
-                    : { value: renderNumberText(entry.value), count: entry.count },
+                entry.value === null ? entry : { value: render(entry.value), count: entry.count },
             ),
         };
     });
