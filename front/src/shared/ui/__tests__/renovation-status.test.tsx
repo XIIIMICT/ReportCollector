@@ -63,6 +63,17 @@ test("no applied filters -> no filter section", () => {
     expect(view.container.querySelector(".form-status-detail__filters")).toBeNull();
 });
 
+test("the sorting reaches the tooltip content through the shared section", () => {
+    // The status tooltip mounts its content only while open, so the grid's
+    // payload is checked through the section it feeds — the same one
+    // `FormStatus` renders with `gridStats.sortedColumns`.
+    const view = render(<SortSection entries={[{ path: ["Наименование"], order: "desc" }]} />);
+    const items = [...view.container.querySelectorAll(".form-status-detail__filters-item")].map(
+        (node) => node.textContent,
+    );
+    expect(items).toEqual(["Наименование ↓"]);
+});
+
 test("the status lists the active sorting with its direction", () => {
     const view = render(
         <SortSection

@@ -2641,6 +2641,12 @@ function RawMaterialsGridInner(
                         sortingBySectionRef.current.set(section, sorting);
                         onSortingChange?.(sorting.columns.length > 0);
                         scheduleFunnelMeasure();
+                        // The SORTING is part of the status («Сортировка:»), and
+                        // this event is the only place it changes — without a
+                        // re-measure the tooltip kept the empty list it had
+                        // computed before the click, because no other dependency
+                        // of the stats had moved.
+                        setTimeout(() => void measureViewport(), 0);
                     }}
                     onBeforefilterapply={(event) => {
                         // Filtering trims the data source synchronously, and there
