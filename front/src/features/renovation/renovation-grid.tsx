@@ -1510,15 +1510,43 @@ function RenovationGridInner(
         return () => window.clearTimeout(timer);
     }, [scrollToPosition]);
 
-    // Report the stored position of the row in the middle of the data viewport.
-    // The plugin evicts far chunks, so the centre slot itself may be a hole —
-    // walk outward to the nearest loaded row (the window around the viewport is
-    // always there). Read straight from the plugin's source: the workspace's
-    // mirror is a render behind, so a lookup through it would miss.
+    /**
+     * The row the user SELECTED — what the remembered position follows.
+     *
+     * A cell click in this grid fires `afterfocus` and nothing else, so the
+     * SELECTION is the best statement of «this is my row». A selection in the
+     * pinned rows (`rowPinStart` — the totals) is a miss: that is not a data
+     * row, and reading it as one would store the totals' position.
+     */
+    const selectedPosition = useCallback(async (): Promise<number | null> => {
+        const grid = gridRef.current;
+        if (!grid) return null;
+        const range = await grid.getSelectedRange?.();
+        if (!range || range.rowType !== "rgRow") return null;
+        const source = (await grid.getSource("rgRow")) as RenovationGridRow[];
+        // Search the loaded window for the row whose index the selection names,
+        // so a scrolled viewport does not shift the answer by a page.
+        const row = source.find((item) => item?.__index === Number(range.y));
+        return row && typeof row.__position === "number" ? row.__position : null;
+    }, []);
+
+    // Report the remembered position: the selected row when there is one,
+    // otherwise the row in the middle of the data viewport. The plugin evicts
+    // far chunks, so the centre slot itself may be a hole — walk outward to the
+    // nearest loaded row (the window around the viewport is always there). Read
+    // straight from the plugin's source: the workspace's mirror is a render
+    // behind, so a lookup through it would miss.
     const reportCenterPosition = useCallback(async () => {
         const grid = gridRef.current;
         const total = totalRowsRef.current;
         if (!grid || total <= 0) return;
+        // A SELECTION wins over the viewport centre: the user pointing at a cell
+        // is the strongest statement of «this is my row».
+        const selected = await selectedPosition();
+        if (selected !== null) {
+            onCenterPositionChangeRef.current?.(selected);
+            return;
+        }
         // Never report while a structural jump is still travelling. On mount the
         // viewport sits at the top and the remembered row is restored a moment
         // later; the early report wrote THAT top row over the remembered one
