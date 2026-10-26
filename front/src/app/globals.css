@@ -1373,15 +1373,21 @@ body {
 }
 
 /* The CARD already frames its content (`padding: 16px` on all sides), and the
-   panels add their own vertical padding on top of it — so the top and bottom
-   insets came out larger than the side ones. Inside a card the panels therefore
-   contribute no vertical padding of their own; the horizontal padding is left
-   untouched (it is what aligns their controls with the grid).
-   NOT in fullscreen: the card's padding is gone there, and the panels ARE the
-   frame of the screen — their own padding stays as it is. */
+   panels added their own frame on top of it: a vertical padding PLUS a fixed
+   height (`3.8rem`) that keeps a taller box than their controls need — with
+   `align-items: center` that surplus is split above and below, which is why the
+   top and bottom insets were visibly larger than the side ones even after the
+   padding was zeroed.
+   Inside a card the panels therefore take their height FROM the content: no
+   vertical padding, no fixed `min`/`max` height. The horizontal padding stays —
+   it aligns their controls with the grid.
+   NOT in fullscreen: there the card's padding is gone and the panels ARE the
+   frame of the screen, so their own padding and height stay as they are. */
 .workspace-card:not(.workspace-card--fullscreen) .table-toolbar,
 .workspace-card:not(.workspace-card--fullscreen) .table-footer {
     padding-block: 0;
+    min-height: 0;
+    max-height: none;
 }
 
 .app-shell--fullscreen .workspace-card {
