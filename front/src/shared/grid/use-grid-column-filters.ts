@@ -37,6 +37,40 @@ export function columnFiltersStorageKey(project: string, section: string): strin
  */
 export type StoredSortColumn = { prop: string; order: "asc" | "desc" };
 
+/**
+ * The narrowest storage for a table that keeps its filters OUTSIDE the shared
+ * grid hook — the renovation plan has its own workspace state.
+ *
+ * Same key scheme and the same rules as the hook: best-effort in both
+ * directions, a malformed entry is dropped rather than crashing the table, and
+ * an empty set removes the entry.
+ */
+export function readStoredFilters(project: string, section: string): Record<string, ColumnFilter> {
+    if (typeof window === "undefined") return {};
+    try {
+        const raw = window.localStorage.getItem(columnFiltersStorageKey(project, section));
+        return raw === null ? {} : reviveFilters(raw);
+    } catch {
+        return {};
+    }
+}
+
+/** Persist one table's filters; an empty set removes the entry. */
+export function writeStoredFilters(
+    project: string,
+    section: string,
+    filters: Record<string, ColumnFilter>,
+): void {
+    if (typeof window === "undefined") return;
+    try {
+        const key = columnFiltersStorageKey(project, section);
+        if (Object.keys(filters).length === 0) window.localStorage.removeItem(key);
+        else window.localStorage.setItem(key, JSON.stringify(filters));
+    } catch {
+        // A quota error or a disabled store leaves the table working.
+    }
+}
+
 /** The `localStorage` key of one table's sorting. */
 export function columnSortingStorageKey(project: string, section: string): string {
     return `rc:sorting:${project}:${section}`;

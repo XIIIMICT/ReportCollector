@@ -5,6 +5,7 @@ import { Upload } from "iconoir-react";
 import { useEffect, useState } from "react";
 
 import type { PlanImportProgress } from "@/shared/api/renovation";
+import { ReportCollectorApiError } from "@/shared/api/report-collector";
 import { FileInput } from "@/shared/ui/file-input";
 
 type ExcelCellIssue = {
@@ -58,7 +59,7 @@ export function PlanExcelImportModal({
 }) {
     const [fileName, setFileName] = useState("");
     const [checkPending, setCheckPending] = useState(false);
-    const [checkError, setCheckError] = useState<"invalid-format" | null>(null);
+    const [checkError, setCheckError] = useState<"invalid-format" | "too-large" | null>(null);
     // A dragged file hovering the dialog (nested elements fire leave/enter, so
     // the state is toggled from `dragover` instead of `dragleave` alone).
     const [isDragging, setIsDragging] = useState(false);
@@ -108,11 +109,14 @@ export function PlanExcelImportModal({
         };
     }, [isOpen]);
     const invalidFormat = result?.status === "invalid-format" || checkError === "invalid-format";
-    const inputError = invalidFormat
-        ? "Файл имеет некорректный формат"
-        : result?.status === "has-errors"
-          ? "Файл содержит ошибки"
-          : null;
+    const tooLarge = checkError === "too-large";
+    const inputError = tooLarge
+        ? "Файл имеет слишком большой размер"
+        : invalidFormat
+          ? "Файл имеет некорректный формат"
+          : result?.status === "has-errors"
+            ? "Файл содержит ошибки"
+            : null;
 
     /**
      * Which of the two waits is running. The check is ONE request: the browser
@@ -140,8 +144,14 @@ export function PlanExcelImportModal({
                 uploading: () => setPhase("uploading"),
                 analyzing: () => setPhase("analyzing"),
             });
-        } catch {
-            setCheckError("invalid-format");
+        } catch (error) {
+            // A 413 is the proxy refusing the upload, not a broken workbook: the
+            // user has to be told to shrink the file, not to fix its contents.
+            setCheckError(
+                error instanceof ReportCollectorApiError && error.status === 413
+                    ? "too-large"
+                    : "invalid-format",
+            );
         } finally {
             setCheckPending(false);
             setPhase(null);

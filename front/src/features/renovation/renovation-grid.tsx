@@ -1602,18 +1602,27 @@ function RenovationGridInner(
         const schedule = () => {
             retries = 0;
             if (timer !== undefined) window.clearTimeout(timer);
-            timer = window.setTimeout(() => {
-                reportAndRetry();
-                void reportCenterPosition();
-            }, 300);
+            timer = window.setTimeout(reportAndRetry, 300);
+        };
+        // The remembered row follows a SELECTION, not a scroll. Scrolling only
+        // moves rows under the viewport: writing `localStorage` on every stop
+        // (`localStorage` is a SYNCHRONOUS disk write, and a smooth scroll makes
+        // many stops) bought nothing the user asked for, and it drifted whenever
+        // a stop happened mid-flight. A click is deliberate, rare, and means «this
+        // is the row I am working with».
+        const onSelect = () => {
+            void reportCenterPosition();
         };
         grid.addEventListener("aftersourceset", schedule);
         grid.addEventListener("scrollchange", schedule);
+        grid.addEventListener("cellclick", onSelect);
+        grid.addEventListener("rowselected", onSelect);
         reportAndRetry();
-        void reportCenterPosition();
         return () => {
             grid.removeEventListener("aftersourceset", schedule);
             grid.removeEventListener("scrollchange", schedule);
+            grid.removeEventListener("cellclick", onSelect);
+            grid.removeEventListener("rowselected", onSelect);
             if (timer !== undefined) window.clearTimeout(timer);
         };
     }, [reportCenterPosition, reportLoadedRows, scopeKey]);

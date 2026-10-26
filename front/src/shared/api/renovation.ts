@@ -174,9 +174,15 @@ export function inspectRenovationPlanImport(
                 } catch {
                     detail = null;
                 }
+                // 413 comes from the proxy in front of the API (nginx's
+                // `client_max_body_size`) and carries no JSON body of its own —
+                // falling through to the generic message made a too-large file
+                // read as a broken one.
                 reject(
                     new ReportCollectorApiError(
-                        detail ?? `Не удалось проверить файл (${request.status}).`,
+                        request.status === 413
+                            ? "Файл имеет слишком большой размер"
+                            : (detail ?? `Не удалось проверить файл (${request.status}).`),
                         request.status,
                     ),
                 );

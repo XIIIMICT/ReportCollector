@@ -68,6 +68,7 @@ import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { SectionTabs } from "@/shared/grid/section-tabs";
+import { readStoredFilters, writeStoredFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useRestoredState } from "@/shared/hooks/use-restored-state";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
@@ -263,9 +264,14 @@ export function RenovationWorkspace({
      * hundreds of thousands. Putting that in `?filters=` grew the address past
      * what browsers and proxies accept and pushed a table's filters onto the
      * plan (a «Предприятия» filter once arrived there as a server error). The
-     * state lives while the workspace is mounted; a reload starts clean.
+     * They ARE remembered between visits, in `localStorage` under
+     * `rc:filters:renovation:plan` — the same scheme every client table uses.
+     * The state itself stays in memory while the workspace is mounted; the hook
+     * helpers only read it once on mount and write on every change.
      */
-    const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilter>>({});
+    const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilter>>(() =>
+        readStoredFilters("renovation", "plan"),
+    );
     // Flat filter list for the rows API; a column with nothing kept selects
     // nothing, which the server treats as "no rows" (never "all").
     const activeColumnFilters = useMemo(
@@ -294,6 +300,7 @@ export function RenovationWorkspace({
             const next = { ...current };
             if (filter === null) delete next[column];
             else next[column] = filter;
+            writeStoredFilters("renovation", "plan", next);
             return next;
         });
     // Active section (plan vs dictionary) — declared early because the
