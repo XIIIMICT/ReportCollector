@@ -610,6 +610,10 @@ function RawMaterialsGridInner(
         restoredSortingRef.current.add(section);
         const stored = readStoredSorting(sortingScope, section);
         if (stored.length > 0) {
+            // The class the CSS keys the arrows on. A restored sorting is still a
+            // USER sorting: without it the indicator stays `display: none` and
+            // the header shows no arrow even though the rows are ordered.
+            userSortedSectionsRef.current.add(section);
             sortingBySectionRef.current.set(section, {
                 columns: stored.map((entry) => ({
                     prop: entry.prop,
@@ -2672,6 +2676,7 @@ function RawMaterialsGridInner(
                             setTimeout(() => {
                                 const grid = gridRef.current;
                                 if (!grid) return;
+                                grid.classList.add("raw-materials-grid--user-sorted");
                                 const restored = sortingBySectionRef.current.get(section);
                                 if (restored) {
                                     grid.sorting = {
