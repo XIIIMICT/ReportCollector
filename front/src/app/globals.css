@@ -1066,6 +1066,12 @@ body {
     color: inherit;
 }
 
+/* The sorting is NUMBERED: several columns can be sorted, and their order
+   decides which one wins. The markers follow the table's own numerals. */
+.form-status-detail__sort-list {
+    list-style: decimal;
+}
+
 /* The sorting direction: a small arrow after the column name. */
 .form-status-detail__sort-order {
     color: var(--muted);

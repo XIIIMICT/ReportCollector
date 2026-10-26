@@ -200,7 +200,10 @@ export function SortSection({
             <div className="form-status-detail__gap" aria-hidden="true" />
             <div className="form-status-detail__filters">
                 <b>Сортировка:</b>
-                <ul className="form-status-detail__filters-list">
+                {/* NUMBERED: RevoGrid sorts by several columns, and the ORDER is
+                    part of the answer — «1. Наименование ↑, 2. Код ↓» says which
+                    column decides first. A bulleted list would hide that. */}
+                <ol className="form-status-detail__filters-list form-status-detail__sort-list">
                     {entries.map((entry) => (
                         <li
                             key={`${entry.path.join(" → ")}:${entry.order}`}
@@ -224,7 +227,7 @@ export function SortSection({
                             </span>
                         </li>
                     ))}
-                </ul>
+                </ol>
             </div>
         </>
     );

@@ -422,6 +422,8 @@ function RawMaterialsGridInner(
     const scrollScope = scrollScopeKey(scrollPosition?.scope);
     const sortingBySectionRef = useRef(new Map<SectionId, GridSortingConfig>());
     const userSortedSectionsRef = useRef(new Set<SectionId>());
+    /** Settles the burst of sort events into ONE header re-measure. */
+    const sortMeasureTimer = useRef<number>(0);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const selectedRowIdSet = useMemo(() => new Set(selectedRowIds), [selectedRowIds]);
     const rowSelectionAnchorRef = useRef<number | null>(null);
@@ -2640,13 +2642,17 @@ function RawMaterialsGridInner(
                         const sorting = sortingConfigFromEvent(event.detail);
                         sortingBySectionRef.current.set(section, sorting);
                         onSortingChange?.(sorting.columns.length > 0);
-                        scheduleFunnelMeasure();
-                        // The SORTING is part of the status («Сортировка:»), and
-                        // this event is the only place it changes — without a
-                        // re-measure the tooltip kept the empty list it had
-                        // computed before the click, because no other dependency
-                        // of the stats had moved.
-                        setTimeout(() => void measureViewport(), 0);
+                        // The event fires in BURSTS for one click (the grid
+                        // re-emits while it applies), and each one lands before
+                        // the new header layout exists. Re-measuring the funnels
+                        // on every burst made the header twitch mid-click and
+                        // swallowed the next click. One pass, on the frame AFTER
+                        // the burst, is what a click actually changes.
+                        window.clearTimeout(sortMeasureTimer.current);
+                        sortMeasureTimer.current = window.setTimeout(() => {
+                            scheduleFunnelMeasure();
+                            void measureViewport();
+                        }, 250);
                     }}
                     onBeforefilterapply={(event) => {
                         // Filtering trims the data source synchronously, and there
