@@ -1372,28 +1372,24 @@ body {
     padding: 0;
 }
 
-/* The CARD frames the content horizontally only. Its vertical inset is handed to
-   the PANELS, because the top and bottom gaps must be measured from the tallest
-   CONTROL, not from the card's edge: in «Сырьё» the version picker is two lines
-   tall and sets the panel's height, in «Ремонт» it is hidden and the tabs set it.
-   The gap is the same in both — only the control it starts from differs.
-   Fullscreen is untouched: there the card has no padding and the panels ARE the
+/* Breathing room between the panel and the grid below it. The card's content is
+   a flex column whose 4px `gap` was the only separation the stacked layout left,
+   so in «Сырьё» the table sat 4px under the panel. The gap is the card's own
+   side inset, so the table keeps the same frame everywhere.
+   NOT in fullscreen: the card's padding is gone there and the panels ARE the
    frame of the screen. */
-.workspace-card:not(.workspace-card--fullscreen) {
-    padding-block: 0;
-}
-
 .workspace-card:not(.workspace-card--fullscreen) .workspace-card__content {
-    /* The panels bring their own vertical gap; the column needs no extra one. */
-    row-gap: 0;
+    row-gap: 1rem;
 }
 
-/* The panels draw their own frame: vertical padding around their controls, and
-   a height that follows the tallest of them. Their horizontal padding stays —
-   it aligns the controls with the grid. */
+/* Inside a card the panels take their height FROM the content: no vertical
+   padding of their own (the card frames them) and no fixed `min`/`max` height —
+   a fixed height split its surplus above and below with `align-items: center`.
+   The horizontal padding stays: it aligns the controls with the grid.
+   Fullscreen is excluded — there the panels ARE the frame of the screen. */
 .workspace-card:not(.workspace-card--fullscreen) .table-toolbar,
 .workspace-card:not(.workspace-card--fullscreen) .table-footer {
-    padding-block: 1rem;
+    padding-block: 0;
     min-height: 0;
     max-height: none;
 }
