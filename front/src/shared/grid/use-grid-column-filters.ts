@@ -29,6 +29,62 @@ export function columnFiltersStorageKey(project: string, section: string): strin
 }
 
 /**
+ * One remembered SORTING: which column, and in which direction.
+ *
+ * Deliberately only the column's `prop` and its order — never a comparator.
+ * A comparator is a function, so it cannot be stored; the grid rebuilds it from
+ * the column descriptor when the sorting is restored.
+ */
+export type StoredSortColumn = { prop: string; order: "asc" | "desc" };
+
+/** The `localStorage` key of one table's sorting. */
+export function columnSortingStorageKey(project: string, section: string): string {
+    return `rc:sorting:${project}:${section}`;
+}
+
+/** Read one table's remembered sorting, dropping anything malformed. */
+export function readStoredSorting(project: string, section: string): StoredSortColumn[] {
+    if (typeof window === "undefined") return [];
+    try {
+        const raw = window.localStorage.getItem(columnSortingStorageKey(project, section));
+        if (raw === null) return [];
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        const columns: StoredSortColumn[] = [];
+        for (const entry of parsed) {
+            const candidate = entry as Partial<StoredSortColumn> | null;
+            if (!candidate || typeof candidate !== "object") continue;
+            if (typeof candidate.prop !== "string" || candidate.prop === "") continue;
+            if (candidate.order !== "asc" && candidate.order !== "desc") continue;
+            columns.push({ prop: candidate.prop, order: candidate.order });
+        }
+        return columns;
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Remember one table's sorting. An EMPTY list removes the entry, so an unsorted
+ * table leaves nothing behind — the same rule the filters follow.
+ */
+export function writeStoredSorting(
+    project: string,
+    section: string,
+    columns: readonly StoredSortColumn[],
+): void {
+    if (typeof window === "undefined") return;
+    try {
+        const key = columnSortingStorageKey(project, section);
+        if (columns.length === 0) window.localStorage.removeItem(key);
+        else window.localStorage.setItem(key, JSON.stringify(columns));
+    } catch {
+        // A quota error or a disabled store leaves the table working; only the
+        // memory across visits is lost.
+    }
+}
+
+/**
  * Drop anything that is not a well-formed `ColumnFilter`.
  *
  * Storage is shared with the user's own edits and with older code versions, so

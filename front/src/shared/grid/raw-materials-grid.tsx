@@ -27,6 +27,7 @@ import {
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import { reactEditor } from "@/shared/grid/react-editor";
+import { readStoredSorting, writeStoredSorting } from "@/shared/grid/use-grid-column-filters";
 import { isFromTextEditor } from "@/shared/keyboard";
 import {
     computeRowFacets,
@@ -421,6 +422,19 @@ function RawMaterialsGridInner(
     const scrollFormKey = scrollPosition?.form ?? null;
     const scrollScope = scrollScopeKey(scrollPosition?.scope);
     const sortingBySectionRef = useRef(new Map<SectionId, GridSortingConfig>());
+    /**
+     * Sections whose remembered sorting has been restored. `localStorage` is
+     * read ONCE per section, on mount: re-reading it on every render would let a
+     * stale entry fight the user's own clicks.
+     */
+    const restoredSortingRef = useRef(new Set<SectionId>());
+    /**
+     * The storage scope of this grid's sorting. `namespace` is meant to name the
+     * PROJECT (several grids sharing a section id), but some call sites pass
+     * `project:section` — so the scope is the part before the first colon when
+     * there is one, which is the project in both shapes.
+     */
+    const sortingScope = (namespace ?? section).split(":")[0] ?? section;
     const userSortedSectionsRef = useRef(new Set<SectionId>());
     /** Settles the burst of sort events into ONE header re-measure. */
     const sortMeasureTimer = useRef<number>(0);
@@ -582,6 +596,23 @@ function RawMaterialsGridInner(
             grid.removeEventListener("scrollchange", onScroll);
         };
     }, [scheduleScrollRemember, scrollFormKey]);
+
+    // A remembered sorting is rebuilt into a full config (with the comparator the
+    // grid needs) once per section. Storage keeps only `prop` + `order`, so a
+    // column that no longer exists simply drops out.
+    if (!restoredSortingRef.current.has(section) && typeof window !== "undefined") {
+        restoredSortingRef.current.add(section);
+        const stored = readStoredSorting(sortingScope, section);
+        if (stored.length > 0) {
+            sortingBySectionRef.current.set(section, {
+                columns: stored.map((entry) => ({
+                    prop: entry.prop,
+                    order: entry.order,
+                    cellCompare: placeholderLastCellCompare,
+                })),
+            });
+        }
+    }
 
     const sorting =
         sortingBySectionRef.current.get(section) ??
@@ -2626,6 +2657,26 @@ function RawMaterialsGridInner(
                         void refreshHorizontalScrollbar();
                         void measureViewport();
                         scheduleFunnelMeasure();
+                        // A RESTORED sorting exists before the grid mounts, so the
+                        // header would paint without its arrow: the rows are
+                        // already ordered by `sorting`, but the column state that
+                        // draws the indicator is applied only when the sorting is
+                        // re-emitted. One tick, once, is enough.
+                        if (sortingBySectionRef.current.has(section)) {
+                            setTimeout(() => {
+                                const grid = gridRef.current;
+                                if (!grid) return;
+                                const restored = sortingBySectionRef.current.get(section);
+                                if (restored) {
+                                    grid.sorting = {
+                                        columns: restored.columns.map((column) => ({
+                                            prop: column.prop,
+                                            order: column.order,
+                                        })),
+                                    };
+                                }
+                            }, 0);
+                        }
                     }}
                     onBeforesorting={() => {
                         // Remove index-based merges before RevoGrid reorders
@@ -2641,6 +2692,14 @@ function RawMaterialsGridInner(
                     onAftersortingapply={(event) => {
                         const sorting = sortingConfigFromEvent(event.detail);
                         sortingBySectionRef.current.set(section, sorting);
+                        writeStoredSorting(
+                            sortingScope,
+                            section,
+                            sorting.columns.map((column) => ({
+                                prop: column.prop,
+                                order: column.order,
+                            })),
+                        );
                         onSortingChange?.(sorting.columns.length > 0);
                         // The event fires in BURSTS for one click (the grid
                         // re-emits while it applies), and each one lands before
