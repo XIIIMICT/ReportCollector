@@ -3332,6 +3332,30 @@ body {
     gap: 0.4rem;
 }
 
+/* The picker's calendar renders in the document portal, the filter popover right
+   next to it: both carried `z-index: 100000`, so the calendar slipped UNDER the
+   panel and its cells were unreachable — a click landed on the page background
+   and dismissed everything. One step above the filter, as a nested overlay must
+   be. */
+.column-filter__date-popover {
+    z-index: 100001;
+}
+
+/* The «Время:» row under a timestamp picker's calendar — same shape as a bound
+   row (caption left, field right), so it reads as part of the same control. */
+.column-filter__date-time {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+}
+
+.column-filter__date-time-field {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .column-filter__date-field {
     flex: 1 1 auto;
     min-width: 0;

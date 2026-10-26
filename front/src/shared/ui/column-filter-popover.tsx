@@ -99,8 +99,8 @@ export function ColumnFilterPopover({
     order?: FacetOrder;
     /**
      * When `order` is `date`: does the column hold a plain calendar DAY rather
-     * than a timestamp? The range pickers then drop their time segments тАФ a
-     * time would be a fiction the cell's ┬л03.02.2026┬╗ text cannot match.
+     * than a timestamp? The range pickers then drop their time segments — a
+     * time would be a fiction the cell's «03.02.2026» text cannot match.
      */
     dateOnly?: boolean;
     onApply: (filter: ColumnFilter | null) => void;
@@ -622,7 +622,17 @@ export function ColumnFilterPopover({
     //
     // The count is `total` (matches in the WHOLE scope under the other filters),
     // not the loaded window, so a paged column reports its real size.
-    const showSearch = Math.max(totalWithoutSearch, total) >= SEARCH_MIN_OPTIONS;
+    //
+    // While a number or date range is being TYPED the control always stays: a
+    // keystroke narrows `total`, and the field unmounting under the cursor took
+    // the half-typed bound with it. The threshold only decides whether the
+    // control is offered at all (a short list needs none).
+    const thresholdReached = Math.max(totalWithoutSearch, total) >= SEARCH_MIN_OPTIONS;
+    // Once shown, it stays: a range narrows `total` on every keystroke, and a
+    // control that disappears under the cursor takes the typed bound with it.
+    const [searchShown, setSearchShown] = useState(thresholdReached);
+    if (thresholdReached && !searchShown) setSearchShown(true);
+    const showSearch = searchShown;
 
     const content = (
         <SmartSelect
@@ -660,6 +670,9 @@ export function ColumnFilterPopover({
             searchMode="custom"
             renderListbox={() => (
                 <>
+                    {/* `hidden`, never unmounted: the threshold reads `total`
+                        (which a range narrows on every keystroke), and an
+                        unmounted field would drop the half-typed value. */}
                     <div className="column-filter__search" hidden={!showSearch}>
                         {order === "number" ? (
                             <ColumnFilterRange

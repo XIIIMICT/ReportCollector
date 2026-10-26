@@ -1,6 +1,7 @@
 "use client";
 
 import { getRenovationPlanFacets } from "@/shared/api/renovation";
+import { renderNumberText } from "@/shared/grid/grid-config";
 import {
     serverFacetSource,
     type ColumnFilter,
@@ -62,14 +63,28 @@ export function RenovationColumnFilterPopover({
     onApply: (filter: ColumnFilter | null) => void;
     onClose: () => void;
 }) {
-    const facets = serverFacetSource((target, page) =>
-        getRenovationPlanFacets(target, {
+    // The plan's facet values arrive as the RAW digits of a number column — the
+    // server never formats them (formatting there split one value into several
+    // buckets and, worse, printed seven-digit numbers as "1.00001e+06"). The
+    // client applies the cells' own rule, so the filter list offers exactly what
+    // the column shows and what the applied filter will be compared against.
+    const facets = serverFacetSource(async (target, page) => {
+        const window = await getRenovationPlanFacets(target, {
             planId,
             asset,
             offset: page.offset,
             limit: page.limit,
-        }),
-    );
+        });
+        if (order !== "number") return window;
+        return {
+            ...window,
+            values: window.values.map((entry) =>
+                entry.value === null
+                    ? entry
+                    : { value: renderNumberText(entry.value), count: entry.count },
+            ),
+        };
+    });
     return (
         <ColumnFilterPopover
             column={column}

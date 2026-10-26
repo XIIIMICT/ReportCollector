@@ -147,28 +147,54 @@ export function serverFacetSource(
         rowCount?: number | undefined;
     }>,
 ): FacetSource {
-    return async (column, { offset, limit, search }) => {
-        // `GET /plan/facets` cannot narrow yet, and guessing would silently
-        // filter the first window only. A RANGE search therefore reports «no
-        // match» until the endpoint learns it — an honest empty list instead of
-        // a wrong one. A text query is narrowed here, over the whole loaded
-        // window, which is exact as long as the caller pages through it.
-        if (search?.kind === "range") {
-            return { values: [], total: 0, hasNulls: false, rowCount: 0 };
+    /**
+     * The COLUMN's full size, measured once per popover and reused afterwards.
+     *
+     * A range or a query narrows the list, and the popover must keep offering
+     * its search controls while it does — but the narrowed answer cannot tell it
+     * how big the column really is. One unfiltered request per column answers
+     * that, and it is what the returned `totalWithoutSearch` reports.
+     */
+    const sizes = new Map<string, Promise<number>>();
+    const columnSize = (column: string): Promise<number> => {
+        let pending = sizes.get(column);
+        if (!pending) {
+            pending = load(column, { offset: 0, limit: 1 })
+                .then((facets) => facets.total)
+                .catch(() => 0);
+            sizes.set(column, pending);
         }
+        return pending;
+    };
+
+    return async (column, { offset, limit, search }) => {
+        // The plan's endpoint narrows for neither shape, so the search is applied
+        // HERE, over one window: enough for the first 200 values, and the caller
+        // pages through the rest when needed.
         const facets = await load(column, { offset, limit });
         const values = facets.values
             .filter((entry): entry is { value: string; count: number } => entry.value !== null)
             .map((entry) => ({ value: entry.value, count: entry.count }));
-        const needle =
-            search?.kind === "text" ? search.query.trim().toLocaleLowerCase("ru-RU") : "";
-        const matched =
-            needle === ""
+        const narrowed =
+            search === null || search === undefined
                 ? values
-                : values.filter((entry) => entry.value.toLocaleLowerCase("ru-RU").includes(needle));
+                : search.kind === "text"
+                  ? values.filter((entry) =>
+                        entry.value
+                            .toLocaleLowerCase("ru-RU")
+                            .includes(search.query.trim().toLocaleLowerCase("ru-RU")),
+                    )
+                  : values.filter((entry) => {
+                        const numeric = parseFacetNumber(entry.value);
+                        if (numeric === null) return false;
+                        if (search.min !== null && numeric < search.min) return false;
+                        if (search.max !== null && numeric > search.max) return false;
+                        return true;
+                    });
         return {
-            values: matched,
-            total: needle === "" ? facets.total : matched.length,
+            values: narrowed,
+            total: narrowed.length,
+            totalWithoutSearch: await columnSize(column),
             hasNulls: facets.hasNulls,
             nullCount: facets.nullCount,
             rowCount: facets.rowCount,
