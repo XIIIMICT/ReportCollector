@@ -3316,7 +3316,7 @@ body {
 
 /* The timestamp column's search: MIN above MAX, each a full date-time field.
    A date AND a time needs the whole width, so the pair stacks instead of
-   sharing a row; the dash sits between them, on its own line. */
+   sharing a row. */
 .column-filter__date-range {
     display: flex;
     flex-direction: column;
@@ -3325,56 +3325,54 @@ body {
     padding-inline: 0.375rem;
 }
 
-/* One bound per line: a caption on the LEFT, the field filling the rest. */
-.column-filter__date-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-}
-
-/* The picker's calendar renders in the document portal, the filter popover right
-   next to it: both carried `z-index: 100000`, so the calendar slipped UNDER the
-   panel and its cells were unreachable — a click landed on the page background
-   and dismissed everything. One step above the filter, as a nested overlay must
-   be. */
-.column-filter__date-popover {
-    z-index: 100001;
-}
-
-/* The «Время:» row under a timestamp picker's calendar — same shape as a bound
-   row (caption left, field right), so it reads as part of the same control. */
-.column-filter__date-time {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid var(--border);
-}
-
-.column-filter__date-time-field {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
+/* One bound per line: the shared picker puts its caption on the left and the
+   field fills the rest (`date-time-picker`). */
 .column-filter__date-field {
     flex: 1 1 auto;
     min-width: 0;
 }
 
-/* The caption is a normal-size label, not a tiny hint: it names which bound the
-   field below it is. */
-.column-filter__date-label {
+/* ─── The shared date / date-time picker ───────────────────────────────
+   Used anywhere the app needs a day or an instant: a caption on the LEFT of the
+   field, and — for a timestamp — a «Время:» row inside the calendar popover. */
+
+.date-time-picker {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.date-time-picker__label {
     flex: 0 0 auto;
     color: var(--muted);
     font-size: inherit;
     white-space: nowrap;
 }
 
-.column-filter__date-dash {
-    align-self: center;
-    color: var(--muted);
-    line-height: 1;
-    user-select: none;
+.date-time-picker__field,
+.date-time-picker__time-field {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* The portal wrapper react-aria renders around the calendar is a bare `div`
+   with an INLINE `display: contents`. An element with no box of its own makes
+   the hit test skip its whole subtree, so a click inside the calendar resolved
+   to `body` — which dismissed the filter instead of picking a day. The wrapper
+   carries no class, so it is reached from the popover it holds; `!important`
+   is required to beat the inline value. */
+body > div:has(> .date-time-picker__popover) {
+    display: block !important;
+}
+
+/* The «Время:» row: the same shape as a caption+field line, separated from the
+   calendar above it. */
+.date-time-picker__time {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
 }
 
 /* The commit-mode footer («По умолчанию / Отменить / Применить») of a
