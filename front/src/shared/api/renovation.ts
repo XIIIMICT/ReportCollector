@@ -138,25 +138,61 @@ export type RenovationPlanImportResult = {
     rows_to_update: number;
 };
 
-export async function inspectRenovationPlanImport(file: File): Promise<RenovationPlanImportResult> {
+export type PlanImportProgress = {
+    /** The bytes are on their way to the server. */
+    uploading: () => void;
+    /** The upload finished; from here the server parses the file. */
+    analyzing: () => void;
+};
+
+/**
+ * Check a workbook before loading it, reporting the TWO waits apart.
+ *
+ * `fetch` cannot say when the request body has been handed over, so this uses
+ * `XMLHttpRequest`, whose `upload.onloadend` marks exactly that point: before it
+ * the browser is sending bytes (the user's connection), after it the server is
+ * parsing (its own work). The modal shows a different caption for each.
+ */
+export function inspectRenovationPlanImport(
+    file: File,
+    progress?: PlanImportProgress,
+): Promise<RenovationPlanImportResult> {
     const body = new FormData();
     body.append("file", file);
-    // No Content-Type header: the browser must set it itself to attach the
-    // multipart boundary that the backend parser needs.
-    const response = await fetch("/api/renovation/plan/import/inspect", {
-        method: "POST",
-        body,
-        cache: "no-store",
+    return new Promise((resolvePromise, reject) => {
+        const request = new XMLHttpRequest();
+        request.open("POST", "/api/renovation/plan/import/inspect");
+        request.responseType = "text";
+        // No Content-Type header: the browser must set it itself to attach the
+        // multipart boundary that the backend parser needs.
+        request.upload.onloadend = () => progress?.analyzing();
+        request.onload = () => {
+            if (request.status < 200 || request.status >= 300) {
+                let detail: string | null = null;
+                try {
+                    detail = readApiDetail(JSON.parse(request.responseText) as unknown);
+                } catch {
+                    detail = null;
+                }
+                reject(
+                    new ReportCollectorApiError(
+                        detail ?? `Не удалось проверить файл (${request.status}).`,
+                        request.status,
+                    ),
+                );
+                return;
+            }
+            try {
+                resolvePromise(JSON.parse(request.responseText) as RenovationPlanImportResult);
+            } catch (reason) {
+                reject(reason instanceof Error ? reason : new Error(String(reason)));
+            }
+        };
+        request.onerror = () => reject(new Error("Не удалось загрузить файл."));
+        request.onabort = () => reject(new Error("Загрузка файла прервана."));
+        progress?.uploading();
+        request.send(body);
     });
-    if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as unknown;
-        throw new ReportCollectorApiError(
-            readApiDetail(payload) ?? `Не удалось проверить файл (${response.status}).`,
-            response.status,
-        );
-    }
-    const result = (await response.json()) as RenovationPlanImportResult;
-    return result;
 }
 
 export type RenovationPlanImportApplyResult = {

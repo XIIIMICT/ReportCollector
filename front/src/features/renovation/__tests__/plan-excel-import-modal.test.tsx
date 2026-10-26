@@ -179,28 +179,43 @@ test("the guidance disappears once a result is shown", () => {
     expect(dropHint.className).toContain("plan-excel-import-modal__hint--active");
 });
 
-test("shows the spinner and «Идёт анализ...» while the file is being checked", async () => {
+test("says «Идёт загрузка...» first, then «Идёт анализ...»", async () => {
+    // Two waits, two captions: sending the bytes is the user's connection, the
+    // parsing after it is the server's work. The modal tells them apart so the
+    // user knows which half of the time is which.
     let finish: (() => void) | undefined;
+    let started: { analyzing: () => void } | undefined;
     const view = render(
         <PlanExcelImportModal
             isOpen
-            onFileSelected={() =>
-                new Promise<void>((resolve) => {
+            onFileSelected={(_file, progress) => {
+                started = progress;
+                return new Promise<void>((resolve) => {
                     finish = resolve;
-                })
-            }
+                });
+            }}
             onOpenChange={() => {}}
         />,
     );
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const status = () => {
+        const all = Array.from(document.querySelectorAll(".plan-excel-import-modal__status"));
+        return all[all.length - 1];
+    };
+
     await act(async () => {
         fireEvent.change(input, { target: { files: [new File(["xlsb"], "plan.xlsb")] } });
     });
 
-    const statuses = Array.from(document.querySelectorAll(".plan-excel-import-modal__status"));
-    const status = statuses[statuses.length - 1];
-    expect(status?.textContent).toContain("Идёт анализ...");
-    expect(status?.querySelector("svg")).toBeTruthy();
+    // The bytes are still on their way.
+    expect(status()?.textContent).toContain("Идёт загрузка...");
+    expect(status()?.querySelector("svg")).toBeTruthy();
+
+    // The upload is done; the server is parsing.
+    await act(async () => {
+        started?.analyzing();
+    });
+    expect(status()?.textContent).toContain("Идёт анализ...");
 
     await act(async () => {
         finish?.();

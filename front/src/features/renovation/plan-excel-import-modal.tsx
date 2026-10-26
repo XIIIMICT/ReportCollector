@@ -4,6 +4,7 @@ import { Button, Modal, Spinner, toast } from "@heroui/react";
 import { Upload } from "iconoir-react";
 import { useEffect, useState } from "react";
 
+import type { PlanImportProgress } from "@/shared/api/renovation";
 import { FileInput } from "@/shared/ui/file-input";
 
 type ExcelCellIssue = {
@@ -51,7 +52,7 @@ export function PlanExcelImportModal({
     isOpen: boolean;
     result?: PlanExcelImportResult | null;
     onOpenChange: (open: boolean) => void;
-    onFileSelected: (file: File) => Promise<unknown> | void;
+    onFileSelected: (file: File, progress: PlanImportProgress) => Promise<unknown> | void;
     /** Loads the already checked file; the dialog owns its pending state. */
     onUpload?: (file: File) => Promise<PlanExcelUploadResult> | void;
 }) {
@@ -113,6 +114,15 @@ export function PlanExcelImportModal({
           ? "Файл содержит ошибки"
           : null;
 
+    /**
+     * Which of the two waits is running. The check is ONE request: the browser
+     * uploads the bytes, the server then parses them and answers. The modal
+     * cannot see inside the request, so the cut is made where the upload is
+     * handed over — that is the part the user can influence (connection speed),
+     * and everything after it is server work.
+     */
+    const [phase, setPhase] = useState<"uploading" | "analyzing" | null>(null);
+
     async function chooseFile(selected: File | undefined) {
         if (!selected) return;
         setFile(selected);
@@ -120,12 +130,21 @@ export function PlanExcelImportModal({
         setCheckPending(true);
         setCheckError(null);
         setUploadResult(null);
+        // The request is ONE round trip: the browser streams the bytes, then the
+        // server parses them and answers. `onFileSelected` cannot be told apart
+        // from the outside, so the phase is switched at the first sign of the
+        // server working — the moment the request has been handed over.
+        setPhase("uploading");
         try {
-            await onFileSelected(selected);
+            await onFileSelected(selected, {
+                uploading: () => setPhase("uploading"),
+                analyzing: () => setPhase("analyzing"),
+            });
         } catch {
             setCheckError("invalid-format");
         } finally {
             setCheckPending(false);
+            setPhase(null);
         }
     }
 
@@ -191,7 +210,11 @@ export function PlanExcelImportModal({
                         {checkPending || uploadPending ? (
                             <p className="plan-excel-import-modal__status" role="status">
                                 <Spinner size="sm" />
-                                {checkPending ? "Идёт анализ..." : "Идёт загрузка в базу..."}
+                                {checkPending
+                                    ? phase === "uploading"
+                                        ? "Идёт загрузка..."
+                                        : "Идёт анализ..."
+                                    : "Идёт загрузка в базу..."}
                             </p>
                         ) : (
                             <p

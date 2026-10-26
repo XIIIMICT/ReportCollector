@@ -1751,9 +1751,9 @@ export function RenovationWorkspace({
                 isOpen={planExcelImportOpen}
                 result={planExcelImportResult}
                 onOpenChange={closePlanExcelImport}
-                onFileSelected={async (file) => {
+                onFileSelected={async (file, progress) => {
                     setPlanExcelImportResult(null);
-                    const result = await inspectRenovationPlanImport(file);
+                    const result = await inspectRenovationPlanImport(file, progress);
                     setPlanExcelImportResult({
                         status:
                             result.status === "invalid_format"
