@@ -282,6 +282,8 @@ export function RenovationWorkspace({
         column: string;
         label: string;
         order: "text" | "number" | "date";
+        /** A `date` column holds a calendar day, so its filter asks for days. */
+        dateOnly: boolean;
         anchor: DOMRect;
     } | null>(null);
     // The row-number («№») range filter popover anchor (the corner's rect).
@@ -1870,6 +1872,11 @@ export function RenovationWorkspace({
                                                         : field?.cellType === "date"
                                                           ? "date"
                                                           : "text",
+                                                // A `date` cell holds a calendar
+                                                // day («Дата начала/окончания
+                                                // работ»), not an instant: its
+                                                // filter asks for days only.
+                                                dateOnly: field?.cellType === "date",
                                                 anchor,
                                             });
                                         }}
@@ -1975,6 +1982,7 @@ export function RenovationWorkspace({
                     columnLabel={columnFilterTarget.label}
                     anchor={columnFilterTarget.anchor}
                     order={columnFilterTarget.order}
+                    dateOnly={columnFilterTarget.dateOnly}
                     {...(viewPlanId && { planId: viewPlanId })}
                     asset={assetFilter}
                     initial={columnFilters[columnFilterTarget.column] ?? null}

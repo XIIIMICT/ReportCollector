@@ -70,6 +70,7 @@ export function ColumnFilterPopover({
     defaultFilter = null,
     showUniqueCount = true,
     order = "text",
+    dateOnly = false,
     onApply,
     onClose,
 }: {
@@ -96,6 +97,12 @@ export function ColumnFilterPopover({
      * is not what anyone means. Defaults to `text`.
      */
     order?: FacetOrder;
+    /**
+     * When `order` is `date`: does the column hold a plain calendar DAY rather
+     * than a timestamp? The range pickers then drop their time segments тАФ a
+     * time would be a fiction the cell's ┬л03.02.2026┬╗ text cannot match.
+     */
+    dateOnly?: boolean;
     onApply: (filter: ColumnFilter | null) => void;
     onClose: () => void;
 }) {
@@ -665,6 +672,7 @@ export function ColumnFilterPopover({
                                 columnLabel={columnLabel}
                                 value={dateRange}
                                 onChange={setDateRange}
+                                kind={dateOnly ? "date" : "datetime"}
                             />
                         ) : (
                             <SearchField

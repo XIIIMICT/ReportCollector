@@ -39,6 +39,7 @@ export function RenovationColumnFilterPopover({
     planId,
     asset,
     order = "text",
+    dateOnly = false,
     initial,
     defaultFilter,
     onApply,
@@ -54,6 +55,8 @@ export function RenovationColumnFilterPopover({
     asset?: string | null | undefined;
     /** How the column is searched: `number` gives the MIN–MAX pair. */
     order?: FacetOrder;
+    /** When `order` is `date`: a calendar day, not a timestamp. */
+    dateOnly?: boolean;
     initial: ColumnFilter | null;
     defaultFilter?: ColumnFilter | null;
     onApply: (filter: ColumnFilter | null) => void;
@@ -74,6 +77,7 @@ export function RenovationColumnFilterPopover({
             anchor={anchor}
             facets={facets}
             order={order}
+            dateOnly={dateOnly}
             showUniqueCount={column !== RENOVATION_ID_COLUMN}
             initial={initial}
             defaultFilter={defaultFilter ?? null}

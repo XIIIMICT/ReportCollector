@@ -30,9 +30,30 @@ describe("toDateValue", () => {
         // `granularity="second"` on the pickers is what makes this matter: a
         // day-only conversion would silently drop the time from the bound.
         // `toDateValue` returns a `CalendarDateTime`, which carries the fields.
-        const value = toDateValue(INSTANT_MS);
+        const value = toDateValue(INSTANT_MS) as { hour?: number; minute?: number } | null;
         expect(value?.hour).toBeDefined();
         expect(value?.minute).toBeDefined();
+    });
+
+    it("drops the time for a date-only column", () => {
+        // A `date` cell holds a calendar day; its picker has no time segments to
+        // fill, so the value must be a plain `CalendarDate`.
+        const value = toDateValue(INSTANT_MS, "date");
+        expect(value).not.toBeNull();
+        expect(value?.year).toBe(2026);
+        expect(value?.month).toBe(6);
+        expect(value?.day).toBe(15);
+        expect((value as { hour?: number } | null)?.hour).toBeUndefined();
+    });
+
+    it("keeps the same day for a date-only bound as for a timestamp", () => {
+        // The two kinds must agree on WHICH DAY a stored instant means, or a
+        // filter set on one and reopened on the other would shift by a day.
+        const asInstant = toDateValue(INSTANT_MS);
+        const asDay = toDateValue(INSTANT_MS, "date");
+        expect(asDay?.day).toBe(asInstant?.day);
+        expect(asDay?.month).toBe(asInstant?.month);
+        expect(asDay?.year).toBe(asInstant?.year);
     });
 });
 

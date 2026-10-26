@@ -60,6 +60,7 @@ export type ColumnKind =
     | "assetsMulti"
     | "basis"
     | "datetime"
+    | "date"
     | "calculated"
     | "select";
 
@@ -875,6 +876,11 @@ export function facetTextOf(
         const text = renderDateTimeText(value);
         return text === "" ? null : text;
     }
+    if (descriptor.kind === "date") {
+        // A calendar DAY, printed like the cell («26.10.2026») — no time part.
+        const text = renderDateText(value);
+        return text === "" ? null : text;
+    }
     return value;
 }
 
@@ -898,7 +904,7 @@ export function renderNumberText(value: unknown): string {
  */
 export function facetOrderOf(descriptor: ColumnDescriptor | undefined): FacetOrder {
     if (descriptor?.kind === "number" || descriptor?.kind === "calculated") return "number";
-    if (descriptor?.kind === "datetime") return "date";
+    if (descriptor?.kind === "datetime" || descriptor?.kind === "date") return "date";
     return "text";
 }
 
@@ -991,6 +997,29 @@ export function renderDateTimeText(value: unknown): string {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
+    }).format(date);
+}
+
+/**
+ * The text of a plain DATE value — «26.10.2026», the same shape as today's date
+ * and exactly what a `date` column's cell prints.
+ *
+ * The timestamp formatter above is the wrong tool: it would add a meaningless
+ * «00:00:00» to a calendar day. A day is taken from its own parts, so an ISO
+ * string never shifts by a timezone: «2026-10-26» is the 26th everywhere.
+ */
+export function renderDateText(value: unknown): string {
+    if (value === null || value === undefined || value === "") return "";
+    if (typeof value === "string") {
+        const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+        if (iso) return `${iso[3]}.${iso[2]}.${iso[1]}`;
+    }
+    const date = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(date.getTime())) return String(value);
+    return new Intl.DateTimeFormat("ru-RU", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
     }).format(date);
 }
 
