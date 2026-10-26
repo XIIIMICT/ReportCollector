@@ -386,6 +386,9 @@ function RawMaterialsGridInner(
     // must not put them back — it used to, because filtering does not change the
     // prop, but the state below survives only while nothing re-applies it.
     const [mergesDropped, setMergesDropped] = useState(false);
+    /** The merges the owner configured — restored when the view is reset. */
+    const configuredCellMergeRef = useRef(cellMerge);
+    configuredCellMergeRef.current = cellMerge;
     useEffect(() => {
         const grid = gridRef.current;
         if (!grid || cellMerge === undefined || mergesDropped) return;
@@ -434,6 +437,8 @@ function RawMaterialsGridInner(
      * stale entry fight the user's own clicks.
      */
     const restoredSortingRef = useRef(new Set<SectionId>());
+    /** Pushed the remembered sorting into the grid? Once per mount, no more. */
+    const restoredAppliedRef = useRef(false);
     /**
      * The storage scope of this grid's sorting. `namespace` is meant to name the
      * PROJECT (several grids sharing a section id), but some call sites pass
@@ -2058,7 +2063,18 @@ function RawMaterialsGridInner(
         onSortingChange?.(false);
         userSortedSectionsRef.current.delete(section);
         gridRef.current?.classList.remove("raw-materials-grid--user-sorted");
-    }, [onSortingChange, section]);
+        // The REMEMBERED sorting has to go with the live one: clearing the grid
+        // only stopped the rows from being ordered, so the stored entry survived
+        // and came back on the next reload.
+        if (sortMeasureTimer.current) window.clearTimeout(sortMeasureTimer.current);
+        sortingBySectionRef.current.delete(section);
+        writeStoredSorting(sortingScope, section, []);
+        // Merges were dropped by a sort or a filter; a clean view gets them back.
+        setMergesDropped(false);
+        const configured = configuredCellMergeRef.current;
+        if (configured !== undefined) grid.cellMerge = configured;
+        void measureViewport();
+    }, [measureViewport, onSortingChange, section, sortingScope]);
 
     const resetColumnWidths = useCallback(() => {
         resizedWidthsRef.current.clear();
@@ -2671,8 +2687,17 @@ function RawMaterialsGridInner(
                         // header would paint without its arrow: the rows are
                         // already ordered by `sorting`, but the column state that
                         // draws the indicator is applied only when the sorting is
-                        // re-emitted. One tick, once, is enough.
-                        if (sortingBySectionRef.current.has(section)) {
+                        // re-emitted.
+                        //
+                        // ONCE, though. `aftersourceset` also fires after a FILTER
+                        // trims the source, and re-applying the stored sorting
+                        // there overwrote the user's own click — the first click
+                        // looked dead, and only the second one showed.
+                        if (
+                            !restoredAppliedRef.current &&
+                            sortingBySectionRef.current.has(section)
+                        ) {
+                            restoredAppliedRef.current = true;
                             setTimeout(() => {
                                 const grid = gridRef.current;
                                 if (!grid) return;
@@ -2714,6 +2739,18 @@ function RawMaterialsGridInner(
                             })),
                         );
                         onSortingChange?.(sorting.columns.length > 0);
+                        // Clicking a sorted header through asc → desc → OFF is a
+                        // manual reset: the merges come back and the class that
+                        // draws the arrows follows the live state.
+                        if (sorting.columns.length === 0) {
+                            userSortedSectionsRef.current.delete(section);
+                            gridRef.current?.classList.remove("raw-materials-grid--user-sorted");
+                            setMergesDropped(false);
+                            const configured = configuredCellMergeRef.current;
+                            if (configured !== undefined && gridRef.current) {
+                                gridRef.current.cellMerge = configured;
+                            }
+                        }
                         // The event fires in BURSTS for one click (the grid
                         // re-emits while it applies), and each one lands before
                         // the new header layout exists. Re-measuring the funnels
