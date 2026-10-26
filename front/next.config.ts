@@ -8,6 +8,13 @@ const withBundleAnalyzer = bundleAnalyzer({
 const nextConfig: NextConfig = {
     output: "standalone",
     reactCompiler: true,
+    // The build serves 2.5 MB of JS that gzips to 807 KB. Next compresses by
+    // default, but the default is DISABLED when a reverse proxy is detected — and
+    // prod sits behind nginx, whose `Content-Encoding` was measured empty. nginx
+    // gzip is still the better place (it also covers the HTML and the static
+    // chunks it serves itself), but this makes the Node server self-sufficient
+    // when someone fronts it with a proxy that does not compress.
+    compress: true,
     allowedDevOrigins: ["127.0.0.1", "localhost"],
     // The support mailbox has to be readable from CLIENT components too — the
     // error boundary («Что-то пошло не так») renders its own support link and

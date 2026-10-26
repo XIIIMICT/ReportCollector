@@ -263,6 +263,54 @@ Logs answer "what exactly happened"; metrics answer "how many and how often". **
 
 nginx is **not in Docker**, config `/etc/nginx/conf.d/reportcollector.conf`: `location /` → front `127.0.0.1:5000`; `location /api/ws/` → back `127.0.0.1:8000` with `Upgrade`/`Connection "Upgrade"` and large timeouts (`proxy_read_timeout 86400s`). HTTPS/WSS terminated by nginx (cert in SAN). Prod address: `https://m2v-form-1.h2-group.ru`. Details and WS diagnostics — `docs/COLLAB.md`, section "Deployment and WS diagnostics".
 
+### Compression (must be on in nginx)
+
+The bundle is 3.4 MB of JavaScript; without compression the browser downloads all of it. Measured on the built chunks: **2 544 KB → 807 KB with gzip (−68%)**.
+
+Two separate gaps, both confirmed by `curl -sI -H 'Accept-Encoding: gzip'`:
+
+- **HTML** is served uncompressed even with `compress: true` in `next.config.ts` — the standalone server compresses the static chunks, not the document. Only nginx can fix it.
+- **The static chunks** were uncompressed on prod because nginx did not compress them.
+
+Add to the `http {}` block of `/etc/nginx/nginx.conf` (or at the top of the site file):
+
+```nginx
+# gzip: the baseline every browser supports.
+gzip on;
+gzip_comp_level 5;              # 9 saves ~2% more and costs noticeably more CPU
+gzip_min_length 1024;           # do not compress tiny responses
+gzip_vary on;                   # correct caching for shared proxies
+gzip_proxied any;
+gzip_types
+    text/plain text/css text/xml
+    application/javascript application/json application/xml
+    application/rss+xml application/manifest+json
+    image/svg+xml;
+# `text/html` is ALWAYS compressed by gzip on — listing it is a no-op; not listing it does not disable it.
+```
+
+Verify after reload — every command must print a `Content-Encoding` header:
+
+```bash
+curl -sI -H 'Accept-Encoding: gzip' https://<host>/                     | grep -i content-encoding
+curl -sI -H 'Accept-Encoding: gzip' https://<host>/_next/static/chunks/<any>.js | grep -i content-encoding
+```
+
+**Optional — brotli** adds another ~15–20% over gzip (807 KB → ~660 KB on the same chunks) and every current browser accepts it. Needs `ngx_brotli` (the official `nginx` package does not ship it; Debian/Ubuntu have `libnginx-mod-brotli`):
+
+```nginx
+brotli on;
+brotli_comp_level 5;
+brotli_min_length 1024;
+brotli_types text/plain text/css application/javascript application/json image/svg+xml;
+```
+
+Left uncompressed, the first load pays ~1.7 MB of avoidable transfer per visitor, on every cache miss.
+
+### Bundle shape (why the first load is heavy)
+
+`ReportWorkspace` used to import all three project workspaces statically, so opening «Движение» also downloaded the КППК and renovation grids — and a grid is `@revolist/react-datagrid`, the bulk of the largest chunk. They are now `next/dynamic`, one per URL: the largest chunk went **2 179 KB → 1 459 KB**, and the grid split into its own 746 KB chunk that only the project that needs it loads. Adding a new project to `report-workspace.tsx` means adding another `dynamic(...)` entry, not a static import.
+
 ## Renovation plan import (technical directorate, `.xlsb`)
 
 `back/src/renovation/import_plan.py` validates an uploaded «РБ ПОФ» workbook

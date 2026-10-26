@@ -92,46 +92,48 @@ describe("report workspace routing", () => {
         expect(screen.queryByTestId("raw")).toBeNull();
     });
 
-    test("the URL key picks the matching project", () => {
+    test("the URL key picks the matching project", async () => {
+        // The workspaces are `next/dynamic`: each loads only for its own URL, so
+        // the assertion waits for that chunk instead of assuming it is inline.
         render(<ReportWorkspace currentUser={user} projectKey="renovation" supportMail="" />);
-        expect(screen.getByTestId("renovation").dataset.project).toBe("renovation");
+        expect((await screen.findByTestId("renovation")).dataset.project).toBe("renovation");
         cleanup();
 
         render(<ReportWorkspace currentUser={user} projectKey="kppk" supportMail="" />);
-        expect(screen.getByTestId("kppk")).toBeTruthy();
+        expect(await screen.findByTestId("kppk")).toBeTruthy();
         cleanup();
 
         render(<ReportWorkspace currentUser={user} projectKey="raw_materials" supportMail="" />);
-        expect(screen.getByTestId("raw").dataset.project).toBe("raw_materials");
+        expect((await screen.findByTestId("raw")).dataset.project).toBe("raw_materials");
     });
 
-    test("an unrecognised project key falls back to raw materials", () => {
+    test("an unrecognised project key falls back to raw materials", async () => {
         render(<ReportWorkspace currentUser={user} projectKey="something-else" supportMail="" />);
-        expect(screen.getByTestId("raw")).toBeTruthy();
+        expect(await screen.findByTestId("raw")).toBeTruthy();
     });
 
-    test("the form is mirrored into ?section= with replace, not push", () => {
+    test("the form is mirrored into ?section= with replace, not push", async () => {
         render(<ReportWorkspace currentUser={user} projectKey="raw_materials" supportMail="" />);
-        fireEvent.click(screen.getByTestId("raw"));
+        fireEvent.click(await screen.findByTestId("raw"));
 
         expect(replaceCalls).toEqual(["/raw-materials?section=materialMovement"]);
         // Back must still leave the page, not step through every tab.
         expect(pushCalls).toEqual([]);
     });
 
-    test("an empty form removes ?section= instead of writing an empty value", () => {
+    test("an empty form removes ?section= instead of writing an empty value", async () => {
         Object.defineProperty(window, "location", {
             configurable: true,
             value: { ...originalLocation, search: "?section=materialMovement&block=БСЗ" },
         });
         render(<ReportWorkspace currentUser={user} projectKey="renovation" supportMail="" />);
-        fireEvent.click(screen.getByTestId("renovation"));
+        fireEvent.click(await screen.findByTestId("renovation"));
 
         // The other query parameters survive: only `section` is dropped.
         expect(replaceCalls).toEqual(["/renovation?block=%D0%91%D0%A1%D0%97"]);
     });
 
-    test("the restored section is handed to the workspace", () => {
+    test("the restored section is handed to the workspace", async () => {
         render(
             <ReportWorkspace
                 currentUser={user}
@@ -140,16 +142,16 @@ describe("report workspace routing", () => {
                 supportMail=""
             />,
         );
-        expect(screen.getByTestId("renovation").dataset.section).toBe("kppkCost");
+        expect((await screen.findByTestId("renovation")).dataset.section).toBe("kppkCost");
     });
 
-    test("switching projects pushes the slug and drops ?section=", () => {
+    test("switching projects pushes the slug and drops ?section=", async () => {
         Object.defineProperty(window, "location", {
             configurable: true,
             value: { ...originalLocation, search: "?section=kppkPositions" },
         });
         render(<ReportWorkspace currentUser={user} projectKey="kppk" supportMail="" />);
-        fireEvent.click(screen.getByTestId("kppk"));
+        fireEvent.click(await screen.findByTestId("kppk"));
 
         // Form ids differ per project, so the old one must not travel along.
         expect(pushCalls).toEqual(["/renovation"]);

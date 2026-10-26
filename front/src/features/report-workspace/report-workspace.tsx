@@ -1,13 +1,37 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 
-import { KppkWorkspace } from "@/features/kppk/kppk-workspace";
-import { RawMaterialsWorkspace } from "@/features/raw-materials/raw-materials-workspace";
-import { RenovationWorkspace } from "@/features/renovation/renovation-workspace";
 import type { CurrentUser } from "@/shared/api/report-collector";
 import { projectSlugFromKey } from "@/shared/projects";
+
+/**
+ * Each project's workspace is loaded ONLY when its URL is open.
+ *
+ * All three used to be static imports, so every visitor downloaded the grids of
+ * all three projects — and a grid is `@revolist/react-datagrid`, the bulk of the
+ * 2.1 MB chunk. Opening «Движение» paid for the КППК realization table and the
+ * renovation plan as well, none of which can be seen on that page. `ssr: false`
+ * because these are client workspaces behind `force-dynamic`: the server renders
+ * the shell, and the grid measures its container on mount anyway.
+ */
+const RawMaterialsWorkspace = dynamic(
+    () =>
+        import("@/features/raw-materials/raw-materials-workspace").then(
+            (m) => m.RawMaterialsWorkspace,
+        ),
+    { ssr: false },
+);
+const KppkWorkspace = dynamic(
+    () => import("@/features/kppk/kppk-workspace").then((m) => m.KppkWorkspace),
+    { ssr: false },
+);
+const RenovationWorkspace = dynamic(
+    () => import("@/features/renovation/renovation-workspace").then((m) => m.RenovationWorkspace),
+    { ssr: false },
+);
 
 export type ReportWorkspaceUser = CurrentUser;
 
