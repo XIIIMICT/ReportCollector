@@ -438,6 +438,13 @@ function RawMaterialsGridInner(
      */
     const restoredSortingRef = useRef(new Set<SectionId>());
     /**
+     * The live sorting of this section. `sortingBySectionRef` is the imperative
+     * copy (event handlers read it without a re-render); this state is what lets
+     * `columns` be rebuilt with the current `order` on every leaf.
+     */
+    const [sortingVersion, setSortingVersion] = useState(0);
+    const bumpSorting = useCallback(() => setSortingVersion((version) => version + 1), []);
+    /**
      * The storage scope of this grid's sorting. `namespace` is meant to name the
      * PROJECT (several grids sharing a section id), but some call sites pass
      * `project:section` — so the scope is the part before the first colon when
@@ -885,6 +892,9 @@ function RawMaterialsGridInner(
         // through a ref (not reactive), so this counter is the only signal that
         // a reset happened and the columns must be rebuilt.
         void widthsVersion;
+        // Same reason: the leaves carry the sorting `order`, so a new sorting
+        // must rebuild them — see the `activeOrders` block below.
+        void sortingVersion;
         const next = buildGridColumns(section, {
             isAdmin,
             showAssetColumn,
@@ -904,21 +914,50 @@ function RawMaterialsGridInner(
             },
         });
         const summaryRow = pinnedTopSource?.[0];
-        // Rendering-only columns (no header sort): the «Реализация» view keeps
-        // its server order (product number → market), so a click on a header
-        // must not reshuffle it. RevoGrid reads `sortable` per leaf column.
-        if (!sortable) {
-            for (const column of next) {
-                const leaves = (column as ColumnGrouping).children?.length
-                    ? ((column as ColumnGrouping).children as ColumnRegular[])
-                    : [column as ColumnRegular];
-                for (const leaf of leaves) leaf.sortable = false;
-            }
+        // Sorting is carried BOTH ways: by the `sorting` prop (the sorting job
+        // itself) and by the columns' own `order` (`columnChanged` collects it
+        // into `aftercolumnsset`). RevoGrid's sorting plugin tracks its current
+        // order ONLY through `aftercolumnsset`, so a config applied without the
+        // column orders is invisible to it: `getNextOrder(undefined)` then starts
+        // every click from `asc` again, and the header reads a stale direction.
+        // One source of truth — `sortingBySectionRef` — feeds both.
+        const activeOrders = new Map<string, GridSortingOrder>();
+        for (const entry of sortingBySectionRef.current.get(section)?.columns ?? []) {
+            activeOrders.set(entry.prop, entry.order);
         }
+        // A column set is REBUILT, never patched: RevoGrid diffs columns by
+        // identity, so a leaf mutated in place never reaches `columnChanged` and
+        // the plugin would keep seeing no sorting at all.
+        const withSorting = next.map((column) => {
+            const grouping = column as ColumnGrouping;
+            if (grouping.children?.length) {
+                return {
+                    ...grouping,
+                    children: (grouping.children as ColumnRegular[]).map((leaf) => {
+                        const patched = { ...leaf } as ColumnRegular & {
+                            order?: GridSortingOrder;
+                        };
+                        const order =
+                            leaf.prop === null ? undefined : activeOrders.get(String(leaf.prop));
+                        if (order === undefined) delete patched.order;
+                        else patched.order = order;
+                        if (!sortable) patched.sortable = false;
+                        return patched;
+                    }),
+                } as ColumnGrouping;
+            }
+            const leaf = column as ColumnRegular;
+            const patched = { ...leaf } as ColumnRegular & { order?: GridSortingOrder };
+            const order = leaf.prop === null ? undefined : activeOrders.get(String(leaf.prop));
+            if (order === undefined) delete patched.order;
+            else patched.order = order;
+            if (!sortable) patched.sortable = false;
+            return patched;
+        });
         // Tag the pinned summary row's cells so CSS can draw them like the
         // plan's summary (one vertical + one bottom border, white empty cells,
         // a green numeric cell) and the row header can hide its number.
-        for (const column of next) {
+        for (const column of withSorting) {
             const leaves = (column as ColumnGrouping).children?.length
                 ? ((column as ColumnGrouping).children as ColumnRegular[])
                 : [column as ColumnRegular];
@@ -979,9 +1018,9 @@ function RawMaterialsGridInner(
         // so the funnels come through its API: `columnTemplate` makes the grid
         // render a `.rv-filter` button. Ours is what the click opens — the click
         // is intercepted in the capture phase below.
-        markFilterableColumns(next, descriptors);
-        restoreColumnWidths(next, resizedWidthsRef.current, widthKeySection);
-        return next;
+        markFilterableColumns(withSorting, descriptors);
+        restoreColumnWidths(withSorting, resizedWidthsRef.current, widthKeySection);
+        return withSorting;
     }, [
         assets,
         columnDescriptors,
@@ -1000,6 +1039,7 @@ function RawMaterialsGridInner(
         section,
         showServiceColumns,
         sortable,
+        sortingVersion,
         widthKeySection,
         widthsVersion,
     ]);
@@ -2737,6 +2777,11 @@ function RawMaterialsGridInner(
                     onAftersortingapply={(event) => {
                         const sorting = sortingConfigFromEvent(event.detail);
                         sortingBySectionRef.current.set(section, sorting);
+                        // The leaves carry the sorting `order` (see `columns`), so
+                        // the columns must be rebuilt whenever the plugin applies
+                        // a sorting — otherwise the next click on that header
+                        // starts its cycle from `asc` as if nothing were sorted.
+                        bumpSorting();
                         writeStoredSorting(
                             sortingScope,
                             section,
