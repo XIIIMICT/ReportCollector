@@ -487,6 +487,14 @@ function DataGridInner(
     const scrollFormKey = scrollPosition?.form ?? null;
     const scrollScope = scrollScopeKey(scrollPosition?.scope);
     const sortingBySectionRef = useRef(new Map<SectionId, GridSortingConfig>());
+    /** The pointer state of the current header click (its Ctrl modifier). */
+    const lastMouseEventRef = useRef<MouseEvent | null>(null);
+    /**
+     * Ctrl was held on the header click being handled. The plugin neither passes
+     * the modifier through nor learns it, so it is captured from the click itself
+     * (`onHeaderclick`) and read by `onBeforesorting` for that same click.
+     */
+    const additiveSortRef = useRef(false);
     /**
      * Sections whose remembered sorting has been restored. `localStorage` is
      * read ONCE per section, on mount: re-reading it on every render would let a
@@ -510,13 +518,6 @@ function DataGridInner(
     /** Where the filter popovers remember their search drafts (same scheme). */
     const filterDraftScope = { project: sortingScope, section };
     const userSortedSectionsRef = useRef(new Set<SectionId>());
-    /**
-     * The remembered sorting was pushed into the plugin on the first source set
-     * of this mount. It is a ONE-SHOT: pushing it again while the user works
-     * overwrote the sorting he had just chosen (the plugin then reported an empty
-     * `beforeorting` on the next click, which the user saw as «клик в пустоту»).
-     */
-    const sortingRestoredRef = useRef(false);
     /** Settles the burst of sort events into ONE header re-measure. */
     const sortMeasureTimer = useRef<number>(0);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
@@ -668,6 +669,21 @@ function DataGridInner(
         [],
     );
 
+    // The Ctrl modifier of a header click never reaches `beforesorting` (the
+    // plugin reports neither it nor an `additive` flag), so the pointer event
+    // that started the click is kept here: `onHeaderclick` reads it back.
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        const remember = (event: Event) => {
+            lastMouseEventRef.current = event as MouseEvent;
+        };
+        grid.addEventListener("mousedown", remember, true);
+        return () => {
+            grid.removeEventListener("mousedown", remember, true);
+        };
+    }, []);
+
     useEffect(() => {
         const grid = gridRef.current;
         if (!grid || scrollFormKey === null) return;
@@ -681,6 +697,11 @@ function DataGridInner(
     // A remembered sorting is rebuilt into a full config (with the comparator the
     // grid needs) once per section. Storage keeps only `prop` + `order`, so a
     // column that no longer exists simply drops out.
+    //
+    // The users dictionaries are a special case only in what happens with NO
+    // stored sorting: nothing. They arrive ordered by «ФИО» FROM THE SERVER, which
+    // is a default the backend owns — the grid must not invent a `fullname:asc`
+    // of its own, or a click on another column would come back rewritten to it.
     if (!restoredSortingRef.current.has(section) && typeof window !== "undefined") {
         restoredSortingRef.current.add(section);
         const stored = readStoredSorting(sortingScope, section);
@@ -688,8 +709,7 @@ function DataGridInner(
             // The class the CSS keys the arrows on. A restored sorting is still a
             // USER sorting: without it the indicator stays `display: none` and
             // the header shows no arrow even though the rows are ordered.
-            // `sortingRestoredRef` (set in `onAftersourceset`) is what actually
-            // pushes it into the plugin — this only seeds our state.
+            // The `sorting` prop below is what pushes it into the plugin.
             userSortedSectionsRef.current.add(section);
             sortingBySectionRef.current.set(section, {
                 columns: stored.map((entry) => ({
@@ -701,19 +721,22 @@ function DataGridInner(
         }
     }
 
-    const sorting =
-        (sortingRestoredRef.current ? sortingBySectionRef.current.get(section) : undefined) ??
-        (["users", "renovationUsers", "kppkUsers"].includes(section)
-            ? {
-                  columns: [
-                      {
-                          prop: "fullname",
-                          order: "asc" as const,
-                          cellCompare: placeholderLastCellCompare,
-                      },
-                  ],
-              }
-            : undefined);
+    // Read through a version so a CHANGE of sorting rebuilds the prop: RevoGrid
+    // diffs the `sorting` object and re-applies it, and a stale object (the very
+    // first restored sorting) is what dragged the arrow onto the wrong column.
+    // A snapshot of the live sorting, rebuilt only when it actually changed
+    // (`sortingVersion` is bumped by every apply).
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    const sortingColumnSnapshot = useMemo(
+        () => sortingBySectionRef.current.get(section),
+        [section, sortingVersion],
+    );
+
+    // Always OUR sorting — the user's clicks, a restored one, or nothing. RevoGrid
+    // diffs this object and re-applies what changed, so it has to describe the
+    // live state; gating it (the plugin «not seeded yet») is what made a fresh
+    // mount paint the arrow from a stale object.
+    const sorting = sortingColumnSnapshot;
 
     const descriptors = useMemo(
         () =>
@@ -2945,35 +2968,9 @@ function DataGridInner(
                         void refreshHorizontalScrollbar();
                         void measureViewport();
                         scheduleFunnelMeasure();
-                        // A REMEMBERED sorting exists before the grid mounts, so
-                        // the header would paint without its arrow: the rows are
-                        // already ordered through the `sorting` prop, but the
-                        // column state that draws the indicator is only applied
-                        // when the sorting is re-emitted into the plugin.
-                        //
-                        // ONE-SHOT, on the first source set of the mount. Repeating
-                        // it while the user works pushed the remembered order back
-                        // over the one he had just clicked: the plugin then reported
-                        // an empty `beforeorting` on the next click — a click that
-                        // did nothing.
-                        if (
-                            !sortingRestoredRef.current &&
-                            sortingBySectionRef.current.has(section)
-                        ) {
-                            sortingRestoredRef.current = true;
-                            setTimeout(() => {
-                                const grid = gridRef.current;
-                                if (!grid) return;
-                                const stored = sortingBySectionRef.current.get(section);
-                                grid.classList.add("data-grid--user-sorted");
-                                grid.sorting = {
-                                    columns: (stored?.columns ?? []).map((column) => ({
-                                        prop: column.prop,
-                                        order: column.order,
-                                    })),
-                                };
-                            }, 0);
-                        }
+                    }}
+                    onHeaderclick={() => {
+                        additiveSortRef.current = lastMouseEventRef.current?.ctrlKey === true;
                     }}
                     onBeforesorting={(event) => {
                         // The click's outcome is OURS, not the plugin's.
@@ -3013,9 +3010,20 @@ function DataGridInner(
 
                             const next: GridSortingOrder = stored === "asc" ? "desc" : "asc";
                             detail.order = next;
-                            const remaining = columns.filter(
-                                (column) => column.prop !== String(prop),
-                            );
+                            // A plain click REPLACES the sorting — «отсортировать по
+                            // этому столбцу». Multi-column sorting is an explicit
+                            // Ctrl+click, as every table does it; keeping the other
+                            // columns on a plain click turned a second click into a
+                            // second sort level (the numbered arrows), which nobody
+                            // asked for.
+                            //
+                            // The modifier is read from the ORIGINAL mouse event: the
+                            // plugin neither passes it through nor learns it from the
+                            // header click, so `detail.additive` never arrives.
+                            const additive = additiveSortRef.current;
+                            const remaining = additive
+                                ? columns.filter((column) => column.prop !== String(prop))
+                                : [];
                             const applied = [
                                 ...remaining,
                                 {
