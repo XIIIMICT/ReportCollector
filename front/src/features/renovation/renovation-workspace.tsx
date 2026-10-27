@@ -110,6 +110,7 @@ import { useDeleteShortcut, useUndoRedoShortcuts } from "@/shared/ui/workspace-s
 
 import { PlanExcelImportModal } from "./plan-excel-import-modal";
 import { RenovationColumnFilterPopover } from "./renovation-column-filter";
+import { AUDIT_COLUMNS } from "./renovation-grid-constants";
 import {
     RenovationDictionarySection,
     renovationSectionTable,
@@ -1876,22 +1877,33 @@ export function RenovationWorkspace({
                                             const field = meta.fields.find(
                                                 (candidate) => candidate.dbName === column,
                                             );
+                                            // The audit columns are not form
+                                            // fields, so they have no `field`:
+                                            // their shape comes from the same
+                                            // rule the cells use.
+                                            const audit = AUDIT_COLUMNS[column];
+                                            const kind =
+                                                field?.cellType === "number" || field?.isCalculated
+                                                    ? "number"
+                                                    : field?.cellType === "date"
+                                                      ? "date"
+                                                      : (audit?.kind ?? "text");
                                             setColumnFilterTarget({
                                                 column,
-                                                label: field?.label ?? column,
+                                                label: field?.label ?? audit?.label ?? column,
                                                 // Numeric fields search by MIN–MAX,
                                                 // not by a text query.
                                                 order:
-                                                    field?.cellType === "number" ||
-                                                    field?.isCalculated
+                                                    kind === "number"
                                                         ? "number"
-                                                        : field?.cellType === "date"
+                                                        : kind === "date"
                                                           ? "date"
                                                           : "text",
                                                 // A `date` cell holds a calendar
                                                 // day («Дата начала/окончания
                                                 // работ»), not an instant: its
-                                                // filter asks for days only.
+                                                // filter asks for days only. The
+                                                // audit instants keep their time.
                                                 dateOnly: field?.cellType === "date",
                                                 anchor,
                                             });
