@@ -25,6 +25,22 @@
 !/docs/**
 !/infra/
 !/infra/**
+# `logs/` is a RUNTIME directory: the app, the tests and the containers write
+# here. Only the placeholder is tracked, so the folder exists in a fresh
+# checkout — the logs themselves are never committed.
+#
+# Three lines are needed, in this order, and `/logs/**` must NOT be used here:
+# `**` matches the placeholder itself, so `!/logs/.gitkeep` can no longer win and
+# the folder stops existing in a clone. Verified with `git check-ignore` in a
+# scratch repo (deny-all `*` + these rules):
+#   !/logs/          — git will not descend into an IGNORED directory, so the
+#                      folder is re-included first (the deny-all `*` at the top
+#                      would otherwise make everything below unreachable);
+#   /logs/*          — drops the directory's CONTENTS, files and subdirectories;
+#   !/logs/.gitkeep  — brings the placeholder back.
+!/logs/
+/logs/*
+!/logs/.gitkeep
 !/back/
 !/front/
 
