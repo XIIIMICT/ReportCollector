@@ -265,7 +265,7 @@ nginx is **not in Docker**, config `/etc/nginx/conf.d/reportcollector.conf`: `lo
 
 ### Compression (must be on in nginx)
 
-The bundle is 3.4 MB of JavaScript; without compression the browser downloads all of it. Measured on the built chunks: **2 544 KB → 807 KB with gzip (−68%)**.
+The bundle is 3.4 MB of JavaScript; without compression the browser downloads all of it. Measured on the three largest chunks alone (2 544 KB): **→ 807 KB with gzip (−68%)**. Across all eight chunks above 50 KB (2 966 KB): **952 KB at level 5**. The per-level numbers are in the config comment below.
 
 Two separate gaps, both confirmed by `curl -sI -H 'Accept-Encoding: gzip'`:
 
@@ -277,8 +277,14 @@ Add to the `http {}` block of `/etc/nginx/nginx.conf` (or at the top of the site
 ```nginx
 # gzip: the baseline every browser supports.
 gzip on;
-gzip_comp_level 5;              # 9 saves ~2% more and costs noticeably more CPU
-gzip_min_length 1024;           # do not compress tiny responses
+# Measured on the 8 chunks above 50 KB (2 966 KB raw): level 1 → 1 338 KB,
+# level 5 → 952 KB, level 9 → 939 KB. Level 9 buys 14 KB (1.5%) over 5 for a
+# multiple of the CPU, so 5 is the point of the curve here.
+gzip_comp_level 5;
+# Only 1 of the 25 built chunks is under 1 KB, so this barely matters for the
+# bundle — it matters for small HTML/JSON responses, where gzip's headers can
+# outweigh the saving.
+gzip_min_length 1024;
 gzip_vary on;                   # correct caching for shared proxies
 gzip_proxied any;
 gzip_types
@@ -296,7 +302,7 @@ curl -sI -H 'Accept-Encoding: gzip' https://<host>/                     | grep -
 curl -sI -H 'Accept-Encoding: gzip' https://<host>/_next/static/chunks/<any>.js | grep -i content-encoding
 ```
 
-**Optional — brotli** adds another ~15–20% over gzip (807 KB → ~660 KB on the same chunks) and every current browser accepts it. Needs `ngx_brotli` (the official `nginx` package does not ship it; Debian/Ubuntu have `libnginx-mod-brotli`):
+**Optional — brotli** adds **8.9% over gzip 9** on the same chunks (939 KB → 855 KB; measured, brotli quality 5), and every current browser accepts it. Less than the "15–20%" folklore suggests for this bundle — worth having, not worth a migration risk. Needs `ngx_brotli` (the official `nginx` package does not ship it; Debian/Ubuntu have `libnginx-mod-brotli`):
 
 ```nginx
 brotli on;
