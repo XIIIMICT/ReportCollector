@@ -266,6 +266,21 @@ type GridSortingEvent = {
     sortingOrder?: Array<string | number>;
 };
 
+/** Marks a header-properties function that already adds the summary-merge class. */
+function markSummaryMerge<T>(properties: T): T {
+    Object.defineProperty(properties as object, "__summaryMerge", {
+        value: true,
+        enumerable: false,
+    });
+    return properties;
+}
+
+/** Does this header-properties function already add the summary-merge class? */
+function hasSummaryMergeMarker(properties: ColumnRegular["columnProperties"] | undefined): boolean {
+    const probe = properties as unknown as { __summaryMerge?: boolean } | undefined;
+    return probe?.__summaryMerge === true;
+}
+
 function isGridTarget(event: Event, grid: HTMLElement): boolean {
     return grid.contains(event.target as Node | null) || event.composedPath().includes(grid);
 }
@@ -389,6 +404,19 @@ function RawMaterialsGridInner(
     /** The merges the owner configured — restored when the view is reset. */
     const configuredCellMergeRef = useRef(cellMerge);
     configuredCellMergeRef.current = cellMerge;
+    /**
+     * Merges must be OFF while any header filter is active.
+     *
+     * `onBeforefilterapply` only covers the moment a filter is APPLIED — a filter
+     * restored from `localStorage` on mount, or a source set while one is
+     * active, never fires it, and the merges came back over the filtered rows
+     * (a product block spanning two unrelated records). This is derived state
+     * instead of an event, so every path into a filtered view agrees.
+     */
+    const filtersActive = columnFilters !== undefined && Object.keys(columnFilters).length > 0;
+    useEffect(() => {
+        if (filtersActive) setMergesDropped(true);
+    }, [filtersActive]);
     useEffect(() => {
         const grid = gridRef.current;
         if (!grid || cellMerge === undefined || mergesDropped) return;
@@ -972,20 +1000,24 @@ function RawMaterialsGridInner(
                     (summaryValue === undefined || summaryValue === null || summaryValue === "");
                 if (mergeHeader) {
                     const baseHeader = leaf.columnProperties;
-                    const mergedHeaderProperties = ((props: unknown) => {
-                        const result = (baseHeader ? baseHeader(props as never) : undefined) as
-                            | { className?: Record<string, boolean> }
-                            | undefined;
-                        return {
-                            ...result,
-                            className: {
-                                ...result?.className,
-                                "report-header-cell--summary-merge": true,
-                            },
-                        };
-                    }) as ColumnRegular["columnProperties"];
-                    if (mergedHeaderProperties !== undefined) {
-                        leaf.columnProperties = mergedHeaderProperties;
+                    // A NEW function per leaf, never one already carrying the
+                    // marker: the header re-renders repeatedly (a sorting bump
+                    // rebuilds the columns), and reading its own marker from the
+                    // base would accumulate one more wrap per render.
+                    if (!hasSummaryMergeMarker(baseHeader)) {
+                        const mergedHeaderProperties = ((props: unknown) => {
+                            const result = (baseHeader ? baseHeader(props as never) : undefined) as
+                                | { className?: Record<string, boolean> }
+                                | undefined;
+                            return {
+                                ...result,
+                                className: {
+                                    ...result?.className,
+                                    "report-header-cell--summary-merge": true,
+                                },
+                            };
+                        }) as NonNullable<ColumnRegular["columnProperties"]>;
+                        leaf.columnProperties = markSummaryMerge(mergedHeaderProperties);
                     }
                 }
                 const base = leaf.cellProperties;

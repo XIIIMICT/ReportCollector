@@ -250,12 +250,22 @@ export function KppkRealizationSection({
 
     const [reloadKey, setReloadKey] = useState(0);
     const [isGridSorted, setIsGridSorted] = useState(false);
+    const {
+        filters: columnFilters,
+        setFilters: setColumnFilters,
+        clearFilters,
+    } = useGridColumnFilters("kppk", "realization");
     // A FILTER narrows the rows for the same reason a sort reorders them: the
     // merges are INDEX ranges over the view, so a trimmed view can pair rows of
     // different products. Both drop them.
-    const [hasFilters, setHasFilters] = useState(false);
-    /** Sorted OR filtered — the merges only hold on an untouched view. */
+    //
+    // Derived from the filters, never from the `onFiltersChange` event: a filter
+    // restored from `localStorage` on mount never fires that callback, so the
+    // merges were handed to the grid while the filtered rows were already on
+    // screen.
+    const hasFilters = Object.keys(columnFilters).length > 0;
     const mergesOff = isGridSorted || hasFilters;
+    /** Sorted OR filtered — the merges only hold on an untouched view. */
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
     const loader = useCallback(
         () =>
@@ -598,11 +608,6 @@ export function KppkRealizationSection({
     }, [onDeleteState]);
     // Header column filters (client-side, shared with every table). ?????????
     // ??? ??????? ? ??????????? must clear them like it clears RevoGrid's own.
-    const {
-        filters: columnFilters,
-        setFilters: setColumnFilters,
-        clearFilters,
-    } = useGridColumnFilters("kppk", "realization");
     useEffect(() => {
         onResetState({
             resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
@@ -702,12 +707,7 @@ export function KppkRealizationSection({
                 onClipboardStateChange={handleClipboardState}
                 onSelectionChange={handleSelectionChange}
                 filters={columnFilters}
-                onFiltersChange={(next) => {
-                    setColumnFilters(next);
-                    // The merges are dropped the moment a column is filtered and
-                    // stay off until every filter is cleared — see `mergesOff`.
-                    setHasFilters(Object.keys(next).length > 0);
-                }}
+                onFiltersChange={setColumnFilters}
             />
         </div>
     );
