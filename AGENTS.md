@@ -18,7 +18,7 @@ read-only. Other projects' memberships and asset grants must not change when
 editing a KPPK membership.
 
 - `front/` — Next.js 16 (App Router, React 19, revo-grid 4.27, HeroUI, Tailwind 4, Zod 4), package manager **Bun 1.4.x**.
-- `back/` — FastAPI + SQLModel + Alembic (Python 3.14, **uv**), asyncpg, Redis/Valkey for collaboration.
+- `back/` — FastAPI + SQLModel + Alembic (Python 3.15, **uv**), asyncpg, Redis/Valkey for collaboration.
 - Ports: front **5000**, back **8000** — from the root `.env` (`FRONT_PORT`/`BACKEND_PORT`), mandatory.
 - Docker: `compose.yaml` (profiles `prod`/`dev`/`standalone`); in prod nginx runs **outside** Docker.
 
