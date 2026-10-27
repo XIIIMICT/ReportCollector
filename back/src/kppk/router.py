@@ -995,7 +995,7 @@ async def export_kppk_table(
     try:
         validate_export_request(request)
     except ExportValidationError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     if request.section == KPPK_SECTION_PRODUCT_POSITIONS:
         # Always the POSITION shape: an export must spell every product × ДЗО
         # pair out (a grouped row would put a comma list into one cell).
@@ -1058,7 +1058,7 @@ async def export_kppk_realization(
             by_id = {row.id: row for row in rows}
             rows = [by_id[row_id] for row_id in request.rowIds if row_id in by_id]
     except ExportValidationError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     except (KppkValidationError, KppkNotFoundError) as error:
         status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=str(error)) from error

@@ -361,7 +361,7 @@ async def get_renovation_plan_rows(
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except CellValidationError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     # Hand over the serialized body instead of the model: FastAPI would dump the
     # model to Python objects and encode them again, while `dump_json` writes the
     # same JSON in one pass (~36% faster on a 100-row window). `response_model`
@@ -400,7 +400,7 @@ async def get_renovation_plan_summary(
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except CellValidationError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     return RenovationPlanSummaryRead(values=values)
 
 
@@ -454,7 +454,7 @@ async def get_renovation_plan_facets(
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except CellValidationError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
 
 @router.patch("/plan", response_model=RenovationUpdateRead)
@@ -476,7 +476,7 @@ async def patch_renovation_plan(
             session_id=session_id,
         )
     except CellValidationError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     except RenovationPermissionError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except RenovationPlanStateError as error:
@@ -1358,7 +1358,7 @@ async def patch_renovation_dictionary_batch(
         section_name = RENOVATION_USERS_SECTION
     else:
         if not request.catalog:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Не указан каталог.")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Не указан каталог.")
         section_name = _catalog_section(request.catalog)
     project_id = await _renovation_project_id_or_error(session) if request.section == "users" else None
     applied: list[AppliedCell] = []
@@ -1447,7 +1447,7 @@ async def export_renovation_dictionary(
     try:
         validate_export_request(request)
     except ExportValidationError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     rows = await _dictionary_export_rows(session, request)
     if request.rowIds is not None:
         by_id = {str(getattr(row, "id", "") or getattr(row, "valueId", "")): row for row in rows}
@@ -1537,7 +1537,7 @@ async def _dictionary_export_rows(
     if request.section.startswith("renovationCatalog:"):
         catalog = request.section.removeprefix("renovationCatalog:")
         return await read_renovation_catalog_rows(session, catalog=catalog)
-    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Некорректная секция экспорта.")
+    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Некорректная секция экспорта.")
 
 
 async def _renovation_project_id_or_error(session: AsyncSession) -> UUID:

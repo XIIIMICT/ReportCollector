@@ -411,13 +411,13 @@ async def export_table(
         )
     if request.snapshotId is not None and request.section != "materialMovement":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Архивную версию можно выгрузить только для формы «Движение».",
         )
     try:
         validate_export_request(request, show_asset_column=is_admin or len(user_assets) > 1)
     except ExportValidationError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     rows = await _export_rows(session, request, user_assets)
     if request.rowIds is not None:
         rows = _reorder_rows(rows, request.rowIds)
@@ -547,7 +547,7 @@ async def patch_movement_rows(
             session_id=session_id,
         )
     except CellValidationError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     await publish_cell_changed(
@@ -577,7 +577,7 @@ async def patch_price_rows(
             session, updates=request.updates, user=user, assets=assets, session_id=session_id
         )
     except CellValidationError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     await publish_cell_changed(
