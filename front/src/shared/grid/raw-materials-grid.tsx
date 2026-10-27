@@ -2129,6 +2129,81 @@ function RawMaterialsGridInner(
         onViewStatsChange(next);
     }, [descriptors, onViewStatsChange, rows]);
 
+    /**
+     * Drop this section's sorting: the grids' plugin, our state, the stored order,
+     * the arrow class and the merges that a sorting suppresses. One place, because
+     * the third click on a header, a reset through the menu and an empty
+     * `aftersortingapply` must all leave exactly the same state behind.
+     */
+    /**
+     * Drop THIS column's sorting — the third state of a header click.
+     *
+     * The plugin MERGES every config it receives into what it already holds
+     * (`applySortingConfig` builds on its current state), so a prop assignment
+     * can only ADD a column: the removal has to go through its own
+     * `clearColumnSorting`, which is not exposed on the element. What IS exposed
+     * is `clearSorting()` — so the whole sorting is cleared and immediately
+     * re-applied from our state, which is the only place the answer lives.
+     */
+    const clearColumnSorting = useCallback(
+        (prop: string) => {
+            const columns = (sortingBySectionRef.current.get(section)?.columns ?? []).filter(
+                (column) => column.prop !== prop,
+            );
+            if (columns.length === 0) sortingBySectionRef.current.delete(section);
+            else sortingBySectionRef.current.set(section, { columns });
+            writeStoredSorting(
+                sortingScope,
+                section,
+                columns.map((column) => ({ prop: column.prop, order: column.order })),
+            );
+            if (columns.length === 0) {
+                userSortedSectionsRef.current.delete(section);
+                gridRef.current?.classList.remove("raw-materials-grid--user-sorted");
+                setMergesDropped(false);
+                const configured = configuredCellMergeRef.current;
+                if (configured !== undefined && gridRef.current) {
+                    gridRef.current.cellMerge = configured;
+                }
+                onSortingChange?.(false);
+            }
+            bumpSorting();
+            const grid = gridRef.current;
+            if (!grid) return;
+            void (async () => {
+                // Clear first: the plugin has no «drop one column» entry point.
+                await grid.clearSorting();
+                // Even with nothing left, the empty state is re-asserted: the
+                // plugin's own bookkeeping must agree with the arrow, or the next
+                // click starts its cycle from the wrong point (the dead presses).
+                const current = gridRef.current;
+                if (!current) return;
+                current.sorting = {
+                    columns: columns.map((column) => ({
+                        prop: column.prop,
+                        order: column.order,
+                    })),
+                };
+            })();
+        },
+        [bumpSorting, onSortingChange, section, sortingScope],
+    );
+
+    /** Drop this section's whole sorting (the «reset view» menu). */
+    const resetSorting = useCallback(() => {
+        const grid = gridRef.current;
+        sortingBySectionRef.current.delete(section);
+        writeStoredSorting(sortingScope, section, []);
+        userSortedSectionsRef.current.delete(section);
+        grid?.classList.remove("raw-materials-grid--user-sorted");
+        setMergesDropped(false);
+        const configured = configuredCellMergeRef.current;
+        if (configured !== undefined && grid) grid.cellMerge = configured;
+        if (grid) grid.sorting = { columns: [] };
+        onSortingChange?.(false);
+        bumpSorting();
+    }, [bumpSorting, onSortingChange, section, sortingScope]);
+
     const resetGridView = useCallback(async () => {
         const grid = gridRef.current;
         if (!grid) return;
@@ -2137,22 +2212,13 @@ function RawMaterialsGridInner(
             | { clearFiltering: () => Promise<void> }
             | undefined;
         await filterPlugin?.clearFiltering();
-        await grid.clearSorting();
-        onSortingChange?.(false);
-        userSortedSectionsRef.current.delete(section);
-        gridRef.current?.classList.remove("raw-materials-grid--user-sorted");
-        // The REMEMBERED sorting has to go with the live one: clearing the grid
-        // only stopped the rows from being ordered, so the stored entry survived
-        // and came back on the next reload.
+        // The same reset the third header click performs, so the menu and the
+        // click leave an identical view — including the stored entry, which used
+        // to survive here and come back on the next reload.
         if (sortMeasureTimer.current) window.clearTimeout(sortMeasureTimer.current);
-        sortingBySectionRef.current.delete(section);
-        writeStoredSorting(sortingScope, section, []);
-        // Merges were dropped by a sort or a filter; a clean view gets them back.
-        setMergesDropped(false);
-        const configured = configuredCellMergeRef.current;
-        if (configured !== undefined) grid.cellMerge = configured;
+        resetSorting();
         void measureViewport();
-    }, [measureViewport, onSortingChange, section, sortingScope]);
+    }, [measureViewport, resetSorting]);
 
     const resetColumnWidths = useCallback(() => {
         resizedWidthsRef.current.clear();
@@ -2792,48 +2858,59 @@ function RawMaterialsGridInner(
                         }
                     }}
                     onBeforesorting={(event) => {
-                        // The DIRECTION is ours, not the plugin's.
+                        // The click's outcome is OURS, not the plugin's.
                         //
                         // `headerclick` derives the next order from its own
-                        // `this.sorting`, which it only learns through
+                        // `this.sorting`, which it learns only through
                         // `aftercolumnsset` — and that event is not emitted on every
-                        // path (a filter re-applying the source, a background chunk
-                        // arriving). When it misses, the plugin starts from
-                        // `undefined` and «asc» repeats where «desc» was due.
-                        // `sortingBySectionRef` holds the answer, so the click takes
-                        // its direction from there; the plugin's guess only fills in
-                        // when the ref knows nothing about this column.
+                        // path (a filter re-applying the source, a chunk arriving).
+                        // When it misses, the plugin starts from `undefined`, which it
+                        // reads as «reset»: the click switched the sorting OFF instead
+                        // of moving it — the dead presses and jumps in the reports.
+                        //
+                        // `sortingBySectionRef` always has the answer, so every click
+                        // is resolved from there: asc → desc → off. The plugin's own
+                        // guess is never used for a column we know.
                         const detail = event.detail as {
                             column?: { prop?: string };
                             order?: "asc" | "desc";
                         };
                         const prop = detail?.column?.prop;
                         if (prop !== undefined) {
-                            const stored = sortingBySectionRef.current
-                                .get(section)
-                                ?.columns.find((column) => column.prop === String(prop))?.order;
-                            const current = stored ?? detail.order;
-                            // The plugin's `getNextOrder()` only knows two states
-                            // (`asc`, `desc`) and resets from `desc`. The DIRECTION is
-                            // therefore ours: `asc` whenever the column is not already
-                            // sorted (first click on it, or the click that re-applies
-                            // a sorting after a reset), `desc` from `asc`.
-                            const next: GridSortingOrder = current === "asc" ? "desc" : "asc";
+                            const columns = sortingBySectionRef.current.get(section)?.columns ?? [];
+                            const stored = columns.find(
+                                (column) => column.prop === String(prop),
+                            )?.order;
+
+                            if (stored === "desc") {
+                                // The third state. `beforesorting` only arrives after
+                                // `getNextOrder()` already reset the plugin, and
+                                // cancelling the event would leave the plugin's
+                                // bookkeeping untouched — so the reset is applied here,
+                                // in one place, for every way into it.
+                                event.preventDefault();
+                                clearColumnSorting(String(prop));
+                                return;
+                            }
+
+                            const next: GridSortingOrder = stored === "asc" ? "desc" : "asc";
                             detail.order = next;
-                            const entry = sortingBySectionRef.current.get(section);
-                            const columns = (entry?.columns ?? []).filter(
+                            const remaining = columns.filter(
                                 (column) => column.prop !== String(prop),
                             );
-                            columns.push({
-                                prop: String(prop),
-                                order: next,
-                                cellCompare: placeholderLastCellCompare,
-                            });
-                            sortingBySectionRef.current.set(section, { columns });
+                            const applied = [
+                                ...remaining,
+                                {
+                                    prop: String(prop),
+                                    order: next,
+                                    cellCompare: placeholderLastCellCompare,
+                                },
+                            ];
+                            sortingBySectionRef.current.set(section, { columns: applied });
                             writeStoredSorting(
                                 sortingScope,
                                 section,
-                                columns.map((column) => ({
+                                applied.map((column) => ({
                                     prop: column.prop,
                                     order: column.order,
                                 })),
