@@ -246,11 +246,15 @@ export function KppkRealizationSection({
 
     const [reloadKey, setReloadKey] = useState(0);
     const [isGridSorted, setIsGridSorted] = useState(false);
+    // One filter set per FORM, not per project: «Реализация» (каждый её срез) и
+    // «Себестоимость» показывают разные столбцы, поэтому фильтр по «Рынку сбыта»
+    // не должен всплывать на форме, где такого столбца нет. The key is the
+    // table's own section — the same value the collaboration room uses.
     const {
         filters: columnFilters,
         setFilters: setColumnFilters,
         clearFilters,
-    } = useGridColumnFilters("kppk", "realization");
+    } = useGridColumnFilters("kppk", roomSection);
     // A FILTER narrows the rows for the same reason a sort reorders them: the
     // merges are INDEX ranges over the view, so a trimmed view can pair rows of
     // different products. Both drop them.
