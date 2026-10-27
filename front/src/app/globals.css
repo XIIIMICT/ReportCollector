@@ -2686,6 +2686,17 @@ body {
     flex-direction: column;
 }
 
+/* The first paint, while the remembered row is still travelling.
+   The grid mounts and immediately paints its first rows; restoring the saved
+   position is an async scroll, so without this the plan visibly opens at the
+   TOP and then jumps. The HEADER stays (it is fixed and does not move) — only
+   the data rows are hidden, so the frame never appears row-less. `visibility`
+   rather than `display`/`opacity`: it keeps the layout identical, so the jump
+   measures the same viewport it will land in, and the reveal costs no reflow. */
+.renovation-grid-shell--restoring .renovation-grid revogr-data {
+    visibility: hidden;
+}
+
 .renovation-grid-shell .renovation-grid__header {
     position: relative;
     z-index: 5;

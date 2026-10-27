@@ -726,10 +726,14 @@ function RenovationGridInner(
                     width: serviceWidthOf(column.dbName),
                     height: headerHeight,
                     isTop: true,
-                    // No form position: service columns are not numbered.
+                    // No form position: the audit trio has no workbook cell.
                     level: 0,
                     fromPosition: 0,
                     toPosition: 0,
+                    // It DOES have a header cell of its own (this one), so the
+                    // funnel belongs here like every other column's — not in the
+                    // strip above the summary row.
+                    filterColumn: column.dbName,
                 });
             }
         }
@@ -1267,6 +1271,19 @@ function RenovationGridInner(
      */
     const restorePendingRef = useRef(false);
     /**
+     * The SAME fact as `restorePendingRef`, as render state: while the first
+     * restore is travelling, the grid body stays hidden, so the plan does not
+     * flash its first rows before jumping to the remembered one.
+     *
+     * Seeded from `scrollToPosition` on the FIRST render — the grid mounts
+     * together with the position it must open at — and cleared when the jump
+     * lands (or after a short grace, so a jump that never resolves cannot leave
+     * an empty grid on screen forever).
+     */
+    const [initialRestorePending, setInitialRestorePending] = useState(
+        () => scrollToPosition !== null && scrollToPosition !== undefined,
+    );
+    /**
      * Hard stop for the "jump in flight" block. A jump normally clears it in a
      * few hundred milliseconds; the deadline guarantees that a jump which never
      * resolves cannot freeze the remembered position forever.
@@ -1508,7 +1525,20 @@ function RenovationGridInner(
         // taken mid-flight would remember whatever row the grid happened to show
         // (on mount that is row 1, which is what clobbered the saved position).
         restorePendingRef.current = scrollToPosition.centered === true;
-        return jumpToRow(target, scrollToPosition.centered ?? false);
+        const cancel = jumpToRow(target, scrollToPosition.centered ?? false);
+        // The jump has either landed or given up when it reports itself done
+        // (`jumpInFlightRef` back to 0) — that is the honest moment to reveal
+        // the rows, better than a fixed delay. The safety timer in the other
+        // effect still covers a jump that never reports at all.
+        const reveal = () => {
+            if (jumpInFlightRef.current === 0) setInitialRestorePending(false);
+            else window.setTimeout(reveal, 60);
+        };
+        const timer = window.setTimeout(reveal, 120);
+        return () => {
+            window.clearTimeout(timer);
+            cancel();
+        };
     }, [scrollToPosition, totalRows, jumpToRow]);
 
     // The restore finished travelling: from now on the viewport row IS the
@@ -1518,10 +1548,22 @@ function RenovationGridInner(
     useEffect(() => {
         if (!scrollToPosition || jumpInFlightRef.current > 0) return;
         const timer = window.setTimeout(() => {
-            if (jumpInFlightRef.current === 0) restorePendingRef.current = false;
+            if (jumpInFlightRef.current === 0) {
+                restorePendingRef.current = false;
+                setInitialRestorePending(false);
+            }
         }, 250);
         return () => window.clearTimeout(timer);
     }, [scrollToPosition]);
+
+    // A restore that never lands (an unmounted grid, a jump the scroller
+    // refuses) must not leave the body hidden forever: reveal it after the
+    // jump's own deadline. The user sees the top row — stale, but visible.
+    useEffect(() => {
+        if (!initialRestorePending) return;
+        const timer = window.setTimeout(() => setInitialRestorePending(false), 2_000);
+        return () => window.clearTimeout(timer);
+    }, [initialRestorePending]);
 
     /**
      * The row the user SELECTED — what the remembered position follows.
@@ -2932,15 +2974,10 @@ function RenovationGridInner(
                         }}
                     >
                         <span className="renovation-grid__number-label">{cell.text}</span>
-                        {/* With the header PINNED the level cells above carry the
-                            funnels; the strip duplicates them only when those cells
-                            are hidden (the header is collapsed to the first row).
-                            A column without a header cell of its own — the audit
-                            trio — keeps its funnel here in both modes, because
-                            there is nothing above it to draw one. */}
-                        {(!headerPinned || SERVICE_DB_NAMES.has(cell.key)) &&
-                        cell.filterColumn &&
-                        onOpenColumnFilter ? (
+                        {/* The strip is the UNPINNED substitute: with the header
+                            pinned every column draws its funnel in its own header
+                            cell, and the strip must not duplicate it. */}
+                        {!headerPinned && cell.filterColumn && onOpenColumnFilter ? (
                             <button
                                 type="button"
                                 className={
@@ -3029,6 +3066,11 @@ function RenovationGridInner(
                 "revo-grid-shell renovation-grid-shell",
                 headerPinned && "revo-grid-shell--pinned",
                 !hasHorizontalOverflow && "revo-grid-shell--no-hscroll",
+                // Hidden until the remembered row is in place: the grid paints
+                // its first rows the moment it mounts, and the restore travels
+                // asynchronously — without this the user sees the TOP of the
+                // plan flash before it jumps to the row they left on.
+                initialRestorePending && "renovation-grid-shell--restoring",
             ]
                 .filter(Boolean)
                 .join(" ")}
