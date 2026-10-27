@@ -3274,6 +3274,21 @@ body {
     display: none;
 }
 
+/* The panel is a focus SCOPE, not a control: opening it parks the focus on the
+   popover element itself, and the theme draws its focus RING around the whole box
+   — the "selection" outline that vanished as soon as anything inside was pressed.
+   Nothing is being keyboard-navigated at that moment, and the controls inside
+   (the search field, the range pickers, the buttons) draw their own ring, so the
+   container's one is dropped. HeroUI paints it with a Tailwind ring, not with
+   `outline`, hence the variables. */
+.column-filter__popover:focus,
+.column-filter__popover:focus-visible {
+    outline: none;
+    --tw-ring-shadow: 0 0 #0000;
+    --tw-ring-offset-shadow: 0 0 #0000;
+    box-shadow: 0 0.6rem 1.8rem rgb(22 25 24 / 18%);
+}
+
 .column-filter__popover {
     z-index: 1000;
     display: flex;
