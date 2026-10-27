@@ -1352,7 +1352,7 @@ function RenovationGridInner(
     // may align the chunk slightly differently). Returns a cancel function.
     // Used by the structural tail jump and the «go to row» popover.
     const jumpToRow = useCallback(
-        (target: number, centered = false): (() => void) => {
+        (target: number, centered = false, onLanded?: () => void): (() => void) => {
             const grid = gridRef.current;
             if (!grid) return () => {};
             let cancelled = false;
@@ -1409,7 +1409,14 @@ function RenovationGridInner(
                 return Math.abs(top - targetTop()) <= rowHeight * 5;
             };
             const attempt = () => {
-                if (cancelled || attempts >= 50) return;
+                if (cancelled) return;
+                if (attempts >= 50) {
+                    // Given up: the viewport is wherever it stopped. Still
+                    // report it, or a pending reveal would wait for a landing
+                    // that never comes.
+                    onLanded?.();
+                    return;
+                }
                 attempts += 1;
                 // A grid that has not laid itself out yet cannot scroll anywhere:
                 // its scroller is still tiny, so the jump is clamped to a few rows
@@ -1428,7 +1435,16 @@ function RenovationGridInner(
                     }
                     if (cancelled) return;
                     window.setTimeout(() => {
-                        if (cancelled || landed()) return;
+                        if (cancelled) return;
+                        // The jump settled: the viewport is on the target (or as
+                        // close as the scroller allows). Tell the caller BEFORE
+                        // the retry decision, so a pending reveal reacts to the
+                        // real arrival instead of polling a counter that only
+                        // clears on unmount.
+                        if (landed()) {
+                            onLanded?.();
+                            return;
+                        }
                         attempt();
                     }, 150);
                 })();
@@ -1525,20 +1541,13 @@ function RenovationGridInner(
         // taken mid-flight would remember whatever row the grid happened to show
         // (on mount that is row 1, which is what clobbered the saved position).
         restorePendingRef.current = scrollToPosition.centered === true;
-        const cancel = jumpToRow(target, scrollToPosition.centered ?? false);
-        // The jump has either landed or given up when it reports itself done
-        // (`jumpInFlightRef` back to 0) — that is the honest moment to reveal
-        // the rows, better than a fixed delay. The safety timer in the other
-        // effect still covers a jump that never reports at all.
-        const reveal = () => {
-            if (jumpInFlightRef.current === 0) setInitialRestorePending(false);
-            else window.setTimeout(reveal, 60);
-        };
-        const timer = window.setTimeout(reveal, 120);
-        return () => {
-            window.clearTimeout(timer);
-            cancel();
-        };
+        // Reveal the rows the moment the viewport actually ARRIVES (or the jump
+        // gives up) — polling `jumpInFlightRef` would never fire, because that
+        // counter only clears when the effect is torn down, i.e. on unmount.
+        const cancel = jumpToRow(target, scrollToPosition.centered ?? false, () =>
+            setInitialRestorePending(false),
+        );
+        return cancel;
     }, [scrollToPosition, totalRows, jumpToRow]);
 
     // The restore finished travelling: from now on the viewport row IS the
