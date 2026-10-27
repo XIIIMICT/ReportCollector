@@ -3394,6 +3394,19 @@ body {
     -moz-appearance: textfield;
 }
 
+/* The instant window (a `timestamptz` column): the date range above the SAME
+   commit footer every filter uses, so the buttons are the shared
+   `ExpandableButtonGroup` — no bespoke button styling lives here. */
+.column-filter__instant {
+    display: flex;
+    flex-direction: column;
+    min-width: 18rem;
+    /* NO padding of its own: the list popover pads nothing either — the rows and
+       the footer carry their own insets, so the panels line up. An outer frame
+       here made the window look padded on every side compared with the others. */
+    padding: 0;
+}
+
 .column-filter__range-dash {
     flex: 0 0 auto;
     color: var(--muted);

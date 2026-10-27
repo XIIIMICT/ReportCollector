@@ -80,12 +80,7 @@ function instantWindowFrom(
     draft: { from?: string | null | undefined; to?: string | null | undefined } | null,
 ): InstantRange {
     if (!instant) return { from: null, to: null };
-    const source =
-        initial?.from || initial?.to
-            ? initial
-            : draft?.from || draft?.to
-              ? draft
-              : null;
+    const source = initial?.from || initial?.to ? initial : draft?.from || draft?.to ? draft : null;
     return {
         from: source?.from ? new Date(source.from) : null,
         to: source?.to ? new Date(source.to) : null,
@@ -844,8 +839,15 @@ export function ColumnFilterPopover({
                     isExiting={!isOpen}
                     className="column-filter__popover column-filter__popover--instant"
                 >
-                    <Popover.Dialog>
-                        <div className="column-filter__instant">
+                    {/* NO `Popover.Dialog`: that is a dialog INSIDE the popover
+                        and it carries its own 16px frame. Every other filter is an
+                        `Autocomplete.Popover` whose content IS the panel, so the
+                        window puts its rows straight into `Popover.Content` too. */}
+                    <div className="column-filter__instant">
+                        {/* The date pair sits where the list's search row
+                                does in every other filter: the same inner inset,
+                                so the two panels read as one family. */}
+                        <div className="column-filter__search">
                             <ColumnFilterDateRange
                                 columnLabel={columnLabel}
                                 value={{
@@ -860,41 +862,41 @@ export function ColumnFilterPopover({
                                 }
                                 kind="datetime"
                             />
-                            <Separator className="smart-select__footer-separator" />
-                            <div className="smart-select__footer">
-                                {/* The SAME commit group every filter uses:
+                        </div>
+                        <Separator className="smart-select__footer-separator" />
+                        <div className="smart-select__footer">
+                            {/* The SAME commit group every filter uses:
                                     «По умолчанию / Отменить / Применить». A window
                                     is applied by «Применить»; «Отменить» restores
                                     the filter that was in force before opening. */}
-                                <ExpandableButtonGroup size="sm" reserveLast={2}>
-                                    <ExpandableButton
-                                        variant="danger"
-                                        aria-label={`По умолчанию: ${columnLabel}`}
-                                        icon={<Refresh aria-hidden="true" />}
-                                        onPress={reset}
-                                    >
-                                        По умолчанию
-                                    </ExpandableButton>
-                                    <ExpandableButton
-                                        variant="tertiary"
-                                        aria-label="Отменить"
-                                        icon={<Xmark aria-hidden="true" />}
-                                        onPress={cancel}
-                                    >
-                                        Отменить
-                                    </ExpandableButton>
-                                    <ExpandableButton
-                                        variant="primary"
-                                        aria-label="Применить"
-                                        icon={<Check aria-hidden="true" />}
-                                        onPress={confirm}
-                                    >
-                                        Применить
-                                    </ExpandableButton>
-                                </ExpandableButtonGroup>
-                            </div>
+                            <ExpandableButtonGroup size="sm" reserveLast={2}>
+                                <ExpandableButton
+                                    variant="danger"
+                                    aria-label={`По умолчанию: ${columnLabel}`}
+                                    icon={<Refresh aria-hidden="true" />}
+                                    onPress={reset}
+                                >
+                                    По умолчанию
+                                </ExpandableButton>
+                                <ExpandableButton
+                                    variant="tertiary"
+                                    aria-label="Отменить"
+                                    icon={<Xmark aria-hidden="true" />}
+                                    onPress={cancel}
+                                >
+                                    Отменить
+                                </ExpandableButton>
+                                <ExpandableButton
+                                    variant="primary"
+                                    aria-label="Применить"
+                                    icon={<Check aria-hidden="true" />}
+                                    onPress={confirm}
+                                >
+                                    Применить
+                                </ExpandableButton>
+                            </ExpandableButtonGroup>
                         </div>
-                    </Popover.Dialog>
+                    </div>
                 </Popover.Content>
             </Popover>
         );
