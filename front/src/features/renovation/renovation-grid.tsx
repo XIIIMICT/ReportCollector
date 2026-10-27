@@ -2244,6 +2244,45 @@ function RenovationGridInner(
         const handleSetRange = (event: Event) => {
             updateSelectionRange((event as CustomEvent<RangeArea & { type?: string }>).detail);
         };
+        /**
+         * The range being dragged.
+         *
+         * The overlay keeps it in its own selection STORE (`tempRange`) and writes
+         * it on every pointer move; no DOM event carries it (`settemp` fires only
+         * through the autofill path). `beforerange` — what we listened to — arrives
+         * on RELEASE alone, which is why the plan showed one cell until the end of
+         * the drag while every client grid followed the pointer.
+         */
+        const tempStore = (
+            grid.querySelector("revogr-temp-range") as unknown as {
+                selectionStore?: {
+                    onChange: (key: string, cb: (value: RangeArea | null) => void) => void;
+                    get: (key: string) => RangeArea | null;
+                };
+            } | null
+        )?.selectionStore;
+        let tempUnsubscribe: (() => void) | undefined;
+        if (tempStore) {
+            const store = tempStore;
+            const report = (range: RangeArea | null) => {
+                if (!range) return;
+                updateSelectionRange({
+                    x: Math.min(range.x, range.x1),
+                    y: Math.min(range.y, range.y1),
+                    x1: Math.max(range.x, range.x1),
+                    y1: Math.max(range.y, range.y1),
+                });
+            };
+            // `@stencil/store` returns an unsubscribe function; the wrapper in the
+            // plugin may return nothing, so both shapes are accepted.
+            const off = (store.onChange as unknown as (key: string, cb: unknown) => unknown)(
+                "tempRange",
+                report,
+            );
+            if (typeof off === "function") tempUnsubscribe = off as () => void;
+            report(store.get("tempRange"));
+        }
+
         const handleFocusCell = (event: Event) => {
             const detail = (
                 event as CustomEvent<{
@@ -2283,6 +2322,7 @@ function RenovationGridInner(
             window.removeEventListener("copy", handleCopy, true);
             window.removeEventListener("paste", handlePaste, true);
             grid.removeEventListener("setrange", handleSetRange);
+            tempUnsubscribe?.();
             grid.removeEventListener("focuscell", handleFocusCell);
             grid.removeEventListener("canceledit", handleCancelEdit);
         };
