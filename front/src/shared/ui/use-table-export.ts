@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import type { ExportColumn } from "@/shared/grid/grid-config";
 
@@ -57,22 +57,37 @@ export function useTableExport({
     ) => Promise<Blob | { fileUrl: string; job: { fileName: string } }>;
 }): { pending: boolean; exportTable: (mode: ExportMode) => void } {
     const [pending, setPending] = useState(false);
+    // `fileName` and `request` are passed INLINE by every call site, so their
+    // identity changes on every render of the owning section. If `exportTable`
+    // depended on them it would be a new function each render — and the section
+    // publishes it (`onExportState({ pending, onExport: exportTable })`) from an
+    // effect, the workspace stores the fresh object, re-renders, rebuilds the
+    // callback, and the effect fires again: «Maximum update depth exceeded».
+    // That is what took the «Предприятия» and «Пользователи» tabs of «Ремонт»
+    // down. Read them through refs instead, so this callback is stable for the
+    // hook's lifetime.
+    const fileNameRef = useRef(fileName);
+    fileNameRef.current = fileName;
+    const requestRef = useRef(request);
+    requestRef.current = request;
+    const pendingRef = useRef(pending);
+    pendingRef.current = pending;
     const exportTable = useCallback(
         (mode: ExportMode) => {
             void runTableExport({
-                pending,
+                pending: pendingRef.current,
                 gridRef,
                 setPending,
-                fileName: () => fileName(mode),
+                fileName: () => fileNameRef.current(mode),
                 // THE rule: «видимая» = the grid's own rows, in the grid's order.
                 request: (view, name) =>
-                    request(
+                    requestRef.current(
                         { columns: view.columns, rowIds: mode === "visible" ? view.rowIds : null },
                         name,
                     ),
             });
         },
-        [fileName, gridRef, pending, request],
+        [gridRef],
     );
     return { pending, exportTable };
 }

@@ -181,6 +181,18 @@ Aggregators: `just lint`, `just typecheck`, `just test`, `just e2e`.
 - Unit tests — bun test (happy-dom), in `__tests__` next to the code.
 - **The oxlint plugins are enabled explicitly** (`front/oxlint.config.ts`): oxlint ships with only `unicorn`/`typescript`/`oxc`, so React, imports and the test helpers go unchecked by default — and an `eslint-disable` comment for a plugin that was never loaded is silently dead. Rule names are oxlint's own (`react/exhaustive-deps`, not `react-hooks/exhaustive-deps`). `vitest` is enabled, not `jest`: the runner is `bun test`.
 - **`react-perf` findings are hints, not debt.** They ask for memoized JSX props, which only pay off under `React.memo` — and there is no `memo()` anywhere in `front/src`: the project relies on **React Compiler** (`reactCompiler: true` in `next.config.ts`), which memoizes JSX props, object literals and arrow functions itself. Most of what is reported are attributes on DOM nodes (`style`, `onPointerDown` on a `<div>`), which have no prop comparison to lose. If the compiler is turned off, or a component starts using `memo()`, treat these 273 findings as real work instead of noise. The same applies to `eslint/no-await-in-loop` (sequential server requests on purpose) and `eslint/no-shadow` (inner `row`/`value` names).
+- **«Maximum update depth exceeded» — the shape of it, and how to find it.** React aborts after ~50 nested updates when a component keeps calling `setState` from something that re-runs on every render. In this codebase it is almost always the **publish loop**, not a component bug:
+  1. a section publishes its action state from an effect — `onExportState({ pending, onExport })`, `onUndoState({…})`, `onGridStatsChange(stats)` — building a **fresh object** each time;
+  2. the workspace stores it (`setDictExportState(state)`) unconditionally, so React re-renders it;
+  3. the section re-renders, the effect's dependency changed, and it publishes again → loop.
+
+  The dependency that changes is usually a **callback**, because call sites pass `fileName`/`request`/`onCopy` **inline**, and any hook that puts such an argument in a `useCallback` dependency array returns a new function every render. Two ways out, both already in the code:
+  - keep the callback STABLE at the source — hold the inline inputs in refs (`shared/ui/use-table-export.ts` is the model: `fileNameRef`, `requestRef`, `pendingRef`, and `[gridRef]` as the only dependency);
+  - ignore same-content publications at the sink — `samePublishedState` / `updateClipboardActions` in `raw-materials-workspace.tsx`, which compare by value and skip functions.
+
+  **How to find it fast** (this took hours of guessing, so follow the order): instrument ONE counter in the suspect component's body (`console.warn('DBG', n++)`), reload, and read `browser_get_console_logs` — if the child renders ~100× while the parent does not, the loop is in the child; if both do, it is the publish loop. Then tag every `useEffect` body the same way and see which number repeats — that effect names the setter and the dependency. Do NOT theorise from a stack trace first: React's frames are all `commitAttachRef`/`setProps`/`forceStoreRerender`, which says *that* a store re-rendered, never *which* of our calls did it. And **verify each candidate by reverting it** — several plausible "fixes" (memoising an `options` array, stabilising a `ref` callback, guarding a stats setter) were applied and had no effect, because they were not the loop.
+
+  The regression test is `shared/ui/__tests__/use-table-export.test.ts` — it asserts the callback keeps ONE identity while its inline inputs change every render, and it fails if the dependency array is widened again.
 
 ### Front styling (Tailwind vs plain CSS)
 

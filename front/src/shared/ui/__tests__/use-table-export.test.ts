@@ -8,6 +8,37 @@ import { useTableExport } from "../use-table-export";
 
 afterEach(cleanup);
 
+/**
+ * The callback must keep ONE identity across renders.
+ *
+ * Sections publish it from an effect (`onExportState({ pending, onExport })`) and
+ * the workspace stores the fresh object, so an unstable `exportTable` closes a
+ * loop: publish → workspace re-renders → section re-renders → new callback →
+ * publish again. That is «Maximum update depth exceeded», which took the
+ * «Предприятия» and «Пользователи» tabs of «Ремонт» down; the call sites pass
+ * `fileName` and `request` inline, so they are new objects on every render.
+ */
+test("exportTable keeps one identity while its inputs change every render", () => {
+    const grid = {
+        current: { getExportState: async () => ({ columns: COLUMNS, rowIds: [] }) },
+    };
+    const { result, rerender } = renderHook(
+        ({ tick }: { tick: number }) =>
+            useTableExport({
+                gridRef: grid,
+                // Inline on purpose — a new function every render, like the call sites.
+                fileName: () => `table-${tick}.xlsx`,
+                request: async () => new Blob(),
+            }),
+        { initialProps: { tick: 0 } },
+    );
+
+    const first = result.current.exportTable;
+    rerender({ tick: 1 });
+    rerender({ tick: 2 });
+    expect(result.current.exportTable).toBe(first);
+});
+
 const COLUMNS: ExportColumn[] = [
     { key: "product", headerPath: ["Продукция"], width: 40, numberFormat: null },
 ];
