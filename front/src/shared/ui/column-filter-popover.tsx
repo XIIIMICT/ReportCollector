@@ -850,6 +850,7 @@ export function ColumnFilterPopover({
                         <div className="column-filter__search">
                             <ColumnFilterDateRange
                                 columnLabel={columnLabel}
+                                autoFocus
                                 value={{
                                     min: instantWindow.from ? instantWindow.from.getTime() : null,
                                     max: instantWindow.to ? instantWindow.to.getTime() : null,

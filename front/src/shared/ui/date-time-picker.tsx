@@ -47,6 +47,7 @@ export function DateTimePicker({
     kind = "datetime",
     className,
     fieldClassName,
+    autoFocus = false,
 }: {
     /** Caption shown to the LEFT of the field, without the colon. */
     label?: string;
@@ -58,6 +59,12 @@ export function DateTimePicker({
     kind?: DatePickerKind;
     className?: string;
     fieldClassName?: string;
+    /**
+     * Focus the first segment when the picker appears. Every other column filter
+     * opens with the caret in its search box, so a window that left the focus on
+     * the panel itself was the odd one out (and the panel drew a focus ring).
+     */
+    autoFocus?: boolean;
 }) {
     const current = toPickerValue(value, kind);
     const withTime = kind === "datetime";
@@ -69,6 +76,7 @@ export function DateTimePicker({
                 </span>
             ) : null}
             <DatePicker
+                {...(autoFocus ? { autoFocus: true } : {})}
                 className={["date-time-picker__field", fieldClassName].filter(Boolean).join(" ")}
                 aria-label={ariaLabel}
                 value={current}

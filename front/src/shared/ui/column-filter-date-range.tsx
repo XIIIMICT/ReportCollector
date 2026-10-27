@@ -71,6 +71,7 @@ export function ColumnFilterDateRange({
     value,
     onChange,
     kind = "datetime",
+    autoFocus = false,
 }: {
     /** The column's header text, for the fields' accessible names. */
     columnLabel: string;
@@ -78,6 +79,8 @@ export function ColumnFilterDateRange({
     onChange: (next: FacetDateRange) => void;
     /** Date-only grid cells versus timestamps. */
     kind?: DateFilterKind;
+    /** Focus the «Минимум» field on open (the instant window does). */
+    autoFocus?: boolean;
 }) {
     const bounds: { slot: "min" | "max"; label: string; text: string }[] = [
         { slot: "min", label: "мин", text: "Минимум" },
@@ -92,6 +95,11 @@ export function ColumnFilterDateRange({
             {bounds.map(({ slot, label, text }) => (
                 <DateTimePicker
                     key={slot}
+                    // The window opens with the caret in «Минимум» — the first
+                    // thing a user types — like the search box of every other
+                    // filter. Only the first row, so the two fields never fight
+                    // for the focus.
+                    autoFocus={autoFocus && slot === "min"}
                     className="column-filter__date-row"
                     fieldClassName="column-filter__date-field"
                     label={label}
