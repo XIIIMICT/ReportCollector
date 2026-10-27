@@ -28,40 +28,66 @@
 
 ---
 
-## 2. Доставка алертов по почте — **НУЖЕН ВНЕШНИЙ РЕСУРС**
+## 2. Доставка алертов по почте — **СДЕЛАНО (2026-10-27)**
 
-**Что работает.** Правила (`infra/prometheus/alert-rules.yml`) загружены,
-Prometheus отправляет в Alertmanager, Alertmanager группирует; алерты видны в
-`http://localhost:9093` и в Prometheus `/alerts`.
+**Что работает.** Правила (`infra/prometheus/alert-rules.yml`) срабатывают,
+Prometheus отправляет в Alertmanager, Alertmanager группирует и **отправляет
+письмо**. Проверено вживую: тестовый алерт → `level=DEBUG source=notify.go:876
+msg="Notify success" component=dispatcher receiver=support-mail integration=email[0]
+… duration=1.07s`, письмо пришло на `SUPPORT_MAIL`.
 
-**Что не работает.** SMTP. Проверено на практике:
+**Почему не работало раньше — две причины, обе НЕ про сеть:**
+
+1. **Порт 465 вместо 587.** `smtp.mail.ru:465` — это *implicit TLS*: сервер сразу
+   ждёт TLS-рукопожатие. Alertmanager с `smtp_require_tls: true` (по умолчанию)
+   начинает с обычного `EHLO` и ждёт **STARTTLS**, которого 465 не объявляет:
+   `'require_tls' is true (default) but "smtp.mail.ru:465" does not advertise the
+   STARTTLS extension`. Порт **587** объявляет `250 STARTTLS` — он и нужен.
+   (Диагноз «порты закрыты» в старой версии этого пункта был верен на тот момент,
+   но к моменту починки сеть уже открылась, и осталась именно эта ошибка.)
+2. **Неверный `ALERT_SMTP_USER`.** В нём стоял ящик-**получатель**
+   (`s.scorpi-on@ya.ru`), а пароль приложения и `FROM` — от ящика-**отправителя**
+   (`streetjoy@mail.ru`). mail.ru отвечает на это
+   `535 5.7.0 NEOBHODIM parol prilozheniya / Application password is REQUIRED` —
+   сообщение выглядит как «нужен пароль приложения», хотя дело было в том, что
+   логинились НЕ тем ящиком. Проверено всеми способами (`login()` в двух режимах,
+   raw `AUTH PLAIN`, `SMTP_SSL` на 465) — отказ одинаковый, пока не совпали
+   USER/FROM/PASSWORD.
+
+**Правильная конфигурация** (`.env`, не в репозитории):
 
 ```
-Notify attempt failed ... err="establish TLS connection to server:
-dial tcp 94.100.180.160:465: connect: connection refused"
+ALERT_SMTP_SMARTHOST=smtp.mail.ru:587
+ALERT_SMTP_USER=streetjoy@mail.ru      # тот же ящик, что FROM
+ALERT_SMTP_FROM=streetjoy@mail.ru
+ALERT_SMTP_PASSWORD=<пароль приложения mail.ru, 16 символов>
+SUPPORT_MAIL=s.scorpi-on@ya.ru         # получатель
 ```
 
-Порты 25/465/587 закрыты **и с хоста, и изнутри Docker** — проверено `nc -z`
-на `smtp.mail.ru`, `smtp.yandex.ru`, `smtp.gmail.com`, `smtp.office365.com`.
-IMAP (993) при этом открыт: входящая почта есть, исходящая — нет.
+`ALERT_SMTP_USER` и `ALERT_SMTP_FROM` **обязаны быть одним ящиком**: mail.ru
+отклонит отправку от чужого адреса, даже если логин верный.
 
-**Что нужно от вас (любое из):**
-- корпоративный SMTP-релей, доступный из этой сети (адрес + порт + учётка без
-  обязательной MFA для сервисной учётки);
-- либо разрешение на исходящий 465/587 к `smtp.mail.ru`;
-- либо другой канал доставки (Telegram-бот, webhook в корпоративный мессенджер) —
-  тогда `receivers` в `alertmanager.tpl.yml` меняется, правила остаются.
+**Пароль приложения обязателен** — обычный пароль аккаунта mail.ru для SMTP не
+принимается (`NEOBHODIM parol prilozheniya`). Выдаётся на
+https://help.mail.ru/mail/security/protection/external; при отзыве старый
+мгновенно перестаёт работать.
 
-**После получения доступа:** значения уже в `.env` (`ALERT_SMTP_*`),
-`SMARTHOST` поменять при необходимости, перезапустить `just monitoring`, отправить
-тестовый алерт:
+**После изменения `.env`** нужен `just monitoring` (или
+`docker compose --profile standalone up -d --force-recreate alertmanager`):
+`entrypoint.sh` подставляет значения в `/tmp/alertmanager.yml` при СТАРТЕ
+контейнера, Alertmanager переменные окружения в `to`/`smarthost` сам не
+раскрывает.
+
+**Проверка доставки:**
 
 ```bash
-curl -X POST http://localhost:9093/api/v2/alerts -H 'Content-Type: application/json' -d '[{"labels":{"alertname":"TestAlert","severity":"critical"},"annotations":{"summary":"Проверка доставки"}}]'
+curl -X POST http://localhost:9093/api/v2/alerts -H 'Content-Type: application/json' \
+  -d '[{"labels":{"alertname":"TestAlert","severity":"critical"},"annotations":{"summary":"Проверка доставки"}}]'
+# через ~30s (group_wait): журнал Alertmanager → "Notify success"; файл
+# /alertmanager/nflog перестаёт быть пустым
 ```
 
-**Статус:** НУЖЕН ВНЕШНИЙ РЕСУРС. До появления релея считать «алерты по почте»
-**НЕ сделанными**.
+`nflog` — самый быстрый индикатор: он пуст, пока ни одно уведомление не ушло.
 
 ---
 
