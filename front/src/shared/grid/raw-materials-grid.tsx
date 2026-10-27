@@ -2791,7 +2791,58 @@ function RawMaterialsGridInner(
                             }, 0);
                         }
                     }}
-                    onBeforesorting={() => {
+                    onBeforesorting={(event) => {
+                        // The DIRECTION is ours, not the plugin's.
+                        //
+                        // `headerclick` derives the next order from its own
+                        // `this.sorting`, which it only learns through
+                        // `aftercolumnsset` — and that event is not emitted on every
+                        // path (a filter re-applying the source, a background chunk
+                        // arriving). When it misses, the plugin starts from
+                        // `undefined` and «asc» repeats where «desc» was due.
+                        // `sortingBySectionRef` holds the answer, so the click takes
+                        // its direction from there; the plugin's guess only fills in
+                        // when the ref knows nothing about this column.
+                        const detail = event.detail as {
+                            column?: { prop?: string };
+                            order?: "asc" | "desc";
+                        };
+                        const prop = detail?.column?.prop;
+                        if (prop !== undefined) {
+                            const stored = sortingBySectionRef.current
+                                .get(section)
+                                ?.columns.find((column) => column.prop === String(prop))?.order;
+                            const current = stored ?? detail.order;
+                            // The plugin's `getNextOrder()` only knows two states
+                            // (`asc`, `desc`) and resets from `desc`. The DIRECTION is
+                            // therefore ours: `asc` whenever the column is not already
+                            // sorted (first click on it, or the click that re-applies
+                            // a sorting after a reset), `desc` from `asc`.
+                            const next: GridSortingOrder = current === "asc" ? "desc" : "asc";
+                            detail.order = next;
+                            const entry = sortingBySectionRef.current.get(section);
+                            const columns = (entry?.columns ?? []).filter(
+                                (column) => column.prop !== String(prop),
+                            );
+                            columns.push({
+                                prop: String(prop),
+                                order: next,
+                                cellCompare: placeholderLastCellCompare,
+                            });
+                            sortingBySectionRef.current.set(section, { columns });
+                            writeStoredSorting(
+                                sortingScope,
+                                section,
+                                columns.map((column) => ({
+                                    prop: column.prop,
+                                    order: column.order,
+                                })),
+                            );
+                            userSortedSectionsRef.current.add(section);
+                            gridRef.current?.classList.add("raw-materials-grid--user-sorted");
+                            onSortingChange?.(true);
+                            bumpSorting();
+                        }
                         // Remove index-based merges before RevoGrid reorders
                         // rows. RevoGrid starts sorting in a debounced job after
                         // this event; queue the plugin update so it cannot reset
@@ -2832,6 +2883,22 @@ function RawMaterialsGridInner(
                             if (configured !== undefined && gridRef.current) {
                                 gridRef.current.cellMerge = configured;
                             }
+                            // Re-assert the empty sorting into the plugin: the
+                            // source set that follows a reset (a filter re-applying,
+                            // a chunk arriving) leaves its sorting job un-applied,
+                            // and the NEXT click then starts from `undefined` —
+                            // which reads as «asc», not «desc», so the direction
+                            // silently repeats. Sent BEFORE the effect that mirrors
+                            // the prop, and re-sent once, so a later state wins.
+                            const reassert = () => {
+                                const grid = gridRef.current;
+                                if (!grid) return;
+                                const live = sortingBySectionRef.current.get(section);
+                                if ((live?.columns ?? []).length > 0) return;
+                                grid.sorting = { columns: [] };
+                            };
+                            reassert();
+                            window.setTimeout(reassert, 0);
                         }
                         // The event fires in BURSTS for one click (the grid
                         // re-emits while it applies), and each one lands before
