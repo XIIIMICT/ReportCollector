@@ -2960,7 +2960,7 @@ body {
 
     .brand__name {
         min-width: 0;
-        line-height: 1.2;
+        line-height: 1;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
