@@ -2306,8 +2306,41 @@ function RenovationGridInner(
             event.preventDefault();
             void copySelection();
         };
+        /**
+         * A click anywhere OUTSIDE the grid drops the selection.
+         *
+         * revo-grid clears its own focus rectangle when the pointer leaves for
+         * the page (which is why `Del` stops working), but it emits NOTHING for
+         * it вЂ” so the footer status and the collaboration presence kept
+         * advertising a selection that no longer existed.
+         *
+         * Capture phase, so it runs before the click's own handlers. A click
+         * inside the shell is ignored (no clear-then-reselect flicker), and so
+         * is one on a PORTAL the grid opens вЂ” the popovers and dialogs React
+         * renders into `document.body` вЂ” or editing would drop the range being
+         * edited.
+         */
+        const handleOutsidePointerDown = (event: PointerEvent) => {
+            const target = event.target;
+            if (!(target instanceof Element)) return;
+            if (
+                target.closest(
+                    '[data-slot="popover-dialog"], [role="dialog"], [role="alertdialog"]',
+                )
+            )
+                return;
+            const gridElement = gridRef.current;
+            if (!gridElement) return;
+            const shell = gridElement.closest(".revo-grid-shell") ?? gridElement;
+            if (shell.contains(target)) return;
+            clearGridSelection();
+        };
         window.addEventListener("keydown", handleKeyDown, true);
-        return () => window.removeEventListener("keydown", handleKeyDown, true);
+        document.addEventListener("pointerdown", handleOutsidePointerDown, true);
+        return () => {
+            window.removeEventListener("keydown", handleKeyDown, true);
+            document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
+        };
     }, [clearGridSelection, copySelection]);
 
     useEffect(() => {

@@ -1,15 +1,21 @@
 import { afterEach, expect, test } from "bun:test";
 
 /**
- * The rule behind the grid's outside-click selection clear.
+ * The rule behind the grids' outside-click selection clear.
  *
  * revo-grid drops its own focus rectangle when the pointer leaves for the page
  * and emits NOTHING for it, so the footer status and the collaboration presence
  * kept showing a selection that no longer existed (`Del` already did nothing).
+ *
+ * BOTH grids implement it, because they are different components: the plan
+ * renders its own RevoGrid (`features/renovation/renovation-grid.tsx`) while
+ * «Сырьё», КППК and the renovation dictionaries share
+ * `shared/grid/raw-materials-grid.tsx`. Wiring it into only the shared one
+ * left the plan broken — the first attempt at this fix did exactly that.
  */
 type Verdict = "clear" | "keep";
 
-// Mirrors `handleOutsidePointerDown` in raw-materials-grid.tsx.
+// Mirrors `handleOutsidePointerDown` in both grids.
 function outsideClickVerdict(target: Element, shell: Element): Verdict {
     if (target.closest('[data-slot="popover-dialog"], [role="dialog"], [role="alertdialog"]'))
         return "keep";
