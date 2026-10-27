@@ -658,8 +658,9 @@ function RawMaterialsGridInner(
             // The class the CSS keys the arrows on. A restored sorting is still a
             // USER sorting: without it the indicator stays `display: none` and
             // the header shows no arrow even though the rows are ordered.
+            // `sortingRestoredRef` (set in `onAftersourceset`) is what actually
+            // pushes it into the plugin — this only seeds our state.
             userSortedSectionsRef.current.add(section);
-
             sortingBySectionRef.current.set(section, {
                 columns: stored.map((entry) => ({
                     prop: entry.prop,
@@ -671,7 +672,7 @@ function RawMaterialsGridInner(
     }
 
     const sorting =
-        sortingBySectionRef.current.get(section) ??
+        (sortingRestoredRef.current ? sortingBySectionRef.current.get(section) : undefined) ??
         (["users", "renovationUsers", "kppkUsers"].includes(section)
             ? {
                   columns: [
@@ -2933,50 +2934,25 @@ function RawMaterialsGridInner(
                         gridRef.current?.classList.add("raw-materials-grid--user-sorted");
                     }}
                     onAftersortingapply={(event) => {
+                        // The PLUGIN applied a sorting — it does not say what the
+                        // state SHOULD be. Every click is resolved in
+                        // `onBeforesorting` before this event fires, so this
+                        // handler only keeps the leaves in step with the plugin
+                        // (they carry the `order`) and re-measures the header.
+                        //
+                        // Treating its payload as the truth is what produced the
+                        // dead presses: after a reset the plugin can report an empty
+                        // sorting while our state still holds one, and adopting
+                        // that erased the state the next click reads.
                         const sorting = sortingConfigFromEvent(event.detail);
-                        sortingBySectionRef.current.set(section, sorting);
-                        // The leaves carry the sorting `order` (see `columns`), so
-                        // the columns must be rebuilt whenever the plugin applies
-                        // a sorting — otherwise the next click on that header
-                        // starts its cycle from `asc` as if nothing were sorted.
-                        bumpSorting();
-                        writeStoredSorting(
-                            sortingScope,
-                            section,
-                            sorting.columns.map((column) => ({
-                                prop: column.prop,
-                                order: column.order,
-                            })),
-                        );
-                        onSortingChange?.(sorting.columns.length > 0);
-                        // Clicking a sorted header through asc → desc → OFF is a
-                        // manual reset: the merges come back and the class that
-                        // draws the arrows follows the live state.
-                        if (sorting.columns.length === 0) {
+                        const ours = sortingBySectionRef.current.get(section)?.columns ?? [];
+                        if (ours.length === 0 && sorting.columns.length === 0) {
+                            // The plugin agrees there is nothing sorted: the merges
+                            // and the arrow class follow.
                             userSortedSectionsRef.current.delete(section);
                             gridRef.current?.classList.remove("raw-materials-grid--user-sorted");
-                            setMergesDropped(false);
-                            const configured = configuredCellMergeRef.current;
-                            if (configured !== undefined && gridRef.current) {
-                                gridRef.current.cellMerge = configured;
-                            }
-                            // Re-assert the empty sorting into the plugin: the
-                            // source set that follows a reset (a filter re-applying,
-                            // a chunk arriving) leaves its sorting job un-applied,
-                            // and the NEXT click then starts from `undefined` —
-                            // which reads as «asc», not «desc», so the direction
-                            // silently repeats. Sent BEFORE the effect that mirrors
-                            // the prop, and re-sent once, so a later state wins.
-                            const reassert = () => {
-                                const grid = gridRef.current;
-                                if (!grid) return;
-                                const live = sortingBySectionRef.current.get(section);
-                                if ((live?.columns ?? []).length > 0) return;
-                                grid.sorting = { columns: [] };
-                            };
-                            reassert();
-                            window.setTimeout(reassert, 0);
                         }
+                        bumpSorting();
                         // The event fires in BURSTS for one click (the grid
                         // re-emits while it applies), and each one lands before
                         // the new header layout exists. Re-measuring the funnels
