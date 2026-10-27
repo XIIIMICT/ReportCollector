@@ -68,7 +68,11 @@ import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/data-grid";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { SectionTabs } from "@/shared/grid/section-tabs";
-import { readStoredFilters, writeStoredFilters } from "@/shared/grid/use-grid-column-filters";
+import {
+    clearFilterDrafts,
+    readStoredFilters,
+    writeStoredFilters,
+} from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useRestoredState } from "@/shared/hooks/use-restored-state";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
@@ -285,6 +289,10 @@ export function RenovationWorkspace({
                 column,
                 values: filter.values,
                 includeNulls: filter.includeNulls,
+                // A `timestamptz` column filters by a window, not by values.
+                ...(filter.from != null || filter.to != null
+                    ? { from: filter.from ?? null, to: filter.to ?? null }
+                    : {}),
             })),
         [columnFilters],
     );
@@ -1191,7 +1199,11 @@ export function RenovationWorkspace({
                     setAssetFilter(null);
                     setBlockFilter(null);
                     // Header filters live in the query, so clear them too —
-                    // otherwise the reset looks like it did nothing.
+                    // otherwise the reset looks like it did nothing. Their DRAFTS
+                    // (search strings, MIN–MAX pairs, instant windows) are
+                    // remembered per column, so they go as well: keeping them left
+                    // a reset filter behind that came back on the next open.
+                    clearFilterDrafts("renovation", "plan");
                     setColumnFilters({});
                 }
                 return;

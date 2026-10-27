@@ -12,10 +12,11 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, tzinfo
 from decimal import Decimal, InvalidOperation
 from typing import cast
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import Column, String, Text, and_, bindparam, delete, func, insert, literal, or_
 from sqlalchemy import false as sa_false
@@ -923,6 +924,8 @@ def _column_filter_condition(
     column_filter: RenovationColumnFilter,
     label_map: dict[UUID, str],
     plan_id: UUID | None = None,
+    *,
+    time_zone: str | None = None,
 ) -> ColumnElement[bool]:
     """
     Build the SQL condition for one header filter (a column facet selection).
@@ -962,7 +965,7 @@ def _column_filter_condition(
         # The audit trio's own rules: a MIN–MAX window for an instant column (a
         # value list would compare timestamps as text), the display name for the
         # editor. The generic branch below must not run for them.
-        return _audit_filter_conditions(column, audit_attr, column_filter)
+        return _audit_filter_conditions(column, audit_attr, column_filter, time_zone=time_zone)
     else:
         meta = field_meta(column)
         if meta is None or meta.db_name in _VIRTUAL_FIELDS:
@@ -1007,8 +1010,21 @@ def _column_filter_condition(
     return sa_false()
 
 
-def _parse_instant(value: str | None, column: str, edge: str) -> datetime | None:
-    """Parse one bound of an instant window; a bad one is a 422, not «no bound»."""
+def _parse_instant(
+    value: str | None,
+    column: str,
+    edge: str,
+    time_zone: str | None = None,
+) -> datetime | None:
+    """
+    Parse one bound of an instant window; a bad one is a 422, not «no bound».
+
+    A bound WITHOUT an offset is LOCAL time — it is what the picker shows and what
+    the cells print — so it is read in the CLIENT's zone (`time_zone`, the
+    browser's IANA name) and falls back to UTC when the client sent none. Reading
+    it as UTC shifted every window by the zone offset, which made «с 15.10.2026
+    00:00» miss the rows the user was looking at.
+    """
     if value is None or value == "":
         return None
     try:
@@ -1016,13 +1032,28 @@ def _parse_instant(value: str | None, column: str, edge: str) -> datetime | None
     except ValueError as error:
         message = f"Некорректное значение {edge} диапазона столбца «{column}»."
         raise CellValidationError(message) from error
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    if parsed.tzinfo is not None:
+        return parsed
+    zone = _client_zone(time_zone)
+    return parsed.replace(tzinfo=zone)
+
+
+def _client_zone(name: str | None) -> tzinfo:
+    """Resolve the client's zone by its IANA name (UTC when absent or unknown)."""
+    if not name:
+        return UTC
+    try:
+        return ZoneInfo(name)
+    except ZoneInfoNotFoundError, ValueError:
+        return UTC
 
 
 def _audit_filter_conditions(
     column: str,
     attribute: InstrumentedAttribute[object],
     column_filter: RenovationColumnFilter,
+    *,
+    time_zone: str | None = None,
 ) -> ColumnElement[bool]:
     """
     Build the SQL condition of one audit-column filter (see `_PLAN_AUDIT_COLUMNS`).
@@ -1040,8 +1071,8 @@ def _audit_filter_conditions(
         # The bounds arrive as TEXT and are parsed here: a bad one is a 422 with a
         # message, never a 500 over the whole window nor a silently dropped bound
         # (which showed the entire plan).
-        start = _parse_instant(column_filter.from_, column, "начала")
-        end = _parse_instant(column_filter.to, column, "конца")
+        start = _parse_instant(column_filter.from_, column, "начала", time_zone)
+        end = _parse_instant(column_filter.to, column, "конца", time_zone)
         bounds: list[ColumnElement[bool]] = []
         if start is not None:
             bounds.append(column_expr >= start)
@@ -1114,6 +1145,7 @@ def _plan_row_condition(
     label_map: dict[UUID, str],
     position_from: int | None,
     position_to: int | None,
+    time_zone: str | None = None,
 ) -> ColumnElement[bool]:
     """Build the SQL scope of a plan read: visible assets plus header/position filters."""
     asset_ids = [asset.id for asset in assets]
@@ -1128,7 +1160,7 @@ def _plan_row_condition(
             | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
         )
     for column_filter in filters or []:
-        condition = condition & _column_filter_condition(column_filter, label_map, plan.id)
+        condition = condition & _column_filter_condition(column_filter, label_map, plan.id, time_zone=time_zone)
     if position_from is not None:
         condition = condition & (col(RenovationPlanRow.position) >= position_from)
     if position_to is not None:
@@ -1227,6 +1259,7 @@ async def read_plan_rows(
     position_from: int | None = None,
     position_to: int | None = None,
     anchor_position: int | None = None,
+    time_zone: str | None = None,
 ) -> RenovationPlanRowsRead:
     """
     Return a window of plan rows plus the total row count (lazy loading).
@@ -1254,6 +1287,7 @@ async def read_plan_rows(
     row_condition = _plan_row_condition(
         plan,
         assets,
+        time_zone=time_zone,
         asset_name=asset_name,
         filters=filters,
         label_map=label_map,

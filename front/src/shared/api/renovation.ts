@@ -304,7 +304,20 @@ export type RenovationColumnFilter = {
     column: string;
     values: string[];
     includeNulls: boolean;
+    /** A `timestamptz` window INSTEAD of `values` (both ends or one). */
+    from?: string | null;
+    to?: string | null;
 };
+
+/** The browser's IANA zone — the one the cells print their timestamps in. */
+export function browserTimeZone(): string | null {
+    if (typeof Intl === "undefined") return null;
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+    } catch {
+        return null;
+    }
+}
 
 export async function getRenovationPlanRows(
     offset: number,
@@ -317,6 +330,11 @@ export async function getRenovationPlanRows(
     anchorPosition?: number | null,
 ): Promise<RenovationPlanRows> {
     const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    // A `timestamptz` window is typed as LOCAL date and time («15.10.2026
+    // 00:00»), exactly what the cells print. Without the zone the server has to
+    // read those bounds as UTC, and a filter the user typed would match nothing.
+    const zone = browserTimeZone();
+    if (zone) params.set("tz", zone);
     if (planId) params.set("plan_id", planId);
     if (asset) params.set("asset", asset);
     if (filters && filters.length > 0) params.set("filters", JSON.stringify(filters));

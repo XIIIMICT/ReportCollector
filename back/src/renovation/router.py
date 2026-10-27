@@ -328,6 +328,10 @@ async def get_renovation_plan_rows(
     position_from: Annotated[int | None, Query(ge=1)] = None,
     position_to: Annotated[int | None, Query(ge=1)] = None,
     anchor_position: Annotated[int | None, Query(ge=1)] = None,
+    # The browser's IANA zone: a `timestamptz` window is typed as LOCAL date and
+    # time (what the cells print), so its bounds are read in this zone. Absent —
+    # UTC.
+    tz: Annotated[str | None, Query()] = None,
 ) -> Response:
     """
     Return a window of renovation plan rows plus the total (lazy loading).
@@ -352,6 +356,7 @@ async def get_renovation_plan_rows(
             position_from=position_from,
             position_to=position_to,
             anchor_position=anchor_position,
+            time_zone=tz,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error

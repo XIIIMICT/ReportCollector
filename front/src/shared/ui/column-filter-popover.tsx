@@ -1,7 +1,7 @@
 "use client";
 
 import { EmptyState, ListBox, Popover, SearchField, Separator, type Key } from "@heroui/react";
-import { List, ListSelect, TaskList } from "iconoir-react";
+import { Check, List, ListSelect, Refresh, TaskList, Xmark } from "iconoir-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -25,6 +25,8 @@ import {
     type InstantRange,
 } from "@/shared/ui/column-filter-facets";
 import { ColumnFilterRange, isRangeEmpty } from "@/shared/ui/column-filter-range";
+import { ExpandableButton } from "@/shared/ui/expandable-button";
+import { ExpandableButtonGroup } from "@/shared/ui/expandable-button-group";
 import { SmartSelect } from "@/shared/ui/smart-select";
 
 /** The contract lives with the sources; re-exported for the popover's callers. */
@@ -65,6 +67,31 @@ const FACET_LOAD_THRESHOLD = 120;
  * returns the column to its default («no constraint», like «Сбросить все
  * фильтры и сортировки»).
  */
+/**
+ * The window a freshly opened popover starts with.
+ *
+ * The APPLIED filter wins — it is what the funnel and the status show — and a
+ * column without one starts empty. The remembered draft is only a fallback, so a
+ * reset filter can never be re-seeded from storage.
+ */
+function instantWindowFrom(
+    instant: boolean,
+    initial: { from?: string | null | undefined; to?: string | null | undefined } | null,
+    draft: { from?: string | null | undefined; to?: string | null | undefined } | null,
+): InstantRange {
+    if (!instant) return { from: null, to: null };
+    const source =
+        initial?.from || initial?.to
+            ? initial
+            : draft?.from || draft?.to
+              ? draft
+              : null;
+    return {
+        from: source?.from ? new Date(source.from) : null,
+        to: source?.to ? new Date(source.to) : null,
+    };
+}
+
 export function ColumnFilterPopover({
     column,
     columnLabel,
@@ -214,20 +241,19 @@ export function ColumnFilterPopover({
     const storedInstant = storageScope
         ? readInstantWindow(storageScope.project, storageScope.section, column)
         : null;
-    const [instantWindow, setInstantWindow] = useState<InstantRange>({
-        from:
-            instant && initial?.from
-                ? new Date(initial.from)
-                : storedInstant?.from
-                  ? new Date(storedInstant.from)
-                  : null,
-        to:
-            instant && initial?.to
-                ? new Date(initial.to)
-                : storedInstant?.to
-                  ? new Date(storedInstant.to)
-                  : null,
-    });
+    const [instantWindow, setInstantWindow] = useState<InstantRange>(() =>
+        instantWindowFrom(instant, initial, storedInstant),
+    );
+    // The popover STAYS MOUNTED between openings (the grid owns it), so the state
+    // seeded above keeps the values of a closed session — a reset filter left a
+    // stale MIN in the field while the status no longer showed the filter. The
+    // window is re-seeded whenever the applied filter changes and on every open.
+    const instantFilterKey = instant ? `${initial?.from ?? ""}|${initial?.to ?? ""}` : "";
+    const [loadedInstantKey, setLoadedInstantKey] = useState(instantFilterKey);
+    if (instantFilterKey !== loadedInstantKey) {
+        setLoadedInstantKey(instantFilterKey);
+        setInstantWindow(instantWindowFrom(instant, initial, storedInstant));
+    }
     const changeInstant = useCallback(
         (next: InstantRange) => {
             setInstantWindow(next);
@@ -680,6 +706,14 @@ export function ColumnFilterPopover({
     const initialFilter = useRef(initial);
     const popoverRef = useRef<HTMLElement | null>(null);
     const { isOpen, dismiss } = usePopoverDismiss(popoverRef, onClose);
+    // The popover STAYS MOUNTED between openings, so opening is a new question:
+    // the window is re-seeded from the filter in force (never from a draft left
+    // over from a closed session).
+    const [wasOpen, setWasOpen] = useState(isOpen);
+    if (isOpen !== wasOpen) {
+        setWasOpen(isOpen);
+        if (isOpen) setInstantWindow(instantWindowFrom(instant, initial, storedInstant));
+    }
     // Guards a double close: the footer's «Применить» closes via SmartSelect,
     // and the owner removes this component right after.
     const settledRef = useRef(false);
@@ -699,17 +733,13 @@ export function ColumnFilterPopover({
                     // the ROWS inside the range, and a NULL timestamp is not
                     // inside any range.
                     includeNulls: false,
-                    // One open end widens the window to the other side
-                    // rather than ignoring it: «с 03.02» keeps everything
-                    // later, «по 03.02» everything earlier.
-                    from:
-                        instantWindow.from !== null
-                            ? instantWindow.from.toISOString()
-                            : new Date(0).toISOString(),
-                    to:
-                        instantWindow.to !== null
-                            ? instantWindow.to.toISOString()
-                            : new Date(8.64e15).toISOString(),
+                    // An open end is sent as `null`, never widened to the far
+                    // ends of time: `new Date(8.64e15)` is outside what the
+                    // calendar can represent, and rendering it threw «Value out
+                    // of range» and took the form down. The server treats a
+                    // missing bound as "no constraint on that side".
+                    from: instantWindow.from !== null ? instantWindow.from.toISOString() : null,
+                    to: instantWindow.to !== null ? instantWindow.to.toISOString() : null,
                 };
         onApply(result);
         dismiss();
@@ -830,21 +860,38 @@ export function ColumnFilterPopover({
                                 }
                                 kind="datetime"
                             />
-                            <div className="column-filter__footer">
-                                <button
-                                    type="button"
-                                    className="column-filter__reset"
-                                    onClick={reset}
-                                >
-                                    По умолчанию: {columnLabel}
-                                </button>
-                                <button
-                                    type="button"
-                                    className="column-filter__apply"
-                                    onClick={confirm}
-                                >
-                                    Применить
-                                </button>
+                            <Separator className="smart-select__footer-separator" />
+                            <div className="smart-select__footer">
+                                {/* The SAME commit group every filter uses:
+                                    «По умолчанию / Отменить / Применить». A window
+                                    is applied by «Применить»; «Отменить» restores
+                                    the filter that was in force before opening. */}
+                                <ExpandableButtonGroup size="sm" reserveLast={2}>
+                                    <ExpandableButton
+                                        variant="danger"
+                                        aria-label={`По умолчанию: ${columnLabel}`}
+                                        icon={<Refresh aria-hidden="true" />}
+                                        onPress={reset}
+                                    >
+                                        По умолчанию
+                                    </ExpandableButton>
+                                    <ExpandableButton
+                                        variant="tertiary"
+                                        aria-label="Отменить"
+                                        icon={<Xmark aria-hidden="true" />}
+                                        onPress={cancel}
+                                    >
+                                        Отменить
+                                    </ExpandableButton>
+                                    <ExpandableButton
+                                        variant="primary"
+                                        aria-label="Применить"
+                                        icon={<Check aria-hidden="true" />}
+                                        onPress={confirm}
+                                    >
+                                        Применить
+                                    </ExpandableButton>
+                                </ExpandableButtonGroup>
                             </div>
                         </div>
                     </Popover.Dialog>

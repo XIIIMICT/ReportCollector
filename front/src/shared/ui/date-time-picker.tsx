@@ -190,12 +190,36 @@ function TimeRow({
     );
 }
 
-/** Epoch ms → the picker's calendar value; a date keeps the day only. */
+/**
+ * The range the picker's calendar can represent (a `@internationalized/date`
+ * limit): an instant outside it throws «Value out of range».
+ */
+const PICKER_MIN_MS = Date.UTC(1, 0, 1);
+const PICKER_MAX_MS = Date.UTC(9999, 11, 31, 23, 59);
+
+/** Is this epoch inside the picker's representable range? */
+export function isPickerRange(epochMs: number | null): epochMs is number {
+    return (
+        epochMs !== null &&
+        Number.isFinite(epochMs) &&
+        epochMs >= PICKER_MIN_MS &&
+        epochMs <= PICKER_MAX_MS
+    );
+}
+
+/**
+ * Epoch ms → the picker's calendar value; a date keeps the day only.
+ *
+ * An instant outside the calendar's range is NOT a value to show: a one-sided
+ * window used to be widened to the far ends of time (`new Date(8.64e15)`), and
+ * rendering that threw «Value out of range: -9999 <= 275760 <= 9999» and took the
+ * whole form down. Such a bound simply reads as «не задано».
+ */
 export function toPickerValue(
     epochMs: number | null,
     kind: DatePickerKind = "datetime",
 ): CalendarDateTime | CalendarDate | null {
-    if (epochMs === null) return null;
+    if (!isPickerRange(epochMs)) return null;
     const parsed = parseAbsoluteToLocal(new Date(epochMs).toISOString());
     return kind === "date" ? toCalendarDate(parsed) : toCalendarDateTime(parsed);
 }
