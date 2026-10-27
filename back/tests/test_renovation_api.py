@@ -511,6 +511,64 @@ async def test_plan_rows_filter_asset_column(client: AsyncClient) -> None:
     assert [row["assetCode"] for row in body["rows"]] == ["bsk"]
 
 
+async def test_plan_rows_filter_audit_date_matches_its_minute(client: AsyncClient) -> None:
+    """An «updatedAt» filter keeps the rows in that minute — a RANGE, not an equality.
+
+    The condition used to be written `attribute >= minute & attribute < …`,
+    which Python parses as `(minute & attribute) < …`: `&` binds tighter than a
+    comparison. The filter then matched nothing (or the wrong rows) instead of
+    the requested minute.
+    """
+    # The seeded rows all carry a recent audit stamp; take one from the facets
+    # so the value is exactly the ISO minute the grid would send.
+    facet = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "updatedAt"},
+    )
+    assert facet.status_code == 200
+    values = [entry["value"] for entry in facet.json()["values"] if entry["value"] is not None]
+    assert values, "the seeded plan rows must carry an audit stamp"
+
+    unfiltered = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100},
+    )
+    assert unfiltered.status_code == 200
+    total = unfiltered.json()["total"]
+    assert total > 0
+
+    filtered = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={
+            "offset": 0,
+            "limit": 100,
+            "filters": json.dumps([{"column": "updatedAt", "values": values}]),
+        },
+    )
+    assert filtered.status_code == 200
+    # Every seeded row falls in the requested minute(s), so nothing is lost.
+    # Before the fix this came back as 0 — the condition never matched.
+    assert filtered.json()["total"] == total
+
+
+async def test_plan_rows_filter_audit_date_excludes_other_minutes(client: AsyncClient) -> None:
+    """A minute nobody wrote in matches no row — the range is not a no-op."""
+    response = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={
+            "offset": 0,
+            "limit": 100,
+            "filters": json.dumps([{"column": "updatedAt", "values": ["1999-01-01T00:00"]}]),
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+
+
 async def test_plan_rows_rejects_bad_filters(client: AsyncClient) -> None:
     """A malformed filters param is a 422."""
     response = await client.get(

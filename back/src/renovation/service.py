@@ -12,15 +12,17 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import cast
 from uuid import UUID
 
 from sqlalchemy import Column, String, Text, and_, bindparam, delete, func, insert, literal, or_
 from sqlalchemy import false as sa_false
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select as sa_select
 from sqlalchemy import update as sa_update
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import col, select
@@ -118,6 +120,31 @@ class RenovationPlanStateError(ValueError):
 # col_002 (asset) has no row column: the asset comes from the row's
 # asset_id (a virtual field; read-only).
 _VIRTUAL_FIELDS = frozenset({"col_002"})
+
+# The audit trio the plan grid shows when «Показать служебные столбцы» is on.
+# They are NOT form fields (no `col_*` column, no cell type in the workbook), but
+# they ARE real row columns, so a header filter treats them like any other:
+# `createdAt`/`updatedAt` are instants (timestamptz, filtered by an exact
+# rendered minute), `updatedBy` is the display name of `updater_user_id`.
+_PLAN_AUDIT_COLUMNS: dict[str, str] = {
+    "createdAt": "created_at",
+    "updatedAt": "updated_at",
+}
+
+
+def _plan_audit_attr(column: str) -> InstrumentedAttribute[object] | None:
+    """
+    Return the row attribute behind an audit column prop (None: not one).
+
+    These ARE column attributes at runtime (SQLAlchemy's descriptor); the model
+    declares them as plain fields, so the cast restates the runtime type instead
+    of widening the signature to `Any`.
+    """
+    if column == "updatedBy":
+        return cast("InstrumentedAttribute[object]", RenovationPlanRow.updater_user_id)
+    name = _PLAN_AUDIT_COLUMNS.get(column)
+    return cast("InstrumentedAttribute[object]", getattr(RenovationPlanRow, name)) if name is not None else None
+
 
 # Rows per streamed export batch (see `_row_batches` in read_plan_export_data).
 EXPORT_BATCH_SIZE = 5000
@@ -931,6 +958,8 @@ def _column_filter_condition(
                     sa_select(col(RAsset.id)).where(col(RAsset.name).in_(column_filter.values))
                 )
             )
+    elif (audit_attr := _plan_audit_attr(column)) is not None:
+        value_conditions.extend(_audit_filter_conditions(column, audit_attr, column_filter))
     else:
         meta = field_meta(column)
         if meta is None or meta.db_name in _VIRTUAL_FIELDS:
@@ -973,6 +1002,53 @@ def _column_filter_condition(
         return or_(*value_conditions)
     # A filter that keeps nothing must match no row, never the whole table.
     return sa_false()
+
+
+def _audit_filter_conditions(
+    column: str,
+    attribute: InstrumentedAttribute[object],
+    column_filter: RenovationColumnFilter,
+) -> list[ColumnElement[bool]]:
+    """
+    Build the SQL conditions of one audit-column filter (see `_PLAN_AUDIT_COLUMNS`).
+
+    The values are the ones the facet rendered, so they are parsed back:
+    `createdAt`/`updatedAt` arrive as the instant's ISO-formatted MINUTE (the
+    facet groups by minute — 300k rows carry 300k distinct timestamps otherwise),
+    `updatedBy` as the editor's display name, resolved to `updater_user_id`.
+    """
+    conditions: list[ColumnElement[bool]] = []
+    if column in _PLAN_AUDIT_COLUMNS:
+        kept = sorted({parsed for value in column_filter.values if (parsed := _facet_minute(value)) is not None})
+        if kept:
+            # A minute is a RANGE: `>= minute AND < minute + 1`. An IN() against
+            # timestamptz would match only the exact second. Parenthesised
+            # because `&` binds TIGHTER than the comparisons — without these,
+            # `attribute >= minute & attribute < …` parses as
+            # `(minute & attribute) < …`, i.e. the wrong condition entirely.
+            conditions.extend(and_(attribute >= minute, attribute < minute + timedelta(minutes=1)) for minute in kept)
+    elif column_filter.values:
+        conditions.append(attribute.in_(sa_select(col(RAsset.id)).where(col(RAsset.name).in_(column_filter.values))))
+    if column_filter.includeNulls:
+        conditions.append(col(attribute).is_(None))
+    return conditions
+
+
+def _facet_minute(value: str) -> datetime | None:
+    """
+    Parse a facet's instant value back to a UTC minute (None when not ISO).
+
+    The facet renders `createdAt`/`updatedAt` as ISO text WITHOUT a zone
+    (`2026-02-03T10:45`), so it is read as UTC — the same clock the column is
+    stored in — and truncated to the minute it names.
+    """
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).replace(second=0, microsecond=0)
 
 
 def _facet_number(value: str) -> Decimal | None:
@@ -1325,8 +1401,9 @@ async def read_plan_facets(
     whole filtered plan, so the window (offset/limit) can be lazy-loaded.
     """
     is_asset_column = column == _ASSET_COLUMN_PROP
+    is_audit_column = _plan_audit_attr(column) is not None
     meta: RenovationFieldMeta | None = None
-    if not is_asset_column:
+    if not is_asset_column and not is_audit_column:
         resolved = field_meta(column)
         if resolved is None or resolved.db_name in _VIRTUAL_FIELDS:
             message = f"Неизвестный столбец «{column}»."
@@ -1388,6 +1465,18 @@ async def read_plan_facets(
             .select_from(RenovationPlanRow)
             .outerjoin(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
         )
+    elif column == "updatedBy":
+        # The editor's DISPLAY NAME, exactly as the cells show it: the row model
+        # carries it as the `updated_by` column PROPERTY (`UpdaterDisplay`, which
+        # resolves `app_users.name`, then the email, then ""), so it is read off
+        # the mapper rather than through `col()` and grouped in SQL.
+        group_column = sa_inspect(RenovationPlanRow).attrs.updated_by
+        base = sa_select(group_column, func.count()).select_from(RenovationPlanRow)
+    elif column in _PLAN_AUDIT_COLUMNS:
+        # An instant column groups by the MINUTE it lands in: every row has its
+        # own timestamp, so a raw group would list one option per row.
+        group_column = func.date_trunc("minute", _plan_audit_attr(column))
+        base = sa_select(group_column, func.count()).select_from(RenovationPlanRow)
     else:
         group_column = getattr(RenovationPlanRow, column)
         base = sa_select(group_column, func.count()).select_from(RenovationPlanRow)
@@ -1397,7 +1486,7 @@ async def read_plan_facets(
     has_nulls = False
     null_count = 0
     for raw_value, count in grouped:
-        display = _facet_display(raw_value, meta, label_map)
+        display = _facet_display(raw_value, meta, label_map, column)
         if display is None:
             has_nulls = True
             null_count += int(count)
@@ -1426,6 +1515,7 @@ def _facet_display(
     raw_value: object,
     meta: RenovationFieldMeta | None,
     label_map: dict[UUID, str],
+    column: str | None = None,
 ) -> str | None:
     """
     Render the display string of a grouped facet value (None for «Пустые»).
@@ -1437,6 +1527,10 @@ def _facet_display(
     """
     if raw_value is None:
         return None
+    if column in _PLAN_AUDIT_COLUMNS and isinstance(raw_value, datetime):
+        # The MINUTE the rows of this instant fall into, as the ISO text a
+        # `datetime` cell renders — the filter parses it back to the same minute.
+        return raw_value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M")
     if meta is None:
         # The synthetic asset column: the grouped value is already the name.
         text = str(raw_value)
