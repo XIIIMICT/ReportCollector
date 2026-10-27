@@ -1,0 +1,35 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "opencode-browser"
+  ],
+  "mcp": {
+    "browsermcp": {
+      "type": "local",
+      "command": [
+        "bunx",
+        "-y",
+        "@browsermcp/mcp@0.1.3"
+      ],
+      "enabled": true
+    },
+    "heroui-react": {
+      "type": "local",
+      "command": [
+        "bunx",
+        "-y",
+        "@heroui/react-mcp@latest"
+      ],
+      "enabled": true
+    },
+    "next-devtools": {
+      "type": "local",
+      "command": [
+        "bunx",
+        "-y",
+        "next-devtools-mcp@latest"
+      ],
+      "enabled": true
+    }
+  }
+}

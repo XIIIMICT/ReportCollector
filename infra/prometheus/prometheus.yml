@@ -1,6 +1,6 @@
 # Prometheus scrape configuration.
 #
-# The application is NOT part of the `standalone` profile: `just logging` brings
+# The application is NOT part of the `standalone` profile: `just monitoring` brings
 # up the observability stack while the backend runs under `just dev` / `just
 # prod`. Prometheus therefore reaches it through the host gateway, exactly like
 # Alloy reaches Loki (`LOKI_URL=http://host.docker.internal:3100` in `.env`).

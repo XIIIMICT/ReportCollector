@@ -24,7 +24,7 @@ db:
 keycloak:
     docker compose --profile standalone up -d keycloak
 
-logging:
+monitoring:
     docker compose --profile standalone up -d loki grafana alloy prometheus alertmanager
 
 down:
@@ -32,13 +32,6 @@ down:
 
 clean:
     docker compose down --volumes --remove-orphans
-
-# ── Локальный запуск на хосте ──────────────────────────────────────────────
-back:
-    uv run --directory back -m uvicorn src.main:app --reload --port {{ env_var("BACKEND_PORT") }}
-
-front:
-    bun run --cwd front dev --hostname 127.0.0.1 --port {{ env_var("FRONT_PORT") }}
 
 # ── Данные ──────────────────────────────────────────────────────────────────
 # seed — пересоздаёт схему и сидирует базовые данные (проекты, справочники, Евтушенко).
@@ -95,7 +88,7 @@ typecheck:
     uv run --directory back ty check
     bun run --cwd front typecheck
 
-# Требует запущенный postgres (just db-standalone) — тесты используют TEST_DATABASE_URL.
+# Требует запущенный postgres (just db) — тесты используют TEST_DATABASE_URL.
 test:
     uv run --directory back pytest
     bun run --cwd front test
@@ -103,3 +96,10 @@ test:
 # Требует запущенный стек (just prod) и сидированную БД.
 e2e:
     bun run --cwd front test:e2e --project=smoke
+
+# ── Локальный запуск на хосте (пока не было необходимости) ──────────────────
+# back:
+#     uv run --directory back -m uvicorn src.main:app --reload --port {{ env_var("BACKEND_PORT") }}
+
+# front:
+#     bun run --cwd front dev --hostname 127.0.0.1 --port {{ env_var("FRONT_PORT") }}

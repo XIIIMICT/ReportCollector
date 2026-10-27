@@ -34,7 +34,7 @@ editing a KPPK membership.
 | Everything at once | `just lint` · `just typecheck` · `just test` · `just e2e` |
 | Stack dev/prod | `just dev` (hot-reload, `--watch`) · `just prod` |
 | DB / keycloak | `just db` · `just keycloak` (standalone profile) |
-| Observability | `just logging` — Loki + Alloy (logs), Prometheus + Alertmanager (metrics, alerts), Grafana (dashboards). Backend `/metrics`; ask the user before assuming alert mail works — SMTP is a known gap (`docs/SCALING_BACKLOG.md` §2) |
+| Observability | `just monitoring` — Loki + Alloy (logs), Prometheus + Alertmanager (metrics, alerts), Grafana (dashboards). Backend `/metrics`; ask the user before assuming alert mail works — SMTP is a known gap (`docs/SCALING_BACKLOG.md` §2) |
 | Migrations | `just migrate` (never edit already-applied prod migrations — only new ones). The migration connection sets `lock_timeout=30s` — a blocked migration (e.g. an ALTER waiting behind the running app) fails loudly instead of hanging |
 | New empty DB / baseline adoption | New: `just migrate`. Existing old head `0015_plan_row_col_218`: backed-up, stopped installation + `uv run --directory back python -m migrations.adopt_baseline` once, then `just migrate`. Guarded schema comparison; details in `docs/WORKFLOW.md` |
 | Seed | `just seed` — **fully recreates the DB schema**, don't run without asking |

@@ -27,7 +27,7 @@ Keycloak ── OIDC (login; local container or corporate)
 | `back` / `back-dev` | `rc-back` / `rc-back-dev` | prod / dev | FastAPI, uvicorn, port `BACKEND_PORT` |
 | `front` / `front-dev` | `rc-front` / `rc-front-dev` | prod / dev | Next.js standalone (prod) or `bun dev` (dev, hot-reload) |
 | postgres, keycloak, valkey | `rc-postgres` etc. | standalone | external dependencies (`just db`, `just keycloak`) |
-| loki, grafana, alloy, prometheus | — | standalone | logs + metrics (`just logging`) |
+| loki, grafana, alloy, prometheus | — | standalone | logs + metrics (`just monitoring`) |
 
 Key point: **ports and hosts are set once in the root `.env`** and spread into the Dockerfiles (build-arg `PORT`/`BACKEND_PORT`), port publishing, healthchecks, and internal URLs. All mandatory (`:?` in compose — fails with a clear error instead of staying silent). No defaults in Dockerfiles.
 

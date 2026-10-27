@@ -10,6 +10,7 @@
 !/.gitattributes
 !/.gitignore
 !/.mcp.json
+!/opencode.json
 !/compose.yaml
 !/justfile
 !/AGENTS.md

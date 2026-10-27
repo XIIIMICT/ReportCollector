@@ -1,6 +1,6 @@
 # Локальные внешние сервисы: PostgreSQL, Keycloak, Loki и Grafana.
 # Запускаются отдельно от приложения через профиль standalone:
-#   just db-standalone / just keycloak-standalone / just logging-standalone
+#   just db / just keycloak / just monitoring
 #
 # Приложение (профили prod/dev) рассчитано на внешние PostgreSQL, Keycloak и Loki,
 # поэтому эти контейнеры не должны запускаться вместе с ним.

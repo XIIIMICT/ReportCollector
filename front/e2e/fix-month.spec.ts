@@ -78,10 +78,7 @@ test("the fix action is not offered outside «Движение»", async ({ page
     await loginAndOpenMovement(page);
 
     // «Цены» is a different form; fixing is a movement-month operation only.
-    await page
-        .getByRole("tab", { name: /^Цены/ })
-        .first()
-        .click();
+    await page.getByRole("tab", { name: /^Цены/ }).first().click();
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 20000 });
 
     await expect(fixAction(page)).toHaveCount(0);

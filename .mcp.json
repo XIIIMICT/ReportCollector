@@ -7,6 +7,10 @@
     "heroui-react": {
       "command": "bunx",
       "args": ["-y", "@heroui/react-mcp@latest"]
+    },
+    "browsermcp": {
+      "command": "bunx",
+      "args": ["-y", "@browsermcp/mcp@0.1.3"]
     }
   }
 }
