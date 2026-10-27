@@ -114,3 +114,33 @@ function decodeValue(raw: string): ToolbarFilterValue {
         return raw;
     }
 }
+
+/**
+ * Decide what a RESTORED panel filter is worth, given the options it must be
+ * one of — the shared rule every workspace uses when a filter's valid values
+ * only arrive with a later request.
+ *
+ * `options === null` means "not known yet". That is the whole point: a restored
+ * value validated against an EMPTY list is indistinguishable from a stale one,
+ * so a naive `options.includes(value)` clears a perfectly good filter on the
+ * first render and silently deletes it from the URL. That is exactly how
+ * «Блок дирекции = МТО» was lost on every reload of the plan, and how the raw
+ * materials archive version reset itself.
+ *
+ * - `"pending"` — the options have not loaded; keep the value UNTOUCHED and do
+ *   not rewrite the URL. Re-evaluate when they arrive.
+ * - `"keep"`    — the value is one of the options (or nothing is stored).
+ * - `"clear"`   — the value is genuinely gone; drop it so it cannot filter
+ *   every row away.
+ */
+export type RestoredFilterVerdict = "pending" | "keep" | "clear";
+
+export function restoredFilterVerdict(
+    stored: string | null,
+    options: readonly string[] | null,
+): RestoredFilterVerdict {
+    if (stored === null) return "keep";
+    // The options are not known yet: the value may well be valid.
+    if (options === null) return "pending";
+    return options.includes(stored) ? "keep" : "clear";
+}

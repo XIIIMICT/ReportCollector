@@ -89,6 +89,7 @@ import {
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
+import { useRestoredState } from "@/shared/hooks/use-restored-state";
 import { ActionBar as SharedActionBar, type ActionItem } from "@/shared/ui/action-bar";
 import {
     buildAddRowAction,
@@ -127,7 +128,11 @@ import { refreshUndoCounters } from "@/shared/ui/undo-counters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
 import { useTableExport } from "@/shared/ui/use-table-export";
-import { useToolbarFilters } from "@/shared/ui/use-toolbar-filters";
+import {
+    readToolbarFilters,
+    restoredFilterVerdict,
+    useToolbarFilters,
+} from "@/shared/ui/use-toolbar-filters";
 import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
 import { GridLoadError, WorkspaceLoadError } from "@/shared/ui/workspace-feedback";
@@ -334,6 +339,7 @@ function SectionContent({
     section,
     reportMonth,
     isAdmin,
+    panelFilterTabId,
     assets,
     deliveryBases,
     collabEnabled,
@@ -362,6 +368,12 @@ function SectionContent({
     section: SectionId;
     reportMonth: string | null;
     isAdmin: boolean;
+    /**
+     * The tab id this section keeps its PANEL filters under, so the archive
+     * version survives a reload (`f.materialMovement.snapshot`). Null when the
+     * section has no such id (the filters then stay in memory only).
+     */
+    panelFilterTabId: string | null;
     /** Project key of the owning workspace — the form part of the scroll key. */
     scrollForm: string;
     /** The signed-in user's email: the delete guard refuses to remove them. */
@@ -473,7 +485,25 @@ function SectionContent({
     // is cleared programmatically; the resulting empty presence update must be
     // swallowed (the server entry belongs to the other tab).
     const suppressSelectionSendRef = useRef(false);
-    const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
+    // The open ARCHIVE version is a PANEL filter like any other: it describes
+    // which slice of the data is open, so it belongs in the URL and must
+    // survive a reload. Restored once after hydration (the URL is client-only);
+    // validated against the version list with the shared rule, because that
+    // list arrives LATER and an empty list must not be read as "this version is
+    // gone".
+    const [selectedSnapshotId, setSelectedSnapshotId] = useRestoredState<string | null>(
+        null,
+        () => {
+            const stored = readToolbarFilters(panelFilterTabId)["snapshot"];
+            return typeof stored === "string" ? stored : null;
+        },
+    );
+    const { setFilter: setPanelFilter } = useToolbarFilters(panelFilterTabId);
+    const rememberSnapshot = useCallback(
+        (snapshotId: string | null) =>
+            setPanelFilter(panelFilterTabId ?? "", "snapshot", snapshotId),
+        [panelFilterTabId, setPanelFilter],
+    );
     const [snapshotView, setSnapshotView] = useState<SnapshotView | null>(null);
     const [snapshotPending, setSnapshotPending] = useState(false);
     const [undoCount, setUndoCount] = useState(0);
@@ -495,8 +525,9 @@ function SectionContent({
         setDeleteOpen(false);
         setApproveOpen(false);
         setSelectedSnapshotId(null);
+        rememberSnapshot(null);
         setSnapshotView(null);
-    }, [reportMonth, section]);
+    }, [rememberSnapshot, reportMonth, section]);
 
     // Expose the preemption clear to the workspace: reset the cell range AND
     // the row selection, silently (suppressSelectionSendRef).
@@ -1034,26 +1065,31 @@ function SectionContent({
         };
     }, []);
 
-    const loadSnapshotView = useCallback(async (snapshotId: string) => {
-        setSnapshotPending(true);
-        try {
-            const view = await getMovementSnapshot(snapshotId);
-            setSnapshotView(view);
-            setSelectedSnapshotId(snapshotId);
-        } catch (reason) {
-            toast.danger("Не удалось открыть архивную версию", {
-                description: errorMessage(reason),
-            });
-        } finally {
-            setSnapshotPending(false);
-        }
-    }, []);
+    const loadSnapshotView = useCallback(
+        async (snapshotId: string) => {
+            setSnapshotPending(true);
+            try {
+                const view = await getMovementSnapshot(snapshotId);
+                setSnapshotView(view);
+                setSelectedSnapshotId(snapshotId);
+                rememberSnapshot(snapshotId);
+            } catch (reason) {
+                toast.danger("Не удалось открыть архивную версию", {
+                    description: errorMessage(reason),
+                });
+            } finally {
+                setSnapshotPending(false);
+            }
+        },
+        [rememberSnapshot, setSelectedSnapshotId],
+    );
 
     const selectWorkingVersion = useCallback(() => {
         setSelectedSnapshotId(null);
+        rememberSnapshot(null);
         setSnapshotView(null);
         refresh();
-    }, [refresh]);
+    }, [refresh, rememberSnapshot, setSelectedSnapshotId]);
 
     useEffect(() => {
         onArchiveState({
@@ -1075,6 +1111,43 @@ function SectionContent({
         onArchiveState,
         selectWorkingVersion,
         selectedSnapshotId,
+    ]);
+
+    // A restored version must actually be OPENED (the picker alone would show
+    // it selected while the grid still shows the working rows), and one that no
+    // longer exists must be dropped. The verdict only settles once the version
+    // list has loaded — validating against the empty first-render list is what
+    // reset the selection on every reload.
+    const versionsKnown = !isMovement || movementVersions !== null;
+    const snapshotVerdict = restoredFilterVerdict(
+        selectedSnapshotId,
+        versionsKnown && movementVersions !== null
+            ? movementVersions.map((version) => version.id)
+            : null,
+    );
+    const restoredSnapshotRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!isMovement || selectedSnapshotId === null) return;
+        if (snapshotVerdict === "clear") {
+            // Gone from the archive: fall back to the working version quietly.
+            setSelectedSnapshotId(null);
+            rememberSnapshot(null);
+            return;
+        }
+        if (snapshotVerdict !== "keep") return;
+        // Open a restored version exactly once.
+        if (restoredSnapshotRef.current === selectedSnapshotId) return;
+        restoredSnapshotRef.current = selectedSnapshotId;
+        if (snapshotView === null && !snapshotPending) void loadSnapshotView(selectedSnapshotId);
+    }, [
+        isMovement,
+        loadSnapshotView,
+        rememberSnapshot,
+        selectedSnapshotId,
+        setSelectedSnapshotId,
+        snapshotPending,
+        snapshotVerdict,
+        snapshotView,
     ]);
 
     if (error) {
@@ -1681,6 +1754,7 @@ export function RawMaterialsWorkspace({
                     section={selectedTab.section}
                     reportMonth={selectedTab.reportMonth}
                     isAdmin={isAdmin}
+                    panelFilterTabId={selectedTab.id}
                     assets={assets}
                     deliveryBases={deliveryBases}
                     collabEnabled={collabEnabled}

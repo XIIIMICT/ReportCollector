@@ -215,6 +215,14 @@ Project URLs — `/raw-materials`, `/renovation`, `/kppk` (root redirects to the
 
 **Panel filters travel with the tab.** A workspace whose toolbar has a filter panel (a row beside the tabs or under them — `ToolbarFilters`) keeps those values in the URL too, scoped to the tab that owns them: `?section=kppkRealization&f.kppkRealization.org=<id>&f.kppkRealization.year=2027`. The shared `useToolbarFilters(tabId)` (`front/src/shared/ui/use-toolbar-filters.ts`) reads them after hydration (SSR renders "no filters", like every restored state) and `setFilter(tab, name, value)` writes one — a scalar as itself, a multi-select as a JSON list, and **`null`/`[]` deletes the parameter** so "no constraint" has one representation. Switching tabs touches only the new tab's own keys, so returning to a tab restores what the user left there. A panel value is validated by its owner on restore (e.g. the plan's block filter drops a value the plan no longer has). RevoGrid's own column filters and sorting are **not** URL state — they belong to the grid.
 
+**Restoring must not validate against options that have not loaded.** A restored value is only "stale" once the list it must belong to is KNOWN, and those lists arrive with a later request. `restoredFilterVerdict(stored, options)` encodes the three states, and every owner uses it instead of `options.includes(value)`:
+
+- `options === null` → **pending**: keep the value and do **not** rewrite the URL; re-evaluate when the options load;
+- `"keep"` → the value is one of the options (or nothing is stored);
+- `"clear"` → the options are loaded and the value is gone: drop it, never leave a filter that hides every row.
+
+`[]` and `null` are deliberately different: `null` is "not loaded", `[]` is "loaded and empty". A naive guard that treats the empty first-render list as final deleted a perfectly valid «Блок дирекции = МТО» from the URL on every reload of the plan, and reset the raw-materials archive version the same way. The archive version is a panel filter too (`f.materialMovement.snapshot`): it survives a reload and is re-opened once restored, because the picker alone would show it selected while the grid still held the working rows.
+
 Nothing else is persisted: the selected version, the report month and the grid's column widths are not saved.
 
 

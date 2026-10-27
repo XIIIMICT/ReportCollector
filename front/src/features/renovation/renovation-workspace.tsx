@@ -97,7 +97,11 @@ import { ToolbarFilters } from "@/shared/ui/toolbar-filters";
 import { refreshUndoCounters } from "@/shared/ui/undo-counters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
-import { readToolbarFilters, useToolbarFilters } from "@/shared/ui/use-toolbar-filters";
+import {
+    readToolbarFilters,
+    restoredFilterVerdict,
+    useToolbarFilters,
+} from "@/shared/ui/use-toolbar-filters";
 import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
 import { WorkspaceLoadError } from "@/shared/ui/workspace-feedback";
@@ -755,14 +759,17 @@ export function RenovationWorkspace({
     }, [meta]);
     // A block that no longer exists in this plan (a renamed/dropped directorate)
     // must not survive a reload: it would filter every row away. The stored
-    // value is validated once the block list is known.
-    const blockFilter =
-        storedBlockFilter !== null && blocks.includes(storedBlockFilter) ? storedBlockFilter : null;
+    // value is validated only once the block list is KNOWN — `blocks` is empty
+    // while `meta` loads, and validating against that empty list deleted a
+    // perfectly valid «МТО» from the URL on every reload.
+    const blocksKnown = meta !== null;
+    const blockVerdict = restoredFilterVerdict(storedBlockFilter, blocksKnown ? blocks : null);
+    const blockFilter = blockVerdict === "keep" ? storedBlockFilter : null;
     useEffect(() => {
-        if (storedBlockFilter === null || blockFilter === storedBlockFilter) return;
+        if (blockVerdict !== "clear") return;
         setBlockFilter(null);
         setPanelFilter("plan", "block", null);
-    }, [blockFilter, setPanelFilter, setBlockFilter, storedBlockFilter]);
+    }, [blockVerdict, setPanelFilter, setBlockFilter]);
 
     // Section tabs: the plan grid first, then the reference dictionaries
     // (enterprises, the five catalogs and project users), mirroring the
