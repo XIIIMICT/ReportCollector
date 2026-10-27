@@ -1533,20 +1533,41 @@ function DataGridInner(
     useEffect(() => {
         // Selection is in displayed-row coordinates — check against the visible
         // source (sorting/filtering already applied).
+        //
+        // The result is a BOOLEAN, so it is compared before it is stored: the
+        // selection range object is rebuilt by the grid on every focus pass, and
+        // an unconditional `setCanPaste` re-rendered on each of those passes until
+        // React stopped it («Maximum update depth exceeded»).
         let cancelled = false;
         void (async () => {
             const source = await getVisibleRows();
             if (cancelled) return;
-            setCanPaste(canPasteRange(selectionRange, source));
+            const next = canPasteRange(selectionRange, source);
+            setCanPaste((previous) => (previous === next ? previous : next));
         })();
         return () => {
             cancelled = true;
         };
     }, [canPasteRange, getVisibleRows, selectionRange]);
 
+    // One stable object per STATE change, not per render: the owner stores what it
+    // receives, and a fresh object on every render is the loop React reports.
+    // The callbacks are read through a ref, because they are declared below.
+    const clipboardRef = useRef<{ copy: () => void; paste: () => void }>({
+        copy: () => {},
+        paste: () => {},
+    });
+    const clipboardActions = useMemo(
+        () => ({
+            canPaste,
+            onCopy: () => clipboardRef.current.copy(),
+            onPaste: () => clipboardRef.current.paste(),
+        }),
+        [canPaste],
+    );
     useEffect(() => {
-        onClipboardStateChange?.({ canPaste });
-    }, [canPaste, onClipboardStateChange]);
+        onClipboardStateChange?.(clipboardActions);
+    }, [clipboardActions, onClipboardStateChange]);
 
     function normalizeValue(
         value: unknown,
@@ -2000,7 +2021,25 @@ function DataGridInner(
             layer.style.top = `${Math.round(top)}px`;
             layer.style.height = `${Math.round(bottom - top)}px`;
         }
-        setFunnels(next);
+        // The overlay is positioned from raw rects, which wobble by less than a
+        // pixel between frames: writing an identical list every time re-rendered
+        // the grid, and the re-render measured again — an endless update loop.
+        setFunnels((previous) =>
+            previous.length === next.length &&
+            previous.every((entry, index) => {
+                const candidate = next[index];
+                if (!candidate) return false;
+                return (
+                    entry.prop === candidate.prop &&
+                    entry.label === candidate.label &&
+                    Math.abs(entry.left - candidate.left) < 1 &&
+                    Math.abs(entry.top - candidate.top) < 1 &&
+                    Math.abs(entry.height - candidate.height) < 1
+                );
+            })
+                ? previous
+                : next,
+        );
     }, [descriptorByKey, filteringEnabled]);
 
     /** Re-measure on the frame after the grid has settled. */
@@ -2648,24 +2687,39 @@ function DataGridInner(
         updateSelectionRange,
         measureViewport,
     ]);
+    // The handle reads the CURRENT callbacks through a ref instead of being
+    // rebuilt: React detaches and re-attaches a handle whose identity changed, and
+    // on a Stencil host that re-attachment rewrites the element's props, which
+    // schedules one more render — a closed loop.
+    const handleRef = useRef({
+        getExportState,
+        copySelection,
+        pasteIntoSelection,
+        clearSelection: clearGridSelection,
+        resetColumnWidths,
+        resetFiltersSorting: resetGridView,
+    });
+    handleRef.current = {
+        getExportState,
+        copySelection,
+        pasteIntoSelection,
+        clearSelection: clearGridSelection,
+        resetColumnWidths,
+        resetFiltersSorting: resetGridView,
+    };
+    clipboardRef.current = { copy: copySelection, paste: pasteIntoSelection };
+
     useImperativeHandle(
         forwardedRef,
         () => ({
-            getExportState,
-            copySelection,
-            pasteIntoSelection,
-            clearSelection: clearGridSelection,
-            resetColumnWidths,
-            resetFiltersSorting: resetGridView,
+            getExportState: (...args) => handleRef.current.getExportState(...args),
+            copySelection: (...args) => handleRef.current.copySelection(...args),
+            pasteIntoSelection: (...args) => handleRef.current.pasteIntoSelection(...args),
+            clearSelection: (...args) => handleRef.current.clearSelection(...args),
+            resetColumnWidths: (...args) => handleRef.current.resetColumnWidths(...args),
+            resetFiltersSorting: (...args) => handleRef.current.resetFiltersSorting(...args),
         }),
-        [
-            clearGridSelection,
-            copySelection,
-            getExportState,
-            pasteIntoSelection,
-            resetColumnWidths,
-            resetGridView,
-        ],
+        [],
     );
 
     useEffect(() => {
@@ -3009,13 +3063,26 @@ function DataGridInner(
                         // that erased the state the next click reads.
                         const sorting = sortingConfigFromEvent(event.detail);
                         const ours = sortingBySectionRef.current.get(section)?.columns ?? [];
+                        // The leaves carry the sorting `order`, so a CHANGED sorting
+                        // has to rebuild the columns. An unchanged one must NOT: the
+                        // rebuild re-emits the sorting events, and rebuilding on
+                        // every emission is a closed loop — «Maximum update depth
+                        // exceeded» on every grid that sorts (the dictionaries
+                        // crashed the page).
+                        const next = sorting.columns.map(
+                            (column) => `${column.prop}:${column.order}`,
+                        );
+                        const current = ours.map((column) => `${column.prop}:${column.order}`);
+                        const changed =
+                            next.length !== current.length ||
+                            next.some((entry, index) => entry !== current[index]);
                         if (ours.length === 0 && sorting.columns.length === 0) {
                             // The plugin agrees there is nothing sorted: the merges
                             // and the arrow class follow.
                             userSortedSectionsRef.current.delete(section);
                             gridRef.current?.classList.remove("data-grid--user-sorted");
                         }
-                        bumpSorting();
+                        if (changed) bumpSorting();
                         // The event fires in BURSTS for one click (the grid
                         // re-emits while it applies), and each one lands before
                         // the new header layout exists. Re-measuring the funnels

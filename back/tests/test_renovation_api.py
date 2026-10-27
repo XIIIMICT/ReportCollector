@@ -511,47 +511,54 @@ async def test_plan_rows_filter_asset_column(client: AsyncClient) -> None:
     assert [row["assetCode"] for row in body["rows"]] == ["bsk"]
 
 
-async def test_plan_rows_filter_audit_date_matches_its_minute(client: AsyncClient) -> None:
-    """An «updatedAt» filter keeps the rows in that minute — a RANGE, not an equality.
+async def test_plan_rows_filter_audit_instant_by_window(client: AsyncClient) -> None:
+    """An «updatedAt» filter is a MIN–MAX window over the rows, both ends inclusive.
 
-    The condition used to be written `attribute >= minute & attribute < …`,
-    which Python parses as `(minute & attribute) < …`: `&` binds tighter than a
-    comparison. The filter then matched nothing (or the wrong rows) instead of
-    the requested minute.
+    An instant column has no value list (every row carries its own timestamp), so
+    the client sends `from`/`to` and the server keeps the rows inside them.
     """
-    # The seeded rows all carry a recent audit stamp; take one from the facets
-    # so the value is exactly the ISO minute the grid would send.
-    facet = await client.get(
-        "/api/renovation/plan/facets",
-        headers=ADMIN_HEADERS,
-        params={"column": "updatedAt"},
-    )
-    assert facet.status_code == 200
-    values = [entry["value"] for entry in facet.json()["values"] if entry["value"] is not None]
-    assert values, "the seeded plan rows must carry an audit stamp"
-
     unfiltered = await client.get(
         "/api/renovation/plan/rows",
         headers=ADMIN_HEADERS,
-        params={"offset": 0, "limit": 100},
+        params={"offset": 0, "limit": 1},
     )
     assert unfiltered.status_code == 200
     total = unfiltered.json()["total"]
     assert total > 0
+    stamp = unfiltered.json()["rows"][0]["updatedAt"]
 
-    filtered = await client.get(
+    # A window around the row's own instant keeps it…
+    inside = await client.get(
         "/api/renovation/plan/rows",
         headers=ADMIN_HEADERS,
         params={
             "offset": 0,
             "limit": 100,
-            "filters": json.dumps([{"column": "updatedAt", "values": values}]),
+            "filters": json.dumps([{"column": "updatedAt", "from": stamp, "to": stamp}]),
         },
     )
-    assert filtered.status_code == 200
-    # Every seeded row falls in the requested minute(s), so nothing is lost.
-    # Before the fix this came back as 0 — the condition never matched.
-    assert filtered.json()["total"] == total
+    assert inside.status_code == 200
+    assert inside.json()["total"] >= 1
+    # …and a window entirely BEFORE it keeps none of them.
+    none = await client.get(
+        "/api/renovation/plan/rows",
+        headers=ADMIN_HEADERS,
+        params={
+            "offset": 0,
+            "limit": 100,
+            "filters": json.dumps(
+                [
+                    {
+                        "column": "updatedAt",
+                        "from": "2000-01-01T00:00:00+00:00",
+                        "to": "2000-01-02T00:00:00+00:00",
+                    }
+                ]
+            ),
+        },
+    )
+    assert none.status_code == 200
+    assert none.json()["total"] == 0
 
 
 async def test_plan_rows_filter_audit_date_excludes_other_minutes(client: AsyncClient) -> None:

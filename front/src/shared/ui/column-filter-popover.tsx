@@ -1,14 +1,16 @@
 "use client";
 
-import { EmptyState, ListBox, SearchField, Separator, type Key } from "@heroui/react";
+import { EmptyState, ListBox, Popover, SearchField, Separator, type Key } from "@heroui/react";
 import { List, ListSelect, TaskList } from "iconoir-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import {
     readFilterDraft,
+    readInstantWindow,
     type StoredFilterDraft,
     writeFilterDraft,
+    writeInstantWindow,
 } from "@/shared/grid/use-grid-column-filters";
 import { usePopoverDismiss } from "@/shared/hooks/use-popover-dismiss";
 import { ColumnFilterDateRange, isDateRangeEmpty } from "@/shared/ui/column-filter-date-range";
@@ -20,6 +22,7 @@ import {
     type FacetRange,
     type FacetSearch,
     type FacetSource,
+    type InstantRange,
 } from "@/shared/ui/column-filter-facets";
 import { ColumnFilterRange, isRangeEmpty } from "@/shared/ui/column-filter-range";
 import { SmartSelect } from "@/shared/ui/smart-select";
@@ -73,6 +76,7 @@ export function ColumnFilterPopover({
     order = "text",
     dateOnly = false,
     storageScope,
+    instant = false,
     onApply,
     onClose,
 }: {
@@ -113,6 +117,12 @@ export function ColumnFilterPopover({
      * a scope the draft simply lives as long as the popover.
      */
     storageScope?: { project: string; section: string } | undefined;
+    /**
+     * The column holds an INSTANT (`timestamptz`). Such a column offers no value
+     * list at all — every row carries its own timestamp, so a facet would be one
+     * option per row — only the MIN–MAX window, and that window matches ROWS.
+     */
+    instant?: boolean | undefined;
     onApply: (filter: ColumnFilter | null) => void;
     onClose: () => void;
 }) {
@@ -198,6 +208,37 @@ export function ColumnFilterPopover({
         min: storedDraft?.dateMin ?? null,
         max: storedDraft?.dateMax ?? null,
     });
+    // An INSTANT column keeps its own window: it is applied on its own (there is
+    // no selection to commit), so it is seeded from the filter in force and
+    // remembered per column, like every other draft.
+    const storedInstant = storageScope
+        ? readInstantWindow(storageScope.project, storageScope.section, column)
+        : null;
+    const [instantWindow, setInstantWindow] = useState<InstantRange>({
+        from:
+            instant && initial?.from
+                ? new Date(initial.from)
+                : storedInstant?.from
+                  ? new Date(storedInstant.from)
+                  : null,
+        to:
+            instant && initial?.to
+                ? new Date(initial.to)
+                : storedInstant?.to
+                  ? new Date(storedInstant.to)
+                  : null,
+    });
+    const changeInstant = useCallback(
+        (next: InstantRange) => {
+            setInstantWindow(next);
+            if (!storageScope) return;
+            writeInstantWindow(storageScope.project, storageScope.section, column, {
+                from: next.from ? next.from.toISOString() : null,
+                to: next.to ? next.to.toISOString() : null,
+            });
+        },
+        [column, storageScope],
+    );
     /**
      * Write the draft. Called on every edit (the popover can be dismissed by an
      * outside press at any moment) and again as the closing effect, so what the
@@ -645,7 +686,32 @@ export function ColumnFilterPopover({
     const confirm = () => {
         if (settledRef.current) return;
         settledRef.current = true;
-        onApply(applied);
+        // An INSTANT column has no selection: its window IS the filter, so an
+        // empty window means «no constraint», not «keep nothing».
+        const result = !instant
+            ? applied
+            : instantWindow.from === null && instantWindow.to === null
+              ? null
+              : {
+                    column,
+                    values: [],
+                    // A window skips the «Пустые» bucket: the server matches
+                    // the ROWS inside the range, and a NULL timestamp is not
+                    // inside any range.
+                    includeNulls: false,
+                    // One open end widens the window to the other side
+                    // rather than ignoring it: «с 03.02» keeps everything
+                    // later, «по 03.02» everything earlier.
+                    from:
+                        instantWindow.from !== null
+                            ? instantWindow.from.toISOString()
+                            : new Date(0).toISOString(),
+                    to:
+                        instantWindow.to !== null
+                            ? instantWindow.to.toISOString()
+                            : new Date(8.64e15).toISOString(),
+                };
+        onApply(result);
         dismiss();
     };
     const cancel = () => {
@@ -673,7 +739,7 @@ export function ColumnFilterPopover({
     // reserved width becomes the panel's floor, so it never moves again.
     const [minWidth, setMinWidth] = useState<number>();
     useEffect(() => {
-        if (typeof document === "undefined") return;
+        if (typeof document === "undefined" || instant) return;
         let frame = 0;
         let last = 0;
         const measure = () => {
@@ -699,7 +765,7 @@ export function ColumnFilterPopover({
         };
         frame = window.requestAnimationFrame(measure);
         return () => window.cancelAnimationFrame(frame);
-    }, []);
+    }, [instant]);
 
     // A SHORT list needs no search control — this is the SmartSelect rule with
     // its threshold of ten: below that the popover shows no text field, no
@@ -716,9 +782,76 @@ export function ColumnFilterPopover({
     const thresholdReached = Math.max(totalWithoutSearch, total) >= SEARCH_MIN_OPTIONS;
     // Once shown, it stays: a range narrows `total` on every keystroke, and a
     // control that disappears under the cursor takes the typed bound with it.
+    //
+    // The guard is an EVENT, not a render-phase `setState`: a `setState` during
+    // render re-enters the component, and this one runs inside a `renderListbox`
+    // callback — React then reports «Maximum update depth exceeded».
     const [searchShown, setSearchShown] = useState(thresholdReached);
-    if (thresholdReached && !searchShown) setSearchShown(true);
+    useEffect(() => {
+        if (thresholdReached) setSearchShown(true);
+    }, [thresholdReached]);
     const showSearch = searchShown;
+
+    if (instant) {
+        // A `timestamptz` column offers the WINDOW and nothing else: there is no
+        // list to pick from (one option per row) and no «Выбрать все» to toggle —
+        // the server matches the rows inside the window.
+        return (
+            <Popover
+                isOpen={isOpen}
+                onOpenChange={(open: boolean) => {
+                    if (!open) cancel();
+                }}
+            >
+                <Popover.Trigger
+                    className="column-filter__anchor"
+                    style={{ left: anchor.left, top: anchor.top, width: anchor.width }}
+                >
+                    <span />
+                </Popover.Trigger>
+                <Popover.Content
+                    ref={popoverRef}
+                    isExiting={!isOpen}
+                    className="column-filter__popover column-filter__popover--instant"
+                >
+                    <Popover.Dialog>
+                        <div className="column-filter__instant">
+                            <ColumnFilterDateRange
+                                columnLabel={columnLabel}
+                                value={{
+                                    min: instantWindow.from ? instantWindow.from.getTime() : null,
+                                    max: instantWindow.to ? instantWindow.to.getTime() : null,
+                                }}
+                                onChange={(next) =>
+                                    changeInstant({
+                                        from: next.min === null ? null : new Date(next.min),
+                                        to: next.max === null ? null : new Date(next.max),
+                                    })
+                                }
+                                kind="datetime"
+                            />
+                            <div className="column-filter__footer">
+                                <button
+                                    type="button"
+                                    className="column-filter__reset"
+                                    onClick={reset}
+                                >
+                                    По умолчанию: {columnLabel}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="column-filter__apply"
+                                    onClick={confirm}
+                                >
+                                    Применить
+                                </button>
+                            </div>
+                        </div>
+                    </Popover.Dialog>
+                </Popover.Content>
+            </Popover>
+        );
+    }
 
     const content = (
         <SmartSelect

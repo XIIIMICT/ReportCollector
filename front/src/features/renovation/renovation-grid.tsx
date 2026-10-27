@@ -75,9 +75,9 @@ import type {
     RenovationHeaderCell,
 } from "@/shared/api/renovation";
 import { parsePastedText, serializeCellValue } from "@/shared/grid";
+import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/data-grid";
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
-import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/data-grid";
 import { reactEditor } from "@/shared/grid/react-editor";
 import { isChunkedSection } from "@/shared/grid/section-policy";
 import { selectionDetailForColumn } from "@/shared/grid/selection-label";
@@ -1079,7 +1079,7 @@ function RenovationGridInner(
     }, []);
 
     // Row-number click: select the whole row (shift — range, Ctrl/Cmd —
-    // toggle). Mirrors the raw-materials grid; the cell range is cleared
+    // toggle). Mirrors the shared DataGrid; the cell range is cleared
     // BEFORE the row state updates, or the columns rebuild (selectedRowIds
     // is a dependency) resurrects the old focus as a single-cell range.
     const handleRowNumberClick = useCallback(
@@ -2311,13 +2311,13 @@ function RenovationGridInner(
          *
          * revo-grid clears its own focus rectangle when the pointer leaves for
          * the page (which is why `Del` stops working), but it emits NOTHING for
-         * it вЂ” so the footer status and the collaboration presence kept
+         * it — so the footer status and the collaboration presence kept
          * advertising a selection that no longer existed.
          *
          * Capture phase, so it runs before the click's own handlers. A click
          * inside the shell is ignored (no clear-then-reselect flicker), and so
-         * is one on a PORTAL the grid opens вЂ” the popovers and dialogs React
-         * renders into `document.body` вЂ” or editing would drop the range being
+         * is one on a PORTAL the grid opens — the popovers and dialogs React
+         * renders into `document.body` — or editing would drop the range being
          * edited.
          */
         const handleOutsidePointerDown = (event: PointerEvent) => {
@@ -2345,7 +2345,7 @@ function RenovationGridInner(
 
     useEffect(() => {
         selectionRangeRef.current = selectionRange;
-        // The paste button mirrors the raw-materials grid: enabled only when
+        // The paste button mirrors the shared DataGrid: enabled only when
         // the selection contains at least one editable, non-busy target cell.
         // beforeRangeEdit still re-checks and skips busy cells at paste time.
         const canPasteInto = (): boolean => {
@@ -2932,10 +2932,13 @@ function RenovationGridInner(
                         }}
                     >
                         <span className="renovation-grid__number-label">{cell.text}</span>
-                        {/* With the header unpinned the level funnels are hidden
-                            with it — the number cell carries the same funnel so
-                            the column filter stays reachable. */}
-                        {!headerPinned && cell.filterColumn && onOpenColumnFilter ? (
+                        {/* The strip carries the funnel for a column with no
+                            header cell of its own (the audit trio: creation time,
+                            edit time, last editor). A PINNED header used to be the
+                            reason this was hidden — the header cells drew their own
+                            funnels — but those columns have no header cell, so the
+                            funnel vanished entirely. */}
+                        {cell.filterColumn && onOpenColumnFilter ? (
                             <button
                                 type="button"
                                 className={

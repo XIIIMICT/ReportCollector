@@ -30,7 +30,24 @@ export type ColumnFilter = {
     column: string;
     values: string[];
     includeNulls: boolean;
+    /**
+     * An INSTANT window, sent instead of `values` for a `timestamptz` column: the
+     * server matches the rows between the two ends. A value list is useless there
+     * (one option per row), so the two forms never apply to the same column.
+     */
+    from?: string | null;
+    to?: string | null;
 };
+
+/** The MIN–MAX window a `timestamptz` column's header filter asks for. */
+export type InstantRange = { from: Date | null; to: Date | null };
+
+/** True when the filter constrains a window rather than a value set. */
+export function isInstantFilter(
+    filter: ColumnFilter,
+): filter is ColumnFilter & { from: string; to: string } {
+    return typeof filter.from === "string" && typeof filter.to === "string";
+}
 
 /** Does one active filter keep this row? Shared by the grid and the facets. */
 export function rowMatchesOne(

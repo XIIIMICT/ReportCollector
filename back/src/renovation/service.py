@@ -12,7 +12,7 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import cast
 from uuid import UUID
@@ -959,7 +959,10 @@ def _column_filter_condition(
                 )
             )
     elif (audit_attr := _plan_audit_attr(column)) is not None:
-        value_conditions.extend(_audit_filter_conditions(column, audit_attr, column_filter))
+        # The audit trio's own rules: a MIN–MAX window for an instant column (a
+        # value list would compare timestamps as text), the display name for the
+        # editor. The generic branch below must not run for them.
+        return _audit_filter_conditions(column, audit_attr, column_filter)
     else:
         meta = field_meta(column)
         if meta is None or meta.db_name in _VIRTUAL_FIELDS:
@@ -1004,34 +1007,56 @@ def _column_filter_condition(
     return sa_false()
 
 
+def _parse_instant(value: str | None, column: str, edge: str) -> datetime | None:
+    """Parse one bound of an instant window; a bad one is a 422, not «no bound»."""
+    if value is None or value == "":
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as error:
+        message = f"Некорректное значение {edge} диапазона столбца «{column}»."
+        raise CellValidationError(message) from error
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
 def _audit_filter_conditions(
     column: str,
     attribute: InstrumentedAttribute[object],
     column_filter: RenovationColumnFilter,
-) -> list[ColumnElement[bool]]:
+) -> ColumnElement[bool]:
     """
-    Build the SQL conditions of one audit-column filter (see `_PLAN_AUDIT_COLUMNS`).
+    Build the SQL condition of one audit-column filter (see `_PLAN_AUDIT_COLUMNS`).
 
-    The values are the ones the facet rendered, so they are parsed back:
-    `createdAt`/`updatedAt` arrive as the instant's ISO-formatted MINUTE (the
-    facet groups by minute — 300k rows carry 300k distinct timestamps otherwise),
-    `updatedBy` as the editor's display name, resolved to `updater_user_id`.
+    An INSTANT column carries a MIN–MAX window and the server matches the ROWS
+    between the two ends (both inclusive) — it has no value list to compare with,
+    because every row carries its own timestamp. `updatedBy` keeps the ordinary
+    value-list filter: the editor's display name, resolved back to the user id.
+
+    The window's two ends are AND-ed (both must hold); «Пустые» is OR-ed with
+    that condition, exactly like a value list keeps «any of the kept names».
     """
-    conditions: list[ColumnElement[bool]] = []
+    column_expr = col(attribute)
     if column in _PLAN_AUDIT_COLUMNS:
-        kept = sorted({parsed for value in column_filter.values if (parsed := _facet_minute(value)) is not None})
-        if kept:
-            # A minute is a RANGE: `>= minute AND < minute + 1`. An IN() against
-            # timestamptz would match only the exact second. Parenthesised
-            # because `&` binds TIGHTER than the comparisons — without these,
-            # `attribute >= minute & attribute < …` parses as
-            # `(minute & attribute) < …`, i.e. the wrong condition entirely.
-            conditions.extend(and_(attribute >= minute, attribute < minute + timedelta(minutes=1)) for minute in kept)
+        # The bounds arrive as TEXT and are parsed here: a bad one is a 422 with a
+        # message, never a 500 over the whole window nor a silently dropped bound
+        # (which showed the entire plan).
+        start = _parse_instant(column_filter.from_, column, "начала")
+        end = _parse_instant(column_filter.to, column, "конца")
+        bounds: list[ColumnElement[bool]] = []
+        if start is not None:
+            bounds.append(column_expr >= start)
+        if end is not None:
+            bounds.append(column_expr <= end)
+        # Both ends must hold: AND over the bounds, never OR.
+        keep = and_(*bounds) if bounds else sa_false()
     elif column_filter.values:
-        conditions.append(attribute.in_(sa_select(col(RAsset.id)).where(col(RAsset.name).in_(column_filter.values))))
+        keep = column_expr.in_(sa_select(col(User.id)).where(col(User.name).in_(column_filter.values)))
+    else:
+        # A filter that keeps nothing must match no row, never the whole table.
+        keep = sa_false()
     if column_filter.includeNulls:
-        conditions.append(col(attribute).is_(None))
-    return conditions
+        return or_(keep, column_expr.is_(None))
+    return keep
 
 
 def _facet_minute(value: str) -> datetime | None:
@@ -1400,6 +1425,12 @@ async def read_plan_facets(
     the sorted window; `total` counts the distinct non-empty values across the
     whole filtered plan, so the window (offset/limit) can be lazy-loaded.
     """
+    if column in _PLAN_AUDIT_COLUMNS:
+        # An INSTANT column has no usable option list: every row carries its own
+        # timestamp, so the popover asks for a MIN–MAX window instead and the
+        # rows are matched server-side (see `_audit_filter_conditions`).
+        message = f"Столбец «{column}» фильтруется по диапазону, а не по значениям."
+        raise CellValidationError(message)
     is_asset_column = column == _ASSET_COLUMN_PROP
     is_audit_column = _plan_audit_attr(column) is not None
     meta: RenovationFieldMeta | None = None
@@ -1474,11 +1505,6 @@ async def read_plan_facets(
         # there is no public accessor for the column property, and reading it off
         # the mapper is the only way to group by it in SQL.
         group_column = sa_inspect(RenovationPlanRow).attrs._updater_name  # noqa: SLF001
-        base = sa_select(group_column, func.count()).select_from(RenovationPlanRow)
-    elif column in _PLAN_AUDIT_COLUMNS:
-        # An instant column groups by the MINUTE it lands in: every row has its
-        # own timestamp, so a raw group would list one option per row.
-        group_column = func.date_trunc("minute", _plan_audit_attr(column))
         base = sa_select(group_column, func.count()).select_from(RenovationPlanRow)
     else:
         group_column = getattr(RenovationPlanRow, column)

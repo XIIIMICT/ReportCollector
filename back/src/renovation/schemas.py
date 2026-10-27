@@ -186,6 +186,16 @@ class RenovationColumnFilter(BaseModel):
     column: str = Field(min_length=1)
     values: list[str] = []
     includeNulls: bool = False
+    # A MIN–MAX window INSTEAD of `values`, for a `timestamptz` column: the server
+    # then matches the rows between the two instants. A value list makes no sense
+    # there (every row has its own timestamp), so only one of the two is set.
+    # `from_` is `from`: the alias keeps the field off SQLModel's expression API.
+    #
+    # Typed as STRINGS on purpose: parsing happens in the service, which can
+    # answer 422 with a message instead of failing validation (a 500 for the
+    # whole window). `from_` is `from` — the name stays off SQLModel's API.
+    from_: str | None = Field(default=None, alias="from")
+    to: str | None = None
 
 
 class RenovationRowAddRequest(BaseModel):

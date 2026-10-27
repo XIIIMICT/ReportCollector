@@ -98,6 +98,68 @@ export function filterDraftStorageKey(project: string, section: string): string 
     return `rc:filterDraft:${project}:${section}`;
 }
 
+/** A MIN–MAX bound of an instant range: a UTC instant, both ends inclusive. */
+export type InstantWindow = { from?: string | null; to?: string | null };
+
+/**
+ * The remembered INSTANT WINDOW of one table's header-filter popovers.
+ *
+ * A `timestamptz` column offers no value list to pick from — every row has its
+ * own timestamp, so a facet would be one option per row. The popover asks for a
+ * window instead and the server matches the ROWS inside it. Kept per column
+ * beside the other drafts, same key scheme.
+ */
+export function readInstantWindow(
+    project: string,
+    section: string,
+    column: string,
+): InstantWindow | null {
+    if (typeof window === "undefined") return null;
+    try {
+        const raw = window.localStorage.getItem(filterDraftStorageKey(project, section));
+        if (raw === null) return null;
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+        const entry = (parsed as Record<string, unknown>)[column];
+        if (!entry || typeof entry !== "object") return null;
+        const instant = (entry as { instant?: InstantWindow }).instant;
+        return instant && typeof instant === "object" ? instant : null;
+    } catch {
+        return null;
+    }
+}
+
+/** Remember one column's instant window; an empty one removes the entry. */
+export function writeInstantWindow(
+    project: string,
+    section: string,
+    column: string,
+    range: InstantWindow,
+): void {
+    if (typeof globalThis.localStorage === "undefined") return;
+    try {
+        const key = filterDraftStorageKey(project, section);
+        const raw = globalThis.localStorage.getItem(key);
+        let all: Record<string, Record<string, unknown>> = {};
+        if (raw !== null) {
+            const parsed: unknown = JSON.parse(raw);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                all = parsed as Record<string, Record<string, unknown>>;
+            }
+        }
+        const empty = (range.from ?? null) === null && (range.to ?? null) === null;
+        const entry = { ...(all[column] ?? {}) };
+        if (empty) delete entry.instant;
+        else entry.instant = range;
+        if (Object.keys(entry).length === 0) delete all[column];
+        else all[column] = entry;
+        if (Object.keys(all).length === 0) globalThis.localStorage.removeItem(key);
+        else globalThis.localStorage.setItem(key, JSON.stringify(all));
+    } catch {
+        // Best-effort, as everywhere else in this module.
+    }
+}
+
 /** Read one table's drafts, dropping anything malformed. */
 export function readFilterDraft<T extends StoredFilterDraft>(
     project: string,

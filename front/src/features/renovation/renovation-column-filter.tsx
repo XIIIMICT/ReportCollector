@@ -44,6 +44,7 @@ export function RenovationColumnFilterPopover({
     initial,
     defaultFilter,
     storageScope,
+    instant,
     onApply,
     onClose,
 }: {
@@ -63,6 +64,8 @@ export function RenovationColumnFilterPopover({
     defaultFilter?: ColumnFilter | null;
     /** Where the search draft of this column is remembered (see the popover). */
     storageScope?: { project: string; section: string } | undefined;
+    /** A `timestamptz` column: the popover asks for a window instead of values. */
+    instant?: boolean | undefined;
     onApply: (filter: ColumnFilter | null) => void;
     onClose: () => void;
 }) {
@@ -106,6 +109,7 @@ export function RenovationColumnFilterPopover({
             initial={initial}
             defaultFilter={defaultFilter ?? null}
             storageScope={storageScope}
+            instant={instant}
             onApply={onApply}
             onClose={onClose}
         />

@@ -304,6 +304,41 @@ export type ApproveState = {
     onApprove: () => void;
 };
 
+/**
+ * Does this published state really differ from the stored one?
+ *
+ * The section builds a FRESH object on every render (a new closure inside it, a
+ * new array). Storing it unconditionally re-rendered the workspace, which
+ * re-rendered the section, which published again — the loop React reports as
+ * «Maximum update depth exceeded». Functions are compared by IDENTITY, so a
+ * section that keeps them stable (`useCallback`) leaves the state untouched.
+ */
+function samePublishedState(previous: unknown, next: unknown): boolean {
+    if (previous === next) return true;
+    if (
+        previous === null ||
+        next === null ||
+        typeof previous !== "object" ||
+        typeof next !== "object"
+    ) {
+        return false;
+    }
+    const a = previous as Record<string, unknown>;
+    const b = next as Record<string, unknown>;
+    for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+        const left = a[key];
+        const right = b[key];
+        if (typeof left === "function" && typeof right === "function") continue;
+        if (Array.isArray(left) && Array.isArray(right)) {
+            if (left.length !== right.length) return false;
+            if (!left.every((item, index) => item === right[index])) return false;
+            continue;
+        }
+        if (left !== right) return false;
+    }
+    return true;
+}
+
 export type ArchiveItem = {
     id: string;
     name: string;
@@ -1410,6 +1445,20 @@ export function RawMaterialsWorkspace({
         selectedKey: null,
         onSelect: () => {},
     });
+    // Rebuilt only when the versions change: a fresh array on every render made
+    // the picker re-render, which re-rendered the toolbar and looped.
+    const versionItems = useMemo<ArchiveItem[]>(
+        () => [
+            {
+                id: WORKING_VERSION_ID,
+                name: "Рабочая версия",
+                description: "Доступна для редактирования",
+            },
+            ...archiveState.items,
+        ],
+        [archiveState.items],
+    );
+
     const [userCreateState, setUserCreateState] = useState<UserCreateState>({
         canCreate: false,
         onCreate: () => {},
@@ -1428,13 +1477,29 @@ export function RawMaterialsWorkspace({
         resetRowHeight,
     } = useViewState(activeProjectKey);
 
-    const handleDeleteState = useCallback((state: DeleteActions) => setDeleteState(state), []);
+    const handleDeleteState = useCallback(
+        (state: DeleteActions) =>
+            setDeleteState((previous) => (samePublishedState(previous, state) ? previous : state)),
+        [],
+    );
 
-    const handleExportState = useCallback((state: ExportState) => setExportState(state), []);
+    const handleExportState = useCallback(
+        (state: ExportState) =>
+            setExportState((previous) => (samePublishedState(previous, state) ? previous : state)),
+        [],
+    );
 
-    const handleUndoState = useCallback((state: UndoState) => setUndoState(state), []);
+    const handleUndoState = useCallback(
+        (state: UndoState) =>
+            setUndoState((previous) => (samePublishedState(previous, state) ? previous : state)),
+        [],
+    );
 
-    const handleApproveState = useCallback((state: ApproveState) => setApproveState(state), []);
+    const handleApproveState = useCallback(
+        (state: ApproveState) =>
+            setApproveState((previous) => (samePublishedState(previous, state) ? previous : state)),
+        [],
+    );
 
     const handleArchiveState = useCallback((state: ArchiveState) => setArchiveState(state), []);
 
@@ -1659,14 +1724,7 @@ export function RawMaterialsWorkspace({
                 compactLabel="Архив"
                 isDisabled={!showVersionPicker}
                 onOpenChange={setToolbarControlOpen}
-                items={[
-                    {
-                        id: WORKING_VERSION_ID,
-                        name: "Рабочая версия",
-                        description: "Доступна для редактирования",
-                    },
-                    ...archiveState.items,
-                ]}
+                items={versionItems}
                 selectedKey={archiveState.selectedKey ?? WORKING_VERSION_ID}
                 onSelectionChange={(key) => {
                     if (key === null) return;

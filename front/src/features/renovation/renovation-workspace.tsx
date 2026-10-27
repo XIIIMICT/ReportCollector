@@ -110,7 +110,6 @@ import { useDeleteShortcut, useUndoRedoShortcuts } from "@/shared/ui/workspace-s
 
 import { PlanExcelImportModal } from "./plan-excel-import-modal";
 import { RenovationColumnFilterPopover } from "./renovation-column-filter";
-import { AUDIT_COLUMNS } from "./renovation-grid-constants";
 import {
     RenovationDictionarySection,
     renovationSectionTable,
@@ -122,6 +121,7 @@ import {
     type RenovationGridRow,
     type RenovationRowPatch,
 } from "./renovation-grid";
+import { AUDIT_COLUMNS } from "./renovation-grid-constants";
 
 /** Standard grid toasts: see `gridWarningHandlers`. */
 const gridWarnings = gridWarningHandlers({});
@@ -295,6 +295,8 @@ export function RenovationWorkspace({
         order: "text" | "number" | "date";
         /** A `date` column holds a calendar day, so its filter asks for days. */
         dateOnly: boolean;
+        /** A `timestamptz` column: the popover asks for a window, not values. */
+        instant?: boolean;
         anchor: DOMRect;
     } | null>(null);
     // The row-number («№») range filter popover anchor (the corner's rect).
@@ -1891,6 +1893,10 @@ export function RenovationWorkspace({
                                             setColumnFilterTarget({
                                                 column,
                                                 label: field?.label ?? audit?.label ?? column,
+                                                // A `timestamptz` audit column takes a
+                                                // MIN–MAX window applied to the rows;
+                                                // the popover shows no value list for it.
+                                                instant: audit?.kind === "date",
                                                 // Numeric fields search by MIN–MAX,
                                                 // not by a text query.
                                                 order:
@@ -2011,6 +2017,7 @@ export function RenovationWorkspace({
                     anchor={columnFilterTarget.anchor}
                     order={columnFilterTarget.order}
                     dateOnly={columnFilterTarget.dateOnly}
+                    instant={columnFilterTarget.instant === true}
                     {...(viewPlanId && { planId: viewPlanId })}
                     asset={assetFilter}
                     initial={columnFilters[columnFilterTarget.column] ?? null}
