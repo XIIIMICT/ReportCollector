@@ -46,6 +46,7 @@ import {
     MIN_COLUMN_WIDTH,
     MISSING_COMPONENT,
     ROW_HEADER_WIDTH,
+    SERVICE_AUDIT_INSTANT_PROPS,
     SERVICE_COLUMNS,
     SERVICE_DB_NAMES,
     WIDTH_STORAGE_PREFIX,
@@ -471,22 +472,28 @@ function RenovationGridInner(
 
     // Service columns (corner menu toggle) are appended after the plan fields;
     // they have no Excel header cells, so they get synthetic overlay cells.
+    //
+    // Their STRIP NUMBER continues the form's own numbering: the last plan column
+    // is N, so the audit trio is N+1, N+2, N+3. Without a number they showed an
+    // empty strip cell and offered no header filter, which read as "this column
+    // cannot be filtered" rather than "it is not part of the workbook".
     const displayFields = useMemo<RenovationField[]>(() => {
         if (!showServiceColumns) return visibleFields;
+        const lastOrdinal = visibleFields.reduce((max, field) => Math.max(max, field.ordinal), 0);
         return [
             ...visibleFields,
-            ...SERVICE_COLUMNS.map((column) => ({
+            ...SERVICE_COLUMNS.map((column, index) => ({
                 dbName: column.dbName,
                 label: column.label,
-                cellType: "text",
+                // `datetime` cells render through the same instant formatter as
+                // the form's dates; the editor name is plain text.
+                cellType: SERVICE_AUDIT_INSTANT_PROPS.has(column.dbName) ? "datetime" : "text",
                 catalog: null,
                 isCalculated: false,
                 isReadOnly: true,
                 decimals: null,
-                position:
-                    10_000 + SERVICE_COLUMNS.findIndex((item) => item.dbName === column.dbName),
-                ordinal:
-                    10_000 + SERVICE_COLUMNS.findIndex((item) => item.dbName === column.dbName),
+                position: 10_000 + index,
+                ordinal: lastOrdinal + 1 + index,
                 responsibilityBlock: null,
             })),
         ];
@@ -581,7 +588,8 @@ function RenovationGridInner(
         for (const field of displayFields) {
             const left = geometry.offsets.get(field.dbName);
             if (left === undefined) continue;
-            const number = SERVICE_DB_NAMES.has(field.dbName) ? null : columnNumber(field);
+            // Every column carries a strip number now, the audit trio included.
+            const number = columnNumber(field);
             cells.push({
                 key: field.dbName,
                 text: number === null || !Number.isFinite(number) ? "" : String(number),
@@ -762,7 +770,12 @@ function RenovationGridInner(
         };
         add(ASSET_COLUMN_PROP, assetPosition);
         for (const field of displayFields) {
-            if (SERVICE_DB_NAMES.has(field.dbName)) continue;
+            if (SERVICE_DB_NAMES.has(field.dbName)) {
+                // An audit column has no header cell of its own: its chain is
+                // the column's label, which is what the tooltip should read.
+                chains.set(field.dbName, [field.label]);
+                continue;
+            }
             add(field.dbName, field.position);
         }
         return chains;

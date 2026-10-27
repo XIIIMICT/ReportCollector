@@ -69,5 +69,26 @@ export const SERVICE_COLUMNS: ReadonlyArray<{ dbName: string; label: string; wid
         width: descriptor.width,
     }));
 
+/**
+ * The audit columns the corner menu reveals, keyed by their row prop: not form
+ * fields, so neither the workbook nor `meta.fields` describes them. `kind` is the
+ * cell type the grid renders and the popover searches by — instants keep their
+ * time (a filter over them asks for a moment), the editor is plain text.
+ */
+export const AUDIT_COLUMNS: Record<string, { label: string; kind: "date" | "text" }> = {
+    createdAt: { label: "Время добавления", kind: "date" },
+    updatedAt: { label: "Время редактирования", kind: "date" },
+    updatedBy: { label: "Автор последней редакции", kind: "text" },
+};
+
+/**
+ * The audit props whose cells are INSTANTS (not plan form fields): they render
+ * through the shared datetime formatter and their header filter asks for a
+ * moment, not for a value list derived from a text column.
+ */
+export const SERVICE_CREATED_AT = "createdAt";
+export const SERVICE_UPDATED_AT = "updatedAt";
+export const SERVICE_AUDIT_INSTANT_PROPS = new Set([SERVICE_CREATED_AT, SERVICE_UPDATED_AT]);
+
 /** Row-model fields that are not plan values (the overlay never renders them). */
 export const SERVICE_DB_NAMES = new Set(SERVICE_COLUMNS.map((column) => column.dbName));

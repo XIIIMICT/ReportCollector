@@ -1466,11 +1466,14 @@ async def read_plan_facets(
             .outerjoin(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
         )
     elif column == "updatedBy":
-        # The editor's DISPLAY NAME, exactly as the cells show it: the row model
-        # carries it as the `updated_by` column PROPERTY (`UpdaterDisplay`, which
-        # resolves `app_users.name`, then the email, then ""), so it is read off
-        # the mapper rather than through `col()` and grouped in SQL.
-        group_column = sa_inspect(RenovationPlanRow).attrs.updated_by
+        # The editor's DISPLAY NAME, exactly as the cells show it: the name is
+        # loaded into `_updater_name` by `configure_updater` (a column property
+        # over `app_users`: name, then email, then ""), and `updated_by` is the
+        # Python-side property over it.
+        # `_updater_name` is `configure_updater`'s own contract (see `audit.py`):
+        # there is no public accessor for the column property, and reading it off
+        # the mapper is the only way to group by it in SQL.
+        group_column = sa_inspect(RenovationPlanRow).attrs._updater_name  # noqa: SLF001
         base = sa_select(group_column, func.count()).select_from(RenovationPlanRow)
     elif column in _PLAN_AUDIT_COLUMNS:
         # An instant column groups by the MINUTE it lands in: every row has its
