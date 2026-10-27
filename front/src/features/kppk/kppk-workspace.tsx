@@ -54,6 +54,7 @@ import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector"
 import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
+import { DataGrid, type GridViewStats, type DataGridHandle } from "@/shared/grid/data-grid";
 import {
     exportFileName,
     KPPK_GROUPED_POSITION_DESCRIPTORS,
@@ -63,11 +64,6 @@ import {
     type ReferenceOption,
 } from "@/shared/grid/grid-config";
 import { parseNumericText } from "@/shared/grid/grid-edit";
-import {
-    RawMaterialsGrid,
-    type GridViewStats,
-    type RawMaterialsGridHandle,
-} from "@/shared/grid/raw-materials-grid";
 import {
     collaborationAvailableFor,
     undoAvailableFor,
@@ -525,7 +521,7 @@ function KppkSection({
     );
     const placeholderDraftRef = useRef(placeholderDraft);
     const createPendingRef = useRef(false);
-    const gridRef = useRef<RawMaterialsGridHandle>(null);
+    const gridRef = useRef<DataGridHandle>(null);
 
     useEffect(() => {
         placeholderDraftRef.current = placeholderDraft;
@@ -919,7 +915,7 @@ function KppkSection({
         <>
             <div className="grid-viewport" aria-busy={isMutationPending}>
                 <GridErrorBoundary>
-                    <RawMaterialsGrid
+                    <DataGrid
                         ref={gridRef}
                         section={section}
                         rows={gridRows}

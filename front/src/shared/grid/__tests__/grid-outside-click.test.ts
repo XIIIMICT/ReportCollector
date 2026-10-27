@@ -10,7 +10,7 @@ import { afterEach, expect, test } from "bun:test";
  * BOTH grids implement it, because they are different components: the plan
  * renders its own RevoGrid (`features/renovation/renovation-grid.tsx`) while
  * «Сырьё», КППК and the renovation dictionaries share
- * `shared/grid/raw-materials-grid.tsx`. Wiring it into only the shared one
+ * `shared/grid/data-grid.tsx`. Wiring it into only the shared one
  * left the plan broken — the first attempt at this fix did exactly that.
  */
 type Verdict = "clear" | "keep";

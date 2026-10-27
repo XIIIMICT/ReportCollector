@@ -7,7 +7,7 @@ import type { ColumnDescriptor } from "@/shared/grid/grid-config";
  * `detail` for the status tooltip.
  *
  * Kept in its own module (no revo-grid import) so it stays testable in
- * happy-dom: `raw-materials-grid.tsx` pulls in the revogrid loader, which
+ * happy-dom: `data-grid.tsx` pulls in the revogrid loader, which
  * touches `HTMLElement` at import time.
  */
 

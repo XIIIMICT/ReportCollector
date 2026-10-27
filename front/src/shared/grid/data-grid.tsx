@@ -67,6 +67,20 @@ import { describeSelection } from "./selection-label";
 /** The pinned summary row's id (revo-grid `pinnedTopSource`) — never a real record. */
 export const SUMMARY_ROW_ID = "__summary__";
 
+/**
+ * The shared editable grid of the application.
+ *
+ * It is the table behind THREE projects — «Сырьё», «КППК» and the renovation
+ * reference dictionaries — which is why it is named after what it IS and not
+ * after one of its callers. It used to be `RawMaterialsGrid` in
+ * `raw-materials-grid.tsx`, with a `.raw-materials-grid` root class styling all
+ * of them: a name that told every reader of КППК and the renovation dictionaries
+ * that they were looking at «Сырьё».
+ *
+ * The object-level plan is NOT a consumer: it renders its own RevoGrid
+ * (`features/renovation/renovation-grid.tsx`), so a change made here does not
+ * reach it.
+ */
 /** Which form a remembered position belongs to, and in which scope. */
 export type ScrollPositionKey = {
     /** Stable form key: project + section + variant (e.g. `renovation:plan`). */
@@ -96,7 +110,7 @@ const EMPTY_LEASE_MAP: ReadonlyMap<string, { fullname: string; email: string }> 
 /** The same for the remote-cell previews (tooltips over other users' cells). */
 const EMPTY_CELL_INFO: ReadonlyMap<string, { name: string; label: string | null }> = new Map();
 
-export type RawMaterialsGridState = {
+export type DataGridState = {
     columns: ExportColumn[];
     rowIds: string[];
 };
@@ -128,8 +142,8 @@ export type GridViewStats = {
     editableCols: number;
 };
 
-export type RawMaterialsGridHandle = {
-    getExportState: () => Promise<RawMaterialsGridState>;
+export type DataGridHandle = {
+    getExportState: () => Promise<DataGridState>;
     copySelection: () => Promise<void>;
     pasteIntoSelection: () => Promise<void>;
     /** Reset the cell range selection (same path as Escape). */
@@ -346,7 +360,21 @@ export function sortingConfigFromEvent(detail: GridSortingEvent): GridSortingCon
     };
 }
 
-function RawMaterialsGridInner(
+/**
+ * The shared editable grid of the application.
+ *
+ * It is the table behind THREE projects — «Сырьё», «КППК» and the renovation
+ * reference dictionaries — which is why it is named after what it IS and not
+ * after one of its callers. It used to be `RawMaterialsGrid` in
+ * `raw-materials-grid.tsx`, with a `.raw-materials-grid` root class styling all
+ * of them: a name that told every reader of КППК and the renovation dictionaries
+ * that they were looking at «Сырьё».
+ *
+ * The object-level plan is NOT a consumer: it renders its own RevoGrid
+ * (`features/renovation/renovation-grid.tsx`), so a change made here does not
+ * reach it.
+ */
+function DataGridInner(
     {
         section,
         rows,
@@ -387,7 +415,7 @@ function RawMaterialsGridInner(
         onFiltersChange,
         scrollPosition,
     }: Props,
-    forwardedRef: Ref<RawMaterialsGridHandle>,
+    forwardedRef: Ref<DataGridHandle>,
 ) {
     const gridRef = useRef<HTMLRevoGridElement>(null);
     // CellMergePlugin binds its config to the grid's `cellMerge` DOM property
@@ -1035,8 +1063,8 @@ function RawMaterialsGridInner(
                         ...result,
                         className: {
                             ...result?.className,
-                            "raw-materials-grid__summary-cell": true,
-                            "raw-materials-grid__summary-cell--filled": typeof value === "number",
+                            "data-grid__summary-cell": true,
+                            "data-grid__summary-cell--filled": typeof value === "number",
                         },
                     };
                 }) as ColumnRegular["cellProperties"];
@@ -1869,7 +1897,7 @@ function RawMaterialsGridInner(
             window.removeEventListener("pointercancel", onPointerUp);
         };
     }, [refreshHorizontalScrollbar, widthKeySection]);
-    const getExportState = useCallback(async (): Promise<RawMaterialsGridState> => {
+    const getExportState = useCallback(async (): Promise<DataGridState> => {
         const grid = gridRef.current;
         if (!grid) {
             return {
@@ -2162,7 +2190,7 @@ function RawMaterialsGridInner(
             );
             if (columns.length === 0) {
                 userSortedSectionsRef.current.delete(section);
-                gridRef.current?.classList.remove("raw-materials-grid--user-sorted");
+                gridRef.current?.classList.remove("data-grid--user-sorted");
                 setMergesDropped(false);
                 const configured = configuredCellMergeRef.current;
                 if (configured !== undefined && gridRef.current) {
@@ -2198,7 +2226,7 @@ function RawMaterialsGridInner(
         sortingBySectionRef.current.delete(section);
         writeStoredSorting(sortingScope, section, []);
         userSortedSectionsRef.current.delete(section);
-        grid?.classList.remove("raw-materials-grid--user-sorted");
+        grid?.classList.remove("data-grid--user-sorted");
         setMergesDropped(false);
         const configured = configuredCellMergeRef.current;
         if (configured !== undefined && grid) grid.cellMerge = configured;
@@ -2836,11 +2864,10 @@ function RawMaterialsGridInner(
                 <RevoGrid
                     ref={gridRef}
                     className={[
-                        "raw-materials-grid",
-                        headerRowCount > 1 && "raw-materials-grid--merged-header",
-                        Boolean(pinnedTopSource?.length) && "raw-materials-grid--summary",
-                        userSortedSectionsRef.current.has(section) &&
-                            "raw-materials-grid--user-sorted",
+                        "data-grid",
+                        headerRowCount > 1 && "data-grid--merged-header",
+                        Boolean(pinnedTopSource?.length) && "data-grid--summary",
+                        userSortedSectionsRef.current.has(section) && "data-grid--user-sorted",
                     ]
                         .filter(Boolean)
                         .join(" ")}
@@ -2884,7 +2911,7 @@ function RawMaterialsGridInner(
                                 const grid = gridRef.current;
                                 if (!grid) return;
                                 const stored = sortingBySectionRef.current.get(section);
-                                grid.classList.add("raw-materials-grid--user-sorted");
+                                grid.classList.add("data-grid--user-sorted");
                                 grid.sorting = {
                                     columns: (stored?.columns ?? []).map((column) => ({
                                         prop: column.prop,
@@ -2953,7 +2980,7 @@ function RawMaterialsGridInner(
                                 })),
                             );
                             userSortedSectionsRef.current.add(section);
-                            gridRef.current?.classList.add("raw-materials-grid--user-sorted");
+                            gridRef.current?.classList.add("data-grid--user-sorted");
                             onSortingChange?.(true);
                             bumpSorting();
                         }
@@ -2967,7 +2994,7 @@ function RawMaterialsGridInner(
                             setMergesDropped(true);
                         });
                         userSortedSectionsRef.current.add(section);
-                        gridRef.current?.classList.add("raw-materials-grid--user-sorted");
+                        gridRef.current?.classList.add("data-grid--user-sorted");
                     }}
                     onAftersortingapply={(event) => {
                         // The PLUGIN applied a sorting — it does not say what the
@@ -2986,7 +3013,7 @@ function RawMaterialsGridInner(
                             // The plugin agrees there is nothing sorted: the merges
                             // and the arrow class follow.
                             userSortedSectionsRef.current.delete(section);
-                            gridRef.current?.classList.remove("raw-materials-grid--user-sorted");
+                            gridRef.current?.classList.remove("data-grid--user-sorted");
                         }
                         bumpSorting();
                         // The event fires in BURSTS for one click (the grid
@@ -3120,7 +3147,7 @@ function RawMaterialsGridInner(
     );
 }
 
-export const RawMaterialsGrid = forwardRef(RawMaterialsGridInner);
+export const DataGrid = forwardRef(DataGridInner);
 
 function canonicalOptions(
     values: unknown[],

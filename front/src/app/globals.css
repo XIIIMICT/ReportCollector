@@ -1602,7 +1602,7 @@ body {
 /* ─── RevoGrid (таблицы «Сырьё») ─────────────────────────── */
 
 .revo-grid-shell,
-.raw-materials-grid {
+.data-grid {
     width: 100%;
 }
 
@@ -1620,7 +1620,7 @@ body {
     min-height: 0;
 }
 
-.revo-grid-shell--pinned .raw-materials-grid {
+.revo-grid-shell--pinned .data-grid {
     height: 100%;
 }
 
@@ -1637,7 +1637,7 @@ body {
     padding-bottom: 17px;
 }
 
-.revo-grid-shell:not(.revo-grid-shell--pinned) .raw-materials-grid {
+.revo-grid-shell:not(.revo-grid-shell--pinned) .data-grid {
     height: var(--grid-content-height);
     min-height: 100%;
 }
@@ -1652,11 +1652,11 @@ body {
    strip hosts, and Firefox paints the native scrollbar of a
    visibility:hidden scroll container — a zero-size strip has no scrollbar
    to paint in any browser. */
-.revo-grid-shell:not(.revo-grid-shell--pinned) .raw-materials-grid revogr-scroll-virtual {
+.revo-grid-shell:not(.revo-grid-shell--pinned) .data-grid revogr-scroll-virtual {
     visibility: hidden;
 }
 
-.revo-grid-shell:not(.revo-grid-shell--pinned) .raw-materials-grid revogr-scroll-virtual.vertical {
+.revo-grid-shell:not(.revo-grid-shell--pinned) .data-grid revogr-scroll-virtual.vertical {
     width: 0 !important;
     min-width: 0 !important;
 }
@@ -1668,11 +1668,11 @@ body {
    the renovation plan), so without this it starts at the shell's top and runs
    across the header cells' right edge. Offset it below the header the same way
    the plan offsets it below its summary row: `top` + the matching height cut. */
-.revo-grid-shell .raw-materials-grid revogr-scroll-virtual.vertical {
+.revo-grid-shell .data-grid revogr-scroll-virtual.vertical {
     top: var(--grid-header-height, 0px);
     height: calc(100% - var(--grid-header-height, 0px)) !important;
 }
-.revo-grid-shell .raw-materials-grid revogr-scroll-virtual.horizontal {
+.revo-grid-shell .data-grid revogr-scroll-virtual.horizontal {
     height: 0 !important;
     min-height: 0 !important;
 }
@@ -1722,11 +1722,11 @@ body {
 /* revo-grid's light theme (theme="compact") sets color-scheme: light on
    its host — without this, native scrollbars (and form controls) inside
    the grid stay light even in the app's dark theme. */
-.dark .raw-materials-grid {
+.dark .data-grid {
     color-scheme: dark;
 }
 
-.raw-materials-grid {
+.data-grid {
     --revo-grid-font-family: var(--font-sans);
     --revo-grid-font-size: 12px;
     --revo-grid-header-height: var(--grid-header-row-height, 44px);
@@ -1780,42 +1780,42 @@ body {
 }
 
 /* Панель фильтров и выпадающие списки RevoGrid: тёмный фон + светлый текст */
-.raw-materials-grid revogr-filter-panel .filter-panel-dialog,
-.raw-materials-grid revo-dropdown .rv-dr-root {
+.data-grid revogr-filter-panel .filter-panel-dialog,
+.data-grid revo-dropdown .rv-dr-root {
     color: var(--foreground) !important;
     background-color: var(--surface) !important;
 }
 
-.raw-materials-grid revogr-filter-panel .filter-panel-dialog input[type="text"],
-.raw-materials-grid revogr-filter-panel .filter-panel-dialog input[type="date"],
-.raw-materials-grid revogr-filter-panel .select-css,
-.raw-materials-grid revo-dropdown .rv-dr-root .rv-dr-item {
+.data-grid revogr-filter-panel .filter-panel-dialog input[type="text"],
+.data-grid revogr-filter-panel .filter-panel-dialog input[type="date"],
+.data-grid revogr-filter-panel .select-css,
+.data-grid revo-dropdown .rv-dr-root .rv-dr-item {
     color: var(--foreground) !important;
     background-color: var(--surface-secondary) !important;
 }
 
-.raw-materials-grid revogr-filter-panel .filter-actions {
+.data-grid revogr-filter-panel .filter-actions {
     background: var(--surface) !important;
 }
 
-.raw-materials-grid .revo-button.green {
+.data-grid .revo-button.green {
     background-color: var(--success) !important;
 }
 
-.raw-materials-grid .revo-button.red {
+.data-grid .revo-button.red {
     background-color: var(--danger) !important;
 }
 
-.raw-materials-grid revogr-header,
-.raw-materials-grid revogr-header .header-rgRow,
-.raw-materials-grid revogr-header .group-rgRow,
-.raw-materials-grid revogr-header .rgHeaderCell,
-.raw-materials-grid .rowHeaders,
-.raw-materials-grid .header-wrapper {
+.data-grid revogr-header,
+.data-grid revogr-header .header-rgRow,
+.data-grid revogr-header .group-rgRow,
+.data-grid revogr-header .rgHeaderCell,
+.data-grid .rowHeaders,
+.data-grid .header-wrapper {
     background-color: var(--surface) !important;
 }
 
-.raw-materials-grid revogr-header .rgHeaderCell .header-content {
+.data-grid revogr-header .rgHeaderCell .header-content {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1831,7 +1831,7 @@ body {
         margin-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.raw-materials-grid:not(.raw-materials-grid--user-sorted) revogr-header .sort-indicator {
+.data-grid:not(.data-grid--user-sorted) revogr-header .sort-indicator {
     display: none !important;
 }
 
@@ -1854,7 +1854,7 @@ body {
    `--muted` — the color the funnel resolves to (it uses the grid-local
    `--revo-grid-filter-panel-icon`, not defined on the renovation/dictionary
    grids). */
-.raw-materials-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls,
+.data-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls,
 .renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls {
     /* The row's left edge is where the arrow lands (it is the first child), so
        this is also the arrow's offset from the cell's left edge. */
@@ -1869,7 +1869,7 @@ body {
     justify-content: space-between;
 }
 
-.raw-materials-grid revogr-header .rgHeaderCell .header-controls .sort-indicator,
+.data-grid revogr-header .rgHeaderCell .header-controls .sort-indicator,
 .renovation-grid revogr-header .rgHeaderCell .header-controls .sort-indicator {
     order: -1;
     display: inline-flex;
@@ -1881,12 +1881,12 @@ body {
     transition: opacity 267ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.raw-materials-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls .sort-indicator,
+.data-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls .sort-indicator,
 .renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls .sort-indicator {
     opacity: 1;
 }
 
-.raw-materials-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content,
+.data-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content,
 .renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content {
     margin-left: 24px;
     /* Keep the label's centering basis IDENTICAL in both sort states: RevoGrid
@@ -1905,7 +1905,7 @@ body {
    a filter is pinned). Mirror BOTH triggers here — otherwise the funnel overlaps
    the label on a sorted column and, unlike an unsorted one, the text does not
    make room, which breaks the centering symmetry. */
-.raw-materials-grid
+.data-grid
     revogr-header
     .rgHeaderCell:is(.asc, .desc):is(:hover, :focus-within, :has(.rv-filter.active))
     .header-content {
@@ -1913,66 +1913,66 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .raw-materials-grid revogr-header .rgHeaderCell .rv-filter,
-    .raw-materials-grid revogr-header .rgHeaderCell .header-content,
+    .data-grid revogr-header .rgHeaderCell .rv-filter,
+    .data-grid revogr-header .rgHeaderCell .header-content,
     .renovation-grid revogr-header .rgHeaderCell .header-content,
-    .raw-materials-grid revogr-header .rgHeaderCell .header-controls .sort-indicator,
+    .data-grid revogr-header .rgHeaderCell .header-controls .sort-indicator,
     .renovation-grid revogr-header .rgHeaderCell .header-controls .sort-indicator {
         transition: none;
     }
 }
 
-.raw-materials-grid revogr-header .header-rgRow,
-.raw-materials-grid revogr-header .group-rgRow,
-.raw-materials-grid revogr-data .rgRow {
+.data-grid revogr-header .header-rgRow,
+.data-grid revogr-header .group-rgRow,
+.data-grid revogr-data .rgRow {
     box-shadow: none !important;
 }
 
-.raw-materials-grid revogr-header .rgHeaderCell {
+.data-grid revogr-header .rgHeaderCell {
     border: 0 !important;
     box-shadow:
         -1px 0 0 var(--cell-border) inset,
         0 -1px 0 var(--cell-border) inset !important;
 }
 
-.raw-materials-grid revogr-header .rgHeaderCell.report-header-cell--outer-top,
-.raw-materials-grid .rowHeaders revogr-header .rgHeaderCell {
+.data-grid revogr-header .rgHeaderCell.report-header-cell--outer-top,
+.data-grid .rowHeaders revogr-header .rgHeaderCell {
     box-shadow:
         0 1px 0 var(--cell-border) inset,
         -1px 0 0 var(--cell-border) inset,
         0 -1px 0 var(--cell-border) inset !important;
 }
 
-.raw-materials-grid revogr-header .rgHeaderCell.report-header-cell--rowspan {
+.data-grid revogr-header .rgHeaderCell.report-header-cell--rowspan {
     top: calc(-1 * var(--revo-grid-header-height));
     height: 200%;
     z-index: 2;
 }
 
-.raw-materials-grid revogr-data .rgCell {
+.data-grid revogr-data .rgCell {
     border: 0 !important;
     box-shadow:
         -1px 0 0 var(--cell-border) inset,
         0 -1px 0 var(--cell-border) inset !important;
 }
 
-.raw-materials-grid revogr-viewport-scroll.colPinStart {
+.data-grid revogr-viewport-scroll.colPinStart {
     box-shadow: none !important;
 }
 
-.raw-materials-grid revogr-data .rgRow.focused-rgRow {
+.data-grid revogr-data .rgRow.focused-rgRow {
     background-color: transparent !important;
 }
 
-.raw-materials-grid .rowHeaders revogr-header .rgHeaderCell,
-.raw-materials-grid .rowHeaders revogr-data .rgCell.report-row-header {
+.data-grid .rowHeaders revogr-header .rgHeaderCell,
+.data-grid .rowHeaders revogr-data .rgCell.report-row-header {
     box-shadow:
         1px 0 0 var(--cell-border) inset,
         -1px 0 0 var(--cell-border) inset,
         0 -1px 0 var(--cell-border) inset !important;
 }
 
-.raw-materials-grid .rowHeaders revogr-header .rgHeaderCell {
+.data-grid .rowHeaders revogr-header .rgHeaderCell {
     box-shadow:
         1px 0 0 var(--cell-border) inset,
         0 1px 0 var(--cell-border) inset,
@@ -1980,7 +1980,7 @@ body {
         0 -1px 0 var(--cell-border) inset !important;
 }
 
-.raw-materials-grid revogr-data .rgCell.report-cell {
+.data-grid revogr-data .rgCell.report-cell {
     background: var(--cell-base) !important;
     color: var(--foreground);
     font-variant-numeric: tabular-nums;
@@ -1992,13 +1992,13 @@ body {
    merged height — `flex` makes the label a centered flex item in browsers
    where the cell is a container, and `line-height` alone keeps single-row
    cells unchanged. */
-.raw-materials-grid revogr-data .rgCell[merged]:not(.report-row-header) {
+.data-grid revogr-data .rgCell[merged]:not(.report-row-header) {
     display: flex;
     align-items: center;
     justify-content: flex-start;
 }
 
-.raw-materials-grid revogr-data .rgCell.report-cell--selected {
+.data-grid revogr-data .rgCell.report-cell--selected {
     background-image: linear-gradient(rgb(0 120 99 / 10%), rgb(0 120 99 / 10%)) !important;
 }
 
@@ -2140,7 +2140,7 @@ body {
     color: var(--muted);
 }
 
-.raw-materials-grid .rowHeaders revogr-data .rgCell.report-row-header--selected {
+.data-grid .rowHeaders revogr-data .rgCell.report-row-header--selected {
     color: var(--foreground);
     background: var(--accent-glow);
 }
@@ -2171,7 +2171,7 @@ body {
     cursor: default;
 }
 
-.raw-materials-grid revogr-data .rgCell.report-cell--readonly {
+.data-grid revogr-data .rgCell.report-cell--readonly {
     color: var(--muted);
 }
 
@@ -2192,33 +2192,33 @@ body {
     white-space: nowrap;
 }
 
-.raw-materials-grid revogr-data .rgCell.report-cell--placeholder {
+.data-grid revogr-data .rgCell.report-cell--placeholder {
     background: var(--cell-placeholder) !important;
 }
 
-.raw-materials-grid revogr-data .rgCell.report-cell--empty {
+.data-grid revogr-data .rgCell.report-cell--empty {
     background: var(--cell-empty) !important;
 }
 
-.raw-materials-grid revogr-data .rgCell.report-cell--calculated {
+.data-grid revogr-data .rgCell.report-cell--calculated {
     background: var(--cell-calculated) !important;
 }
 
-.raw-materials-grid revogr-data .rgCell.report-cell--new {
+.data-grid revogr-data .rgCell.report-cell--new {
     background: var(--cell-new) !important;
 }
 
-.raw-materials-grid revogr-data .rgCell.report-cell--changed {
+.data-grid revogr-data .rgCell.report-cell--changed {
     background: var(--cell-changed) !important;
 }
 
-.raw-materials-grid revogr-data .rgCell.report-cell--deleted {
+.data-grid revogr-data .rgCell.report-cell--deleted {
     background: var(--cell-deleted) !important;
     color: #8c1d18;
     text-decoration: line-through;
 }
 
-.raw-materials-grid revogr-data .rgCell.report-cell--number,
+.data-grid revogr-data .rgCell.report-cell--number,
 .report-cell__number {
     justify-content: flex-end;
     width: 100%;
@@ -2401,7 +2401,7 @@ body {
 /* Pinned summary row (the assets dictionary): one vertical (right) + one bottom
    border, white empty cells and a green numeric total — like the plan's
    summary. Its row header shows no number. */
-.raw-materials-grid revogr-data .rgCell.raw-materials-grid__summary-cell {
+.data-grid revogr-data .rgCell.data-grid__summary-cell {
     background: var(--surface) !important;
     box-shadow:
         -1px 0 0 var(--cell-border) inset,
@@ -2409,22 +2409,22 @@ body {
     font-weight: 650;
 }
 
-.raw-materials-grid revogr-data .rgCell.raw-materials-grid__summary-cell--filled {
+.data-grid revogr-data .rgCell.data-grid__summary-cell--filled {
     background: var(--cell-calculated) !important;
 }
 
 /* No line between the header and the pinned summary row: drop any bottom edge
    on the header and any top edge on the summary cells. */
-.raw-materials-grid--summary revogr-header,
-.raw-materials-grid--summary revogr-header .header-rgRow,
-.raw-materials-grid--summary revogr-header .group-rgRow,
-.raw-materials-grid--summary revogr-header .rgHeaderCell {
+.data-grid--summary revogr-header,
+.data-grid--summary revogr-header .header-rgRow,
+.data-grid--summary revogr-header .group-rgRow,
+.data-grid--summary revogr-header .rgHeaderCell {
     border-bottom: 0 !important;
     box-shadow: none !important;
 }
 
-.raw-materials-grid--summary revogr-data .rgCell.raw-materials-grid__summary-cell,
-.raw-materials-grid--summary revogr-data .rgCell.raw-materials-grid__summary-cell--filled {
+.data-grid--summary revogr-data .rgCell.data-grid__summary-cell,
+.data-grid--summary revogr-data .rgCell.data-grid__summary-cell--filled {
     border-top: 0 !important;
 }
 
@@ -2435,15 +2435,15 @@ body {
    merged column-number cells. The totals columns keep a separate header cell
    and the green totals cell below it. The pinned row is as tall as the grid's
    rowSize (36). */
-.raw-materials-grid--summary revogr-header .rgHeaderCell.report-header-cell--summary-merge,
-.raw-materials-grid--summary .rowHeaders revogr-header .rgHeaderCell.report-row-header--heading {
+.data-grid--summary revogr-header .rgHeaderCell.report-header-cell--summary-merge,
+.data-grid--summary .rowHeaders revogr-header .rgHeaderCell.report-row-header--heading {
     height: calc(100% + var(--rm-summary-row-height)) !important;
     z-index: 2;
 }
 
 /* The row header's «№» rests on the cell's line box; centre it in the merged
    cell so it sits level with the stretched column headers. */
-.raw-materials-grid--summary .rowHeaders revogr-header .rgHeaderCell.report-row-header--heading {
+.data-grid--summary .rowHeaders revogr-header .rgHeaderCell.report-row-header--heading {
     align-items: center;
 }
 
@@ -2451,9 +2451,7 @@ body {
     display: block;
 }
 
-.raw-materials-grid.raw-materials-grid--merged-header
-    revogr-header
-    .rgHeaderCell.report-row-header--heading {
+.data-grid.data-grid--merged-header revogr-header .rgHeaderCell.report-row-header--heading {
     top: calc(-1 * var(--grid-header-height) / 2);
     height: 200%;
     z-index: 2;
@@ -3060,7 +3058,7 @@ body {
     opacity: 0 !important;
     pointer-events: none !important;
 }
-.raw-materials-grid revogr-edit:has(.grid-autocomplete-editor),
+.data-grid revogr-edit:has(.grid-autocomplete-editor),
 .renovation-grid revogr-edit:has(.grid-autocomplete-editor) {
     background: transparent !important;
     border-color: transparent !important;
@@ -3180,7 +3178,7 @@ body {
     z-index: 2;
 }
 
-.raw-materials-grid revogr-header .rgHeaderCell .header-content {
+.data-grid revogr-header .rgHeaderCell .header-content {
     position: static;
     z-index: auto;
 }

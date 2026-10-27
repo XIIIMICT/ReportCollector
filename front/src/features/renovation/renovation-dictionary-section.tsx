@@ -31,13 +31,13 @@ import {
 import { canonicalCellKey, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import { isValidEmail } from "@/shared/email";
-import { getEditableKeys, type ColumnDescriptor, type GridRow } from "@/shared/grid/grid-config";
 import {
-    RawMaterialsGrid,
+    DataGrid,
     SUMMARY_ROW_ID,
     type GridViewStats,
-    type RawMaterialsGridHandle,
-} from "@/shared/grid/raw-materials-grid";
+    type DataGridHandle,
+} from "@/shared/grid/data-grid";
+import { getEditableKeys, type ColumnDescriptor, type GridRow } from "@/shared/grid/grid-config";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { DeleteRecordDialog } from "@/shared/ui/action-items";
@@ -261,7 +261,7 @@ export function RenovationDictionarySection({
     onGridStatsChange: (stats: GridViewStats) => void;
     currentUserEmail: string | undefined;
 }) {
-    const gridRef = useRef<RawMaterialsGridHandle>(null);
+    const gridRef = useRef<DataGridHandle>(null);
     const [reloadKey, setReloadKey] = useState(0);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const [deleteOpen, setDeleteOpen] = useState(false);
@@ -715,7 +715,7 @@ export function RenovationDictionarySection({
     const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
 
     // Stabilize the props we hand to the grid: the `columns` memo inside
-    // RawMaterialsGrid depends on `assets`/`deliveryBases`/`onPlaceholderCommit`,
+    // DataGrid depends on `assets`/`deliveryBases`/`onPlaceholderCommit`,
     // and the selection row-identity depends on `onSelectedRowsChange`. Passing
     // fresh references each render rebuilds columns → RevoGrid re-emits cell
     // focus → fresh row-selection → grid's selection effect calls this setter →
@@ -768,7 +768,7 @@ export function RenovationDictionarySection({
 
     return (
         <>
-            <RawMaterialsGrid
+            <DataGrid
                 ref={gridRef}
                 section={dictSection}
                 rows={displayRows}

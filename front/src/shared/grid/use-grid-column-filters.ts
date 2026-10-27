@@ -299,7 +299,7 @@ function write(key: string, filters: Record<string, ColumnFilter>): void {
  * change without unmounting the hook (`null` while the section is unknown, so
  * nothing is read or written until it resolves).
  *
- * Pass the result straight to `RawMaterialsGrid`:
+ * Pass the result straight to `DataGrid`:
  * `filters={filters} onFiltersChange={setFilters}`.
  */
 export function useGridColumnFilters(project: string, section: string | null) {

@@ -1,7 +1,7 @@
 /**
  * Shared grid utilities
  *
- * These utilities are extracted from raw-materials-grid and renovation-grid
+ * These utilities are extracted from data-grid and renovation-grid
  * to eliminate duplication and provide reusable patterns.
  */
 

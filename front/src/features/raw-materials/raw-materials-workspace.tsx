@@ -65,6 +65,7 @@ import {
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import { isValidEmail } from "@/shared/email";
+import { DataGrid, type GridViewStats, type DataGridHandle } from "@/shared/grid/data-grid";
 import {
     ADMIN_SECTIONS,
     exportFileName,
@@ -76,11 +77,6 @@ import {
     type ReferenceOption,
     type SectionId,
 } from "@/shared/grid/grid-config";
-import {
-    RawMaterialsGrid,
-    type GridViewStats,
-    type RawMaterialsGridHandle,
-} from "@/shared/grid/raw-materials-grid";
 import {
     collaborationAvailableFor,
     undoAvailableFor,
@@ -480,7 +476,7 @@ function SectionContent({
     // wait for it: otherwise the undo request can reach the server before the
     // edit is journaled and would silently do nothing.
     const pendingCommitRef = useRef<Promise<boolean> | null>(null);
-    const gridRef = useRef<RawMaterialsGridHandle>(null);
+    const gridRef = useRef<DataGridHandle>(null);
     // When another tab of the same account takes over the selection, the grid
     // is cleared programmatically; the resulting empty presence update must be
     // swallowed (the server entry belongs to the other tab).
@@ -1166,7 +1162,7 @@ function SectionContent({
         <>
             <div className="grid-viewport" aria-busy={isMutationPending || snapshotPending}>
                 <GridErrorBoundary>
-                    <RawMaterialsGrid
+                    <DataGrid
                         ref={gridRef}
                         section={section}
                         rows={displayRows}

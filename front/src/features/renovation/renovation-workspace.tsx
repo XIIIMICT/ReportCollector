@@ -65,7 +65,7 @@ import {
 import { canonicalCellKey, useCollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
-import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
+import type { GridViewStats } from "@/shared/grid/data-grid";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { SectionTabs } from "@/shared/grid/section-tabs";
 import { readStoredFilters, writeStoredFilters } from "@/shared/grid/use-grid-column-filters";

@@ -11,7 +11,7 @@ import {
 } from "@/shared/collab/collab-presence";
 import type { CollabRoom } from "@/shared/collab/use-collab-room";
 import type { CollabMember } from "@/shared/collab/ws-client";
-import type { GridViewStats } from "@/shared/grid/raw-materials-grid";
+import type { GridViewStats } from "@/shared/grid/data-grid";
 
 /**
  * One merged footer summary for a collaborating table: the collab presence

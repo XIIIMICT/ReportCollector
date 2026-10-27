@@ -26,12 +26,8 @@ import type { CellUpdate } from "@/shared/api/raw-materials";
 import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
+import { DataGrid, type GridViewStats, type DataGridHandle } from "@/shared/grid/data-grid";
 import { exportFileName, type ColumnDescriptor, type GridRow } from "@/shared/grid/grid-config";
-import {
-    RawMaterialsGrid,
-    type GridViewStats,
-    type RawMaterialsGridHandle,
-} from "@/shared/grid/raw-materials-grid";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
@@ -539,7 +535,7 @@ export function KppkRealizationSection({
     }, [isCost, mergesOff, showExcise, slice, view?.rows]);
 
     // ── Workspace wiring (footer actions, strip handlers) ──
-    const gridRef = useRef<RawMaterialsGridHandle>(null);
+    const gridRef = useRef<DataGridHandle>(null);
     // The exported row count is the one the footer status shows: the grid
     // measures it (filters applied, placeholders dropped) and publishes it
     // through `onViewStatsChange`. Deriving it here instead kept the two
@@ -669,7 +665,7 @@ export function KppkRealizationSection({
 
     return (
         <div className="grid-viewport">
-            <RawMaterialsGrid
+            <DataGrid
                 ref={gridRef}
                 section={roomSection}
                 rows={gridRows}

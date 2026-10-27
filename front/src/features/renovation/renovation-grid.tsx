@@ -77,7 +77,7 @@ import type {
 import { parsePastedText, serializeCellValue } from "@/shared/grid";
 import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
-import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/raw-materials-grid";
+import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/data-grid";
 import { reactEditor } from "@/shared/grid/react-editor";
 import { isChunkedSection } from "@/shared/grid/section-policy";
 import { selectionDetailForColumn } from "@/shared/grid/selection-label";

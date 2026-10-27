@@ -1,7 +1,7 @@
 /**
  * The grid's operational callbacks every workspace writes by hand.
  *
- * `<RawMaterialsGrid>` takes four toast handlers (`onValidationError`,
+ * `<DataGrid>` takes four toast handlers (`onValidationError`,
  * `onPasteSkipped`, `onPasteTruncated`, `onLockedCellEdit`) that were pasted
  * into five call sites. The copies had already drifted: the lock message says
  * «занимает» in the dictionaries and «редактирует» in the forms, and two of the
