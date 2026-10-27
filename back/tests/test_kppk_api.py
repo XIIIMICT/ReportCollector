@@ -958,3 +958,74 @@ async def test_realization_export_renders_the_selected_view(client: AsyncClient,
         "A4:A5",  # «Сода … Б» — one product, two markets
         "B4:B5",
     ]
+
+
+async def test_realization_export_honours_the_visible_rows_and_their_order(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """«Видимая» exports the grid's rows in the grid's order, not the whole view.
+
+    The header filters and the sort run CLIENT-side, so the grid sends the row
+    ids it shows — filtered AND already ordered. The export must keep that set
+    and that order; re-reading the view would silently export everything.
+    """
+    org = await _org_by_name(db_session, "АО «СНХЗ»")
+    everything = await client.post(
+        "/api/kppk/realization/export",
+        headers=ADMIN_HEADERS,
+        json={
+            "slice": "bp",
+            "orgId": str(org.id),
+            "month": 6,
+            "year": 2026,
+            "headerPinned": True,
+            "columns": [
+                {"key": "productNum", "headerPath": ["№"], "width": 8},
+                {"key": "product", "headerPath": ["Продукция"], "width": 40},
+                {"key": "region", "headerPath": ["Рынок"], "width": 12},
+            ],
+            "fileName": "Все.xlsx",
+        },
+    )
+    assert everything.status_code == 200
+    sheet_all = load_workbook(BytesIO(everything.content)).worksheets[0]
+    # Single-level headers occupy ONE row here, so the data starts at row 2.
+    all_rows = list(sheet_all.iter_rows(min_row=2, values_only=True))
+    # The fixture's view: four market rows across three products.
+    assert len(all_rows) == 4
+
+    # Dig the ids out of the read endpoint, then simulate the grid showing only
+    # the two rows it kept, in the reverse of the view's «№» order — the export
+    # must follow THAT order.
+    listing = await client.get(
+        "/api/kppk/realization",
+        headers=ADMIN_HEADERS,
+        params={"slice": "bp", "orgId": str(org.id), "month": 6, "year": 2026},
+    )
+    assert listing.status_code == 200
+    view_rows = listing.json()["rows"]
+    kept = [row for row in view_rows if row["product"] == "Сода кальцинированная марки Б"]
+    assert len(kept) == 2, "the fixture has «Сода … Б» over two markets"
+
+    response = await client.post(
+        "/api/kppk/realization/export",
+        headers=ADMIN_HEADERS,
+        json={
+            "slice": "bp",
+            "orgId": str(org.id),
+            "month": 6,
+            "year": 2026,
+            # Reversed on purpose: the client's order wins.
+            "rowIds": [row["id"] for row in reversed(kept)],
+            "headerPinned": True,
+            "columns": [{"key": "region", "headerPath": ["Рынок"], "width": 12}],
+            "fileName": "Видимая.xlsx",
+        },
+    )
+    assert response.status_code == 200
+    sheet = load_workbook(BytesIO(response.content)).worksheets[0]
+    # A single-level header occupies ONE row, so the data starts at row 2 —
+    # the visible set is two rows, not the view's four.
+    visible = [row[0] for row in sheet.iter_rows(min_row=2, values_only=True)]
+    assert len(visible) == 2, "only the visible rows export"
+    assert visible == [row["region"] for row in reversed(kept)]

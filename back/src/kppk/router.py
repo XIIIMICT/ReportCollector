@@ -1037,9 +1037,11 @@ async def export_kppk_realization(
     """
     Excel export of the «Реализация» view (one slice × ДЗО × period).
 
-    The request replays the toolbar's selection — the server re-reads the same
-    rows in the same order, so «вся таблица» means the whole view. «Видимая» is
-    the same thing here: the form has no client-side column filters.
+    «Вся таблица» (`rowIds` null) replays the toolbar selection: the server
+    re-reads the whole view. «Видимая» sends the rows the grid currently shows —
+    the grid filters and sorts CLIENT-side, so only it knows that set and its
+    order, and the server must not try to reimplement either. The rows are
+    emitted in the order received, which keeps a sorted export sorted.
     """
     try:
         validate_realization_export(request)
@@ -1050,6 +1052,11 @@ async def export_kppk_realization(
             month=request.month,
             year=request.year,
         )
+        if request.rowIds is not None:
+            # Keep the CLIENT's order and drop anything that is not in view
+            # (a stale id — deleted elsewhere — simply does not export).
+            by_id = {row.id: row for row in rows}
+            rows = [by_id[row_id] for row_id in request.rowIds if row_id in by_id]
     except ExportValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
     except (KppkValidationError, KppkNotFoundError) as error:

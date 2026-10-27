@@ -48,9 +48,9 @@ import {
 } from "@/shared/ui/add-record-modal";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { ReplaceRecordDialog, type ReplaceTargetOption } from "@/shared/ui/replace-record-dialog";
-import { runTableExport } from "@/shared/ui/table-export-action";
 import { errorMessage, recordLabel, trimmedText } from "@/shared/ui/text-helpers";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useTableExport } from "@/shared/ui/use-table-export";
 import { useDeleteShortcut } from "@/shared/ui/workspace-shortcuts";
 
 /** Standard grid toasts: see `gridWarningHandlers`. */
@@ -268,7 +268,6 @@ export function RenovationDictionarySection({
     // Users are created through a modal (role-dependent fields), other
     // dictionaries still create through the trailing placeholder row.
     const [userCreateOpen, setUserCreateOpen] = useState(false);
-    const [exportPending, setExportPending] = useState(false);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const pendingCommitRef = useRef<Promise<boolean> | null>(null);
     /** The live `doCommit` — `commit` is memoized and must not capture the binding. */
@@ -670,29 +669,21 @@ export function RenovationDictionarySection({
         }
     }
 
-    const exportTable = useCallback(
-        (scope: "all" | "visible") =>
-            runTableExport({
-                pending: exportPending,
-                gridRef,
-                setPending: setExportPending,
-                fileName: () => stampFileName(sectionLabel),
-                request: (state, fileName) =>
-                    exportRenovationDictionary({
-                        section: dictSection,
-                        headerPinned,
-                        columns: state.columns,
-                        // «Видимая таблица» — the rows currently on screen
-                        // (filters/sorting applied), same as the raw project.
-                        rowIds: scope === "visible" ? (state.rowIds ?? null) : null,
-                        fileName,
-                    }),
+    const { pending: exportPending, exportTable } = useTableExport({
+        gridRef,
+        fileName: () => stampFileName(sectionLabel),
+        request: (view, fileName) =>
+            exportRenovationDictionary({
+                section: dictSection,
+                headerPinned,
+                columns: view.columns,
+                rowIds: view.rowIds,
+                fileName,
             }),
-        [dictSection, exportPending, headerPinned, sectionLabel],
-    );
+    });
 
     useEffect(() => {
-        onExportState({ pending: exportPending, onExport: (scope) => void exportTable(scope) });
+        onExportState({ pending: exportPending, onExport: exportTable });
     }, [exportPending, exportTable, onExportState]);
 
     // Header column filters (client-side, shared with every table). ?????????

@@ -474,12 +474,19 @@ export type KppkExportJobDownload = {
     fileUrl: string;
 };
 
-/** The «Реализация» export replays the toolbar's slice × ДЗО × period selection. */
+/**
+ * The «Реализация» export replays the toolbar's slice × ДЗО × period selection.
+ *
+ * `rowIds` is the «видимая» mode: the rows the grid currently shows, in its own
+ * order. The grid filters and sorts CLIENT-side, so this is the only way the
+ * file can match the screen — `null` exports the whole view («вся таблица»).
+ */
 export type KppkRealizationExportRequest = {
     slice: KppkRealizationSlice;
     orgId: string;
     month: string | null;
     year: string | null;
+    rowIds: string[] | null;
     headerPinned: boolean;
     columns: ExportColumn[];
     fileName: string;
@@ -488,8 +495,9 @@ export type KppkRealizationExportRequest = {
 /**
  * Download the «Реализация» view as one sheet.
  *
- * The form is not a dictionary row list but a view, so the request carries the
- * toolbar selection and the server re-reads the same rows in the same order.
+ * The form is a view, so the request carries the toolbar selection; «видимая»
+ * additionally carries the grid's visible rows in the grid's order, because the
+ * column filters and the sort never leave the client.
  */
 export async function exportKppkRealization(request: KppkRealizationExportRequest): Promise<Blob> {
     const result = await downloadTableExport<never>(
@@ -499,7 +507,7 @@ export async function exportKppkRealization(request: KppkRealizationExportReques
             orgId: request.orgId,
             month: request.month === null ? null : Number(request.month),
             year: request.year === null ? null : Number(request.year),
-            rowIds: null,
+            rowIds: request.rowIds,
             headerPinned: request.headerPinned,
             columns: request.columns,
             fileName: request.fileName,

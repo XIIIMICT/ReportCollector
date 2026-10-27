@@ -38,9 +38,9 @@ import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
-import { runTableExport } from "@/shared/ui/table-export-action";
 import { publishSelection, type GridSelectionInfo } from "@/shared/ui/text-helpers";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useTableExport } from "@/shared/ui/use-table-export";
 import { useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
 
 import { expandExcise } from "./kppk-excise";
@@ -544,33 +544,35 @@ export function KppkRealizationSection({
         [onGridStatsChange],
     );
     // The Excel export replays this form's toolbar selection (slice × ДЗО ×
-    // period) and its column shape; the server re-reads the same ordered view.
-    const [exportPending, setExportPending] = useState(false);
-    const onExport = useCallback(
-        (mode: "all" | "visible") => {
-            // «Видимая» equals «вся» here: the form has no client-side filters
-            // — the ДЗО/slice/period selection has already narrowed the view.
-            void mode;
-            if (orgId === null) return;
-            void runTableExport({
-                pending: exportPending,
-                gridRef,
-                setPending: setExportPending,
-                fileName: () => exportFileName(roomSection, null),
-                request: (view, fileName) =>
-                    (isCost ? exportKppkCost : exportKppkRealization)({
-                        slice,
-                        orgId,
-                        month: periodMonth,
-                        year: periodYear,
-                        headerPinned,
-                        columns: view.columns,
-                        rowIds: isCost ? view.rowIds : null,
-                        fileName,
-                    }),
+    // period) and its column shape. «Видимая» sends the rows the grid currently
+    // shows — in the grid's order — because the header filters and the sort run
+    // CLIENT-side. `useTableExport` owns that rule for every grid.
+    const { pending: exportPending, exportTable } = useTableExport({
+        gridRef,
+        fileName: () => exportFileName(roomSection, null),
+        request: (requestView, requestFileName) => {
+            // The guard also runs in `onExport`; this narrows the type for the
+            // request builder and keeps a stray call from exporting a null ДЗО.
+            if (orgId === null) return Promise.reject(new Error("ДЗО не выбрано."));
+            return (isCost ? exportKppkCost : exportKppkRealization)({
+                slice,
+                orgId,
+                month: periodMonth,
+                year: periodYear,
+                headerPinned,
+                columns: requestView.columns,
+                rowIds: requestView.rowIds,
+                fileName: requestFileName,
             });
         },
-        [exportPending, headerPinned, isCost, orgId, periodMonth, periodYear, roomSection, slice],
+    });
+    const onExport = useCallback(
+        (scope: "all" | "visible") => {
+            // No ДЗО selected → there is no view to export.
+            if (orgId === null) return;
+            exportTable(scope);
+        },
+        [exportTable, orgId],
     );
     useEffect(() => {
         onExportState({

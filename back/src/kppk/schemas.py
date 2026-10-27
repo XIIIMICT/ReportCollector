@@ -294,17 +294,20 @@ class KppkRealizationExportRequest(BaseModel):
     """
     Excel export of the «Реализация» view.
 
-    The form is not a dictionary row list but one slice × ДЗО × period, so the
-    export replays the toolbar's selection instead of sending row ids: the
-    server re-reads the same view (and therefore the same ordering).
+    The form is not a dictionary row list but one slice × ДЗО × period, so
+    `rowIds` is what separates the two toolbar modes:
+    - «вся таблица» — `rowIds` is null: the server re-reads the whole view.
+    - «видимая» — `rowIds` lists the rows the GRID currently shows, in the
+      order it shows them. The grid filters and sorts client-side, so only it
+      knows the visible set; the server must not guess. The order is the
+      client's, which is what makes an export of a SORTED grid come out sorted.
     """
 
     slice: Literal["bp", "op", "fact"]
     orgId: UUID
     month: int | None = Field(default=None, ge=1, le=12)
     year: int | None = Field(default=None, ge=2000, le=2100)
-    # The view has no row selection to narrow, so this is always None; it exists
-    # because the shared export-shape validator speaks in terms of it.
+    # The visible rows, in the grid's own order. Null exports the whole view.
     rowIds: list[UUID] | None = None
     headerPinned: bool = True
     columns: list[ExportColumnRequest] = Field(min_length=1, max_length=16)

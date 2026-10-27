@@ -103,7 +103,6 @@ import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action
 import { ReplaceRecordDialog, type ReplaceTargetOption } from "@/shared/ui/replace-record-dialog";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { SmartSelect } from "@/shared/ui/smart-select";
-import { runTableExport } from "@/shared/ui/table-export-action";
 import {
     publishSelection,
     type GridSelectionInfo,
@@ -112,6 +111,7 @@ import {
 import { ToolbarFilters } from "@/shared/ui/toolbar-filters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useTableExport } from "@/shared/ui/use-table-export";
 import { readToolbarFilters, useToolbarFilters } from "@/shared/ui/use-toolbar-filters";
 import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
@@ -619,26 +619,18 @@ function KppkSection({
         onRedo: () => void runRedo(),
     });
 
-    const [exportPending, setExportPending] = useState(false);
-
-    const exportTable = useCallback(
-        (mode: ExportMode) =>
-            runTableExport({
-                pending: exportPending,
-                gridRef,
-                setPending: setExportPending,
-                fileName: () => exportFileName(section, null),
-                request: (state, fileName) =>
-                    exportKppkTable({
-                        section,
-                        headerPinned,
-                        columns: state.columns,
-                        rowIds: mode === "visible" ? state.rowIds : null,
-                        fileName,
-                    }),
+    const { pending: exportPending, exportTable } = useTableExport({
+        gridRef,
+        fileName: () => exportFileName(section, null),
+        request: (view, fileName) =>
+            exportKppkTable({
+                section,
+                headerPinned,
+                columns: view.columns,
+                rowIds: view.rowIds,
+                fileName,
             }),
-        [exportPending, headerPinned, section],
-    );
+    });
 
     useEffect(() => {
         onExportState({

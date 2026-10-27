@@ -115,7 +115,6 @@ import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { ReplaceRecordDialog, type ReplaceTargetOption } from "@/shared/ui/replace-record-dialog";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { SupportButton } from "@/shared/ui/support-button";
-import { runTableExport } from "@/shared/ui/table-export-action";
 import {
     errorMessage,
     recordLabel,
@@ -127,6 +126,7 @@ import {
 import { refreshUndoCounters } from "@/shared/ui/undo-counters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useTableExport } from "@/shared/ui/use-table-export";
 import { useToolbarFilters } from "@/shared/ui/use-toolbar-filters";
 import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
@@ -469,7 +469,6 @@ function SectionContent({
     // edit is journaled and would silently do nothing.
     const pendingCommitRef = useRef<Promise<boolean> | null>(null);
     const gridRef = useRef<RawMaterialsGridHandle>(null);
-    const [exportPending, setExportPending] = useState(false);
     // When another tab of the same account takes over the selection, the grid
     // is cleared programmatically; the resulting empty presence update must be
     // swallowed (the server entry belongs to the other tab).
@@ -853,26 +852,20 @@ function SectionContent({
         }
     }
 
-    const exportTable = useCallback(
-        (mode: ExportMode) =>
-            runTableExport({
-                pending: exportPending,
-                gridRef,
-                setPending: setExportPending,
-                fileName: () => exportFileName(section, reportMonth),
-                request: (state, fileName) =>
-                    exportTableToExcel({
-                        section,
-                        reportMonth,
-                        headerPinned,
-                        columns: state.columns,
-                        rowIds: mode === "visible" ? state.rowIds : null,
-                        snapshotId: isArchive ? selectedSnapshotId : null,
-                        fileName,
-                    }),
+    const { pending: exportPending, exportTable } = useTableExport({
+        gridRef,
+        fileName: () => exportFileName(section, reportMonth),
+        request: (view, fileName) =>
+            exportTableToExcel({
+                section,
+                reportMonth,
+                headerPinned,
+                columns: view.columns,
+                rowIds: view.rowIds,
+                snapshotId: isArchive ? selectedSnapshotId : null,
+                fileName,
             }),
-        [exportPending, isArchive, section, selectedSnapshotId, reportMonth, headerPinned],
-    );
+    });
 
     useEffect(() => {
         onExportState({
