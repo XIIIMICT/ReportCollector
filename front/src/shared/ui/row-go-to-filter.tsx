@@ -4,6 +4,7 @@ import { Label, NumberField, Popover } from "@heroui/react";
 import { Check, Xmark } from "iconoir-react";
 import { useEffect, useRef, useState } from "react";
 
+import { readStoredGoTo, writeStoredGoTo } from "@/shared/grid/use-grid-column-filters";
 import { usePopoverDismiss } from "@/shared/hooks/use-popover-dismiss";
 import { ExpandableButton } from "@/shared/ui/expandable-button";
 import { ExpandableButtonGroup } from "@/shared/ui/expandable-button-group";
@@ -51,6 +52,7 @@ export function RowGoToFilter({
     maxColumn,
     rowLabel = "Номер строки",
     columnLabel = "Номер столбца",
+    storageScope,
     onGoTo,
     onGoToColumn,
     onClose,
@@ -63,12 +65,22 @@ export function RowGoToFilter({
     /** Field captions — for tables whose rows are not a «строки» list. */
     rowLabel?: string;
     columnLabel?: string;
+    /**
+     * Where the two numbers are remembered (`localStorage`, per project +
+     * section). Reopening the popover continues with the numbers used last time
+     * instead of two empty fields; «Отменить» only cancels the jump, not what was
+     * typed. Without a scope the fields start empty.
+     */
+    storageScope?: { project: string; section: string } | undefined;
     onGoTo: (position: number) => void;
     onGoToColumn: (number: number) => void;
     onClose: () => void;
 }) {
-    const [value, setValue] = useState(Number.NaN);
-    const [column, setColumn] = useState(Number.NaN);
+    // The numbers last entered for this table seed the fields; an empty slot
+    // stays an empty field (`NaN` is the NumberField's "no value").
+    const stored = storageScope ? readStoredGoTo(storageScope.project, storageScope.section) : null;
+    const [value, setValue] = useState(stored?.row ?? Number.NaN);
+    const [column, setColumn] = useState(stored?.column ?? Number.NaN);
     const inputRef = useRef<HTMLInputElement>(null);
     const columnInputRef = useRef<HTMLInputElement>(null);
     const popoverRef = useRef<HTMLElement | null>(null);
@@ -78,10 +90,44 @@ export function RowGoToFilter({
     // Focus the row field once the popover has been painted. Doing it with
     // `autoFocus` focused the input mid-render of the parent, which react-aria
     // performs as a `flushSync` call from a lifecycle method.
+    //
+    // The remembered numbers are written into the inputs HERE as well: the
+    // NumberField keeps its state from a commit-on-blur, so a seeded value can
+    // be displayed as `1` while the field never took it.
     useEffect(() => {
-        const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
+        const frame = window.requestAnimationFrame(() => {
+            const input = inputRef.current;
+            const columnField = columnInputRef.current;
+            if (input && stored?.row != null) input.value = String(stored.row);
+            if (columnField && stored?.column != null) columnField.value = String(stored.column);
+            input?.focus();
+        });
         return () => window.cancelAnimationFrame(frame);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    /** Keep what the fields hold (an empty one clears its slot). */
+    const remember = () => {
+        if (!storageScope) return;
+        const read = (input: HTMLInputElement | null): number | null => {
+            const raw = input?.value?.trim() ?? "";
+            if (raw === "") return null;
+            const parsed = Number(raw.replace(",", "."));
+            return Number.isFinite(parsed) ? Math.round(parsed) : null;
+        };
+        writeStoredGoTo(storageScope.project, storageScope.section, {
+            row: read(inputRef.current),
+            column: read(columnInputRef.current),
+        });
+    };
+
+    const cancel = () => {
+        // «Отменить» cancels the JUMP, not the typing: the numbers stay for the
+        // next open, the same way the filter popover keeps its search draft.
+        if (!settled.current) remember();
+        settled.current = true;
+        dismiss();
+    };
 
     const apply = () => {
         if (settled.current) return;
@@ -98,11 +144,7 @@ export function RowGoToFilter({
             // clamped but resolved by the grid to the nearest visible column.
             onGoToColumn(Math.max(1, Math.round(parsedColumn)));
         }
-        dismiss();
-    };
-
-    const cancel = () => {
-        settled.current = true;
+        remember();
         dismiss();
     };
 

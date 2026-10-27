@@ -43,6 +43,7 @@ export function RenovationColumnFilterPopover({
     dateOnly = false,
     initial,
     defaultFilter,
+    storageScope,
     onApply,
     onClose,
 }: {
@@ -60,6 +61,8 @@ export function RenovationColumnFilterPopover({
     dateOnly?: boolean;
     initial: ColumnFilter | null;
     defaultFilter?: ColumnFilter | null;
+    /** Where the search draft of this column is remembered (see the popover). */
+    storageScope?: { project: string; section: string } | undefined;
     onApply: (filter: ColumnFilter | null) => void;
     onClose: () => void;
 }) {
@@ -102,6 +105,7 @@ export function RenovationColumnFilterPopover({
             showUniqueCount={column !== RENOVATION_ID_COLUMN}
             initial={initial}
             defaultFilter={defaultFilter ?? null}
+            storageScope={storageScope}
             onApply={onApply}
             onClose={onClose}
         />

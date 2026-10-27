@@ -71,6 +71,127 @@ export function writeStoredFilters(
     }
 }
 
+/**
+ * The SEARCH DRAFT of one table's header-filter popovers: what the user typed in
+ * the search field / the MIN–MAX pair of a column, kept per column.
+ *
+ * It is working state exactly like the filters themselves, so it is remembered
+ * the same way (`localStorage`, per project + section) and never persisted as a
+ * filter: only «Применить» turns a search into a filter. Closing the popover used
+ * to lose it, so a half-typed search had to be retyped.
+ *
+ * The key is `rc:filterDraft:<project>:<section>`.
+ */
+export type StoredFilterDraft = {
+    /** The text search (a `text` column). */
+    query?: string;
+    /** The MIN–MAX pair (a `number` column). */
+    min?: number | null;
+    max?: number | null;
+    /** The date range (a `date` column), as epoch milliseconds. */
+    dateMin?: number | null;
+    dateMax?: number | null;
+};
+
+/** The `localStorage` key of one table's filter-search drafts. */
+export function filterDraftStorageKey(project: string, section: string): string {
+    return `rc:filterDraft:${project}:${section}`;
+}
+
+/** Read one table's drafts, dropping anything malformed. */
+export function readFilterDraft<T extends StoredFilterDraft>(
+    project: string,
+    section: string,
+    column: string,
+): T | null {
+    if (typeof window === "undefined") return null;
+    try {
+        const raw = window.localStorage.getItem(filterDraftStorageKey(project, section));
+        if (raw === null) return null;
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+        const entry = (parsed as Record<string, unknown>)[column];
+        return entry && typeof entry === "object" ? (entry as T) : null;
+    } catch {
+        return null;
+    }
+}
+
+/** Remember one column's draft; an empty draft removes its entry. */
+export function writeFilterDraft(
+    project: string,
+    section: string,
+    column: string,
+    draft: StoredFilterDraft,
+): void {
+    if (typeof window === "undefined") return;
+    try {
+        const key = filterDraftStorageKey(project, section);
+        const raw = window.localStorage.getItem(key);
+        let all: Record<string, StoredFilterDraft> = {};
+        if (raw !== null) {
+            const parsed: unknown = JSON.parse(raw);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                all = parsed as Record<string, StoredFilterDraft>;
+            }
+        }
+        const empty =
+            (draft.query ?? "") === "" &&
+            (draft.min ?? null) === null &&
+            (draft.max ?? null) === null &&
+            (draft.dateMin ?? null) === null &&
+            (draft.dateMax ?? null) === null;
+        if (empty) delete all[column];
+        else all[column] = draft;
+        if (Object.keys(all).length === 0) window.localStorage.removeItem(key);
+        else window.localStorage.setItem(key, JSON.stringify(all));
+    } catch {
+        // A quota error or a disabled store leaves the popover working; only
+        // the memory across opens is lost.
+    }
+}
+
+/**
+ * The «Перейти к строке/столбцу» draft: the two numbers last entered, kept per
+ * table so reopening the popover continues where the user stopped.
+ *
+ * The key is `rc:goto:<project>:<section>`.
+ */
+export function readStoredGoTo(
+    project: string,
+    section: string,
+): { row: number | null; column: number | null } | null {
+    if (typeof window === "undefined") return null;
+    try {
+        const raw = window.localStorage.getItem(`rc:goto:${project}:${section}`);
+        if (raw === null) return null;
+        const parsed: unknown = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+        const entry = parsed as { row?: unknown; column?: unknown };
+        const toNumber = (value: unknown) =>
+            typeof value === "number" && Number.isFinite(value) ? value : null;
+        return { row: toNumber(entry.row), column: toNumber(entry.column) };
+    } catch {
+        return null;
+    }
+}
+
+/** Remember the «Перейти к» numbers; both empty removes the entry. */
+export function writeStoredGoTo(
+    project: string,
+    section: string,
+    draft: { row: number | null; column: number | null },
+): void {
+    if (typeof window === "undefined") return;
+    try {
+        const key = `rc:goto:${project}:${section}`;
+        if (draft.row === null && draft.column === null) window.localStorage.removeItem(key);
+        else window.localStorage.setItem(key, JSON.stringify(draft));
+    } catch {
+        // Best-effort, as everywhere else in this module.
+    }
+}
+
 /** The `localStorage` key of one table's sorting. */
 export function columnSortingStorageKey(project: string, section: string): string {
     return `rc:sorting:${project}:${section}`;

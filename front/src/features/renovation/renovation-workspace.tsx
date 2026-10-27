@@ -294,6 +294,8 @@ export function RenovationWorkspace({
     } | null>(null);
     // The row-number («№») range filter popover anchor (the corner's rect).
     const [rowFilterTarget, setRowFilterTarget] = useState<DOMRect | null>(null);
+    /** Where the filter popovers and «Перейти к» remember their drafts. */
+    const filterDraftScope = { project: "renovation", section: "plan" };
     const activeFilterColumns = useMemo(() => new Set(Object.keys(columnFilters)), [columnFilters]);
     const applyColumnFilter = (column: string) => (filter: ColumnFilter | null) =>
         setColumnFilters((current) => {
@@ -1993,6 +1995,7 @@ export function RenovationWorkspace({
                     {...(viewPlanId && { planId: viewPlanId })}
                     asset={assetFilter}
                     initial={columnFilters[columnFilterTarget.column] ?? null}
+                    storageScope={filterDraftScope}
                     // «По умолчанию»: the same state «Сбросить все фильтры и
                     // сортировки» restores — no constraint on this column.
                     defaultFilter={null}
@@ -2005,6 +2008,7 @@ export function RenovationWorkspace({
                     anchor={rowFilterTarget}
                     total={planTotals?.total ?? 0}
                     maxColumn={totalColumns}
+                    storageScope={filterDraftScope}
                     onGoTo={(position) => void gridRef.current?.scrollToPosition(position)}
                     onGoToColumn={(number) => void gridRef.current?.scrollToColumn(number)}
                     onClose={() => setRowFilterTarget(null)}

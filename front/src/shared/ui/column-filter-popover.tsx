@@ -5,12 +5,13 @@ import { List, ListSelect, TaskList } from "iconoir-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { usePopoverDismiss } from "@/shared/hooks/use-popover-dismiss";
 import {
-    ColumnFilterDateRange,
-    EMPTY_DATE_RANGE,
-    isDateRangeEmpty,
-} from "@/shared/ui/column-filter-date-range";
+    readFilterDraft,
+    type StoredFilterDraft,
+    writeFilterDraft,
+} from "@/shared/grid/use-grid-column-filters";
+import { usePopoverDismiss } from "@/shared/hooks/use-popover-dismiss";
+import { ColumnFilterDateRange, isDateRangeEmpty } from "@/shared/ui/column-filter-date-range";
 import {
     FACET_PAGE,
     type ColumnFilter,
@@ -20,7 +21,7 @@ import {
     type FacetSearch,
     type FacetSource,
 } from "@/shared/ui/column-filter-facets";
-import { ColumnFilterRange, EMPTY_RANGE, isRangeEmpty } from "@/shared/ui/column-filter-range";
+import { ColumnFilterRange, isRangeEmpty } from "@/shared/ui/column-filter-range";
 import { SmartSelect } from "@/shared/ui/smart-select";
 
 /** The contract lives with the sources; re-exported for the popover's callers. */
@@ -71,6 +72,7 @@ export function ColumnFilterPopover({
     showUniqueCount = true,
     order = "text",
     dateOnly = false,
+    storageScope,
     onApply,
     onClose,
 }: {
@@ -103,6 +105,14 @@ export function ColumnFilterPopover({
      * time would be a fiction the cell's «03.02.2026» text cannot match.
      */
     dateOnly?: boolean;
+    /**
+     * Where the SEARCH DRAFT of this column is remembered (`localStorage`, keyed
+     * by `columnFiltersStorageKey`-style project + section). The draft is what the
+     * user typed but has not applied yet: the popover is closed as often as it is
+     * committed, and losing a half-typed search only made it be retyped. Without
+     * a scope the draft simply lives as long as the popover.
+     */
+    storageScope?: { project: string; section: string } | undefined;
     onApply: (filter: ColumnFilter | null) => void;
     onClose: () => void;
 }) {
@@ -174,9 +184,85 @@ export function ColumnFilterPopover({
      * A TEXT column gets a substring search; a NUMBER column gets the MIN–MAX
      * pair, because «12» as a substring also matches 312 and 1200.
      */
-    const [query, setQuery] = useState("");
-    const [range, setRange] = useState<FacetRange>(EMPTY_RANGE);
-    const [dateRange, setDateRange] = useState<FacetDateRange>(EMPTY_DATE_RANGE);
+    // The draft (what was typed last time, applied or not) seeds the search
+    // controls; a fresh apply overwrites it (see `persistDraft`).
+    const storedDraft = storageScope
+        ? readFilterDraft<StoredFilterDraft>(storageScope.project, storageScope.section, column)
+        : null;
+    const [query, setQuery] = useState(storedDraft?.query ?? "");
+    const [range, setRange] = useState<FacetRange>({
+        min: storedDraft?.min ?? null,
+        max: storedDraft?.max ?? null,
+    });
+    const [dateRange, setDateRange] = useState<FacetDateRange>({
+        min: storedDraft?.dateMin ?? null,
+        max: storedDraft?.dateMax ?? null,
+    });
+    /**
+     * Write the draft. Called on every edit (the popover can be dismissed by an
+     * outside press at any moment) and again as the closing effect, so what the
+     * user typed survives «Отменить» as well — «Отменить» cancels the FILTER, not
+     * the typing.
+     */
+    const persistDraft = useCallback(
+        (next: {
+            query: string;
+            min: number | null;
+            max: number | null;
+            dates: FacetDateRange;
+        }) => {
+            if (!storageScope) return;
+            writeFilterDraft(storageScope.project, storageScope.section, column, {
+                query: next.query,
+                min: next.min,
+                max: next.max,
+                dateMin: next.dates.min,
+                dateMax: next.dates.max,
+            });
+        },
+        [column, storageScope],
+    );
+    const draftRef = useRef({ query, range, dateRange });
+    draftRef.current = { query, range, dateRange };
+    // Wrapped in a setter: the draft must be written on every EDIT, not on the
+    // first render — an effect keyed on `persistDraft` alone never fires again.
+    const rememberDraft = () => {
+        const current = draftRef.current;
+        persistDraft({
+            query: current.query,
+            min: current.range.min,
+            max: current.range.max,
+            dates: current.dateRange,
+        });
+    };
+    const changeQuery = useCallback(
+        (next: string) => {
+            setQuery(next);
+            draftRef.current = { ...draftRef.current, query: next };
+            rememberDraft();
+        },
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+        [persistDraft],
+    );
+    const changeRange = useCallback(
+        (next: FacetRange) => {
+            setRange(next);
+            draftRef.current = { ...draftRef.current, range: next };
+            rememberDraft();
+        },
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+        [persistDraft],
+    );
+    const changeDateRange = useCallback(
+        (next: FacetDateRange) => {
+            setDateRange(next);
+            draftRef.current = { ...draftRef.current, dateRange: next };
+            rememberDraft();
+        },
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+        [persistDraft],
+    );
+
     const isDate = order === "date";
     // A reversed range (`мин > макс`) is a typo, not «everything»: it matches
     // nothing. Without this guard the popover compared against it, found the
@@ -678,13 +764,13 @@ export function ColumnFilterPopover({
                             <ColumnFilterRange
                                 columnLabel={columnLabel}
                                 value={range}
-                                onChange={setRange}
+                                onChange={changeRange}
                             />
                         ) : order === "date" ? (
                             <ColumnFilterDateRange
                                 columnLabel={columnLabel}
                                 value={dateRange}
-                                onChange={setDateRange}
+                                onChange={changeDateRange}
                                 kind={dateOnly ? "date" : "datetime"}
                             />
                         ) : (
@@ -694,7 +780,7 @@ export function ColumnFilterPopover({
                                 aria-label={`Поиск: ${columnLabel}`}
                                 variant="secondary"
                                 value={query}
-                                onChange={setQuery}
+                                onChange={changeQuery}
                             >
                                 <SearchField.Group>
                                     <SearchField.SearchIcon />

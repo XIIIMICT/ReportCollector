@@ -479,6 +479,8 @@ function RawMaterialsGridInner(
      * there is one, which is the project in both shapes.
      */
     const sortingScope = (namespace ?? section).split(":")[0] ?? section;
+    /** Where the filter popovers remember their search drafts (same scheme). */
+    const filterDraftScope = { project: sortingScope, section };
     const userSortedSectionsRef = useRef(new Set<SectionId>());
     /**
      * The remembered sorting was pushed into the plugin on the first source set
@@ -3058,6 +3060,7 @@ function RawMaterialsGridInner(
                     anchor={goToTarget}
                     total={Math.max(1, visibleRowCountRef.current)}
                     maxColumn={flatColumns.length}
+                    storageScope={filterDraftScope}
                     onGoTo={(position) => void scrollToRowPosition(position)}
                     onGoToColumn={(number) => void gridRef.current?.scrollToColumnIndex(number - 1)}
                     onClose={() => setGoToTarget(null)}
@@ -3071,6 +3074,7 @@ function RawMaterialsGridInner(
                     facets={facetSourceFor(filterTarget.column)}
                     order={facetOrder(filterTarget.column)}
                     initial={columnFilters?.[filterTarget.column] ?? null}
+                    storageScope={filterDraftScope}
                     // «По умолчанию» is the same state «Сбросить все фильтры
                     // и сортировки» restores: no constraint on this column.
                     defaultFilter={null}
