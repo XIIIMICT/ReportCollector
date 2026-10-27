@@ -481,11 +481,12 @@ function RawMaterialsGridInner(
     const sortingScope = (namespace ?? section).split(":")[0] ?? section;
     const userSortedSectionsRef = useRef(new Set<SectionId>());
     /**
-     * A remembered sorting is waiting to be pushed into the plugin. It stays set
-     * until the plugin confirms it (`aftersortingapply` with an empty sorting) or
-     * the user clicks a header — the click wins, always.
+     * The remembered sorting was pushed into the plugin on the first source set
+     * of this mount. It is a ONE-SHOT: pushing it again while the user works
+     * overwrote the sorting he had just chosen (the plugin then reported an empty
+     * `beforeorting` on the next click, which the user saw as «клик в пустоту»).
      */
-    const sortingRestorePendingRef = useRef(false);
+    const sortingRestoredRef = useRef(false);
     /** Settles the burst of sort events into ONE header re-measure. */
     const sortMeasureTimer = useRef<number>(0);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
@@ -658,9 +659,7 @@ function RawMaterialsGridInner(
             // USER sorting: without it the indicator stays `display: none` and
             // the header shows no arrow even though the rows are ordered.
             userSortedSectionsRef.current.add(section);
-            // Pushed into the plugin on the next source set — see
-            // `onAftersourceset`: the presence of this ref, not the config, decides.
-            sortingRestorePendingRef.current = true;
+
             sortingBySectionRef.current.set(section, {
                 columns: stored.map((entry) => ({
                     prop: entry.prop,
@@ -2762,22 +2761,25 @@ function RawMaterialsGridInner(
                         void refreshHorizontalScrollbar();
                         void measureViewport();
                         scheduleFunnelMeasure();
-                        // A RESTORED sorting exists before the grid mounts, so the
-                        // header would paint without its arrow: the rows are
-                        // already ordered by `sorting`, but the column state that
-                        // draws the indicator is applied only when the sorting is
-                        // re-emitted. Pushed HERE, because the plugin resets its
-                        // sorting job on every source set and would otherwise paint
-                        // no arrow at all.
+                        // A REMEMBERED sorting exists before the grid mounts, so
+                        // the header would paint without its arrow: the rows are
+                        // already ordered through the `sorting` prop, but the
+                        // column state that draws the indicator is only applied
+                        // when the sorting is re-emitted into the plugin.
                         //
-                        // It runs until the plugin CONFIRMS it (an empty
-                        // `aftersortingapply` means the job ran with nothing to
-                        // apply), and a user click cancels it in
-                        // `onBeforesorting` — so it can never undo a click.
-                        if (sortingRestorePendingRef.current) {
+                        // ONE-SHOT, on the first source set of the mount. Repeating
+                        // it while the user works pushed the remembered order back
+                        // over the one he had just clicked: the plugin then reported
+                        // an empty `beforeorting` on the next click — a click that
+                        // did nothing.
+                        if (
+                            !sortingRestoredRef.current &&
+                            sortingBySectionRef.current.has(section)
+                        ) {
+                            sortingRestoredRef.current = true;
                             setTimeout(() => {
                                 const grid = gridRef.current;
-                                if (!grid || !sortingRestorePendingRef.current) return;
+                                if (!grid) return;
                                 const stored = sortingBySectionRef.current.get(section);
                                 grid.classList.add("raw-materials-grid--user-sorted");
                                 grid.sorting = {
@@ -2790,10 +2792,6 @@ function RawMaterialsGridInner(
                         }
                     }}
                     onBeforesorting={() => {
-                        // A real click: whatever was remembered is now the user's
-                        // business, so the restore must not come back on the next
-                        // source set.
-                        sortingRestorePendingRef.current = false;
                         // Remove index-based merges before RevoGrid reorders
                         // rows. RevoGrid starts sorting in a debounced job after
                         // this event; queue the plugin update so it cannot reset
@@ -2827,21 +2825,12 @@ function RawMaterialsGridInner(
                         // manual reset: the merges come back and the class that
                         // draws the arrows follows the live state.
                         if (sorting.columns.length === 0) {
-                            // An EMPTY `aftersortingapply` is also how the plugin
-                            // acknowledges a restored sorting it found nothing to
-                            // apply for — the restore is done either way.
-                            const confirmed = !sortingRestorePendingRef.current;
-                            sortingRestorePendingRef.current = false;
-                            if (confirmed) {
-                                userSortedSectionsRef.current.delete(section);
-                                gridRef.current?.classList.remove(
-                                    "raw-materials-grid--user-sorted",
-                                );
-                                setMergesDropped(false);
-                                const configured = configuredCellMergeRef.current;
-                                if (configured !== undefined && gridRef.current) {
-                                    gridRef.current.cellMerge = configured;
-                                }
+                            userSortedSectionsRef.current.delete(section);
+                            gridRef.current?.classList.remove("raw-materials-grid--user-sorted");
+                            setMergesDropped(false);
+                            const configured = configuredCellMergeRef.current;
+                            if (configured !== undefined && gridRef.current) {
+                                gridRef.current.cellMerge = configured;
                             }
                         }
                         // The event fires in BURSTS for one click (the grid
