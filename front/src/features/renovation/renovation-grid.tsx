@@ -2932,13 +2932,15 @@ function RenovationGridInner(
                         }}
                     >
                         <span className="renovation-grid__number-label">{cell.text}</span>
-                        {/* The strip carries the funnel for a column with no
-                            header cell of its own (the audit trio: creation time,
-                            edit time, last editor). A PINNED header used to be the
-                            reason this was hidden — the header cells drew their own
-                            funnels — but those columns have no header cell, so the
-                            funnel vanished entirely. */}
-                        {cell.filterColumn && onOpenColumnFilter ? (
+                        {/* With the header PINNED the level cells above carry the
+                            funnels; the strip duplicates them only when those cells
+                            are hidden (the header is collapsed to the first row).
+                            A column without a header cell of its own — the audit
+                            trio — keeps its funnel here in both modes, because
+                            there is nothing above it to draw one. */}
+                        {(!headerPinned || SERVICE_DB_NAMES.has(cell.key)) &&
+                        cell.filterColumn &&
+                        onOpenColumnFilter ? (
                             <button
                                 type="button"
                                 className={
