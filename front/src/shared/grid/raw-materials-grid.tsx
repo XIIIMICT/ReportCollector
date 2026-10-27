@@ -2559,8 +2559,40 @@ function RawMaterialsGridInner(
             onReleaseLease?.([activeLeaseRef.current]);
             activeLeaseRef.current = null;
         };
+        /**
+         * A click anywhere OUTSIDE the grid drops the selection.
+         *
+         * revo-grid clears its own focus rectangle when the pointer leaves for
+         * the page (that is why `Del` stopped working), but it emits no event
+         * for it — so without this the footer status and the collaboration
+         * presence kept advertising a selection that no longer existed.
+         *
+         * Capture phase, so it runs before the click's own handlers. A click
+         * INSIDE the grid is ignored, and so is a click on one of the grid's
+         * PORTALS — the cell editor, a header-filter popover, the smart select —
+         * which React renders into `document.body`, outside the shell; treating
+         * those as outside would clear the very range being edited.
+         */
+        const handleOutsidePointerDown = (event: PointerEvent) => {
+            const target = event.target;
+            if (!(target instanceof Element)) return;
+            if (
+                // HeroUI overlays (filter popover, smart select, dialogs) and
+                // anything else modal/toast-like pinned to the body.
+                target.closest(
+                    '[data-slot="popover-dialog"], [role="dialog"], [role="alertdialog"]',
+                )
+            )
+                return;
+            const shell = grid.closest(".revo-grid-shell") ?? grid;
+            if (shell.contains(target)) return;
+            clearGridSelection();
+            setSelectedRowIds([]);
+            rowSelectionAnchorRef.current = null;
+        };
         window.addEventListener("copy", handleCopy, true);
         window.addEventListener("paste", handlePaste, true);
+        document.addEventListener("pointerdown", handleOutsidePointerDown, true);
         grid.addEventListener("setrange", handleSetRange);
         grid.addEventListener("focuscell", handleFocusCell);
         grid.addEventListener("afterfilterapply", handleAfterFilterApply);
@@ -2576,8 +2608,10 @@ function RawMaterialsGridInner(
             grid.removeEventListener("canceledit", handleCancelEdit);
             grid.removeEventListener("beforeheaderclick", handleBeforeHeaderClickCapture, true);
             document.removeEventListener("click", handleFilterClickCapture, true);
+            document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
         };
     }, [
+        clearGridSelection,
         copySelection,
         descriptorByKey,
         filteringEnabled,
