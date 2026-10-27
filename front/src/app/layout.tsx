@@ -5,7 +5,7 @@ import { Providers } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-    title: "ReportCollector",
+    title: "РепортКоллектор",
     description: "ReportCollector frontend",
     icons: {
         icon: "/ruschem_icon.png",
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     },
     appleWebApp: {
         capable: true,
-        title: "ReportCollector",
+        title: "РепортКоллектор",
     },
 };
 

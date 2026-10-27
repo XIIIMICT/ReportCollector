@@ -1,4 +1,5 @@
 import { Button, Card, Typography } from "@heroui/react";
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
 import { Brand } from "@/features/raw-materials/raw-materials-workspace";
@@ -13,6 +14,26 @@ import { projectKeyFromSlug, projectNameFromKey } from "@/shared/projects";
 import { SupportButton } from "@/shared/ui/support-button";
 
 export const dynamic = "force-dynamic";
+
+/** The site's name in the browser tab — the brand in Russian, as on screen. */
+const SITE_TITLE = "РепортКоллектор";
+
+/**
+ * The tab reads «РепортКоллектор <Проект>», so three open tabs are told apart at
+ * a glance. A slug that names no project (or a user without access to any) falls
+ * back to the bare site name: the title is derived from the URL, never from the
+ * session, so it does not depend on who is signed in.
+ */
+export async function generateMetadata({
+    params,
+}: {
+    params: Promise<{ project: string }>;
+}): Promise<Metadata> {
+    const { project: slug } = await params;
+    const key = projectKeyFromSlug(slug);
+    if (key === null) return { title: SITE_TITLE };
+    return { title: `${SITE_TITLE} ${projectNameFromKey(key)}` };
+}
 
 export default async function ProjectPage({
     params,
