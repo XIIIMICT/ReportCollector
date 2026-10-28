@@ -2,7 +2,6 @@ import { Button, Card, Typography } from "@heroui/react";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
-import { Brand } from "@/features/raw-materials/raw-materials-workspace";
 import { ReportWorkspace } from "@/features/report-workspace/report-workspace";
 import { ReportCollectorApiError } from "@/shared/api/report-collector";
 import {
@@ -11,6 +10,7 @@ import {
 } from "@/shared/api/report-collector-server";
 import { getSession, getSupportMail } from "@/shared/auth/session";
 import { projectKeyFromSlug, projectNameFromKey } from "@/shared/projects";
+import { Brand } from "@/shared/ui/brand";
 import { SupportButton } from "@/shared/ui/support-button";
 
 export const dynamic = "force-dynamic";
@@ -80,7 +80,6 @@ export default async function ProjectPage({
                         projectName={projectNameFromKey(projectKey)}
                         projects={[]}
                         activeProjectKey={projectKey}
-                        onProjectChange={() => {}}
                     />
                     <span aria-hidden="true" />
                     <div className="app-header__actions">

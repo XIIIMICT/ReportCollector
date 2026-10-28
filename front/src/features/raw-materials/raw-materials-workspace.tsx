@@ -5,7 +5,6 @@ import {
     Avatar,
     Button,
     ButtonGroup,
-    Dropdown,
     Spinner,
     toast,
     Typography,
@@ -102,13 +101,13 @@ import {
     type AddRecordField,
     type AddRecordValues,
 } from "@/shared/ui/add-record-modal";
+import { Brand } from "@/shared/ui/brand";
 import { downloadBlob as sharedDownloadBlob } from "@/shared/ui/download";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
-import { HoverDropdown } from "@/shared/ui/hover-dropdown";
 import { ReplaceRecordDialog, type ReplaceTargetOption } from "@/shared/ui/replace-record-dialog";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { SupportButton } from "@/shared/ui/support-button";
@@ -1850,96 +1849,6 @@ export function RawMaterialsWorkspace({
                 onProfileSaved={setUser}
             />
         </main>
-    );
-}
-
-export function Brand({
-    compact = false,
-    projectName,
-    projects,
-    activeProjectKey,
-    onProjectChange,
-}: {
-    compact?: boolean;
-    projectName: string;
-    projects: Array<{ key: string; name: string }>;
-    activeProjectKey: string;
-    onProjectChange: (key: string) => void;
-}) {
-    // Stable identity: an inline `new Set(...)` changes on every render and
-    // loops HeroUI's selection sync ("Maximum update depth exceeded"). Declared
-    // before the early return below: hooks must run unconditionally.
-    const selectedProjectKeys = useMemo(() => new Set([activeProjectKey]), [activeProjectKey]);
-
-    if (projects.length <= 1) {
-        return (
-            <div
-                className={compact ? "brand brand--compact" : "brand"}
-                aria-label={`РепортКоллектор ${projectName}`}
-            >
-                <img
-                    className="brand__icon"
-                    src="/ruschem_icon.png"
-                    alt=""
-                    onError={(event) => {
-                        event.currentTarget.hidden = true;
-                    }}
-                />
-                <span className="brand__name">РепортКоллектор</span>
-                <span className="brand__edition">{projectName}</span>
-            </div>
-        );
-    }
-
-    return (
-        <div className={compact ? "brand brand--compact" : "brand"}>
-            <img
-                className="brand__icon"
-                src="/ruschem_icon.png"
-                alt=""
-                onError={(event) => {
-                    event.currentTarget.hidden = true;
-                }}
-            />
-            <span className="brand__name">РепортКоллектор</span>
-            <HoverDropdown
-                className="brand-popover"
-                trigger={({ ref, onMouseEnter, onPress }) => (
-                    <Button
-                        ref={ref}
-                        onMouseEnter={onMouseEnter}
-                        onPress={onPress}
-                        className="brand__edition brand__edition--button"
-                        variant="ghost"
-                        aria-label={`Проект: ${projectName}. Выберите проект`}
-                    >
-                        {projectName}
-                    </Button>
-                )}
-                content={
-                    <Dropdown.Menu
-                        aria-label="Доступные проекты"
-                        selectedKeys={selectedProjectKeys}
-                        selectionMode="single"
-                        onSelectionChange={(selection) => {
-                            const keys = selection === "all" ? [] : [...selection];
-                            if (keys[0]) onProjectChange(String(keys[0]));
-                        }}
-                    >
-                        {projects.map((project) => (
-                            <Dropdown.Item
-                                key={project.key}
-                                id={project.key}
-                                textValue={project.name}
-                            >
-                                <Dropdown.ItemIndicator />
-                                {project.name}
-                            </Dropdown.Item>
-                        ))}
-                    </Dropdown.Menu>
-                }
-            />
-        </div>
     );
 }
 
