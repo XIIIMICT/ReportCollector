@@ -346,6 +346,14 @@ export function KppkRealizationSection({
         },
     });
     selfCellHandlerRef.current = (event) => {
+        const expectedMonth =
+            periodMonth && periodYear ? `${periodYear}-${periodMonth.padStart(2, "0")}-01` : null;
+        if (
+            event.section !== roomSection ||
+            (event.scope ?? null) !== orgId ||
+            event.reportMonth !== expectedMonth
+        )
+            return;
         const key = `${roomSection}/${event.rowId}/${event.field}`;
         setRemoteCellValues((current) =>
             applyRevisionedRemoteCell(current, key, event, readStartedAtRef.current),

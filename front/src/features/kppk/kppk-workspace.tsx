@@ -509,6 +509,7 @@ function KppkSection({
     // Another admin changed a cell: keep it in memory and merge it into the
     // rows below (the local grid must not refetch on every keystroke).
     selfCellHandlerRef.current = (event) => {
+        if (event.section !== section) return;
         const key = `${section === "kppkUsers" ? "app_users" : section}/${event.rowId}/${event.field}`;
         setRemoteCellValues((current) =>
             applyRevisionedRemoteCell(current, key, event, readStartedAtRef.current),
