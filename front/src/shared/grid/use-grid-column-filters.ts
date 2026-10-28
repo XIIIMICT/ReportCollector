@@ -38,6 +38,22 @@ export function columnFiltersStorageKey(project: string, section: string): strin
 export type StoredSortColumn = { prop: string; order: "asc" | "desc" };
 
 /**
+ * Does this filter constrain anything?
+ *
+ * A column filter with no kept values, no «Пустые» bucket and no window selects
+ * NO rows — the server reads it as «nothing is kept». Persisting one emptied the
+ * table on the next load while the popover itself looked untouched.
+ */
+export function isConstrainingFilter(filter: ColumnFilter): boolean {
+    return (
+        filter.values.length > 0 ||
+        filter.includeNulls !== false ||
+        (filter.from != null && filter.from !== "") ||
+        (filter.to != null && filter.to !== "")
+    );
+}
+
+/**
  * The narrowest storage for a table that keeps its filters OUTSIDE the shared
  * grid hook — the renovation plan has its own workspace state.
  *
@@ -176,6 +192,23 @@ export function readFilterDraft<T extends StoredFilterDraft>(
         return entry && typeof entry === "object" ? (entry as T) : null;
     } catch {
         return null;
+    }
+}
+
+/**
+ * Forget EVERY draft of one table — the search strings, the MIN–MAX pairs and the
+ * instant windows of all its columns.
+ *
+ * «Сбросить все фильтры и сортировки» must leave nothing behind: the drafts are
+ * remembered in `localStorage`, so clearing only the applied filters wiped the
+ * view while the popovers kept their values and the reload brought them back.
+ */
+export function clearFilterDrafts(project: string, section: string): void {
+    if (typeof window === "undefined") return;
+    try {
+        window.localStorage.removeItem(filterDraftStorageKey(project, section));
+    } catch {
+        // Best-effort, as everywhere else in this module.
     }
 }
 
@@ -387,14 +420,25 @@ export function useGridColumnFilters(project: string, section: string | null) {
 
     const update = useCallback(
         (next: Record<string, ColumnFilter>) => {
-            setFilters(next);
-            if (key !== null) write(key, next);
+            // A filter that constrains nothing is NOT a filter (see
+            // `isConstrainingFilter`): the server read it as «select no rows».
+            const kept = Object.fromEntries(
+                Object.entries(next).filter(([, filter]) => isConstrainingFilter(filter)),
+            );
+            setFilters(kept);
+            if (key !== null) write(key, kept);
         },
         [key],
     );
 
     /** «Сбросить все фильтры и сортировки» — the strip's reset entry. */
-    const clear = useCallback(() => update({}), [update]);
+    const clear = useCallback(() => {
+        // The remembered DRAFTS go with the filters: a search string or a MIN–MAX
+        // pair that survived the reset came back on every open (and a window that
+        // had been applied came back on reload).
+        clearFilterDrafts(project, section ?? "");
+        update({});
+    }, [project, section, update]);
 
     return { filters, setFilters: update, clearFilters: clear };
 }

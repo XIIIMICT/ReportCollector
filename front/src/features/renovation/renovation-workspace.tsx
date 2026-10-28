@@ -70,6 +70,7 @@ import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/secti
 import { SectionTabs } from "@/shared/grid/section-tabs";
 import {
     clearFilterDrafts,
+    isConstrainingFilter,
     readStoredFilters,
     writeStoredFilters,
 } from "@/shared/grid/use-grid-column-filters";
@@ -315,7 +316,12 @@ export function RenovationWorkspace({
     const applyColumnFilter = (column: string) => (filter: ColumnFilter | null) =>
         setColumnFilters((current) => {
             const next = { ...current };
-            if (filter === null) delete next[column];
+            // A filter with NO kept values and NO window constrains NOTHING — and
+            // the server reads a column filter with nothing kept as «select no
+            // rows». Storing one made the whole plan empty after a reload (the
+            // funnel and the status looked clean, the rows were gone); it is
+            // dropped, exactly like «Отменить».
+            if (filter === null || !isConstrainingFilter(filter)) delete next[column];
             else next[column] = filter;
             writeStoredFilters("renovation", "plan", next);
             return next;
