@@ -1194,13 +1194,21 @@ function RenovationGridInner(
     /**
      * The plan's applied filters as header chains, leaf last — the status
      * tooltip lists exactly these. The plan's columns are FLAT (one header
-     * level), so a chain is the field's own label; the asset panel filter is not
-     * a column and has no chain.
+     * level), so a chain is the field's own label.
+     *
+     * The «Предприятие» column is SYNTHETIC (`ASSET_COLUMN_PROP`): it is not a
+     * form field, so `displayFields` never holds it. Looking it up there alone
+     * dropped its filter from the tooltip — the funnel burned and the branch
+     * stayed narrowed while the status claimed nothing was filtered.
      */
     const filteredColumnPaths = useMemo(
         () =>
             [...(activeFilterColumns ?? [])]
-                .map((column) => displayFields.find((field) => field.dbName === column)?.label)
+                .map((column) =>
+                    column === ASSET_COLUMN_PROP
+                        ? "Предприятие"
+                        : displayFields.find((field) => field.dbName === column)?.label,
+                )
                 .filter((label): label is string => label !== undefined)
                 .map((label) => [label]),
         [activeFilterColumns, displayFields],
