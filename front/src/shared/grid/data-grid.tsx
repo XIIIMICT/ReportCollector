@@ -2975,8 +2975,19 @@ function DataGridInner(
                         void measureViewport();
                         scheduleFunnelMeasure();
                     }}
-                    onHeaderclick={() => {
-                        additiveSortRef.current = lastMouseEventRef.current?.ctrlKey === true;
+                    onHeaderclick={(event) => {
+                        // Ctrl+click ADDS a sort level; a plain click REPLACES the
+                        // whole sorting. The modifier must come from the click's own
+                        // mouse event (`headerclick` carries it) — `beforesorting`
+                        // reports `additive` taken from `originalEvent.shiftKey`,
+                        // always false for a Ctrl+click, and does not carry the
+                        // event at all. The value is consumed by the matching
+                        // `beforesorting` below and reset right after.
+                        const originalEvent = (
+                            event.detail as { originalEvent?: MouseEvent } | undefined
+                        )?.originalEvent;
+                        additiveSortRef.current =
+                            originalEvent?.ctrlKey === true || originalEvent?.metaKey === true;
                     }}
                     onBeforesorting={(event) => {
                         // The click's outcome is OURS, not the plugin's.
@@ -3027,6 +3038,10 @@ function DataGridInner(
                             // plugin neither passes it through nor learns it from the
                             // header click, so `detail.additive` never arrives.
                             const additive = additiveSortRef.current;
+                            // One click, one value: the next click sets its own.
+                            queueMicrotask(() => {
+                                additiveSortRef.current = false;
+                            });
                             const remaining = additive
                                 ? columns.filter((column) => column.prop !== String(prop))
                                 : [];
@@ -3095,13 +3110,15 @@ function DataGridInner(
                         const changed =
                             next.length !== current.length ||
                             next.some((entry, index) => entry !== current[index]);
-                        if (ours.length === 0 && sorting.columns.length === 0) {
-                            // The plugin agrees there is nothing sorted: the merges
-                            // and the arrow class follow.
-                            userSortedSectionsRef.current.delete(section);
-                            gridRef.current?.classList.remove("data-grid--user-sorted");
+                        // The plugin MERGES every config it receives and, for a
+                        // Ctrl+click, first applies its OWN guess — a single column,
+                        // because it learned `this.sorting` from a config it never
+                        // saw. Our list is the truth, so it is re-asserted whenever
+                        // the plugin ends up disagreeing with it.
+                        if (changed) {
+                            pushSortingToPlugin(ours);
+                            bumpSorting();
                         }
-                        if (changed) bumpSorting();
                         // The event fires in BURSTS for one click (the grid
                         // re-emits while it applies), and each one lands before
                         // the new header layout exists. Re-measuring the funnels
@@ -3116,7 +3133,6 @@ function DataGridInner(
                     }}
                     onBeforefilterapply={(event) => {
                         // Filtering trims the data source synchronously, and there
-                        // is no public event after it — re-measure the filtered
                         // row count on the next tick. The event carries the new
                         // filter collection (empty when filters were cleared).
                         const collection = (
