@@ -39,13 +39,30 @@ export type ActionItem = {
     disabledReason?: string | null;
 };
 
-/** Chunk actions into ButtonGroup runs: consecutive items with equal `group`. */
+/**
+ * Chunk actions into ButtonGroup runs: consecutive items with equal `group`.
+ *
+ * An item WITH a `menu` is never folded into a group: a ButtonGroup renders
+ * every child as a plain button and cannot host the dropdown, so grouping the
+ * export with a neighbour silently replaced its «вся / видимая таблица» menu by
+ * a one-shot press that exported everything. That is exactly what happened on
+ * the object-level plan, where «Скачать в Excel» and «Загрузить из Excel» share
+ * the `download` group; the dictionary tabs have no import button, so the
+ * export stayed alone and kept its menu.
+ */
 export function groupActionItems(items: ActionItem[]): ActionItem[][] {
     const chunks: ActionItem[][] = [];
     for (const item of items) {
         const last = chunks[chunks.length - 1];
         const lastFirst = last?.[0];
-        if (last && lastFirst && item.group !== undefined && lastFirst.group === item.group) {
+        const groupable = item.menu === undefined && lastFirst?.menu === undefined;
+        if (
+            last &&
+            lastFirst &&
+            groupable &&
+            item.group !== undefined &&
+            lastFirst.group === item.group
+        ) {
             last.push(item);
         } else {
             chunks.push([item]);
