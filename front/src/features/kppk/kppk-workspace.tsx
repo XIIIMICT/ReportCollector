@@ -484,6 +484,7 @@ function KppkSection({
         error,
         loading: queryLoading,
         loadedScope,
+        loadVersion,
     } = useScopedAsyncData<KppkRow[]>(queryScope, loader, [loader, queryScope, reloadKey]);
     const scopeStale = queryLoading || loadedScope !== queryScope;
     // Real-time collaboration of this tab: the room is admin-scoped (only
@@ -520,7 +521,7 @@ function KppkSection({
         setRemoteCellValues((current) =>
             reconcileRevisionedRemoteCells(current, readStartedAtRef.current),
         );
-    }, [loadedScope, queryScope]);
+    }, [loadedScope, loadVersion, queryScope]);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [userCreateOpen, setUserCreateOpen] = useState(false);

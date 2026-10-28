@@ -10,6 +10,8 @@ export type ScopedAsyncDataState<T> = {
     loadedScope: string | null;
     /** The scope requested by the latest load. */
     requestedScope: string;
+    /** Increments after every successful load, including same-scope refreshes. */
+    loadVersion: number;
 };
 
 /**
@@ -28,6 +30,7 @@ export function useScopedAsyncData<T>(
         loading: true,
         loadedScope: null,
         requestedScope: scope,
+        loadVersion: 0,
     });
 
     // oxlint-disable-next-line react-hooks/exhaustive-deps
@@ -44,13 +47,14 @@ export function useScopedAsyncData<T>(
             try {
                 const result = await loader();
                 if (!cancelled) {
-                    setState({
+                    setState((current) => ({
                         data: result,
                         error: null,
                         loading: false,
                         loadedScope: scope,
                         requestedScope: scope,
-                    });
+                        loadVersion: current.loadVersion + 1,
+                    }));
                 }
             } catch (reason) {
                 if (!cancelled) {

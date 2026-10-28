@@ -288,6 +288,7 @@ export function KppkRealizationSection({
         error,
         loading: queryLoading,
         loadedScope,
+        loadVersion,
     } = useScopedAsyncData<KppkRealizationView | KppkCostView | null>(queryScope, loader, [
         loader,
         queryScope,
@@ -357,7 +358,7 @@ export function KppkRealizationSection({
         setRemoteCellValues((current) =>
             reconcileRevisionedRemoteCells(current, readStartedAtRef.current),
         );
-    }, [loadedScope, queryScope]);
+    }, [loadedScope, loadVersion, queryScope]);
 
     useEffect(() => {
         onRoomChange?.(room);
