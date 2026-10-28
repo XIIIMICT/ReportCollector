@@ -107,7 +107,7 @@ The same component also owns global capture listeners, portal exceptions, pollin
 
 ### F-04 — KPPK remote overlays can replay stale values over a newer save (P1, static risk)
 
-**Status:** frontend implementation complete for revision-ordered WebSocket overlays and authoritative-read reconciliation; backend per-cell revision reads and the two-user browser gate remain open.
+**Status:** frontend implementation complete for revision-ordered, active-scope-checked WebSocket overlays and authoritative-read reconciliation; backend per-cell revision reads and the two-user browser gate remain open.
 
 In `features/kppk/kppk-workspace.tsx:477-498` and `kppk-realization-section.tsx:311-335`, remote cell maps ignore the current user's echo and clear only on reconnect. Fresh rows are overlaid from the map (`kppk-workspace.tsx:790-808`, realization `:488-495`). A successful refresh after the current user saves does not reconcile or remove an older value from another user.
 
