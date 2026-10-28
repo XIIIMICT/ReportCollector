@@ -5,7 +5,7 @@ import json
 from collections.abc import Sequence
 from datetime import datetime
 from io import BytesIO
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import quote
 from uuid import UUID
 
@@ -438,6 +438,11 @@ async def get_renovation_plan_facets(
     asset: Annotated[str | None, Query()] = None,
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+    search_kind: Annotated[Literal["text", "range", "datetime"] | None, Query()] = None,
+    search_query: Annotated[str | None, Query()] = None,
+    search_min: Annotated[float | None, Query()] = None,
+    search_max: Annotated[float | None, Query()] = None,
+    search_tz: Annotated[str | None, Query()] = None,
 ) -> RenovationFacetsRead:
     """Distinct display values of one plan column (the header-filter options)."""
     try:
@@ -450,6 +455,11 @@ async def get_renovation_plan_facets(
             asset_name=asset,
             offset=offset,
             limit=limit,
+            search_kind=search_kind,
+            search_query=search_query,
+            search_min=search_min,
+            search_max=search_max,
+            search_timezone=search_tz,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error

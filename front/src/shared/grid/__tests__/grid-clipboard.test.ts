@@ -19,12 +19,81 @@ descriptorByKey.set("amount", {
     fixed: true,
 });
 descriptorByKey.set("note", { key: "note", label: "Примечание", width: 100, kind: "text" });
+descriptorByKey.set("assets", { key: "assets", label: "Активы", width: 100, kind: "assetsMulti" });
+descriptorByKey.set("enabled", { key: "enabled", label: "Включено", width: 100, kind: "boolean" });
+descriptorByKey.set("when", { key: "when", label: "Дата", width: 100, kind: "datetime" });
 
 function row(id: string, values: Record<string, unknown> = {}): GridRow {
     return { id, rowState: "unchanged", changedFields: [], isDeleted: false, ...values };
 }
 
 describe("extractEdits (range paste)", () => {
+    test("text equality does not coerce numeric-looking labels", () => {
+        const models = [row("row-1")];
+        const previous = new Map([["row-1", { note: "001" }]]);
+        const result = extractEdits(
+            { data: { 0: { note: "1" } }, models, type: "rgRow" },
+            new Set(["note"]),
+            descriptorByKey,
+            previous,
+        );
+        expect(result.updates).toEqual([{ rowId: "row-1", field: "note", value: "1" }]);
+    });
+
+    test("text equality does not accept a numeric prefix", () => {
+        const models = [row("row-1")];
+        const previous = new Map([["row-1", { note: "123abc" }]]);
+        const result = extractEdits(
+            { data: { 0: { note: "123xyz" } }, models, type: "rgRow" },
+            new Set(["note"]),
+            descriptorByKey,
+            previous,
+        );
+        expect(result.updates).toEqual([{ rowId: "row-1", field: "note", value: "123xyz" }]);
+    });
+
+    test("number equality still accepts alternate numeric spelling", () => {
+        const models = [row("row-1")];
+        const previous = new Map([["row-1", { quantity: "001" }]]);
+        const result = extractEdits(
+            { data: { 0: { quantity: "1" } }, models, type: "rgRow" },
+            new Set(["quantity"]),
+            descriptorByKey,
+            previous,
+        );
+        expect(result.updates).toEqual([]);
+    });
+
+    test("arrays, booleans and equivalent date instants compare by their field kind", () => {
+        const models = [row("row-1")];
+        const previous = new Map([
+            [
+                "row-1",
+                {
+                    assets: ["A", "B"],
+                    enabled: true,
+                    when: "2026-01-01T00:00:00Z",
+                },
+            ],
+        ]);
+        const result = extractEdits(
+            {
+                data: {
+                    0: {
+                        assets: ["A", "B"],
+                        enabled: false,
+                        when: "2026-01-01",
+                    },
+                },
+                models,
+                type: "rgRow",
+            },
+            new Set(["assets", "enabled", "when"]),
+            descriptorByKey,
+            previous,
+        );
+        expect(result.updates).toEqual([{ rowId: "row-1", field: "enabled", value: false }]);
+    });
     test("патч с моделями строк превращается в обновления ячеек", () => {
         const models = [row("row-1"), row("row-2")];
         const result = extractEdits(
@@ -137,6 +206,16 @@ describe("extractEdits (range paste)", () => {
             descriptorByKey,
         );
         expect(result.updates).toEqual([{ rowId: "row-1", field: "quantity", value: "7" }]);
+    });
+
+    test("single-cell edit uses descriptor-aware equality", () => {
+        const result = extractEdits(
+            { model: row("row-1"), prop: "note", val: "1" },
+            new Set(["note"]),
+            descriptorByKey,
+            new Map([["row-1", { note: "001" }]]),
+        );
+        expect(result.updates).toEqual([{ rowId: "row-1", field: "note", value: "1" }]);
     });
 
     test("range patches use the supplied visible row order", () => {

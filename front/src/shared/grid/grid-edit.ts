@@ -40,7 +40,9 @@ export function extractEdits(
             const known = previousValues.get(row.id);
             for (const [field, value] of Object.entries(patch)) {
                 if (!editableKeys.has(field) || !descriptorByKey.has(field)) continue;
-                if (known && sameCellValue(known[field], value)) continue;
+                const descriptor = descriptorByKey.get(field);
+                if (known && descriptor && cellValuesEqual(descriptor.kind, known[field], value))
+                    continue;
                 if (row.isPlaceholder) {
                     placeholderPatch[field] = toCellValue(value);
                     continue;
@@ -59,6 +61,11 @@ export function extractEdits(
         placeholderPatch[field] = toCellValue(detail.val);
         return { updates: [], placeholderPatch };
     }
+    const descriptor = descriptorByKey.get(field);
+    const known = previousValues.get(row.id);
+    if (descriptor && known && cellValuesEqual(descriptor.kind, known[field], detail.val)) {
+        return { updates: [], placeholderPatch };
+    }
     return {
         updates: [{ rowId: row.id, field, value: toCellValue(detail.val) }],
         placeholderPatch,
@@ -67,10 +74,15 @@ export function extractEdits(
 
 /** Parse a locale-formatted number ('1 234,5' with any Unicode spaces → 1234.5 | null). */
 export function parseNumericText(item: unknown): number | null {
-    const text = String(item).replace(/\s/g, "").replace(",", ".");
+    const text = String(item)
+        .replace(/[\s\u00a0\u202f]/g, "")
+        .replace(",", ".");
     if (!text) return null;
-    const parsed = Number.parseFloat(text);
-    return Number.isNaN(parsed) ? null : parsed;
+    // Number.parseFloat accepts a numeric prefix (`123abc`). Grid values must
+    // be fully numeric before they can participate in equality or normalization.
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) return null;
+    const parsed = Number(text);
+    return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function toCellValue(value: unknown): CellUpdate["value"] {
@@ -87,23 +99,46 @@ export function toCellValue(value: unknown): CellUpdate["value"] {
     return value === undefined ? null : String(value);
 }
 
-function sameCellValue(known: unknown, value: unknown): boolean {
+export function cellValuesEqual(
+    kind: ColumnDescriptor["kind"],
+    known: unknown,
+    value: unknown,
+): boolean {
     const previous = toCellValue(known);
     const next = toCellValue(value);
     if (previous === next) return true;
-    if (
-        previous === null ||
-        next === null ||
-        typeof previous === "boolean" ||
-        typeof next === "boolean" ||
-        Array.isArray(previous) ||
-        Array.isArray(next)
-    ) {
+    if (Array.isArray(previous) || Array.isArray(next)) {
+        return (
+            Array.isArray(previous) &&
+            Array.isArray(next) &&
+            previous.length === next.length &&
+            previous.every((item, index) => item === next[index])
+        );
+    }
+    if (kind === "number" || kind === "calculated") {
+        if (
+            previous === null ||
+            next === null ||
+            typeof previous === "boolean" ||
+            typeof next === "boolean"
+        ) {
+            return false;
+        }
+        const left = parseNumericText(previous);
+        const right = parseNumericText(next);
+        return left !== null && right !== null && left === right;
+    }
+    if (kind === "boolean") return typeof previous === "boolean" && previous === next;
+    if (previous === null || next === null) return false;
+    if (kind === "date" || kind === "datetime") {
+        const left = typeof previous === "string" ? Date.parse(previous) : NaN;
+        const right = typeof next === "string" ? Date.parse(next) : NaN;
+        if (Number.isFinite(left) && Number.isFinite(right)) return left === right;
         return false;
     }
-    const left = parseNumericText(previous);
-    const right = parseNumericText(next);
-    return left !== null && right !== null && left === right;
+    // Text, identifiers, references and select values are intentionally
+    // field-aware: "001" and "1" are different labels.
+    return String(previous ?? "") === String(next ?? "");
 }
 
 export function deduplicateUpdates(updates: CellUpdate[]): CellUpdate[] {

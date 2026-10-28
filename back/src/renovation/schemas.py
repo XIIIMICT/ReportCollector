@@ -229,7 +229,7 @@ class RenovationFacetsRead(BaseModel):
 
     column: str
     values: list[RenovationFacetValueRead]
-    # Distinct values in total (across the whole filtered plan, not just this window).
+    # Distinct values in total for the current filtered/search scope, not just this window.
     total: int
     rowCount: int = 0
     # Whether the column has any NULL/empty value (the «Пустые» option exists).

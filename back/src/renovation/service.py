@@ -1136,6 +1136,42 @@ def _facet_date(value: str) -> date | None:
         return None
 
 
+def _facet_matches_search(
+    value: str,
+    *,
+    kind: str,
+    query: str | None,
+    minimum: float | None,
+    maximum: float | None,
+    time_zone: str | None = None,
+) -> bool:
+    """Apply a facet search before pagination, using the displayed bucket value."""
+    if kind == "text":
+        return (query or "").casefold() in value.casefold()
+    if kind == "range":
+        comparable = _facet_number(value)
+    elif kind == "datetime":
+        try:
+            parsed_datetime = datetime.fromisoformat(value)
+            if parsed_datetime.tzinfo is None:
+                parsed_datetime = parsed_datetime.replace(tzinfo=UTC if "T" in value else _client_zone(time_zone))
+            comparable = parsed_datetime.timestamp() * 1000
+        except ValueError:
+            parsed_date = _facet_date(value)
+            comparable = (
+                datetime.combine(parsed_date, datetime.min.time(), tzinfo=_client_zone(time_zone)).timestamp() * 1000
+                if parsed_date is not None
+                else None
+            )
+    else:
+        return False
+    if comparable is None:
+        return False
+    if minimum is not None and comparable < minimum:
+        return False
+    return not (maximum is not None and comparable > maximum)
+
+
 def _plan_row_condition(
     plan: RenovationPlan,
     assets: list[RAsset],
@@ -1448,6 +1484,11 @@ async def read_plan_facets(
     asset_name: str | None = None,
     offset: int = 0,
     limit: int = 200,
+    search_kind: str | None = None,
+    search_query: str | None = None,
+    search_min: float | None = None,
+    search_max: float | None = None,
+    search_timezone: str | None = None,
 ) -> RenovationFacetsRead:
     """
     Distinct display values of one plan column (the header-filter options).
@@ -1457,7 +1498,8 @@ async def read_plan_facets(
     to labels, dates ISO, numbers rendered by the client). NULL and empty string
     collapse into one «Пустые» bucket, reported via `hasNulls` and excluded from
     the sorted window; `total` counts the distinct non-empty values across the
-    whole filtered plan, so the window (offset/limit) can be lazy-loaded.
+    whole filtered plan after the optional search, so the window (offset/limit)
+    can be lazy-loaded without losing matches.
     """
     if column in _PLAN_AUDIT_COLUMNS:
         # An INSTANT column has no usable option list: every row carries its own
@@ -1512,14 +1554,27 @@ async def read_plan_facets(
                 .where(row_condition)
             )
         ).one()
+        values = [
+            RenovationFacetValueRead(value=label, count=count)
+            for label, count in (
+                (_RENOVATION_ID_OK_LABEL, int(ok_count)),
+                (_RENOVATION_ID_BAD_LABEL, int(bad_count)),
+            )
+            if search_kind is None
+            or _facet_matches_search(
+                label,
+                kind=search_kind,
+                query=search_query,
+                minimum=search_min,
+                maximum=search_max,
+                time_zone=search_timezone,
+            )
+        ]
         return RenovationFacetsRead(
             column=column,
-            values=[
-                RenovationFacetValueRead(value=_RENOVATION_ID_OK_LABEL, count=int(ok_count)),
-                RenovationFacetValueRead(value=_RENOVATION_ID_BAD_LABEL, count=int(bad_count)),
-            ],
-            total=2,
-            rowCount=int(ok_count + bad_count),
+            values=values,
+            total=len(values),
+            rowCount=sum(item.count for item in values),
             hasNulls=False,
             nullCount=0,
         )
@@ -1556,19 +1611,36 @@ async def read_plan_facets(
         else:
             counts[display] = counts.get(display, 0) + int(count)
 
+    if search_kind is not None:
+        ordered = [
+            item
+            for item in counts.items()
+            if _facet_matches_search(
+                item[0],
+                kind=search_kind,
+                query=search_query,
+                minimum=search_min,
+                maximum=search_max,
+                time_zone=search_timezone,
+            )
+        ]
+    else:
+        ordered = list(counts.items())
+
     # A NUMERIC column orders numerically, the client's rule too: a plain string
     # sort put "9" after "10", and over raw digits it would put "1000010" before
     # "900". Everything else stays casefold-then-value, so windows concatenate.
     if meta is not None and meta.cell_type == "number":
-        ordered = sorted(counts.items(), key=lambda item: (_number_or_zero(item[0]), item[0]))
+        ordered = sorted(ordered, key=lambda item: (_number_or_zero(item[0]), item[0]))
     else:
-        ordered = sorted(counts.items(), key=lambda item: (item[0].casefold(), item[0]))
+        ordered = sorted(ordered, key=lambda item: (item[0].casefold(), item[0]))
+    matching_row_count = sum(count for _, count in ordered) + null_count
     window = ordered[offset : offset + limit]
     return RenovationFacetsRead(
         column=column,
         values=[RenovationFacetValueRead(value=value, count=count) for value, count in window],
         total=len(ordered),
-        rowCount=sum(counts.values()) + null_count,
+        rowCount=matching_row_count,
         hasNulls=has_nulls,
         nullCount=null_count,
     )

@@ -3,6 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import type { ColumnFilter, FacetSource, FacetWindow } from "../column-filter-facets";
+import type { FacetSearch } from "../column-filter-facets";
 
 /**
  * The popover is generic: it is handed a `FacetSource` and nothing else — no
@@ -10,7 +11,10 @@ import type { ColumnFilter, FacetSource, FacetWindow } from "../column-filter-fa
  * every table uses.
  */
 let facetHandler:
-    | ((column: string, params?: { offset?: number; limit?: number }) => Promise<FacetWindow>)
+    | ((
+          column: string,
+          params?: { offset?: number; limit?: number; search?: FacetSearch | null | undefined },
+      ) => Promise<FacetWindow>)
     | undefined;
 
 const defaultFacets: FacetSource = (column, params) => {
@@ -447,4 +451,66 @@ test("paged column: no «Загрузка…» caption, and new windows arrive c
     expect(requested).toEqual([...new Set(requested)]);
     expect(screen.queryByText(/Загрузка/)).toBeNull();
     facetHandler = undefined as never;
+});
+
+test("a late response from an older search cannot append to the current list", async () => {
+    let resolveOld!: (value: FacetWindow) => void;
+    let resolveNew!: (value: FacetWindow) => void;
+    const oldPage = new Promise<FacetWindow>((resolve) => {
+        resolveOld = resolve;
+    });
+    const newPage = new Promise<FacetWindow>((resolve) => {
+        resolveNew = resolve;
+    });
+    facetHandler = (_column, params = {}) => {
+        const search = params.search;
+        if (search?.kind === "text" && search.query === "old") return oldPage;
+        if (search?.kind === "text" && search.query === "new") return newPage;
+        return Promise.resolve({
+            values: Array.from({ length: 12 }, (_, index) => ({
+                value: `base-${index}`,
+                count: 1,
+            })),
+            total: 12,
+            hasNulls: false,
+        });
+    };
+    await openFilter("col_022", "base-0");
+    const search = document.querySelector<HTMLInputElement>('input[name="column-filter-search"]')!;
+    fireEvent.change(search, { target: { value: "old" } });
+    fireEvent.change(search, { target: { value: "new" } });
+    resolveOld({ values: [{ value: "old-result", count: 1 }], total: 1, hasNulls: false });
+    resolveNew({ values: [{ value: "new-result", count: 1 }], total: 1, hasNulls: false });
+    await waitFor(() => expect(screen.getByRole("option", { name: /^new-result/ })).toBeTruthy());
+    expect(screen.queryByRole("option", { name: /^old-result/ })).toBeNull();
+});
+
+test("an initial facet failure is visible and retryable", async () => {
+    let failed = true;
+    facetHandler = () => {
+        if (failed) {
+            failed = false;
+            return Promise.reject(new Error("offline"));
+        }
+        return Promise.resolve({
+            values: [{ value: "recovered", count: 1 }],
+            total: 1,
+            hasNulls: false,
+        });
+    };
+    render(
+        <ColumnFilterPopover
+            column="col_023"
+            columnLabel="col_023"
+            anchor={anchor}
+            facets={defaultFacets}
+            initial={null}
+            onApply={() => {}}
+            onClose={() => {}}
+        />,
+    );
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(screen.getByRole("option", { name: /^recovered/ })).toBeTruthy());
+    expect(screen.queryByRole("alert")).toBeNull();
 });

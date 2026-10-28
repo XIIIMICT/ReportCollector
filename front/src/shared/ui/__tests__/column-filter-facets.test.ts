@@ -5,6 +5,7 @@ import {
     facetWindow,
     rowFacetSource,
     serverFacetSource,
+    type FacetSearch,
 } from "../column-filter-facets";
 
 const rows = [
@@ -92,4 +93,31 @@ test("serverFacetSource drops the null-labelled entries of the wire format", asy
     expect(window.values).toEqual([{ value: "Насос", count: 2 }]);
     expect(window.hasNulls).toBe(true);
     expect(window.nullCount).toBe(5);
+});
+
+test("serverFacetSource sends search to the server before applying offset", async () => {
+    const calls: Array<{ offset: number; search?: FacetSearch | null | undefined }> = [];
+    const values = Array.from({ length: 450 }, (_, index) => ({
+        value: `item-${index}`,
+        count: 1,
+    }));
+    const source = serverFacetSource(async (_column, params) => {
+        calls.push({ offset: params.offset, search: params.search });
+        const query = params.search?.kind === "text" ? params.search.query : "";
+        const matched = query ? values.filter(({ value }) => value.includes(query)) : values;
+        return {
+            values: matched.slice(params.offset, params.offset + params.limit),
+            total: matched.length,
+            hasNulls: false,
+            rowCount: matched.length,
+        };
+    });
+    const result = await source("name", {
+        offset: 0,
+        limit: 200,
+        search: { kind: "text", query: "item-300" },
+    });
+    expect(result.values.map(({ value }) => value)).toEqual(["item-300"]);
+    expect(result.total).toBe(1);
+    expect(calls.some(({ search }) => search?.kind === "text")).toBe(true);
 });

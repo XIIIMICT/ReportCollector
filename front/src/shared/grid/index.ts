@@ -9,6 +9,7 @@ export * from "./grid-clipboard";
 export * from "./grid-normalization";
 export * from "./grid-selection";
 export * from "./grid-utils";
+export * from "./revo-grid-adapter";
 export * from "./use-grid-selection";
 export * from "./use-grid-column-filter";
 export * from "./cell-editors";

@@ -178,6 +178,9 @@ export function ColumnFilterPopover({
     const listRef = useRef<HTMLDivElement>(null);
     const loadingRef = useRef(false);
     const exhaustedRef = useRef(false);
+    const queryGenerationRef = useRef(0);
+    const [loadError, setLoadError] = useState(false);
+    const [retryToken, setRetryToken] = useState(0);
     // Distinct values rendered so far; also the next page's offset.
     const loadedCountRef = useRef(0);
     // A ref mirror of `values` for the paging callbacks: reading the state
@@ -364,8 +367,10 @@ export function ColumnFilterPopover({
 
     useEffect(() => {
         let cancelled = false;
+        const generation = ++queryGenerationRef.current;
         loadingRef.current = true;
         exhaustedRef.current = false;
+        setLoadError(false);
         loadedCountRef.current = 0;
         // A new search REPLACES the list: the old window's values are not part
         // of the narrowed result and would make the count and the paging lie.
@@ -406,14 +411,15 @@ export function ColumnFilterPopover({
                 }
             })
             .catch(() => {
-                if (!cancelled) {
+                if (!cancelled && queryGenerationRef.current === generation) {
                     setValues([]);
-                    exhaustedRef.current = true;
+                    setLoadError(true);
+                    exhaustedRef.current = false;
                 }
             })
             .finally(() => {
                 if (cancelled) return;
-                loadingRef.current = false;
+                if (queryGenerationRef.current === generation) loadingRef.current = false;
             });
         return () => {
             cancelled = true;
@@ -421,7 +427,7 @@ export function ColumnFilterPopover({
         };
         // Not `facetSource`: a rebuilt client source must not restart the list
         // (see `facetSourceRef`) — only a different column or search does.
-    }, [column, searchKey]);
+    }, [column, searchKey, retryToken]);
 
     /**
      * Append the next window of distinct values.
@@ -430,7 +436,8 @@ export function ColumnFilterPopover({
      * dedupes values that moved between windows while the plan was edited.
      */
     const loadNextPage = useCallback(async () => {
-        if (loadingRef.current || exhaustedRef.current) return;
+        if (loadingRef.current || exhaustedRef.current || loadError) return;
+        const generation = queryGenerationRef.current;
         loadingRef.current = true;
         try {
             const facets = await facetSourceRef.current(column, {
@@ -438,7 +445,9 @@ export function ColumnFilterPopover({
                 limit: FACET_PAGE,
                 search: searchRef.current,
             });
+            if (queryGenerationRef.current !== generation) return;
             const loaded = facets.values.map((entry) => entry.value);
+            setLoadError(false);
             setCounts((previous) => {
                 const next = new Map(previous);
                 for (const entry of facets.values) next.set(entry.value, entry.count);
@@ -484,11 +493,11 @@ export function ColumnFilterPopover({
                 setKept((previous) => new Set([...previous, ...loaded]));
             }
         } catch {
-            // Keep what is loaded; the next scroll or the button retries.
+            if (queryGenerationRef.current === generation) setLoadError(true);
         } finally {
-            loadingRef.current = false;
+            if (queryGenerationRef.current === generation) loadingRef.current = false;
         }
-    }, [column]);
+    }, [column, loadError]);
 
     const onListScroll = useCallback(
         (event: React.UIEvent<HTMLDivElement>) => {
@@ -973,6 +982,21 @@ export function ColumnFilterPopover({
                             </SearchField>
                         )}
                     </div>
+                    {loadError ? (
+                        <div className="column-filter__status" role="alert">
+                            <span>Не удалось загрузить значения.</span>
+                            <button
+                                type="button"
+                                className="column-filter__retry"
+                                onClick={() => {
+                                    setLoadError(false);
+                                    setRetryToken((value) => value + 1);
+                                }}
+                            >
+                                Повторить
+                            </button>
+                        </div>
+                    ) : null}
                     <ListBox
                         ref={listRef}
                         className="column-filter__list"

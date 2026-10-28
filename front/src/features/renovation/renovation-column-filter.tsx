@@ -88,6 +88,7 @@ export function RenovationColumnFilterPopover({
             asset,
             offset: page.offset,
             limit: page.limit,
+            search: page.search,
         });
         if (render === null) return window;
         return {

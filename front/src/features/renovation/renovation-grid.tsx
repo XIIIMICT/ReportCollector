@@ -63,7 +63,6 @@ import {
     columnNumber,
     defaultLevelHeights,
     handleClipPath,
-    isGridTarget,
     loadLevelHeights,
     mergeBands,
     type HandleBand,
@@ -76,9 +75,19 @@ import type {
 } from "@/shared/api/renovation";
 import { parsePastedText, serializeCellValue } from "@/shared/grid";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/data-grid";
-import { deduplicateUpdates, parseNumericText, toCellValue } from "@/shared/grid/grid-edit";
+import {
+    cellValuesEqual,
+    deduplicateUpdates,
+    parseNumericText,
+    toCellValue,
+} from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import { reactEditor } from "@/shared/grid/react-editor";
+import {
+    createGridEpoch,
+    createRevoGridAdapter,
+    missingRangeIndexes,
+} from "@/shared/grid/revo-grid-adapter";
 import { isChunkedSection } from "@/shared/grid/section-policy";
 import { selectionDetailForColumn } from "@/shared/grid/selection-label";
 import { isFromTextEditor } from "@/shared/keyboard";
@@ -321,6 +330,7 @@ function RenovationGridInner(
     forwardedRef: Ref<RenovationGridHandle>,
 ) {
     const gridRef = useRef<HTMLRevoGridElement>(null);
+    const gridAdapter = useMemo(() => createRevoGridAdapter<RenovationGridRow>(gridRef), []);
     const shellRef = useRef<HTMLDivElement>(null);
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
     const headerBodyRef = useRef<HTMLDivElement>(null);
@@ -1055,9 +1065,7 @@ function RenovationGridInner(
         setSelectionRange(null);
         if (!grid) return;
         const doClear = () => {
-            (grid as unknown as { pendingColumnFocusRestore?: unknown }).pendingColumnFocusRestore =
-                undefined;
-            return grid.clearFocus().then(() => grid.refresh());
+            return gridAdapter.clearRange();
         };
         // A drag-created range resurrects as a single-cell range on the first
         // clear: revo-grid re-applies the stale focus during the re-render
@@ -1065,22 +1073,18 @@ function RenovationGridInner(
         // repeat until the store is really empty — the same pass that works on
         // a second Escape now runs automatically on the first.
         void doClear().then(() => {
-            const verify = () =>
-                grid
-                    .getSelectedRange()
-                    .then((range) => {
-                        if (range) doClear();
-                    })
-                    .catch(() => {
-                        /* grid disposed */
-                    });
+            const verify = () => {
+                void gridAdapter.getSelectedRange().then((range) => {
+                    if (range) doClear();
+                });
+            };
             if (typeof requestAnimationFrame === "function") {
                 requestAnimationFrame(() => void verify());
             } else {
                 void verify();
             }
         });
-    }, []);
+    }, [gridAdapter]);
 
     // Row-number click: select the whole row (shift — range, Ctrl/Cmd —
     // toggle). Mirrors the shared DataGrid; the cell range is cleared
@@ -1591,16 +1595,14 @@ function RenovationGridInner(
      * row, and reading it as one would store the totals' position.
      */
     const selectedPosition = useCallback(async (): Promise<number | null> => {
-        const grid = gridRef.current;
-        if (!grid) return null;
-        const range = await grid.getSelectedRange?.();
+        const range = await gridAdapter.getSelectedRange();
         if (!range || range.rowType !== "rgRow") return null;
-        const source = (await grid.getSource("rgRow")) as RenovationGridRow[];
+        const source = await gridAdapter.getSourceRows();
         // Search the loaded window for the row whose index the selection names,
         // so a scrolled viewport does not shift the answer by a page.
         const row = source.find((item) => item?.__index === Number(range.y));
         return row && typeof row.__position === "number" ? row.__position : null;
-    }, []);
+    }, [gridAdapter]);
 
     // Report the remembered position: the selected row when there is one,
     // otherwise the row in the middle of the data viewport. The plugin evicts
@@ -1643,14 +1645,14 @@ function RenovationGridInner(
             0,
             Math.min(total - 1, Math.round((scrollTop + dataHeight / 2) / rowHeight)),
         );
-        const source = (await grid.getSource("rgRow")) as RenovationGridRow[];
+        const source = await gridAdapter.getSourceRows();
         let row = source[centerIndex];
         for (let step = 1; (!row || row.__id === undefined) && step <= 30; step += 1) {
             row = source[centerIndex - step] ?? source[centerIndex + step];
         }
         if (!row || row.__id === undefined) return;
         onCenterPositionChangeRef.current?.(row.__position);
-    }, [rowHeight]);
+    }, [gridAdapter, rowHeight]);
 
     // Report the rows the plugin holds. Fires on every chunk load/eviction so
     // the workspace can mirror them (and patch them in place later). Each row
@@ -1658,7 +1660,7 @@ function RenovationGridInner(
     const reportLoadedRows = useCallback(async () => {
         const grid = gridRef.current;
         if (!grid) return 0;
-        const source = (await grid.getSource("rgRow")) as RenovationGridRow[];
+        const source = await gridAdapter.getSourceRows();
         const rows: RenovationGridRow[] = [];
         for (let index = 0; index < source.length; index += 1) {
             const row = source[index];
@@ -1669,7 +1671,7 @@ function RenovationGridInner(
         }
         onLoadedRowsChangeRef.current?.(rows);
         return rows.length;
-    }, []);
+    }, [gridAdapter]);
 
     useEffect(() => {
         const grid = gridRef.current;
@@ -1686,9 +1688,12 @@ function RenovationGridInner(
         // selection labels — because every consumer of `loadedRows` saw no
         // rows. So the report RETRIES until the source actually has rows (a
         // short backoff, capped), then settles.
+        const epoch = createGridEpoch();
+        const token = epoch.next();
         let retries = 0;
         const reportAndRetry = () => {
             void reportLoadedRows().then((count) => {
+                if (!epoch.isCurrent(token)) return;
                 // Loaded rows are in: nothing more to chase until the next event.
                 if (count > 0) return;
                 // Source still empty (the plugin has not landed its first chunk):
@@ -1713,20 +1718,21 @@ function RenovationGridInner(
         const onSelect = () => {
             void reportCenterPosition();
         };
-        grid.addEventListener("aftersourceset", schedule);
-        grid.addEventListener("scrollchange", schedule);
+        const removeAfterSourcesSet = gridAdapter.on("afterSourcesSet", schedule);
+        const removeScrollChange = gridAdapter.on("scrollChange", schedule);
         // `afterfocus` is what RevoGrid actually fires when a CELL is clicked in
         // this grid — `cellclick`/`rowselected` never arrive, so subscribing to
         // them alone meant the position was never written.
-        grid.addEventListener("afterfocus", onSelect);
+        const removeAfterFocus = gridAdapter.on("afterFocus", onSelect);
         reportAndRetry();
         return () => {
-            grid.removeEventListener("aftersourceset", schedule);
-            grid.removeEventListener("scrollchange", schedule);
-            grid.removeEventListener("afterfocus", onSelect);
+            epoch.next();
+            removeAfterSourcesSet();
+            removeScrollChange();
+            removeAfterFocus();
             if (timer !== undefined) window.clearTimeout(timer);
         };
-    }, [reportCenterPosition, reportLoadedRows, scopeKey]);
+    }, [gridAdapter, reportCenterPosition, reportLoadedRows, scopeKey]);
 
     function normalizeValue(value: unknown, field: RenovationField): NormalizeResult {
         if (field.cellType === "number") {
@@ -1995,7 +2001,18 @@ function RenovationGridInner(
                 const known = rowValuesRef.current.get(row.__id);
                 for (const [field, value] of Object.entries(patch)) {
                     if (!editableFieldKeys.has(field)) continue;
-                    if (known && known[field] === value) continue;
+                    const meta = fieldByDbName.get(field);
+                    const kind =
+                        meta?.cellType === "number"
+                            ? "number"
+                            : meta?.cellType === "date"
+                              ? "date"
+                              : meta?.cellType === "boolean"
+                                ? "boolean"
+                                : meta?.cellType === "datetime"
+                                  ? "datetime"
+                                  : "text";
+                    if (known && meta && cellValuesEqual(kind, known[field], value)) continue;
                     updates.push({ rowId: row.__id, field, value: toCellValue(value) });
                 }
             }
@@ -2006,6 +2023,21 @@ function RenovationGridInner(
                 return { updates };
             }
             if (editableFieldKeys.has(field)) {
+                const known = rowValuesRef.current.get(row.__id);
+                const meta = fieldByDbName.get(field);
+                const kind =
+                    meta?.cellType === "number"
+                        ? "number"
+                        : meta?.cellType === "date"
+                          ? "date"
+                          : meta?.cellType === "boolean"
+                            ? "boolean"
+                            : meta?.cellType === "datetime"
+                              ? "datetime"
+                              : "text";
+                if (known && meta && cellValuesEqual(kind, known[field], detail.val)) {
+                    return { updates };
+                }
                 updates.push({ rowId: row.__id, field, value: toCellValue(detail.val) });
             }
         }
@@ -2053,11 +2085,9 @@ function RenovationGridInner(
     // paste and row-id reporting run on this (the workspace keeps the same
     // objects, so a patch reaches them without a re-render).
     const getLoadedRows = useCallback(async (): Promise<RenovationGridRow[]> => {
-        const grid = gridRef.current;
-        if (!grid) return [];
-        const source = (await grid.getSource("rgRow")) as RenovationGridRow[];
+        const source = await gridAdapter.getSourceRows();
         return source.filter((row) => row && row.__id !== undefined);
-    }, []);
+    }, [gridAdapter]);
 
     const getVisibleRowIds = useCallback(async (): Promise<string[]> => {
         const visible = await getLoadedRows();
@@ -2080,10 +2110,9 @@ function RenovationGridInner(
         async (start: { x: number; y: number }, end: { x: number; y: number }) => {
             const grid = gridRef.current;
             if (!grid) return;
-            grid.setCellsFocus(start, end);
-            await grid.refresh();
+            await gridAdapter.setRange(start, end);
         },
-        [],
+        [gridAdapter],
     );
 
     const updateSelectionRange = useCallback((range: RangeArea | null) => {
@@ -2108,9 +2137,19 @@ function RenovationGridInner(
         if (!range) return null;
         const lines: string[] = [];
         const lastRow = Math.min(range.y1, totalRows - 1);
+        const missing = missingRangeIndexes(range.y, lastRow, rowsByIndex);
+        if (missing.length > 0) {
+            const firstMissing = missing[0];
+            const lastMissing = missing[missing.length - 1];
+            if (firstMissing === undefined || lastMissing === undefined) return null;
+            onPasteSkipped(
+                `Диапазон не загружен: отсутствуют строки ${firstMissing + 1}–${lastMissing + 1}.`,
+            );
+            return null;
+        }
         for (let y = range.y; y <= lastRow; y += 1) {
             const row = rowsByIndex.get(y);
-            if (!row) continue;
+            if (!row) return null;
             const cells: string[] = [];
             for (let x = range.x; x <= range.x1; x += 1) {
                 const column = columns[x] as ColumnRegular | undefined;
@@ -2120,7 +2159,7 @@ function RenovationGridInner(
             lines.push(cells.join("\t"));
         }
         return lines.join("\n");
-    }, [columns, rowsByIndex, totalRows]);
+    }, [columns, onPasteSkipped, rowsByIndex, totalRows]);
 
     const copySelection = useCallback(() => {
         void (async () => {
@@ -2184,9 +2223,19 @@ function RenovationGridInner(
 
             const data: Record<string, Record<string, unknown>> = {};
             const models: RenovationGridRow[] = [];
+            const missing = missingRangeIndexes(toY, toY1, rowsByIndex);
+            if (missing.length > 0) {
+                const firstMissing = missing[0];
+                const lastMissing = missing[missing.length - 1];
+                if (firstMissing === undefined || lastMissing === undefined) return;
+                onPasteSkipped(
+                    `Диапазон не загружен: отсутствуют строки ${firstMissing + 1}–${lastMissing + 1}.`,
+                );
+                return;
+            }
             for (let y = toY; y <= toY1; y += 1) {
                 const row = rowsByIndex.get(y);
-                if (!row) continue;
+                if (!row) return;
                 models[y] = row;
                 const patch: Record<string, unknown> = {};
                 for (let x = toX; x <= toX1; x += 1) {
@@ -2199,16 +2248,16 @@ function RenovationGridInner(
                 if (Object.keys(patch).length > 0) data[String(y)] = patch;
             }
             const newRange: RangeArea = { y: toY, y1: toY1, x: toX, x1: toX1 };
-            grid.dispatchEvent(
-                new CustomEvent("rangeeditapply", {
-                    detail: { data, models, type: "rgRow", oldRange: range, newRange },
-                    bubbles: true,
-                    composed: true,
-                }),
-            );
+            gridAdapter.dispatchRangeEdit({
+                data,
+                models,
+                type: "rgRow",
+                oldRange: range,
+                newRange,
+            });
             void applyGridRange({ x: toX, y: toY }, { x: toX1, y: toY1 });
         },
-        [applyGridRange, columns, onPasteSkipped, rowsByIndex, totalRows],
+        [applyGridRange, columns, gridAdapter, onPasteSkipped, rowsByIndex, totalRows],
     );
 
     // Window-level copy/paste (capture): works regardless of the focus inside
@@ -2217,7 +2266,7 @@ function RenovationGridInner(
         const grid = gridRef.current;
         if (!grid) return;
         const handleCopy = (event: ClipboardEvent) => {
-            if (!isGridTarget(event, grid)) return;
+            if (!gridAdapter.isTarget(event)) return;
             const active = document.activeElement as HTMLElement | null;
             if (
                 active &&
@@ -2242,7 +2291,7 @@ function RenovationGridInner(
             if (!grid) return;
             // Same as the raw grid: a cell click can leave the focus on body,
             // so accept the paste while this grid holds an active selection.
-            if (!isGridTarget(event, grid) && selectionRangeRef.current === null) return;
+            if (!gridAdapter.isTarget(event) && selectionRangeRef.current === null) return;
             const text = event.clipboardData?.getData("text/plain");
             if (text == null || text === "") return;
             event.preventDefault();
@@ -2261,35 +2310,15 @@ function RenovationGridInner(
          * on RELEASE alone, which is why the plan showed one cell until the end of
          * the drag while every client grid followed the pointer.
          */
-        const tempStore = (
-            grid.querySelector("revogr-temp-range") as unknown as {
-                selectionStore?: {
-                    onChange: (key: string, cb: (value: RangeArea | null) => void) => void;
-                    get: (key: string) => RangeArea | null;
-                };
-            } | null
-        )?.selectionStore;
-        let tempUnsubscribe: (() => void) | undefined;
-        if (tempStore) {
-            const store = tempStore;
-            const report = (range: RangeArea | null) => {
-                if (!range) return;
-                updateSelectionRange({
-                    x: Math.min(range.x, range.x1),
-                    y: Math.min(range.y, range.y1),
-                    x1: Math.max(range.x, range.x1),
-                    y1: Math.max(range.y, range.y1),
-                });
-            };
-            // `@stencil/store` returns an unsubscribe function; the wrapper in the
-            // plugin may return nothing, so both shapes are accepted.
-            const off = (store.onChange as unknown as (key: string, cb: unknown) => unknown)(
-                "tempRange",
-                report,
-            );
-            if (typeof off === "function") tempUnsubscribe = off as () => void;
-            report(store.get("tempRange"));
-        }
+        const tempUnsubscribe = gridAdapter.subscribeTemporaryRange((range) => {
+            if (!range) return;
+            updateSelectionRange({
+                x: Math.min(range.x, range.x1),
+                y: Math.min(range.y, range.y1),
+                x1: Math.max(range.x, range.x1),
+                y1: Math.max(range.y, range.y1),
+            });
+        });
 
         const handleFocusCell = (event: Event) => {
             const detail = (
@@ -2323,18 +2352,25 @@ function RenovationGridInner(
         };
         window.addEventListener("copy", handleCopy, true);
         window.addEventListener("paste", handlePaste, true);
-        grid.addEventListener("setrange", handleSetRange);
-        grid.addEventListener("focuscell", handleFocusCell);
-        grid.addEventListener("canceledit", handleCancelEdit);
+        const removeSetRange = gridAdapter.on("setRange", handleSetRange);
+        const removeFocusCell = gridAdapter.on("focusCell", handleFocusCell);
+        const removeCancelEdit = gridAdapter.on("cancelEdit", handleCancelEdit);
         return () => {
             window.removeEventListener("copy", handleCopy, true);
             window.removeEventListener("paste", handlePaste, true);
-            grid.removeEventListener("setrange", handleSetRange);
+            removeSetRange();
             tempUnsubscribe?.();
-            grid.removeEventListener("focuscell", handleFocusCell);
-            grid.removeEventListener("canceledit", handleCancelEdit);
+            removeFocusCell();
+            removeCancelEdit();
         };
-    }, [canEdit, copySelection, onReleaseLease, pasteIntoSelection, updateSelectionRange]);
+    }, [
+        canEdit,
+        copySelection,
+        gridAdapter,
+        onReleaseLease,
+        pasteIntoSelection,
+        updateSelectionRange,
+    ]);
 
     // Keyboard shortcuts (event.code — works in any keyboard layout).
     useEffect(() => {
@@ -2364,7 +2400,7 @@ function RenovationGridInner(
                 // range, the key belongs to whoever has focus (menus, dialogs).
                 const hasRange =
                     selectionRangeRef.current !== null || lastRangeRef.current !== null;
-                if (!isGridTarget(event, grid) && !hasRange) return;
+                if (!gridAdapter.isTarget(event) && !hasRange) return;
                 // Swallow the event so revo-grid's built-in Escape (which
                 // collapses the range to a single cell) never runs: the row
                 // selection must clear completely, not shrink to one cell.
@@ -2401,7 +2437,7 @@ function RenovationGridInner(
             // Copy still needs a grid target or a tracked selection. Select-all
             // above must also be swallowed after programmatic focus, which can
             // leave body active before React observes the grid's new range.
-            if (!isGridTarget(event, grid) && selectionRangeRef.current === null) return;
+            if (!gridAdapter.isTarget(event) && selectionRangeRef.current === null) return;
             event.preventDefault();
             void copySelection();
         };
@@ -2853,7 +2889,7 @@ function RenovationGridInner(
         const grid = gridRef.current;
         if (!grid) return;
         measureVerticalScrollbarLane();
-        const size = await grid.getContentSize();
+        const size = await gridAdapter.getContentSize();
         const width = size.x + ROW_HEADER_WIDTH;
         // revo-grid fires contentsizechanged on every virtualized scroll tick;
         // re-setting the same width re-rendered the grid, which rebuilt the

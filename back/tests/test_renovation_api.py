@@ -185,6 +185,50 @@ async def test_read_plan_facets_shared_value(client: AsyncClient) -> None:
     assert body["hasNulls"] is False
 
 
+async def test_read_plan_facets_search_is_applied_before_paging(client: AsyncClient) -> None:
+    """A search returns matches outside the first unfiltered facet window."""
+    response = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_011", "search_kind": "text", "search_query": "насос"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["values"] == [{"value": "Насос НК", "count": 1}]
+    assert body["rowCount"] == 1
+
+
+async def test_read_plan_facets_numeric_search_filters_before_offset(client: AsyncClient) -> None:
+    response = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_028", "search_kind": "range", "search_min": 6, "offset": 0, "limit": 1},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["values"] == [{"value": "10", "count": 1}]
+
+
+async def test_read_plan_facets_date_search_uses_client_timezone(client: AsyncClient) -> None:
+    minimum = datetime(2027, 1, 15, tzinfo=UTC).timestamp() * 1000
+    response = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={
+            "column": "col_025",
+            "search_kind": "datetime",
+            "search_min": minimum,
+            "search_tz": "UTC",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["values"] == [{"value": "2027-01-31", "count": 2}]
+
+
 async def test_read_plan_facets_reports_empty_count_on_every_page(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:

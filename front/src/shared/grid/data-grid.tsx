@@ -1,4 +1,4 @@
-﻿import { Tooltip } from "@heroui/react";
+import { Tooltip } from "@heroui/react";
 import {
     RevoGrid,
     type BeforeRangeSaveDataDetails,
@@ -27,6 +27,7 @@ import {
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import { reactEditor } from "@/shared/grid/react-editor";
+import { createGridEpoch, createRevoGridAdapter } from "@/shared/grid/revo-grid-adapter";
 import { readStoredSorting, writeStoredSorting } from "@/shared/grid/use-grid-column-filters";
 import { isFromTextEditor } from "@/shared/keyboard";
 import {
@@ -295,10 +296,6 @@ function hasSummaryMergeMarker(properties: ColumnRegular["columnProperties"] | u
     return probe?.__summaryMerge === true;
 }
 
-function isGridTarget(event: Event, grid: HTMLElement): boolean {
-    return grid.contains(event.target as Node | null) || event.composedPath().includes(grid);
-}
-
 /**
  * Canonical keys of the cells in the selected range — the same for all
  * members regardless of the visible column set (coordinates diverge when
@@ -418,6 +415,7 @@ function DataGridInner(
     forwardedRef: Ref<DataGridHandle>,
 ) {
     const gridRef = useRef<HTMLRevoGridElement>(null);
+    const gridAdapter = useMemo(() => createRevoGridAdapter<GridRow>(gridRef), []);
     // CellMergePlugin binds its config to the grid's `cellMerge` DOM property
     // through the same property watcher as `hideColumns` (the plugin's setter
     // interceptor fires on any later assignment too), but the React wrapper's
@@ -629,7 +627,7 @@ function DataGridInner(
         void (async () => {
             try {
                 const [visible, scroller] = await Promise.all([
-                    grid.getVisibleSource("rgRow"),
+                    gridAdapter.getVisibleRows(rows),
                     Promise.resolve(
                         grid.querySelector("revogr-scroll-virtual.vertical") as HTMLElement | null,
                     ),
@@ -645,7 +643,7 @@ function DataGridInner(
                 // Grid disposed mid-read — the next scroll saves instead.
             }
         })();
-    }, [rowHeight, scrollFormKey, scrollScope]);
+    }, [gridAdapter, rowHeight, rows, scrollFormKey, scrollScope]);
 
     /** Debounced save: a scroll fires dozens of events, one write is enough. */
     const scrollRememberTimerRef = useRef<number | undefined>(undefined);
@@ -957,7 +955,7 @@ function DataGridInner(
         const grid = gridRef.current;
         if (!grid) return;
         void (async () => {
-            const current = (await grid.getColumns()) as (ColumnRegular | ColumnGrouping)[];
+            const current = (await gridAdapter.getColumns()) as (ColumnRegular | ColumnGrouping)[];
             const leaves = current.flatMap((column) =>
                 (column as ColumnGrouping).children?.length
                     ? ((column as ColumnGrouping).children as ColumnRegular[])
@@ -1175,14 +1173,8 @@ function DataGridInner(
      * so any index-based lookup must go here, not into the original rows.
      */
     const getVisibleRows = useCallback(async (): Promise<GridRow[]> => {
-        const grid = gridRef.current;
-        if (!grid) return rows;
-        try {
-            return (await grid.getVisibleSource("rgRow")) as GridRow[];
-        } catch {
-            return rows;
-        }
-    }, [rows]);
+        return gridAdapter.getVisibleRows(rows);
+    }, [gridAdapter, rows]);
 
     // Selected rows (row-number buttons) — we reflect them in presence too.
     const selectedRowsRange = useMemo(() => {
@@ -1295,31 +1287,16 @@ function DataGridInner(
      */
     const applyGridRange = useCallback(
         async (start: { x: number; y: number }, end: { x: number; y: number }) => {
-            const grid = gridRef.current;
-            if (!grid) return;
-            await grid.setCellsFocus(start, end);
-            await grid.refresh();
+            await gridAdapter.setRange(start, end);
         },
-        [],
+        [gridAdapter],
     );
 
     const clearGridSelection = useCallback(() => {
-        const grid = gridRef.current;
-        if (!grid) return;
-        // clearFocus() empties the selection store, but without refresh the
-        // selection overlay isn't repainted (the same Stencil quirk as with
-        // setCellsFocus) — the range rectangle would stay visible.
-        void grid.clearFocus().then(() => void grid.refresh());
-        // revo-grid caches the last focused cell (pendingColumnFocusRestore)
-        // whenever columns change while a range is active, then re-applies it
-        // in componentDidRender. After clearFocus() the store is empty, so the
-        // "column didn't move" guard can't match and the stale restore would
-        // resurrect a single-cell range. Drop it so the clearing survives the
-        // next render (this is what kept the border visible after row clicks).
-        (grid as unknown as { pendingColumnFocusRestore?: unknown }).pendingColumnFocusRestore =
-            undefined;
+        // The adapter also clears RevoGrid's private focus-restoration cache.
+        void gridAdapter.clearRange();
         updateSelectionRange(null);
-    }, [updateSelectionRange]);
+    }, [gridAdapter, updateSelectionRange]);
 
     // Ctrl+A: one contiguous range over all data cells. Headers aren't
     // selected (merged headers' border doesn't match), the «добавить запись»
@@ -1495,7 +1472,7 @@ function DataGridInner(
         const grid = gridRef.current;
         if (!grid) return;
         void (async () => {
-            const current = (await grid.getColumns()) as (ColumnRegular | ColumnGrouping)[];
+            const current = (await gridAdapter.getColumns()) as (ColumnRegular | ColumnGrouping)[];
             const changed: ColumnRegular[] = [];
             const walk = (column: ColumnRegular | ColumnGrouping) => {
                 const leaves = (column as ColumnGrouping).children?.length
@@ -1576,15 +1553,16 @@ function DataGridInner(
         // selection range object is rebuilt by the grid on every focus pass, and
         // an unconditional `setCanPaste` re-rendered on each of those passes until
         // React stopped it («Maximum update depth exceeded»).
-        let cancelled = false;
+        const epoch = createGridEpoch();
+        const token = epoch.next();
         void (async () => {
             const source = await getVisibleRows();
-            if (cancelled) return;
+            if (!epoch.isCurrent(token)) return;
             const next = canPasteRange(selectionRange, source);
             setCanPaste((previous) => (previous === next ? previous : next));
         })();
         return () => {
-            cancelled = true;
+            epoch.next();
         };
     }, [canPasteRange, getVisibleRows, selectionRange]);
 
@@ -1846,7 +1824,7 @@ function DataGridInner(
         const grid = gridRef.current;
         if (!grid) return;
         measureVerticalScrollbarLane();
-        const size = await grid.getContentSize();
+        const size = await gridAdapter.getContentSize();
         const verticalScroller = verticalScrollRef.current;
         const scrollbarGutter = verticalScroller
             ? verticalScroller.offsetWidth - verticalScroller.clientWidth
@@ -1894,7 +1872,7 @@ function DataGridInner(
             const match = /translateX\((-?[\d.]+)px\)/.exec(cell.style.transform);
             const cellLeft = match ? Number(match[1]) : 0;
             const width = cell.offsetWidth;
-            const leaves = leavesOf(await grid.getColumns());
+            const leaves = leavesOf(await gridAdapter.getColumns());
             let offset = 0;
             for (const leaf of leaves) {
                 const leafWidth = typeof leaf.size === "number" ? leaf.size : 150;
@@ -1974,8 +1952,8 @@ function DataGridInner(
             };
         }
         const [currentColumns, currentRows] = await Promise.all([
-            grid.getColumns(),
-            grid.getVisibleSource("rgRow"),
+            gridAdapter.getColumns(),
+            gridAdapter.getVisibleRows(rows),
         ]);
         return {
             columns: exportColumnsFromGrid(
@@ -1990,7 +1968,15 @@ function DataGridInner(
                 .filter((row) => !row.isPlaceholder && !row.isDeleted)
                 .map((row) => row.id),
         };
-    }, [rows, section, showAssetColumn, showServiceColumns, columnDescriptors, keycloakEnabled]);
+    }, [
+        columnDescriptors,
+        gridAdapter,
+        keycloakEnabled,
+        rows,
+        section,
+        showAssetColumn,
+        showServiceColumns,
+    ]);
 
     const lastStatsRef = useRef<GridViewStats | null>(null);
 
@@ -2091,11 +2077,12 @@ function DataGridInner(
     // out asynchronously, so a single early frame is not enough).
     useEffect(() => {
         if (!filteringEnabled) return;
-        let cancelled = false;
+        const epoch = createGridEpoch();
+        const token = epoch.next();
         let attempts = 0;
         let lastCount = -1;
         const tick = () => {
-            if (cancelled) return;
+            if (!epoch.isCurrent(token)) return;
             measureFunnels();
             const grid = gridRef.current;
             const count = grid ? grid.querySelectorAll(".rgHeaderCell [data-prop]").length : 0;
@@ -2106,7 +2093,7 @@ function DataGridInner(
         };
         tick();
         return () => {
-            cancelled = true;
+            epoch.next();
         };
     }, [columns, filteringEnabled, measureFunnels]);
 
@@ -2187,8 +2174,8 @@ function DataGridInner(
         const grid = gridRef.current;
         if (!grid || !onViewStatsChange) return;
         const [columns, visibleSource] = await Promise.all([
-            grid.getColumns(),
-            grid.getVisibleSource("rgRow"),
+            gridAdapter.getColumns(),
+            gridAdapter.getVisibleRows(rows),
         ]);
         const visible = (visibleSource as GridRow[]).filter(
             (row) => !row.isPlaceholder && !row.isDeleted,
@@ -2235,7 +2222,7 @@ function DataGridInner(
         }
         lastStatsRef.current = next;
         onViewStatsChange(next);
-    }, [descriptors, onViewStatsChange, rows]);
+    }, [descriptors, gridAdapter, onViewStatsChange, rows]);
 
     /**
      * Drop this section's sorting: the grids' plugin, our state, the stored order,
@@ -2430,22 +2417,24 @@ function DataGridInner(
         if (Object.keys(data).length === 0) return;
         // Go through rangeeditapply: beforeRangeEdit itself skips busy and
         // locked cells (the values are already in the clipboard by then).
-        grid.dispatchEvent(
-            new CustomEvent("rangeeditapply", {
-                detail: {
-                    data,
-                    models,
-                    type: "rgRow",
-                    oldRange: range,
-                    newRange: range,
-                },
-                bubbles: true,
-                composed: true,
-            }),
-        );
+        gridAdapter.dispatchRangeEdit({
+            data,
+            models,
+            type: "rgRow",
+            oldRange: range,
+            newRange: range,
+        });
         // Select the cut range (rangeeditapply doesn't move the selection itself).
         void applyGridRange({ x: range.x, y: range.y }, { x: range.x1, y: range.y1 });
-    }, [applyGridRange, buildCopyText, descriptorByKey, editableKeys, flatColumns, getVisibleRows]);
+    }, [
+        applyGridRange,
+        buildCopyText,
+        descriptorByKey,
+        editableKeys,
+        flatColumns,
+        getVisibleRows,
+        gridAdapter,
+    ]);
 
     const pasteIntoSelection = useCallback(
         async (text?: string) => {
@@ -2510,32 +2499,26 @@ function DataGridInner(
             // newRange defines both the apply area and the resulting selection —
             // after the paste, exactly the pasted cells are selected.
             const newRange: RangeArea = { y: toY, y1: toY1, x: toX, x1: toX1 };
-            grid.dispatchEvent(
-                new CustomEvent("rangeeditapply", {
-                    detail: {
-                        data,
-                        models,
-                        type: "rgRow",
-                        oldRange: range,
-                        newRange,
-                    },
-                    bubbles: true,
-                    composed: true,
-                }),
-            );
+            gridAdapter.dispatchRangeEdit({
+                data,
+                models,
+                type: "rgRow",
+                oldRange: range,
+                newRange,
+            });
             // After the paste, select exactly the pasted cells — and presence
             // picks up the new range via updateSelectionRange
             // (the setrange event doesn't emit this path).
             void applyGridRange({ x: toX, y: toY }, { x: toX1, y: toY1 });
         },
-        [applyGridRange, flatColumns, getVisibleRows, onPasteTruncated],
+        [applyGridRange, flatColumns, getVisibleRows, gridAdapter, onPasteTruncated],
     );
 
     useEffect(() => {
         const grid = gridRef.current;
         if (!grid) return;
         const handleCopy = (event: ClipboardEvent) => {
-            if (!isGridTarget(event, grid)) return;
+            if (!gridAdapter.isTarget(event)) return;
             const active = document.activeElement as HTMLElement | null;
             if (
                 active &&
@@ -2587,7 +2570,7 @@ function DataGridInner(
             // when the grid has an active selection: selecting a cell can
             // leave the focus on body (focuscell → re-render → blur), and a
             // plain isGridTarget check on the event target would lose it.
-            if (!isGridTarget(event, grid) && selectionRangeRef.current === null) return;
+            if (!gridAdapter.isTarget(event) && selectionRangeRef.current === null) return;
             const text = event.clipboardData?.getData("text/plain");
             if (text == null || text === "") return;
             event.preventDefault();
@@ -2691,20 +2674,24 @@ function DataGridInner(
         window.addEventListener("copy", handleCopy, true);
         window.addEventListener("paste", handlePaste, true);
         document.addEventListener("pointerdown", handleOutsidePointerDown, true);
-        grid.addEventListener("setrange", handleSetRange);
-        grid.addEventListener("focuscell", handleFocusCell);
-        grid.addEventListener("afterfilterapply", handleAfterFilterApply);
-        grid.addEventListener("canceledit", handleCancelEdit);
-        grid.addEventListener("beforeheaderclick", handleBeforeHeaderClickCapture, true);
+        const removeSetRange = gridAdapter.on("setRange", handleSetRange);
+        const removeFocusCell = gridAdapter.on("focusCell", handleFocusCell);
+        const removeAfterFilterApply = gridAdapter.on("afterFilterApply", handleAfterFilterApply);
+        const removeCancelEdit = gridAdapter.on("cancelEdit", handleCancelEdit);
+        const removeBeforeHeaderClick = gridAdapter.on(
+            "beforeHeaderClick",
+            handleBeforeHeaderClickCapture,
+            true,
+        );
         document.addEventListener("click", handleFilterClickCapture, true);
         return () => {
             window.removeEventListener("copy", handleCopy, true);
             window.removeEventListener("paste", handlePaste, true);
-            grid.removeEventListener("setrange", handleSetRange);
-            grid.removeEventListener("focuscell", handleFocusCell);
-            grid.removeEventListener("afterfilterapply", handleAfterFilterApply);
-            grid.removeEventListener("canceledit", handleCancelEdit);
-            grid.removeEventListener("beforeheaderclick", handleBeforeHeaderClickCapture, true);
+            removeSetRange();
+            removeFocusCell();
+            removeAfterFilterApply();
+            removeCancelEdit();
+            removeBeforeHeaderClick();
             document.removeEventListener("click", handleFilterClickCapture, true);
             document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
         };
@@ -2713,6 +2700,7 @@ function DataGridInner(
         copySelection,
         descriptorByKey,
         filteringEnabled,
+        gridAdapter,
         onReleaseLease,
         pasteIntoSelection,
         updateSelectionRange,
@@ -2792,7 +2780,7 @@ function DataGridInner(
             // A cell click can leave the focus on body (focuscell →
             // re-render → blur), so a live selection routes the shortcut to
             // the grid even without grid focus.
-            if (!isGridTarget(event, grid) && selectionRangeRef.current === null) return;
+            if (!gridAdapter.isTarget(event) && selectionRangeRef.current === null) return;
             event.preventDefault();
             if (event.code === "KeyA") {
                 // Listen in the capture phase to intercept Ctrl+A before revo-grid's

@@ -1,21 +1,46 @@
 import { describe, expect, test } from "bun:test";
 
-import { serverFacetSource } from "@/shared/ui/column-filter-facets";
+import { serverFacetSource, type FacetSearch } from "@/shared/ui/column-filter-facets";
 
 /**
- * The PLAN's source: it narrows inside `serverFacetSource`, over display
- * strings it does not format. A date range there compared VALUES AS NUMBERS,
- * which is `null` for «24.10.2026» — the whole list vanished the moment a bound
- * was typed, leaving only «Пустые».
+ * The PLAN's source passes the search to the server over raw values. This test
+ * models that contract and verifies that date ranges use the same epoch-ms
+ * semantics as numeric ranges.
  */
 describe("serverFacetSource narrows a date range by instant", () => {
-    const window = (values: string[]) => async () => ({
-        values: values.map((value) => ({ value, count: 1 })),
-        total: values.length,
-        hasNulls: true,
-        nullCount: 3,
-        rowCount: values.length + 3,
-    });
+    const window =
+        (values: string[]) =>
+        async (
+            _column: string,
+            params: { offset: number; limit: number; search?: FacetSearch | null | undefined },
+        ) => {
+            const search = params.search;
+            const filtered = !search
+                ? values
+                : search.kind === "text"
+                  ? values.filter((value) =>
+                        value
+                            .toLocaleLowerCase("ru-RU")
+                            .includes(search.query.toLocaleLowerCase("ru-RU")),
+                    )
+                  : values.filter((value) => {
+                        const comparable =
+                            search.kind === "datetime"
+                                ? Date.parse(value.split(".").reverse().join("-"))
+                                : Number(value);
+                        return (
+                            (search.min === null || comparable >= search.min) &&
+                            (search.max === null || comparable <= search.max)
+                        );
+                    });
+            return {
+                values: filtered.map((value) => ({ value, count: 1 })),
+                total: filtered.length,
+                hasNulls: true,
+                nullCount: 3,
+                rowCount: values.length + 3,
+            };
+        };
 
     const VALUES = ["24.10.2026", "01.01.2027", "02.01.2027"];
 

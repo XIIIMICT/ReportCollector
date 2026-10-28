@@ -142,20 +142,22 @@ export type FacetDateRange = { min: number | null; max: number | null };
 /** Where a column filter gets its options from. */
 export type FacetSource = (
     column: string,
-    window: { offset: number; limit: number; search?: FacetSearch | null },
+    window: { offset: number; limit: number; search?: FacetSearch | null | undefined },
 ) => Promise<FacetWindow>;
 
 /** The popover's own page size — matches the backend default. */
 export const FACET_PAGE = 200;
 
 /**
- * Adapt any paged loader to a `FacetSource`. The loader returns `null`-labelled
- * entries for its «Пустые» bucket; they never reach the value list.
+ * Adapt any paged loader to a `FacetSource`. The loader receives the search so
+ * it can narrow the complete distinct set before applying offset/limit. It
+ * returns `null`-labelled entries for its «Пустые» bucket; they never reach the
+ * value list.
  */
 export function serverFacetSource(
     load: (
         column: string,
-        params: { offset: number; limit: number },
+        params: { offset: number; limit: number; search?: FacetSearch | null | undefined },
     ) => Promise<{
         values: Array<{ value: string | null; count: number }>;
         total: number;
@@ -176,49 +178,24 @@ export function serverFacetSource(
     const columnSize = (column: string): Promise<number> => {
         let pending = sizes.get(column);
         if (!pending) {
-            pending = load(column, { offset: 0, limit: 1 })
-                .then((facets) => facets.total)
-                .catch(() => 0);
+            pending = load(column, { offset: 0, limit: 1, search: null }).then(
+                (facets) => facets.total,
+            );
             sizes.set(column, pending);
         }
         return pending;
     };
 
     return async (column, { offset, limit, search }) => {
-        // The plan's endpoint narrows for neither shape, so the search is applied
-        // HERE, over one window: enough for the first 200 values, and the caller
-        // pages through the rest when needed.
-        const facets = await load(column, { offset, limit });
+        // Search belongs to the source request. Applying it after this window
+        // would make values beyond the first page unreachable.
+        const facets = await load(column, { offset, limit, search });
         const values = facets.values
             .filter((entry): entry is { value: string; count: number } => entry.value !== null)
             .map((entry) => ({ value: entry.value, count: entry.count }));
-        const narrowed =
-            search === null || search === undefined
-                ? values
-                : search.kind === "text"
-                  ? values.filter((entry) =>
-                        entry.value
-                            .toLocaleLowerCase("ru-RU")
-                            .includes(search.query.trim().toLocaleLowerCase("ru-RU")),
-                    )
-                  : values.filter((entry) => {
-                        // A `datetime` range compares INSTANTS, a numeric one
-                        // compares numbers. Reading a date as a number returned
-                        // `null` for every value, so the whole list vanished the
-                        // moment a bound was typed (the client tables parse dates
-                        // through `parseFacetInstant`; this branch did not).
-                        const comparable =
-                            search.kind === "datetime"
-                                ? parseFacetInstant(entry.value)
-                                : parseFacetNumber(entry.value);
-                        if (comparable === null) return false;
-                        if (search.min !== null && comparable < search.min) return false;
-                        if (search.max !== null && comparable > search.max) return false;
-                        return true;
-                    });
         return {
-            values: narrowed,
-            total: narrowed.length,
+            values,
+            total: facets.total,
             totalWithoutSearch: await columnSize(column),
             hasNulls: facets.hasNulls,
             nullCount: facets.nullCount,

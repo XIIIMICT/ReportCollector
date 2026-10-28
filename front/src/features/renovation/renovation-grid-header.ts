@@ -120,9 +120,7 @@ export function loadLevelHeights(): number[] {
     }
 }
 
-/** Whether a DOM event happened inside the grid (shadow DOM included). */
-export function isGridTarget(event: Event, grid: HTMLRevoGridElement): boolean {
-    const target = event.target as Node | null;
-    if (!target) return false;
-    return target === grid || grid.contains(target) || (grid.shadowRoot?.contains(target) ?? false);
-}
+// Kept as a compatibility export for header consumers. The implementation is
+// owned by the versioned RevoGrid adapter so shadow-DOM target rules do not
+// drift between the two grid engines.
+export { isRevoGridTarget as isGridTarget } from "@/shared/grid/revo-grid-adapter";

@@ -1,22 +1,16 @@
-/**
- * Grid utilities for working with revo-grid instances
- */
+/** Compatibility helpers for callers that still work with a raw grid ref. */
+
+import { createRevoGridAdapter, type GridRef } from "./revo-grid-adapter";
 
 /**
  * Get visible rows from grid after filtering/sorting
  * Falls back to original rows if grid is not mounted or throws
  */
 export async function getVisibleRows<TRow>(
-    gridRef: { current: HTMLRevoGridElement | null },
+    gridRef: GridRef,
     fallbackRows: TRow[],
 ): Promise<TRow[]> {
-    const grid = gridRef.current;
-    if (!grid) return fallbackRows;
-    try {
-        return (await grid.getVisibleSource("rgRow")) as TRow[];
-    } catch {
-        return fallbackRows;
-    }
+    return createRevoGridAdapter<TRow>(gridRef).getVisibleRows(fallbackRows);
 }
 
 /**
@@ -24,30 +18,22 @@ export async function getVisibleRows<TRow>(
  * Includes refresh to force overlay redraw (Stencil doesn't auto-repaint)
  */
 export async function applyGridRange(
-    gridRef: { current: HTMLRevoGridElement | null },
+    gridRef: GridRef,
     start: { x: number; y: number },
     end: { x: number; y: number },
 ): Promise<void> {
-    const grid = gridRef.current;
-    if (!grid) return;
-    await grid.setCellsFocus(start, end);
-    await grid.refresh();
+    await createRevoGridAdapter(gridRef).setRange(start, end);
 }
 
 /**
  * Clear grid selection and force overlay redraw
- * Also clears pendingColumnFocusRestore to prevent stale selection resurrection
+ * Delegates to the adapter, which also clears RevoGrid's stale focus restoration
+ * state before the next column rebuild.
  */
 export async function clearGridSelection(gridRef: {
     current: HTMLRevoGridElement | null;
 }): Promise<void> {
-    const grid = gridRef.current;
-    if (!grid) return;
-    await grid.clearFocus();
-    await grid.refresh();
-    // Clear the cached focus that revo-grid would restore on next column rebuild
-    (grid as unknown as { pendingColumnFocusRestore?: unknown }).pendingColumnFocusRestore =
-        undefined;
+    await createRevoGridAdapter(gridRef).clearRange();
 }
 
 /**
@@ -58,9 +44,7 @@ export async function scrollToCell(
     row: number,
     column: number,
 ): Promise<void> {
-    const grid = gridRef.current;
-    if (!grid) return;
-    await grid.scrollToCoordinate({ x: column, y: row });
+    await createRevoGridAdapter(gridRef).scrollToCell(row, column);
 }
 
 /**

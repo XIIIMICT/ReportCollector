@@ -4,6 +4,7 @@ import { ReportCollectorApiError } from "@/shared/api/report-collector";
 import { downloadTableExport, tableExportJobFileUrl } from "@/shared/api/table-export";
 import type { ExportJobDescriptor } from "@/shared/api/table-export";
 import { getCollabSessionId } from "@/shared/collab/ws-client";
+import type { FacetSearch } from "@/shared/ui/column-filter-facets";
 
 export const RENOVATION_SECTION = "renovationPlan";
 
@@ -391,6 +392,7 @@ export async function getRenovationPlanFacets(
         asset?: string | null | undefined;
         offset?: number | undefined;
         limit?: number | undefined;
+        search?: FacetSearch | null | undefined;
     } = {},
 ): Promise<RenovationFacets> {
     const query = new URLSearchParams({ column });
@@ -398,6 +400,16 @@ export async function getRenovationPlanFacets(
     if (params.asset) query.set("asset", params.asset);
     if (params.offset !== undefined) query.set("offset", String(params.offset));
     if (params.limit !== undefined) query.set("limit", String(params.limit));
+    if (params.search) {
+        query.set("search_kind", params.search.kind);
+        if (params.search.kind === "text") query.set("search_query", params.search.query);
+        else {
+            if (params.search.min !== null) query.set("search_min", String(params.search.min));
+            if (params.search.max !== null) query.set("search_max", String(params.search.max));
+            const zone = browserTimeZone();
+            if (zone) query.set("search_tz", zone);
+        }
+    }
     return requestJson(`/api/renovation/plan/facets?${query.toString()}`);
 }
 
