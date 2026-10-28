@@ -669,6 +669,27 @@ function DataGridInner(
         [],
     );
 
+    const pushSortingToPlugin = useCallback((columns: GridSortingConfig["columns"] | undefined) => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        // The column list IS the priority: the plugin derives its
+        // `sortingOrder` from it, and that order decides which column wins.
+        grid.sorting = {
+            columns: (columns ?? []).map((column) => ({
+                prop: column.prop,
+                order: column.order,
+                cellCompare: placeholderLastCellCompare,
+            })),
+        };
+    }, []);
+
+    // A remembered sorting exists before the grid mounts, so nothing would ever
+    // hand it over: pushed once, right after mount, in the stored order.
+    useEffect(() => {
+        pushSortingToPlugin(sortingBySectionRef.current.get(section)?.columns);
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+    }, [section, pushSortingToPlugin]);
+
     // The Ctrl modifier of a header click never reaches `beforesorting` (the
     // plugin reports neither it nor an `additive` flag), so the pointer event
     // that started the click is kept here: `onHeaderclick` reads it back.
@@ -721,22 +742,16 @@ function DataGridInner(
         }
     }
 
-    // Read through a version so a CHANGE of sorting rebuilds the prop: RevoGrid
-    // diffs the `sorting` object and re-applies it, and a stale object (the very
-    // first restored sorting) is what dragged the arrow onto the wrong column.
-    // A snapshot of the live sorting, rebuilt only when it actually changed
-    // (`sortingVersion` is bumped by every apply).
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-    const sortingColumnSnapshot = useMemo(
-        () => sortingBySectionRef.current.get(section),
-        [section, sortingVersion],
-    );
-
-    // Always OUR sorting — the user's clicks, a restored one, or nothing. RevoGrid
-    // diffs this object and re-applies what changed, so it has to describe the
-    // live state; gating it (the plugin «not seeded yet») is what made a fresh
-    // mount paint the arrow from a stale object.
-    const sorting = sortingColumnSnapshot;
+    // Always OUR sorting — the user's clicks, a restored one, or nothing. It is
+    // pushed to the plugin IMPERATIVELY (see `pushSortingToPlugin`), not through a
+    // `sorting` prop: the plugin reads the column list order as the sort PRIORITY,
+    // and a prop property arrives asynchronously, in an order React does not
+    // promise — which came back as swapped sort levels after a reload.
+    // Always OUR sorting — the user's clicks, a restored one, or nothing. It is
+    // pushed to the plugin IMPERATIVELY (see `syncSortingToPlugin`), not through a
+    // `sorting` prop: the plugin reads the column list order as the sort PRIORITY,
+    // and a prop property arrives asynchronously and in an order React does not
+    // promise — which came back as swapped sort levels after a reload.
 
     const descriptors = useMemo(
         () =>
@@ -2269,17 +2284,10 @@ function DataGridInner(
                 // Even with nothing left, the empty state is re-asserted: the
                 // plugin's own bookkeeping must agree with the arrow, or the next
                 // click starts its cycle from the wrong point (the dead presses).
-                const current = gridRef.current;
-                if (!current) return;
-                current.sorting = {
-                    columns: columns.map((column) => ({
-                        prop: column.prop,
-                        order: column.order,
-                    })),
-                };
+                pushSortingToPlugin(columns);
             })();
         },
-        [bumpSorting, onSortingChange, section, sortingScope],
+        [bumpSorting, onSortingChange, pushSortingToPlugin, section, sortingScope],
     );
 
     /** Drop this section's whole sorting (the «reset view» menu). */
@@ -2292,10 +2300,10 @@ function DataGridInner(
         setMergesDropped(false);
         const configured = configuredCellMergeRef.current;
         if (configured !== undefined && grid) grid.cellMerge = configured;
-        if (grid) grid.sorting = { columns: [] };
+        if (grid) pushSortingToPlugin([]);
         onSortingChange?.(false);
         bumpSorting();
-    }, [bumpSorting, onSortingChange, section, sortingScope]);
+    }, [bumpSorting, onSortingChange, section, sortingScope, pushSortingToPlugin]);
 
     const resetGridView = useCallback(async () => {
         const grid = gridRef.current;
@@ -2958,8 +2966,6 @@ function DataGridInner(
                     resize
                     rowHeaders={rowHeaders}
                     editors={editors}
-                    {...(sorting ? { sorting } : {})}
-                    hideAttribution
                     readonly={readOnly}
                     rowSize={rowHeight}
                     colSize={150}
@@ -3033,6 +3039,11 @@ function DataGridInner(
                                 },
                             ];
                             sortingBySectionRef.current.set(section, { columns: applied });
+                            // The plugin is told the SAME state: its column list
+                            // order is the sort priority (`sortingOrder`), so the
+                            // list must be handed over explicitly — see
+                            // `pushSortingToPlugin`.
+                            pushSortingToPlugin(applied);
                             writeStoredSorting(
                                 sortingScope,
                                 section,
