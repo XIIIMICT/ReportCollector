@@ -23,14 +23,20 @@ import {
     type KppkUndoResult,
 } from "@/shared/api/kppk";
 import type { CellUpdate } from "@/shared/api/raw-materials";
+import {
+    applyRevisionedRemoteCell,
+    reconcileRevisionedRemoteCells,
+    type RevisionedRemoteCell,
+} from "@/shared/collab/revisioned-remote-cells";
 import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import { DataGrid, type GridViewStats, type DataGridHandle } from "@/shared/grid/data-grid";
 import { exportFileName, type ColumnDescriptor, type GridRow } from "@/shared/grid/grid-config";
+import { ScopedMutationQueue } from "@/shared/grid/mutation-queue";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
-import { useAsyncData } from "@/shared/hooks/use-async-data";
+import { useScopedAsyncData } from "@/shared/hooks/use-scoped-async-data";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
@@ -267,19 +273,27 @@ export function KppkRealizationSection({
     const mergesOff = isGridSorted || hasFilters;
     /** Sorted OR filtered — the merges only hold on an untouched view. */
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
-    const loader = useCallback(
-        () =>
-            orgId !== null
-                ? isCost
-                    ? getCostView(orgId, periodMonth, periodYear)
-                    : getRealizationView(orgId, slice, periodMonth, periodYear)
-                : Promise.resolve(null),
-        [isCost, orgId, periodMonth, periodYear, slice],
-    );
-    const { data: view, error } = useAsyncData<KppkRealizationView | KppkCostView | null>(loader, [
+    const queryScope = `${mode}:${orgId ?? "none"}:${slice}:${periodMonth ?? ""}:${periodYear ?? ""}`;
+    const readStartedAtRef = useRef<number | null>(null);
+    const loader = useCallback(() => {
+        readStartedAtRef.current = Date.now();
+        return orgId !== null
+            ? isCost
+                ? getCostView(orgId, periodMonth, periodYear)
+                : getRealizationView(orgId, slice, periodMonth, periodYear)
+            : Promise.resolve(null);
+    }, [isCost, orgId, periodMonth, periodYear, slice]);
+    const {
+        data: view,
+        error,
+        loading: queryLoading,
+        loadedScope,
+    } = useScopedAsyncData<KppkRealizationView | KppkCostView | null>(queryScope, loader, [
         loader,
+        queryScope,
         reloadKey,
     ]);
+    const scopeStale = queryLoading || loadedScope !== queryScope;
     // An excise exists only for SOME product × ДЗО pairs (today «Аммиак»,
     // «Аммиачная селитра», «Фосфорные удобрения» of «Минудобрения»). The view
     // reports the asset's flagged products, so: no flagged product → the column
@@ -308,7 +322,9 @@ export function KppkRealizationSection({
 
     // Collaboration room per slice storage; the section the room is keyed by
     // also carries the undo history scope.
-    const [remoteCellValues, setRemoteCellValues] = useState<Map<string, unknown>>(new Map());
+    const [remoteCellValues, setRemoteCellValues] = useState<Map<string, RevisionedRemoteCell>>(
+        new Map(),
+    );
     const selfCellHandlerRef = useRef<(event: CollabCellChanged) => void>(() => {});
     const room = useCollabRoom({
         projectKey: KPPK_PROJECT_KEY,
@@ -328,13 +344,20 @@ export function KppkRealizationSection({
             refresh();
         },
     });
-    const meId = room.me?.userId ?? null;
     selfCellHandlerRef.current = (event) => {
-        if (event.user.userId === meId) return;
         const key = `${roomSection}/${event.rowId}/${event.field}`;
-        setRemoteCellValues((current) => new Map(current).set(key, event.value));
+        setRemoteCellValues((current) =>
+            applyRevisionedRemoteCell(current, key, event, readStartedAtRef.current),
+        );
     };
     const { remoteLocks, remotePresence, remoteCellInfo } = useRemoteCellMaps(room);
+
+    useEffect(() => {
+        if (loadedScope !== queryScope) return;
+        setRemoteCellValues((current) =>
+            reconcileRevisionedRemoteCells(current, readStartedAtRef.current),
+        );
+    }, [loadedScope, queryScope]);
 
     useEffect(() => {
         onRoomChange?.(room);
@@ -342,11 +365,23 @@ export function KppkRealizationSection({
     }, [onRoomChange, room]);
 
     // ── Undo/redo (per slice scope, same mechanics as the dictionaries) ──
-    const pendingWriteRef = useRef<Promise<unknown> | null>(null);
-    function track<T>(write: Promise<T>): Promise<T> {
-        pendingWriteRef.current = write;
-        return write;
-    }
+    const mutationQueueRef = useRef<ScopedMutationQueue | null>(null);
+    if (mutationQueueRef.current === null) mutationQueueRef.current = new ScopedMutationQueue();
+    const mutationQueue = mutationQueueRef.current;
+    const [isMutationPending, setIsMutationPending] = useState(false);
+    const pendingMutationCountRef = useRef(0);
+    mutationQueue.setScope(queryScope);
+    const enqueueMutation = useCallback(
+        <T,>(task: () => Promise<T>): Promise<T> => {
+            pendingMutationCountRef.current += 1;
+            setIsMutationPending(true);
+            return mutationQueue.enqueue(queryScope, task).finally(() => {
+                pendingMutationCountRef.current -= 1;
+                if (pendingMutationCountRef.current === 0) setIsMutationPending(false);
+            });
+        },
+        [mutationQueue, queryScope],
+    );
     const [undoCounts, setUndoCounts] = useState({ canUndo: false, canRedo: false });
     const [pendingSkip, setPendingSkip] = useState<{
         actionId: number;
@@ -375,47 +410,51 @@ export function KppkRealizationSection({
         [refresh, refreshUndoState],
     );
     const runUndo = useCallback(async () => {
-        await runHistoryAction({
-            direction: "undo",
-            pendingWrite: pendingWriteRef.current,
-            pendingSkip,
-            request: (skip) => undoKppkCells(skip, roomSection),
-            apply: applyUndoResult,
-        });
-    }, [applyUndoResult, pendingSkip, roomSection]);
+        await enqueueMutation(() =>
+            runHistoryAction({
+                direction: "undo",
+                pendingWrite: null,
+                pendingSkip,
+                request: (skip) => undoKppkCells(skip, roomSection),
+                apply: applyUndoResult,
+            }),
+        ).catch(() => {});
+    }, [applyUndoResult, enqueueMutation, pendingSkip, roomSection]);
     const runRedo = useCallback(async () => {
-        await runHistoryAction({
-            direction: "redo",
-            pendingWrite: pendingWriteRef.current,
-            pendingSkip,
-            request: (skip) => redoKppkCells(skip, roomSection),
-            apply: applyUndoResult,
-        });
-    }, [applyUndoResult, pendingSkip, roomSection]);
+        await enqueueMutation(() =>
+            runHistoryAction({
+                direction: "redo",
+                pendingWrite: null,
+                pendingSkip,
+                request: (skip) => redoKppkCells(skip, roomSection),
+                apply: applyUndoResult,
+            }),
+        ).catch(() => {});
+    }, [applyUndoResult, enqueueMutation, pendingSkip, roomSection]);
 
     useUndoRedoShortcuts({
-        enabled: undoAvailableFor(roomSection, isAdmin),
+        enabled: undoAvailableFor(roomSection, isAdmin) && !scopeStale,
         onUndo: () => void runUndo(),
         onRedo: () => void runRedo(),
     });
 
     // Chain the grid's edit events to the slice PATCH endpoint.
     async function commit(updates: CellUpdate[]): Promise<boolean> {
-        if (!isAdmin || updates.length === 0) return true;
+        if (!isAdmin || scopeStale || updates.length === 0) return false;
         setPendingSkip(null);
         // The excise is one figure per product but is STORED on every market
         // row (migration 0016), so an edit of the merged cell is fanned out to
         // the whole product block — otherwise the other two rows would keep the
         // old rate and a later sort would reveal the disagreement.
         const expanded = expandExcise(updates, view?.rows ?? [], exciseKey, productHasExcise);
-        const write = (async () => {
+        const write = async () => {
             for (const update of expanded) {
                 if (isCost) await updateCostCell(update.rowId, update.field, update.value);
                 else await updateRealizationCell(update.rowId, slice, update.field, update.value);
             }
-        })();
+        };
         try {
-            await track(write);
+            await enqueueMutation(write);
             refresh();
             return true;
         } catch (reason) {
@@ -450,7 +489,9 @@ export function KppkRealizationSection({
             if (isGroupStart) blockLeadId = row.id;
             const gridRow: GridRow = {
                 ...row,
-                product: isCost || isGridSorted || isGroupStart || !showExcise ? row.product : "",
+                // Keep the server row canonical. Merge presentation belongs to
+                // CellMergePlugin; blanking values here breaks filters/export.
+                product: row.product,
                 rowState: "unchanged",
                 changedFields: [],
                 isDeleted: false,
@@ -470,10 +511,6 @@ export function KppkRealizationSection({
                 // it never publishes or receives a value.
                 if (!productHasExcise(row.product)) {
                     gridRow[exciseKey] = null;
-                } else if (!isGridSorted && !isGroupStart) {
-                    // The covered cells of the merged excise block show nothing —
-                    // the value belongs to the block, not to the market row.
-                    gridRow[exciseKey] = null;
                 }
             }
             if (!isAdmin) return gridRow;
@@ -486,13 +523,13 @@ export function KppkRealizationSection({
                     const key = `${roomSection}/${isGridSorted ? row.id : blockLeadId}/${field}`;
                     cells[field] = key;
                     const remote = remoteCellValues.get(key);
-                    if (remote !== undefined && !gridRow[exciseKey]) gridRow[field] = remote;
+                    if (remote !== undefined && !gridRow[exciseKey]) gridRow[field] = remote.value;
                     continue;
                 }
                 const key = `${roomSection}/${row.id}/${field}`;
                 cells[field] = key;
                 const remote = remoteCellValues.get(key);
-                if (remote !== undefined) gridRow[field] = remote;
+                if (remote !== undefined) gridRow[field] = remote.value;
             }
             return gridRow;
         });
@@ -640,7 +677,8 @@ export function KppkRealizationSection({
 
     // The loaded view's period goes to the workspace toolbar row (next to the
     // ДЗО/срез selects there); null while nothing is loaded.
-    const periodText = view === null ? null : `${view.period.monthName} ${view.period.yearNum}`;
+    const periodText =
+        scopeStale || view === null ? null : `${view.period.monthName} ${view.period.yearNum}`;
     useEffect(() => {
         onPeriodTextChange(periodText);
     }, [onPeriodTextChange, periodText]);
@@ -668,14 +706,31 @@ export function KppkRealizationSection({
     }
 
     return (
-        <div className="grid-viewport">
+        <div className="grid-viewport" aria-busy={scopeStale || isMutationPending}>
+            {scopeStale ? (
+                <div
+                    role="status"
+                    style={{
+                        position: "absolute",
+                        inset: "0.5rem 0.75rem auto",
+                        zIndex: 4,
+                        padding: "0.35rem 0.6rem",
+                        color: "var(--muted)",
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "0.35rem",
+                    }}
+                >
+                    Загружается выбранный срез. Редактирование временно недоступно.
+                </div>
+            ) : null}
             <DataGrid
                 ref={gridRef}
                 section={roomSection}
                 rows={gridRows}
                 isAdmin={isAdmin}
                 showAssetColumn={false}
-                readOnly={!isAdmin}
+                readOnly={!isAdmin || scopeStale || isMutationPending}
                 hasBaseline={false}
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}

@@ -107,15 +107,19 @@ The same component also owns global capture listeners, portal exceptions, pollin
 
 ### F-04 — KPPK remote overlays can replay stale values over a newer save (P1, static risk)
 
+**Status:** frontend implementation complete for revision-ordered WebSocket overlays and authoritative-read reconciliation; backend per-cell revision reads and the two-user browser gate remain open.
+
 In `features/kppk/kppk-workspace.tsx:477-498` and `kppk-realization-section.tsx:311-335`, remote cell maps ignore the current user's echo and clear only on reconnect. Fresh rows are overlaid from the map (`kppk-workspace.tsx:790-808`, realization `:488-495`). A successful refresh after the current user saves does not reconcile or remove an older value from another user.
 
 Scenario: another user writes A, the current user writes B, the GET response contains B, then the persistent map overlays A. The current user's echo is deliberately ignored, so the stale value remains until reconnect/remount or another remote event.
 
-**Remediation:** make the row cache revision-aware. A successful mutation and every fresh read must reconcile `{rowId, field, revision}` and remove or supersede older overlays. Keep the distinction between remote optimistic overlays and canonical server rows explicit; do not solve this by indiscriminately clearing every map on any refresh.
+**Remediation:** make the row cache revision-aware. A successful mutation and every fresh read must reconcile `{rowId, field, revision}` and remove or supersede older overlays. Keep the distinction between remote optimistic overlays and canonical server rows explicit; do not solve this by indiscriminately clearing every map on any refresh. The first frontend implementation stores the websocket revision and uses the event timestamp against the read start as a compatibility bridge because current KPPK GET rows do not expose per-cell revisions; a backend revision map is still the stronger follow-up contract.
 
 **Acceptance:** two-user browser test: A → B on the same cell, reconnect, scope switch, and fresh GET all converge to the server revision without a stale flash.
 
 ### F-05 — KPPK scope changes keep old rows writable during loading (P1, static risk)
+
+**Status:** implementation complete in the KPPK dictionary and realization views; browser proof of a zero-request stale edit remains open.
 
 `shared/hooks/use-async-data.ts:13-63` intentionally retains prior `data` while dependencies change. `kppk-realization-section.tsx:270-282` ignores the hook's `loading` field and derives `isPending` from `view === null && error === null` (`:639`). The workspace key is only `selectedTab.id` (`kppk-workspace.tsx:1535-1541`), so organisation, month, year, and slice changes do not remount the section. The grid sets `readOnly={!isAdmin}` (`:678`) rather than disabling writes until the requested scope is loaded.
 
@@ -127,6 +131,8 @@ Scenario: another user writes A, the current user writes B, the GET response con
 
 ### F-06 — KPPK merge formatting changes the data used for filtering (P1, static risk)
 
+**Status:** implementation complete: canonical product/excise values remain in grid rows and CellMergePlugin owns visual coverage; filter/sort/export equivalence still needs browser coverage.
+
 `kppk-realization-section.tsx:267` sets `mergesOff = isGridSorted || hasFilters`, yet `gridRows` at `:453-476` blanks product and excise values based on `showExcise`, `isGridSorted`, and group position. Covered values are still blank when a filter exists; `cellMerge` at `:517-539` is removed for filters. The grid therefore receives a presentation-shaped row model while filtering and sorting need canonical values.
 
 **Impact:** filtering product or excise can discard sibling market rows, and a filter-only view can display or compare empty cells that exist in the server data.
@@ -136,6 +142,8 @@ Scenario: another user writes A, the current user writes B, the GET response con
 **Acceptance:** the same dataset returns identical filter results and export values with merges on, merges off, sorted, and filtered; only the visual cell rendering changes.
 
 ### F-07 — Mutation ordering is not one protocol (P1, static risk)
+
+**Status:** implementation complete for KPPK edit/create/delete/replace/paste/undo/redo ordering; atomic server-side multi-cell paste remains a backend dependency.
 
 Raw and renovation commits use `await pendingCommitRef.current; const task = doCommit(...); pendingCommitRef.current = task` (`renovation-workspace.tsx:1137-1151`, dictionary `:476-490`, and the raw equivalent). Two callbacks admitted before the next render can await the same old promise and then start together; this is not a queue with synchronous tail reservation. KPPK's `track` stores only the last started promise (`kppk-workspace.tsx:549-554`, realization `:345-349`), while realization paste expands an edit and performs sequential requests (`:403-425`). Undo waits for the last promise, not all writes.
 
@@ -274,7 +282,24 @@ pending the seeded authenticated run described above.
 
 ### Phase 2 — canonical data and collaboration
 
-Implement scope-keyed query state (F-05), canonical KPPK overlays (F-04/F-06), and a true per-scope mutation queue (F-07). Specify the backend dependency for atomic KPPK batch paste; until then, surface partial outcomes accurately.
+Implementation is in progress. The KPPK dictionary and realization views now use
+scope-keyed loading: a previous result may remain visible only with an explicit
+stale-scope status and all writes are rejected/read-only until the requested scope
+has loaded. Canonical realization rows no longer blank product or covered excise
+values for merge presentation, so filtering, sorting and export consume the server
+rows. Collaboration overlays carry revisions and accept only newer events; the
+current user's websocket echo is retained so a successful save converges with the
+same overlay protocol.
+
+All KPPK dictionary and realization writes, including create/delete/replace and
+undo/redo, now reserve one synchronous queue per scope. A scope switch invalidates
+queued work before it starts. The queue deliberately does not claim atomicity for a
+multi-cell paste: each server PATCH still commits independently, so a future batch
+endpoint remains required to make a paste all-or-nothing.
+
+The browser two-user gate remains open: it must prove revision convergence when a
+late event, reconnect, or scope switch overlaps a fresh read, and it must verify
+that an edit attempt during stale loading sends no request.
 
 **Gate:** two-user conflict, reconnect, scope switch during load/write, filter/merge/export equivalence, and failure/undo tests converge on server revisions.
 

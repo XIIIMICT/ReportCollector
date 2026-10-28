@@ -47,6 +47,11 @@ import {
 } from "@/shared/api/kppk";
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector";
+import {
+    applyRevisionedRemoteCell,
+    reconcileRevisionedRemoteCells,
+    type RevisionedRemoteCell,
+} from "@/shared/collab/revisioned-remote-cells";
 import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
@@ -60,6 +65,7 @@ import {
     type ReferenceOption,
 } from "@/shared/grid/grid-config";
 import { parseNumericText } from "@/shared/grid/grid-edit";
+import { ScopedMutationQueue } from "@/shared/grid/mutation-queue";
 import {
     collaborationAvailableFor,
     undoAvailableFor,
@@ -70,6 +76,7 @@ import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useRestoredState } from "@/shared/hooks/use-restored-state";
+import { useScopedAsyncData } from "@/shared/hooks/use-scoped-async-data";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
 import {
     NO_ROW_SELECTED_REASON,
@@ -451,26 +458,40 @@ function KppkSection({
     /** Project key the form's saved scroll position is scoped to. */
     scrollForm: string | undefined;
 }) {
+    const readStartedAtRef = useRef<number | null>(null);
     const loader = useMemo<() => Promise<KppkRow[]>>(() => {
+        const markRead = <T,>(request: Promise<T>): Promise<T> => {
+            readStartedAtRef.current = Date.now();
+            return request;
+        };
         switch (section) {
             case "kppkPositions":
                 // «Настройка акциза» lists one row per position; the default
                 // groups a product with its whole ДЗО set.
-                return () => getProductPositions(exciseMode ? "positions" : "grouped");
+                return () => markRead(getProductPositions(exciseMode ? "positions" : "grouped"));
             case "kppkRaws":
-                return getRawRows;
+                return () => markRead(getRawRows());
             case "kppkOrgs":
-                return getOrgRows;
+                return () => markRead(getOrgRows());
             case "kppkUsers":
-                return getKppkUsers;
+                return () => markRead(getKppkUsers());
         }
     }, [exciseMode, section]);
     const [reloadKey, setReloadKey] = useState(0);
-    const { data: rows, error } = useAsyncData<KppkRow[]>(loader, [loader, reloadKey]);
+    const queryScope = `${section}:${exciseMode ? "positions" : "grouped"}`;
+    const {
+        data: rows,
+        error,
+        loading: queryLoading,
+        loadedScope,
+    } = useScopedAsyncData<KppkRow[]>(queryScope, loader, [loader, queryScope, reloadKey]);
+    const scopeStale = queryLoading || loadedScope !== queryScope;
     // Real-time collaboration of this tab: the room is admin-scoped (only
     // admins may edit the dictionaries), so ordinary members don't join it.
     // The page-lifetime session id travels in the mutations and leases.
-    const [remoteCellValues, setRemoteCellValues] = useState<Map<string, unknown>>(new Map());
+    const [remoteCellValues, setRemoteCellValues] = useState<Map<string, RevisionedRemoteCell>>(
+        new Map(),
+    );
     const selfCellHandlerRef = useRef<(event: CollabCellChanged) => void>(() => {});
     const room = useCollabRoom({
         projectKey: KPPK_PROJECT_KEY,
@@ -486,13 +507,20 @@ function KppkSection({
     });
     // Another admin changed a cell: keep it in memory and merge it into the
     // rows below (the local grid must not refetch on every keystroke).
-    const meId = room.me?.userId ?? null;
     selfCellHandlerRef.current = (event) => {
-        if (event.user.userId === meId) return;
         const key = `${section === "kppkUsers" ? "app_users" : section}/${event.rowId}/${event.field}`;
-        setRemoteCellValues((current) => new Map(current).set(key, event.value));
+        setRemoteCellValues((current) =>
+            applyRevisionedRemoteCell(current, key, event, readStartedAtRef.current),
+        );
     };
     const { remoteLocks, remotePresence, remoteCellInfo } = useRemoteCellMaps(room);
+
+    useEffect(() => {
+        if (loadedScope !== queryScope) return;
+        setRemoteCellValues((current) =>
+            reconcileRevisionedRemoteCells(current, readStartedAtRef.current),
+        );
+    }, [loadedScope, queryScope]);
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [userCreateOpen, setUserCreateOpen] = useState(false);
@@ -507,10 +535,10 @@ function KppkSection({
     const openUserCreate = useCallback(() => setUserCreateOpen(true), []);
     useEffect(() => {
         onUserCreateState({
-            canCreate: isAdmin && section === "kppkUsers",
+            canCreate: isAdmin && !scopeStale && section === "kppkUsers",
             onCreate: openUserCreate,
         });
-    }, [isAdmin, section, openUserCreate, onUserCreateState]);
+    }, [isAdmin, openUserCreate, onUserCreateState, scopeStale, section]);
     const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
     const [placeholderDraft, setPlaceholderDraft] = useState<KppkDraft>(() =>
         initialDraft(section, exciseMode),
@@ -540,14 +568,25 @@ function KppkSection({
         return () => onRoomChange?.(null);
     }, [onRoomChange, room]);
 
-    // The last in-flight write: undo/redo waits for it, so an immediate Ctrl+Z
-    // after a cell edit undoes that edit and not the previous action.
-    const pendingWriteRef = useRef<Promise<unknown> | null>(null);
+    const mutationQueueRef = useRef<ScopedMutationQueue | null>(null);
+    if (mutationQueueRef.current === null) mutationQueueRef.current = new ScopedMutationQueue();
+    const mutationQueue = mutationQueueRef.current;
+    const pendingMutationCountRef = useRef(0);
+    // Keep scope invalidation synchronous with render: a callback retained by
+    // the old grid cannot enqueue work after a tab/view switch.
+    mutationQueue.setScope(queryScope);
 
-    function track<T>(write: Promise<T>): Promise<T> {
-        pendingWriteRef.current = write;
-        return write;
-    }
+    const enqueueMutation = useCallback(
+        <T,>(task: () => Promise<T>): Promise<T> => {
+            pendingMutationCountRef.current += 1;
+            setIsMutationPending(true);
+            return mutationQueue.enqueue(queryScope, task).finally(() => {
+                pendingMutationCountRef.current -= 1;
+                if (pendingMutationCountRef.current === 0) setIsMutationPending(false);
+            });
+        },
+        [mutationQueue, queryScope],
+    );
 
     // Undo/redo live on the server (the shared collaboration journal, scoped
     // per tab and page-lifetime session id), so the counters are re-read after
@@ -584,29 +623,33 @@ function KppkSection({
     );
 
     const runUndo = useCallback(async () => {
-        await runHistoryAction({
-            direction: "undo",
-            pendingWrite: pendingWriteRef.current,
-            pendingSkip,
-            request: (skip) => undoKppkCells(skip, section),
-            apply: applyUndoResult,
-        });
-    }, [applyUndoResult, pendingSkip, section]);
+        await enqueueMutation(() =>
+            runHistoryAction({
+                direction: "undo",
+                pendingWrite: null,
+                pendingSkip,
+                request: (skip) => undoKppkCells(skip, section),
+                apply: applyUndoResult,
+            }),
+        ).catch(() => {});
+    }, [applyUndoResult, enqueueMutation, pendingSkip, section]);
 
     const runRedo = useCallback(async () => {
-        await runHistoryAction({
-            direction: "redo",
-            pendingWrite: pendingWriteRef.current,
-            pendingSkip,
-            request: (skip) => redoKppkCells(skip, section),
-            apply: applyUndoResult,
-        });
-    }, [applyUndoResult, pendingSkip, section]);
+        await enqueueMutation(() =>
+            runHistoryAction({
+                direction: "redo",
+                pendingWrite: null,
+                pendingSkip,
+                request: (skip) => redoKppkCells(skip, section),
+                apply: applyUndoResult,
+            }),
+        ).catch(() => {});
+    }, [applyUndoResult, enqueueMutation, pendingSkip, section]);
 
     // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z): event.code — the physical key, works in
     // the Russian layout. Non-admins have nothing to undo — no listener.
     useUndoRedoShortcuts({
-        enabled: undoAvailableFor(section, isAdmin),
+        enabled: undoAvailableFor(section, isAdmin) && !scopeStale,
         onUndo: () => void runUndo(),
         onRedo: () => void runRedo(),
     });
@@ -647,6 +690,7 @@ function KppkSection({
     );
     const canDelete =
         isAdmin &&
+        !scopeStale &&
         selectedRows.length > 0 &&
         (section !== "kppkUsers" ||
             selectedRows.every(
@@ -666,7 +710,11 @@ function KppkSection({
             ? "Выберите ровно одну запись."
             : null;
     const canReplace =
-        isAdmin && replaceable && selectedRows.length === 1 && replaceBlockedReason === null;
+        isAdmin &&
+        !scopeStale &&
+        replaceable &&
+        selectedRows.length === 1 &&
+        replaceBlockedReason === null;
     const replaceTargets: ReplaceTargetOption[] = useMemo(() => {
         if (!replaceable || selectedRows.length !== 1) return [];
         if (section === "kppkPositions") {
@@ -707,16 +755,15 @@ function KppkSection({
         if (!canReplace) return;
         const row = selectedRows[0];
         if (!row) return;
-        setIsMutationPending(true);
         try {
             if (section === "kppkRaws") {
-                await track(replaceRawRow(row.id, targetId));
+                await enqueueMutation(() => replaceRawRow(row.id, targetId));
             } else if (section === "kppkPositions") {
                 // The row is a product × ДЗО position, but the replacement
                 // works on the PRODUCT: its positions move to the target.
-                await track(replaceProductPosition(row.id, targetId));
+                await enqueueMutation(() => replaceProductPosition(row.id, targetId));
             } else {
-                await track(replaceOrgRow(row.id, targetId));
+                await enqueueMutation(() => replaceOrgRow(row.id, targetId));
             }
             gridRef.current?.clearSelection();
             setSelectedRowIds([]);
@@ -726,7 +773,6 @@ function KppkSection({
         } catch (reason) {
             toast.danger("Не удалось заменить значение", { description: errorMessage(reason) });
         } finally {
-            setIsMutationPending(false);
             refreshUndoState();
         }
     }
@@ -794,7 +840,7 @@ function KppkSection({
                 const key = `${section === "kppkUsers" ? "app_users" : section}/${row.id}/${field}`;
                 gridRow.canonicalCells[field] = key;
                 const remote = remoteCellValues.get(key);
-                if (remote !== undefined) gridRow[field] = remote;
+                if (remote !== undefined) gridRow[field] = remote.value;
             }
             return gridRow;
         });
@@ -833,35 +879,32 @@ function KppkSection({
         return sweeps;
     }, [exciseMode, rows, section, sorted]);
 
-    const readOnly = isMutationPending || !isAdmin;
+    const readOnly = isMutationPending || !isAdmin || scopeStale;
 
     async function commit(updates: CellUpdate[]): Promise<boolean> {
-        if (!isAdmin || updates.length === 0) return true;
-        setIsMutationPending(true);
+        if (!isAdmin || scopeStale || updates.length === 0) return false;
         try {
-            await track(updateCells(section, updates));
+            await enqueueMutation(() => updateCells(section, updates));
             refresh();
             return true;
         } catch (reason) {
             toast.danger("Изменения не сохранены", { description: errorMessage(reason) });
             return false;
         } finally {
-            setIsMutationPending(false);
             refreshUndoState();
         }
     }
 
     async function commitPlaceholderPatch(patch: Record<string, unknown>): Promise<boolean> {
-        if (!isAdmin || createPendingRef.current) return true;
+        if (!isAdmin || scopeStale || createPendingRef.current) return false;
         const next = { ...placeholderDraftRef.current, ...patch };
         placeholderDraftRef.current = next;
         setPlaceholderDraft(next);
         const create = placeholderCreate(section, next, exciseMode);
         if (!create) return true;
         createPendingRef.current = true;
-        setIsMutationPending(true);
         try {
-            await track(create());
+            await enqueueMutation(create);
             const reset = initialDraft(section, exciseMode);
             placeholderDraftRef.current = reset;
             setPlaceholderDraft(reset);
@@ -871,7 +914,6 @@ function KppkSection({
             toast.danger("Не удалось добавить запись", { description: errorMessage(reason) });
         } finally {
             createPendingRef.current = false;
-            setIsMutationPending(false);
             refreshUndoState();
         }
         return true;
@@ -879,9 +921,10 @@ function KppkSection({
 
     async function deleteRecords() {
         if (!canDelete) return;
-        setIsMutationPending(true);
         try {
-            for (const row of selectedRows) await track(deleteRecord(section, row.id));
+            for (const row of selectedRows) {
+                await enqueueMutation(() => deleteRecord(section, row.id));
+            }
             gridRef.current?.clearSelection();
             setSelectedRowIds([]);
             setDeleteOpen(false);
@@ -890,7 +933,6 @@ function KppkSection({
         } catch (reason) {
             toast.danger("Не удалось удалить запись", { description: errorMessage(reason) });
         } finally {
-            setIsMutationPending(false);
             refreshUndoState();
         }
     }
@@ -909,7 +951,24 @@ function KppkSection({
 
     return (
         <>
-            <div className="grid-viewport" aria-busy={isMutationPending}>
+            <div className="grid-viewport" aria-busy={isMutationPending || scopeStale}>
+                {scopeStale ? (
+                    <div
+                        role="status"
+                        style={{
+                            position: "absolute",
+                            inset: "0.5rem 0.75rem auto",
+                            zIndex: 4,
+                            padding: "0.35rem 0.6rem",
+                            color: "var(--muted)",
+                            background: "var(--surface)",
+                            border: "1px solid var(--border)",
+                            borderRadius: "0.35rem",
+                        }}
+                    >
+                        Загружается выбранный срез. Редактирование временно недоступно.
+                    </div>
+                ) : null}
                 <GridErrorBoundary>
                     <DataGrid
                         ref={gridRef}
@@ -988,9 +1047,8 @@ function KppkSection({
                               : null
                     }
                     onSubmit={async (values) => {
-                        setIsMutationPending(true);
                         try {
-                            await track(
+                            await enqueueMutation(() =>
                                 createKppkUser({
                                     email: draftText(values.email).toLowerCase(),
                                     fullname: draftText(values.fullname),
@@ -1001,7 +1059,6 @@ function KppkSection({
                             refresh();
                             refreshUndoState();
                         } finally {
-                            setIsMutationPending(false);
                         }
                     }}
                 />

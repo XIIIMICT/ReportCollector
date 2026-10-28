@@ -18,6 +18,7 @@ export type CollabStatus = "offline" | "connecting" | "online";
 export type CollabCellChanged = {
     section: string;
     reportMonth: string | null;
+    scope?: string | null;
     rowId: string;
     field: string;
     value: unknown;
