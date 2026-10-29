@@ -6,7 +6,7 @@ the previous row set; redo applies the change again.
 """
 
 from conftest import signed_identity_headers
-from httpx import AsyncClient
+from httpx2 import AsyncClient
 
 from src.renovation.plan import RenovationPlanRow
 

@@ -9,4 +9,4 @@ __pycache__/
 tests/
 logs/
 *.log
-uvicorn.*.log
+granian.*.log

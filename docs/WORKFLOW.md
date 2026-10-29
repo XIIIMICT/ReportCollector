@@ -10,7 +10,7 @@ name (Keycloak supplies it on first login). Updating the seeder does not apply
 it to a running database: do not run the full/schema-recreating seed or the
 KPPK source-copy seed without approval.
 
-Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 for the production frontend runtime.
+Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.15 and Node 26 for the production frontend runtime.
 
 1. Copy the config: `cp .env.example .env` (root — single source). To run the front on the host additionally `cp .env.example front/.env.local`.
 2. Dependencies: `just deps` (`uv sync --directory back` + `bun install --cwd front`).
@@ -117,7 +117,7 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.14 and Node 26 
 
 About `POSTGRES_HOST`: on the server it's the real DB address (not localhost); `just migrate` uses whatever is in `.env`. In the compose network — `host.docker.internal` or the service name.
 
-**Valkey in the dev stack:** `compose.yaml` overrides `VALKEY_URL=redis://valkey:6379/0` for `back-dev` (the compose service on the same network). Don't point the dev backend at `host.docker.internal` — Docker Desktop's VM loopback times out under load (`redis.exceptions.TimeoutError`) and breaks collab presence/locks. The prod profile keeps `VALKEY_URL` from `.env` (valkey may live on the host there).
+**Valkey in the dev stack:** `compose.yaml` overrides `VALKEY_URL=redis://valkey:6379/0` for `back-dev` (the compose service on the same network). Don't point the dev backend at `host.docker.internal` — Docker Desktop's VM loopback times out under load (`valkey.exceptions.TimeoutError`) and breaks collab presence/locks. The prod profile keeps `VALKEY_URL` from `.env` (valkey may live on the host there).
 
 **Postgres in the dev stack:** `compose.yaml` likewise pins `POSTGRES_HOST=postgres` for `back-dev`. The `rc-postgres` container is on both `rc-net` and `rc-net-dev`, so the service name resolves inside the dev network, like `valkey`. The `.env` value stays `localhost`/`host.docker.internal` for **host** runs (`just back`/`just front`, seeds, tests); inside a container `localhost` is the container itself — the symptom is `/health` 200 but every DB-backed request (e.g. `GET /api/me`) returns **500** with `ConnectionRefusedError: [Errno 111]`. After changing this, recreate the container (`docker compose --profile dev up -d back-dev`).
 
@@ -133,7 +133,7 @@ The 0.143 → 0.162 range is full of **breaking** changes to request parsing. Ch
 | 0.151 — explicit JSON `null` ≠ omitted body value | no | handlers bind models directly (`payload: XRequest`) without optional body defaults; no client sends `null` to mean "use the default" |
 | 0.150 — unselected browser file input = missing | no | the import dialog requires a real file before the upload button enables; the endpoint 400s on a non-`.xlsb` name anyway |
 | 0.155 — `**extra` removed from `Path`/`Query`/`Header`/`Cookie`/`Body`/`Form`/`File` | no | grep finds no extra keyword on those parameters |
-| 0.146 / 0.145 — `root_path` deprecated, `openapi_prefix` removed | no | the app is served by plain `uvicorn` (Dockerfile) with nginx proxying `/api`; neither identifier appears in `back/` |
+| 0.146 / 0.145 — `root_path` deprecated, `openapi_prefix` removed | no | the app is served by plain Granian (Dockerfile) with nginx proxying `/api`; neither identifier appears in `back/` |
 | 0.152 / 0.156.x — header error `loc` uses the HTTP header name; `AliasChoices`/`Field` metadata fixes | beneficial | the identity headers (`X-ReportCollector-*`) now report their HTTP names in validation errors |
 | 0.156.8 — uploaded file position preserved when converting to bytes | beneficial | `GET/POST /plan/import/*` read the same `UploadFile` once (`await file.read()`), so we never depended on a re-read |
 | 0.144 — WebSocket support in security dependencies | not used | collab auth uses `Depends` in `collab/ws.py`, unchanged |

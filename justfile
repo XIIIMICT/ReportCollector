@@ -99,7 +99,7 @@ e2e:
 
 # ── Локальный запуск на хосте (пока не было необходимости) ──────────────────
 # back:
-#     uv run --directory back -m uvicorn src.main:app --reload --port {{ env_var("BACKEND_PORT") }}
+#     uv run --directory back granian --interface asgi --reload --reload-ignore-dirs logs src.main:app --port {{ env_var("BACKEND_PORT") }}
 
 # front:
 #     bun run --cwd front dev --hostname 127.0.0.1 --port {{ env_var("FRONT_PORT") }}

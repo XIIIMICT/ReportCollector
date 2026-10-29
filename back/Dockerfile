@@ -16,7 +16,7 @@ FROM python:${PYTHON_VERSION}-alpine AS pre-prod
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH"
-# Порт, на котором слушает uvicorn. Единственная точка в Dockerfile:
+# Порт, на котором слушает Granian. Единственная точка в Dockerfile:
 # значение задаёт compose.yaml из BACKEND_PORT в .env.
 ARG BACKEND_PORT=8000
 ENV BACKEND_PORT=${BACKEND_PORT}
@@ -30,7 +30,7 @@ COPY --chown=appuser:appgroup --from=deps /app/.venv/ ./.venv/
 USER appuser
 
 FROM pre-prod AS dev
-CMD ["sh", "-c", "exec uvicorn src.main:app --reload --host 0.0.0.0 --port \"$BACKEND_PORT\""]
+CMD ["sh", "-c", "exec granian --interface asgi --reload --reload-ignore-dirs logs src.main:app --host 0.0.0.0 --port \"$BACKEND_PORT\""]
 
 FROM pre-prod AS prod
-CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port \"$BACKEND_PORT\""]
+CMD ["sh", "-c", "exec granian --interface asgi src.main:app --host 0.0.0.0 --port \"$BACKEND_PORT\""]

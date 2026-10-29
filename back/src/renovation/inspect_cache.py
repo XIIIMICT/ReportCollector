@@ -5,10 +5,10 @@ from collections.abc import Awaitable
 from functools import lru_cache
 from typing import Protocol
 
-import redis.asyncio as redis
-from redis.backoff import ExponentialBackoff
-from redis.exceptions import RedisError
-from redis.retry import Retry
+import valkey.asyncio as valkey
+from valkey.backoff import ExponentialBackoff
+from valkey.exceptions import ValkeyError
+from valkey.retry import Retry
 
 from src.config import get_settings
 from src.renovation.schemas import RenovationPlanImportResult
@@ -27,6 +27,11 @@ def inspect_cache_key(payload: bytes, *, scope: str = "") -> str:
     while any touch of a loaded asset recomputes it.
     """
     digest = hashlib.sha256(payload).hexdigest()
+    return inspect_cache_key_from_digest(digest, scope=scope)
+
+
+def inspect_cache_key_from_digest(digest: str, *, scope: str = "") -> str:
+    """Build a cache key when the upload was hashed without retaining its bytes."""
     return f"rc:planimport:{digest}:{scope}" if scope else f"rc:planimport:{digest}"
 
 
@@ -50,11 +55,14 @@ class InspectResultCache:
         self._redis = client
 
     async def get(self, payload: bytes, *, scope: str = "") -> RenovationPlanImportResult | None:
+        return await self.get_digest(hashlib.sha256(payload).hexdigest(), scope=scope)
+
+    async def get_digest(self, digest: str, *, scope: str = "") -> RenovationPlanImportResult | None:
         if self._redis is None:
             return None
         try:
-            raw = await self._redis.get(inspect_cache_key(payload, scope=scope))
-        except RedisError:
+            raw = await self._redis.get(inspect_cache_key_from_digest(digest, scope=scope))
+        except ValkeyError:
             return None
         if raw is None:
             return None
@@ -65,15 +73,24 @@ class InspectResultCache:
             return None
 
     async def set(self, payload: bytes, result: RenovationPlanImportResult, *, scope: str = "") -> None:
+        await self.set_digest(hashlib.sha256(payload).hexdigest(), result, scope=scope)
+
+    async def set_digest(
+        self,
+        digest: str,
+        result: RenovationPlanImportResult,
+        *,
+        scope: str = "",
+    ) -> None:
         if self._redis is None:
             return
         try:
             await self._redis.set(
-                inspect_cache_key(payload, scope=scope),
+                inspect_cache_key_from_digest(digest, scope=scope),
                 result.model_dump_json(),
                 ex=INSPECT_CACHE_TTL_SECONDS,
             )
-        except RedisError:
+        except ValkeyError:
             # A cache write failure must never fail the request.
             return
 
@@ -89,7 +106,7 @@ def get_inspect_cache() -> InspectResultCache:
     url = get_settings().valkey_url.strip()
     if not url:
         return InspectResultCache(None)
-    client = redis.from_url(
+    client = valkey.from_url(
         url,
         decode_responses=True,
         socket_connect_timeout=5.0,

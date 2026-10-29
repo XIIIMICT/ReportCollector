@@ -15,7 +15,7 @@ LOG_BACKUP_COUNT = 5
 
 
 class CredentialQueryFilter(logging.Filter):
-    """Keep one-time WebSocket tickets out of Uvicorn access/handshake logs."""
+    """Keep one-time WebSocket tickets out of ASGI server access logs."""
 
     pattern = re.compile(r"([?&](?:ticket|access_token|token)=)[^&\s\"']+", re.IGNORECASE)
 
@@ -94,7 +94,7 @@ class JsonFormatter(logging.Formatter):
 
 def configure_application_logging(log_file: str) -> None:
     """Configure the single JSON application log in the given file."""
-    for name in ("uvicorn.access", "uvicorn.error"):
+    for name in ("granian.access", "_granian"):
         transport_logger = logging.getLogger(name)
         if not any(isinstance(item, CredentialQueryFilter) for item in transport_logger.filters):
             transport_logger.addFilter(CredentialQueryFilter())

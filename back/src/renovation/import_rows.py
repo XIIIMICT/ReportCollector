@@ -1,6 +1,8 @@
 """Parse a technical-directorate XLSB file into plan-row values (CPU-bound, thread-safe)."""
 
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from itertools import chain, islice
 from pathlib import Path
 from typing import BinaryIO
 
@@ -11,6 +13,7 @@ from src.renovation.import_plan import (
     _coerce,
     _header_map,
     _is_numbering_row,
+    _iter_plan_rows,
     _locate_header,
     _norm,
     _read_rows,
@@ -36,8 +39,31 @@ def parse_plan_rows(source: Path | BinaryIO) -> list[ParsedPlanRow]:
     parsed. Reference labels stay as TEXT here: the caller resolves them to
     option ids inside the write transaction.
     """
-    rows = _read_rows(source)
-    header_row, data_start = _locate_header(rows)
+    return list(_parse_plan_rows(_read_rows(source)))
+
+
+def iter_plan_rows(source: Path | BinaryIO) -> Iterator[ParsedPlanRow]:
+    """Yield parsed rows directly from the workbook without retaining them all."""
+    yield from _parse_plan_rows(_iter_plan_rows(source))
+
+
+def iter_plan_row_batches(source: Path | BinaryIO, batch_size: int = 200) -> Iterator[list[ParsedPlanRow]]:
+    """Yield bounded parsed batches for an async writer/worker bridge."""
+    batch: list[ParsedPlanRow] = []
+    for row in iter_plan_rows(source):
+        batch.append(row)
+        if len(batch) >= batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+
+def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
+    """Parse rows from a materialized fixture or a streaming workbook iterator."""
+    rows_iter = iter(rows)
+    first_rows = list(islice(rows_iter, 2))
+    header_row, data_start = _locate_header(first_rows)
     if header_row is None:
         msg = "no plan sheet header"
         raise ValueError(msg)
@@ -57,11 +83,14 @@ def parse_plan_rows(source: Path | BinaryIO) -> list[ParsedPlanRow]:
     if code_index is None or asset_index is None:
         msg = "no work-code column"
         raise ValueError(msg)
-    if data_start < len(rows) and _is_numbering_row(rows[data_start], code_index):
-        data_start += 1
+    data_rows: Iterable[list[object]] = chain(first_rows[data_start:], rows_iter)
+    first_data_row = next(iter(data_rows), None)
+    if first_data_row is None:
+        data_rows = iter(())
+    elif not _is_numbering_row(first_data_row, code_index):
+        data_rows = chain((first_data_row,), data_rows)
     field_by_name = {field.db_name: field for field in field_metas()}
-    parsed: list[ParsedPlanRow] = []
-    for raw in rows[data_start:]:
+    for raw in data_rows:
         if not any(value not in (None, "") for value in raw):
             continue
         code = str(raw[code_index]).strip() if code_index < len(raw) and raw[code_index] is not None else ""
@@ -88,5 +117,4 @@ def parse_plan_rows(source: Path | BinaryIO) -> list[ParsedPlanRow]:
             value = _coerce(raw[index], meta.cell_type)
             if value is not None:
                 values[field] = value
-        parsed.append(ParsedPlanRow(code=code, asset_code=asset_code, values=values))
-    return parsed
+        yield ParsedPlanRow(code=code, asset_code=asset_code, values=values)

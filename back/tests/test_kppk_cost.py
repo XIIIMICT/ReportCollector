@@ -5,7 +5,7 @@ from decimal import Decimal
 from io import BytesIO
 
 from conftest import TEST_SCHEMA, signed_identity_headers
-from httpx import AsyncClient
+from httpx2 import AsyncClient
 from openpyxl import load_workbook
 from sqlalchemy import text
 from sqlmodel import col, select

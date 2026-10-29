@@ -1,7 +1,9 @@
 """Write parsed technical-directorate rows into the working renovation plan."""
 
 import asyncio
-from collections.abc import Sequence
+import contextlib
+import queue
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import BinaryIO
@@ -14,7 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.collab.locking import lock_project
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.form_schema import field_meta
-from src.renovation.import_rows import ParsedPlanRow, parse_plan_rows
+from src.renovation.import_rows import ParsedPlanRow, iter_plan_row_batches, parse_plan_rows
 from src.renovation.models import RAsset
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
 from src.renovation.reference_data import REFERENCE_OPTIONS, reference_option_id
@@ -42,6 +44,7 @@ async def apply_plan_file(
     *,
     source: BinaryIO,
     user_id: UUID | None,
+    streaming: bool = False,
 ) -> RenovationPlanImportApplyResult:
     """
     Load a validated technical-directorate file into the working plan.
@@ -56,7 +59,15 @@ async def apply_plan_file(
     Rows are matched by the work code: a code already in the plan updates that
     row in place, a new code appends a row to the end of the plan.
     """
-    parsed = await asyncio.to_thread(parse_plan_rows, source)
+    if streaming:
+        batches = _stream_parsed_batches(source)
+    else:
+        parsed = await asyncio.to_thread(parse_plan_rows, source)
+
+        async def one_batch() -> AsyncIterator[list[ParsedPlanRow]]:
+            yield parsed
+
+        batches = one_batch()
     await lock_project(session, RENOVATION_PROJECT_KEY)
     plan = (await session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).first()
     if plan is None:
@@ -87,31 +98,61 @@ async def apply_plan_file(
     inserted = 0
     updated = 0
     batch: list[_PendingRow] = []
-    for row in parsed:
-        asset_id = asset_ids.get(row.asset_code)
-        if asset_id is None:
-            # A reference value like any catalog label: an asset the project's
-            # dictionary does not have refuses the whole file (the preflight
-            # reports it) instead of dropping its rows from the plan.
-            raise _unknown_asset(row.code, row.asset_code)
-        row_id = existing.get(row.code)
-        position: int | None = None
-        if row_id is not None:
-            updated += 1
-        else:
-            last_position += 1
-            position = last_position
-            inserted += 1
-        batch.append(_PendingRow(parsed=row, asset_id=asset_id, row_id=row_id, position=position))
-        if len(batch) >= _BATCH_SIZE:
-            await _flush_batch(session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id)
-            batch = []
+    async for parsed_batch in batches:
+        for row in parsed_batch:
+            asset_id = asset_ids.get(row.asset_code)
+            if asset_id is None:
+                # A reference value like any catalog label: an asset the project's
+                # dictionary does not have refuses the whole file (the preflight
+                # reports it) instead of dropping its rows from the plan.
+                raise _unknown_asset(row.code, row.asset_code)
+            row_id = existing.get(row.code)
+            position: int | None = None
+            if row_id is not None:
+                updated += 1
+            else:
+                last_position += 1
+                position = last_position
+                inserted += 1
+            batch.append(_PendingRow(parsed=row, asset_id=asset_id, row_id=row_id, position=position))
+            if len(batch) >= _BATCH_SIZE:
+                await _flush_batch(session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id)
+                batch = []
     if batch:
         await _flush_batch(session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id)
 
     # Calculated fields and the renovation ID of every row of the plan.
     await recompute_plan_rows(session, plan_id=plan.id)
     return RenovationPlanImportApplyResult(new_rows=inserted, updated_rows=updated)
+
+
+async def _stream_parsed_batches(source: BinaryIO) -> AsyncIterator[list[ParsedPlanRow]]:
+    """Bridge the CPU parser thread to async writes with a bounded queue."""
+    batches: queue.Queue[list[ParsedPlanRow] | BaseException | None] = queue.Queue(maxsize=2)
+
+    def produce() -> None:
+        try:
+            for batch in iter_plan_row_batches(source, _BATCH_SIZE):
+                batches.put(batch)
+        except BaseException as error:  # noqa: BLE001
+            batches.put(error)
+        finally:
+            batches.put(None)
+
+    producer = asyncio.create_task(asyncio.to_thread(produce))
+    try:
+        while True:
+            item = await asyncio.to_thread(batches.get)
+            if item is None:
+                break
+            if isinstance(item, BaseException):
+                raise item
+            yield item
+    finally:
+        if not producer.done():
+            producer.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await producer
 
 
 async def _flush_batch(

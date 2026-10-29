@@ -9,11 +9,11 @@ from uuid import UUID
 
 import pytest
 from conftest import raw_materials_role, signed_identity_headers
-from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from valkey.exceptions import ConnectionError as ValkeyConnectionError
 
 from src.auth.models import ProjectRole, User
 from src.collab.events import publish_cell_changed
@@ -198,9 +198,9 @@ async def test_outbox_retries_without_losing_committed_data(db_session, my_engin
     monkeypatch.setattr(
         outbox, "async_session_factory", async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False)
     )
-    sender = AsyncMock(side_effect=RedisConnectionError("injected outage"))
+    sender = AsyncMock(side_effect=ValkeyConnectionError("injected outage"))
     monkeypatch.setattr(isolated_store, "publish", sender)
-    with pytest.raises(RedisConnectionError):
+    with pytest.raises(ValkeyConnectionError):
         await outbox.dispatch_once()
     assert (await db_session.get(MaterialMovement, row_id)).balance_on_site_tons == 44
     assert len((await db_session.exec(select(OutboxEvent))).all()) == 1
@@ -339,14 +339,14 @@ async def test_readiness_checks_database_and_valkey(client, my_engine, monkeypat
     response = await client.get("/ready")
     assert response.status_code == 200
     assert response.headers["x-request-id"]
-    monkeypatch.setattr(isolated_store, "room_members", AsyncMock(side_effect=RedisConnectionError("secret address")))
+    monkeypatch.setattr(isolated_store, "room_members", AsyncMock(side_effect=ValkeyConnectionError("secret address")))
     response = await client.get("/ready")
     assert response.status_code == 503
     assert response.json() == {"status": "unavailable"}
     assert (await client.get("/health")).status_code == 200
 
 
-@pytest.mark.parametrize("logger_name", ["uvicorn.access", "uvicorn.error"])
+@pytest.mark.parametrize("logger_name", ["granian.access", "_granian"])
 def test_transport_logs_redact_ticket_without_destroying_format_arguments(logger_name):
     from src.app_logging import CredentialQueryFilter
 
@@ -384,7 +384,7 @@ async def test_outbox_worker_retries_and_prunes_expired_history(db_session, my_e
     monkeypatch.setattr(
         outbox, "async_session_factory", async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False)
     )
-    dispatch = AsyncMock(side_effect=[RedisConnectionError("outage"), None])
+    dispatch = AsyncMock(side_effect=[ValkeyConnectionError("outage"), None])
     monkeypatch.setattr(outbox, "dispatch_once", dispatch)
     delays = []
 

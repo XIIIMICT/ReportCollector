@@ -1,10 +1,10 @@
 """«Ремонт» project API: reading/editing the renovation plan, plan lifecycle, undo/redo."""
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Sequence
 from datetime import datetime
-from io import BytesIO
 from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import quote
 from uuid import UUID
@@ -32,6 +32,7 @@ from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, Undo
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.common.export import safe_sheet_name
 from src.common.export_jobs import ExportJobRead, export_table_or_job, table_export_jobs
+from src.config import get_settings
 from src.database import get_session
 from src.downloads import XLSX_MEDIA_TYPE
 from src.renovation.assets import (
@@ -60,7 +61,7 @@ from src.renovation.export import (
 )
 from src.renovation.export_jobs import ExportJob, ExportJobSpec, ExportQueueFullError, export_jobs
 from src.renovation.import_apply import apply_plan_file
-from src.renovation.import_plan import assets_in_file, inspect_plan_file
+from src.renovation.import_plan import assets_in_file, inspect_plan_file_streaming
 from src.renovation.inspect_cache import get_inspect_cache
 from src.renovation.models import RAsset, RProjectRole, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
@@ -128,6 +129,26 @@ from src.renovation.users import (
 )
 
 router = APIRouter(prefix="/renovation", tags=["renovation"])
+_settings = get_settings()
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+async def _rewind_and_hash_upload(file: UploadFile) -> str:
+    """Hash an upload in bounded chunks and rewind it for the parser."""
+    digest = hashlib.sha256()
+    size = 0
+    await file.seek(0)
+    while chunk := await file.read(_UPLOAD_CHUNK_BYTES):
+        size += len(chunk)
+        if size > _settings.renovation_import_max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Файл имеет слишком большой размер.",
+            )
+        digest.update(chunk)
+    await file.seek(0)
+    return digest.hexdigest()
+
 
 # One adapter, reused: building it per request would cost more than the dump
 # saves. It serializes the plan window to JSON in a single pass.
@@ -212,22 +233,20 @@ async def inspect_renovation_plan_import(
     """Validate an XLSB technical-directorate plan without persisting rows."""
     if not file.filename or not file.filename.casefold().endswith(".xlsb"):
         return RenovationPlanImportResult(status="invalid_format")
-    # Read the upload in memory: a NamedTemporaryFile stays locked on Windows,
-    # so the workbook cannot be reopened from its path there.
-    payload = await file.read()
+    digest = await _rewind_and_hash_upload(file)
     # Which assets the file touches decides the cache scope: a plan edit in an
     # asset the file does not mention must not invalidate this report.
-    file_asset_codes = assets_in_file(BytesIO(payload))
+    file_asset_codes = await asyncio.to_thread(assets_in_file, file.file)
+    await file.seek(0)
     assets = {
         asset.repair_code.upper(): asset.name
         for asset in (await session.exec(select(RAsset))).all()
         if asset.repair_code
     }
-    touched_asset_ids = [
-        asset.id
-        for raw_code in file_asset_codes
-        for asset in (await session.exec(select(RAsset).where(func.upper(RAsset.repair_code) == raw_code))).all()
-    ]
+    assets_by_code = {
+        asset.repair_code.upper(): asset for asset in (await session.exec(select(RAsset))).all() if asset.repair_code
+    }
+    touched_asset_ids = [assets_by_code[raw_code].id for raw_code in file_asset_codes if raw_code in assets_by_code]
     latest_change = (
         (
             await session.exec(
@@ -241,21 +260,23 @@ async def inspect_renovation_plan_import(
     )
     scope = _import_cache_scope(touched_asset_ids, latest_change)
     cache = get_inspect_cache()
-    cached = await cache.get(payload, scope=scope) if file_asset_codes else None
+    cached = await cache.get_digest(digest, scope=scope) if file_asset_codes else None
     if cached is not None:
         return cached
     existing_codes = {value for value in (await session.exec(select(col(RenovationPlanRow.col_003)))).all() if value}
     references: dict[str, set[str]] = {}
     for value in (await session.exec(select(RenovationReferenceValue))).all():
         references.setdefault(value.catalog.value, set()).add(value.label.casefold())
-    result = inspect_plan_file(
-        BytesIO(payload),
+    await file.seek(0)
+    result = await asyncio.to_thread(
+        inspect_plan_file_streaming,
+        file.file,
         existing_codes=existing_codes,
         asset_names_by_code=assets,
         reference_values=references,
     )
     if file_asset_codes:
-        await cache.set(payload, result, scope=scope)
+        await cache.set_digest(digest, result, scope=scope)
     return result
 
 
@@ -276,8 +297,14 @@ async def apply_renovation_plan_import(
     """
     if not file.filename or not file.filename.casefold().endswith(".xlsb"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ожидается файл .xlsb.")
+    await _rewind_and_hash_upload(file)
     try:
-        return await apply_plan_file(session, source=BytesIO(await file.read()), user_id=_access.user.id)
+        return await apply_plan_file(
+            session,
+            source=file.file,
+            user_id=_access.user.id,
+            streaming=True,
+        )
     except ValueError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except IntegrityError as error:

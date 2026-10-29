@@ -1,7 +1,7 @@
 """Valkey-backed cache of renovation plan preflight reports."""
 
 import pytest
-from redis.exceptions import RedisError
+from valkey.exceptions import ValkeyError
 
 from src.renovation.inspect_cache import (
     INSPECT_CACHE_TTL_SECONDS,
@@ -32,12 +32,12 @@ class _FakeRedis:
 class _BrokenRedis:
     async def get(self, _key: str) -> str | None:
         msg = "valkey is down"
-        raise RedisError(msg)
+        raise ValkeyError(msg)
 
     async def set(self, _key: str, _value: str, **kwargs: object) -> None:
         del kwargs
         msg = "valkey is down"
-        raise RedisError(msg)
+        raise ValkeyError(msg)
 
 
 def _report() -> RenovationPlanImportResult:

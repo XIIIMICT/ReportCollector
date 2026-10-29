@@ -23,12 +23,23 @@ class Settings(BaseSettings):
     postgres_host: str | None = None
     postgres_port: int | None = None
     postgres_schema: str | None = None
+    database_pool_size: int = Field(default=10, validation_alias="DATABASE_POOL_SIZE", ge=1)
+    database_max_overflow: int = Field(default=10, validation_alias="DATABASE_MAX_OVERFLOW", ge=0)
+    database_pool_timeout_seconds: float = Field(default=10.0, validation_alias="DATABASE_POOL_TIMEOUT_SECONDS", gt=0)
+    database_pool_recycle_seconds: int = Field(default=1800, validation_alias="DATABASE_POOL_RECYCLE_SECONDS", ge=-1)
+    database_statement_timeout_ms: int = Field(default=60_000, validation_alias="DATABASE_STATEMENT_TIMEOUT_MS", gt=0)
+    database_lock_timeout_ms: int = Field(default=30_000, validation_alias="DATABASE_LOCK_TIMEOUT_MS", gt=0)
     valkey_url: str = Field(default="redis://127.0.0.1:6379/0", validation_alias="VALKEY_URL")
     keycloak_enabled: bool = Field(default=False, validation_alias="KEYCLOAK_ENABLED")
     auth_secret: str = ""
     auth_seed_admin_email: str | None = None
     auth_seed_admin_password: str | None = None
     auth_identity_ttl: int = Field(default=60, validation_alias="AUTH_IDENTITY_TTL")
+    renovation_import_max_bytes: int = Field(
+        default=256 * 1024 * 1024,
+        validation_alias="RENOVATION_IMPORT_MAX_BYTES",
+        gt=0,
+    )
     # Number of trusted reverse proxies in front of the app. 0 (default) means
     # X-Forwarded-For is ignored and the rate limiter keys on the socket peer;
     # N>0 makes it take the client from the Nth-from-right XFF entry.

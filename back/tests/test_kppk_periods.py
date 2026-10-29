@@ -118,4 +118,5 @@ async def test_seed_rebuilds_the_periods_and_clears_stale_rows(db_session: Async
 
     # The figures start at zero — the forms exist to be filled.
     total = (await db_session.exec(select(func.coalesce(func.sum(col(KppkCost.full_cost_bp)), 0)))).one()
+    assert total is not None
     assert float(total) == 0.0

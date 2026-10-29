@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from conftest import signed_identity_headers
-from httpx import AsyncClient
+from httpx2 import AsyncClient
 from sqlmodel import select
 
 from src.auth.models import Project, ProjectRole, User, UserRole

@@ -9,7 +9,7 @@ container. Instead:
 
 - ``ExportJobManager.create`` registers a job and answers at once; a single
   sequential worker (started in the app lifespan, in-process — the app runs
-  one uvicorn worker) generates the files one by one through a
+  one application worker) generates the files one by one through a
   project-provided ``generate`` coroutine, so the load stays bounded and the
   API stays responsive;
 - the coroutine writes the XLSX to ``{EXPORT_DIR}/{job_id}.part`` and renames

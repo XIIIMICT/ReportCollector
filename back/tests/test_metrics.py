@@ -11,7 +11,7 @@ merely present:
    invisible: nothing errors, clients just reconnect).
 """
 
-from httpx import AsyncClient
+from httpx2 import AsyncClient
 
 from src.metrics import REGISTRY
 
@@ -83,3 +83,12 @@ def test_websocket_metrics_are_registered() -> None:
     WS_SLOW_CONSUMERS_TOTAL.labels(room_section="testSection").inc()
     after = {metric.name for metric in REGISTRY.collect()}
     assert {"ws_events_relayed", "ws_slow_consumers"} <= after
+
+
+def test_database_metrics_are_registered() -> None:
+    from src.metrics import DB_CONNECTIONS_IN_USE, DB_QUERY_DURATION
+
+    DB_CONNECTIONS_IN_USE.set(2)
+    DB_QUERY_DURATION.observe(0.01)
+    described = {metric.name for metric in REGISTRY.collect()}
+    assert {"db_connections_in_use", "db_query_duration_seconds"} <= described

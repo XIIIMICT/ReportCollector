@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import pytest
 from alembic import command
 from alembic.config import Config
-from httpx import ASGITransport, AsyncClient
+from httpx2 import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -570,7 +570,7 @@ async def store(isolated_store, db_session):
 @pytest.fixture(autouse=True)
 async def isolated_store():
     """Reset only an explicitly opted-in disposable Valkey DB, never the app DB."""
-    from redis.asyncio import Redis
+    from valkey.asyncio import Valkey
 
     from src.collab.store import ValkeyStore, get_collab_store
     from src.collab.ws import get_room_manager
@@ -582,7 +582,7 @@ async def isolated_store():
         if urlparse(url).path != "/15" or os.environ.get("TEST_VALKEY_RESET") != "1":
             pytest.fail("Real-store suite requires disposable TEST_VALKEY_URL ending in /15 and TEST_VALKEY_RESET=1")
     instance = get_collab_store()
-    cleanup = Redis.from_url(os.environ["VALKEY_URL"]) if isinstance(instance, ValkeyStore) else None
+    cleanup = Valkey.from_url(os.environ["VALKEY_URL"]) if isinstance(instance, ValkeyStore) else None
     if cleanup is not None:
         await cleanup.flushdb()
     try:
@@ -744,7 +744,7 @@ async def raw_materials_role(db_session: AsyncSession):
 @pytest.fixture
 def presence_expiry():
     """Read expiration without changing store behavior."""
-    from redis.asyncio import Redis
+    from valkey.asyncio import Valkey
 
     from src.collab.store import MemoryStore, room_presence_key
 
@@ -754,7 +754,7 @@ def presence_expiry():
         instance = get_collab_store()
         if isinstance(instance, MemoryStore):
             return await instance.presence_expires_at(room, user_id)
-        async with Redis.from_url(os.environ["VALKEY_URL"]) as connection:
+        async with Valkey.from_url(os.environ["VALKEY_URL"]) as connection:
             raw = await connection.hget(room_presence_key(room), user_id)
             return json.loads(raw)["expiresAt"] if raw else None
 

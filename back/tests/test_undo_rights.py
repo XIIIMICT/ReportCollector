@@ -8,7 +8,7 @@ action there (undo is a write). The check lives in `collab/undo.py`
 from datetime import UTC, datetime
 
 from conftest import signed_identity_headers
-from httpx import AsyncClient
+from httpx2 import AsyncClient
 from sqlmodel import select
 
 from src.auth.models import Project

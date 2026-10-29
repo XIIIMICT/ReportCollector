@@ -5,7 +5,7 @@ from io import BytesIO
 from uuid import UUID
 
 from conftest import signed_identity_headers
-from httpx import AsyncClient
+from httpx2 import AsyncClient
 from openpyxl import load_workbook
 from sqlmodel import col, select
 

@@ -94,7 +94,7 @@ curl -X POST http://localhost:9093/api/v2/alerts -H 'Content-Type: application/j
 ## 3. Горизонтальное масштабирование WS — архитектурный предел
 
 `RoomManager` держит `_members`, `_queues`, `_writers` **в памяти процесса**, а
-`back/Dockerfile` запускает `uvicorn` **без `--workers`**. Следствия:
+`back/Dockerfile` запускает Granian с одним worker по умолчанию. Следствия:
 
 - две реплики не увидят соединений друг друга (pub/sub в Valkey есть, но карта
   сокетов — локальная);

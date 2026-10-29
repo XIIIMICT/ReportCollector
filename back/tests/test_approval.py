@@ -5,7 +5,7 @@ from uuid import UUID
 
 import pytest
 from conftest import signed_identity_headers
-from httpx import AsyncClient
+from httpx2 import AsyncClient
 from sqlmodel import col, delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 

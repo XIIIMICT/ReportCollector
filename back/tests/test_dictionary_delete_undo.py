@@ -6,7 +6,7 @@ path (so the business rules still apply).
 """
 
 from conftest import signed_identity_headers
-from httpx import AsyncClient
+from httpx2 import AsyncClient
 from sqlmodel import select
 
 from src.raw_materials.models import DeliveryBasis, RawMaterial, RawMaterialAsset, RawMaterialUserAsset

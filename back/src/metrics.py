@@ -107,6 +107,37 @@ WS_SLOW_CONSUMERS_TOTAL = Counter(
     registry=REGISTRY,
 )
 
+DB_CONNECTIONS_IN_USE = Gauge(
+    "db_connections_in_use",
+    "Database connections currently checked out by this process.",
+    registry=REGISTRY,
+)
+
+DB_CONNECTION_CHECKOUTS_TOTAL = Counter(
+    "db_connection_checkouts_total",
+    "Database connection checkouts completed by this process.",
+    registry=REGISTRY,
+)
+
+DB_CONNECTION_INVALIDATIONS_TOTAL = Counter(
+    "db_connection_invalidations_total",
+    "Database connections invalidated after a transport or server error.",
+    registry=REGISTRY,
+)
+
+DB_QUERIES_TOTAL = Counter(
+    "db_queries_total",
+    "Database statements completed by this process.",
+    registry=REGISTRY,
+)
+
+DB_QUERY_DURATION = Histogram(
+    "db_query_duration_seconds",
+    "Database statement duration without SQL text labels.",
+    buckets=_LATENCY_BUCKETS,
+    registry=REGISTRY,
+)
+
 
 def observe_http_request(*, method: str, route: str, status: int, duration_seconds: float) -> None:
     """Record one finished request against its ROUTE TEMPLATE."""

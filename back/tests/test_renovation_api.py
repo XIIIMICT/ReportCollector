@@ -13,7 +13,7 @@ from uuid import uuid4
 from zipfile import ZipFile
 
 from conftest import signed_identity_headers
-from httpx import AsyncClient
+from httpx2 import AsyncClient
 from openpyxl import load_workbook
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession

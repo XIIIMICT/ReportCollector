@@ -1,7 +1,9 @@
 """Validate a technical-directorate XLSB plan without changing the database."""
 
 from collections import Counter
+from collections.abc import Iterable, Iterator
 from datetime import date, datetime, timedelta
+from itertools import chain, islice
 from pathlib import Path
 from typing import BinaryIO
 from zipfile import BadZipFile
@@ -122,22 +124,27 @@ def assets_in_file(source: Path | BinaryIO) -> frozenset[str]:
     caller treats as «unknown» (no caching).
     """
     try:
-        rows = _read_rows(source)
+        rows = _iter_plan_rows(source)
+        first_rows = list(islice(rows, 2))
     except BadZipFile, KeyError, OSError, ValueError:
         return frozenset()
-    header, data_start = _locate_header(rows)
+    header, data_start = _locate_header(first_rows)
     if header is None:
         return frozenset()
     code_index = next((i for i, value in enumerate(header) if _norm(value) == _norm(_CODE_HEADER)), None)
-    if data_start < len(rows) and code_index is not None and _is_numbering_row(rows[data_start], code_index):
-        data_start += 1
     asset_index = next((i for i, value in enumerate(header) if _norm(value) == _norm(_ASSET_HEADER)), None)
     if asset_index is None:
         return frozenset()
+    data_rows = chain(first_rows[data_start:], rows)
+    first_data_row = next(iter(data_rows), None)
+    if first_data_row is None:
+        data_rows = iter(())
+    elif code_index is None or not _is_numbering_row(first_data_row, code_index):
+        data_rows = chain((first_data_row,) if first_data_row is not None else (), data_rows)
     codes = {
         str(raw[asset_index]).strip().upper()
-        for raw in rows[data_start:]
-        if asset_index < len(raw) and raw[asset_index] not in (None, "")
+        for raw in data_rows
+        if raw is not None and asset_index < len(raw) and raw[asset_index] not in (None, "")
     }
     return frozenset(code for code in codes if code)
 
@@ -214,6 +221,12 @@ _CATALOG_ALIASES: dict[str, frozenset[str]] = {
 
 
 def _read_rows(path: Path | BinaryIO) -> list[list[object]]:
+    """Read all worksheet rows for compatibility and small unit-test fixtures."""
+    return list(_iter_plan_rows(path))
+
+
+def _iter_plan_rows(path: Path | BinaryIO) -> Iterator[list[object]]:
+    """Yield plan-sheet rows without materializing the workbook."""
     source = str(path) if isinstance(path, Path) else path
     with open_workbook(source) as workbook:
         sheet = next((name for name in workbook.sheets if name.strip().upper().startswith("РБ")), None)
@@ -221,7 +234,28 @@ def _read_rows(path: Path | BinaryIO) -> list[list[object]]:
             msg = "no plan sheet"
             raise ValueError(msg)
         with workbook.get_sheet(sheet) as worksheet:
-            return [[cell.v for cell in row] for row in worksheet.rows()]
+            yield from ([cell.v for cell in row] for row in worksheet.rows())
+
+
+def inspect_plan_file_streaming(
+    source: Path | BinaryIO,
+    *,
+    existing_codes: set[str],
+    asset_names_by_code: dict[str, str],
+    reference_values: dict[str, set[str]] | None = None,
+) -> RenovationPlanImportResult:
+    """Inspect an XLSB from a row iterator, keeping memory bounded by the report."""
+    if isinstance(source, Path) and source.suffix.casefold() != ".xlsb":
+        return RenovationPlanImportResult(status="invalid_format")
+    try:
+        return _inspect_rows(
+            _iter_plan_rows(source),
+            existing_codes=existing_codes,
+            asset_names_by_code=asset_names_by_code,
+            reference_values=reference_values,
+        )
+    except BadZipFile, KeyError, OSError, ValueError:
+        return RenovationPlanImportResult(status="invalid_format")
 
 
 def inspect_plan_file(
@@ -236,18 +270,36 @@ def inspect_plan_file(
         return RenovationPlanImportResult(status="invalid_format")
     try:
         rows = _read_rows(source)
+        return _inspect_rows(
+            iter(rows),
+            existing_codes=existing_codes,
+            asset_names_by_code=asset_names_by_code,
+            reference_values=reference_values,
+        )
     except BadZipFile, KeyError, OSError, ValueError:
         return RenovationPlanImportResult(status="invalid_format")
-    if not rows:
+
+
+def _inspect_rows(
+    rows: Iterable[list[object]],
+    *,
+    existing_codes: set[str],
+    asset_names_by_code: dict[str, str],
+    reference_values: dict[str, set[str]] | None,
+) -> RenovationPlanImportResult:
+    """Validate rows from either a materialized fixture or a streaming workbook."""
+    rows_iter = iter(rows)
+    first_rows = list(islice(rows_iter, 2))
+    if not first_rows:
         return RenovationPlanImportResult(status="invalid_format")
     # Row 1 is the header; some drops prepend an info row, then the header is
     # row 2. A numbering row under the headers (if any) holds numbers only and
     # is skipped by `_is_numbering_row`.
-    header_row, data_start = _locate_header(rows)
+    header_row, data_start = _locate_header(first_rows)
     if header_row is None:
-        if len(rows) < 2:
+        if len(first_rows) < 2:
             return RenovationPlanImportResult(status="invalid_format")
-        header_row = rows[1]
+        header_row = first_rows[1]
         data_start = 2
     mapping = _header_map()
     columns: dict[str, int] = {}
@@ -267,8 +319,12 @@ def inspect_plan_file(
     asset_index = next((i for i, value in enumerate(header_row) if _norm(value) == _norm(_ASSET_HEADER)), None)
     if code_index is None or asset_index is None or len(columns) < len(TEMPLATE_COLUMNS) // 2:
         return RenovationPlanImportResult(status="invalid_format")
-    if data_start < len(rows) and _is_numbering_row(rows[data_start], code_index):
-        data_start += 1
+    data_rows: Iterable[list[object]] = chain(first_rows[data_start:], rows_iter)
+    first_data_row = next(iter(data_rows), None)
+    if first_data_row is None:
+        data_rows = iter(())
+    elif not _is_numbering_row(first_data_row, code_index):
+        data_rows = chain((first_data_row,) if first_data_row is not None else (), data_rows)
 
     type_errors: list[RenovationPlanImportCellIssue] = []
     missing: list[RenovationPlanImportCellIssue] = []
@@ -281,7 +337,7 @@ def inspect_plan_file(
     asset_codes: list[str | None] = []
     row_numbers: list[int] = []
     field_by_name = {field.db_name: field for field in field_metas()}
-    for row_number, raw in enumerate(rows[data_start:], start=data_start + 1):
+    for row_number, raw in enumerate(data_rows, start=data_start + 1):
         if not any(value not in (None, "") for value in raw):
             continue
         code = str(raw[code_index]).strip() if code_index < len(raw) and raw[code_index] is not None else ""

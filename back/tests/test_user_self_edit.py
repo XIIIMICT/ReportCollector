@@ -2,7 +2,7 @@
 
 import pytest
 from conftest import signed_identity_headers
-from httpx import AsyncClient
+from httpx2 import AsyncClient
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 

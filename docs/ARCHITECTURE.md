@@ -9,7 +9,7 @@ Sections: [System diagram](#system-diagram) · [Services and compose profiles](#
 ```
 Browser ── https://<host> ──► nginx (outside Docker, on prod)
                               ├── /              → front (Next.js standalone, :5000)
-                              └── /api/ws/       → back (FastAPI/uvicorn, :8000)
+                              └── /api/ws/       → back (FastAPI/Granian, :8000)
                               (HTTPS + WSS terminated in nginx)
 front ── BACKEND_INTERNAL_URL ──► back (/api/*, server-side, signed headers)
 back  ── Postgres (asyncpg, schema from POSTGRES_SCHEMA)
@@ -24,7 +24,7 @@ Keycloak ── OIDC (login; local container or corporate)
 
 | Service | Container | Profile | What |
 |---|---|---|---|
-| `back` / `back-dev` | `rc-back` / `rc-back-dev` | prod / dev | FastAPI, uvicorn, port `BACKEND_PORT` |
+| `back` / `back-dev` | `rc-back` / `rc-back-dev` | prod / dev | FastAPI, Granian, port `BACKEND_PORT` |
 | `front` / `front-dev` | `rc-front` / `rc-front-dev` | prod / dev | Next.js standalone (prod) or `bun dev` (dev, hot-reload) |
 | postgres, keycloak, valkey | `rc-postgres` etc. | standalone | external dependencies (`just db`, `just keycloak`) |
 | loki, grafana, alloy, prometheus | — | standalone | logs + metrics (`just monitoring`) |
@@ -451,7 +451,7 @@ requests OOM'ed the container. The export is therefore a background job
   working plan) and enqueues a job; the response is immediate. An identical
   scope+stamp reuses the ready file (cache key = sha256 of the scope + stamp).
 - A single sequential worker (started in the lifespan, in-process — the app runs
-  one uvicorn worker) streams the rows through a server-side cursor and writes
+  one application worker) streams the rows through a server-side cursor and writes
   the XLSX to `EXPORT_DIR` (default: the system temp dir). Formula
   materialization and XML serialization run via `asyncio.to_thread`, so the API
   stays responsive (measured during a full export: avg ~140 ms, max <600 ms).

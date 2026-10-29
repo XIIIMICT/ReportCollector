@@ -22,3 +22,18 @@ def test_cors_origins_from_env_json_normalize(monkeypatch: pytest.MonkeyPatch) -
         "http://localhost:5000",
         "https://m2v-form-1.h2-group.ru",
     ]
+
+
+def test_database_limits_are_configurable_and_bounded() -> None:
+    settings = Settings(
+        database_pool_size=4,
+        database_max_overflow=2,
+        database_pool_timeout_seconds=3.5,
+        database_statement_timeout_ms=12_000,
+        database_lock_timeout_ms=2_000,
+    )
+    assert settings.database_pool_size == 4
+    assert settings.database_max_overflow == 2
+    assert settings.database_pool_timeout_seconds == 3.5
+    assert settings.database_statement_timeout_ms == 12_000
+    assert settings.database_lock_timeout_ms == 2_000
