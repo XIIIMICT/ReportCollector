@@ -48,6 +48,7 @@ export function DateTimePicker({
     className,
     fieldClassName,
     autoFocus = false,
+    onEditingChange,
 }: {
     /** Caption shown to the LEFT of the field, without the colon. */
     label?: string;
@@ -65,6 +66,8 @@ export function DateTimePicker({
      * the panel itself was the odd one out (and the panel drew a focus ring).
      */
     autoFocus?: boolean;
+    /** Reports focus entering/leaving the segmented date editor. */
+    onEditingChange?: (editing: boolean) => void;
 }) {
     const current = toPickerValue(value, kind);
     const withTime = kind === "datetime";
@@ -86,7 +89,17 @@ export function DateTimePicker({
                 hideTimeZone={!DATE_PICKER_SHOW_TIME_ZONE}
                 shouldForceLeadingZeros
             >
-                <DateField.Group fullWidth variant="secondary">
+                <DateField.Group
+                    fullWidth
+                    variant="secondary"
+                    onFocusCapture={() => onEditingChange?.(true)}
+                    onBlurCapture={(event) => {
+                        const next = event.relatedTarget;
+                        if (!(next instanceof Node) || !event.currentTarget.contains(next)) {
+                            onEditingChange?.(false);
+                        }
+                    }}
+                >
                     <DateField.Input>
                         {(segment) => <DateField.Segment segment={segment} />}
                     </DateField.Input>

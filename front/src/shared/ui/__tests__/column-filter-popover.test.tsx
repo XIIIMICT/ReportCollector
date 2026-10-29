@@ -89,6 +89,51 @@ test("separator follows «Выбрать все» before «Пустые» and th
     expect(masterCaption()).toContain("17 (2 уникальных)");
 });
 
+test("date field keeps its facet query deferred while segments are edited", async () => {
+    const searches: Array<FacetSearch | null | undefined> = [];
+    facetHandler = (_column, params = {}) => {
+        searches.push(params.search);
+        return Promise.resolve({
+            values: [{ value: "01.01.2024", count: 1 }],
+            total: 20,
+            hasNulls: false,
+            rowCount: 20,
+        });
+    };
+    render(
+        <ColumnFilterPopover
+            column="date"
+            columnLabel="Дата"
+            anchor={anchor}
+            facets={defaultFacets}
+            initial={null}
+            order="date"
+            dateOnly
+            onApply={() => {}}
+            onClose={() => {}}
+        />,
+    );
+    await waitFor(() => expect(document.querySelector(".date-time-picker__field")).toBeTruthy());
+    const day = document.querySelector('.column-filter__popover [data-type="day"]') as HTMLElement;
+    const month = document.querySelector(
+        '.column-filter__popover [data-type="month"]',
+    ) as HTMLElement;
+    const year = document.querySelector(
+        '.column-filter__popover [data-type="year"]',
+    ) as HTMLElement;
+    fireEvent.click(day);
+    fireEvent.focus(day);
+    fireEvent.keyDown(day, { key: "1" });
+    fireEvent.keyDown(day, { key: "5" });
+    fireEvent.keyDown(month, { key: "2" });
+    fireEvent.keyDown(month, { key: "0" });
+    expect(searches.every((search) => search === null)).toBe(true);
+    // The segmented editor itself owns the partial value. The list loader must
+    // remain on the unconstrained query until the field is actually complete.
+    fireEvent.blur(year, { relatedTarget: document.body });
+    await waitFor(() => expect(searches.length).toBeGreaterThan(1));
+});
+
 async function openRecorded(
     initial: { column?: string; values?: string[]; includeNulls?: boolean } | null,
     defaultFilter: ColumnFilter | null = null,

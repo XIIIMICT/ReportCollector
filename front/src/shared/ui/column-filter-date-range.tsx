@@ -72,6 +72,7 @@ export function ColumnFilterDateRange({
     onChange,
     kind = "datetime",
     autoFocus = false,
+    onEditingChange,
 }: {
     /** The column's header text, for the fields' accessible names. */
     columnLabel: string;
@@ -81,11 +82,14 @@ export function ColumnFilterDateRange({
     kind?: DateFilterKind;
     /** Focus the «Минимум» field on open (the instant window does). */
     autoFocus?: boolean;
+    /** Reports whether either segmented bound is being edited. */
+    onEditingChange?: (editing: boolean) => void;
 }) {
     const bounds: { slot: "min" | "max"; label: string; text: string }[] = [
         { slot: "min", label: "мин", text: "Минимум" },
         { slot: "max", label: "макс", text: "Максимум" },
     ];
+    const editingProps = onEditingChange ? { onEditingChange } : {};
     return (
         <div
             className="column-filter__date-range"
@@ -106,6 +110,7 @@ export function ColumnFilterDateRange({
                     ariaLabel={`${text}: ${columnLabel}`}
                     kind={kind}
                     value={value[slot]}
+                    {...editingProps}
                     onChange={(next) => onChange({ ...value, [slot]: next })}
                 />
             ))}

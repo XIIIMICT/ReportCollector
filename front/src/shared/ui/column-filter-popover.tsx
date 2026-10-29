@@ -233,6 +233,15 @@ export function ColumnFilterPopover({
         min: storedDraft?.dateMin ?? null,
         max: storedDraft?.dateMax ?? null,
     });
+    // DateField emits a complete calendar value after each segment becomes
+    // parseable. Do not reload the facet list while a segment is still being
+    // typed: replacing the list underneath the controlled DatePicker resets
+    // the already-entered day/month before the year segment is finished.
+    const [dateSearchRange, setDateSearchRange] = useState<FacetDateRange>(() => ({
+        min: storedDraft?.dateMin ?? null,
+        max: storedDraft?.dateMax ?? null,
+    }));
+    const dateEditingRef = useRef(false);
     // An INSTANT column keeps its own window: it is applied on its own (there is
     // no selection to commit), so it is seeded from the filter in force and
     // remembered per column, like every other draft.
@@ -322,6 +331,7 @@ export function ColumnFilterPopover({
         (next: FacetDateRange) => {
             setDateRange(next);
             draftRef.current = { ...draftRef.current, dateRange: next };
+            if (!dateEditingRef.current) setDateSearchRange(next);
             rememberDraft();
         },
         // oxlint-disable-next-line react-hooks/exhaustive-deps
@@ -334,10 +344,10 @@ export function ColumnFilterPopover({
     // reversed window empty, and — because «nothing kept, nothing searched» also
     // reads as an EMPTY filter — sent "no constraint" to the grid, so the funnel
     // lit up while every row stayed.
-    const activeRange = isDate ? dateRange : range;
+    const activeRange = isDate ? dateSearchRange : range;
     const rangeReversed =
         activeRange.min !== null && activeRange.max !== null && activeRange.min > activeRange.max;
-    const rangeEmpty = isDate ? isDateRangeEmpty(dateRange) : isRangeEmpty(range);
+    const rangeEmpty = isDate ? isDateRangeEmpty(dateSearchRange) : isRangeEmpty(range);
     const search: FacetSearch | null =
         order === "text"
             ? query.trim() === ""
@@ -359,6 +369,11 @@ export function ColumnFilterPopover({
             : search.kind === "text"
               ? `t:${search.query}`
               : `${search.kind[0]}:${search.min ?? ""}:${search.max ?? ""}`;
+
+    const handleDateEditingChange = useCallback((editing: boolean) => {
+        dateEditingRef.current = editing;
+        if (!editing) setDateSearchRange(draftRef.current.dateRange);
+    }, []);
 
     // The live search travels to the source with every request. It is read
     // through a ref: the loaders are memoized without it, and a stale closure
@@ -963,6 +978,7 @@ export function ColumnFilterPopover({
                                 columnLabel={columnLabel}
                                 value={dateRange}
                                 onChange={changeDateRange}
+                                onEditingChange={handleDateEditingChange}
                                 kind={dateOnly ? "date" : "datetime"}
                             />
                         ) : (
