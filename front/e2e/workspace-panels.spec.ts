@@ -64,6 +64,12 @@ async function expectFunnelStable(page: Page, cell: Locator, button: Locator) {
 test("toolbar follows visible controls and header funnel stays open at the bottom edge", async ({
     page,
 }) => {
+    const pressResponderWarnings: string[] = [];
+    page.on("console", (message) => {
+        if (message.type() === "warning" && message.text().includes("PressResponder")) {
+            pressResponderWarnings.push(message.text());
+        }
+    });
     await openTable(page, "/raw-materials");
     const toolbar = page.locator(".workspace-card .table-toolbar");
     const archive = toolbar.locator(".archive-autocomplete");
@@ -83,6 +89,7 @@ test("toolbar follows visible controls and header funnel stays open at the botto
     await expectFunnelStable(page, cell, button);
     await cell.click();
     await expect(cell.locator(".sort-indicator")).toHaveCSS("opacity", "1");
+    expect(pressResponderWarnings).toEqual([]);
 });
 
 test("timestamp filter keeps its bounds and result count after reload, reset persists", async ({

@@ -22,6 +22,7 @@ import {
 import { createElement, type ReactElement, type ReactNode } from "react";
 
 import type { ActionItem } from "@/shared/ui/action-bar";
+import { ControlledAlertDialog } from "@/shared/ui/controlled-alert-dialog";
 
 /** The export scope both menu entries drive. */
 export type ExportMode = "all" | "visible";
@@ -292,7 +293,7 @@ export function DeleteRecordDialog({
     onConfirm: () => void;
 }): ReactNode {
     return (
-        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
+        <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
             <AlertDialog.Backdrop>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
@@ -338,7 +339,7 @@ export function DeleteRecordDialog({
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>
             </AlertDialog.Backdrop>
-        </AlertDialog>
+        </ControlledAlertDialog>
     );
 }
 

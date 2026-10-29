@@ -1,6 +1,6 @@
 "use client";
 
-import { Label, NumberField, Popover } from "@heroui/react";
+import { Button, Label, NumberField, Popover } from "@heroui/react";
 import { Check, Xmark } from "iconoir-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -159,7 +159,7 @@ export function RowGoToFilter({
                 className="column-filter__anchor"
                 style={{ left: anchor.left, top: anchor.top, width: anchor.width }}
             >
-                <span />
+                <Button aria-label="Открыть переход к строке" isIconOnly />
             </Popover.Trigger>
             <Popover.Content
                 ref={popoverRef}

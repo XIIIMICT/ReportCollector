@@ -4,6 +4,7 @@ import { AlertDialog, Button, ButtonGroup, Spinner } from "@heroui/react";
 import { DataTransferBoth, Xmark } from "iconoir-react";
 import { useEffect, useState } from "react";
 
+import { ControlledAlertDialog } from "@/shared/ui/controlled-alert-dialog";
 import { SmartSelect } from "@/shared/ui/smart-select";
 
 export type ReplaceTargetOption = {
@@ -65,7 +66,7 @@ export function ReplaceRecordDialog({
     };
 
     return (
-        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
+        <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
             <AlertDialog.Backdrop>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
@@ -139,6 +140,6 @@ export function ReplaceRecordDialog({
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>
             </AlertDialog.Backdrop>
-        </AlertDialog>
+        </ControlledAlertDialog>
     );
 }

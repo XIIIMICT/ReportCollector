@@ -94,6 +94,7 @@ import {
     type AddRecordValues,
 } from "@/shared/ui/add-record-modal";
 import { AppHeader } from "@/shared/ui/app-header";
+import { ControlledAlertDialog } from "@/shared/ui/controlled-alert-dialog";
 import { downloadBlob as sharedDownloadBlob } from "@/shared/ui/download";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
@@ -1938,7 +1939,7 @@ function ApproveDialog({
     onConfirm: () => void;
 }) {
     return (
-        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
+        <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
             <AlertDialog.Backdrop isDismissable={!isPending}>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
@@ -1981,6 +1982,6 @@ function ApproveDialog({
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>
             </AlertDialog.Backdrop>
-        </AlertDialog>
+        </ControlledAlertDialog>
     );
 }

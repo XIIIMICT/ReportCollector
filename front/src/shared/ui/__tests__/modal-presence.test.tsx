@@ -3,6 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import { AlertDialog, Button, Modal } from "@heroui/react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
+import { ControlledAlertDialog } from "../controlled-alert-dialog";
 import { hasOpenModal } from "../modal-presence";
 
 afterEach(cleanup);
@@ -23,7 +24,7 @@ test("an open alert dialog owns Escape", async () => {
     };
     window.addEventListener("keydown", gridEscape, true);
     render(
-        <AlertDialog isOpen onOpenChange={() => {}}>
+        <ControlledAlertDialog isOpen onOpenChange={() => {}}>
             <AlertDialog.Backdrop>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
@@ -34,7 +35,7 @@ test("an open alert dialog owns Escape", async () => {
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>
             </AlertDialog.Backdrop>
-        </AlertDialog>,
+        </ControlledAlertDialog>,
     );
     try {
         await waitFor(() => expect(hasOpenModal()).toBe(true));

@@ -33,6 +33,7 @@ import {
     type ThemePreference,
 } from "@/shared/api/report-collector";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
+import { ControlledAlertDialog } from "@/shared/ui/controlled-alert-dialog";
 
 type ProfileModalProps = {
     isOpen: boolean;
@@ -212,7 +213,7 @@ export function ProfileModal({ isOpen, user, onOpenChange, onProfileSaved }: Pro
                 </Modal.Container>
             </Modal.Backdrop>
 
-            <AlertDialog
+            <ControlledAlertDialog
                 isOpen={confirmation !== null}
                 onOpenChange={(open) => !open && !isPending && setConfirmation(null)}
             >
@@ -255,7 +256,7 @@ export function ProfileModal({ isOpen, user, onOpenChange, onProfileSaved }: Pro
                         </AlertDialog.Dialog>
                     </AlertDialog.Container>
                 </AlertDialog.Backdrop>
-            </AlertDialog>
+            </ControlledAlertDialog>
         </>
     );
 }

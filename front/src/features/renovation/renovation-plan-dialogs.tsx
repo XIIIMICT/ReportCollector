@@ -8,6 +8,7 @@
 import { AlertDialog, Button, ButtonGroup, Spinner } from "@heroui/react";
 import { CheckCircle, Plus, Send, WarningTriangle, Xmark } from "iconoir-react";
 
+import { ControlledAlertDialog } from "@/shared/ui/controlled-alert-dialog";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 
 export function AddRowDialog({
@@ -28,7 +29,7 @@ export function AddRowDialog({
     onConfirm: () => void;
 }) {
     return (
-        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
+        <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
             <AlertDialog.Backdrop isDismissable={!isPending}>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
@@ -77,7 +78,7 @@ export function AddRowDialog({
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>
             </AlertDialog.Backdrop>
-        </AlertDialog>
+        </ControlledAlertDialog>
     );
 }
 
@@ -93,7 +94,7 @@ export function SubmitPlanDialog({
     onConfirm: () => void;
 }) {
     return (
-        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
+        <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
             <AlertDialog.Backdrop isDismissable={!isPending}>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
@@ -133,7 +134,7 @@ export function SubmitPlanDialog({
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>
             </AlertDialog.Backdrop>
-        </AlertDialog>
+        </ControlledAlertDialog>
     );
 }
 
@@ -147,7 +148,7 @@ export function SubmitBlockedDialog({
     onOpenChange: (open: boolean) => void;
 }) {
     return (
-        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
+        <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
             <AlertDialog.Backdrop>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
@@ -168,7 +169,7 @@ export function SubmitBlockedDialog({
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>
             </AlertDialog.Backdrop>
-        </AlertDialog>
+        </ControlledAlertDialog>
     );
 }
 
@@ -186,7 +187,7 @@ export function ApprovePlanDialog({
     onConfirm: () => void;
 }) {
     return (
-        <AlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
+        <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
             <AlertDialog.Backdrop isDismissable={!isPending}>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
@@ -229,6 +230,6 @@ export function ApprovePlanDialog({
                     </AlertDialog.Dialog>
                 </AlertDialog.Container>
             </AlertDialog.Backdrop>
-        </AlertDialog>
+        </ControlledAlertDialog>
     );
 }

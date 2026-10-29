@@ -1,6 +1,14 @@
 "use client";
 
-import { EmptyState, ListBox, Popover, SearchField, Separator, type Key } from "@heroui/react";
+import {
+    Button,
+    EmptyState,
+    ListBox,
+    Popover,
+    SearchField,
+    Separator,
+    type Key,
+} from "@heroui/react";
 import { Check, List, ListSelect, Refresh, TaskList, Xmark } from "iconoir-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -856,7 +864,11 @@ export function ColumnFilterPopover({
                     className="column-filter__anchor"
                     style={{ left: anchor.left, top: anchor.top, width: anchor.width }}
                 >
-                    <span />
+                    {/* Popover.Trigger is backed by React Aria's PressResponder.
+                        Keep a real HeroUI button in the trigger tree so that
+                        the responder has a pressable child even though this
+                        anchor is only a hidden positioning target. */}
+                    <Button aria-label={`Открыть фильтр: ${columnLabel}`} isIconOnly />
                 </Popover.Trigger>
                 <Popover.Content
                     ref={popoverRef}
