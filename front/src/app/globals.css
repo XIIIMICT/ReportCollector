@@ -1924,10 +1924,22 @@ body {
    `margin-right: 24px` only for `:not(.asc):not(.desc)` (on hover/focus, or when
    a filter is pinned). Mirror BOTH triggers here — otherwise the funnel overlaps
    the label on a sorted column and, unlike an unsorted one, the text does not
-   make room, which breaks the centering symmetry. */
+   make room, which breaks the centering symmetry.
+
+   The application funnel is an overlay sibling, so it cannot be matched with
+   `:has(.rv-filter.active)`. `data-funnel-open` is synchronised onto the label
+   whenever that overlay is visible (including an applied filter). Reserving the
+   right side from that marker keeps a sort+filter header in the same geometry
+   before and after hover; the pointer only changes opacity, never the label's
+   position. */
 .data-grid
     revogr-header
-    .rgHeaderCell:is(.asc, .desc):is(:hover, :focus-within, :has(.rv-filter.active))
+    .rgHeaderCell:is(.asc, .desc):is(
+        :hover,
+        :focus-within,
+        :has(.rv-filter.active),
+        :has(.report-header__title[data-funnel-open="true"])
+    )
     .header-content {
     margin-right: 24px;
 }

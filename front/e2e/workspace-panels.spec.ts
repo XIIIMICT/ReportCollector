@@ -248,6 +248,73 @@ test("toolbar follows visible controls and header funnel stays open at the botto
     expect(pressResponderWarnings).toEqual([]);
 });
 
+test("sorted header text does not move when its active funnel is hovered", async ({ page }) => {
+    await openTable(page, "/raw-materials");
+
+    const value = await page.evaluate(async () => {
+        const grid = document.querySelector("revo-grid") as
+            | (HTMLElement & { getSource?: () => Promise<Array<Record<string, unknown>>> })
+            | null;
+        const source = (await grid?.getSource?.()) ?? [];
+        return (
+            source.find((row) => typeof row.rawMaterialName === "string")?.rawMaterialName ?? null
+        );
+    });
+    expect(value).toBeTruthy();
+    await page.evaluate((filterValue) => {
+        localStorage.setItem(
+            "rc:filters:raw-materials:plan",
+            JSON.stringify({
+                rawMaterialName: {
+                    column: "rawMaterialName",
+                    values: [filterValue],
+                    includeNulls: false,
+                },
+            }),
+        );
+    }, value);
+    await page.reload();
+    await expect(page.locator("revo-grid")).toBeVisible({ timeout: 40000 });
+
+    const cell = page
+        .locator(".rgHeaderCell")
+        .filter({ has: page.locator('[data-prop="rawMaterialName"]') });
+    const title = cell.locator(".report-header__title");
+    const funnel = page.locator('.report-header-funnels [data-prop="rawMaterialName"]');
+    await expect(funnel).toHaveClass(/is-active/);
+
+    // Sort the already-filtered column, then move away so the measurement is
+    // taken before hover can reveal anything new.
+    if (
+        !(await cell.evaluate(
+            (element) => element.classList.contains("asc") || element.classList.contains("desc"),
+        ))
+    ) {
+        await title.click();
+    }
+    await expect(cell).toHaveClass(/asc|desc/);
+    await page.mouse.move(10, 10);
+    await page.waitForTimeout(350);
+    const before = await title.evaluate((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const rect = range.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width };
+    });
+
+    await title.hover({ force: true });
+    await page.waitForTimeout(350);
+    const after = await title.evaluate((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const rect = range.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width };
+    });
+    expect(after.left).toBeCloseTo(before.left, 1);
+    expect(after.right).toBeCloseTo(before.right, 1);
+    expect(after.width).toBeCloseTo(before.width, 1);
+});
+
 test("timestamp filter keeps its bounds and result count after reload, reset persists", async ({
     page,
 }) => {

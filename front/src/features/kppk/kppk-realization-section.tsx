@@ -285,6 +285,7 @@ export function KppkRealizationSection({
         reloadKey,
     ]);
     const scopeStale = queryLoading || loadedScope !== queryScope;
+
     // An excise exists only for SOME product × ДЗО pairs (today «Аммиак»,
     // «Аммиачная селитра», «Фосфорные удобрения» of «Минудобрения»). The view
     // reports the asset's flagged products, so: no flagged product → the column
@@ -316,6 +317,15 @@ export function KppkRealizationSection({
     const [remoteCellValues, setRemoteCellValues] = useState<Map<string, RevisionedRemoteCell>>(
         new Map(),
     );
+    // A new slice/org/period is a new row identity scope. Drop optimistic
+    // collaboration overlays at the boundary instead of waiting for the next
+    // authoritative GET; otherwise a same-shaped row can briefly inherit a
+    // value from the previous scope while the retained data is read-only.
+    useEffect(() => {
+        if (queryScope.length === 0) return;
+        setRemoteCellValues(new Map());
+    }, [queryScope]);
+
     const selfCellHandlerRef = useRef<(event: CollabCellChanged) => void>(() => {});
     const room = useCollabRoom({
         projectKey: KPPK_PROJECT_KEY,

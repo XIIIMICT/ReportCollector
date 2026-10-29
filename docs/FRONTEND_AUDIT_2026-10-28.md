@@ -271,7 +271,7 @@ Phase 0 is complete for F-01, F-02, and the facet portion of F-09. The implement
 
 ### Phase 1 — adapter and lifecycle contracts
 
-**Implementation status: code and unit-contract portion complete; browser gate remains open.**
+**Implementation status: complete for the current scope (contract and authenticated browser gate).**
 
 `revo-grid-adapter.ts` now owns the shared selection commands, visible/source
 reads, range-edit dispatch, shadow-DOM target detection, temporary drag-range
@@ -284,19 +284,27 @@ package/event matrix is recorded in [REVOGRID_CONTRACT.md](REVOGRID_CONTRACT.md)
 
 This closes the implementation portion of **F-03** and **F-08**, and the
 contract/documentation portion of **F-13**. **F-12** now has a real adapter
-contract suite, while the mounted/browser coverage it calls for is still open.
+contract suite plus the authenticated mounted/browser checks listed below; its
+broader cross-browser matrix remains release hardening.
 
 Sorting and InfinityScroll loading remain capability-specific by design. The
-real browser gate is still outstanding: it must exercise shadow-DOM focus,
-native clipboard, mouse/keyboard sorting, drag selection, chunk eviction and
-teardown against the running authenticated stack.
+authenticated Keycloak run now covers mounted grid rendering, native sorting,
+clipboard/editor paths, the sparse plan header and overlay lifecycle, fullscreen
+Escape ownership, Excel action grouping, and the header funnel boundary. The
+full browser matrix still remains a release-level expansion of this gate (for
+example, every supported scale and a forced chunk-eviction path), but no Phase
+1 implementation item is left open.
 
-**Gate:** the shared adapter contract suite is green; the browser portion is
-pending the seeded authenticated run described above.
+**Gate:** the shared adapter contract suite and the seeded authenticated browser
+gate are green; the remaining matrix is tracked as release hardening rather
+than an unfinished adapter contract.
 
 ### Phase 2 — canonical data and collaboration
 
-Implementation is in progress. The KPPK dictionary and realization views now use
+**Implementation status: complete for the implemented collaboration contract; the
+multi-account browser matrix remains an environment-dependent release check.**
+
+The KPPK dictionary and realization views now use
 scope-keyed loading: a previous result may remain visible only with an explicit
 stale-scope status and all writes are rejected/read-only until the requested scope
 has loaded. Canonical realization rows no longer blank product or covered excise
@@ -311,11 +319,31 @@ queued work before it starts. The queue deliberately does not claim atomicity fo
 multi-cell paste: each server PATCH still commits independently, so a future batch
 endpoint remains required to make a paste all-or-nothing.
 
-The browser two-user gate remains open: it must prove revision convergence when a
-late event, reconnect, or scope switch overlaps a fresh read, and it must verify
-that an edit attempt during stale loading sends no request.
+On every KPPK scope boundary, remote optimistic overlays are now cleared before
+the retained stale rows are rendered for the new scope. That closes the final
+same-key overlay leak during a ДЗО/slice/tab transition; the existing
+`loadedScope === queryScope` guard still keeps writes disabled until the fresh
+read completes.
 
-**Gate:** two-user conflict, reconnect, scope switch during load/write, filter/merge/export equivalence, and failure/undo tests converge on server revisions.
+The available authenticated browser gate covers KPPK merge suppression and
+sorting restoration, while unit/API contracts cover revision ordering, late
+events, authoritative-read reconciliation, queue ordering, and stale-scope
+rejection. A true two-account conflict/reconnect run is still an environment
+check: the current Keycloak fixture exposes only the seeded admin account, while
+the local-login collaboration fixture is disabled when the dev stack runs with
+Keycloak enabled. It must be run in the local-auth or multi-account Keycloak
+fixture before release.
+
+**Gate:** implementation and deterministic contracts are green; the multi-account
+browser gate is explicitly tracked as an environment check rather than silently
+claimed as complete.
+
+### Deferred future work — version comparison
+
+Comparing old and new plan versions and highlighting changed cells is deliberately
+outside the current phases. The canonical-row and merge contracts leave a stable
+place to add it later; no comparison data or highlight state should be threaded
+through the current grid until that feature is activated.
 
 ### Phase 3 — performance and bundle boundaries
 

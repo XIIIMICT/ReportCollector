@@ -488,12 +488,21 @@ function KppkSection({
         loadVersion,
     } = useScopedAsyncData<KppkRow[]>(queryScope, loader, [loader, queryScope, reloadKey]);
     const scopeStale = queryLoading || loadedScope !== queryScope;
+
     // Real-time collaboration of this tab: the room is admin-scoped (only
     // admins may edit the dictionaries), so ordinary members don't join it.
     // The page-lifetime session id travels in the mutations and leases.
     const [remoteCellValues, setRemoteCellValues] = useState<Map<string, RevisionedRemoteCell>>(
         new Map(),
     );
+    // A dictionary tab/shape switch changes the row identity scope. Clear
+    // remote optimistic overlays immediately so retained stale rows cannot
+    // display a same-key value from the previous view during loading.
+    useEffect(() => {
+        if (queryScope.length === 0) return;
+        setRemoteCellValues(new Map());
+    }, [queryScope]);
+
     const selfCellHandlerRef = useRef<(event: CollabCellChanged) => void>(() => {});
     const room = useCollabRoom({
         projectKey: KPPK_PROJECT_KEY,
