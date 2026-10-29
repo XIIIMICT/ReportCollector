@@ -15,17 +15,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
+from valkey.exceptions import ValkeyError
 
 from .api import api_router
 from .app_logging import configure_application_logging, log_event
 from .collab.outbox import run_outbox
-from .collab.store import get_collab_store
-from .common.export_jobs import export_dir, table_export_jobs
+from .collab.store import MemoryStore, get_collab_store
+from .common.export_jobs import export_dir
 from .common.query_exports import query_export_jobs
 from .common.upload_limits import ImportUploadLimitsMiddleware
 from .config import get_settings
 from .database import async_session_factory
-from .metrics import DEPENDENCY_DURATION, REGISTRY
+from .metrics import AUTH_RATE_LIMIT_EVENTS, DEPENDENCY_DURATION, REGISTRY
 from .observability import RequestMetricsMiddleware, sample_runtime_metrics
 from .renovation.export_jobs import export_jobs
 from .renovation.import_jobs import import_jobs
@@ -34,8 +35,8 @@ settings = get_settings()
 configure_application_logging(settings.log_file)
 LOGGER = logging.getLogger("reportcollector.application")
 
-# Simple in-memory rate limiter for auth endpoints
-# 20 requests per minute per client for /api/auth/.
+# Bounded local fail-safe for auth endpoints. Valkey normally owns the shared
+# limit across API workers; this store preserves protection during an outage.
 _rate_limit_store: dict[str, list[float]] = {}
 _RATE_LIMIT_WINDOW = 60.0  # seconds
 _RATE_LIMIT_MAX_AUTH = 20  # max auth requests per window
@@ -88,7 +89,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         sample_runtime_metrics(log_dir=Path(settings.log_file).parent, export_dir=export_dir()), name="runtime-metrics"
     )
     await export_jobs.start()
-    await table_export_jobs.start()
     await query_export_jobs.start()
     await import_jobs.start()
     try:
@@ -101,7 +101,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         with suppress(asyncio.CancelledError):
             await dispatcher
         await export_jobs.stop()
-        await table_export_jobs.stop()
         await query_export_jobs.stop()
         await import_jobs.stop()
         await get_collab_store().close()
@@ -131,20 +130,38 @@ async def rate_limit_auth(
 ) -> Response:
     if request.url.path.startswith("/api/auth/"):
         client_ip = _client_key(request)
-        now = time.monotonic()
-        # No locking: asyncio is single-threaded, no concurrent access to _rate_limit_store.
-        cutoff = now - _RATE_LIMIT_WINDOW
-        timestamps = [t for t in _rate_limit_store.get(client_ip, []) if t > cutoff]
-        if len(timestamps) >= _RATE_LIMIT_MAX_AUTH:
+        store = get_collab_store()
+        storage = "memory" if isinstance(store, MemoryStore) else "valkey"
+        fallback = False
+        try:
+            async with asyncio.timeout(0.5):
+                allowed = await store.allow_rate_limit(
+                    f"rc:auth-rate:{client_ip}", limit=_RATE_LIMIT_MAX_AUTH, window_seconds=int(_RATE_LIMIT_WINDOW)
+                )
+        except ValkeyError, TimeoutError:
+            storage = "fallback"
+            fallback = True
+            AUTH_RATE_LIMIT_EVENTS.labels(storage=storage, outcome="degraded").inc()
+            allowed = True
+        if fallback:
+            now = time.monotonic()
+            # No locking: asyncio is single-threaded, no concurrent access to _rate_limit_store.
+            cutoff = now - _RATE_LIMIT_WINDOW
+            timestamps = [t for t in _rate_limit_store.get(client_ip, []) if t > cutoff]
+            allowed = allowed and len(timestamps) < _RATE_LIMIT_MAX_AUTH
+            if allowed:
+                timestamps.append(now)
+                _rate_limit_store[client_ip] = timestamps
+            if next(_rate_limit_ticks) % _RATE_LIMIT_SWEEP_EVERY == 0:
+                _sweep_rate_limit(now)
+        if not allowed:
+            AUTH_RATE_LIMIT_EVENTS.labels(storage=storage, outcome="rejected").inc()
             return Response(
                 content='{"detail":"Слишком много запросов. Попробуйте позже."}',
                 status_code=429,
                 headers={"Content-Type": "application/json", "Retry-After": "60"},
             )
-        timestamps.append(now)
-        _rate_limit_store[client_ip] = timestamps
-        if next(_rate_limit_ticks) % _RATE_LIMIT_SWEEP_EVERY == 0:
-            _sweep_rate_limit(now)
+        AUTH_RATE_LIMIT_EVENTS.labels(storage=storage, outcome="allowed").inc()
     return await call_next(request)
 
 

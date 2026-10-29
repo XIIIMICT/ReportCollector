@@ -1,36 +1,43 @@
 """Query-owned table exports: bounded inline responses and durable large jobs."""
 
+from __future__ import annotations
+
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from io import BytesIO
-from typing import IO, Literal
+from typing import IO, TYPE_CHECKING, Literal
 from uuid import UUID, uuid4
 
-from fastapi import Response
+from fastapi import HTTPException, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import bindparam, column, func
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import SelectOfScalar
 
+from src.common import export as export_config
 from src.common.durable_exports import DurableExportManager
-from src.common.export import INLINE_EXPORT_MAX_ROWS, ExportColumnLike
-from src.common.export_jobs import ExportJob, ExportJobRead, ExportSpec, final_path, part_path
+from src.common.export_jobs import ExportJob, ExportJobRead, ExportQueueFullError, ExportSpec, final_path, part_path
 from src.common.export_process import generate_in_process
 from src.common.xlsx_table import TableWorkbookWriter
 from src.config import get_settings
 from src.database import async_session_factory
 from src.downloads import attachment_response
 
+if TYPE_CHECKING:
+    from src.common.export import ExportColumnLike
+
 BATCH_ROWS = 500
+type QuerySource = Literal["kppk_cost", "kppk_realization", "kppk_dictionary", "raw_materials", "renovation_dictionary"]
 
 
 class QueryExportSpec(ExportSpec):
-    source: Literal["kppk_cost", "kppk_realization"]
+    source: QuerySource
     request: dict[str, object]
+    asset_ids: list[UUID] = Field(default_factory=list)
 
 
 @dataclass
@@ -45,7 +52,7 @@ class TableSource:
     merge_rows_by: tuple[str, ...] = ()
     lists: dict[str, list[str]] | None = None
     column_lists: dict[str, str] = field(default_factory=dict)
-    calculated: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    calculated: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     totals: dict[str, float] | None = None
 
     def select_rows(self, row_ids: list[UUID] | None) -> None:
@@ -93,6 +100,14 @@ class TableSource:
 
 
 async def resolve_source(session: AsyncSession, spec: QueryExportSpec) -> TableSource:
+    if spec.source == "raw_materials":
+        from src.raw_materials.export_source import resolve_export_source as resolve_raw  # noqa: PLC0415
+
+        return await resolve_raw(session, spec)
+    if spec.source == "renovation_dictionary":
+        from src.renovation.export_source import resolve_export_source as resolve_dictionary  # noqa: PLC0415
+
+        return await resolve_dictionary(session, spec)
     from src.kppk.export_source import resolve_export_source  # noqa: PLC0415
 
     return await resolve_export_source(session, spec)
@@ -141,30 +156,16 @@ async def query_export_response(session: AsyncSession, spec: QueryExportSpec, us
     """Count before reading; large requests persist a query, never table rows."""
     source = await resolve_source(session, spec)
     spec.total = await source.count(session)
-    if spec.total > INLINE_EXPORT_MAX_ROWS:
-        job = await query_export_jobs.create(spec, user_id)
-        read = ExportJobRead(
-            id=job.id,
-            status=job.status,
-            progress=job.progress,
-            total=job.spec.total,
-            fileName=job.spec.file_name,
-            error=job.error,
-        )
-        return JSONResponse(read.model_dump(), status_code=202)
+    inline_limit = export_config.INLINE_EXPORT_MAX_ROWS
+    if spec.total > inline_limit:
+        return await _enqueue(spec, user_id)
     # The inline path is bounded by the count; limit the actual read too in
     # case concurrent inserts change a READ COMMITTED snapshot.
-    source.ids = source.ids.limit(INLINE_EXPORT_MAX_ROWS + 1)
+    source.ids = source.ids.limit(inline_limit + 1)
     rows = [row async for batch in source.batches(session) for row in batch]
-    if len(rows) > INLINE_EXPORT_MAX_ROWS:
+    if len(rows) > inline_limit:
         spec.total = len(rows)
-        job = await query_export_jobs.create(spec, user_id)
-        return JSONResponse(
-            ExportJobRead(
-                id=job.id, status=job.status, progress=job.progress, total=job.spec.total, fileName=job.spec.file_name
-            ).model_dump(),
-            status_code=202,
-        )
+        return await _enqueue(spec, user_id)
 
     def render() -> bytes:
         sink = BytesIO()
@@ -178,11 +179,30 @@ async def query_export_response(session: AsyncSession, spec: QueryExportSpec, us
     return attachment_response(await asyncio.to_thread(render), filename=spec.file_name)
 
 
-def new_query_spec(source: Literal["kppk_cost", "kppk_realization"], request: BaseModel) -> QueryExportSpec:
+async def _enqueue(spec: QueryExportSpec, user_id: str) -> JSONResponse:
+    try:
+        job = await query_export_jobs.create(spec, user_id)
+    except ExportQueueFullError as error:
+        raise HTTPException(status_code=429, detail=str(error), headers={"Retry-After": "5"}) from error
+    return JSONResponse(
+        ExportJobRead(
+            id=job.id,
+            status=job.status,
+            progress=job.progress,
+            total=job.spec.total,
+            fileName=job.spec.file_name,
+            error=job.error,
+        ).model_dump(),
+        status_code=202,
+    )
+
+
+def new_query_spec(source: QuerySource, request: BaseModel, *, asset_ids: list[UUID] | None = None) -> QueryExportSpec:
     return QueryExportSpec(
         source=source,
         request=request.model_dump(mode="json"),
         file_name=str(request.model_dump()["fileName"]),
         total=0,
         cache_key=uuid4().hex,
+        asset_ids=asset_ids or [],
     )

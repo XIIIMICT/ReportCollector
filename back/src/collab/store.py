@@ -30,6 +30,7 @@ LEASE_TTL_SECONDS = 20
 PRESENCE_TTL_SECONDS = 25
 UNDO_LIMIT = 500  # max undo stack size per user
 UNDO_SCAN_LIMIT = 200  # how deep to scan for the user's last action
+RATE_LIMIT_MAX_KEYS = 10_000
 
 
 def lease_key(cell_key: str, *, project: str) -> str:
@@ -89,6 +90,16 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then
     return redis.call('DEL', KEYS[1])
 end
 return 0
+"""
+
+_RATE_LIMIT_SCRIPT = """
+local existing = tonumber(redis.call('GET', KEYS[1]) or '0')
+if existing >= tonumber(ARGV[2]) then return existing + 1 end
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return count
 """
 
 # Remove actions marked undone=true from the undo stack (a new edit by the
@@ -220,6 +231,12 @@ class ValkeyStore:
     async def get_lease(self, key: str) -> dict | None:
         raw = await self._redis.get(key)
         return _decode(raw) if raw else None
+
+    @measured_valkey
+    async def allow_rate_limit(self, key: str, *, limit: int, window_seconds: int) -> bool:
+        """Atomically consume one fixed-window request slot in Valkey."""
+        count = await self._redis.eval(_RATE_LIMIT_SCRIPT, 1, key, window_seconds, limit)
+        return int(count) <= limit
 
     @measured_valkey
     async def get_leases(self, keys: list[str]) -> list[dict | None]:
@@ -429,6 +446,7 @@ class MemoryStore:
         self._undo: dict[tuple[str, str, str], list[dict]] = {}
         self._cell_states: dict[str, dict] = {}
         self._action_seq = 0
+        self._rate_limits: dict[str, list[float | int]] = {}
 
     async def close(self) -> None:
         return None
@@ -464,6 +482,25 @@ class MemoryStore:
             if current is None or current[1] <= time.monotonic():
                 return None
             return current[0]
+
+    async def allow_rate_limit(self, key: str, *, limit: int, window_seconds: int) -> bool:
+        """Apply the same fixed-window limiter when Valkey is intentionally absent."""
+        now = time.monotonic()
+        async with self._lock:
+            bucket = self._rate_limits.get(key)
+            if bucket is None or bucket[1] <= now:
+                if len(self._rate_limits) >= RATE_LIMIT_MAX_KEYS:
+                    expired = [name for name, value in self._rate_limits.items() if value[1] <= now]
+                    for name in expired:
+                        self._rate_limits.pop(name, None)
+                    if len(self._rate_limits) >= RATE_LIMIT_MAX_KEYS:
+                        return False
+                self._rate_limits[key] = [1, now + window_seconds]
+                return True
+            if bucket[0] >= limit:
+                return False
+            bucket[0] += 1
+            return bucket[0] <= limit
 
     async def get_leases(self, keys: list[str]) -> list[dict | None]:
         return [await self.get_lease(key) for key in keys]

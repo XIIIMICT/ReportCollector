@@ -17,8 +17,8 @@ from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.persistence import JournalStore
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
-from src.common.export import ExportValidationError, safe_sheet_name
-from src.common.export_jobs import ExportJobRead, export_table_or_job, table_export_jobs
+from src.common.export import ExportValidationError
+from src.common.export_jobs import ExportJobRead
 from src.common.query_exports import new_query_spec, query_export_jobs, query_export_response
 from src.database import get_session
 from src.downloads import XLSX_MEDIA_TYPE
@@ -41,7 +41,6 @@ from .dictionaries import (
     delete_org,
     delete_product_position,
     delete_raw,
-    read_org_names,
     read_org_rows,
     read_product_position_rows,
     read_raw_rows,
@@ -53,8 +52,6 @@ from .dictionaries import (
     update_raw_cell,
 )
 from .export import (
-    REFERENCE_LISTS,
-    SECTION_SHEET_NAMES,
     validate_export_request,
 )
 from .models import KppkCost, KppkRealization, KppkRealizationPlan
@@ -982,35 +979,10 @@ async def export_kppk_table(
         validate_export_request(request)
     except ExportValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
-    if request.section == KPPK_SECTION_PRODUCT_POSITIONS:
-        # Always the POSITION shape: an export must spell every product × ДЗО
-        # pair out (a grouped row would put a comma list into one cell).
-        rows: list[KppkProductPositionRowRead | KppkRawRowRead | KppkOrgRowRead | KppkUserRowRead] = list(
-            await read_product_position_rows(session)
-        )
-    elif request.section == KPPK_SECTION_RAWS:
-        rows = list(await read_raw_rows(session))
-    elif request.section == KPPK_SECTION_USERS:
-        # Every project member reads this dictionary (GET /kppk/users), so the
-        # export of the same rows needs no admin gate — the shared rule is
-        # «export is available to everyone».
-        rows = list(await read_kppk_user_rows(session))
-    else:
-        rows = list(await read_org_rows(session))
-    if request.rowIds is not None:
-        by_id = {row.id: row for row in rows}
-        rows = [by_id[row_id] for row_id in request.rowIds if row_id in by_id]
-    org_names = await read_org_names(session)
-    needs_lists = any(column.key in REFERENCE_LISTS for column in request.columns)
-    return await export_table_or_job(
-        sheet_title=safe_sheet_name(SECTION_SHEET_NAMES[request.section]),
-        columns=request.columns,
-        rows=rows,
-        header_pinned=request.headerPinned,
-        file_name=request.fileName,
-        user_id=str(access.user.id),
-        lists={"orgs": org_names} if needs_lists else None,
-        column_lists=REFERENCE_LISTS,
+    return await query_export_response(
+        session,
+        new_query_spec("kppk_dictionary", request),
+        str(access.user.id),
     )
 
 
@@ -1040,6 +1012,7 @@ async def export_kppk_realization(
 
 @router.get("/cost/export/jobs/{job_id}", response_model=ExportJobRead)
 @router.get("/realization/export/jobs/{job_id}", response_model=ExportJobRead)
+@router.get("/export/jobs/{job_id}", response_model=ExportJobRead)
 async def get_kppk_query_export(job_id: str, access: AccessDependency) -> ExportJobRead:
     try:
         job = await query_export_jobs.get(job_id, str(access.user.id))
@@ -1057,6 +1030,7 @@ async def get_kppk_query_export(job_id: str, access: AccessDependency) -> Export
 
 @router.delete("/cost/export/jobs/{job_id}", response_model=ExportJobRead)
 @router.delete("/realization/export/jobs/{job_id}", response_model=ExportJobRead)
+@router.delete("/export/jobs/{job_id}", response_model=ExportJobRead)
 async def cancel_kppk_query_export(job_id: str, access: AccessDependency) -> ExportJobRead:
     try:
         await query_export_jobs.cancel(job_id, str(access.user.id))
@@ -1067,6 +1041,7 @@ async def cancel_kppk_query_export(job_id: str, access: AccessDependency) -> Exp
 
 @router.get("/cost/export/jobs/{job_id}/file")
 @router.get("/realization/export/jobs/{job_id}/file")
+@router.get("/export/jobs/{job_id}/file")
 async def get_kppk_query_export_file(job_id: str, access: AccessDependency) -> StreamingResponse:
     job = await get_kppk_query_export(job_id, access)
     if job.status == "failed":
@@ -1076,53 +1051,6 @@ async def get_kppk_query_export_file(job_id: str, access: AccessDependency) -> S
         query_export_jobs.stream_growing(job_id, str(access.user.id)),
         media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
-    )
-
-
-@router.get("/export/jobs/{job_id}", response_model=ExportJobRead)
-async def get_kppk_export_job(
-    job_id: str,
-    _access: AccessDependency,
-) -> ExportJobRead:
-    """Status of a background table export (progress / done / failed)."""
-    try:
-        job = table_export_jobs.get(job_id, str(_access.user.id))
-    except KeyError as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание выгрузки не найдено.") from error
-    return ExportJobRead(
-        id=job.id,
-        status=job.status,
-        progress=job.progress,
-        total=job.spec.total,
-        fileName=job.spec.file_name,
-        error=job.error,
-    )
-
-
-@router.get("/export/jobs/{job_id}/file")
-async def get_kppk_export_job_file(
-    job_id: str,
-    access: AccessDependency,
-) -> StreamingResponse:
-    """Stream the XLSX of a background table export AS it is being generated."""
-    user_id = str(access.user.id)
-    try:
-        job = table_export_jobs.get(job_id, user_id)
-    except KeyError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Задание выгрузки не найдено.",
-        ) from error
-    if job.status == "failed":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Не удалось сформировать файл выгрузки.",
-        )
-    quoted = quote(job.spec.file_name)
-    return StreamingResponse(
-        table_export_jobs.stream_growing(job_id, user_id),
-        media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"},
     )
 
 

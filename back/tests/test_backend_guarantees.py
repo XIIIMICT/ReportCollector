@@ -384,7 +384,7 @@ async def test_outbox_worker_retries_and_prunes_expired_history(db_session, my_e
     monkeypatch.setattr(
         outbox, "async_session_factory", async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False)
     )
-    dispatch = AsyncMock(side_effect=[ValkeyConnectionError("outage"), None])
+    dispatch = AsyncMock(side_effect=[ValkeyConnectionError("outage"), False, False])
     monkeypatch.setattr(outbox, "dispatch_once", dispatch)
     delays = []
 
@@ -396,8 +396,8 @@ async def test_outbox_worker_retries_and_prunes_expired_history(db_session, my_e
     monkeypatch.setattr(outbox.asyncio, "sleep", sleep)
     with pytest.raises(asyncio.CancelledError):
         await outbox.run_outbox()
-    assert dispatch.await_count == 2
-    assert delays == [1, 0.05, 0.05]
+    assert dispatch.await_count == 3
+    assert delays == [1, 0.1, 0.2]
     assert list((await db_session.exec(select(EditStack))).all()) == []
 
 

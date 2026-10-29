@@ -38,6 +38,7 @@ from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.locking import lock_project, lock_rows, project_write
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE
 from src.collab.persistence import JournalStore
+from src.common.export import INLINE_EXPORT_MAX_ROWS
 from src.raw_materials.service import CellValidationError, check_edit_leases, coerce_number, coerce_text
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.form_schema import (
@@ -100,7 +101,7 @@ from .catalogs import (
     _DICT_OPTION_NOT_FOUND,
     _apply_renovation_option_deleted,
 )
-from .errors import RenovationDictionaryError, RenovationPlanNotFoundError
+from .errors import PlanExportRequiresJobError, RenovationDictionaryError, RenovationPlanNotFoundError
 from .plan_queries import _plan_by_state, _renovation_project_id
 from .users import _apply_renovation_user_cell, restore_renovation_user
 
@@ -747,6 +748,8 @@ async def read_plan_export_data(
         include_unassigned=include_unassigned,
     )
     rows: list[tuple[int, str, str, dict[str, object]]] = []
+    if meta.total > INLINE_EXPORT_MAX_ROWS:
+        raise PlanExportRequiresJobError
     async for batch in iter_plan_export_rows(
         session,
         plan_id=meta.plan_id,
@@ -755,6 +758,10 @@ async def read_plan_export_data(
         filters=filters,
         include_unassigned=include_unassigned,
     ):
+        # READ COMMITTED can see inserts after the count. Never keep reading
+        # an unexpectedly growing plan into the HTTP process.
+        if len(rows) + len(batch) > INLINE_EXPORT_MAX_ROWS:
+            raise PlanExportRequiresJobError
         rows.extend(batch)
     return RenovationPlanExportData(
         baseline_generation=meta.baseline_generation,

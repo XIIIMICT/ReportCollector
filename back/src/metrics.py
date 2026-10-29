@@ -346,6 +346,12 @@ VALKEY_SUBSCRIPTION_FAILURES = Counter(
     "Pub/sub transport errors that escaped client retries.",
     registry=REGISTRY,
 )
+AUTH_RATE_LIMIT_EVENTS = Counter(
+    "auth_rate_limit_events_total",
+    "Authentication rate-limit decisions by storage and outcome.",
+    labelnames=("storage", "outcome"),
+    registry=REGISTRY,
+)
 
 
 def observe_http_request(*, method: str, route: str, status: int, duration_seconds: float) -> None:

@@ -1,6 +1,5 @@
 """«Сырьё» project API: reading and editing the «Движение» and «Цены» forms, dictionaries."""
 
-from collections.abc import Sequence
 from datetime import date
 from typing import Annotated
 from urllib.parse import quote
@@ -8,7 +7,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -22,8 +20,8 @@ from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.persistence import JournalStore
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
-from src.common.export import safe_sheet_name
-from src.common.export_jobs import ExportJobRead, export_table_or_job, table_export_jobs
+from src.common.export_jobs import ExportJobRead
+from src.common.query_exports import new_query_spec, query_export_jobs, query_export_response
 from src.database import get_session
 from src.downloads import XLSX_MEDIA_TYPE
 from src.raw_materials.approve import (
@@ -50,9 +48,6 @@ from src.raw_materials.dictionaries import (
 )
 from src.raw_materials.errors import CellValidationError, DictionaryReferenceError
 from src.raw_materials.export import (
-    CALCULATED_OPERANDS,
-    REFERENCE_LISTS,
-    SECTION_SHEET_NAMES,
     ExportValidationError,
     validate_export_request,
 )
@@ -97,7 +92,6 @@ from src.raw_materials.service import (
     read_movement_rows,
     read_movement_versions,
     read_price_rows,
-    read_snapshot_export_rows,
     resolve_raw_materials_access,
     update_movement_cells,
     update_price_cells,
@@ -418,22 +412,10 @@ async def export_table(
         validate_export_request(request, show_asset_column=is_admin or len(user_assets) > 1)
     except ExportValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
-    rows = await _export_rows(session, request, user_assets)
-    if request.rowIds is not None:
-        rows = _reorder_rows(rows, request.rowIds)
-    asset_names = [asset.name for asset in user_assets]
-    delivery_bases = [basis.name for basis in await read_delivery_basis_rows(session)]
-    needs_lists = any(column.key in REFERENCE_LISTS for column in request.columns)
-    return await export_table_or_job(
-        sheet_title=safe_sheet_name(SECTION_SHEET_NAMES[request.section]),
-        columns=request.columns,
-        rows=rows,
-        header_pinned=request.headerPinned,
-        file_name=request.fileName,
-        user_id=str(user.id),
-        lists={"assets": asset_names, "deliveryBases": delivery_bases} if needs_lists else None,
-        column_lists=REFERENCE_LISTS,
-        calculated=CALCULATED_OPERANDS,
+    return await query_export_response(
+        session,
+        new_query_spec("raw_materials", request, asset_ids=[asset.id for asset in user_assets]),
+        str(user.id),
     )
 
 
@@ -448,7 +430,7 @@ async def get_export_job(
     if user is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Пользователь не найден.")
     try:
-        job = table_export_jobs.get(job_id, str(user.id))
+        job = await query_export_jobs.get(job_id, str(user.id))
     except KeyError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание выгрузки не найдено.") from error
     return ExportJobRead(
@@ -459,6 +441,22 @@ async def get_export_job(
         fileName=job.spec.file_name,
         error=job.error,
     )
+
+
+@router.delete("/export/jobs/{job_id}", response_model=ExportJobRead)
+async def cancel_export_job(
+    job_id: str,
+    session: SessionDependency,
+    identity: IdentityDependency,
+) -> ExportJobRead:
+    user = await get_user_by_identity(session, identity)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Пользователь не найден.")
+    try:
+        await query_export_jobs.cancel(job_id, str(user.id))
+        return await get_export_job(job_id, session, identity)
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание выгрузки не найдено.") from error
 
 
 @router.get("/export/jobs/{job_id}/file")
@@ -473,7 +471,7 @@ async def get_export_job_file(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Пользователь не найден.")
     user_id = str(user.id)
     try:
-        job = table_export_jobs.get(job_id, user_id)
+        job = await query_export_jobs.get(job_id, user_id)
     except KeyError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -486,46 +484,10 @@ async def get_export_job_file(
         )
     quoted = quote(job.spec.file_name)
     return StreamingResponse(
-        table_export_jobs.stream_growing(job_id, user_id),
+        query_export_jobs.stream_growing(job_id, user_id),
         media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"},
     )
-
-
-async def _export_rows(
-    session: AsyncSession,
-    request: ExportViewRequest,
-    assets: list[RawMaterialAsset],
-) -> Sequence[BaseModel]:
-    """Rows for export: movement for the period, prices, or a dictionary."""
-    if request.section == "materialMovement":
-        if request.snapshotId is not None:
-            snapshot, rows = await read_snapshot_export_rows(session, request.snapshotId, assets)
-            if snapshot is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Снимок не найден.",
-                )
-            return rows
-        report_month = request.reportMonth or await _latest_period(session)
-        return await read_movement_rows(session, report_month, assets)
-    if request.section == "rawMaterialPrices":
-        return await read_price_rows(session, assets)
-    if request.section == "rawMaterials":
-        return await read_raw_material_rows(session)
-    if request.section == "assets":
-        return await read_asset_rows(assets)
-    if request.section == "deliveryBases":
-        return await read_delivery_basis_rows(session)
-    return await read_user_rows(session)
-
-
-def _reorder_rows(rows: Sequence[BaseModel], row_ids: Sequence[UUID]) -> list[BaseModel]:
-    """Visible selection: only the given ids, in grid order, skipping missing ones."""
-    # Every row model carries an `id`, but the declared type is the bare pydantic
-    # `BaseModel`, which does not — hence `getattr` rather than attribute access.
-    by_id = {getattr(row, "id"): row for row in rows}  # noqa: B009
-    return [by_id[row_id] for row_id in row_ids if row_id in by_id]
 
 
 @router.patch("/movement")

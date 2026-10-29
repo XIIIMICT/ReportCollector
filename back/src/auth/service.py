@@ -16,7 +16,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.app_logging import log_event
 from src.auth.emails import normalize_email
 from src.auth.models import Project, ProjectRole, Theme, User, UserRole
-from src.auth.passwords import hash_password, validate_new_password, verify_password
+from src.auth.passwords import (
+    hash_password_async,
+    validate_new_password,
+    verify_password_async,
+)
 from src.auth.schemas import AssetAccessRead, CurrentUserRead, ProjectAccessCheckRead, ProjectAccessRead
 from src.collab.events import publish_rows_changed
 from src.collab.persistence import JournalStore
@@ -338,14 +342,14 @@ async def authenticate_local_user(session: AsyncSession, email: str, password: s
                 user_email=user.email,
             )
             raise _INVALID_CREDENTIALS from None
-        user.password_hash = hash_password(password)
+        user.password_hash = await hash_password_async(password)
         log_event(
             LOGGER,
             "local_password_set",
             "Установлен первоначальный пароль локального пользователя.",
             user_email=user.email,
         )
-    elif not verify_password(password, stored_hash):
+    elif not await verify_password_async(password, stored_hash):
         log_event(
             LOGGER,
             "local_login_failed",
@@ -380,7 +384,7 @@ async def reset_user_password(session: AsyncSession, user_id: UUID, new_password
         raise ValueError(msg)
     if new_password:
         validate_new_password(new_password)
-        user.password_hash = hash_password(new_password)
+        user.password_hash = await hash_password_async(new_password)
     else:
         user.password_hash = None
     session.add(user)
@@ -506,7 +510,7 @@ async def update_profile(
         user.theme = theme
     if password:
         validate_new_password(password)
-        user.password_hash = hash_password(password)
+        user.password_hash = await hash_password_async(password)
     user.updated_at = datetime.now(UTC)
     session.add(user)
     await session.commit()

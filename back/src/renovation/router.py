@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import uuid
-from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, cast
@@ -14,8 +13,8 @@ from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, TypeAdapter
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import TypeAdapter
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
@@ -35,8 +34,8 @@ from src.collab.persistence import JournalStore
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.common.durable_imports import ImportJob, import_dir
-from src.common.export import safe_sheet_name
-from src.common.export_jobs import ExportJobRead, export_table_or_job, table_export_jobs
+from src.common.export_jobs import ExportJobRead
+from src.common.query_exports import new_query_spec, query_export_jobs, query_export_response
 from src.config import get_settings
 from src.database import get_session
 from src.downloads import XLSX_MEDIA_TYPE
@@ -57,12 +56,10 @@ from src.renovation.catalogs import (
     update_renovation_catalog_option,
 )
 from src.renovation.constants import RENOVATION_PROJECT_KEY
-from src.renovation.errors import RenovationDictionaryError
+from src.renovation.errors import PlanExportRequiresJobError, RenovationDictionaryError
 from src.renovation.export import (
-    REFERENCE_LISTS,
     ExportValidationError,
     plan_export_filename,
-    section_sheet_name,
     stream_renovation_workbook,
     validate_export_request,
 )
@@ -765,12 +762,8 @@ async def export_renovation_plan(
     access: AccessDependency,
     plan_id: Annotated[UUID | None, Query()] = None,
 ) -> Response:
-    """Excel export of a plan version (default — the working plan)."""
-    try:
-        plan = await read_plan_export_data(session, access.assets, plan_id=plan_id, state=RPlanState.WORKING)
-    except RenovationPlanNotFoundError as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    return await _plan_export_response(plan)
+    """Compatibility endpoint: inline small plans, enqueue larger views."""
+    return await post_export_renovation_plan(session, access, RenovationPlanExportRequest(planId=plan_id))
 
 
 @router.post("/plan/export")
@@ -793,6 +786,11 @@ async def post_export_renovation_plan(
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except PlanExportRequiresJobError:
+        job = await post_plan_export_job(payload, session, access)
+        return JSONResponse(job.model_dump(mode="json"), status_code=status.HTTP_202_ACCEPTED)
+    except CellValidationError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     return await _plan_export_response(plan)
 
 
@@ -1574,34 +1572,10 @@ async def export_renovation_dictionary(
         validate_export_request(request)
     except ExportValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
-    rows = await _dictionary_export_rows(session, request)
-    if request.rowIds is not None:
-        by_id = {str(getattr(row, "id", "") or getattr(row, "valueId", "")): row for row in rows}
-        rows = [by_id[str(row_id)] for row_id in request.rowIds if str(row_id) in by_id]
-    asset_names = [asset.name for asset in await read_renovation_asset_rows(session)]
-    needs_lists = any(column.key in REFERENCE_LISTS for column in request.columns)
-    # The «Предприятия» tab pins a summary row in the grid (the total repair
-    # count and cost); the export mirrors it over the SAME rows — the ones
-    # surviving the rowIds filter («видимая таблица»).
-    totals_row: dict[str, float] | None = None
-    if request.section == RENOVATION_ASSETS_SECTION and any(
-        column.key in ("repairCount", "totalCost") for column in request.columns
-    ):
-        exported_keys = {column.key for column in request.columns}
-        totals_row = {}
-        for aggregate_key in ("repairCount", "totalCost"):
-            if aggregate_key in exported_keys:
-                totals_row[aggregate_key] = sum(float(getattr(row, aggregate_key) or 0) for row in rows)
-    return await export_table_or_job(
-        sheet_title=safe_sheet_name(section_sheet_name(request.section)),
-        columns=request.columns,
-        rows=rows,
-        header_pinned=request.headerPinned,
-        file_name=request.fileName,
-        user_id=str(access.user.id),
-        lists={"assets": asset_names} if needs_lists else None,
-        column_lists=REFERENCE_LISTS,
-        totals_row=totals_row,
+    return await query_export_response(
+        session,
+        new_query_spec("renovation_dictionary", request),
+        str(access.user.id),
     )
 
 
@@ -1612,7 +1586,27 @@ async def get_renovation_dictionary_export_job(
 ) -> ExportJobRead:
     """Status of a background dictionary export (progress / done / failed)."""
     try:
-        job = table_export_jobs.get(job_id, str(access.user.id))
+        job = await query_export_jobs.get(job_id, str(access.user.id))
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание выгрузки не найдено.") from error
+    return ExportJobRead(
+        id=job.id,
+        status=job.status,
+        progress=job.progress,
+        total=job.spec.total,
+        fileName=job.spec.file_name,
+        error=job.error,
+    )
+
+
+@router.delete("/dictionary/export/jobs/{job_id}", response_model=ExportJobRead)
+async def cancel_renovation_dictionary_export_job(
+    job_id: str,
+    access: AdminDependency,
+) -> ExportJobRead:
+    try:
+        await query_export_jobs.cancel(job_id, str(access.user.id))
+        job = await query_export_jobs.get(job_id, str(access.user.id))
     except KeyError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание выгрузки не найдено.") from error
     return ExportJobRead(
@@ -1633,7 +1627,7 @@ async def get_renovation_dictionary_export_job_file(
     """Stream the XLSX of a background dictionary export AS it is being generated."""
     user_id = str(access.user.id)
     try:
-        job = table_export_jobs.get(job_id, user_id)
+        job = await query_export_jobs.get(job_id, user_id)
     except KeyError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1646,24 +1640,10 @@ async def get_renovation_dictionary_export_job_file(
         )
     quoted = quote(job.spec.file_name)
     return StreamingResponse(
-        table_export_jobs.stream_growing(job_id, user_id),
+        query_export_jobs.stream_growing(job_id, user_id),
         media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"},
     )
-
-
-async def _dictionary_export_rows(
-    session: AsyncSession,
-    request: RenovationExportViewRequest,
-) -> Sequence[BaseModel]:
-    if request.section == RENOVATION_ASSETS_SECTION:
-        return await read_renovation_asset_rows(session)
-    if request.section == RENOVATION_USERS_SECTION:
-        return await read_renovation_user_rows(session)
-    if request.section.startswith("renovationCatalog:"):
-        catalog = request.section.removeprefix("renovationCatalog:")
-        return await read_renovation_catalog_rows(session, catalog=catalog)
-    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Некорректная секция экспорта.")
 
 
 async def _renovation_project_id_or_error(session: AsyncSession) -> UUID:

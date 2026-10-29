@@ -2,7 +2,7 @@
 
 **Review date:** 2026-10-29
 **Scope:** `back/src`, database migrations, CI/release workflow, Prometheus/Grafana/Loki/Alloy/Alertmanager configuration, and the backend-facing parts of the frontend workflow.
-**Status:** Phase A is complete as a local baseline. Backend phases 1 and 2 below describe the write and read/export slices of Phase B; neither is fully complete. Renovation XLSB apply and renovation-plan/КППК cost/realization exports have durable jobs and isolated workers. Staged import finalization, remaining table exports and production load calibration remain open. Version comparison/highlighting is explicitly deferred by product decision.
+**Status:** Phase A is complete as a local baseline. Backend phases 1 and 2 below describe the write and read/export slices of Phase B. Phase 2's application routes now use query-owned durable jobs; Phase 1 still needs staged/versioned import finalization and conflict handling. Shared artifact storage, production load calibration and deployment verification remain open. Version comparison/highlighting is explicitly deferred by product decision. The current import can overwrite concurrent edits; this is an accepted temporary testing compromise and is not presented as a production conflict model.
 **Repository constraint:** the existing user change in `compose.yaml` was left untouched.
 
 ## Dependency/runtime follow-up (2026-10-29)
@@ -193,33 +193,33 @@ A 300k-row plan can hold a long transaction and project lock for minutes. Cell e
 
 **Done:** return a durable import job immediately; perform parsing and recomputation outside the request lifecycle; expose progress, row counts, cancellation and stable errors; commit the result with the plan writes. **Remaining:** staged/versioned finalization with explicit phases (`uploaded`, `validated`, `loading`, `recomputing`, `ready`, `failed`) and a short finalization/swap gate.
 
-### P0-3. Process-local job managers are not durable or replica-safe — plan and KPPK query exports fixed, generic tables open
+### P0-3. Process-local job managers are not durable or replica-safe — durable query jobs now cover application table exports
 
 **Evidence**
 
-The generic manager in `back/src/common/export_jobs.py` still creates one `asyncio.Queue` and one worker task. Renovation plan and КППК cost/realization paths now use `back/src/common/durable_exports.py` and `data_jobs`; their job registry, ownership, limits and leases are database-backed. Artifacts still require a shared `EXPORT_DIR`.
+The legacy manager in `back/src/common/export_jobs.py` still exists for compatibility tests, but production routes no longer use it. Renovation plan, КППК cost/realization and all dictionary/raw-material table routes now use `back/src/common/durable_exports.py` and `data_jobs`; their job registry, ownership, limits and leases are database-backed. Artifacts still require a shared `EXPORT_DIR`.
 
 **Impact**
 
-A slow generic export blocks every other generic export in that process. The durable query exports recover stale leases and expose status across replicas, but a local filesystem is not a shared artifact store and generic dictionary exports remain unsafe at replica scale.
+The durable query exports recover stale leases and expose status across replicas, but a local filesystem is not a shared artifact store. Production replicas still need shared artifact storage.
 
 **Remediation**
 
-Keep the durable PostgreSQL queue for plan and query-spec exports and move artifacts to shared object storage with a dedicated worker deployment. Convert generic dictionary jobs to the same repository; keep the in-process manager only as a development fallback until that migration is complete.
+Keep the durable PostgreSQL queue for plan and query-spec exports and move artifacts to shared object storage with a dedicated worker deployment. Remove the compatibility manager after downstream callers and tests no longer need its public types.
 
-### P1-4. Generic “background” table export materializes all rows before enqueueing
+### P1-4. Generic “background” table export materialized all rows before enqueueing — fixed
 
 **Evidence**
 
-`back/src/common/export_jobs.py:397-451` receives `rows: Sequence[BaseModel]`, uses `len(rows)`, and stores `rows=list(rows)` in the job. Raw-materials and KPPK routes read the full view first (`back/src/raw_materials/router.py:385-437` and `_export_rows` around `495-520`; `back/src/kppk/router.py:982-1028`).
+The old compatibility helper in `back/src/common/export_jobs.py` still accepts rows, but production table routes no longer call it. They persist a query specification instead.
 
 **Impact**
 
-The request still pays the complete database query, Pydantic materialization and list memory cost. The worker only moves workbook rendering away from the request. A threshold based on row count cannot protect against a wide or expensive row shape.
+The old helper has the historical materialization behaviour, but it is no longer reachable from application routes. New routes count IDs and load bounded projections in the worker.
 
 **Remediation**
 
-Pass a serializable query specification to the worker, not row objects. The worker opens its own session, uses a server-side cursor or bounded keyset batches, and records progress. Perform an inexpensive count/metadata query separately and make the count optional when it is expensive.
+The raw-materials, renovation dictionary and КППК dictionary routes now persist a serializable `QueryExportSpec`; the worker opens its own repeatable-read session, counts IDs and loads projections in 500-row batches. The inline path is capped by the same threshold, and selected row order is reconstructed in SQL with `unnest(... WITH ORDINALITY)`. The old renovation plan endpoints use a count gate and dispatch large requests to the durable plan job.
 
 ### P1-5. XLSB asset lookup per code — fixed
 
@@ -243,11 +243,11 @@ Keep the single lookup map, return a deterministic missing-code set, and fold
 asset discovery into the one-pass import worker. Include lookup duration and
 number of codes in import metrics when the worker boundary is implemented.
 
-### P1-6. Synchronous renovation export endpoints remain exposed
+### P1-6. Synchronous renovation export endpoints remain exposed — bounded fallback added
 
 **Evidence**
 
-`back/src/renovation/router.py:656-690` (`GET/POST /plan/export`) calls `read_plan_export_data`. That path builds the export read model before `StreamingResponse` is returned (`back/src/renovation/service.py:712+`).
+The compatibility `GET/POST /plan/export` endpoints keep an inline response for small requests. `read_plan_export_data` checks the count before accumulating rows and raises a bounded-job signal for a large or concurrently grown scope; the router dispatches that exact payload to the durable plan-export job.
 
 **Impact**
 
@@ -255,7 +255,7 @@ The endpoint can allocate a complete wide plan and hold the request open despite
 
 **Remediation**
 
-Deprecate and remove the old endpoints after a compatibility window, or make them dispatch to the same job path. Enforce a maximum synchronous export size at the server boundary; never rely only on frontend routing.
+Keep the compatibility window, monitor usage, and remove the old endpoints once clients migrate. The server-side inline row budget is enforced independently of frontend routing.
 
 ### P1-7. KPPK cost and realization exports render synchronous bytes — fixed for large views
 
@@ -389,7 +389,7 @@ A durable worker should record: accepted time, queue wait, start/end, phase, row
 
 `back/src/collab/outbox.py:31-47` runs a dispatch cycle every 50 ms in every application process. Even when there are no events, each cycle opens a session, attempts an advisory lock and queries the outbox. With multiple workers this becomes steady background database traffic and contention with user requests.
 
-Use notification-driven wakeups where available, or back off exponentially when the queue is empty, while retaining a bounded periodic retry. Record outbox depth, dispatch latency, failed publishes and oldest event age. Keep the advisory lock for cross-worker ordering, but avoid acquiring a database connection twenty times per second per worker when idle.
+**Done 2026-10-30:** the dispatcher now reports whether a batch was found and applies bounded idle backoff (50 ms to 1 s), while retaining the advisory lock and a periodic retry. Outbox depth, dispatch latency, failed publishes and oldest event age remain operational metrics to add with the production load profile.
 
 ### P2-16b. Collaboration fan-out is linear in local subscribers
 
@@ -420,6 +420,14 @@ separate P2 item because they need a load-tested room model.
 Labels use operation names and other low-cardinality values; raw SQL, user IDs,
 UUIDs and arbitrary filter text are excluded. Remaining work is calibration
 against production-like load and adding deployment-specific scrape discovery.
+
+Auth hardening is also complete at the application slice: Argon2 login and
+password changes run in a dedicated two-worker executor, while the auth
+fixed-window limiter uses Valkey atomics across workers and a bounded local
+fail-safe when Valkey is unavailable. `auth_rate_limit_events_total` exposes
+allowed, rejected and degraded decisions. These changes keep the event loop
+responsive and make the degraded mode visible; they do not replace load-based
+capacity calibration.
 
 ### P2-18. Alerting and scrape configuration are not production-complete
 
@@ -476,7 +484,7 @@ Collect p50/p95/p99 latency, RSS, CPU, DB pool wait, lock wait, queue wait, job 
 | KPPK cost export | `POST /api/kppk/cost/export` | bounded inline response or durable query job with cursor batches | shared storage, load-calibrated concurrency | production worker deployment and load gate |
 | KPPK realization export | `POST /api/kppk/realization/export` | bounded inline response or durable query job with cursor batches | shared storage, load-calibrated concurrency | production worker deployment and load gate |
 | Collaboration WS | WebSocket routes under `/api` | in-process room map + Valkey fan-out | replica/process boundary, queue churn | measured limits, durable presence/pubsub strategy |
-| Auth login | `POST /api/auth/login` | Argon2 in request; process-local limiter | brute-force cost and per-process limits | Valkey limiter, auth metrics and baseline |
+| Auth login | `POST /api/auth/login` | bounded Argon2 executor; Valkey fixed-window limiter with local fail-safe | brute-force cost and degraded-mode limits | load-calibrated auth metrics and baseline |
 
 ## Frontend-facing consequences
 
@@ -508,7 +516,7 @@ These are starting assumptions for load-test planning, not accepted SLOs:
 
 1. **Initial slice done 2026-10-29:** renovation plan export jobs now persist their query specification, ownership, status, progress, attempt, lease, retry class and artifact key in PostgreSQL (`data_jobs`). A polling worker claims rows with `FOR UPDATE SKIP LOCKED`; stale leases retry with bounded backoff, cancellation fences the writer, and status/download can be served by another backend process. Completed artifacts live under `EXPORT_DIR` (the default is the existing log volume) and are TTL-pruned. XLSX generation runs in a supervised child Python process, so CPU-heavy XML generation does not share the ASGI interpreter. The child reports bounded progress and exits without logging to the rotating application file.
 2. Add shared object storage and a dedicated long-lived worker deployment for production replicas. The current default directory is durable only when the deployment mounts the same volume; it is intentionally not presented as S3-compatible storage.
-3. **Partially done 2026-10-29:** КППК cost/realization now use query-spec jobs with bounded cursor batches; generic tables and renovation legacy exports still materialize rows in the request or use the legacy in-process manager.
+3. **Application slice done 2026-10-29:** КППК cost/realization, all КППК and renovation dictionary exports, and all «Сырьё» table exports now use query-spec jobs with bounded cursor batches. The compatibility manager remains only as an unstarted module for old public types/tests.
 4. **Phase 1 slice done 2026-10-29:** XLSB apply is accepted into `IMPORT_DIR` and returns `202` with a durable `renovation_import` job. A supervised child owns parsing and the transaction; plan writes and terminal job result commit together, while lease loss/cancellation rolls both back. Digest idempotency is scoped to the working plan. The UI polls the job and keeps the completion summary. Input bytes remain on disk until terminal cleanup or TTL.
 5. Move apply and recompute to a staged/versioned import job with atomic finalization.
 6. Extend idempotency, cancellation, heartbeat, retry classification and progress to imports and the remaining exports. Include isolated-worker DB/RSS/CPU metrics in production scraping.
@@ -528,18 +536,18 @@ large import is advertised as fully parallel.
 
 ### Backend Phase 2 — durable read/export boundaries
 
-**In progress.** Completed: renovation-plan and КППК cost/realization exports persist query
-specifications, use PostgreSQL leases, and generate in isolated child
-processes. Generic dictionary/table exports still use the legacy process-local
-manager and materialize rows in the request; converting those routes requires
-query-owned loaders for each domain and is deliberately the next slice. The
-frontend's old/new plan comparison and change highlighting remain deferred and
-must not be pulled into this backend phase.
+**Application slice closed 2026-10-29.** Renovation-plan, КППК cost/realization,
+all КППК dictionaries, all renovation dictionaries and all «Сырьё» table
+exports now persist query specifications, use PostgreSQL leases and generate in
+isolated child processes. Snapshot movement IDs, movement/price projections,
+asset-scoped access, dictionary users, selected-row ordering, totals and
+large-job downloads are covered by domain export tests. The frontend's old/new
+plan comparison and change highlighting remain deferred and must not be pulled
+into this backend phase.
 
-The remaining generic export slice must cover snapshot row identity,
-movement/price projections, empty access
-scopes, selected-row ordering, user dictionaries and large-job downloads with
-domain contract tests before replacing the existing routes.
+Phase 2 is not a production rollout sign-off yet: artifacts still require a
+shared `EXPORT_DIR` (object storage is open), and worker concurrency, pool
+limits, memory thresholds and alert values need the Phase D workload matrix.
 
 The initial slices were verified with 571 backend tests passing (including
 durable-import contract tests; six optional skips), 373 frontend unit tests,
@@ -562,7 +570,10 @@ the Phase D large-export and crash-under-load scenarios.
    Do not implement or redesign these paths in the current remediation phases.
    Before re-enabling them, replace full in-memory comparison with paged SQL
    comparison or a bounded diff job and cover the highlighting contract.
-2. Introduce revision-aware counts and bounded facets.
+2. Introduce revision-aware counts and bounded facets. The current facet
+   implementation applies preceding filters and pages the response, but still
+   groups the complete distinct set in Python; this remains open for a
+   high-cardinality production dataset.
 3. Remove synchronous legacy export endpoints after a compatibility period.
 4. Add server-side limits for visible-row lists and response sizes.
 
@@ -572,6 +583,24 @@ the Phase D large-export and crash-under-load scenarios.
 2. Tune pool size, worker count, queue concurrency and Postgres indexes from measurements.
 3. Decide whether WebSocket state remains single-process or moves to a horizontally scalable design.
 4. Document runbooks for stuck jobs, failed migrations, pool exhaustion, Valkey outage, disk pressure and restart during import/export.
+
+### Closed application-slice follow-ups (2026-10-30)
+
+- The collaboration outbox now uses bounded idle exponential backoff (50 ms to
+  1 s) instead of polling PostgreSQL at a fixed 20 Hz while empty. The
+  advisory transaction lock and retry-on-publish-failure semantics are intact.
+- Local password hashing and verification run in a dedicated two-worker
+  executor. This prevents Argon2 from blocking the ASGI loop while keeping
+  concurrent CPU/RAM use bounded; Python 3.15's regular GIL build still does
+  not make this CPU-parallel.
+- Auth rate limiting uses an atomic Valkey fixed window shared across backend
+  workers. When Valkey is unavailable, a bounded local fail-safe remains active
+  and emits degraded/rejected metrics.
+
+These changes close the corresponding code-level audit findings. Shared object
+storage, dedicated worker deployment, high-cardinality facet SQL, revision-aware
+count caching, WebSocket room/writer metrics, production load calibration and
+operational runbooks remain deployment/measurement work.
 
 ### Future work — version comparison and change highlighting
 

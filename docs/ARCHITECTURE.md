@@ -251,12 +251,12 @@ Nothing else is persisted: the selected version, the report month and the grid's
   - Undo/redo: `GET /undo-state?section=&report_month=`, `POST /undo`, `POST /redo` (scope in the body).
   - Fixing: `POST /movement/fix` (admin) — see "Landmines" in AGENTS.md.
   - `POST /export` — Excel (openpyxl): whole/visible selection, for «Движение» — archive versions.
-  - Renovation plan export — **background jobs**: `POST /plan/export/jobs` (202 + job id), `GET /plan/export/jobs/{id}` (status/progress), `GET /plan/export/jobs/{id}/file` (download). The legacy synchronous `GET/POST /plan/export` endpoints remain for tests/compat but the UI never uses them (they materialize the whole plan in the API process).
+  - Renovation plan export — **background jobs**: `POST /plan/export/jobs` (202 + job id), `GET /plan/export/jobs/{id}` (status/progress), `GET /plan/export/jobs/{id}/file` (download). The legacy `GET/POST /plan/export` endpoints remain for compatibility: bounded requests render inline, while larger scopes are admitted to the same durable job boundary.
   - Renovation plan **import preflight** (admin): `POST /plan/import/inspect` (multipart `file`, `.xlsb` only) validates the technical-directorate workbook **without writing** to the database. Readiness and the response contract — see «Renovation plan import» below.
   - Renovation plan **import load** (admin): `POST /plan/import/apply` (multipart `file`, `.xlsb` only) stages the checked workbook and returns `202` with a durable job. Poll `GET /plan/import/jobs/{id}` (or cancel with `DELETE`) while a worker parses and writes the workbook under the project gate. See «Loading the checked file» below.
 - `kppk` (signed identity; reads for every project member, mutations admin-only): dictionary CRUD — `GET/POST/PATCH/DELETE /product-positions[/{id}]` (PATCH `{field, value}`, `field` = `name` | `orgNames` | `productNum`; create accepts `productNum`; delete removes the product with its links), `/raws` (PATCH `{field, value}` for `name`/`rawNum`), `/orgs` (PATCH `{field, value}` for `code`/`name`), `/periods` (PATCH `{field, value}`; no UI in this phase). The source number («№», `productNum`/`rawNum`) is editable and unique — an occupied number is rejected with a clear `400`; `null` stands for a row added by hand (several NULLs are allowed); positions/raws are returned in the source-number order (unnumbered rows last). The «ДЗО» list is ordered by the full name and exposes no number. Undo/redo join the shared collaboration journal: every mutation carries the page-lifetime `session_id` (query) and is journaled as one action scoped to the tab (`scope = f"{section}/"`, no report month; `collab/undo.py` dispatches `kppk_products`/`kppk_raws`/`kppk_orgs` to `apply_kppk_cell_value`) — `GET /undo-state?section=&session_id=`, `POST /undo`, `POST /redo` (body `{skipActionId, section}`, admin; no WebSocket room and no `cell:changed` — the front refreshes the grid itself after undo/redo). `POST /export` streams the tab as XLSX (whole/visible via `rowIds`, `columns` from the grid). Deletes follow RESTRICT: a ДЗО/period referenced by the fact/plan copies is rejected with a clear `400`.
 - `ws`: `WS /ws/raw-materials` — collaboration (see `docs/COLLAB.md`).
-- Service: `GET /health` (process liveness), `GET /ready` (PostgreSQL/Valkey readiness, including the required outbox migration), rate-limit and log middlewares in `back/src/main.py`. HTTP responses carry `X-Request-ID`, also recorded in structured request logs. Uvicorn access/handshake logs redact credential query parameters (`ticket`, `access_token`, `token`); the external reverse proxy must apply its own redaction policy.
+- Service: `GET /health` (process liveness), `GET /ready` (PostgreSQL/Valkey readiness, including the required outbox migration), rate-limit and log middlewares in `back/src/main.py`. HTTP responses carry `X-Request-ID`, also recorded in structured request logs. Granian access/handshake logs redact credential query parameters (`ticket`, `access_token`, `token`); the external reverse proxy must apply its own redaction policy.
 
 Errors: `CellValidationError` → 422, `DictionaryReferenceError` → 409, `ValueError` (not found) → 404, no access → 403. Clear Russian `detail` messages — the front shows them via `readApiDetail` (`front/src/shared/api/raw-materials.ts`).
 
@@ -275,6 +275,7 @@ Logs answer "what exactly happened"; metrics answer "how many and how often". **
 - `back/src/metrics.py` — a dedicated `CollectorRegistry`; `/metrics` (unauthenticated, aggregate values only) is scraped by Prometheus.
 - HTTP: `http_requests_total{method,route,status}`, `http_request_duration_seconds{method,route}` (buckets 5 ms…30 s), `http_requests_in_progress`. The `route` label is the **route template** (`/kppk/product-positions/{position_id}`), never the raw path — otherwise every row id would create its own time series; unmatched paths share `route="unmatched"`. `/health` and `/ready` are skipped in the LOG but still measured.
 - Collaboration: `ws_connections_active`, `ws_rooms_active`, `ws_events_relayed_total{room_section}`, `ws_slow_consumers_total{room_section}`. The last one matters most at scale: a client whose queue fills is **disconnected on purpose** and reconnects silently, so nothing errors — only this counter reveals it. `room_section` drops the month and the ДЗО scope, keeping one series per form.
+- Authentication: `auth_rate_limit_events_total{storage,outcome}` records shared Valkey, local fallback, allowed and rejected login-window decisions. Argon2 password work uses a dedicated bounded executor so expensive hashing does not occupy the ASGI event loop.
 - Dashboards (`infra/grafana/provisioning/dashboards-json/`): **Сервис** (HTTP percentiles, database pool/query/lock pressure, import/export phases and queue, Valkey/dependency health, RSS/event loop/disk), **Сотрудничество** (WS load, slow consumers), **Ошибки** (Loki, with `request_id` correlation). Provisioned from git, `allowUiUpdates: false` — edit the JSON, not the browser.
 - Prometheus scrapes `host.docker.internal:<BACKEND_PORT>` (15 s, 15 days retention); the port is in `infra/prometheus/prometheus.yml` because Prometheus does not expand compose variables.
 - **Alerts** (`infra/prometheus/alert-rules.yml`, 11 rules): a 5xx burst (>0.05/s for 2 min), accumulating 5xx (>20/h), `up == 0`, collaboration slow consumers, pool exhaustion, query timeout/deadlock failures, export failures, event-loop lag, disk pressure, readiness dependency failures and Valkey subscription failures. The event-loop/disk/capacity values are operational guardrails; load-based latency and memory thresholds remain to be calibrated. Alertmanager groups them (`group_wait 30s`, repeat 4h) and exposes them at `http://localhost:9093`.
@@ -467,12 +468,11 @@ the threshold the response is `202` + a job description and the shared
 background worker builds the same workbook — the front hands the job's file
 URL to the browser, which downloads the file WHILE it is still being
 generated (the append-only container makes the served bytes valid from the
-first byte). The renovation plan and КППК cost/realization exports use a
-durable PostgreSQL query specification (`data_jobs`) and bounded cursor batches
-in the isolated worker; the worker reopens the authorized query instead of
-receiving materialized rows. Small КППК exports remain inline. Generic
-dictionary exports still use the process-local `ExportJobManager` until their
-query specifications are migrated.
+first byte). The renovation plan, КППК cost/realization, КППК and renovation
+dictionaries, and «Сырьё» table exports use a durable PostgreSQL query
+specification (`data_jobs`) and bounded cursor batches in the isolated worker;
+the worker reopens the authorized query instead of receiving materialized rows.
+Small exports remain inline under the configured row limit.
 
 A full plan export is ~306k rows × 216 columns: minutes of CPU and ~500 MB of
 XLSX (the sheet XML exceeds 4 GB uncompressed → ZIP64). Doing that in the
@@ -503,7 +503,8 @@ requests OOM'ed the container. The export is therefore a background job
 - Limits: 8 durable active jobs globally, 2 per user → `429`. Admission and
   deduplication are transactional. Same-user scope+stamp requests share one job;
   another user receives a separate owner record/file. Terminal jobs expire one
-  hour after completion. The generic process-local queue has separate limits.
+  hour after completion. The same durable admission boundary applies to every
+  query-owned table export; only small inline responses bypass the queue.
 - A 30-second lease is renewed every 10 seconds. A lost worker retries with
   backoff, up to three attempts; validation/rendering failures do not retry.
   `DELETE /plan/export/jobs/{id}` cancels an owner's pending/running job. This

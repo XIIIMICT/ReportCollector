@@ -4,7 +4,8 @@ from datetime import datetime
 from io import BytesIO
 from uuid import UUID
 
-from conftest import signed_identity_headers
+import pytest
+from conftest import TEST_DATABASE_URL, TEST_SCHEMA, signed_identity_headers
 from httpx2 import AsyncClient
 from openpyxl import load_workbook
 from sqlmodel import col, select
@@ -370,11 +371,22 @@ async def test_export_validation_errors(client) -> None:
     assert hidden_column.status_code == 422
 
 
-async def test_export_big_table_becomes_background_job(client, monkeypatch) -> None:
+@pytest.mark.real_schema
+async def test_export_big_table_becomes_background_job(client, my_engine, monkeypatch, tmp_path) -> None:
     """Past the inline threshold the export returns 202 + a job description, and the file endpoint streams the workbook."""
-    import src.common.export_jobs as jobs_module
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
-    monkeypatch.setattr(jobs_module, "INLINE_EXPORT_MAX_ROWS", 2)
+    from src.common import export as export_config
+    from src.common import query_exports
+    from src.common.job_repository import JobRepository
+
+    monkeypatch.setattr(export_config, "INLINE_EXPORT_MAX_ROWS", 2)
+    monkeypatch.setenv("EXPORT_DIR", str(tmp_path))
+    monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
+    monkeypatch.setenv("POSTGRES_SCHEMA", TEST_SCHEMA)
+    repository = JobRepository(async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False))
+    monkeypatch.setattr(query_exports.query_export_jobs, "repository", repository)
 
     response = await client.post(
         "/api/raw-materials/export",
@@ -391,6 +403,13 @@ async def test_export_big_table_becomes_background_job(client, monkeypatch) -> N
     job = response.json()
     assert job["status"] in {"pending", "running", "done"}
     assert job["fileName"].endswith(".xlsx")
+
+    # A real worker uses its own connection and reads the committed query.
+    record = await repository.claim("table_query")
+    assert record is not None
+    assert record.payload["source"] == "raw_materials"
+    assert "rows" not in record.payload
+    await query_exports.query_export_jobs.execute(record)
 
     file_response = await client.get(
         f"/api/raw-materials/export/jobs/{job['id']}/file",

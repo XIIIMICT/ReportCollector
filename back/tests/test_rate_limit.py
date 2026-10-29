@@ -43,6 +43,7 @@ def test_sweep_drops_stale_buckets_and_respects_the_cap() -> None:
     """The store cannot grow without bound: expired buckets are swept."""
     now = time.monotonic()
     main._rate_limit_store.clear()
+
     main._rate_limit_store["fresh"] = [now]
     main._rate_limit_store["stale"] = [now - main._RATE_LIMIT_WINDOW - 5]
     main._sweep_rate_limit(now)
@@ -57,3 +58,12 @@ def test_sweep_drops_stale_buckets_and_respects_the_cap() -> None:
     assert len(main._rate_limit_store) <= main._RATE_LIMIT_MAX_KEYS
     assert "key-0" not in main._rate_limit_store  # oldest dropped
     main._rate_limit_store.clear()
+
+
+async def test_memory_store_rate_limit_is_atomic_and_windowed() -> None:
+    from src.collab.store import MemoryStore
+
+    store = MemoryStore()
+    assert await store.allow_rate_limit("client", limit=2, window_seconds=60)
+    assert await store.allow_rate_limit("client", limit=2, window_seconds=60)
+    assert not await store.allow_rate_limit("client", limit=2, window_seconds=60)

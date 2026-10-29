@@ -40,6 +40,14 @@ async def test_lease_ownership_and_expiry(valkey_pair) -> None:
     assert await second.release_lease(key, other)
 
 
+async def test_rate_limit_is_shared_and_atomic(valkey_pair) -> None:
+    first, second = valkey_pair
+    key = f"rc:test:rate:{uuid4()}"
+    assert await first.allow_rate_limit(key, limit=2, window_seconds=60)
+    assert await second.allow_rate_limit(key, limit=2, window_seconds=60)
+    assert not await first.allow_rate_limit(key, limit=2, window_seconds=60)
+
+
 async def test_pubsub_cross_connection(valkey_pair) -> None:
     first, second = valkey_pair
     room = f"test:{uuid4()}"
