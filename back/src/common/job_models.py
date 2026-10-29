@@ -25,6 +25,7 @@ class DataJob(SQLModel, table=True):
     user_id: str = Field(sa_column=Column(Text, nullable=False))
     cache_key: str = Field(sa_column=Column(Text, nullable=False))
     payload: dict = Field(sa_column=Column(JSONB, nullable=False))
+    result: dict | None = Field(default=None, sa_column=Column(JSONB))
     status: Literal["pending", "running", "done", "failed"] = Field(
         default="pending", sa_column=Column(Text, nullable=False)
     )

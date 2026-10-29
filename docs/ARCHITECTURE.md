@@ -253,7 +253,7 @@ Nothing else is persisted: the selected version, the report month and the grid's
   - `POST /export` — Excel (openpyxl): whole/visible selection, for «Движение» — archive versions.
   - Renovation plan export — **background jobs**: `POST /plan/export/jobs` (202 + job id), `GET /plan/export/jobs/{id}` (status/progress), `GET /plan/export/jobs/{id}/file` (download). The legacy synchronous `GET/POST /plan/export` endpoints remain for tests/compat but the UI never uses them (they materialize the whole plan in the API process).
   - Renovation plan **import preflight** (admin): `POST /plan/import/inspect` (multipart `file`, `.xlsb` only) validates the technical-directorate workbook **without writing** to the database. Readiness and the response contract — see «Renovation plan import» below.
-  - Renovation plan **import load** (admin): `POST /plan/import/apply` (multipart `file`, `.xlsb` only) writes the checked workbook into the working plan (matched by work code, strict catalog lookup, batched under the project gate). See «Loading the checked file» below.
+  - Renovation plan **import load** (admin): `POST /plan/import/apply` (multipart `file`, `.xlsb` only) stages the checked workbook and returns `202` with a durable job. Poll `GET /plan/import/jobs/{id}` (or cancel with `DELETE`) while a worker parses and writes the workbook under the project gate. See «Loading the checked file» below.
 - `kppk` (signed identity; reads for every project member, mutations admin-only): dictionary CRUD — `GET/POST/PATCH/DELETE /product-positions[/{id}]` (PATCH `{field, value}`, `field` = `name` | `orgNames` | `productNum`; create accepts `productNum`; delete removes the product with its links), `/raws` (PATCH `{field, value}` for `name`/`rawNum`), `/orgs` (PATCH `{field, value}` for `code`/`name`), `/periods` (PATCH `{field, value}`; no UI in this phase). The source number («№», `productNum`/`rawNum`) is editable and unique — an occupied number is rejected with a clear `400`; `null` stands for a row added by hand (several NULLs are allowed); positions/raws are returned in the source-number order (unnumbered rows last). The «ДЗО» list is ordered by the full name and exposes no number. Undo/redo join the shared collaboration journal: every mutation carries the page-lifetime `session_id` (query) and is journaled as one action scoped to the tab (`scope = f"{section}/"`, no report month; `collab/undo.py` dispatches `kppk_products`/`kppk_raws`/`kppk_orgs` to `apply_kppk_cell_value`) — `GET /undo-state?section=&session_id=`, `POST /undo`, `POST /redo` (body `{skipActionId, section}`, admin; no WebSocket room and no `cell:changed` — the front refreshes the grid itself after undo/redo). `POST /export` streams the tab as XLSX (whole/visible via `rowIds`, `columns` from the grid). Deletes follow RESTRICT: a ДЗО/period referenced by the fact/plan copies is rejected with a clear `400`.
 - `ws`: `WS /ws/raw-materials` — collaboration (see `docs/COLLAB.md`).
 - Service: `GET /health` (process liveness), `GET /ready` (PostgreSQL/Valkey readiness, including the required outbox migration), rate-limit and log middlewares in `back/src/main.py`. HTTP responses carry `X-Request-ID`, also recorded in structured request logs. Uvicorn access/handshake logs redact credential query parameters (`ticket`, `access_token`, `token`); the external reverse proxy must apply its own redaction policy.
@@ -374,8 +374,9 @@ response carries the assets (by name), the new rows and the rows to update
 
 The upload body is bounded by `ImportUploadLimitsMiddleware` before multipart
 parsing, then Starlette's `UploadFile` keeps it in its spooled temporary file.
-The application hashes and parses it through bounded row iterators; a separate
-asset-discovery pass remains until the durable one-pass import worker in Phase B.
+The inspect endpoint hashes and parses it through bounded row iterators; its
+asset-discovery pass remains intentionally separate until a future one-pass
+preflight. Apply stages the bytes and does not parse them in the HTTP request.
 
 `RENOVATION_IMPORT_MAX_BYTES` defaults to 256 MiB for each file. The HTTP body
 limit adds a 1 MiB allowance for multipart boundaries/fields and also covers
@@ -396,16 +397,19 @@ asset recomputes it. The TTL is one hour. The cache is optional — without
 
 ### Loading the checked file
 
-`POST /plan/import/apply` (admin, multipart `file`, `.xlsb` only) writes the
-same workbook into the **working** plan (`import_apply.apply_plan_file`). The
-order is: take the shared project gate (`lock_project`), then pull batches of
-200 parsed rows from `iter_plan_row_batches` using `asyncio.to_thread` and write
-each batch inside **one transaction**, then `recompute_plan_rows`. An aborted
-write closes the iterator; cancellation waits for the current parser batch
-before closing the workbook. The transaction prevents readers seeing partial
-commits, but the shared gate does not itself serialize cell edits against the
-import. The stale-lease risk remains. The request stays long-lived until the
-durable import worker from Phase B is implemented.
+`POST /plan/import/apply` (admin, multipart `file`, `.xlsb` only) stages the
+validated workbook and returns `202` with a durable `renovation_import` job.
+The accepted bytes live under `IMPORT_DIR`; the job payload stores only a
+digest, plan id and internal input key. `GET /plan/import/jobs/{id}` polls the
+bounded result and `DELETE` cancels it. A supervisor claims the PostgreSQL
+lease and starts `src.scripts.import_worker` in a separate Python process, so
+XLSB parsing and plan recomputation do not share the ASGI interpreter or its
+log handler. The child takes the project gate, streams batches of 200 and
+commits the plan writes **and** the terminal job result in one transaction.
+Cancellation/lease loss therefore rolls the transaction back; a lost HTTP
+response cannot cause a second apply. The input is removed only after a
+terminal job state or TTL cleanup. The gate still covers the full write and
+recompute phase; staged/versioned finalization is the next scale slice.
 
 Rows are matched by «Код работы» (`col_003`): a code already in the plan updates
 that row in place, a code the plan does not have **appends** a row at the end
@@ -420,7 +424,7 @@ A label the catalog does not know (`ОКР`, `ДО`, `Собственными �
 current sample — the catalog spells them «Остановочный капитальный ремонт»,
 «Диагностические обследования», «Собственные силы») is a **strict error**: the
 preflight lists it under «Значение отсутствует в справочнике» and the load
-refuses the whole file (`409`, nothing written) rather than dropping the value.
+fails the job with a Russian error and rolls back the whole transaction.
 The same strictness covers blank required cells — «Код работы», «Предприятие»,
 «Группа критичности», «Категория работ», «Вид работ», «Отнесение затрат»,
 «Способ выполнения» — reported in the `blank_values` section; a row without a

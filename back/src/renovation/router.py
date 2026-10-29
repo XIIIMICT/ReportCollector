@@ -1,11 +1,15 @@
 """«Ремонт» project API: reading/editing the renovation plan, plan lifecycle, undo/redo."""
 
 import asyncio
+import contextlib
 import hashlib
 import json
+import os
+import uuid
 from collections.abc import Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Literal, cast
 from urllib.parse import quote
 from uuid import UUID
 
@@ -30,6 +34,7 @@ from src.collab.models import RENOVATION_PLAN_ROWS_TABLE
 from src.collab.persistence import JournalStore
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
+from src.common.durable_imports import ImportJob, import_dir
 from src.common.export import safe_sheet_name
 from src.common.export_jobs import ExportJobRead, export_table_or_job, table_export_jobs
 from src.config import get_settings
@@ -62,7 +67,7 @@ from src.renovation.export import (
     validate_export_request,
 )
 from src.renovation.export_jobs import ExportJob, ExportJobSpec, ExportQueueFullError, export_jobs
-from src.renovation.import_apply import apply_plan_file
+from src.renovation.import_jobs import import_jobs
 from src.renovation.import_plan import assets_in_file, inspect_plan_file_streaming
 from src.renovation.inspect_cache import get_inspect_cache
 from src.renovation.models import RAsset, RProjectRole, RUserRole
@@ -81,9 +86,9 @@ from src.renovation.schemas import (
     RenovationExportJobRead,
     RenovationExportViewRequest,
     RenovationFacetsRead,
+    RenovationImportJobRead,
     RenovationMetaRead,
     RenovationPlanExportRequest,
-    RenovationPlanImportApplyResult,
     RenovationPlanImportResult,
     RenovationPlanQuery,
     RenovationPlanRead,
@@ -135,6 +140,13 @@ _settings = get_settings()
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
+def _upload_too_large() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        detail="Файл имеет слишком большой размер.",
+    )
+
+
 async def _rewind_and_hash_upload(file: UploadFile) -> str:
     """Hash an upload in bounded chunks and rewind it for the parser."""
     digest = hashlib.sha256()
@@ -152,6 +164,40 @@ async def _rewind_and_hash_upload(file: UploadFile) -> str:
     await file.seek(0)
     IMPORT_UPLOAD_BYTES.observe(size)
     return digest.hexdigest()
+
+
+async def _stage_upload(file: UploadFile) -> tuple[Path, str, int]:
+    """Copy a validated upload to durable storage without retaining it in RAM."""
+    target = import_dir() / f"{uuid.uuid4().hex}.upload"
+
+    def copy_upload() -> tuple[str, int]:
+        digest = hashlib.sha256()
+        size = 0
+        file.file.seek(0)
+        with target.open("wb") as sink:
+            while chunk := file.file.read(_UPLOAD_CHUNK_BYTES):
+                size += len(chunk)
+                if size > _settings.renovation_import_max_bytes:
+                    IMPORT_REJECTIONS.labels(reason="size").inc()
+                    raise _upload_too_large()
+                digest.update(chunk)
+                sink.write(chunk)
+            sink.flush()
+            os.fsync(sink.fileno())
+        return digest.hexdigest(), size
+
+    copying = asyncio.create_task(asyncio.to_thread(copy_upload))
+    try:
+        digest, size = await asyncio.shield(copying)
+    except BaseException:
+        # A cancelled request must not close the spooled file or unlink the
+        # destination while a thread still reads/writes them.
+        with contextlib.suppress(Exception):
+            await copying
+        target.unlink(missing_ok=True)
+        raise
+    IMPORT_UPLOAD_BYTES.observe(size)
+    return target, digest, size
 
 
 # One adapter, reused: building it per request would cost more than the dump
@@ -283,40 +329,69 @@ async def inspect_renovation_plan_import(
     return result
 
 
-@router.post("/plan/import/apply", response_model=RenovationPlanImportApplyResult)
+@router.post("/plan/import/apply", response_model=RenovationImportJobRead, status_code=status.HTTP_202_ACCEPTED)
 async def apply_renovation_plan_import(
     session: SessionDependency,
     _access: AdminDependency,
     file: Annotated[UploadFile, File()],
-) -> RenovationPlanImportApplyResult:
+) -> RenovationImportJobRead:
     """
-    Load a validated XLSB file into the working plan (admin only).
+    Accept a validated XLSB file as a durable background job (admin only).
 
-    Parsing runs in a worker thread and the write goes in batches under the
-    project gate, so the API keeps serving while a large file is loaded. The
-    file is expected to have passed the preflight; an unknown catalog label
-    still aborts the whole load instead of writing a partial plan. The load is
-    NOT journaled into undo/redo: it rewrites many rows at once.
+    Parsing, project locking and the write transaction run after the request
+    ends. The load is not journaled into undo/redo because it rewrites many
+    rows at once.
     """
     if not file.filename or not file.filename.casefold().endswith(".xlsb"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ожидается файл .xlsb.")
-    with observe_phase("import", "hash_upload"):
-        await _rewind_and_hash_upload(file)
+    plan = (await session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).first()
+    if plan is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Нет рабочего плана для загрузки.")
+    staged, digest, size = await _stage_upload(file)
     try:
-        with observe_phase("import", "apply"):
-            return await apply_plan_file(
-                session,
-                source=file.file,
-                user_id=_access.user.id,
-                streaming=True,
-            )
-    except ValueError as error:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
-    except IntegrityError as error:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Загрузка нарушила бы ограничения уникальности — ни одна строка не изменена.",
-        ) from error
+        job = await import_jobs.create_from_path(
+            source=staged,
+            file_name=file.filename,
+            digest=digest,
+            size=size,
+            user_id=str(_access.user.id),
+            plan_id=plan.id,
+        )
+    except ExportQueueFullError as error:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(error)) from error
+    finally:
+        staged.unlink(missing_ok=True)
+    return _import_job_read(job)
+
+
+def _import_job_read(job: ImportJob) -> RenovationImportJobRead:
+    result = job.result or {}
+    return RenovationImportJobRead(
+        id=job.id,
+        status=cast("Literal['pending', 'running', 'done', 'failed']", job.status),
+        progress=job.progress,
+        total=job.total,
+        file_name=job.file_name,
+        error=job.error,
+        new_rows=int(result.get("newRows", 0)),
+        updated_rows=int(result.get("updatedRows", 0)),
+    )
+
+
+@router.get("/plan/import/jobs/{job_id}", response_model=RenovationImportJobRead)
+async def get_renovation_plan_import_job(job_id: str, access: AdminDependency) -> RenovationImportJobRead:
+    try:
+        return _import_job_read(await import_jobs.get(job_id, str(access.user.id)))
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание загрузки не найдено.") from error
+
+
+@router.delete("/plan/import/jobs/{job_id}", response_model=RenovationImportJobRead)
+async def cancel_renovation_plan_import_job(job_id: str, access: AdminDependency) -> RenovationImportJobRead:
+    try:
+        return _import_job_read(await import_jobs.cancel(job_id, str(access.user.id)))
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание загрузки не найдено.") from error
 
 
 @router.get("/meta", response_model=RenovationMetaRead)

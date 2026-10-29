@@ -514,6 +514,19 @@ class RenovationPlanImportApplyResult(BaseModel):
     updated_rows: int = 0
 
 
+class RenovationImportJobRead(BaseModel):
+    """Durable XLSB import status and bounded result."""
+
+    id: str
+    status: Literal["pending", "running", "done", "failed"]
+    progress: int = 0
+    total: int = 0
+    file_name: str
+    error: str | None = None
+    new_rows: int = 0
+    updated_rows: int = 0
+
+
 class RenovationExportJobRead(BaseModel):
     """A background plan-export job: status polling and the ready file name."""
 

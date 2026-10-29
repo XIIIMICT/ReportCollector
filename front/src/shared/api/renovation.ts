@@ -203,6 +203,12 @@ export function inspectRenovationPlanImport(
 }
 
 export type RenovationPlanImportApplyResult = {
+    id: string;
+    status: "pending" | "running" | "done" | "failed";
+    progress: number;
+    total: number;
+    file_name: string;
+    error: string | null;
     new_rows: number;
     updated_rows: number;
 };
@@ -210,9 +216,8 @@ export type RenovationPlanImportApplyResult = {
 /**
  * Load a checked XLSB file into the working plan.
  *
- * The backend parses the workbook in a worker thread and writes it in batches
- * under the project gate, so a large file never blocks other users; the call
- * still takes a while, hence the dedicated pending state in the dialog.
+ * The backend stages the workbook and returns a durable job. The caller may
+ * poll `getRenovationPlanImportJob` while the worker parses and writes it.
  */
 export async function applyRenovationPlanImport(
     file: File,
@@ -228,6 +233,23 @@ export async function applyRenovationPlanImport(
         const payload = (await response.json().catch(() => null)) as unknown;
         throw new ReportCollectorApiError(
             readApiDetail(payload) ?? `Не удалось загрузить файл (${response.status}).`,
+            response.status,
+        );
+    }
+    return (await response.json()) as RenovationPlanImportApplyResult;
+}
+
+export async function getRenovationPlanImportJob(
+    jobId: string,
+): Promise<RenovationPlanImportApplyResult> {
+    const response = await fetch(`/api/renovation/plan/import/jobs/${encodeURIComponent(jobId)}`, {
+        cache: "no-store",
+    });
+    if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as unknown;
+        throw new ReportCollectorApiError(
+            readApiDetail(payload) ??
+                `Не удалось получить состояние загрузки (${response.status}).`,
             response.status,
         );
     }

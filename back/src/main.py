@@ -28,6 +28,7 @@ from .database import async_session_factory
 from .metrics import DEPENDENCY_DURATION, REGISTRY
 from .observability import RequestMetricsMiddleware, sample_runtime_metrics
 from .renovation.export_jobs import export_jobs
+from .renovation.import_jobs import import_jobs
 
 settings = get_settings()
 configure_application_logging(settings.log_file)
@@ -89,6 +90,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     await export_jobs.start()
     await table_export_jobs.start()
     await query_export_jobs.start()
+    await import_jobs.start()
     try:
         yield
     finally:
@@ -101,6 +103,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         await export_jobs.stop()
         await table_export_jobs.stop()
         await query_export_jobs.stop()
+        await import_jobs.stop()
         await get_collab_store().close()
     log_event(LOGGER, "application_stopped", "Приложение ReportCollector остановлено.")
 
@@ -175,6 +178,7 @@ async def readiness() -> JSONResponse:
             async with async_session_factory() as session:
                 # Also reject an instance started before its required migration.
                 await (await session.connection()).execute(text("SELECT id FROM collab_outbox LIMIT 0"))
+                await (await session.connection()).execute(text("SELECT result FROM data_jobs LIMIT 0"))
             DEPENDENCY_DURATION.labels(dependency=dependency, outcome="ok").observe(time.perf_counter() - started)
             dependency = "valkey"
             started = time.perf_counter()

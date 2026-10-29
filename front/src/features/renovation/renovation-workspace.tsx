@@ -31,6 +31,7 @@ import {
     getRenovationPlanRows,
     getRenovationPlanSummary,
     applyRenovationPlanImport,
+    getRenovationPlanImportJob,
     inspectRenovationPlanImport,
     getRenovationPlans,
     getUndoState,
@@ -1811,7 +1812,15 @@ export function RenovationWorkspace({
                 }}
                 onUpload={async (file) => {
                     try {
-                        const applied = await applyRenovationPlanImport(file);
+                        const accepted = await applyRenovationPlanImport(file);
+                        let applied = accepted;
+                        while (applied.status === "pending" || applied.status === "running") {
+                            await new Promise((resolve) => window.setTimeout(resolve, 750));
+                            applied = await getRenovationPlanImportJob(accepted.id);
+                        }
+                        if (applied.status !== "done") {
+                            throw new Error(applied.error ?? "Не удалось загрузить файл.");
+                        }
                         // The grid still holds the plan as it was before the load:
                         // a new key refetches rows, summary and the «№» order.
                         setReloadKey((key) => key + 1);

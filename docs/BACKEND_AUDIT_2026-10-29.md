@@ -2,7 +2,7 @@
 
 **Review date:** 2026-10-29
 **Scope:** `back/src`, database migrations, CI/release workflow, Prometheus/Grafana/Loki/Alloy/Alertmanager configuration, and the backend-facing parts of the frontend workflow.
-**Status:** Phase A runtime hardening and baseline observability are complete in the local stack. Phase B now has durable renovation-plan and КППК cost/realization query-export slices; generic dictionary exports and imports remain open. Load calibration and production scrape discovery remain open.
+**Status:** Phase A is complete as a local baseline. Backend phases 1 and 2 below describe the write and read/export slices of Phase B; neither is fully complete. Renovation XLSB apply and renovation-plan/КППК cost/realization exports have durable jobs and isolated workers. Staged import finalization, remaining table exports and production load calibration remain open. Version comparison/highlighting is explicitly deferred by product decision.
 **Repository constraint:** the existing user change in `compose.yaml` was left untouched.
 
 ## Dependency/runtime follow-up (2026-10-29)
@@ -96,15 +96,16 @@ The backend has a sound asynchronous foundation and several careful correctness 
 
 The current design is not yet ready to promise predictable behaviour under large files, large renovation plans, or multiple backend replicas. The main risk is not one slow SQL statement. It is the amount of work performed before a background job starts:
 
-- XLSB import now streams batches from the temporary upload, but still retains
-  lookup maps and the validation report and performs full-plan recomputation in
-  the same request transaction.
+- XLSB apply now runs in an isolated durable worker with bounded batches, but
+  still retains lookup maps and recomputes the full plan in one transaction.
+  Preflight validation remains an HTTP operation with an in-memory report.
 - Generic exports first materialize all database rows and only then enqueue the writer.
 - The old renovation export endpoints still build a complete export read model synchronously.
 - Renovation plan and КППК cost/realization export jobs now persist a query
   specification in PostgreSQL with fenced attempts; generic dictionary table
   job state remains process-local.
-- A single in-process worker serializes all large exports.
+- Generic table exports still share a single in-process writer; durable jobs
+  use supervised child processes with database-enforced concurrency bounds.
 - The plan diff endpoint can return and compare two complete plans in Python.
 - The new baseline metrics make database pool pressure, job queueing, cache
   behaviour, upload/response sizes and runtime saturation visible. They do not
@@ -163,7 +164,7 @@ A generic static quality analyzer was also run. It reported known false positive
 - The body is now counted by `back/src/common/upload_limits.py` before Starlette's multipart parser and is rejected at the configured file limit plus a bounded multipart allowance.
 - The inspect path hashes the upload, scans asset codes, and performs a second streaming workbook pass. The scan no longer calls `_read_rows`, but it still performs more than one XLSB pass.
 - Apply uses `iter_plan_row_batches` and holds one parsed batch plus lookup maps, while `parse_plan_rows` remains a compatibility path for small fixtures and non-streaming callers.
-- The request still keeps the uploaded temporary file and performs writes/recompute in the request transaction, so the memory and transaction risks are reduced but not eliminated.
+- The request now only stages bytes and creates a durable job. A supervised child process parses and writes bounded batches; the transaction still holds the project gate during the full write/recompute phase.
 
 **Impact**
 
@@ -171,17 +172,18 @@ A large XLSB can multiply its compressed size into several large resident struct
 
 **Remediation**
 
-1. Move the bounded temporary upload and parser into a durable import worker.
+1. **Done:** move the bounded temporary upload and parser into a durable import worker.
 2. Parse once and produce metadata plus a bounded row iterator; do not run a separate full workbook pass for asset discovery.
 3. Apply rows in bounded chunks; keep only the current chunk and database lookup maps.
 4. Persist a digest and preflight result, not the entire payload in memory. Make retries idempotent by digest and import version.
-5. Move the whole operation to a durable worker and return `202 Accepted` with job status. Keep the HTTP request limited to validation, enqueueing, and authorization.
+5. **Done:** move the whole operation to a durable worker and return `202 Accepted` with job status. Keep the HTTP request limited to validation, enqueueing, and authorization.
+6. Remaining: staged/versioned finalization and conflict handling for concurrent edits.
 
-### P0-2. Import recomputes the complete plan inside the request transaction
+### P0-2. Import recomputes the complete plan in a long transaction — moved outside HTTP
 
 **Evidence**
 
-`back/src/renovation/import_apply.py:112-113` calls `recompute_plan_rows` after writing the imported batches. `back/src/renovation/service.py:2440-2497` scans every row, computes fields in Python, and sends update batches. The implementation is bounded by batch size, but the operation still runs in the request transaction under the project gate.
+`back/src/renovation/import_apply.py` calls `recompute_plan_rows` after writing the imported batches. The operation now runs in an isolated durable worker; it still scans every row and holds the shared project gate for the full transaction. Cell edits share this gate and can contend on row locks; the gate is not an exclusive editing fence.
 
 **Impact**
 
@@ -189,7 +191,7 @@ A 300k-row plan can hold a long transaction and project lock for minutes. Cell e
 
 **Remediation**
 
-Return an import job immediately. Use a staging/import version with explicit states (`uploaded`, `validated`, `loading`, `recomputing`, `ready`, `failed`). Perform the expensive load and recomputation outside the request lifecycle. Acquire the project gate only for the short finalization/swap step, or use a version pointer so readers see either the old complete plan or the new complete plan. Expose progress, row counts, phase duration, cancellation and a stable error.
+**Done:** return a durable import job immediately; perform parsing and recomputation outside the request lifecycle; expose progress, row counts, cancellation and stable errors; commit the result with the plan writes. **Remaining:** staged/versioned finalization with explicit phases (`uploaded`, `validated`, `loading`, `recomputing`, `ready`, `failed`) and a short finalization/swap gate.
 
 ### P0-3. Process-local job managers are not durable or replica-safe — plan and KPPK query exports fixed, generic tables open
 
@@ -465,14 +467,14 @@ Collect p50/p95/p99 latency, RSS, CPU, DB pool wait, lock wait, queue wait, job 
 | Workload | Current path | Current execution | Main risk | Target direction |
 |---|---|---|---|---|
 | Renovation XLSB inspect | `POST /api/renovation/plan/import/inspect` | HTTP; bounded temporary upload, asset scan + streaming validation, digest cache | repeated parse, report size, HTTP lifetime | one-pass durable preflight |
-| Renovation XLSB apply | `POST /api/renovation/plan/import/apply` | HTTP; parse in thread, batched writes, full recompute | long transaction/project lock, retry ambiguity | durable import job + staging/version swap |
+| Renovation XLSB apply | `POST /api/renovation/plan/import/apply` | `202`; durable upload, isolated child, atomic data/result commit | long transaction/project gate and stale editing leases | staging/versioned finalization with edit conflict handling |
 | Renovation grid window | `GET /api/renovation/plan/rows` | HTTP; window query plus exact counts | repeated `COUNT(*)`, filter cost | revision-aware counts, keyset windows, measured query plans |
 | Renovation diff | `GET /api/renovation/plan/diff` | HTTP; two full plans in Python | unbounded memory/response | paged SQL diff or job artifact |
 | Renovation export (job path) | `/api/renovation/plan/export/jobs/*` | durable PostgreSQL job, fenced child worker, streamed cursor | shared artifact storage and worker deployment | shared storage + load-calibrated concurrency |
 | Renovation legacy export | `GET/POST /api/renovation/plan/export` | synchronous read model then stream | bypasses job guard | deprecate or dispatch to job path |
 | Raw/KPPK table export | `/api/*/export` | full row materialization before generic job | request memory/query latency | worker-owned query + batched cursor |
-| KPPK cost export | `POST /api/kppk/cost/export` | synchronous bytes | CPU/RSS spike | common job path/size threshold |
-| KPPK realization export | `POST /api/kppk/realization/export` | synchronous bytes | CPU/RSS spike | common job path/size threshold |
+| KPPK cost export | `POST /api/kppk/cost/export` | bounded inline response or durable query job with cursor batches | shared storage, load-calibrated concurrency | production worker deployment and load gate |
+| KPPK realization export | `POST /api/kppk/realization/export` | bounded inline response or durable query job with cursor batches | shared storage, load-calibrated concurrency | production worker deployment and load gate |
 | Collaboration WS | WebSocket routes under `/api` | in-process room map + Valkey fan-out | replica/process boundary, queue churn | measured limits, durable presence/pubsub strategy |
 | Auth login | `POST /api/auth/login` | Argon2 in request; process-local limiter | brute-force cost and per-process limits | Valkey limiter, auth metrics and baseline |
 
@@ -507,16 +509,48 @@ These are starting assumptions for load-test planning, not accepted SLOs:
 1. **Initial slice done 2026-10-29:** renovation plan export jobs now persist their query specification, ownership, status, progress, attempt, lease, retry class and artifact key in PostgreSQL (`data_jobs`). A polling worker claims rows with `FOR UPDATE SKIP LOCKED`; stale leases retry with bounded backoff, cancellation fences the writer, and status/download can be served by another backend process. Completed artifacts live under `EXPORT_DIR` (the default is the existing log volume) and are TTL-pruned. XLSX generation runs in a supervised child Python process, so CPU-heavy XML generation does not share the ASGI interpreter. The child reports bounded progress and exits without logging to the rotating application file.
 2. Add shared object storage and a dedicated long-lived worker deployment for production replicas. The current default directory is durable only when the deployment mounts the same volume; it is intentionally not presented as S3-compatible storage.
 3. **Partially done 2026-10-29:** КППК cost/realization now use query-spec jobs with bounded cursor batches; generic tables and renovation legacy exports still materialize rows in the request or use the legacy in-process manager.
-4. Convert XLSB inspect/apply to bounded temporary-file parsing and one-pass metadata/row iteration.
+4. **Phase 1 slice done 2026-10-29:** XLSB apply is accepted into `IMPORT_DIR` and returns `202` with a durable `renovation_import` job. A supervised child owns parsing and the transaction; plan writes and terminal job result commit together, while lease loss/cancellation rolls both back. Digest idempotency is scoped to the working plan. The UI polls the job and keeps the completion summary. Input bytes remain on disk until terminal cleanup or TTL.
 5. Move apply and recompute to a staged/versioned import job with atomic finalization.
 6. Extend idempotency, cancellation, heartbeat, retry classification and progress to imports and the remaining exports. Include isolated-worker DB/RSS/CPU metrics in production scraping.
 
-The initial slices were verified with 562 backend tests passing (6 optional
-skips), 373 frontend unit tests, backend lint/format/type checks, frontend
-lint/type checks, and a Keycloak browser scenario that enqueues a one-row export,
-reloads the page, downloads the completed XLSX and repeats the request without
-creating another job. The migration roundtrip/catalog tests passed. The local
-database is upgraded through `0027_data_job_catalog`; `compose.yaml` is unchanged.
+### Backend Phase 1 — durable write boundaries
+
+**In progress.** Completed: the renovation plan import acceptance boundary described above. The
+worker commits the data and result atomically, validates the lease at commit,
+and pins the target plan at acceptance. A reply lost after commit cannot reapply
+the file. Import CPU work runs in a supervised child process. Regression tests
+cover restart, duplicate acceptance, cancellation/expiry rollback, lost replies,
+queue rejection cleanup and a real XLSB subprocess failure.
+The remaining P0 work is staged/versioned finalization: the current worker still
+holds the project lock during batched writes and full recomputation. That lock
+is now outside the request lifetime, but it must be shortened further before a
+large import is advertised as fully parallel.
+
+### Backend Phase 2 — durable read/export boundaries
+
+**In progress.** Completed: renovation-plan and КППК cost/realization exports persist query
+specifications, use PostgreSQL leases, and generate in isolated child
+processes. Generic dictionary/table exports still use the legacy process-local
+manager and materialize rows in the request; converting those routes requires
+query-owned loaders for each domain and is deliberately the next slice. The
+frontend's old/new plan comparison and change highlighting remain deferred and
+must not be pulled into this backend phase.
+
+The remaining generic export slice must cover snapshot row identity,
+movement/price projections, empty access
+scopes, selected-row ordering, user dictionaries and large-job downloads with
+domain contract tests before replacing the existing routes.
+
+The initial slices were verified with 571 backend tests passing (including
+durable-import contract tests; six optional skips), 373 frontend unit tests,
+backend lint/format/type checks, frontend lint/type checks, and Keycloak browser
+scenarios that enqueue a one-row export and an invalid import, reload the page,
+read their persisted statuses through the API and download the completed XLSX.
+Repeating the export request returns the same job. These scenarios verify API
+durability; automatic restoration of the import dialog/polling after page
+reload is still open. The migration roundtrip/catalog tests passed. The local
+database is upgraded through `0028_data_job_result`; the user's existing
+`compose.yaml` changes are excluded from this work.
 The existing toolbar scenario timed out on the cold Next.js route at 30 seconds
 and passed on a focused rerun with a 90-second test budget. This does not replace
 the Phase D large-export and crash-under-load scenarios.

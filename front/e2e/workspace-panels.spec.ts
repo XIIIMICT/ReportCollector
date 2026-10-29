@@ -76,6 +76,46 @@ async function viewAction(page: Page, name: string) {
     await page.mouse.move(800, 900);
 }
 
+test("invalid plan import reports its durable result after reload", async ({ page }) => {
+    test.setTimeout(90000);
+    await openTable(page, "/renovation");
+    const origin = new URL(page.url()).origin;
+    const before = await page.request.get("/api/renovation/plan/rows?offset=0&limit=1");
+    const rows = await before.json();
+    const accepted = await page.request.post("/api/renovation/plan/import/apply", {
+        headers: { Origin: origin },
+        multipart: {
+            file: {
+                name: "invalid.xlsb",
+                mimeType: "application/octet-stream",
+                buffer: Buffer.from("invalid workbook"),
+            },
+        },
+    });
+    expect(accepted.status()).toBe(202);
+    const job = await accepted.json();
+    await page.reload();
+    await expect
+        .poll(
+            async () => {
+                const response = await page.request.get(
+                    `/api/renovation/plan/import/jobs/${job.id}`,
+                );
+                expect(response.ok()).toBe(true);
+                return (await response.json()).status;
+            },
+            { timeout: 60000 },
+        )
+        .toBe("failed");
+    const status = await page.request.get(`/api/renovation/plan/import/jobs/${job.id}`);
+    const result = await status.json();
+    expect(result.error).toBeTruthy();
+    expect(result.new_rows).toBe(0);
+    expect(result.updated_rows).toBe(0);
+    const after = await page.request.get("/api/renovation/plan/rows?offset=0&limit=1");
+    expect((await after.json()).rows).toEqual(rows.rows);
+});
+
 test("KPPK restores sorting without merges and uses the same toolbar row gap", async ({ page }) => {
     await openTable(page, "/kppk");
     await page.getByRole("tab", { name: "Реализация", exact: true }).click();

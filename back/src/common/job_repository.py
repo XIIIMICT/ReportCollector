@@ -54,7 +54,7 @@ class JobRepository:
             )
             if reason is not None:
                 EXPORT_JOBS_REJECTED.labels(kind=candidate.kind, reason=reason).inc()
-                msg = "Очередь выгрузок заполнена. Дождитесь завершения текущих заданий."
+                msg = "Очередь заполнена. Дождитесь завершения текущих заданий."
                 raise ExportQueueFullError(msg)
             candidate.created_at = candidate.available_at = now
             session.add(candidate)
@@ -172,12 +172,23 @@ class JobRepository:
             job.available_at = now + timedelta(seconds=2**job.attempt)
         else:
             job.status = "failed"
-            job.error = "Не удалось сформировать файл. Создайте выгрузку повторно."
+            job.error = (
+                "Не удалось загрузить файл. Повторите загрузку."
+                if job.kind == "renovation_import"
+                else "Не удалось сформировать файл. Создайте выгрузку повторно."
+            )
             job.finished_at = now
             job.expires_at = now + timedelta(seconds=JOB_TTL_SECONDS)
 
     async def finish(
-        self, job: DataJob, *, size: int = 0, total: int = 0, error_code: str | None = None, retryable: bool = False
+        self,
+        job: DataJob,
+        *,
+        size: int = 0,
+        total: int = 0,
+        error: str | None = None,
+        error_code: str | None = None,
+        retryable: bool = False,
     ) -> bool:
         async with self.session_factory() as session, session.begin():
             current = await session.get(DataJob, job.id, with_for_update=True)
@@ -187,6 +198,8 @@ class JobRepository:
             assert current is not None  # noqa: S101
             if error_code is not None:
                 self._retry(current, now, error_code, retryable=retryable)
+                if error is not None and not retryable:
+                    current.error = error
             else:
                 current.status = "done"
                 current.progress = current.total = total
@@ -206,9 +219,40 @@ class JobRepository:
                 raise KeyError(job_id)
             if job.status in ACTIVE_STATES:
                 self._retry(job, await _now(session), "cancelled", retryable=False)
-                job.error = "Выгрузка отменена."
+                job.error = "Загрузка отменена." if kind == "renovation_import" else "Выгрузка отменена."
                 session.add(job)
             return job
+
+    async def complete_in_transaction(
+        self,
+        session: AsyncSession,
+        *,
+        job_id: UUID,
+        lease_token: UUID | None,
+        total: int,
+        result: dict,
+    ) -> bool:
+        """Commit an import result with its writes, fencing cancelled or expired attempts."""
+        current = await session.get(DataJob, job_id, with_for_update=True, populate_existing=True)
+        now = await _now(session)
+        if (
+            current is None
+            or current.status != "running"
+            or lease_token is None
+            or current.lease_token != lease_token
+            or current.lease_until is None
+            or current.lease_until <= now
+        ):
+            return False
+        current.status = "done"
+        current.progress = current.total = total
+        current.result = result
+        current.finished_at = now
+        current.expires_at = now + timedelta(seconds=JOB_TTL_SECONDS)
+        current.lease_until = None
+        current.lease_token = None
+        session.add(current)
+        return True
 
     async def missing_artifact(self, found: DataJob) -> None:
         """Invalidate a missing completed file so a repeated request can regenerate it."""
@@ -247,6 +291,26 @@ class JobRepository:
                 )
             ).all()
             return [job.id for job in expired]
+
+    async def expired_records(self, kind: str) -> list[DataJob]:
+        """Read expired records before their artifacts are removed."""
+        async with self.session_factory() as session:
+            now = await _now(session)
+            return list(
+                (
+                    await session.exec(
+                        select(DataJob)
+                        .where(DataJob.kind == kind, col(DataJob.expires_at) <= now)
+                        .with_for_update(skip_locked=True)
+                        .limit(100)
+                    )
+                ).all()
+            )
+
+    async def referenced_inputs(self, kind: str, keys: list[str]) -> set[str]:
+        async with self.session_factory() as session:
+            key = col(DataJob.payload)["input_key"].astext
+            return set((await session.exec(select(key).where(DataJob.kind == kind, key.in_(keys)))).all())
 
     async def remove_expired(self, job_id: UUID) -> None:
         async with self.session_factory() as session, session.begin():

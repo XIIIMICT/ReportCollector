@@ -2,7 +2,7 @@
 
 import asyncio
 import contextlib
-from collections.abc import AsyncGenerator, Generator, Sequence
+from collections.abc import AsyncGenerator, Callable, Generator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import BinaryIO, cast
@@ -44,7 +44,9 @@ async def apply_plan_file(
     *,
     source: BinaryIO,
     user_id: UUID | None,
+    plan_id: UUID | None = None,
     streaming: bool = False,
+    progress: Callable[[int], None] | None = None,
 ) -> RenovationPlanImportApplyResult:
     """
     Load a validated technical-directorate file into the working plan.
@@ -70,7 +72,10 @@ async def apply_plan_file(
         batches = one_batch()
     with observe_phase("import", "project_lock"):
         await lock_project(session, RENOVATION_PROJECT_KEY)
-    plan = (await session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).first()
+    plan_query = select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING)
+    if plan_id is not None:
+        plan_query = plan_query.where(col(RenovationPlan.id) == plan_id)
+    plan = (await session.exec(plan_query)).first()
     if plan is None:
         raise _ERR_NO_WORKING_PLAN
     reference_ids = _reference_ids()
@@ -123,9 +128,13 @@ async def apply_plan_file(
                             session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id
                         )
                     batch = []
+                    if progress is not None:
+                        progress(inserted + updated)
     if batch:
         with observe_phase("import", "write_batch"):
             await _flush_batch(session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id)
+        if progress is not None:
+            progress(inserted + updated)
 
     # Calculated fields and the renovation ID of every row of the plan.
     with observe_phase("import", "recompute"):
