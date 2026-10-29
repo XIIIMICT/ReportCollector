@@ -46,6 +46,10 @@ async def test_pubsub_cross_connection(valkey_pair) -> None:
     stream = second.subscribe(room)
     receive = asyncio.create_task(anext(stream))
     try:
+        # Pub/sub listeners must stay alive while a room is quiet. The command
+        # client intentionally has a finite read timeout, so this also guards
+        # against accidentally reusing that pool for the blocking listener.
+        await asyncio.sleep(5.5)
         async with asyncio.timeout(5):
             while not receive.done():
                 await first.publish(room, {"type": "test", "value": 42})

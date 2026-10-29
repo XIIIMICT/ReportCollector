@@ -15,6 +15,12 @@ export type CollabMember = CollabUser & {
 
 export type CollabStatus = "offline" | "connecting" | "online";
 
+export type CollabCloseDetails = {
+    code: number;
+    reason: string;
+    wasClean: boolean;
+};
+
 export type CollabCellChanged = {
     section: string;
     reportMonth: string | null;
@@ -46,6 +52,8 @@ export type CollabHandlers = {
     /** The plan row set changed (add/delete/submit/approve) — refetch the data. */
     onRowsChanged?: (event: CollabRowsChanged) => void;
     onConnectionChange?: (status: CollabStatus) => void;
+    /** Close code from the browser, for diagnosing handshake vs relay failures. */
+    onConnectionClose?: (details: CollabCloseDetails) => void;
     onLeaseDenied?: (keys: string[], user: CollabUser) => void;
     /**
      * Another tab of the same account took over the user's selection
@@ -214,7 +222,14 @@ export class CollabWsClient {
                 this.startLeaseRenewal();
             };
             socket.onmessage = (event) => this.handleMessage(event.data);
-            socket.onclose = () => this.handleClose();
+            socket.onclose = (event) => {
+                this.handlers.onConnectionClose?.({
+                    code: event.code,
+                    reason: event.reason,
+                    wasClean: event.wasClean,
+                });
+                this.handleClose();
+            };
             socket.onerror = () => socket.close();
         } catch {
             this.scheduleReconnect();

@@ -107,6 +107,14 @@ The client maintains `ownedLeases` (Set) and **must remove keys on release** —
   - `ERR_CONNECTION_REFUSED` → nginx doesn't proxy `/api/ws/` or back isn't listening; `ERR_SSL_PROTOCOL_ERROR` → WS goes to the wrong port (not through nginx TLS).
 - Diagnostics: `docker logs rc-back --since 30m 2>&1 | grep "collab.ws"`.
 
+`101 Switching Protocols` in the browser Network panel is the successful
+WebSocket handshake. The meaningful failure is the later close code. The
+backend's normal command Valkey client has a five-second read timeout, while
+the collaboration pub/sub listener uses a separate client without an idle read
+timeout; otherwise an inactive room would be closed with `1013` every five
+seconds. A `1013` close now indicates a real relay/queue or Valkey failure and
+is recorded by the collaboration logs/metrics for investigation.
+
 ## Tests
 
 `back/tests/test_collab.py` runs against both MemoryStore and real Valkey in CI: protocol, leases/presence, undo scope per session/form and idle-return via ping. `test_store_contract.py` checks concurrent acquisition, atomic numeric revisions, bulk stack order and oldest-first redo on both stores; `test_valkey.py` verifies independent connections and server TTL/pubsub. `front/e2e/collab.spec.ts` runs two-user/multi-tab regressions with local login on the isolated production-image stack. Frontend unit tests cover ticket/session forwarding, lease denial/release, selection preemption and disconnect during ticket fetch (no late socket creation); malformed messages are ignored.

@@ -24,8 +24,9 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
-from redis.exceptions import RedisError
 from sqlmodel.ext.asyncio.session import AsyncSession
+from starlette.websockets import WebSocketDisconnected
+from valkey.exceptions import ValkeyError
 
 from src.app_logging import log_event, log_warning
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
@@ -124,7 +125,7 @@ class RoomManager:
         await asyncio.wait_for(self._ready[room].wait(), timeout=10)
         if self._relay_tasks[room].done():
             error = "Room subscription failed"
-            raise RedisError(error)
+            raise ValkeyError(error)
 
     async def leave(self, room: str, websocket: WebSocket) -> None:
         members = self._members.get(room)
@@ -197,7 +198,7 @@ class RoomManager:
 
     @staticmethod
     async def _close(websocket: WebSocket, code: int) -> None:
-        with suppress(RuntimeError, WebSocketDisconnect):
+        with suppress(RuntimeError, WebSocketDisconnect, WebSocketDisconnected):
             await websocket.close(code=code)
 
     async def _writer(self, websocket: WebSocket, queue: asyncio.Queue) -> None:
@@ -394,7 +395,7 @@ async def _serve_room(
         try:
             await store.room_join(room, str(user.id), owner)
             await manager.join(room, websocket, owner, access)
-        except RedisError, TimeoutError:
+        except ValkeyError, TimeoutError:
             await manager.leave(room, websocket)
             with suppress(RuntimeError, WebSocketDisconnect):
                 await websocket.close(code=1013)
@@ -416,8 +417,16 @@ async def _serve_room(
             room=room,
         )
 
+    except WebSocketDisconnect, WebSocketDisconnected:
+        # A client may disappear during the handshake, before Starlette has
+        # moved the socket into CONNECTED state.  Treat that race as a normal
+        # disconnect; attempting to read or close it again only creates a
+        # misleading 500 in the ASGI server log.
+        with suppress(ValkeyError, RuntimeError, WebSocketDisconnect, WebSocketDisconnected):
+            await _cleanup_connection(store, manager, room, project_key, websocket, owner, owned_leases)
+        return
     except BaseException:
-        with suppress(RedisError):
+        with suppress(ValkeyError):
             await _cleanup_connection(store, manager, room, project_key, websocket, owner, owned_leases)
         raise
 
@@ -425,7 +434,7 @@ async def _serve_room(
         while True:
             try:
                 message = await websocket.receive_json()
-            except WebSocketDisconnect:
+            except WebSocketDisconnect, WebSocketDisconnected:
                 break
             if not isinstance(message, dict):
                 await websocket.send_json({"type": "error", "message": "Сообщение должно быть объектом JSON."})
@@ -441,17 +450,26 @@ async def _serve_room(
                     owned_leases=owned_leases,
                     access=access,
                 )
+            except WebSocketDisconnect, WebSocketDisconnected:
+                # The browser can close immediately after sending its final
+                # heartbeat.  Starlette reports a receive-side disconnect as
+                # ``WebSocketDisconnect`` and a concurrent send as the
+                # runtime ``WebSocketDisconnected``; both are normal socket
+                # lifecycle events and must not bubble into Granian's error
+                # middleware as application failures.
+                break
             except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError, NoKppkAccessError:
-                await websocket.close(code=4403)
+                with suppress(RuntimeError, WebSocketDisconnect, WebSocketDisconnected):
+                    await websocket.close(code=4403)
                 break
             except ValidationError as error:
                 await websocket.send_json({"type": "error", "message": f"Некорректное сообщение: {error.errors()}"})
-            except RedisError:
+            except ValkeyError:
                 await websocket.send_json(
                     {"type": "error", "message": "Хранилище совместного редактирования временно недоступно."}
                 )
     finally:
-        with suppress(RedisError):
+        with suppress(ValkeyError):
             await _cleanup_connection(store, manager, room, project_key, websocket, owner, owned_leases)
         log_event(
             logger,

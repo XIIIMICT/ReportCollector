@@ -2,7 +2,7 @@
 Collaboration state storage.
 
 A common interface for two implementations:
-- ValkeyStore — redis-py client: cell leases (lease with TTL), room
+- ValkeyStore — valkey-py client: cell leases (lease with TTL), room
   presence (hash + expire) and pub/sub for cross-worker event fan-out;
 - MemoryStore — in-process implementation for tests and running without
   Valkey (single worker: behavior is identical; no cross-worker sync).
@@ -17,9 +17,9 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from functools import lru_cache
 
-import redis.asyncio as redis
-from redis.backoff import ExponentialBackoff
-from redis.retry import Retry
+import valkey.asyncio as valkey
+from valkey.backoff import ExponentialBackoff
+from valkey.retry import Retry
 
 from src.config import get_settings
 
@@ -166,18 +166,31 @@ class ValkeyStore:
     """
 
     def __init__(self, url: str) -> None:
-        self._redis = redis.from_url(
+        # Command connections use a finite read timeout so a broken Valkey
+        # endpoint cannot pin a request forever. Pub/sub is different: its
+        # listener intentionally waits for the next event and must not treat a
+        # quiet room as a failed connection after five seconds.
+        connection_options = {
+            "decode_responses": True,
+            "socket_connect_timeout": 5.0,
+            "health_check_interval": 30,
+            "retry": Retry(ExponentialBackoff(base=0.2, cap=1.5), retries=3),
+            "retry_on_timeout": True,
+        }
+        self._redis = valkey.from_url(
             url,
-            decode_responses=True,
-            socket_connect_timeout=5.0,
+            **connection_options,
             socket_timeout=5.0,
-            health_check_interval=30,
-            retry=Retry(ExponentialBackoff(base=0.2, cap=1.5), retries=3),
-            retry_on_timeout=True,
+        )
+        self._pubsub_redis = valkey.from_url(
+            url,
+            **connection_options,
+            socket_timeout=None,
         )
 
     async def close(self) -> None:
         await self._redis.aclose()
+        await self._pubsub_redis.aclose()
 
     # ─── Cell leases ─────────────────────────────────────────────────────────
 
@@ -372,7 +385,7 @@ class ValkeyStore:
         await self._redis.publish(room_channel(room), _encode(message))
 
     async def subscribe(self, room: str, *, ready: asyncio.Event | None = None) -> AsyncIterator[dict]:
-        pubsub = self._redis.pubsub()
+        pubsub = self._pubsub_redis.pubsub()
         await pubsub.subscribe(room_channel(room))
         try:
             async for message in pubsub.listen():

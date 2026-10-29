@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
     CollabWsClient,
+    type CollabCloseDetails,
     type CollabCellChanged,
     type CollabMember,
     type CollabRowsChanged,
@@ -60,13 +61,22 @@ export function useCollabRoom({
     /** Another tab of the same account took over the user's selection. */
     onSelectionPreempted?: () => void;
     onReconnect?: () => void;
+    /** Browser close details for diagnosing handshake/relay failures. */
+    onConnectionClose?: (details: CollabCloseDetails) => void;
 }): CollabRoom {
     const clientRef = useRef<CollabWsClient | null>(null);
-    const handlersRef = useRef({ onCellChanged, onRowsChanged, onSelectionPreempted, onReconnect });
+    const handlersRef = useRef({
+        onCellChanged,
+        onRowsChanged,
+        onSelectionPreempted,
+        onReconnect,
+        onConnectionClose,
+    });
     handlersRef.current.onReconnect = onReconnect;
     handlersRef.current.onCellChanged = onCellChanged;
     handlersRef.current.onRowsChanged = onRowsChanged;
     handlersRef.current.onSelectionPreempted = onSelectionPreempted;
+    handlersRef.current.onConnectionClose = onConnectionClose;
     const assetsRef = useRef(visibleAssets);
     assetsRef.current = visibleAssets;
     const [status, setStatus] = useState<CollabStatus>("offline");
@@ -123,6 +133,7 @@ export function useCollabRoom({
                 onCellChanged: (event) => handlersRef.current.onCellChanged?.(event),
                 onRowsChanged: (event) => handlersRef.current.onRowsChanged?.(event),
                 onSelectionPreempted: () => handlersRef.current.onSelectionPreempted?.(),
+                onConnectionClose: (details) => handlersRef.current.onConnectionClose?.(details),
                 onConnectionChange: (next) => {
                     if (next !== "online") {
                         // cell:unlocked events fired during the gap are lost:

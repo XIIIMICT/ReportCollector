@@ -7,7 +7,7 @@ class TestSocket {
     static instances: TestSocket[] = [];
     readyState = 1;
     onopen: (() => void) | null = null;
-    onclose: (() => void) | null = null;
+    onclose: ((event: CloseEvent) => void) | null = null;
     onerror: (() => void) | null = null;
     onmessage: ((event: { data: string }) => void) | null = null;
     sent: unknown[] = [];
@@ -19,7 +19,7 @@ class TestSocket {
     }
     close() {
         this.readyState = 3;
-        this.onclose?.();
+        this.onclose?.({ code: 1000, reason: "", wasClean: true } as CloseEvent);
     }
     receive(value: unknown) {
         this.onmessage?.({ data: JSON.stringify(value) });
@@ -70,6 +70,17 @@ test("ticket URL carries the page session and project scope", async () => {
     expect(url.searchParams.get("project")).toBe("renovation");
     expect(url.searchParams.get("ticket")).toBe("test-ticket");
     expect(status.mock.calls).toEqual([["connecting"], ["online"]]);
+});
+
+test("reports the browser close code before reconnecting", async () => {
+    const closed = mock();
+    const socket = await connected({ onConnectionClose: closed });
+    socket.onclose?.({ code: 1013, reason: "relay unavailable", wasClean: false } as CloseEvent);
+    expect(closed).toHaveBeenCalledWith({
+        code: 1013,
+        reason: "relay unavailable",
+        wasClean: false,
+    });
 });
 
 test("releases only granted leases and forwards denial", async () => {
