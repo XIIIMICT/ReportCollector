@@ -1,6 +1,8 @@
 import { Card } from "@heroui/react";
 import type { ReactNode } from "react";
 
+import { AnimatedPanel } from "@/shared/ui/animated-panel";
+
 /** Layout only: grids and project dialogs keep their state in the workspace. */
 export function WorkspaceContent({
     toolbar,
@@ -16,9 +18,9 @@ export function WorkspaceContent({
             <section className="workspace">
                 <Card className="workspace-card">
                     <Card.Content className="workspace-card__content">
-                        {toolbar}
+                        <AnimatedPanel>{toolbar}</AnimatedPanel>
                         {children}
-                        {footer}
+                        <AnimatedPanel>{footer}</AnimatedPanel>
                     </Card.Content>
                 </Card>
             </section>
@@ -45,11 +47,13 @@ export function WorkspaceFullscreenPanels({
             <div className={revealClass("top")}>
                 <div className="fullscreen-panel fullscreen-panel--top">
                     {header}
-                    {toolbar}
+                    <AnimatedPanel>{toolbar}</AnimatedPanel>
                 </div>
             </div>
             <div className={revealClass("bottom")}>
-                <div className="fullscreen-panel fullscreen-panel--bottom">{footer}</div>
+                <div className="fullscreen-panel fullscreen-panel--bottom">
+                    <AnimatedPanel>{footer}</AnimatedPanel>
+                </div>
             </div>
         </>
     );

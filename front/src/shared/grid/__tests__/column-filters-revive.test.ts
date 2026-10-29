@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
-import { columnFiltersStorageKey, reviveFilters } from "@/shared/grid/use-grid-column-filters";
+import {
+    columnFiltersStorageKey,
+    reviveFilters,
+    readStoredFilters,
+    writeStoredFilters,
+} from "@/shared/grid/use-grid-column-filters";
 
 describe("columnFiltersStorageKey", () => {
     it("keys by project AND section, so no two tables share a bucket", () => {
@@ -19,6 +24,29 @@ describe("columnFiltersStorageKey", () => {
 });
 
 describe("reviveFilters", () => {
+    it.each([
+        { from: "2026-10-13T21:00:00.000Z", to: null },
+        { from: null, to: "2026-10-14T21:00:00.000Z" },
+        { from: "2026-10-13T21:00:00.000Z", to: "2026-10-14T21:00:00.000Z" },
+    ])("round-trips timestamp bounds without changing the row query (%j)", (window) => {
+        const filters = {
+            createdAt: { column: "createdAt", values: [], includeNulls: false, ...window },
+        };
+        writeStoredFilters("test", "plan", filters);
+        expect(readStoredFilters("test", "plan")).toEqual(filters);
+        writeStoredFilters("test", "plan", {});
+        expect(readStoredFilters("test", "plan")).toEqual({});
+    });
+
+    it("rejects invalid timestamp bounds instead of silently changing the filter type", () => {
+        expect(
+            reviveFilters(
+                JSON.stringify({
+                    createdAt: { values: [], includeNulls: false, from: "broken", to: null },
+                }),
+            ),
+        ).toEqual({});
+    });
     it("returns nothing for input that is not an object of filters", () => {
         // Untrusted on every axis: a hand-edited entry, a shape from a previous
         // release, a truncated write. All must open the table unfiltered.

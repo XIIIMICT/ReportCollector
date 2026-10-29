@@ -356,10 +356,17 @@ export function reviveFilters(raw: string): Record<string, ColumnFilter> {
         if (!Array.isArray(filter.values) || !filter.values.every((v) => typeof v === "string")) {
             continue;
         }
+        const hasWindow = "from" in filter || "to" in filter;
+        const validBound = (bound: unknown) =>
+            bound == null || (typeof bound === "string" && Number.isFinite(Date.parse(bound)));
+        // Preserve open ends too. Dropping the window turns a timestamp filter
+        // into an empty value selection, which the server correctly matches to no rows.
+        if (hasWindow && (!validBound(filter.from) || !validBound(filter.to))) continue;
         valid[column] = {
             column,
             values: filter.values,
             includeNulls: filter.includeNulls !== false,
+            ...(hasWindow ? { from: filter.from ?? null, to: filter.to ?? null } : {}),
         };
     }
     return valid;

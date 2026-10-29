@@ -1209,6 +1209,7 @@ export function RenovationWorkspace({
                     // remembered per column, so they go as well: keeping them left
                     // a reset filter behind that came back on the next open.
                     clearFilterDrafts("renovation", "plan");
+                    writeStoredFilters("renovation", "plan", {});
                     setColumnFilters({});
                 }
                 return;

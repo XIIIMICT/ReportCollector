@@ -10,7 +10,7 @@
     },
     "browsermcp": {
       "command": "bunx",
-      "args": ["-y", "@browsermcp/mcp@0.1.3"]
+      "args": ["-y", "@browsermcp/mcp@latest"]
     }
   }
 }

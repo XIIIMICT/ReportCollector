@@ -11,3 +11,13 @@
 export function hasOpenModal(): boolean {
     return document.querySelector('[role="alertdialog"], [role="dialog"]') !== null;
 }
+
+/** Portals and inline editors own Escape before grid selection or fullscreen. */
+export function hasOpenKeyboardOverlay(): boolean {
+    return (
+        hasOpenModal() ||
+        document.querySelector(
+            '[data-smart-select-open="true"], [data-slot="dropdown-popover"], [data-slot="popover"], .column-filter__popover, .row-go-to-filter__popover, [data-grid-keyboard-overlay]',
+        ) !== null
+    );
+}

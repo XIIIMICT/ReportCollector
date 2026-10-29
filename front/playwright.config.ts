@@ -27,8 +27,13 @@ export default defineConfig({
             // by CI, so those regressions (hover flicker, dictionary undo) were
             // silently never checked.
             testMatch:
-                /(?:auth|health|smoke|clipboard|collab|fix-month|hover-dropdown|renovation-hover|raw-materials-ui)\.spec\.ts/,
+                /(?:auth|health|smoke|clipboard|collab|fix-month|hover-dropdown|renovation-hover|raw-materials-ui|workspace-panels)\.spec\.ts/,
             use: { ...devices["Desktop Chrome"] },
+        },
+        {
+            name: "ui-keycloak",
+            testMatch: /workspace-panels\.spec\.ts/,
+            use: { ...devices["Desktop Chrome"], timezoneId: "Europe/Moscow" },
         },
     ],
     // When running locally: start the app first with `bun dev` or docker

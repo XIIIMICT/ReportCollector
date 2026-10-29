@@ -39,7 +39,7 @@ import {
     type ColumnFilter,
 } from "@/shared/ui/column-filter-facets";
 import { ColumnFilterPopover, type FacetSource } from "@/shared/ui/column-filter-popover";
-import { hasOpenModal } from "@/shared/ui/modal-presence";
+import { hasOpenKeyboardOverlay } from "@/shared/ui/modal-presence";
 import { RowGoToFilter } from "@/shared/ui/row-go-to-filter";
 import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
 
@@ -2142,19 +2142,16 @@ function DataGridInner(
         // the pointer reached it.
         //
         // BOTH events: a real mouse fires `pointermove`, while synthetic input
-        // delivers `mousemove`. The handler reads only `target`.
-        const onPointerLeave = (event: MouseEvent) => {
-            const target = event.target as Element | null;
-            if (!target?.closest?.(".revo-grid-shell")) return;
-            setHoveredHeaderProp(null);
-        };
+        // delivers `mousemove`. The handler reads only `target`. Do not add a
+        // document-level `pointerleave` here: it fires while the pointer crosses
+        // from a header cell to the overlay sibling, clearing the marker in the
+        // small gap before the next pointermove reopens it (visible as a rapid
+        // reveal/hide animation at the cell edge).
         document.addEventListener("pointermove", onPointerMove, true);
         document.addEventListener("mousemove", onPointerMove, true);
-        document.addEventListener("pointerleave", onPointerLeave, true);
         return () => {
             document.removeEventListener("pointermove", onPointerMove, true);
             document.removeEventListener("mousemove", onPointerMove, true);
-            document.removeEventListener("pointerleave", onPointerLeave, true);
         };
     }, [filteringEnabled]);
 
@@ -2749,16 +2746,20 @@ function DataGridInner(
                 active.isContentEditable);
 
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === "Escape" && !document.fullscreenElement) {
+            if (event.key === "Escape") {
                 if (
+                    event.defaultPrevented ||
                     hasOpenSmartSelect() ||
-                    hasOpenModal() ||
+                    hasOpenKeyboardOverlay() ||
                     (event.target instanceof Element &&
                         event.target.closest("[data-grid-keyboard-overlay]")) ||
                     isFromTextEditor(event) ||
                     isEditableTarget(document.activeElement)
                 )
                     return;
+                if (selectionRangeRef.current === null && selectedRowIds.length === 0) return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
                 // Same path as the row-selection reset: clears the range,
                 // repaints the overlay and drops revo-grid's stale focus restore.
                 clearGridSelection();
@@ -2798,7 +2799,7 @@ function DataGridInner(
         // capture: intercept Ctrl+A before revo-grid.
         document.addEventListener("keydown", handleKeyDown, true);
         return () => document.removeEventListener("keydown", handleKeyDown, true);
-    }, [clearGridSelection, copySelection, cutSelection, selectAllCells, section]);
+    }, [clearGridSelection, copySelection, cutSelection, selectAllCells, section, selectedRowIds]);
 
     useEffect(() => {
         const frame = requestAnimationFrame(() => {

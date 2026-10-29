@@ -42,27 +42,15 @@ export type ActionItem = {
 /**
  * Chunk actions into ButtonGroup runs: consecutive items with equal `group`.
  *
- * An item WITH a `menu` is never folded into a group: a ButtonGroup renders
- * every child as a plain button and cannot host the dropdown, so grouping the
- * export with a neighbour silently replaced its «вся / видимая таблица» menu by
- * a one-shot press that exported everything. That is exactly what happened on
- * the object-level plan, where «Скачать в Excel» and «Загрузить из Excel» share
- * the `download` group; the dictionary tabs have no import button, so the
- * export stayed alone and kept its menu.
+ * Dropdown triggers belong to the same group as ordinary buttons. Both use
+ * renderAction so grouping never replaces a dropdown with a one-shot action.
  */
 export function groupActionItems(items: ActionItem[]): ActionItem[][] {
     const chunks: ActionItem[][] = [];
     for (const item of items) {
         const last = chunks[chunks.length - 1];
         const lastFirst = last?.[0];
-        const groupable = item.menu === undefined && lastFirst?.menu === undefined;
-        if (
-            last &&
-            lastFirst &&
-            groupable &&
-            item.group !== undefined &&
-            lastFirst.group === item.group
-        ) {
+        if (last && lastFirst && item.group !== undefined && lastFirst.group === item.group) {
             last.push(item);
         } else {
             chunks.push([item]);
@@ -119,6 +107,7 @@ export function ActionBar({
         if (action.menu) {
             return (
                 <HoverDropdown
+                    key={action.id}
                     className="action-more-popover"
                     {...(onDropdownOpenChange && { onOpenChange: onDropdownOpenChange })}
                     trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
@@ -161,6 +150,7 @@ export function ActionBar({
         }
         return (
             <ExpandableButton
+                key={action.id}
                 isExpanded={isExpanded(action)}
                 variant={action.variant ?? "tertiary"}
                 {...(action.disabled !== undefined && { isDisabled: action.disabled })}
@@ -220,23 +210,7 @@ export function ActionBar({
                     // ExpandableButton forwards HeroUI's injected group props
                     // to its Button, with no intervening DOM wrapper.
                     <ButtonGroup key={`group-${firstAction.id}`}>
-                        {chunk.map((action) => (
-                            <ExpandableButton
-                                key={action.id}
-                                isExpanded={isExpanded(action)}
-                                icon={action.pending ? <Spinner size="sm" /> : action.icon}
-                                variant={action.variant ?? "tertiary"}
-                                {...(action.disabled !== undefined && {
-                                    isDisabled: action.disabled,
-                                })}
-                                aria-label={action.label}
-                                aria-keyshortcuts={action.shortcut?.aria}
-                                {...hintData(action)}
-                                onPress={action.onPress}
-                            >
-                                {action.label}
-                            </ExpandableButton>
-                        ))}
+                        {chunk.map((action) => renderAction(action))}
                     </ButtonGroup>
                 ) : (
                     <span

@@ -91,7 +91,7 @@ import {
 import { isChunkedSection } from "@/shared/grid/section-policy";
 import { selectionDetailForColumn } from "@/shared/grid/selection-label";
 import { isFromTextEditor } from "@/shared/keyboard";
-import { hasOpenModal } from "@/shared/ui/modal-presence";
+import { hasOpenKeyboardOverlay } from "@/shared/ui/modal-presence";
 import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
 
 import { breaksValueRules } from "./renovation-rules";
@@ -2375,7 +2375,7 @@ function RenovationGridInner(
     // Keyboard shortcuts (event.code — works in any keyboard layout).
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === "Escape" && !document.fullscreenElement) {
+            if (event.key === "Escape") {
                 // Window capture precedes the select's portal handlers. Leave
                 // this Escape to the popover, preserving the current range.
                 if (hasOpenSmartSelect()) return;
@@ -2383,7 +2383,7 @@ function RenovationGridInner(
                 // document.body, so this window handler would otherwise clear
                 // the grid selection underneath it (the open dialog then reads
                 // «Удалить записи (0)»).
-                if (hasOpenModal()) return;
+                if (event.defaultPrevented || hasOpenKeyboardOverlay()) return;
                 if (
                     event.target instanceof Element &&
                     event.target.closest("[data-grid-keyboard-overlay]")
@@ -2400,7 +2400,7 @@ function RenovationGridInner(
                 // range, the key belongs to whoever has focus (menus, dialogs).
                 const hasRange =
                     selectionRangeRef.current !== null || lastRangeRef.current !== null;
-                if (!gridAdapter.isTarget(event) && !hasRange) return;
+                if (!hasRange && selectedRowIds.length === 0) return;
                 // Swallow the event so revo-grid's built-in Escape (which
                 // collapses the range to a single cell) never runs: the row
                 // selection must clear completely, not shrink to one cell.
@@ -2476,7 +2476,7 @@ function RenovationGridInner(
             window.removeEventListener("keydown", handleKeyDown, true);
             document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
         };
-    }, [clearGridSelection, copySelection]);
+    }, [clearGridSelection, copySelection, selectedRowIds]);
 
     useEffect(() => {
         selectionRangeRef.current = selectionRange;

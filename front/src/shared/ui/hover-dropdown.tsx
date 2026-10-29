@@ -1,7 +1,14 @@
 "use client";
 
 import { Dropdown } from "@heroui/react";
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import {
+    cloneElement,
+    useEffect,
+    useRef,
+    useState,
+    type ReactElement,
+    type ReactNode,
+} from "react";
 
 function pointInRect(point: { x: number; y: number }, element: HTMLElement | null): boolean {
     if (!element) return false;
@@ -46,6 +53,7 @@ export function HoverDropdown({
     content,
     className,
     onOpenChange,
+    ...triggerProps
 }: {
     trigger: (props: HoverDropdownTriggerProps) => ReactElement;
     content: ReactNode;
@@ -53,6 +61,8 @@ export function HoverDropdown({
     /** Notifies the owner whether the dropdown is open (used e.g. to hold the
         fullscreen toolbar panels open while a hover menu is expanded). */
     onOpenChange?: (open: boolean) => void;
+    /** HeroUI ButtonGroup marks its direct child; forward that marker to the trigger. */
+    __button_group_child?: boolean;
 }) {
     const [open, setOpenState] = useState(false);
     const onOpenChangeRef = useRef(onOpenChange);
@@ -117,6 +127,8 @@ export function HoverDropdown({
         if (!open) return;
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
                 suppressHoverRef.current = true;
                 setOpen(false);
             }
@@ -146,7 +158,7 @@ export function HoverDropdown({
 
     return (
         <Dropdown isOpen={open} onOpenChange={setOpen}>
-            {triggerElement}
+            {cloneElement(triggerElement, triggerProps)}
             <Dropdown.Popover ref={popoverRef} {...(className && { className })}>
                 {content}
             </Dropdown.Popover>

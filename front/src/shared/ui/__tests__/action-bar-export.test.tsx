@@ -45,6 +45,9 @@ test("the export menu survives sharing the download group with an import button"
 
     // A plain press must NOT export: it opens the dropdown instead.
     const trigger = screen.getByRole("button", { name: "Скачать в Excel" });
+    const upload = screen.getByRole("button", { name: "Загрузить из Excel" });
+    expect(trigger.closest('[data-slot="button-group"]')).toBeTruthy();
+    expect(trigger.parentElement).toBe(upload.parentElement);
     fireEvent.click(trigger);
     await waitFor(() => expect(screen.queryByText("Скачать видимую таблицу")).toBeTruthy());
     expect(calls).toEqual([]);

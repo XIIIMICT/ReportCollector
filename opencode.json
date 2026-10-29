@@ -9,7 +9,7 @@
       "command": [
         "bunx",
         "-y",
-        "@browsermcp/mcp@0.1.3"
+        "@browsermcp/mcp@latest"
       ],
       "enabled": true
     },

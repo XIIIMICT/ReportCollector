@@ -6,6 +6,12 @@ Main code: `front/src/shared/grid/` (`raw-materials-grid.tsx` — the grid compo
 
 Stack: `@revolist/react-datagrid` 4.27 (revo-grid), React 19, HeroUI (tooltips, modals, toasts), Tailwind 4, Next 16. Custom editors are registered through `revo-grid` (see `grid-editors.tsx`).
 
+## Panel layout and fullscreen behavior
+
+The shared `AnimatedPanel` (`front/src/shared/ui/animated-panel.tsx`) measures each toolbar and footer from its visible content. A panel therefore follows its tallest control and animates height changes in both the regular card and the fullscreen reveal panels. Toolbar and footer children do not add vertical margins or padding; the parent keeps only the horizontal rhythm.
+
+Native fullscreen is always attempted. Keyboard Lock is optional: when granted, Escape is handled by open overlays, then grid selection, then fullscreen. If the browser denies Keyboard Lock, its normal native Escape behavior is accepted and fullscreen may close first.
+
 ## Forms and columns (`grid-config.ts`)
 
 - **All grid headers wrap text.** The shared native-header selector includes

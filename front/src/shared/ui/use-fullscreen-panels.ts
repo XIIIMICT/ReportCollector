@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { hasOpenKeyboardOverlay } from "@/shared/ui/modal-presence";
+
+type KeyboardLock = { lock: (keys: string[]) => Promise<void>; unlock: () => void };
+function keyboardLock(): KeyboardLock | undefined {
+    return (navigator as Navigator & { keyboard?: KeyboardLock }).keyboard;
+}
+
 /**
  * Fullscreen mode + the top/bottom reveal panels that host the toolbar and the
  * action bar.
@@ -33,8 +40,22 @@ export function useFullscreenPanels() {
             setIsFullscreenPending(true);
             try {
                 if (next && !document.fullscreenElement) {
+                    // Native fullscreen is always the source of truth. Keyboard
+                    // Lock is only an optional enhancement that lets the app
+                    // consume Escape before the browser exits fullscreen; a
+                    // denied or unavailable lock must never prevent fullscreen.
                     await document.documentElement.requestFullscreen();
+                    const lock = keyboardLock();
+                    if (lock) {
+                        // Lock permission can wait for a browser prompt. Do not
+                        // hold the visible fullscreen state on that optional
+                        // enhancement; native fullscreen remains usable either
+                        // way and the browser handles Escape when the lock is
+                        // denied.
+                        void lock.lock(["Escape"]).catch(() => undefined);
+                    }
                 } else if (!next && document.fullscreenElement) {
+                    keyboardLock()?.unlock();
                     await document.exitFullscreen();
                 }
                 setIsFullscreen(next);
@@ -51,12 +72,27 @@ export function useFullscreenPanels() {
         if (!isFullscreen) return;
         const onFullscreenChange = () => {
             if (!document.fullscreenElement) {
+                keyboardLock()?.unlock();
                 setIsFullscreen(false);
             }
         };
         document.addEventListener("fullscreenchange", onFullscreenChange);
         return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
     }, [isFullscreen]);
+
+    useEffect(() => {
+        if (!isFullscreen) return;
+        // Bubble phase: a grid with a live selection consumes Escape in capture;
+        // React Aria consumes it in an open portal. Only the unhandled key exits.
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== "Escape" || event.defaultPrevented || hasOpenKeyboardOverlay())
+                return;
+            event.preventDefault();
+            void setFullscreenMode(false);
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [isFullscreen, setFullscreenMode]);
 
     useEffect(() => {
         if (!isFullscreen) return;
