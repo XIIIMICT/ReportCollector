@@ -28,6 +28,45 @@ async function openTable(page: Page, url: string) {
     await expect(page.locator("revogr-data .rgCell:not(.report-row-header)").first()).toBeVisible();
 }
 
+test("plan export persists its scope and downloads a completed workbook", async ({ page }) => {
+    test.setTimeout(90000);
+    await openTable(page, "/renovation");
+    const origin = new URL(page.url()).origin;
+    const rowsResponse = await page.request.get("/api/renovation/plan/rows?offset=0&limit=1");
+    expect(rowsResponse.ok()).toBe(true);
+    const rows = await rowsResponse.json();
+    expect(rows.rows.length).toBeGreaterThan(0);
+    const request = { rowIds: [rows.rows[0].id] };
+    const created = await page.request.post("/api/renovation/plan/export/jobs", {
+        data: request,
+        headers: { Origin: origin },
+    });
+    expect(created.status()).toBe(202);
+    const job = await created.json();
+    await page.reload();
+    await expect
+        .poll(
+            async () => {
+                const response = await page.request.get(
+                    `/api/renovation/plan/export/jobs/${job.id}`,
+                );
+                const status = await response.json();
+                expect(status.error).toBeNull();
+                return status.status;
+            },
+            { timeout: 60000 },
+        )
+        .toBe("done");
+    const file = await page.request.get(`/api/renovation/plan/export/jobs/${job.id}/file`);
+    expect(file.ok()).toBe(true);
+    expect((await file.body()).subarray(0, 2).toString()).toBe("PK");
+    const repeated = await page.request.post("/api/renovation/plan/export/jobs", {
+        data: request,
+        headers: { Origin: origin },
+    });
+    expect((await repeated.json()).id).toBe(job.id);
+});
+
 async function viewAction(page: Page, name: string) {
     await page
         .getByRole("button", { name: "Вид таблицы", exact: true })

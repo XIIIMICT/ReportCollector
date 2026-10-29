@@ -658,13 +658,6 @@ async def iter_plan_export_rows(
     so a normal plan skips the engine entirely — it used to cost ~2 minutes for
     300k rows. A server-side cursor keeps memory bounded: one batch at a time.
     """
-    query = _plan_export_query(
-        plan_id,
-        asset_ids,
-        row_ids,
-        filters=filters,
-        include_unassigned=include_unassigned,
-    )
     label_map = await _reference_labels(session)
     engine = formula_engine()
     calculated_fields = tuple(meta.db_name for meta in field_metas() if meta.is_calculated)
@@ -692,13 +685,23 @@ async def iter_plan_export_rows(
         return [_prepare_entry(entry) for entry in partition]
 
     if row_ids is not None:
-        # An exact-set export is small: read it fully and keep the rowIds order.
-        db_rows_with_ids = list((await session.exec(query)).all())  # ty: ignore[no-matching-overload]
-        by_id = {entry[0]: _prepare_entry(entry) for entry in db_rows_with_ids}
-        ordered = [by_id[row_id] for row_id in row_ids if row_id in by_id]
-        for start in range(0, len(ordered), batch_size):
-            yield ordered[start : start + batch_size]
+        # Exact-set exports can be large too. Query only one requested ID batch,
+        # retaining the caller's order without materializing the whole plan.
+        for start in range(0, len(row_ids), batch_size):
+            ids = row_ids[start : start + batch_size]
+            batch_query = _plan_export_query(
+                plan_id,
+                asset_ids,
+                ids,
+                filters=filters,
+                include_unassigned=include_unassigned,
+            )
+            entries = (await session.exec(batch_query)).all()  # ty: ignore[no-matching-overload]
+            prepared = await asyncio.to_thread(_prepare_partition, entries)
+            by_id = {entry[0]: value for entry, value in zip(entries, prepared, strict=True)}
+            yield [by_id[row_id] for row_id in ids if row_id in by_id]
         return
+    query = _plan_export_query(plan_id, asset_ids, None, filters=filters, include_unassigned=include_unassigned)
     result = await session.stream(query)
     try:
         async for partition in result.partitions(batch_size):

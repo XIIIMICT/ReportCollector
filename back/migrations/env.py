@@ -22,6 +22,7 @@ from sqlmodel import SQLModel
 
 from src.auth import models as auth_models  # noqa: F401
 from src.collab import models as collab_models  # noqa: F401
+from src.common import job_models  # noqa: F401
 from src.config import get_settings
 from src.kppk import models as kppk_models  # noqa: F401
 from src.raw_materials import models as raw_materials_models  # noqa: F401

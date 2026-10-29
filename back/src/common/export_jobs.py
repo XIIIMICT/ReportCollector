@@ -1,5 +1,8 @@
 """
-Background export jobs: the shared queue every project's big exports run on.
+Shared export types and the legacy in-memory queue for generic table exports.
+
+Renovation plan exports use ``DurableExportManager`` instead. The legacy
+table queue below remains until its callers persist query specifications.
 
 Generalized from the renovation plan export: a full-table export can be
 minutes of CPU and hundreds of megabytes (the plan is ~306k rows × 216
@@ -32,7 +35,6 @@ import asyncio
 import contextlib
 import logging
 import os
-import tempfile
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -48,6 +50,7 @@ from pydantic import BaseModel
 from src.app_logging import log_error, log_event
 from src.common.export import INLINE_EXPORT_MAX_ROWS
 from src.common.xlsx_table import TableWorkbookWriter
+from src.config import get_settings
 from src.downloads import attachment_response
 from src.metrics import (
     EXPORT_JOB_BYTES,
@@ -81,9 +84,9 @@ class ExportQueueFullError(RuntimeError):
 
 
 def export_dir() -> Path:
-    """Return the directory export files are written to (EXPORT_DIR overrides the temp dir)."""
+    """Use EXPORT_DIR, or an exports directory on the existing persistent log volume."""
     configured = os.environ.get("EXPORT_DIR")
-    base = Path(configured) if configured else Path(tempfile.gettempdir()) / "reportcollector-exports"
+    base = Path(configured) if configured else Path(get_settings().log_file).resolve().parent / "exports"
     base.mkdir(parents=True, exist_ok=True)
     return base
 
@@ -111,6 +114,14 @@ class ExportJobSpecLike(Protocol):
     def cache_key(self) -> str: ...
 
 
+class ExportSpec(BaseModel):
+    """Common fields of a serializable durable export specification."""
+
+    file_name: str
+    total: int
+    cache_key: str
+
+
 @dataclass(slots=True)
 class ExportJob:
     id: str
@@ -125,6 +136,12 @@ class ExportJob:
     # streamed the growing file does not need it).
     size: int | None = None
     request_id: str | None = None
+    artifact_key: str | None = None
+
+    @property
+    def file_id(self) -> str:
+        """Durable jobs isolate every attempt; legacy jobs use their job ID."""
+        return self.artifact_key or self.id
 
 
 GenerateCoroutine = Callable[[ExportJob], Awaitable[None]]

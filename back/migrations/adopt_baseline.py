@@ -120,6 +120,7 @@ _LEGACY_EXTRA_INDEXES: frozenset[str] = frozenset(
 # including the indexes of those tables — is expected, not drift. A closed list.
 _LEGACY_MISSING_TABLES: frozenset[str] = frozenset(
     {
+        "data_jobs",
         "kppk_orgs",
         "kppk_org_products",
         "kppk_periods",

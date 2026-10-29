@@ -449,8 +449,9 @@ the threshold the response is `202` + a job description and the shared
 background worker builds the same workbook — the front hands the job's file
 URL to the browser, which downloads the file WHILE it is still being
 generated (the append-only container makes the served bytes valid from the
-first byte). The plan export runs its own specialized generator on the same
-shared `ExportJobManager` queue; both workers start in the app lifespan.
+first byte). These generic tables still use the process-local
+`ExportJobManager`. The plan uses `DurableExportManager`; both consumers start
+in the app lifespan.
 
 A full plan export is ~306k rows × 216 columns: minutes of CPU and ~500 MB of
 XLSX (the sheet XML exceeds 4 GB uncompressed → ZIP64). Doing that in the
@@ -462,11 +463,14 @@ requests OOM'ed the container. The export is therefore a background job
   filters + optional rowIds), computes the export stamp (last row edit for the
   working plan) and enqueues a job; the response is immediate. An identical
   scope+stamp reuses the ready file (cache key = sha256 of the scope + stamp).
-- A single sequential worker (started in the lifespan, in-process — the app runs
-  one application worker) streams the rows through a server-side cursor and writes
-  the XLSX to `EXPORT_DIR` (default: the system temp dir). Formula
-  materialization and XML serialization run via `asyncio.to_thread`, so the API
-  stays responsive (measured during a full export: avg ~140 ms, max <600 ms).
+- A PostgreSQL claim bounds execution to `EXPORT_WORKER_CONCURRENCY` active plan exports across backend
+  processes. The consumer supervises a child Python interpreter that streams a
+  repeatable-read snapshot through the XLSX writer. Its CPU work has a separate
+  GIL from HTTP/WebSocket handling. `EXPORT_DIR` defaults to an `exports/`
+  subdirectory beside `LOG_FILE`; the existing compose log volume persists it.
+  Concurrency defaults to 1 (allowed 1–8); set the same value on every replica
+  and raise it only after measuring RAM/CPU/DB headroom. Extra slots use separate
+  Python processes and can therefore execute CPU work in parallel.
 - **Throughput.** The row read selects the `col_*` value columns directly; the
   earlier `jsonb_strip_nulls(to_jsonb(row) - keys)` sparse-values build measured
   ~2 ms/row on the 306k-row plan (~10 of the 13 minutes), the direct read
@@ -475,12 +479,17 @@ requests OOM'ed the container. The export is therefore a background job
   ~130 per-row Excel formula templates are XML-escaped once at layout build time
   instead of per cell — the full export went from ~13 min to ~1.7 min. The
   workbook sets `fullCalcOnLoad`, so Excel recalculates on open.
-- Limits: 8 active jobs globally, 2 per user → `429`; finished jobs and files
-  are pruned after an hour. Completed jobs survive as cache entries; jobs are
-  in-memory, so a restart drops pending ones (the client re-creates).
+- Limits: 8 durable active jobs globally, 2 per user → `429`. Admission and
+  deduplication are transactional. Same-user scope+stamp requests share one job;
+  another user receives a separate owner record/file. Terminal jobs expire one
+  hour after completion. The generic process-local queue has separate limits.
+- A 30-second lease is renewed every 10 seconds. A lost worker retries with
+  backoff, up to three attempts; validation/rendering failures do not retry.
+  `DELETE /plan/export/jobs/{id}` cancels an owner's pending/running job. This
+  retains the frontend-compatible `failed` status with a cancellation message.
 - The workspace starts the job and then hands the file URL to the browser as a
   **native download** (an `<a download>` click on `/plan/export/jobs/{id}/file`).
-  The endpoint **streams the growing file** (`ExportJobManager.stream_growing`): it
+  The endpoint **streams the growing file** (`DurableExportManager.stream_growing`): it
   flushes an empty first chunk so the browser's download appears at once, then tails
   the `.part` file the worker writes and forwards bytes as they land — not after
   generation finishes, which for a 300k-row plan is minutes of silence. The browser
@@ -493,6 +502,21 @@ requests OOM'ed the container. The export is therefore a background job
   than a fixed percentage — measured on the full 306k-row plan: first byte in
   ~0.3 s, 523 MB streamed over ~92 s (a 26k-row filtered export: ~0.5 s / ~10 s).
   Nothing is buffered in page memory.
+
+`data_jobs` persists the query specification, owner, progress, attempts and
+lease token. Each attempt writes `{job_id}-{token}.part` and atomically renames
+it to `.xlsx`; only the current, unexpired token can publish `done` in the DB.
+A download pins its first attempt and fails if that attempt is interrupted:
+it must never concatenate bytes from a retried ZIP. Start a new download after
+the retry completes. Reads use 64-KiB chunks, and missing completed files become
+an explicit failure so a new request can regenerate them.
+
+All backend replicas must mount the **same** `EXPORT_DIR`. The default existing
+volume covers local restarts and same-host deployments, not independent hosts.
+Shared object storage/dedicated worker deployment remain Phase B follow-ups.
+The historical throughput measurements above predate process isolation and
+must be repeated during Phase D. Child-process DB/RSS/CPU metrics currently do
+not join the API registry; job metrics and logs are emitted by the supervisor.
 
 ### Exported workbook layout
 

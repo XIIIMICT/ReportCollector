@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     database_pool_recycle_seconds: int = Field(default=1800, validation_alias="DATABASE_POOL_RECYCLE_SECONDS", ge=-1)
     database_statement_timeout_ms: int = Field(default=60_000, validation_alias="DATABASE_STATEMENT_TIMEOUT_MS", gt=0)
     database_lock_timeout_ms: int = Field(default=30_000, validation_alias="DATABASE_LOCK_TIMEOUT_MS", gt=0)
+    export_worker_concurrency: int = Field(default=1, validation_alias="EXPORT_WORKER_CONCURRENCY", ge=1, le=8)
     valkey_url: str = Field(default="redis://127.0.0.1:6379/0", validation_alias="VALKEY_URL")
     keycloak_enabled: bool = Field(default=False, validation_alias="KEYCLOAK_ENABLED")
     auth_secret: str = ""

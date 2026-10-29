@@ -51,6 +51,8 @@ class JsonFormatter(logging.Formatter):
             "phase",
             "outcome",
             "job_id",
+            "attempt",
+            "error_code",
             "queue_wait_ms",
             "rows",
             "bytes",

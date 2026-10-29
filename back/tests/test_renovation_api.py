@@ -12,6 +12,7 @@ from urllib.parse import unquote
 from uuid import uuid4
 from zipfile import ZipFile
 
+import pytest
 from conftest import signed_identity_headers
 from httpx2 import AsyncClient
 from openpyxl import load_workbook
@@ -1559,7 +1560,14 @@ async def test_export_working_plan_renders_merged_header(client: AsyncClient) ->
     assert worksheet.max_row == 15
 
 
-async def test_export_job_file_streams_whole_workbook(client: AsyncClient, db_session: AsyncSession) -> None:
+@pytest.mark.real_schema
+async def test_export_job_file_streams_whole_workbook(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    my_engine,
+    monkeypatch,
+    tmp_path,
+) -> None:
     """The background-job file endpoint streams the workbook to the browser.
 
     Regression: the endpoint used to block until generation finished, so the
@@ -1595,9 +1603,21 @@ async def test_export_job_file_streams_whole_workbook(client: AsyncClient, db_se
         total=meta.total,
         cache_key=f"test-{uuid4()}",
     )
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from src.common.export_jobs import final_path
+    from src.common.job_repository import JobRepository
+
+    repository = JobRepository(async_sessionmaker(my_engine, class_=AsyncSession, expire_on_commit=False))
+    monkeypatch.setattr(export_jobs_manager, "repository", repository)
+    monkeypatch.setenv("EXPORT_DIR", str(tmp_path))
     job = await export_jobs_manager.create(spec, str(user.id))
-    job.status = "done"
-    job.path = target
+    claimed = await repository.claim(export_jobs_manager.kind)
+    assert claimed is not None
+    assert claimed.artifact is not None
+    published = final_path(claimed.artifact)
+    target.replace(published)
+    await repository.finish(claimed, size=published.stat().st_size, total=1)
     try:
         response = await client.get(f"/api/renovation/plan/export/jobs/{job.id}/file", headers=ADMIN_HEADERS)
         assert response.status_code == 200
@@ -1609,7 +1629,7 @@ async def test_export_job_file_streams_whole_workbook(client: AsyncClient, db_se
         assert ZipFile(BytesIO(response.content)).testzip() is None
     finally:
         target.unlink(missing_ok=True)
-        export_jobs_manager._jobs.pop(job.id, None)
+        published.unlink(missing_ok=True)
 
 
 async def test_export_job_file_unknown_id_is_404(client: AsyncClient) -> None:

@@ -24,10 +24,11 @@ from src.renovation.form_schema import (
 def test_catalog_covers_every_application_table_and_column() -> None:
     # 0024 added `kppk_markets` (+6 columns) and swapped the text `product`/
     # `region` of the realization copies for `product_id`/`market_id` (same count).
-    assert len(SQLModel.metadata.tables) == 31
+    assert len(SQLModel.metadata.tables) == 32
     # 494: 0021 dropped `value_key`, 0022 swapped `payload` for `deleted_at`,
     # 0024 added the market dictionary's 6 columns.
-    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 500
+    # 0026 adds the 20-column durable operation queue.
+    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 520
     assert set(TABLE_COMMENTS) == set(SQLModel.metadata.tables)
     for table in SQLModel.metadata.tables.values():
         assert table.comment == TABLE_COMMENTS[table.name].rstrip(".")

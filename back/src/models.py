@@ -1,4 +1,5 @@
 from .auth.models import Project, ProjectRole, User, UserRole
+from .common.job_models import DataJob
 from .kppk.models import (
     KppkCost,
     KppkOrg,
@@ -30,6 +31,7 @@ from .renovation.plan import (
 
 __all__ = [
     "AssetRawMaterial",
+    "DataJob",
     "DeliveryBasis",
     "KppkCost",
     "KppkOrg",
