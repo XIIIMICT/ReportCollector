@@ -46,6 +46,7 @@ export function useCollabRoom({
     onRowsChanged,
     onSelectionPreempted,
     onReconnect,
+    onConnectionClose,
 }: {
     projectKey: string;
     section: string;
