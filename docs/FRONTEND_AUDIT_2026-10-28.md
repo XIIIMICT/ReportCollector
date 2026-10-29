@@ -165,6 +165,20 @@ Raw and renovation commits use `await pendingCommitRef.current; const task = doC
 
 Facet requests now carry a query generation. A late page is ignored after the search changes, and a failed initial or tail request remains retryable instead of being marked exhausted. Network abort signals and the broader `use-async-data`/mutation telemetry proposal remain open.
 
+### F-15 — Segmented date input was replaced by its own facet refresh (P1, fixed)
+
+Date-only and `timestamptz` filters use HeroUI segmented fields. Each complete
+segment can produce a parseable value, which previously changed the facet
+search immediately. The resulting list refresh replaced the controlled
+DatePicker while the user was still entering the year, clearing the already
+entered day and month.
+
+The date draft and the active facet search range are now separate. The search
+updates when the segmented field loses focus, while day/month/year input stays
+stable. The popover regression suite covers the no-refresh-during-edit
+contract. Browser verification against the running plan remains a release gate
+because the unit test does not exercise the production shadow/portal stack.
+
 `GridErrorBoundary` only logs to `console.error` (`shared/ui/grid-error-boundary.tsx:21-31`), and async mutation failures are often toast-only. There is no structured client diagnostic for scope, action, revision, or interaction type.
 
 **Remediation:** use a query controller with `{scopeKey, generation, status, error, retry}` and `AbortController` where the API supports it. Add privacy-preserving error/interaction telemetry and browser assertions for `pageerror` and `unhandledrejection`; never include cell contents or credentials.
