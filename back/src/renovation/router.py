@@ -372,6 +372,10 @@ def _import_job_read(job: ImportJob) -> RenovationImportJobRead:
         error=job.error,
         new_rows=int(result.get("newRows", 0)),
         updated_rows=int(result.get("updatedRows", 0)),
+        phase=job.phase,
+        attempt=job.attempt,
+        startedAt=job.started_at,
+        heartbeatAt=job.heartbeat_at,
     )
 
 
@@ -813,6 +817,10 @@ def _job_read(job: ExportJob) -> RenovationExportJobRead:
         total=job.spec.total,
         fileName=job.spec.file_name,
         error=job.error,
+        phase=job.phase,
+        attempt=job.attempt,
+        startedAt=job.started_at,
+        heartbeatAt=job.heartbeat_at,
     )
 
 
@@ -1596,6 +1604,10 @@ async def get_renovation_dictionary_export_job(
         total=job.spec.total,
         fileName=job.spec.file_name,
         error=job.error,
+        phase=job.phase,
+        attempt=job.attempt,
+        startedAt=job.started_at,
+        heartbeatAt=job.heartbeat_at,
     )
 
 
@@ -1616,6 +1628,10 @@ async def cancel_renovation_dictionary_export_job(
         total=job.spec.total,
         fileName=job.spec.file_name,
         error=job.error,
+        phase=job.phase,
+        attempt=job.attempt,
+        startedAt=job.started_at,
+        heartbeatAt=job.heartbeat_at,
     )
 
 

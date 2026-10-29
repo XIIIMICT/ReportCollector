@@ -1225,16 +1225,8 @@ async def _window_anchor_position(
     Return the `position` of the row just before a window's first row.
 
     The window is addressed by its index in the FILTERED scope, so the anchor is
-    "the row at index offset-1". Two cases:
-
-    - the scope keeps every row of the plan and the «№» values are dense
-      (`positions_are_dense`) — then the row at index offset-1 is the one whose
-      `position == offset` (positions start at 1), so the anchor is `offset`
-      with no query at all;
-    - anything else — resolve it with ONE seek over the scope. With filters that
-      scope is much smaller than the plan, so the OFFSET stays shallow; without
-      dense «№» (deleted positions leave gaps) the seek is still one statement
-      in the same read order.
+    "the row at index offset-1". Only a scope verified to contain every integer
+    position from 1 through its row count can use offset as its position.
 
     `None` means the offset is past the last matching row.
     """
@@ -1256,17 +1248,31 @@ async def _count_plan_scope(
     session: AsyncSession,
     plan_id: UUID,
     row_condition: ColumnElement[bool],
-) -> tuple[int, int]:
-    """Return `(rows matching the filters, rows in the whole plan)` in one round trip."""
-    total, total_all = (
-        await session.exec(
-            select(
+    anchor_position: int | None = None,
+) -> tuple[int, int, bool, int | None]:
+    """Count only this plan and verify dense positions in the same aggregate."""
+    position = col(RenovationPlanRow.position)
+    anchor_count = (
+        func.count().filter(row_condition & (position < anchor_position))
+        if anchor_position is not None
+        else literal(None)
+    )
+    total, total_all, minimum, maximum, anchor_offset = (
+        await session.exec(  # ty: ignore[no-matching-overload]
+            sa_select(
                 func.count().filter(row_condition),
-                func.count().filter(col(RenovationPlanRow.plan_id) == plan_id),
-            ).select_from(RenovationPlanRow)
+                func.count(),
+                func.min(position),
+                func.max(position),
+                anchor_count,
+            )
+            .select_from(RenovationPlanRow)
+            .where(col(RenovationPlanRow.plan_id) == plan_id)
         )
     ).one()
-    return int(total), int(total_all)
+    # (plan_id, position) is unique. These bounds prove there are no gaps.
+    dense = total == total_all and minimum == 1 and maximum == total_all
+    return int(total), int(total_all), dense, None if anchor_offset is None else int(anchor_offset)
 
 
 def _empty_plan_window(
@@ -1349,23 +1355,16 @@ async def read_plan_rows(
     # Deliberately NOT cached: a token that would keep it correct across every
     # write path (bulk import, undo replay, direct SQL) costs more than the
     # count itself at 306k rows — see `read_cache`.
-    total, total_all = await _count_plan_scope(session, plan.id, row_condition)
+    total, total_all, dense, anchor_offset = await _count_plan_scope(session, plan.id, row_condition, anchor_position)
     # Keyset pagination, not OFFSET. `OFFSET n` walks n index entries — 2 seconds
     # at n=150k on the 306k-row plan — while a seek is one index hop whatever n
     # is. The client addresses rows by their FILTERED index, so the first row of
     # a window is resolved in a scope where the seek is cheap:
-    #   * no filters — the grid index IS the «№» (`position`), so the window
+    #   * proven dense scope — the grid index IS the «№» (`position`), so the window
     #     starts at `position > anchor_position_of_offset`;
-    #   * with filters the row set is (much) smaller, so the OFFSET that finds
-    #     its first index stays shallow.
+    #   * otherwise resolve the anchor using an index-only OFFSET query.
     window_condition = row_condition
     if offset > 0:
-        # Dense «№» is safe to assume only when the scope is every row of the
-        # plan: any filter (asset, position range, column) or a narrower asset
-        # set can skip positions, and then index != position.
-        dense = (
-            asset_name is None and not filters and position_from is None and position_to is None and total == total_all
-        )
         anchor = await _window_anchor_position(
             session, row_condition=row_condition, offset=offset, positions_are_dense=dense
         )
@@ -1376,7 +1375,7 @@ async def read_plan_rows(
                 baseline_boundary=baseline,
                 total=total,
                 total_all=total_all,
-                anchor_offset=None if anchor_position is None else total,
+                anchor_offset=anchor_offset,
             )
         window_condition = row_condition & (col(RenovationPlanRow.position) > anchor)
     rows = (
@@ -1389,20 +1388,6 @@ async def read_plan_rows(
         )
     ).all()
     baseline_boundary = await _baseline_boundary(session) if plan.state == RPlanState.WORKING else None
-    anchor_offset: int | None = None
-    if anchor_position is not None:
-        anchor_offset = int(
-            (
-                await session.exec(  # ty: ignore[no-matching-overload]
-                    sa_select(func.count())
-                    .select_from(RenovationPlanRow)
-                    .where(
-                        row_condition,
-                        col(RenovationPlanRow.position) < anchor_position,
-                    )
-                )
-            ).one()[0]
-        )
     return RenovationPlanRowsRead(
         id=plan.id,
         state=plan.state.value,
@@ -1616,6 +1601,7 @@ async def read_plan_facets(
     else:
         group_column = getattr(RenovationPlanRow, column)
         base = sa_select(group_column, func.count()).select_from(RenovationPlanRow)
+
     grouped = (await session.exec(base.where(row_condition).group_by(group_column))).all()  # ty: ignore[no-matching-overload]
 
     counts: dict[str, int] = {}

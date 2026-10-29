@@ -34,7 +34,7 @@ editing a KPPK membership.
 | Everything at once | `just lint` · `just typecheck` · `just test` · `just e2e` |
 | Stack dev/prod | `just dev` (hot-reload, `--watch`) · `just prod` |
 | DB / keycloak | `just db` · `just keycloak` (standalone profile) |
-| Observability | `just monitoring` — Loki + Alloy (logs), Prometheus + Alertmanager (metrics, alerts), Grafana (dashboards). Backend `/metrics`; alert mail is **wired and verified** (smarthost 587, `ALERT_SMTP_USER` = the sender mailbox — both load-bearing; `docs/SCALING_BACKLOG.md` §2) |
+| Observability | `just monitoring` — Loki + Alloy (logs), Prometheus + Alertmanager (metrics, alerts), Grafana (dashboards). Backend `/metrics`; alert mail is **wired and verified** (smarthost 587, `ALERT_SMTP_USER` = the sender mailbox — both load-bearing; see `docs/ARCHITECTURE.md`) |
 | Migrations | `just migrate` (never edit already-applied prod migrations — only new ones). The migration connection sets `lock_timeout=30s` — a blocked migration (e.g. an ALTER waiting behind the running app) fails loudly instead of hanging |
 | New empty DB / baseline adoption | New: `just migrate`. Existing old head `0015_plan_row_col_218`: backed-up, stopped installation + `uv run --directory back python -m migrations.adopt_baseline` once, then `just migrate`. Guarded schema comparison; details in `docs/WORKFLOW.md` |
 | Seed | `just seed` — **fully recreates the DB schema**, don't run without asking |
@@ -96,7 +96,7 @@ The commands above are the contract — use them as written. **If one of the req
 - `docs/ARCHITECTURE.md` — system diagram, environment variables, data model, API, auth, deploy.
 - `docs/COLLAB.md` — WebSocket protocol, leases, presence, undo/redo, locks.
 - `docs/GRID.md` — revo-grid: forms and columns, clipboard, selection, coordinates, tooltips; the plan sections are split by topic (`###`), so jump to the heading.
-- `docs/BACKEND_DEDUP_AUDIT.md` — backend duplication/seam audit, shared platform boundaries and follow-up recommendations.
+- `docs/TODO.md` — single current engineering backlog and explicit product deferrals.
 - `docs/WORKFLOW.md` — environment, quality, languages standard, pre-commit (prek), branching/commits, working principles.
 - `docs/KEYCLOAK.md` — corporate Keycloak: OIDC flow, prod config, claims→user, provisioning, local stand, diagnostics. Prod artifacts — `docs/keycloak/` (OIDC discovery, access token example).
 - `docs/samples/renovation_td_example.xlsb` — a real technical-directorate plan (~48 KB, committed): the template the plan importer is matched against, and what `back/tests/test_plan_import.py` runs on. Replace it when the customer's template changes.

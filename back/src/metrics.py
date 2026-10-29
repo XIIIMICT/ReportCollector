@@ -61,6 +61,12 @@ HTTP_REQUESTS_TOTAL = Counter(
     registry=REGISTRY,
 )
 
+HTTP_LAST_FAILURE = Gauge(
+    "http_last_failure_timestamp_seconds",
+    "Time of the last server error or interrupted response, zero before any failure.",
+    registry=REGISTRY,
+)
+
 HTTP_REQUEST_DURATION = Histogram(
     "http_request_duration_seconds",
     "HTTP request latency split by route template.",
@@ -120,6 +126,45 @@ WS_SLOW_CONSUMERS_TOTAL = Counter(
     "ws_slow_consumers_total",
     "WebSocket connections dropped because their send queue filled up.",
     labelnames=("room_section",),
+    registry=REGISTRY,
+)
+
+WS_ROOM_MEMBERS = Gauge(
+    "ws_room_members",
+    "Current local WebSocket members by room section (sum across rooms).",
+    labelnames=("room_section",),
+    registry=REGISTRY,
+)
+WS_QUEUE_DEPTH = Gauge(
+    "ws_queue_depth",
+    "Queued outbound collaboration messages by room section.",
+    labelnames=("room_section",),
+    registry=REGISTRY,
+)
+WS_MESSAGES_TOTAL = Counter(
+    "ws_messages_total",
+    "Inbound WebSocket messages by bounded message type.",
+    labelnames=("room_section", "message_type"),
+    registry=REGISTRY,
+)
+WS_DISCONNECTS_TOTAL = Counter(
+    "ws_disconnects_total",
+    "WebSocket disconnects by bounded reason.",
+    labelnames=("room_section", "reason"),
+    registry=REGISTRY,
+)
+WS_ACCESS_CHECK_DURATION = Histogram(
+    "ws_access_check_duration_seconds",
+    "Outbound message authorization batch duration.",
+    labelnames=("room_section",),
+    buckets=_LATENCY_BUCKETS,
+    registry=REGISTRY,
+)
+WS_WRITER_LAG = Histogram(
+    "ws_writer_lag_seconds",
+    "Time the oldest message in a batch waited before writer authorization.",
+    labelnames=("room_section",),
+    buckets=_LATENCY_BUCKETS,
     registry=REGISTRY,
 )
 

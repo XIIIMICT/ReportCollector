@@ -3,7 +3,8 @@
 # Failure and hard-capacity signals plus provisional event-loop/disk warnings.
 # The latter are operational guardrails, not accepted SLOs. Calibrate them and
 # add workload-specific latency/backlog/memory rules after the load baseline in
-# `docs/SCALING_BACKLOG.md` §1. Preserve instance labels on capacity comparisons.
+# Thresholds marked provisional must be calibrated with the workload matrix in
+# `docs/TODO.md` before production rollout. Preserve instance labels on capacity comparisons.
 
 groups:
   - name: reportcollector-http
@@ -24,6 +25,24 @@ groups:
             Более 0,05 серверных ошибок в секунду в течение 2 минут.
             Откройте дашборд «ReportCollector · Ошибки», найдите request_id
             и посмотрите стектрейс.
+
+      # Surface a single failed request promptly. The sustained rule above is
+      # intentionally conservative, but an export failure must be actionable
+      # even when traffic is low.
+      - alert: BackendServerErrorImmediate
+        # A timestamp catches the first failure of a new route as well.
+        # increase() alone misses counters first scraped with value 1.
+        expr: |
+          http_last_failure_timestamp_seconds{job="reportcollector-back"} > 0
+          and time() - http_last_failure_timestamp_seconds{job="reportcollector-back"} < 300
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Серверная ошибка или прерванный ответ"
+          description: >-
+            Найдите request_id в логах и проверьте маршрут, особенно если это
+            была выгрузка или импорт.
 
       # Any 5xx at all, seen over a longer window: catches a low, steady leak
       # (one broken endpoint someone uses rarely) that the rate rule ignores.

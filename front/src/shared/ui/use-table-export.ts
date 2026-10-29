@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 
 import type { ExportColumn } from "@/shared/grid/grid-config";
 
-import { runTableExport } from "./table-export-action";
+import { runTableExport, type GridExportView } from "./table-export-action";
 
 /** «вся таблица» — every row of the view; «видимая» — what the grid shows. */
 export type ExportMode = "all" | "visible";
@@ -16,10 +16,8 @@ export type ExportMode = "all" | "visible";
 export type ExportRequestView = {
     columns: ExportColumn[];
     rowIds: string[] | null;
+    mergeRows: boolean;
 };
-
-/** The grid snapshot, as the grid reports it (always the visible rows). */
-type GridExportView = { columns: ExportColumn[]; rowIds: string[] };
 
 /**
  * One export flow for every grid: pending state, the grid snapshot, the file
@@ -82,7 +80,11 @@ export function useTableExport({
                 // THE rule: «видимая» = the grid's own rows, in the grid's order.
                 request: (view, name) =>
                     requestRef.current(
-                        { columns: view.columns, rowIds: mode === "visible" ? view.rowIds : null },
+                        {
+                            columns: view.columns,
+                            rowIds: mode === "visible" ? view.rowIds : null,
+                            mergeRows: view.mergeRows ?? true,
+                        },
                         name,
                     ),
             });

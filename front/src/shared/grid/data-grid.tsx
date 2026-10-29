@@ -115,6 +115,7 @@ const EMPTY_CELL_INFO: ReadonlyMap<string, { name: string; label: string | null 
 export type DataGridState = {
     columns: ExportColumn[];
     rowIds: string[];
+    mergeRows: boolean;
 };
 
 export type GridViewStats = {
@@ -1933,6 +1934,7 @@ function DataGridInner(
         const grid = gridRef.current;
         if (!grid) {
             return {
+                mergeRows: !mergesSuppressed,
                 columns: exportColumnsFromGrid(
                     section,
                     showAssetColumn,
@@ -1951,6 +1953,7 @@ function DataGridInner(
             gridAdapter.getVisibleRows(rows),
         ]);
         return {
+            mergeRows: !mergesSuppressed,
             columns: exportColumnsFromGrid(
                 section,
                 showAssetColumn,
@@ -1967,6 +1970,7 @@ function DataGridInner(
         columnDescriptors,
         gridAdapter,
         keycloakEnabled,
+        mergesSuppressed,
         rows,
         section,
         showAssetColumn,

@@ -18,6 +18,7 @@ from valkey.exceptions import TimeoutError as ValkeyTimeoutError
 
 from .app_logging import log_event
 from .metrics import (
+    HTTP_LAST_FAILURE,
     HTTP_REQUESTS_IN_PROGRESS,
     HTTP_RESPONSE_FAILURES,
     OPERATION_DURATION,
@@ -164,6 +165,8 @@ class RequestMetricsMiddleware:
             )
             if not complete:
                 HTTP_RESPONSE_FAILURES.labels(method=scope["method"], route=route).inc()
+            if status >= 500 or not complete:
+                HTTP_LAST_FAILURE.set_to_current_time()
             if scope["path"] not in {"/health", "/ready", "/metrics"}:
                 level = (
                     logging.ERROR

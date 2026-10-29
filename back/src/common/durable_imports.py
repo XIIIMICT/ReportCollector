@@ -6,9 +6,11 @@ import asyncio
 import contextlib
 import logging
 import os
+import socket
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -68,6 +70,10 @@ class ImportJob:
     request_id: str | None
     lease_token: UUID | None
     plan_id: UUID | None
+    phase: str | None
+    attempt: int
+    started_at: datetime | None
+    heartbeat_at: datetime | None
 
 
 GenerateImport = Callable[[ImportJob, Path], Awaitable[dict[str, Any]]]
@@ -112,6 +118,10 @@ class DurableImportManager:
             request_id=record.request_id,
             lease_token=record.lease_token,
             plan_id=UUID(str(payload["plan_id"])) if payload.get("plan_id") else None,
+            phase=record.phase,
+            attempt=record.attempt,
+            started_at=record.started_at,
+            heartbeat_at=record.heartbeat_at,
         )
 
     async def create_from_path(
@@ -225,7 +235,11 @@ class DurableImportManager:
                 for expired in await self.repository.expired_records(self.kind):
                     await asyncio.to_thread(cleanup_expired_import, str(expired.payload["input_key"]))
                     await self.repository.remove_expired(expired.id)
-                record = await self.repository.claim(self.kind, concurrency=self.concurrency)
+                record = await self.repository.claim(
+                    self.kind,
+                    concurrency=self.concurrency,
+                    worker_id=f"{socket.gethostname()}:{os.getpid()}:{self.kind}",
+                )
                 if record is not None:
                     await self.execute(record)
                     continue

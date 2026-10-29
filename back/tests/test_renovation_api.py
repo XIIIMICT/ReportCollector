@@ -829,6 +829,25 @@ async def test_read_plan_versions_lists_working_plan(client: AsyncClient) -> Non
     assert versions[0]["rowCount"] == 2
 
 
+async def test_plan_windows_with_sparse_positions_keep_offsets_and_anchor(client, db_session):
+    rows = (await db_session.exec(select(RenovationPlanRow).order_by(col(RenovationPlanRow.position)))).all()
+    for row, position in zip(rows, (10, 30), strict=True):
+        row.position = position
+        db_session.add(row)
+    await db_session.commit()
+    for offset, positions in ((0, [10]), (1, [30]), (2, []), (10, [])):
+        response = await client.get(
+            "/api/renovation/plan/rows",
+            headers=ADMIN_HEADERS,
+            params={"offset": offset, "limit": 1, "anchor_position": 10},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert [row["position"] for row in body["rows"]] == positions
+        assert body["total"] == body["totalAll"] == 2
+        assert body["anchorOffset"] == 0
+
+
 async def test_meta_and_read_require_project_access(client: AsyncClient) -> None:
     response = await client.get("/api/renovation/plan", headers=VIEWER_HEADERS)
     assert response.status_code == 403

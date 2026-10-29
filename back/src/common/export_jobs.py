@@ -38,6 +38,7 @@ import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -137,6 +138,10 @@ class ExportJob:
     size: int | None = None
     request_id: str | None = None
     artifact_key: str | None = None
+    phase: str | None = None
+    attempt: int = 0
+    started_at: datetime | None = None
+    heartbeat_at: datetime | None = None
 
     @property
     def file_id(self) -> str:
@@ -459,6 +464,10 @@ class ExportJobRead(BaseModel):
     total: int
     fileName: str
     error: str | None = None
+    phase: str | None = None
+    attempt: int = 0
+    startedAt: datetime | None = None
+    heartbeatAt: datetime | None = None
 
 
 async def _generate_table_file(job: ExportJob) -> None:

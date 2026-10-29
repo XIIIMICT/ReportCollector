@@ -71,10 +71,15 @@ async def test_persisted_query_and_download_survive_manager_restart(repository) 
     assert isinstance(restored.spec, ExportJobSpec)
     assert restored.spec.filters is not None
     assert restored.spec.filters[0].from_ == "2026-10-14T00:00:00+03:00"
-    claimed = await repository.claim("test_export")
+    claimed = await repository.claim("test_export", worker_id="test-host:123")
+    assert claimed.phase == "running"
+    assert claimed.worker_id == "test-host:123"
+    assert claimed.started_at is not None
+    assert claimed.heartbeat_at is not None
     await other.execute(claimed)
     done = await first.get(job.id, "owner")
     assert done.status == "done"
+    assert done.phase == "done"
     assert done.progress == done.spec.total == 2
     chunks = [chunk async for chunk in first.stream_growing(job.id, "owner")]
     assert max(map(len, chunks)) <= 64 * 1024

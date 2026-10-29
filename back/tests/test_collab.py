@@ -568,6 +568,12 @@ class FakeWebSocket:
                 raise WebSocketDisconnect
             await asyncio.sleep(0.005)
 
+    async def receive_text(self) -> str:
+        return json.dumps(await self.receive_json())
+
+    async def receive(self) -> dict:
+        return {"type": "websocket.receive", "text": json.dumps(await self.receive_json())}
+
 
 async def _run_collab_ws(db_session, fake: FakeWebSocket) -> asyncio.Task:
     task = asyncio.create_task(raw_materials_ws(cast("WebSocket", fake), db_session))

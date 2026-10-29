@@ -192,7 +192,11 @@ async def _enqueue(spec: QueryExportSpec, user_id: str) -> JSONResponse:
             total=job.spec.total,
             fileName=job.spec.file_name,
             error=job.error,
-        ).model_dump(),
+            phase=job.phase,
+            attempt=job.attempt,
+            startedAt=job.started_at,
+            heartbeatAt=job.heartbeat_at,
+        ).model_dump(mode="json"),
         status_code=202,
     )
 

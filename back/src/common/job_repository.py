@@ -77,7 +77,7 @@ class JobRepository:
                 raise KeyError(job_id)
             return job
 
-    async def claim(self, kind: str, *, concurrency: int = 1) -> DataJob | None:
+    async def claim(self, kind: str, *, concurrency: int = 1, worker_id: str | None = None) -> DataJob | None:
         async with self.session_factory() as session, session.begin():
             # The admission lock also bounds running jobs across processes.
             # It is held for metadata only, never during file generation.
@@ -125,6 +125,10 @@ class JobRepository:
             if job is None:
                 return None
             job.status = "running"
+            job.phase = "running"
+            job.worker_id = worker_id
+            job.started_at = now
+            job.heartbeat_at = now
             job.progress = 0
             job.attempt += 1
             job.lease_token = uuid4()
@@ -134,7 +138,7 @@ class JobRepository:
             session.add(job)
             return job
 
-    async def heartbeat(self, job: DataJob, progress: int, total: int) -> bool:
+    async def heartbeat(self, job: DataJob, progress: int, total: int, phase: str | None = None) -> bool:
         async with self.session_factory() as session, session.begin():
             current = await session.get(DataJob, job.id, with_for_update=True)
             now = await _now(session)
@@ -142,6 +146,8 @@ class JobRepository:
                 return False
             assert current is not None  # noqa: S101
             current.progress, current.total = progress, total
+            current.phase = phase or current.phase
+            current.heartbeat_at = now
             current.lease_until = now + timedelta(seconds=LEASE_SECONDS)
             session.add(current)
             return True
@@ -166,6 +172,7 @@ class JobRepository:
         job.lease_until = None
         job.lease_token = None
         job.error_code = code
+        job.phase = "retrying" if retryable and job.attempt < MAX_ATTEMPTS else "failed"
         if retryable and job.attempt < MAX_ATTEMPTS:
             job.status = "pending"
             job.progress = 0
@@ -202,6 +209,7 @@ class JobRepository:
                     current.error = error
             else:
                 current.status = "done"
+                current.phase = "done"
                 current.progress = current.total = total
                 current.size = size
                 current.finished_at = now
@@ -245,6 +253,7 @@ class JobRepository:
         ):
             return False
         current.status = "done"
+        current.phase = "done"
         current.progress = current.total = total
         current.result = result
         current.finished_at = now

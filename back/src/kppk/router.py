@@ -1025,6 +1025,10 @@ async def get_kppk_query_export(job_id: str, access: AccessDependency) -> Export
         total=job.spec.total,
         fileName=job.spec.file_name,
         error=job.error,
+        phase=job.phase,
+        attempt=job.attempt,
+        startedAt=job.started_at,
+        heartbeatAt=job.heartbeat_at,
     )
 
 

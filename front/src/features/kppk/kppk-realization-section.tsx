@@ -618,6 +618,7 @@ export function KppkRealizationSection({
                 headerPinned,
                 columns: requestView.columns,
                 rowIds: requestView.rowIds,
+                mergeRows: requestView.mergeRows,
                 fileName: requestFileName,
             });
         },

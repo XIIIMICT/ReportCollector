@@ -32,6 +32,10 @@ class DataJob(SQLModel, table=True):
     progress: int = 0
     total: int = 0
     attempt: int = 0
+    phase: str | None = Field(default=None, sa_column=Column(Text))
+    worker_id: str | None = Field(default=None, sa_column=Column(Text))
+    started_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=True)))
+    heartbeat_at: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=True)))
     lease_token: UUID | None = None
     lease_until: datetime | None = Field(default=None, sa_column=Column(DateTime(timezone=True)))
     available_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))

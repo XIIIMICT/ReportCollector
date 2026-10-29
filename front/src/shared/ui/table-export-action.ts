@@ -5,7 +5,7 @@ import type { ExportColumn } from "@/shared/grid/grid-config";
 import { downloadBlob, triggerNativeDownload } from "./download";
 import { errorMessage } from "./text-helpers";
 
-type ExportView = { columns: ExportColumn[]; rowIds: string[] };
+export type GridExportView = { columns: ExportColumn[]; rowIds: string[]; mergeRows?: boolean };
 type Download = Blob | { fileUrl: string; job: { fileName: string } };
 
 /** Event-only export flow; ownership and publication of pending state stay local. */
@@ -17,10 +17,10 @@ export async function runTableExport({
     request,
 }: {
     pending: boolean;
-    gridRef: { current: { getExportState: () => Promise<ExportView | null> } | null };
+    gridRef: { current: { getExportState: () => Promise<GridExportView | null> } | null };
     setPending: (pending: boolean) => void;
     fileName: () => string;
-    request: (view: ExportView, fileName: string) => Promise<Download>;
+    request: (view: GridExportView, fileName: string) => Promise<Download>;
 }): Promise<void> {
     if (pending) return;
     // Include grid-read failures in the same error/finally path as the request.

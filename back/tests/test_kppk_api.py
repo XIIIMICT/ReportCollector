@@ -1029,3 +1029,32 @@ async def test_realization_export_honours_the_visible_rows_and_their_order(
     visible = [row[0] for row in sheet.iter_rows(min_row=2, values_only=True)]
     assert len(visible) == 2, "only the visible rows export"
     assert visible == [row["region"] for row in reversed(kept)]
+
+
+async def test_realization_export_can_disable_product_merges_for_filtered_views(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """A filtered/sorted grid must export adjacent rows without fake merges."""
+    org = await _org_by_name(db_session, "АО «СНХЗ»")
+    response = await client.post(
+        "/api/kppk/realization/export",
+        headers=ADMIN_HEADERS,
+        json={
+            "slice": "bp",
+            "orgId": str(org.id),
+            "month": 6,
+            "year": 2026,
+            "rowIds": None,
+            "mergeRows": False,
+            "headerPinned": True,
+            "columns": [
+                {"key": "productNum", "headerPath": ["№"], "width": 8},
+                {"key": "product", "headerPath": ["Продукция"], "width": 40},
+                {"key": "region", "headerPath": ["Рынок"], "width": 12},
+            ],
+            "fileName": "Без-объединения.xlsx",
+        },
+    )
+    assert response.status_code == 200
+    sheet = load_workbook(BytesIO(response.content)).worksheets[0]
+    assert list(sheet.merged_cells.ranges) == []

@@ -29,6 +29,11 @@ services. ДЗО grants are not implemented; `orgNames` remains empty/read-only.
 - Auth: signed headers `X-ReportCollector-*`; the browser doesn't send them — instead the query parameter `ticket` (short-lived signed identity). Three rejection reasons: invalid identity (4401), no project access (4403), unexpected Origin (4403) — all logged (`collab.ws_identity_rejected`, `collab.ws_access_rejected`, `collab.ws_origin_rejected`), search the logs by these tags.
 - Origin is checked against `BACKEND_CORS_ORIGINS` (see the slash landmine in AGENTS.md).
 - Per-connection outbound queue (256) + a dedicated writer task: a slow client doesn't block the room (head-of-line blocking).
+- Inbound frames are capped at 64 KiB and 300 messages per ten seconds per
+  connection. Oversized frames close with 1009, invalid UTF-8/JSON with 1007,
+  and rate abuse with 1008. These are application limits; configure equivalent
+  WebSocket/proxy transport caps for frames that the ASGI server must materialize
+  before application code sees them.
 
 ## Message protocol
 

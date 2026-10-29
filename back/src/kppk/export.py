@@ -146,7 +146,7 @@ def render_realization_workbook(
         # and the name are merged down over the run (the grid does the same
         # with CellMergePlugin). The product name decides the run; the number
         # is merged alongside it when the caller exports that column.
-        merge_rows_by=REALIZATION_MERGE_BY,
+        merge_rows_by=REALIZATION_MERGE_BY if request.mergeRows else (),
     )
     writer.write_rows(rows)
     writer.close()

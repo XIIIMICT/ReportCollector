@@ -4,6 +4,36 @@ rule_files:
 evaluation_interval: 30s
 
 tests:
+  - interval: 30s
+    input_series:
+      - series: 'http_last_failure_timestamp_seconds{job="reportcollector-back",instance="back"}'
+        values: '0+0x12'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: BackendServerErrorImmediate
+        exp_alerts: []
+
+  - interval: 30s
+    input_series:
+      - series: 'http_last_failure_timestamp_seconds{job="reportcollector-back",instance="back"}'
+        values: '1+0x12'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: BackendServerErrorImmediate
+        exp_alerts:
+          - exp_labels:
+              job: reportcollector-back
+              instance: back
+              severity: warning
+            exp_annotations:
+              summary: "Серверная ошибка или прерванный ответ"
+              description: >-
+                Найдите request_id в логах и проверьте маршрут, особенно если это
+                была выгрузка или импорт.
+      - eval_time: 6m
+        alertname: BackendServerErrorImmediate
+        exp_alerts: []
+
   # A saturated pool with no allowed overflow must still alert. Another
   # instance's larger capacity must not hide this instance's exhaustion.
   - interval: 30s

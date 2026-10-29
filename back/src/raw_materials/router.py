@@ -440,6 +440,10 @@ async def get_export_job(
         total=job.spec.total,
         fileName=job.spec.file_name,
         error=job.error,
+        phase=job.phase,
+        attempt=job.attempt,
+        startedAt=job.started_at,
+        heartbeatAt=job.heartbeat_at,
     )
 
 

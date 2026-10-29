@@ -170,6 +170,34 @@
         "overrides": []
       },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Участники комнат и задержка доставки",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "sum by (room_section) (ws_room_members{room_section=~\"$section\"})", "legendFormat": "участники {{room_section}}", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le, room_section) (rate(ws_writer_lag_seconds_bucket{room_section=~\"$section\"}[10m])))", "legendFormat": "p95 writer {{room_section}}", "refId": "B" },
+        { "expr": "sum by (room_section) (ws_queue_depth{room_section=~\"$section\"})", "legendFormat": "очередь {{room_section}}", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [{ "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "unit", "value": "s" }, { "id": "custom.axisPlacement", "value": "right" }] }] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Входящие сообщения и разрывы",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "sum by (room_section, message_type) (rate(ws_messages_total{room_section=~\"$section\"}[5m]))", "legendFormat": "{{room_section}} / {{message_type}}", "refId": "A" },
+        { "expr": "sum by (room_section, reason) (increase(ws_disconnects_total{room_section=~\"$section\"}[10m]))", "legendFormat": "{{room_section}} / {{reason}}", "refId": "B" },
+        { "expr": "histogram_quantile(0.95, sum by (le, room_section) (rate(ws_access_check_duration_seconds_bucket{room_section=~\"$section\"}[10m])))", "legendFormat": "p95 проверка доступа {{room_section}}", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [{ "matcher": { "id": "byFrameRefID", "options": "C" }, "properties": [{ "id": "unit", "value": "s" }, { "id": "custom.axisPlacement", "value": "right" }] }] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
     }
   ]
 }

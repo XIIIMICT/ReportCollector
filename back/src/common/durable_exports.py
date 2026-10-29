@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
+import socket
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -73,6 +75,10 @@ class DurableExportManager[Spec: ExportSpec]:
             size=record.size,
             request_id=record.request_id,
             artifact_key=record.artifact,
+            phase=record.phase,
+            attempt=record.attempt,
+            started_at=record.started_at,
+            heartbeat_at=record.heartbeat_at,
         )
         return job
 
@@ -149,7 +155,11 @@ class DurableExportManager[Spec: ExportSpec]:
                 for job_id in await self.repository.prune(self.kind):
                     await asyncio.to_thread(_remove_artifacts, str(job_id))
                     await self.repository.remove_expired(job_id)
-                record = await self.repository.claim(self.kind, concurrency=self.concurrency)
+                record = await self.repository.claim(
+                    self.kind,
+                    concurrency=self.concurrency,
+                    worker_id=f"{socket.gethostname()}:{os.getpid()}:{self.kind}",
+                )
                 if record is not None:
                     await self.execute(record)
                     continue

@@ -525,6 +525,10 @@ class RenovationImportJobRead(BaseModel):
     error: str | None = None
     new_rows: int = 0
     updated_rows: int = 0
+    phase: str | None = None
+    attempt: int = 0
+    startedAt: datetime | None = None
+    heartbeatAt: datetime | None = None
 
 
 class RenovationExportJobRead(BaseModel):
@@ -536,3 +540,7 @@ class RenovationExportJobRead(BaseModel):
     total: int
     fileName: str
     error: str | None = None
+    phase: str | None = None
+    attempt: int = 0
+    startedAt: datetime | None = None
+    heartbeatAt: datetime | None = None

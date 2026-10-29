@@ -28,21 +28,37 @@ async function openTable(page: Page, url: string) {
     await expect(page.locator("revogr-data .rgCell:not(.report-row-header)").first()).toBeVisible();
 }
 
-test("plan export persists its scope and downloads a completed workbook", async ({ page }) => {
-    test.setTimeout(90000);
+test("plan export persists its scope and downloads a completed workbook", async ({
+    page,
+}, info) => {
+    // Opt in on a seeded development stack to exercise the complete 300k-row
+    // workbook through the browser's streaming download, without buffering it.
+    const full = process.env.E2E_FULL_PLAN_EXPORT === "1";
+    test.setTimeout(full ? 900000 : 90000);
     await openTable(page, "/renovation");
     const origin = new URL(page.url()).origin;
     const rowsResponse = await page.request.get("/api/renovation/plan/rows?offset=0&limit=1");
     expect(rowsResponse.ok()).toBe(true);
     const rows = await rowsResponse.json();
     expect(rows.rows.length).toBeGreaterThan(0);
-    const request = { rowIds: [rows.rows[0].id] };
+    const request = full ? {} : { rowIds: [rows.rows[0].id] };
     const created = await page.request.post("/api/renovation/plan/export/jobs", {
         data: request,
         headers: { Origin: origin },
     });
     expect(created.status()).toBe(202);
     const job = await created.json();
+    expect(job.total).toBe(full ? rows.total : 1);
+    const downloadPromise = page.waitForEvent("download");
+    await page.evaluate((href) => {
+        const anchor = document.createElement("a");
+        anchor.href = href;
+        anchor.download = "plan.xlsx";
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+    }, `/api/renovation/plan/export/jobs/${job.id}/file`);
+    const download = await downloadPromise;
     await page.reload();
     await expect
         .poll(
@@ -54,12 +70,11 @@ test("plan export persists its scope and downloads a completed workbook", async 
                 expect(status.error).toBeNull();
                 return status.status;
             },
-            { timeout: 60000 },
+            { timeout: full ? 850000 : 60000, intervals: [1000, 3000, 5000] },
         )
         .toBe("done");
-    const file = await page.request.get(`/api/renovation/plan/export/jobs/${job.id}/file`);
-    expect(file.ok()).toBe(true);
-    expect((await file.body()).subarray(0, 2).toString()).toBe("PK");
+    await download.saveAs(info.outputPath("plan.xlsx"));
+    expect(await download.failure()).toBeNull();
     const repeated = await page.request.post("/api/renovation/plan/export/jobs", {
         data: request,
         headers: { Origin: origin },
@@ -116,7 +131,10 @@ test("invalid plan import reports its durable result after reload", async ({ pag
     expect((await after.json()).rows).toEqual(rows.rows);
 });
 
-test("KPPK restores sorting without merges and uses the same toolbar row gap", async ({ page }) => {
+test("KPPK restores sorting without merges and uses the same toolbar row gap", async ({
+    page,
+}, info) => {
+    test.setTimeout(120000);
     await openTable(page, "/kppk");
     await page.getByRole("tab", { name: "Реализация", exact: true }).click();
     const grid = page.locator("revo-grid");
@@ -127,6 +145,25 @@ test("KPPK restores sorting without merges and uses the same toolbar row gap", a
                 ((element as HTMLElement & { cellMerge?: unknown[] }).cellMerge ?? []).length,
         );
     await expect.poll(mergeCount).toBeGreaterThan(0);
+    async function downloadVisible(mergeRows: boolean, name: string) {
+        const requestPromise = page.waitForRequest(
+            (request) =>
+                request.method() === "POST" && request.url().includes("/kppk/realization/export"),
+            { timeout: 15000 },
+        );
+        const downloadPromise = page.waitForEvent("download");
+        const downloadButton = page.getByRole("button", { name: "Скачать в Excel", exact: true });
+        await expect(downloadButton).toBeEnabled();
+        await downloadButton.click();
+        await page.getByRole("menuitem", { name: "Скачать видимую таблицу", exact: true }).click();
+        const request = await requestPromise;
+        expect(request.postDataJSON().mergeRows).toBe(mergeRows);
+        expect(request.postDataJSON().rowIds.length).toBeGreaterThan(0);
+        const download = await downloadPromise;
+        await download.saveAs(info.outputPath(name));
+        expect(await download.failure()).toBeNull();
+    }
+    await downloadVisible(true, "kppk-natural.xlsx");
     const toolbar = page.locator(".workspace-card .table-toolbar--stacked");
     const gaps = await toolbar.evaluate((element) => {
         const row = element.querySelector(".table-toolbar__row")!;
@@ -157,9 +194,11 @@ test("KPPK restores sorting without merges and uses the same toolbar row gap", a
     await header.click();
     await expect(grid).toHaveClass(/data-grid--user-sorted/);
     await expect.poll(mergeCount).toBe(0);
+    await downloadVisible(false, "kppk-sorted.xlsx");
     await page.reload();
     await expect(grid).toHaveClass(/data-grid--user-sorted/);
     await expect.poll(mergeCount).toBe(0);
+    await downloadVisible(false, "kppk-restored.xlsx");
     await viewAction(page, "Сбросить все фильтры и сортировки");
     await expect.poll(mergeCount).toBeGreaterThan(0);
 });

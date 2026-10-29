@@ -1520,6 +1520,9 @@ export function KppkWorkspace({
                         tabs={visibleTabs}
                         value={selectedTab?.id ?? ""}
                         onChange={(tab) => {
+                            // Clicking the active tab does not remount its grid,
+                            // so it cannot republish state cleared here.
+                            if (tab.id === selectedTabId) return;
                             setSelectedTabId(tab.id);
                             onSectionChange?.(tab.id);
                             // The mounted section reports its own state right

@@ -16,7 +16,10 @@ through a per-socket queue (a slow client doesn't block the room).
 """
 
 import asyncio
+import json
 import logging
+import time
+from collections import deque
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from functools import lru_cache
@@ -46,10 +49,16 @@ from src.database import get_session
 from src.kppk.constants import KPPK_PROJECT_KEY
 from src.kppk.service import NoKppkAccessError, resolve_kppk_access
 from src.metrics import (
+    WS_ACCESS_CHECK_DURATION,
     WS_CONNECTIONS_ACTIVE,
+    WS_DISCONNECTS_TOTAL,
     WS_EVENTS_RELAYED_TOTAL,
+    WS_MESSAGES_TOTAL,
+    WS_QUEUE_DEPTH,
+    WS_ROOM_MEMBERS,
     WS_ROOMS_ACTIVE,
     WS_SLOW_CONSUMERS_TOTAL,
+    WS_WRITER_LAG,
 )
 from src.raw_materials.service import NoRawMaterialsAccessError, resolve_raw_materials_access
 from src.renovation.constants import RENOVATION_PROJECT_KEY
@@ -65,6 +74,9 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 _MAX_LEASE_CELLS = 500
 _MAX_OWNED_LEASES = 1000  # max leases per connection
 _QUEUE_SIZE = 256  # outbound message queue size per connection
+_MAX_MESSAGE_BYTES = 64 * 1024
+_MESSAGE_RATE_WINDOW = 10.0
+_MAX_MESSAGES_PER_WINDOW = 300
 
 # Resolves (user, roles, assets, block) for the connection's project.
 AccessResolver = Callable[
@@ -104,6 +116,7 @@ class RoomManager:
         self._relay_tasks: dict[str, asyncio.Task] = {}
         self._access: dict[WebSocket, RoomAccess] = {}
         self._ready: dict[str, asyncio.Event] = {}
+        self._close_reasons: dict[WebSocket, str] = {}
 
     async def join(self, room: str, websocket: WebSocket, member: dict, access: RoomAccess | None = None) -> None:
         members = self._members.setdefault(room, {})
@@ -115,13 +128,15 @@ class RoomManager:
         if access is not None:
             self._access[websocket] = access
         self._queues.setdefault(room, {})[websocket] = queue
-        self._writers.setdefault(room, {})[websocket] = asyncio.create_task(self._writer(websocket, queue))
+        self._writers.setdefault(room, {})[websocket] = asyncio.create_task(self._writer(room, websocket, queue))
         members[websocket] = member
         # Gauges track the LIVE state, so they move with every join/leave — a
         # scrape reads whatever the last lifecycle event left behind.
         WS_CONNECTIONS_ACTIVE.inc()
         if new_room:
             WS_ROOMS_ACTIVE.inc()
+        section = self._room_section(room)
+        WS_ROOM_MEMBERS.labels(room_section=section).inc()
         await asyncio.wait_for(self._ready[room].wait(), timeout=10)
         if self._relay_tasks[room].done():
             error = "Room subscription failed"
@@ -133,6 +148,10 @@ class RoomManager:
             return
         if websocket in members:
             WS_CONNECTIONS_ACTIVE.dec()
+            WS_ROOM_MEMBERS.labels(room_section=self._room_section(room)).dec()
+            WS_DISCONNECTS_TOTAL.labels(
+                room_section=self._room_section(room), reason=self._close_reasons.pop(websocket, "client")
+            ).inc()
         members.pop(websocket, None)
         self._access.pop(websocket, None)
         writer = self._writers.get(room, {}).pop(websocket, None)
@@ -140,7 +159,9 @@ class RoomManager:
             writer.cancel()
             with suppress(asyncio.CancelledError):
                 await writer
-        self._queues.get(room, {}).pop(websocket, None)
+        removed = self._queues.get(room, {}).pop(websocket, None)
+        if removed is not None:
+            WS_QUEUE_DEPTH.labels(room_section=self._room_section(room)).dec(removed.qsize())
         if not members:
             WS_ROOMS_ACTIVE.dec()
             task = self._relay_tasks.pop(room, None)
@@ -180,10 +201,11 @@ class RoomManager:
                         # reconnects and refetches. Nothing fails, so only this
                         # counter can reveal a rising rate.
                         WS_SLOW_CONSUMERS_TOTAL.labels(room_section=section).inc()
-                        await self._close(websocket, 1013)
+                        await self.close(websocket, 1013, "slow_consumer")
                         continue
                     with suppress(asyncio.QueueFull):
-                        queue.put_nowait(message)
+                        queue.put_nowait((time.monotonic(), message))
+                        WS_QUEUE_DEPTH.labels(room_section=section).inc()
                         WS_EVENTS_RELAYED_TOTAL.labels(room_section=section).inc()
         except asyncio.CancelledError:
             return
@@ -191,34 +213,40 @@ class RoomManager:
             logger.exception("Collaboration relay failed; clients must reconnect and resynchronize")
         # Exhaustion is also a lost subscription, not a healthy connection.
         for websocket in list(self._queues.get(room, {})):
-            await self._close(websocket, 1013)
+            await self.close(websocket, 1013, "transport")
         ready = self._ready.get(room)
         if ready is not None:
             ready.set()
 
-    @staticmethod
-    async def _close(websocket: WebSocket, code: int) -> None:
+    async def close(self, websocket: WebSocket, code: int, reason: str) -> None:
+        self._close_reasons.setdefault(websocket, reason)
         with suppress(RuntimeError, WebSocketDisconnect, WebSocketDisconnected):
             await websocket.close(code=code)
 
-    async def _writer(self, websocket: WebSocket, queue: asyncio.Queue) -> None:
+    async def _writer(self, room: str, websocket: WebSocket, queue: asyncio.Queue) -> None:
+        section = self._room_section(room)
         try:
             while True:
-                messages = [await queue.get()]
-                while not queue.empty() and len(messages) < _QUEUE_SIZE:
-                    messages.append(queue.get_nowait())
+                queued = [await queue.get()]
+                while not queue.empty() and len(queued) < _QUEUE_SIZE:
+                    queued.append(queue.get_nowait())
+                WS_QUEUE_DEPTH.labels(room_section=section).dec(len(queued))
+                messages = [item[1] for item in queued]
+                access_wait = time.monotonic() - queued[0][0]
                 access = self._access.get(websocket)
+                WS_WRITER_LAG.labels(room_section=section).observe(access_wait)
                 if access is not None:
-                    messages = await access.filter_messages(messages)
+                    with WS_ACCESS_CHECK_DURATION.labels(room_section=section).time():
+                        messages = await access.filter_messages(messages)
                 for message in messages:
                     await websocket.send_json(message)
         except asyncio.CancelledError:
             return
         except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError, NoKppkAccessError:
-            await self._close(websocket, 4403)
+            await self.close(websocket, 4403, "access_denied")
         except Exception:
             logger.exception("Collaboration writer failed; closing connection")
-            await self._close(websocket, 1013)
+            await self.close(websocket, 1013, "writer_error")
 
 
 @lru_cache(maxsize=1)
@@ -389,6 +417,7 @@ async def _serve_room(
     store = get_collab_store()
     manager = get_room_manager()
     owned_leases: set[str] = set()
+    message_times: deque[float] = deque()
 
     try:
         await websocket.accept()
@@ -433,12 +462,51 @@ async def _serve_room(
     try:
         while True:
             try:
-                message = await websocket.receive_json()
+                frame = await websocket.receive()
+                if frame.get("type") == "websocket.disconnect":
+                    break
+                raw_bytes = frame.get("bytes")
+                if raw_bytes is not None:
+                    if len(raw_bytes) > _MAX_MESSAGE_BYTES:
+                        await manager.close(websocket, 1009, "message_too_large")
+                        break
+                    try:
+                        raw = raw_bytes.decode("utf-8")
+                    except UnicodeDecodeError:
+                        await manager.close(websocket, 1007, "invalid_utf8")
+                        break
+                else:
+                    raw = str(frame.get("text", ""))
             except WebSocketDisconnect, WebSocketDisconnected:
+                break
+            now = time.monotonic()
+            while message_times and now - message_times[0] > _MESSAGE_RATE_WINDOW:
+                message_times.popleft()
+            message_bytes = len(raw.encode("utf-8"))
+            section = room.split(":")[1] if ":" in room else "unknown"
+            if message_bytes > _MAX_MESSAGE_BYTES:
+                await manager.close(websocket, 1009, "message_too_large")
+                break
+            if len(message_times) >= _MAX_MESSAGES_PER_WINDOW:
+                await manager.close(websocket, 1008, "rate_limit")
+                break
+            message_times.append(now)
+            try:
+                message = json.loads(raw)
+            except ValueError, RecursionError:
+                await manager.close(websocket, 1007, "invalid_json")
                 break
             if not isinstance(message, dict):
                 await websocket.send_json({"type": "error", "message": "Сообщение должно быть объектом JSON."})
                 continue
+            message_type = message.get("type")
+            WS_MESSAGES_TOTAL.labels(
+                room_section=room.split(":")[1] if ":" in room else "unknown",
+                message_type=message_type
+                if isinstance(message_type, str)
+                and message_type in {"ping", "presence", "lease:acquire", "lease:renew", "lease:release"}
+                else "invalid",
+            ).inc()
             try:
                 await _handle_message(
                     message,
@@ -460,7 +528,7 @@ async def _serve_room(
                 break
             except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError, NoKppkAccessError:
                 with suppress(RuntimeError, WebSocketDisconnect, WebSocketDisconnected):
-                    await websocket.close(code=4403)
+                    await manager.close(websocket, 4403, "access_denied")
                 break
             except ValidationError as error:
                 await websocket.send_json({"type": "error", "message": f"Некорректное сообщение: {error.errors()}"})

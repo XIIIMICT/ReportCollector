@@ -154,7 +154,7 @@ async def resolve_export_source(session: AsyncSession, spec: QueryExportSpec) ->
         title="Себестоимость" if is_cost else "Реализация",
         columns=request.columns,
         header_pinned=request.headerPinned,
-        merge_rows_by=() if is_cost else REALIZATION_MERGE_BY,
+        merge_rows_by=() if is_cost or not request.mergeRows else REALIZATION_MERGE_BY,
     )
     source.select_rows(request.rowIds)
     return source

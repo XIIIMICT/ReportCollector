@@ -71,6 +71,8 @@ async def test_stream_counts_bytes_until_completion_or_failure(fail: bool) -> No
     assert sample("http_response_bytes_sum", {**labels, "status": "200"}) - before_bytes == (5 if fail else 9)
     assert sample("http_request_upload_bytes_sum", labels) - before_in == 5
     assert sample("http_response_failures_total", labels) - before_fail == int(fail)
+    if fail:
+        assert sample("http_last_failure_timestamp_seconds") > 0
     assert dict(sent[0]["headers"])[b"x-request-id"]
     assert REQUEST_ID.get() is None
 

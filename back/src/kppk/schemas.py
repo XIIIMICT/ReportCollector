@@ -309,6 +309,10 @@ class KppkRealizationExportRequest(BaseModel):
     year: int | None = Field(default=None, ge=2000, le=2100)
     # The visible rows, in the grid's own order. Null exports the whole view.
     rowIds: list[UUID] | None = None
+    # Product/market row merges are presentation-only. They are safe only when
+    # the grid is in its natural order; filtering or sorting changes row
+    # adjacency and must export the unmerged rows exactly as displayed.
+    mergeRows: bool = True
     headerPinned: bool = True
     columns: list[ExportColumnRequest] = Field(min_length=1, max_length=16)
     fileName: str = Field(min_length=1, max_length=255)

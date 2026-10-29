@@ -8,6 +8,34 @@ import { useTableExport } from "../use-table-export";
 
 afterEach(cleanup);
 
+test.each(["visible", "all"] as const)(
+    "export %s preserves the grid's merge suppression",
+    async (mode) => {
+        const seen: boolean[] = [];
+        const grid = {
+            current: {
+                getExportState: async () => ({
+                    columns: COLUMNS,
+                    rowIds: VISIBLE,
+                    mergeRows: false,
+                }),
+            },
+        };
+        const { result } = renderHook(() =>
+            useTableExport({
+                gridRef: grid,
+                fileName: () => "table.xlsx",
+                request: async (view) => {
+                    seen.push(view.mergeRows);
+                    return new Blob();
+                },
+            }),
+        );
+        act(() => result.current.exportTable(mode));
+        await waitFor(() => expect(seen).toEqual([false]));
+    },
+);
+
 /**
  * The callback must keep ONE identity across renders.
  *

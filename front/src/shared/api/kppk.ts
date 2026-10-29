@@ -487,6 +487,7 @@ export type KppkRealizationExportRequest = {
     month: string | null;
     year: string | null;
     rowIds: string[] | null;
+    mergeRows: boolean;
     headerPinned: boolean;
     columns: ExportColumn[];
     fileName: string;
@@ -510,6 +511,7 @@ export async function exportKppkRealization(
             month: request.month === null ? null : Number(request.month),
             year: request.year === null ? null : Number(request.year),
             rowIds: request.rowIds,
+            mergeRows: request.mergeRows,
             headerPinned: request.headerPinned,
             columns: request.columns,
             fileName: request.fileName,
