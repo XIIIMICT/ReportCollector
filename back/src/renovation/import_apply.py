@@ -2,11 +2,10 @@
 
 import asyncio
 import contextlib
-import queue
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, Generator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import BinaryIO
+from typing import BinaryIO, cast
 from uuid import UUID
 
 from sqlalchemy import insert, update
@@ -14,6 +13,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.collab.locking import lock_project
+from src.observability import observe_phase
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.form_schema import field_meta
 from src.renovation.import_rows import ParsedPlanRow, iter_plan_row_batches, parse_plan_rows
@@ -64,11 +64,12 @@ async def apply_plan_file(
     else:
         parsed = await asyncio.to_thread(parse_plan_rows, source)
 
-        async def one_batch() -> AsyncIterator[list[ParsedPlanRow]]:
+        async def one_batch() -> AsyncGenerator[list[ParsedPlanRow]]:
             yield parsed
 
         batches = one_batch()
-    await lock_project(session, RENOVATION_PROJECT_KEY)
+    with observe_phase("import", "project_lock"):
+        await lock_project(session, RENOVATION_PROJECT_KEY)
     plan = (await session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).first()
     if plan is None:
         raise _ERR_NO_WORKING_PLAN
@@ -98,61 +99,63 @@ async def apply_plan_file(
     inserted = 0
     updated = 0
     batch: list[_PendingRow] = []
-    async for parsed_batch in batches:
-        for row in parsed_batch:
-            asset_id = asset_ids.get(row.asset_code)
-            if asset_id is None:
-                # A reference value like any catalog label: an asset the project's
-                # dictionary does not have refuses the whole file (the preflight
-                # reports it) instead of dropping its rows from the plan.
-                raise _unknown_asset(row.code, row.asset_code)
-            row_id = existing.get(row.code)
-            position: int | None = None
-            if row_id is not None:
-                updated += 1
-            else:
-                last_position += 1
-                position = last_position
-                inserted += 1
-            batch.append(_PendingRow(parsed=row, asset_id=asset_id, row_id=row_id, position=position))
-            if len(batch) >= _BATCH_SIZE:
-                await _flush_batch(session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id)
-                batch = []
+    async with contextlib.aclosing(batches):
+        async for parsed_batch in batches:
+            for row in parsed_batch:
+                asset_id = asset_ids.get(row.asset_code)
+                if asset_id is None:
+                    # A reference value like any catalog label: an asset the project's
+                    # dictionary does not have refuses the whole file (the preflight
+                    # reports it) instead of dropping its rows from the plan.
+                    raise _unknown_asset(row.code, row.asset_code)
+                row_id = existing.get(row.code)
+                position: int | None = None
+                if row_id is not None:
+                    updated += 1
+                else:
+                    last_position += 1
+                    position = last_position
+                    inserted += 1
+                batch.append(_PendingRow(parsed=row, asset_id=asset_id, row_id=row_id, position=position))
+                if len(batch) >= _BATCH_SIZE:
+                    with observe_phase("import", "write_batch"):
+                        await _flush_batch(
+                            session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id
+                        )
+                    batch = []
     if batch:
-        await _flush_batch(session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id)
+        with observe_phase("import", "write_batch"):
+            await _flush_batch(session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id)
 
     # Calculated fields and the renovation ID of every row of the plan.
-    await recompute_plan_rows(session, plan_id=plan.id)
+    with observe_phase("import", "recompute"):
+        await recompute_plan_rows(session, plan_id=plan.id)
     return RenovationPlanImportApplyResult(new_rows=inserted, updated_rows=updated)
 
 
-async def _stream_parsed_batches(source: BinaryIO) -> AsyncIterator[list[ParsedPlanRow]]:
-    """Bridge the CPU parser thread to async writes with a bounded queue."""
-    batches: queue.Queue[list[ParsedPlanRow] | BaseException | None] = queue.Queue(maxsize=2)
-
-    def produce() -> None:
-        try:
-            for batch in iter_plan_row_batches(source, _BATCH_SIZE):
-                batches.put(batch)
-        except BaseException as error:  # noqa: BLE001
-            batches.put(error)
-        finally:
-            batches.put(None)
-
-    producer = asyncio.create_task(asyncio.to_thread(produce))
+async def _stream_parsed_batches(source: BinaryIO) -> AsyncGenerator[list[ParsedPlanRow]]:
+    """Pull one batch at a time; never leave a producer blocked after a failed write."""
+    batches = cast("Generator[list[ParsedPlanRow]]", iter_plan_row_batches(source, _BATCH_SIZE))
     try:
         while True:
-            item = await asyncio.to_thread(batches.get)
+
+            def read_next() -> list[ParsedPlanRow] | None:
+                return next(batches, None)
+
+            read = asyncio.create_task(asyncio.to_thread(read_next))
+            try:
+                with observe_phase("import", "parse_batch"):
+                    item = await asyncio.shield(read)
+            except asyncio.CancelledError:
+                # Cancellation cannot interrupt a Python thread. Wait for this
+                # bounded batch before closing the workbook/upload underneath it.
+                await read
+                raise
             if item is None:
                 break
-            if isinstance(item, BaseException):
-                raise item
             yield item
     finally:
-        if not producer.done():
-            producer.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await producer
+        await asyncio.to_thread(batches.close)
 
 
 async def _flush_batch(

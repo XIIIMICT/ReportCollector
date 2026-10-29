@@ -2,7 +2,7 @@
 
 **Review date:** 2026-10-29
 **Scope:** `back/src`, database migrations, CI/release workflow, Prometheus/Grafana/Loki/Alloy/Alertmanager configuration, and the backend-facing parts of the frontend workflow.
-**Status:** Phase A runtime hardening is partially complete; durable import/export jobs remain open for Phase B.
+**Status:** Phase A runtime hardening and baseline observability are complete in the local stack; load calibration and production scrape discovery remain open. Durable import/export jobs remain open for Phase B.
 **Repository constraint:** the existing user change in `compose.yaml` was left untouched.
 
 ## Dependency/runtime follow-up (2026-10-29)
@@ -56,17 +56,39 @@ Completed in the current change set:
 - bounded XLSB upload hashing with a configurable size limit, streaming parser
   entry points, digest-scoped inspect cache and one asset lookup map;
 - explicit PostgreSQL pool bounds plus statement and lock timeouts;
-- database checkout, invalidation and statement-duration metrics, alongside the
-  existing HTTP and collaboration metrics;
+- database checkout/hold, pool occupancy, invalidation, statement-duration and
+  statement-failure metrics, alongside the existing HTTP and collaboration
+  metrics;
+- ASGI request/response byte accounting (including streamed bodies), cache
+  hit/miss counters, import phase timings, export queue/worker lifecycle
+  metrics, process RSS/CPU, event-loop lag and log/export disk gauges;
+- early multipart upload body/timeout guards, Valkey operation timing and
+  subscription-failure metrics, plus lock-wait phase timing;
+- Grafana panels for pool pressure, export queue wait, data-operation phases and
+  runtime saturation, plus alerts for pool exhaustion, query timeouts, failed
+  exports, event-loop stalls and disk pressure;
+- import cancellation cleanup: the XLSB iterator is closed after write failure
+  or cancellation, so a parser thread cannot remain blocked on a bounded queue;
 - Granian reload ignores the application log directory, preventing reload loops.
 
-Still open in Phase A:
+Still open for production: load-based alert thresholds, memory/backlog rules,
+per-instance scrape discovery and verification of the locked GitHub CI run.
+The local baseline does not establish a production SLO. A durable job
+store/worker boundary belongs to Phase B; metrics make the process-local queue
+visible but do not make it restart-safe. The custom registry is per process:
+do not increase Granian workers behind one scrape endpoint until aggregation
+or per-process scraping is designed.
 
-- request/upload/response byte metrics, job/import/export phase metrics,
-  event-loop/process/disk saturation metrics and alert rules for these signals;
-- query-count coverage for `/me` and measured `EXPLAIN` snapshots for the main
-  plan/facet/export queries;
-- load-based alert thresholds and production scrape/service discovery.
+The query-count regression for `/me` and the measured query snapshots are now
+closed. The snapshot is stored in
+`docs/BACKEND_QUERY_PLANS_2026-10-29.json` and can be regenerated with
+`back/src/scripts/explain_backend.py`. It captured 17 sanitized plans against
+the working 306,141-row plan (window, deep window, text/date facets and export
+metadata). Exact window counts took about 53–54 ms, text/date facets 83–94 ms,
+and the largest export-metadata aggregate 484 ms. These are individual SQL
+execution times on warm local data, not endpoint latency or a production SLO.
+The baseline covers unfiltered windows; combined filters and full export
+cursor plans remain part of the load scenarios in Phase D.
 
 ## Executive verdict
 
@@ -74,13 +96,18 @@ The backend has a sound asynchronous foundation and several careful correctness 
 
 The current design is not yet ready to promise predictable behaviour under large files, large renovation plans, or multiple backend replicas. The main risk is not one slow SQL statement. It is the amount of work performed before a background job starts:
 
-- XLSB import reads the upload and the complete workbook into several Python structures, then performs a full-plan recomputation in the same request transaction.
+- XLSB import now streams batches from the temporary upload, but still retains
+  lookup maps and the validation report and performs full-plan recomputation in
+  the same request transaction.
 - Generic exports first materialize all database rows and only then enqueue the writer.
 - The old renovation export endpoints still build a complete export read model synchronously.
 - Export job state and files are process-local, so a restart or a second replica loses ownership/status visibility.
 - A single in-process worker serializes all large exports.
 - The plan diff endpoint can return and compare two complete plans in Python.
-- Database pool, job queue, cache, upload, and runtime saturation are not visible in metrics, so operators cannot distinguish a slow query, an exhausted pool, a stuck worker, and memory pressure.
+- The new baseline metrics make database pool pressure, job queueing, cache
+  behaviour, upload/response sizes and runtime saturation visible. They do not
+  remove the process-local job boundary or replace load testing and production
+  service discovery.
 
 These issues can produce high RSS, long transactions and lock waits, request timeouts, partial user-visible failures, or an OOM kill even when the ASGI event loop remains responsive.
 
@@ -95,12 +122,14 @@ uv run --directory back pytest -q
 ```
 
 ```text
-532 passed, 6 skipped
+MemoryStore: 548 passed, 6 skipped (final isolated-schema run).
+Valkey: 548 passed, 2 skipped (disposable container; before adding the four
+HTTP upload-limit tests, which were verified in the final MemoryStore run).
 ```
 
 The original `httpx`/Starlette warning failure was removed by the locked
-`httpx2` test dependency. The suite is now green; the six skips are the
-explicit optional real-service cases described by the test configuration.
+`httpx2` test dependency. Both transport runs are green; their optional skips
+are the explicit cases described by the test configuration.
 
 A generic static quality analyzer was also run. It reported known false positives (for example migration SQL and test credentials), so its output was used only as a map of areas to inspect. The findings below are based on source and runtime behaviour, not on those unverified warnings.
 
@@ -129,11 +158,10 @@ A generic static quality analyzer was also run. It reported known false positive
 
 **Evidence**
 
-- `back/src/renovation/router.py:217` reads the complete upload with `await file.read()`.
-- The same payload is passed through `assets_in_file` (`router.py:220`, `import_plan.py:116-142`) and then `inspect_plan_file` (`router.py:251`, `import_plan.py:216-224`). Both paths call `_read_rows`, which returns `list[list[object]]` for the entire workbook.
-- Apply reads the upload again at `router.py:280`.
-- `parse_plan_rows` returns `list[ParsedPlanRow]` (`back/src/renovation/import_rows.py:30`), so the request can hold upload bytes, workbook cell rows, parsed rows, ORM lookup structures and pending write batches at once.
-- `back/src/renovation/import_apply.py:59` moves parsing to a thread, but that changes event-loop scheduling, not the memory model.
+- The body is now counted by `back/src/common/upload_limits.py` before Starlette's multipart parser and is rejected at the configured file limit plus a bounded multipart allowance.
+- The inspect path hashes the upload, scans asset codes, and performs a second streaming workbook pass. The scan no longer calls `_read_rows`, but it still performs more than one XLSB pass.
+- Apply uses `iter_plan_row_batches` and holds one parsed batch plus lookup maps, while `parse_plan_rows` remains a compatibility path for small fixtures and non-streaming callers.
+- The request still keeps the uploaded temporary file and performs writes/recompute in the request transaction, so the memory and transaction risks are reduced but not eliminated.
 
 **Impact**
 
@@ -141,7 +169,7 @@ A large XLSB can multiply its compressed size into several large resident struct
 
 **Remediation**
 
-1. Stream the upload to a `SpooledTemporaryFile`/controlled temporary path with a configurable byte limit.
+1. Move the bounded temporary upload and parser into a durable import worker.
 2. Parse once and produce metadata plus a bounded row iterator; do not run a separate full workbook pass for asset discovery.
 3. Apply rows in bounded chunks; keep only the current chunk and database lookup maps.
 4. Persist a digest and preflight result, not the entire payload in memory. Make retries idempotent by digest and import version.
@@ -189,19 +217,27 @@ The request still pays the complete database query, Pydantic materialization and
 
 Pass a serializable query specification to the worker, not row objects. The worker opens its own session, uses a server-side cursor or bounded keyset batches, and records progress. Perform an inexpensive count/metadata query separately and make the count optional when it is expensive.
 
-### P1-5. XLSB inspect performs an asset lookup per code
+### P1-5. XLSB asset lookup per code — fixed
 
 **Evidence**
 
-`back/src/renovation/router.py:221-230` first loads all assets, then runs a separate `SELECT` for every repair code found in the file. The number of round trips therefore grows with the upload instead of remaining constant.
+The current router loads the asset dictionary once and resolves the normalized
+codes from that map. The remaining cost is the workbook asset-discovery pass;
+it is still separate from validation and should be folded into the durable
+one-pass worker described in P0-1.
 
 **Impact**
 
-Files containing many assets make preflight slower and hold a database session while the parser has already spent CPU and memory on the workbook. Under concurrent uploads this amplifies pool pressure. The result is also easy to make inconsistent if the dictionary changes between individual lookups.
+Files containing many assets still make preflight slower and hold a database
+session while the parser spends CPU on the workbook. Under concurrent uploads
+this amplifies pool pressure, although the lookup round trips no longer grow
+with the number of asset codes.
 
 **Remediation**
 
-Normalize the codes once and resolve them with one `IN` query (or use the already loaded map). Return a deterministic missing-code set. Include the lookup duration and number of codes in import metrics.
+Keep the single lookup map, return a deterministic missing-code set, and fold
+asset discovery into the one-pass import worker. Include lookup duration and
+number of codes in import metrics when the worker boundary is implemented.
 
 ### P1-6. Synchronous renovation export endpoints remain exposed
 
@@ -357,9 +393,11 @@ Use notification-driven wakeups where available, or back off exponentially when 
 
 Set explicit room/member and message-size/rate limits, measure relay and writer lag, and load-test the largest expected room. If rooms must become large, move filtering/aggregation to a dedicated collaboration service rather than increasing the WebSocket queue size.
 
-### P2-17. Observability misses the signals needed to operate the data plane
+### P2-17. Observability baseline was incomplete before this change
 
-Current application metrics cover HTTP request count/duration/in-progress and WebSocket connections/rooms/events/slow consumers. The dashboards cover service HTTP, collaboration and logs, but not the following:
+Before the current change, application metrics covered HTTP request
+count/duration/in-progress and WebSocket connections/rooms/events/slow
+consumers. The dashboards then lacked the following data-plane signals:
 
 - import/export queue depth, active workers, queue wait, duration, failures, retries, bytes and rows;
 - import phases (upload, parse, validate, write, recompute, finalize);
@@ -371,11 +409,22 @@ Current application metrics cover HTTP request count/duration/in-progress and We
 - WebSocket messages by type, auth-check latency, queue depth and disconnect reasons;
 - readiness latency and dependency failure type.
 
-Add these as counters/gauges/histograms with operation names, never raw SQL, user IDs, UUIDs or arbitrary filter text as labels.
+The current change adds the bounded counters/gauges/histograms and dashboard
+panels for the listed HTTP, database, import/export, cache, Valkey and runtime
+signals. WebSocket room-size/message-rate and writer-lag metrics remain a
+separate P2 item because they need a load-tested room model.
+Labels use operation names and other low-cardinality values; raw SQL, user IDs,
+UUIDs and arbitrary filter text are excluded. Remaining work is calibration
+against production-like load and adding deployment-specific scrape discovery.
 
 ### P2-18. Alerting and scrape configuration are not production-complete
 
-Current alerts cover sustained/persistent 5xx, backend scrape failure and slow collaboration consumers. Missing alerts include p95/p99 latency, in-progress saturation, DB pool exhaustion, stuck/failed import or export jobs, memory/CPU/event-loop lag, Valkey/Postgres health, disk exhaustion, and repeated restart loops.
+The local alert set now covers sustained/persistent 5xx, backend scrape failure,
+slow collaboration consumers, pool exhaustion, query timeout/deadlock failures,
+export failures, event-loop lag, disk pressure, readiness dependency failures
+and Valkey subscription failures. It still does not page on workload-specific
+p95/p99 latency, in-progress saturation, stuck imports, memory/CPU or restart
+loops because those thresholds need a production-like baseline.
 
 `infra/prometheus/prometheus.yml` scrapes a static `host.docker.internal:8000` target with an `env: local` label. That is acceptable for the local stack and is explicitly documented, but production needs service discovery or deployment-specific targets and a distinct environment label.
 
@@ -383,9 +432,16 @@ Build alerts from load-test baselines rather than guessing thresholds. Keep a re
 
 ### P2-19. Request logs lack data-plane context
 
-`back/src/main.py:138-195` logs method, raw path, status, duration and request ID. It does not include response size, upload size, logical route name, database timing, job ID, phase, rows or bytes. Background workers do not inherit the request ID automatically.
+The former middleware logged only method, raw path, status, duration and
+request ID. The current middleware adds the matched route, request/response
+bytes and completion outcome; export workers inherit request ID and log job,
+phase, queue wait, rows and bytes. Database timing remains in metrics rather
+than request log fields.
 
-Add a low-cardinality `operation`, `job_id` (searchable field, not a metric label), phase, row/byte counts and outcome. Propagate a correlation ID into the job record and log it on every phase. Avoid logging file contents, tokens, full filter payloads or personal data. Consider sampling successful high-volume 200 logs once metrics and traceability are sufficient.
+Keep metric labels low-cardinality. `job_id`, row counts and byte counts belong
+in searchable log fields, never metric labels. Avoid logging file contents,
+tokens, full filter payloads or personal data. Consider sampling successful
+high-volume 200 logs once metrics and traceability are sufficient.
 
 ### P2-20. The audit surface has no production-like load gate
 
@@ -406,7 +462,7 @@ Collect p50/p95/p99 latency, RSS, CPU, DB pool wait, lock wait, queue wait, job 
 
 | Workload | Current path | Current execution | Main risk | Target direction |
 |---|---|---|---|---|
-| Renovation XLSB inspect | `POST /api/renovation/plan/import/inspect` | HTTP; full upload + full workbook parse; cache lookup | repeated parse, memory amplification, asset N+1 | bounded temp file, one parse pass, digest-scoped preflight |
+| Renovation XLSB inspect | `POST /api/renovation/plan/import/inspect` | HTTP; bounded temporary upload, asset scan + streaming validation, digest cache | repeated parse, report size, HTTP lifetime | one-pass durable preflight |
 | Renovation XLSB apply | `POST /api/renovation/plan/import/apply` | HTTP; parse in thread, batched writes, full recompute | long transaction/project lock, retry ambiguity | durable import job + staging/version swap |
 | Renovation grid window | `GET /api/renovation/plan/rows` | HTTP; window query plus exact counts | repeated `COUNT(*)`, filter cost | revision-aware counts, keyset windows, measured query plans |
 | Renovation diff | `GET /api/renovation/plan/diff` | HTTP; two full plans in Python | unbounded memory/response | paged SQL diff or job artifact |
@@ -438,11 +494,11 @@ These are starting assumptions for load-test planning, not accepted SLOs:
 
 ### Phase A — make the current service measurable and safe
 
-1. Fix the Starlette/httpx2 dependency mismatch and require a green locked CI run.
-2. Add request/upload/response sizes, job/import/export lifecycle metrics, DB pool/query/lock metrics, Valkey metrics, RSS/CPU/event-loop lag and disk metrics.
-3. Add size limits and explicit timeouts for uploads, statements, locks, pool checkout and job streaming.
-4. Add query-count regression coverage for `/me` and EXPLAIN snapshots for plan windows, counts, facets and exports.
-5. Add alerts and dashboards for queue backlog, job failures, pool saturation, memory and dependency health.
+1. Fix the Starlette/httpx2 dependency mismatch and require a green locked CI run. **Migration and local gates done 2026-10-29; GitHub CI remains to be verified after push.**
+2. Add request/upload/response sizes, job/import/export lifecycle metrics, DB pool/query/lock metrics, Valkey metrics, RSS/CPU/event-loop lag and disk metrics. **Done as a local baseline 2026-10-29.**
+3. Add size limits and explicit timeouts for uploads, statements, locks, pool checkout and job streaming. **Done for incoming HTTP body/file bytes and receive timeout, DB, pool and existing stream guards; align proxy limits during deployment.**
+4. Add query-count regression coverage for `/me` and EXPLAIN snapshots for plan windows, counts, facets and exports. **Baseline done 2026-10-29:** regression test in `back/tests/test_auth_scenario.py`, unfiltered window/count/facet/export-metadata snapshot in `docs/BACKEND_QUERY_PLANS_2026-10-29.json`, capture script in `back/src/scripts/explain_backend.py`. Combined filters and full export-cursor plans need the Phase D workload matrix.
+5. Add alerts and dashboards for queue backlog, job failures, pool saturation, memory and dependency health. **Local dashboards and failure/capacity alerts done 2026-10-29. Memory/backlog alerts and thresholds still need load calibration.**
 
 ### Phase B — establish durable import/export boundaries
 

@@ -325,6 +325,8 @@ def _inspect_rows(
         data_rows = iter(())
     elif not _is_numbering_row(first_data_row, code_index):
         data_rows = chain((first_data_row,) if first_data_row is not None else (), data_rows)
+    else:
+        data_start += 1
 
     type_errors: list[RenovationPlanImportCellIssue] = []
     missing: list[RenovationPlanImportCellIssue] = []
@@ -368,7 +370,8 @@ def _inspect_rows(
                 # Still counted among the file's assets: the cache scope must
                 # cover the rows a fixed file would touch.
                 assets.add(default_name)
-        asset_codes.append(asset_code or None)
+        if RENOVATION_ID_FORMULA_ENABLED:
+            asset_codes.append(asset_code or None)
         values: dict[str, object] = {}
         for field, index in columns.items():
             if field in _REQUIRED_FIELDS and (index >= len(raw) or raw[index] in (None, "")):
@@ -418,7 +421,8 @@ def _inspect_rows(
                             location=f"{_column_name(index)}, строка {row_number}", value=str(label)
                         )
                     )
-        valid_rows.append(values)
+        if RENOVATION_ID_FORMULA_ENABLED:
+            valid_rows.append(values)
     duplicates = sorted(code for code, count in Counter(codes).items() if count > 1)
     # ARCHIVED: the «correctly calculated code» check. The renovation-ID formula
     # is OFF (`service.RENOVATION_ID_FORMULA_ENABLED`) and col_003 is imported

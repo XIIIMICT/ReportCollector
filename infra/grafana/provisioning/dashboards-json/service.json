@@ -217,6 +217,110 @@
         "overrides": []
       },
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Пул PostgreSQL",
+      "description": "Занятые соединения, overflow и предел пула. Рост к пределу означает ожидание до таймаута.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "db_connections_in_use", "legendFormat": "занято", "refId": "A" },
+        { "expr": "db_pool_overflow", "legendFormat": "overflow", "refId": "B" },
+        { "expr": "db_pool_capacity", "legendFormat": "ёмкость", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 15 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Очередь Excel-выгрузок",
+      "description": "Очередь и активные задания разделены по типу экспорта.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "export_jobs_queue_depth", "legendFormat": "ожидают {{kind}}", "refId": "A" },
+        { "expr": "export_jobs_active", "legendFormat": "активны {{kind}}", "refId": "B" },
+        { "expr": "histogram_quantile(0.95, sum by (le, kind) (rate(export_job_queue_wait_seconds_bucket[10m])))", "legendFormat": "p95 ожидания {{kind}}", "refId": "C" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 15 } },
+        "overrides": [
+          { "matcher": { "id": "byFrameRefID", "options": "C" }, "properties": [{ "id": "unit", "value": "s" }, { "id": "custom.axisPlacement", "value": "right" }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Фазы импорта и экспорта",
+      "description": "p95 по фазам показывает, где тратится время большой операции.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "topk(12, histogram_quantile(0.95, sum by (le, operation, phase) (rate(data_operation_duration_seconds_bucket[10m]))))", "legendFormat": "p95 {{operation}} / {{phase}}", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Память, event loop и диск",
+      "description": "ProcessCollector даёт RSS/CPU; приложение дополнительно измеряет задержку event loop и свободное место.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "process_resident_memory_bytes", "legendFormat": "RSS", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, rate(runtime_event_loop_lag_seconds_bucket[10m]))", "legendFormat": "p95 event loop", "refId": "B" },
+        { "expr": "runtime_disk_free_bytes", "legendFormat": "свободно {{storage}}", "refId": "C" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": [
+          { "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "unit", "value": "s" }, { "id": "custom.axisPlacement", "value": "right" }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "PostgreSQL: ожидание и запросы",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 41 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(db_pool_acquire_seconds_bucket[10m])))", "legendFormat": "p95 получение соединения", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(db_query_duration_seconds_bucket[10m])))", "legendFormat": "p95 SQL", "refId": "B" },
+        { "expr": "histogram_quantile(0.95, sum by (le, phase) (rate(data_operation_duration_seconds_bucket{operation=\"database_lock\"}[10m])))", "legendFormat": "p95 блокировки {{phase}}", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Valkey и зависимости",
+      "description": "Время операций включает повторы клиента; ожидание сообщений в тихой комнате исключено. Ошибки показаны на правой оси.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 41 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(valkey_operation_duration_seconds_bucket[10m])))", "legendFormat": "p95 {{operation}}", "refId": "A" },
+        { "expr": "sum by (outcome) (rate(valkey_operation_duration_seconds_count{outcome=~\"error|connection_error|timeout\"}[5m]))", "legendFormat": "ошибки/с {{outcome}}", "refId": "B" },
+        { "expr": "histogram_quantile(0.95, sum by (le, dependency) (rate(dependency_check_duration_seconds_bucket[10m])))", "legendFormat": "readiness {{dependency}}", "refId": "C" },
+        { "expr": "rate(valkey_subscription_failures_total[5m])", "legendFormat": "сбои pub/sub /с", "refId": "D" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": [
+          { "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "unit", "value": "ops" }, { "id": "custom.axisPlacement", "value": "right" }] },
+          { "matcher": { "id": "byFrameRefID", "options": "D" }, "properties": [{ "id": "unit", "value": "ops" }, { "id": "custom.axisPlacement", "value": "right" }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
     }
   ]
 }

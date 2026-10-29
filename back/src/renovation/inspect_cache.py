@@ -11,6 +11,8 @@ from valkey.exceptions import ValkeyError
 from valkey.retry import Retry
 
 from src.config import get_settings
+from src.metrics import CACHE_HITS_TOTAL, CACHE_MISSES_TOTAL
+from src.observability import observe_valkey
 from src.renovation.schemas import RenovationPlanImportResult
 
 # One hour: an admin who re-picks the same workbook right after fixing a column
@@ -59,18 +61,25 @@ class InspectResultCache:
 
     async def get_digest(self, digest: str, *, scope: str = "") -> RenovationPlanImportResult | None:
         if self._redis is None:
+            CACHE_MISSES_TOTAL.labels(cache="plan_import_inspect").inc()
             return None
         try:
-            raw = await self._redis.get(inspect_cache_key_from_digest(digest, scope=scope))
+            with observe_valkey("inspect_cache_get"):
+                raw = await self._redis.get(inspect_cache_key_from_digest(digest, scope=scope))
         except ValkeyError:
+            CACHE_MISSES_TOTAL.labels(cache="plan_import_inspect").inc()
             return None
         if raw is None:
+            CACHE_MISSES_TOTAL.labels(cache="plan_import_inspect").inc()
             return None
         text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
         try:
-            return RenovationPlanImportResult.model_validate_json(text)
+            result = RenovationPlanImportResult.model_validate_json(text)
         except ValueError:
+            CACHE_MISSES_TOTAL.labels(cache="plan_import_inspect").inc()
             return None
+        CACHE_HITS_TOTAL.labels(cache="plan_import_inspect").inc()
+        return result
 
     async def set(self, payload: bytes, result: RenovationPlanImportResult, *, scope: str = "") -> None:
         await self.set_digest(hashlib.sha256(payload).hexdigest(), result, scope=scope)
@@ -85,11 +94,12 @@ class InspectResultCache:
         if self._redis is None:
             return
         try:
-            await self._redis.set(
-                inspect_cache_key_from_digest(digest, scope=scope),
-                result.model_dump_json(),
-                ex=INSPECT_CACHE_TTL_SECONDS,
-            )
+            with observe_valkey("inspect_cache_set"):
+                await self._redis.set(
+                    inspect_cache_key_from_digest(digest, scope=scope),
+                    result.model_dump_json(),
+                    ex=INSPECT_CACHE_TTL_SECONDS,
+                )
         except ValkeyError:
             # A cache write failure must never fail the request.
             return

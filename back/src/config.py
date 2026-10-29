@@ -40,6 +40,9 @@ class Settings(BaseSettings):
         validation_alias="RENOVATION_IMPORT_MAX_BYTES",
         gt=0,
     )
+    renovation_upload_timeout_seconds: float = Field(
+        default=300.0, validation_alias="RENOVATION_UPLOAD_TIMEOUT_SECONDS", gt=0
+    )
     # Number of trusted reverse proxies in front of the app. 0 (default) means
     # X-Forwarded-For is ignored and the rate limiter keys on the socket peer;
     # N>0 makes it take the client from the Nth-from-right XFF entry.

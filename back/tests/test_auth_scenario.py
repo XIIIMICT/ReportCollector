@@ -45,6 +45,65 @@ async def test_root_does_not_provision_unknown_user(client, db_session) -> None:
     assert user is None
 
 
+async def test_me_query_count_does_not_grow_with_project_memberships(client, db_session) -> None:
+    from sqlalchemy import event
+
+    from src.auth.service import grant_project_assets
+
+    await client.post("/api/me/projects/raw_materials/request-access", headers=signed_identity_headers(**AUTH_HEADERS))
+    user = (await db_session.exec(select(User).where(col(User.email) == NEW_USER_EMAIL))).one()
+    await grant_project_assets(db_session, user.id, ["БСЗ"])
+    connection = (await db_session.connection()).sync_connection
+    statements = []
+
+    def record(_conn: object, _cursor: object, sql: str, _params: object, _context: object, _many: bool) -> None:
+        if sql.lstrip().upper().startswith("SELECT"):
+            statements.append(sql)
+
+    async def measure() -> tuple[int, list[dict[str, object]]]:
+        statements.clear()
+        event.listen(connection, "before_cursor_execute", record)
+        try:
+            response = await client.get("/api/me", headers=signed_identity_headers(**AUTH_HEADERS))
+            assert response.status_code == 200
+            return len(statements), response.json()["access"]
+        finally:
+            event.remove(connection, "before_cursor_execute", record)
+
+    await grant_project_role(db_session, user.id, RAW_MATERIALS_PROJECT_KEY, ProjectRole.ADMIN)
+    await activate_project_user(db_session, user.id, RAW_MATERIALS_PROJECT_KEY)
+    # One asset-worker permission class in addition to the admin class.
+    extra = Project(key="query-extra-0", name="Query count fixture")
+    db_session.add(extra)
+    await db_session.flush()
+    db_session.add(UserRole(user_id=user.id, project_id=extra.id, role=ProjectRole.ASSET_WORKER, is_active=True))
+    await db_session.commit()
+    small_count, small = await measure()
+    for index in range(1, 7):
+        project = Project(key=f"query-extra-{index}", name="Query count fixture")
+        db_session.add(project)
+        await db_session.flush()
+        db_session.add(
+            UserRole(
+                user_id=user.id,
+                project_id=project.id,
+                role=ProjectRole.ADMIN if index % 2 else ProjectRole.ASSET_WORKER,
+                is_active=True,
+            )
+        )
+    await db_session.commit()
+    large_count, large = await measure()
+    assert small_count > 0, "the listener must observe the actual /me SQL statements"
+    assert large_count == small_count
+    assert len(large) == len(small) + 6
+    for access in large:
+        roles = access["roles"]
+        assets = access["assets"]
+        assert isinstance(roles, list)
+        assert isinstance(assets, list)
+        assert len(assets) == (3 if "admin" in roles else 1)
+
+
 async def test_project_url_provisions_inactive_membership(client, db_session) -> None:
     response = await client.post(
         "/api/me/projects/raw_materials/request-access",

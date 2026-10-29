@@ -30,6 +30,8 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from typing import cast
 
+from src.metrics import CACHE_HITS_TOTAL, CACHE_MISSES_TOTAL
+
 # Enough for every cacheable table of a project plus headroom for a token
 # change racing a read; entries are tiny (a few dozen rows each).
 _MAX_ENTRIES = 8
@@ -55,7 +57,9 @@ async def cached[Value](
     if hit is not None:
         # Refresh the LRU position: a hot entry must not be evicted by a cold one.
         _ENTRIES.move_to_end(key)
+        CACHE_HITS_TOTAL.labels(cache=namespace).inc()
         return cast("Value", hit)
+    CACHE_MISSES_TOTAL.labels(cache=namespace).inc()
     value = await loader()
     _ENTRIES[key] = value
     while len(_ENTRIES) > _MAX_ENTRIES:

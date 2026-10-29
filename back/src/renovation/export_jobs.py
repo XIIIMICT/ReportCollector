@@ -102,4 +102,4 @@ async def _generate_plan_file(job: ExportJob) -> None:
         job.size = final.stat().st_size
 
 
-export_jobs = ExportJobManager(_generate_plan_file)
+export_jobs = ExportJobManager(_generate_plan_file, kind="renovation_plan")

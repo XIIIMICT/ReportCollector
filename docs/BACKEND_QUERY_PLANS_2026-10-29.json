@@ -1,0 +1,1044 @@
+{
+  "captured_at": "2026-10-29T13:18:38.847334+00:00",
+  "analyze": true,
+  "working_plan_rows": 306141,
+  "assets": 17,
+  "query_counts": {
+    "window": 5,
+    "window_deep": 4,
+    "facet_text": 2,
+    "facet_date": 2,
+    "export_metadata": 4
+  },
+  "plans": [
+    {
+      "operation": "window",
+      "planning_ms": 0.066,
+      "execution_ms": 0.048,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 1,
+        "Plan Width": 16,
+        "Actual Rows": 1.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 0.032,
+        "Total Cost": 3.25,
+        "Shared Hit Blocks": 2,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Seq Scan",
+            "Relation Name": "r_reference_values",
+            "Plan Rows": 83,
+            "Plan Width": 24,
+            "Actual Rows": 81.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 0.024,
+            "Total Cost": 2.83,
+            "Shared Hit Blocks": 2,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          }
+        ]
+      }
+    },
+    {
+      "operation": "window",
+      "planning_ms": 0.057,
+      "execution_ms": 0.125,
+      "plan": {
+        "Node Type": "Seq Scan",
+        "Relation Name": "r_reference_values",
+        "Plan Rows": 83,
+        "Plan Width": 121,
+        "Actual Rows": 81.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 0.115,
+        "Total Cost": 193.94,
+        "Shared Hit Blocks": 164,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Seq Scan",
+            "Relation Name": "app_users",
+            "Plan Rows": 1,
+            "Plan Width": 32,
+            "Actual Rows": 0.04,
+            "Actual Loops": 81,
+            "Actual Total Time": 0.001,
+            "Total Cost": 2.3,
+            "Shared Hit Blocks": 162,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Rows Removed by Filter": 24
+          }
+        ]
+      }
+    },
+    {
+      "operation": "window",
+      "planning_ms": 0.063,
+      "execution_ms": 52.962,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 1,
+        "Plan Width": 16,
+        "Actual Rows": 1.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 52.915,
+        "Total Cost": 57075.06,
+        "Shared Hit Blocks": 202665,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Gather",
+            "Plan Rows": 2,
+            "Plan Width": 16,
+            "Actual Rows": 3.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 52.903,
+            "Total Cost": 57075.04,
+            "Shared Hit Blocks": 202665,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Aggregate",
+                "Plan Rows": 1,
+                "Plan Width": 16,
+                "Actual Rows": 1.0,
+                "Actual Loops": 3,
+                "Actual Total Time": 33.312,
+                "Total Cost": 56074.84,
+                "Shared Hit Blocks": 202665,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Index Only Scan",
+                    "Relation Name": "r_plan_rows",
+                    "Index Name": "ix_r_plan_rows_asset",
+                    "Plan Rows": 127559,
+                    "Plan Width": 32,
+                    "Actual Rows": 102047.0,
+                    "Actual Loops": 3,
+                    "Actual Total Time": 28.498,
+                    "Total Cost": 54161.4,
+                    "Shared Hit Blocks": 202665,
+                    "Shared Read Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operation": "window",
+      "planning_ms": 0.548,
+      "execution_ms": 0.818,
+      "plan": {
+        "Node Type": "Limit",
+        "Plan Rows": 100,
+        "Plan Width": 2746,
+        "Actual Rows": 100.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 0.627,
+        "Total Cost": 584.71,
+        "Shared Hit Blocks": 504,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Nested Loop",
+            "Plan Rows": 205131,
+            "Plan Width": 2746,
+            "Actual Rows": 100.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 0.62,
+            "Total Cost": 1198146.22,
+            "Shared Hit Blocks": 504,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Scan",
+                "Relation Name": "r_plan_rows",
+                "Index Name": "uq_r_plan_rows_position",
+                "Plan Rows": 205131,
+                "Plan Width": 2538,
+                "Actual Rows": 100.0,
+                "Actual Loops": 1,
+                "Actual Total Time": 0.275,
+                "Total Cost": 248394.39,
+                "Shared Hit Blocks": 102,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Rows Removed by Filter": 0
+              },
+              {
+                "Node Type": "Memoize",
+                "Plan Rows": 1,
+                "Plan Width": 144,
+                "Actual Rows": 1.0,
+                "Actual Loops": 100,
+                "Actual Total Time": 0.0,
+                "Total Cost": 0.18,
+                "Shared Hit Blocks": 2,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Index Scan",
+                    "Relation Name": "r_assets",
+                    "Index Name": "r_assets_pkey",
+                    "Plan Rows": 1,
+                    "Plan Width": 144,
+                    "Actual Rows": 1.0,
+                    "Actual Loops": 1,
+                    "Actual Total Time": 0.01,
+                    "Total Cost": 0.17,
+                    "Shared Hit Blocks": 2,
+                    "Shared Read Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              },
+              {
+                "Node Type": "Seq Scan",
+                "Relation Name": "app_users",
+                "Plan Rows": 1,
+                "Plan Width": 32,
+                "Actual Rows": 0.15,
+                "Actual Loops": 100,
+                "Actual Total Time": 0.001,
+                "Total Cost": 2.3,
+                "Shared Hit Blocks": 200,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Rows Removed by Filter": 24
+              },
+              {
+                "Node Type": "Seq Scan",
+                "Relation Name": "app_users",
+                "Plan Rows": 1,
+                "Plan Width": 32,
+                "Actual Rows": 0.0,
+                "Actual Loops": 100,
+                "Actual Total Time": 0.001,
+                "Total Cost": 2.3,
+                "Shared Hit Blocks": 200,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Rows Removed by Filter": 24
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operation": "window",
+      "planning_ms": 0.07,
+      "execution_ms": 0.031,
+      "plan": {
+        "Node Type": "Sort",
+        "Plan Rows": 3,
+        "Plan Width": 136,
+        "Actual Rows": 0.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 0.018,
+        "Total Cost": 24.56,
+        "Shared Hit Blocks": 1,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Sort Method": "quicksort",
+        "Sort Space Used": 25,
+        "Sort Space Type": "Memory",
+        "Plans": [
+          {
+            "Node Type": "Seq Scan",
+            "Relation Name": "r_plans",
+            "Plan Rows": 3,
+            "Plan Width": 136,
+            "Actual Rows": 0.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 0.006,
+            "Total Cost": 24.53,
+            "Shared Hit Blocks": 1,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Rows Removed by Filter": 1,
+            "Plans": [
+              {
+                "Node Type": "Seq Scan",
+                "Relation Name": "app_users",
+                "Plan Rows": 1,
+                "Plan Width": 32,
+                "Actual Rows": 0,
+                "Actual Loops": 0,
+                "Actual Total Time": 0.0,
+                "Total Cost": 2.3,
+                "Shared Hit Blocks": 0,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Rows Removed by Filter": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operation": "window_deep",
+      "planning_ms": 0.031,
+      "execution_ms": 0.032,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 1,
+        "Plan Width": 16,
+        "Actual Rows": 1.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 0.022,
+        "Total Cost": 3.25,
+        "Shared Hit Blocks": 2,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Seq Scan",
+            "Relation Name": "r_reference_values",
+            "Plan Rows": 83,
+            "Plan Width": 24,
+            "Actual Rows": 81.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 0.015,
+            "Total Cost": 2.83,
+            "Shared Hit Blocks": 2,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          }
+        ]
+      }
+    },
+    {
+      "operation": "window_deep",
+      "planning_ms": 0.05,
+      "execution_ms": 54.22,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 1,
+        "Plan Width": 16,
+        "Actual Rows": 1.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 54.161,
+        "Total Cost": 57075.06,
+        "Shared Hit Blocks": 202657,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Gather",
+            "Plan Rows": 2,
+            "Plan Width": 16,
+            "Actual Rows": 3.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 54.147,
+            "Total Cost": 57075.04,
+            "Shared Hit Blocks": 202657,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Aggregate",
+                "Plan Rows": 1,
+                "Plan Width": 16,
+                "Actual Rows": 1.0,
+                "Actual Loops": 3,
+                "Actual Total Time": 33.924,
+                "Total Cost": 56074.84,
+                "Shared Hit Blocks": 202657,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Index Only Scan",
+                    "Relation Name": "r_plan_rows",
+                    "Index Name": "ix_r_plan_rows_asset",
+                    "Plan Rows": 127559,
+                    "Plan Width": 32,
+                    "Actual Rows": 102047.0,
+                    "Actual Loops": 3,
+                    "Actual Total Time": 29.27,
+                    "Total Cost": 54161.4,
+                    "Shared Hit Blocks": 202657,
+                    "Shared Read Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operation": "window_deep",
+      "planning_ms": 0.432,
+      "execution_ms": 1.068,
+      "plan": {
+        "Node Type": "Limit",
+        "Plan Rows": 100,
+        "Plan Width": 2746,
+        "Actual Rows": 100.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 0.908,
+        "Total Cost": 648.26,
+        "Shared Hit Blocks": 478,
+        "Shared Read Blocks": 28,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Nested Loop",
+            "Plan Rows": 102794,
+            "Plan Width": 2746,
+            "Actual Rows": 100.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 0.903,
+            "Total Cost": 665738.15,
+            "Shared Hit Blocks": 478,
+            "Shared Read Blocks": 28,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Scan",
+                "Relation Name": "r_plan_rows",
+                "Index Name": "uq_r_plan_rows_position",
+                "Plan Rows": 102794,
+                "Plan Width": 2538,
+                "Actual Rows": 100.0,
+                "Actual Loops": 1,
+                "Actual Total Time": 0.652,
+                "Total Cost": 189803.39,
+                "Shared Hit Blocks": 76,
+                "Shared Read Blocks": 28,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Rows Removed by Filter": 0
+              },
+              {
+                "Node Type": "Memoize",
+                "Plan Rows": 1,
+                "Plan Width": 144,
+                "Actual Rows": 1.0,
+                "Actual Loops": 100,
+                "Actual Total Time": 0.0,
+                "Total Cost": 0.18,
+                "Shared Hit Blocks": 2,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Index Scan",
+                    "Relation Name": "r_assets",
+                    "Index Name": "r_assets_pkey",
+                    "Plan Rows": 1,
+                    "Plan Width": 144,
+                    "Actual Rows": 1.0,
+                    "Actual Loops": 1,
+                    "Actual Total Time": 0.01,
+                    "Total Cost": 0.17,
+                    "Shared Hit Blocks": 2,
+                    "Shared Read Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              },
+              {
+                "Node Type": "Seq Scan",
+                "Relation Name": "app_users",
+                "Plan Rows": 1,
+                "Plan Width": 32,
+                "Actual Rows": 0.0,
+                "Actual Loops": 100,
+                "Actual Total Time": 0.001,
+                "Total Cost": 2.3,
+                "Shared Hit Blocks": 200,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Rows Removed by Filter": 24
+              },
+              {
+                "Node Type": "Seq Scan",
+                "Relation Name": "app_users",
+                "Plan Rows": 1,
+                "Plan Width": 32,
+                "Actual Rows": 0.0,
+                "Actual Loops": 100,
+                "Actual Total Time": 0.001,
+                "Total Cost": 2.3,
+                "Shared Hit Blocks": 200,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Rows Removed by Filter": 24
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operation": "window_deep",
+      "planning_ms": 0.088,
+      "execution_ms": 0.035,
+      "plan": {
+        "Node Type": "Sort",
+        "Plan Rows": 3,
+        "Plan Width": 136,
+        "Actual Rows": 0.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 0.02,
+        "Total Cost": 24.56,
+        "Shared Hit Blocks": 1,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Sort Method": "quicksort",
+        "Sort Space Used": 25,
+        "Sort Space Type": "Memory",
+        "Plans": [
+          {
+            "Node Type": "Seq Scan",
+            "Relation Name": "r_plans",
+            "Plan Rows": 3,
+            "Plan Width": 136,
+            "Actual Rows": 0.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 0.007,
+            "Total Cost": 24.53,
+            "Shared Hit Blocks": 1,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Rows Removed by Filter": 1,
+            "Plans": [
+              {
+                "Node Type": "Seq Scan",
+                "Relation Name": "app_users",
+                "Plan Rows": 1,
+                "Plan Width": 32,
+                "Actual Rows": 0,
+                "Actual Loops": 0,
+                "Actual Total Time": 0.0,
+                "Total Cost": 2.3,
+                "Shared Hit Blocks": 0,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Rows Removed by Filter": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operation": "facet_text",
+      "planning_ms": 0.036,
+      "execution_ms": 0.032,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 1,
+        "Plan Width": 16,
+        "Actual Rows": 1.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 0.021,
+        "Total Cost": 3.25,
+        "Shared Hit Blocks": 2,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Seq Scan",
+            "Relation Name": "r_reference_values",
+            "Plan Rows": 83,
+            "Plan Width": 24,
+            "Actual Rows": 81.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 0.014,
+            "Total Cost": 2.83,
+            "Shared Hit Blocks": 2,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          }
+        ]
+      }
+    },
+    {
+      "operation": "facet_text",
+      "planning_ms": 0.094,
+      "execution_ms": 83.457,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 145,
+        "Plan Width": 54,
+        "Actual Rows": 197.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 82.678,
+        "Total Cost": 100267.08,
+        "Shared Hit Blocks": 11203,
+        "Shared Read Blocks": 85376,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Gather Merge",
+            "Plan Rows": 348,
+            "Plan Width": 54,
+            "Actual Rows": 519.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 82.609,
+            "Total Cost": 100263.89,
+            "Shared Hit Blocks": 11203,
+            "Shared Read Blocks": 85376,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Sort",
+                "Plan Rows": 145,
+                "Plan Width": 54,
+                "Actual Rows": 173.0,
+                "Actual Loops": 3,
+                "Actual Total Time": 61.94,
+                "Total Cost": 99223.69,
+                "Shared Hit Blocks": 11203,
+                "Shared Read Blocks": 85376,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Sort Method": "quicksort",
+                "Sort Space Used": 38,
+                "Sort Space Type": "Memory",
+                "Plans": [
+                  {
+                    "Node Type": "Aggregate",
+                    "Plan Rows": 145,
+                    "Plan Width": 54,
+                    "Actual Rows": 173.0,
+                    "Actual Loops": 3,
+                    "Actual Total Time": 61.806,
+                    "Total Cost": 99218.13,
+                    "Shared Hit Blocks": 11187,
+                    "Shared Read Blocks": 85376,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Seq Scan",
+                        "Relation Name": "r_plan_rows",
+                        "Plan Rows": 85471,
+                        "Plan Width": 46,
+                        "Actual Rows": 102047.0,
+                        "Actual Loops": 3,
+                        "Actual Total Time": 50.881,
+                        "Total Cost": 98789.32,
+                        "Shared Hit Blocks": 11187,
+                        "Shared Read Blocks": 85376,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Rows Removed by Filter": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operation": "facet_date",
+      "planning_ms": 0.06,
+      "execution_ms": 0.04,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 1,
+        "Plan Width": 16,
+        "Actual Rows": 1.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 0.026,
+        "Total Cost": 3.25,
+        "Shared Hit Blocks": 2,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Seq Scan",
+            "Relation Name": "r_reference_values",
+            "Plan Rows": 83,
+            "Plan Width": 24,
+            "Actual Rows": 81.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 0.019,
+            "Total Cost": 2.83,
+            "Shared Hit Blocks": 2,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          }
+        ]
+      }
+    },
+    {
+      "operation": "facet_date",
+      "planning_ms": 0.12,
+      "execution_ms": 93.856,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 365,
+        "Plan Width": 12,
+        "Actual Rows": 367.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 92.977,
+        "Total Cost": 100345.94,
+        "Shared Hit Blocks": 11485,
+        "Shared Read Blocks": 85094,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Gather Merge",
+            "Plan Rows": 876,
+            "Plan Width": 12,
+            "Actual Rows": 1099.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 92.904,
+            "Total Cost": 100337.91,
+            "Shared Hit Blocks": 11485,
+            "Shared Read Blocks": 85094,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Sort",
+                "Plan Rows": 365,
+                "Plan Width": 12,
+                "Actual Rows": 366.33,
+                "Actual Loops": 3,
+                "Actual Total Time": 72.07,
+                "Total Cost": 99236.77,
+                "Shared Hit Blocks": 11485,
+                "Shared Read Blocks": 85094,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Sort Method": "quicksort",
+                "Sort Space Used": 36,
+                "Sort Space Type": "Memory",
+                "Plans": [
+                  {
+                    "Node Type": "Aggregate",
+                    "Plan Rows": 365,
+                    "Plan Width": 12,
+                    "Actual Rows": 366.33,
+                    "Actual Loops": 3,
+                    "Actual Total Time": 71.989,
+                    "Total Cost": 99220.33,
+                    "Shared Hit Blocks": 11469,
+                    "Shared Read Blocks": 85094,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Seq Scan",
+                        "Relation Name": "r_plan_rows",
+                        "Plan Rows": 85471,
+                        "Plan Width": 4,
+                        "Actual Rows": 102047.0,
+                        "Actual Loops": 3,
+                        "Actual Total Time": 64.161,
+                        "Total Cost": 98789.32,
+                        "Shared Hit Blocks": 11469,
+                        "Shared Read Blocks": 85094,
+                        "Temp Read Blocks": 0,
+                        "Temp Written Blocks": 0,
+                        "Rows Removed by Filter": 0
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operation": "export_metadata",
+      "planning_ms": 0.086,
+      "execution_ms": 0.059,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 1,
+        "Plan Width": 16,
+        "Actual Rows": 1.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 0.036,
+        "Total Cost": 3.25,
+        "Shared Hit Blocks": 2,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Seq Scan",
+            "Relation Name": "r_reference_values",
+            "Plan Rows": 83,
+            "Plan Width": 24,
+            "Actual Rows": 81.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 0.027,
+            "Total Cost": 2.83,
+            "Shared Hit Blocks": 2,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          }
+        ]
+      }
+    },
+    {
+      "operation": "export_metadata",
+      "planning_ms": 0.094,
+      "execution_ms": 50.107,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 1,
+        "Plan Width": 8,
+        "Actual Rows": 1.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 50.052,
+        "Total Cost": 39842.38,
+        "Shared Hit Blocks": 202694,
+        "Shared Read Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Gather",
+            "Plan Rows": 2,
+            "Plan Width": 8,
+            "Actual Rows": 3.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 50.038,
+            "Total Cost": 39842.36,
+            "Shared Hit Blocks": 202694,
+            "Shared Read Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Aggregate",
+                "Plan Rows": 1,
+                "Plan Width": 8,
+                "Actual Rows": 1.0,
+                "Actual Loops": 3,
+                "Actual Total Time": 30.017,
+                "Total Cost": 38842.16,
+                "Shared Hit Blocks": 202694,
+                "Shared Read Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Index Only Scan",
+                    "Relation Name": "r_plan_rows",
+                    "Index Name": "ix_r_plan_rows_asset",
+                    "Plan Rows": 85471,
+                    "Plan Width": 0,
+                    "Actual Rows": 102047.0,
+                    "Actual Loops": 3,
+                    "Actual Total Time": 27.114,
+                    "Total Cost": 38628.47,
+                    "Shared Hit Blocks": 202694,
+                    "Shared Read Blocks": 0,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operation": "export_metadata",
+      "planning_ms": 1.413,
+      "execution_ms": 483.526,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 1,
+        "Plan Width": 5216,
+        "Actual Rows": 1.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 474.045,
+        "Total Cost": 134621.42,
+        "Shared Hit Blocks": 11751,
+        "Shared Read Blocks": 84812,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Gather",
+            "Plan Rows": 2,
+            "Plan Width": 5216,
+            "Actual Rows": 3.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 473.7,
+            "Total Cost": 134619.37,
+            "Shared Hit Blocks": 11751,
+            "Shared Read Blocks": 84812,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Aggregate",
+                "Plan Rows": 1,
+                "Plan Width": 5216,
+                "Actual Rows": 1.0,
+                "Actual Loops": 3,
+                "Actual Total Time": 448.746,
+                "Total Cost": 133619.17,
+                "Shared Hit Blocks": 11751,
+                "Shared Read Blocks": 84812,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Seq Scan",
+                    "Relation Name": "r_plan_rows",
+                    "Plan Rows": 85471,
+                    "Plan Width": 1002,
+                    "Actual Rows": 102047.0,
+                    "Actual Loops": 3,
+                    "Actual Total Time": 222.128,
+                    "Total Cost": 98789.32,
+                    "Shared Hit Blocks": 11751,
+                    "Shared Read Blocks": 84812,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Rows Removed by Filter": 0
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "operation": "export_metadata",
+      "planning_ms": 0.202,
+      "execution_ms": 67.528,
+      "plan": {
+        "Node Type": "Aggregate",
+        "Plan Rows": 1,
+        "Plan Width": 8,
+        "Actual Rows": 1.0,
+        "Actual Loops": 1,
+        "Actual Total Time": 67.062,
+        "Total Cost": 100003.22,
+        "Shared Hit Blocks": 11853,
+        "Shared Read Blocks": 84710,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Gather",
+            "Plan Rows": 2,
+            "Plan Width": 8,
+            "Actual Rows": 3.0,
+            "Actual Loops": 1,
+            "Actual Total Time": 67.05,
+            "Total Cost": 100003.21,
+            "Shared Hit Blocks": 11853,
+            "Shared Read Blocks": 84710,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Aggregate",
+                "Plan Rows": 1,
+                "Plan Width": 8,
+                "Actual Rows": 1.0,
+                "Actual Loops": 3,
+                "Actual Total Time": 47.866,
+                "Total Cost": 99003.01,
+                "Shared Hit Blocks": 11853,
+                "Shared Read Blocks": 84710,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Seq Scan",
+                    "Relation Name": "r_plan_rows",
+                    "Plan Rows": 85471,
+                    "Plan Width": 8,
+                    "Actual Rows": 102047.0,
+                    "Actual Loops": 3,
+                    "Actual Total Time": 44.994,
+                    "Total Cost": 98789.32,
+                    "Shared Hit Blocks": 11853,
+                    "Shared Read Blocks": 84710,
+                    "Temp Read Blocks": 0,
+                    "Temp Written Blocks": 0,
+                    "Rows Removed by Filter": 0
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

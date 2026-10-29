@@ -542,8 +542,14 @@ async def read_user_access(session: AsyncSession, user_id: UUID) -> list[Project
         combined.setdefault((project.id, project.key, project.name), []).append(role)
 
     projects: list[ProjectAccessRead] = []
+    # Asset grants are shared by these memberships; resolve each permission
+    # class once per request. Never reuse admin assets for an asset worker.
+    assets_by_admin: dict[bool, list[AssetAccessRead]] = {}
     for (_, key, name), roles in sorted(combined.items()):
-        assets = await read_project_assets(session, user_id, roles)
+        is_admin = ProjectRole.ADMIN in roles
+        if is_admin not in assets_by_admin:
+            assets_by_admin[is_admin] = await read_project_assets(session, user_id, roles)
+        assets = assets_by_admin[is_admin]
         projects.append(
             ProjectAccessRead(
                 key=key,

@@ -45,10 +45,23 @@ from fastapi import Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from src.app_logging import log_error
+from src.app_logging import log_error, log_event
 from src.common.export import INLINE_EXPORT_MAX_ROWS
 from src.common.xlsx_table import TableWorkbookWriter
 from src.downloads import attachment_response
+from src.metrics import (
+    EXPORT_JOB_BYTES,
+    EXPORT_JOB_DURATION,
+    EXPORT_JOB_OLDEST,
+    EXPORT_JOB_QUEUE_WAIT,
+    EXPORT_JOB_ROWS,
+    EXPORT_JOBS_ACTIVE,
+    EXPORT_JOBS_COMPLETED_TOTAL,
+    EXPORT_JOBS_FAILED_TOTAL,
+    EXPORT_JOBS_QUEUE_DEPTH,
+    EXPORT_JOBS_REJECTED,
+)
+from src.observability import REQUEST_ID, observe_phase
 
 if TYPE_CHECKING:
     from src.common.export import ExportColumnLike
@@ -111,6 +124,7 @@ class ExportJob:
     # Final file size in bytes (known only once done; a live download that
     # streamed the growing file does not need it).
     size: int | None = None
+    request_id: str | None = None
 
 
 GenerateCoroutine = Callable[[ExportJob], Awaitable[None]]
@@ -119,7 +133,7 @@ GenerateCoroutine = Callable[[ExportJob], Awaitable[None]]
 class ExportJobManager:
     """Очередь заданий и единственный worker, собирающий файлы по очереди."""
 
-    def __init__(self, generate: GenerateCoroutine | None = None) -> None:
+    def __init__(self, generate: GenerateCoroutine | None = None, *, kind: str = "generic") -> None:
         """
         Hold the project's generator and own the queue.
 
@@ -132,9 +146,14 @@ class ExportJobManager:
         omit it and monkeypatch ``_generate`` instead.
         """
         self._generate_callback = generate
+        self._kind = kind
         self._jobs: dict[str, ExportJob] = {}
         self._queue: asyncio.Queue[str] | None = None
         self._worker: asyncio.Task[None] | None = None
+        self._refresh_metrics()
+        EXPORT_JOB_OLDEST.labels(kind=kind).set_function(
+            lambda: max((time.monotonic() - job.created_at for job in self._active()), default=0)
+        )
 
     # ── lifecycle ────────────────────────────────────────────────────────
 
@@ -152,12 +171,18 @@ class ExportJobManager:
             worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await worker
+        for job in self._active():
+            job.status = "failed"
+            job.error = "Выгрузка прервана остановкой сервера. Создайте её повторно."
+        self._refresh_metrics()
 
     # ── registry ─────────────────────────────────────────────────────────
 
     def _prune(self) -> None:
         cutoff = time.monotonic() - JOB_TTL_SECONDS
-        for job_id in [job_id for job_id, job in self._jobs.items() if job.created_at < cutoff]:
+        for job_id in [
+            job_id for job_id, job in self._jobs.items() if job.created_at < cutoff and job.status in {"done", "failed"}
+        ]:
             job = self._jobs.pop(job_id)
             for path in (job.path, part_path(job_id)):
                 if path is not None:
@@ -185,22 +210,43 @@ class ExportJobManager:
                     status="done",
                     progress=spec.total,
                     path=job.path,
+                    size=job.size,
+                    request_id=REQUEST_ID.get(),
                 )
                 self._jobs[reused.id] = reused
                 return reused
         active = self._active()
         if len(active) >= MAX_ACTIVE_JOBS:
+            EXPORT_JOBS_REJECTED.labels(kind=self._kind, reason="global_limit").inc()
             message = "Очередь выгрузок заполнена. Попробуйте через минуту."
             raise ExportQueueFullError(message)
         if sum(1 for job in active if job.user_id == user_id) >= MAX_ACTIVE_JOBS_PER_USER:
+            EXPORT_JOBS_REJECTED.labels(kind=self._kind, reason="user_limit").inc()
             message = "У вас уже формируются выгрузки. Дождитесь их завершения."
             raise ExportQueueFullError(message)
-        job = ExportJob(id=str(uuid4()), user_id=user_id, spec=spec)
+        job = ExportJob(id=str(uuid4()), user_id=user_id, spec=spec, request_id=REQUEST_ID.get())
         self._jobs[job.id] = job
         await self.start()
         assert self._queue is not None  # noqa: S101 - start() создал очередь
         await self._queue.put(job.id)
+        self._refresh_metrics()
+        log_event(
+            LOGGER,
+            "export.accepted",
+            "Выгрузка поставлена в очередь.",
+            job_id=job.id,
+            request_id=job.request_id,
+            operation=self._kind,
+            rows=spec.total,
+        )
         return job
+
+    def _refresh_metrics(self) -> None:
+        """Publish bounded queue state for dashboards and alerts."""
+        active = self._active()
+        pending = sum(1 for job in active if job.status == "pending")
+        EXPORT_JOBS_ACTIVE.labels(kind=self._kind).set(len(active))
+        EXPORT_JOBS_QUEUE_DEPTH.labels(kind=self._kind).set(pending)
 
     def get(self, job_id: str, user_id: str) -> ExportJob:
         self._prune()
@@ -219,28 +265,69 @@ class ExportJobManager:
 
     async def _run(self) -> None:
         assert self._queue is not None  # noqa: S101
+        queue = self._queue
         while True:
-            job_id = await self._queue.get()
+            job_id = await queue.get()
             job = self._jobs.get(job_id)
             if job is None or job.status != "pending":
+                self._refresh_metrics()
+                queue.task_done()
                 continue
             job.status = "running"
+            started = time.monotonic()
+            EXPORT_JOB_QUEUE_WAIT.labels(kind=self._kind).observe(max(0.0, started - job.created_at))
+            self._refresh_metrics()
+            token = REQUEST_ID.set(job.request_id)
+            log_event(
+                LOGGER,
+                "export.started",
+                "Формирование выгрузки началось.",
+                job_id=job.id,
+                request_id=job.request_id,
+                operation=self._kind,
+                queue_wait_ms=round((started - job.created_at) * 1000, 1),
+            )
             try:
-                await self._generate(job)
+                with observe_phase(self._kind, "generate"):
+                    await self._generate(job)
                 job.status = "done"
+                EXPORT_JOBS_COMPLETED_TOTAL.labels(kind=self._kind).inc()
+                EXPORT_JOB_ROWS.labels(kind=self._kind).observe(job.spec.total)
+                if job.size is not None:
+                    EXPORT_JOB_BYTES.labels(kind=self._kind).observe(job.size)
             except asyncio.CancelledError:
+                job.status = "failed"
+                job.error = "Выгрузка прервана остановкой сервера. Создайте её повторно."
                 raise
             except BaseException as error:  # noqa: BLE001
                 job.status = "failed"
                 job.error = str(error) or "Не удалось сформировать файл."
+                EXPORT_JOBS_FAILED_TOTAL.labels(kind=self._kind).inc()
                 log_error(
                     LOGGER,
                     "export.export_job_failed",
                     "Не удалось сформировать выгрузку.",
                     error=str(error),
                     job_id=job.id,
+                    request_id=job.request_id,
                 )
             finally:
+                EXPORT_JOB_DURATION.labels(kind=self._kind).observe(max(0.0, time.monotonic() - started))
+                self._refresh_metrics()
+                log_event(
+                    LOGGER,
+                    "export.finished",
+                    "Обработка выгрузки завершена.",
+                    job_id=job.id,
+                    request_id=job.request_id,
+                    operation=self._kind,
+                    outcome=job.status,
+                    rows=job.progress,
+                    bytes=job.size,
+                    duration_ms=round((time.monotonic() - started) * 1000, 1),
+                )
+                REQUEST_ID.reset(token)
+                queue.task_done()
                 part_path(job_id).unlink(missing_ok=True)
 
     async def _generate(self, job: ExportJob) -> None:
@@ -391,7 +478,7 @@ async def _generate_table_file(job: ExportJob) -> None:
     spec.rows = []
 
 
-table_export_jobs = ExportJobManager(_generate_table_file)
+table_export_jobs = ExportJobManager(_generate_table_file, kind="table")
 
 
 async def export_table_or_job(

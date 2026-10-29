@@ -8,7 +8,7 @@ from collections.abc import (
     Callable,
 )
 from contextlib import asynccontextmanager, suppress
-from uuid import uuid4
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,18 +17,15 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
 
 from .api import api_router
-from .app_logging import configure_application_logging, log_error, log_event, log_warning, monotonic_ms
+from .app_logging import configure_application_logging, log_event
 from .collab.outbox import run_outbox
 from .collab.store import get_collab_store
-from .common.export_jobs import table_export_jobs
+from .common.export_jobs import export_dir, table_export_jobs
+from .common.upload_limits import ImportUploadLimitsMiddleware
 from .config import get_settings
 from .database import async_session_factory
-from .metrics import (
-    HTTP_REQUEST_DURATION,
-    HTTP_REQUESTS_IN_PROGRESS,
-    HTTP_REQUESTS_TOTAL,
-    REGISTRY,
-)
+from .metrics import DEPENDENCY_DURATION, REGISTRY
+from .observability import RequestMetricsMiddleware, sample_runtime_metrics
 from .renovation.export_jobs import export_jobs
 
 settings = get_settings()
@@ -85,11 +82,17 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     log_event(LOGGER, "application_started", "Приложение ReportCollector запущено.")
 
     dispatcher = asyncio.create_task(run_outbox())
+    runtime_metrics = asyncio.create_task(
+        sample_runtime_metrics(log_dir=Path(settings.log_file).parent, export_dir=export_dir()), name="runtime-metrics"
+    )
     await export_jobs.start()
     await table_export_jobs.start()
     try:
         yield
     finally:
+        runtime_metrics.cancel()
+        with suppress(asyncio.CancelledError):
+            await runtime_metrics
         dispatcher.cancel()
         with suppress(asyncio.CancelledError):
             await dispatcher
@@ -100,6 +103,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app.add_middleware(
+    ImportUploadLimitsMiddleware,
+    max_file_bytes=settings.renovation_import_max_bytes,
+    timeout_seconds=settings.renovation_upload_timeout_seconds,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.backend_cors_origins or [],
@@ -134,74 +142,7 @@ async def rate_limit_auth(
     return await call_next(request)
 
 
-@app.middleware("http")
-async def log_request(
-    request: Request,
-    call_next: Callable[[Request], Awaitable[Response]],
-) -> Response:
-    start = monotonic_ms()
-    request_id = str(uuid4())
-    HTTP_REQUESTS_IN_PROGRESS.inc()
-    try:
-        response = await call_next(request)
-    except Exception:
-        LOGGER.exception(
-            "Request failed", extra={"request_id": request_id, "path": request.url.path, "method": request.method}
-        )
-        raise
-    finally:
-        HTTP_REQUESTS_IN_PROGRESS.dec()
-    response.headers["X-Request-ID"] = request_id
-    duration_ms = round(monotonic_ms() - start, 1)
-    status = response.status_code
-    path = request.url.path
-
-    # The ROUTE TEMPLATE, not the raw path: a per-row uuid would create one
-    # Prometheus time series per row. `scope["route"]` is set by the router, so
-    # an unmatched path (a 404) falls back to a single shared bucket.
-    route = getattr(request.scope.get("route"), "path", None) or "unmatched"
-    HTTP_REQUESTS_TOTAL.labels(method=request.method, route=route, status=str(status)).inc()
-    HTTP_REQUEST_DURATION.labels(method=request.method, route=route).observe(duration_ms / 1000)
-
-    # Skip frequent healthcheck requests — they spam the log. The METRICS above
-    # are recorded for them too: a scrape should still see the readiness probe.
-    if path in {"/health", "/ready"}:
-        return response
-
-    if status >= 500:
-        log_error(
-            LOGGER,
-            "http_request_error",
-            "Серверная ошибка при обработке запроса.",
-            method=request.method,
-            path=path,
-            status_code=status,
-            duration_ms=duration_ms,
-            request_id=request_id,
-        )
-    elif status >= 400:
-        log_warning(
-            LOGGER,
-            "http_request_failed",
-            "Запрос завершился клиентской ошибкой.",
-            method=request.method,
-            path=path,
-            status_code=status,
-            duration_ms=duration_ms,
-            request_id=request_id,
-        )
-    elif status < 400:
-        log_event(
-            LOGGER,
-            "http_request",
-            "Запрос обработан.",
-            method=request.method,
-            path=path,
-            status_code=status,
-            duration_ms=duration_ms,
-            request_id=request_id,
-        )
-    return response
+app.add_middleware(RequestMetricsMiddleware)
 
 
 @app.get("/health")
@@ -224,12 +165,19 @@ async def metrics() -> Response:
 @app.get("/ready")
 async def readiness() -> JSONResponse:
     """Readiness checks dependencies without exposing connection details."""
+    dependency = "postgres"
+    started = time.perf_counter()
     try:
         async with asyncio.timeout(3):
             async with async_session_factory() as session:
                 # Also reject an instance started before its required migration.
                 await (await session.connection()).execute(text("SELECT id FROM collab_outbox LIMIT 0"))
+            DEPENDENCY_DURATION.labels(dependency=dependency, outcome="ok").observe(time.perf_counter() - started)
+            dependency = "valkey"
+            started = time.perf_counter()
             await get_collab_store().room_members("readiness")
+            DEPENDENCY_DURATION.labels(dependency=dependency, outcome="ok").observe(time.perf_counter() - started)
     except Exception:  # noqa: BLE001
+        DEPENDENCY_DURATION.labels(dependency=dependency, outcome="error").observe(time.perf_counter() - started)
         return JSONResponse({"status": "unavailable"}, status_code=503)
     return JSONResponse({"status": "ok"})

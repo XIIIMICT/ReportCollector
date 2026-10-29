@@ -261,9 +261,9 @@ Logs answer "what exactly happened"; metrics answer "how many and how often". **
 - `back/src/metrics.py` — a dedicated `CollectorRegistry`; `/metrics` (unauthenticated, aggregate values only) is scraped by Prometheus.
 - HTTP: `http_requests_total{method,route,status}`, `http_request_duration_seconds{method,route}` (buckets 5 ms…30 s), `http_requests_in_progress`. The `route` label is the **route template** (`/kppk/product-positions/{position_id}`), never the raw path — otherwise every row id would create its own time series; unmatched paths share `route="unmatched"`. `/health` and `/ready` are skipped in the LOG but still measured.
 - Collaboration: `ws_connections_active`, `ws_rooms_active`, `ws_events_relayed_total{room_section}`, `ws_slow_consumers_total{room_section}`. The last one matters most at scale: a client whose queue fills is **disconnected on purpose** and reconnects silently, so nothing errors — only this counter reveals it. `room_section` drops the month and the ДЗО scope, keeping one series per form.
-- Dashboards (`infra/grafana/provisioning/dashboards-json/`): **Сервис** (percentiles, error rate, slowest routes), **Сотрудничество** (WS load, slow consumers), **Ошибки** (Loki, with `request_id` correlation). Provisioned from git, `allowUiUpdates: false` — edit the JSON, not the browser.
+- Dashboards (`infra/grafana/provisioning/dashboards-json/`): **Сервис** (HTTP percentiles, database pool/query/lock pressure, import/export phases and queue, Valkey/dependency health, RSS/event loop/disk), **Сотрудничество** (WS load, slow consumers), **Ошибки** (Loki, with `request_id` correlation). Provisioned from git, `allowUiUpdates: false` — edit the JSON, not the browser.
 - Prometheus scrapes `host.docker.internal:<BACKEND_PORT>` (15 s, 15 days retention); the port is in `infra/prometheus/prometheus.yml` because Prometheus does not expand compose variables.
-- **Alerts** (`infra/prometheus/alert-rules.yml`, 4 rules): a 5xx burst (>0.05/s for 2 min), accumulating 5xx (>20/h), `up == 0` (an unreachable backend otherwise looks healthy — no requests, no errors), and collaboration slow consumers. Alertmanager groups them (`group_wait 30s`, repeat 4h) and exposes them at `http://localhost:9093`.
+- **Alerts** (`infra/prometheus/alert-rules.yml`, 11 rules): a 5xx burst (>0.05/s for 2 min), accumulating 5xx (>20/h), `up == 0`, collaboration slow consumers, pool exhaustion, query timeout/deadlock failures, export failures, event-loop lag, disk pressure, readiness dependency failures and Valkey subscription failures. The event-loop/disk/capacity values are operational guardrails; load-based latency and memory thresholds remain to be calibrated. Alertmanager groups them (`group_wait 30s`, repeat 4h) and exposes them at `http://localhost:9093`.
 - **Mail delivery works** (verified 2026-10-27): a test alert produces `msg="Notify success"` in the Alertmanager log and the mail arrives at `SUPPORT_MAIL`. `entrypoint.sh` renders `alertmanager.tpl.yml` with `ALERT_SMTP_*`/`SUPPORT_MAIL` from `.env` (Alertmanager does not expand variables in `to`/`smarthost`, so editing `.env` needs a restart — `just monitoring`). Two settings are load-bearing and easy to get wrong: the smarthost must be **587** (465 is implicit TLS and Alertmanager's `smtp_require_tls` expects STARTTLS), and `ALERT_SMTP_USER` must be the **sender** mailbox, the same one as `ALERT_SMTP_FROM`. Diagnostics and the exact configuration — `docs/SCALING_BACKLOG.md` §2.
 - Scaling work that observability does not solve by itself (load tests, WS horizontal scaling, further metrics) — `docs/SCALING_BACKLOG.md`.
 
@@ -358,8 +358,17 @@ and reference labels absent from the form's own catalogs, compared strictly
 response carries the assets (by name), the new rows and the rows to update
 (existing `col_003`).
 
-The endpoint reads the upload in memory: a Windows `NamedTemporaryFile` stays
-locked and cannot be reopened for reading.
+The upload body is bounded by `ImportUploadLimitsMiddleware` before multipart
+parsing, then Starlette's `UploadFile` keeps it in its spooled temporary file.
+The application hashes and parses it through bounded row iterators; a separate
+asset-discovery pass remains until the durable one-pass import worker in Phase B.
+
+`RENOVATION_IMPORT_MAX_BYTES` defaults to 256 MiB for each file. The HTTP body
+limit adds a 1 MiB allowance for multipart boundaries/fields and also covers
+chunked uploads without `Content-Length`. `RENOVATION_UPLOAD_TIMEOUT_SECONDS`
+(300 seconds) bounds receiving the body, excluding subsequent parse/apply time.
+Oversized or slow bodies return 413/408, and the multipart parser closes partial
+temporary files. Match proxy upload limits to these values in production.
 
 Reports are cached in Valkey (`src/renovation/inspect_cache.py`): the key is
 `rc:planimport:<sha256 of the bytes>:<scope>`, where the scope is the file's
@@ -375,11 +384,14 @@ asset recomputes it. The TTL is one hour. The cache is optional — without
 
 `POST /plan/import/apply` (admin, multipart `file`, `.xlsb` only) writes the
 same workbook into the **working** plan (`import_apply.apply_plan_file`). The
-order is: parse in a worker thread (`asyncio.to_thread(parse_plan_rows)` —
-CPU-bound: ~20k rows × 216 columns, the event loop stays free), then take the
-shared project gate (`lock_project`), then write in batches of 200 rows inside
-**one transaction**, then `recompute_plan_rows`. The plan is therefore never
-observed half-loaded, and a concurrent edit waits instead of racing.
+order is: take the shared project gate (`lock_project`), then pull batches of
+200 parsed rows from `iter_plan_row_batches` using `asyncio.to_thread` and write
+each batch inside **one transaction**, then `recompute_plan_rows`. An aborted
+write closes the iterator; cancellation waits for the current parser batch
+before closing the workbook. The transaction prevents readers seeing partial
+commits, but the shared gate does not itself serialize cell edits against the
+import. The stale-lease risk remains. The request stays long-lived until the
+durable import worker from Phase B is implemented.
 
 Rows are matched by «Код работы» (`col_003`): a code already in the plan updates
 that row in place, a code the plan does not have **appends** a row at the end

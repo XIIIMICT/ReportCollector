@@ -1,10 +1,9 @@
 # Alerting rules for ReportCollector.
 #
-# Scope: 5xx errors only — the "something bad is happening, go look" signal.
-# Latency and saturation thresholds are deliberately NOT here yet: with no load
-# test there is no baseline to compare against, and a made-up threshold either
-# rings constantly or stays silent through a real degradation. Add them once
-# `docs/SCALING_BACKLOG.md` §1 has produced numbers.
+# Failure and hard-capacity signals plus provisional event-loop/disk warnings.
+# The latter are operational guardrails, not accepted SLOs. Calibrate them and
+# add workload-specific latency/backlog/memory rules after the load baseline in
+# `docs/SCALING_BACKLOG.md` §1. Preserve instance labels on capacity comparisons.
 
 groups:
   - name: reportcollector-http
@@ -68,3 +67,85 @@ groups:
             За 10 минут отброшено более 5 соединений по переполнению очереди.
             Пользователи видят «не обновляется» и переподключаются.
             Смотрите дашборд «Сотрудничество».
+
+      - alert: DatabasePoolExhausted
+        expr: |
+          db_connections_in_use{job="reportcollector-back"} >= db_pool_capacity{job="reportcollector-back"}
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Пул PostgreSQL работает на пределе"
+          description: >-
+            Все доступные соединения заняты (включая разрешённый overflow). Проверьте
+            ожидание пула, длительные транзакции и фоновые импорты/выгрузки.
+
+      - alert: DatabaseQueryTimeouts
+        expr: |
+          sum(increase(db_query_failures_total{reason=~"statement_timeout_or_cancel|lock_timeout|deadlock"}[10m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL прерывает запросы по таймауту или блокировке"
+          description: >-
+            Разберите slow-query/lock wait и состояние импорта. Счётчик уже
+            разделяет statement timeout, lock timeout и deadlock.
+
+      - alert: ExportJobsFailing
+        expr: |
+          sum(increase(export_jobs_failed_total[15m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Сбой Excel-выгрузки"
+          description: >-
+            Посмотрите structured log по job_id и фазу generate; клиент увидит
+            стабильную ошибку вместо бесконечного ожидания.
+
+      - alert: EventLoopBlocked
+        expr: |
+          histogram_quantile(0.95, rate(runtime_event_loop_lag_seconds_bucket[10m])) > 0.25
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Event loop регулярно блокируется"
+          description: >-
+            CPU-heavy импорт, экспорт или синхронная операция выполняется в
+            процессе API. Проверьте RSS/CPU и очередь фоновых заданий.
+
+      - alert: BackendDiskPressure
+        expr: |
+          runtime_disk_free_bytes{job="reportcollector-back"} < 5368709120
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Заканчивается место для логов или Excel-файлов"
+          description: >-
+            Освободите файловую систему или уменьшите TTL артефактов до того,
+            как запись логов/выгрузок начнёт падать.
+
+      - alert: BackendDependencyFailing
+        expr: |
+          sum by (job, instance, dependency) (increase(dependency_check_duration_seconds_count{outcome="error"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Readiness фиксирует сбой зависимости {{ $labels.dependency }}"
+          description: >-
+            Приложение отвечает, но проверка PostgreSQL или Valkey не проходит.
+            Проверьте доступность зависимости и ожидание соединений.
+
+      - alert: ValkeySubscriptionsFailing
+        expr: increase(valkey_subscription_failures_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Обрывается подписка совместного редактирования"
+          description: >-
+            Valkey pub/sub завершился ошибкой после повторов клиента.
+            Сопоставьте время с WS close code и логами transport unavailable.

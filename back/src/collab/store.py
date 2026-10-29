@@ -19,9 +19,12 @@ from functools import lru_cache
 
 import valkey.asyncio as valkey
 from valkey.backoff import ExponentialBackoff
+from valkey.exceptions import ValkeyError
 from valkey.retry import Retry
 
 from src.config import get_settings
+from src.metrics import VALKEY_SUBSCRIPTION_FAILURES
+from src.observability import measured_valkey, observe_valkey
 
 LEASE_TTL_SECONDS = 20
 PRESENCE_TTL_SECONDS = 25
@@ -194,6 +197,7 @@ class ValkeyStore:
 
     # ─── Cell leases ─────────────────────────────────────────────────────────
 
+    @measured_valkey
     async def acquire_lease(self, key: str, owner: dict, *, ttl: int = LEASE_TTL_SECONDS) -> dict | None:
         """Acquires a cell. None — success; otherwise — the current owner."""
         ok = await self._redis.set(key, _encode(owner), nx=True, ex=ttl)
@@ -202,23 +206,28 @@ class ValkeyStore:
         raw = await self._redis.get(key)
         return _decode(raw) if raw else None
 
+    @measured_valkey
     async def renew_lease(self, key: str, owner: dict, *, ttl: int = LEASE_TTL_SECONDS) -> bool:
         """Renews a lease if the owner is unchanged."""
         return bool(await self._redis.eval(_RENEW_LEASE_SCRIPT, 1, key, _encode(owner), ttl))
 
+    @measured_valkey
     async def release_lease(self, key: str, owner: dict) -> bool:
         """Releases a lease if the owner is unchanged."""
         return bool(await self._redis.eval(_RELEASE_LEASE_SCRIPT, 1, key, _encode(owner)))
 
+    @measured_valkey
     async def get_lease(self, key: str) -> dict | None:
         raw = await self._redis.get(key)
         return _decode(raw) if raw else None
 
+    @measured_valkey
     async def get_leases(self, keys: list[str]) -> list[dict | None]:
         if not keys:
             return []
         return [_decode(raw) if raw else None for raw in await self._redis.mget(keys)]
 
+    @measured_valkey
     async def any_active_lease(self, keys: list[str]) -> dict | None:
         """Owner of the first busy cell among the given ones (None — all free)."""
         if not keys:
@@ -351,17 +360,20 @@ class ValkeyStore:
 
     # ─── Room presence ───────────────────────────────────────────────────────
 
+    @measured_valkey
     async def room_join(self, room: str, user_id: str, payload: dict) -> None:
         await self._redis.eval(
             _PRESENCE_SCRIPT, 1, room_presence_key(room), "join", user_id, PRESENCE_TTL_SECONDS, _encode(payload)
         )
 
+    @measured_valkey
     async def room_leave(self, room: str, user_id: str, *, client_id: str | None = None) -> None:
         if client_id is None:
             await self._redis.hdel(room_presence_key(room), user_id)
         else:
             await self._redis.eval(_PRESENCE_SCRIPT, 1, room_presence_key(room), "leave", user_id, 0, client_id)
 
+    @measured_valkey
     async def refresh_presence(self, room: str, user_id: str) -> bool:
         """
         Refresh the presence of an active member (TTL resets).
@@ -375,27 +387,34 @@ class ValkeyStore:
             )
         )
 
+    @measured_valkey
     async def room_members(self, room: str) -> dict[str, dict]:
         raw = await self._redis.eval(_PRESENCE_SCRIPT, 1, room_presence_key(room), "members", "", PRESENCE_TTL_SECONDS)
         return {_as_str(raw[index]): _decode(raw[index + 1]) for index in range(0, len(raw), 2)}
 
     # ─── Event fan-out ───────────────────────────────────────────────────────
 
+    @measured_valkey
     async def publish(self, room: str, message: dict) -> None:
         await self._redis.publish(room_channel(room), _encode(message))
 
     async def subscribe(self, room: str, *, ready: asyncio.Event | None = None) -> AsyncIterator[dict]:
         pubsub = self._pubsub_redis.pubsub()
-        await pubsub.subscribe(room_channel(room))
         try:
+            with observe_valkey("subscribe"):
+                await pubsub.subscribe(room_channel(room))
             async for message in pubsub.listen():
                 if message.get("type") == "subscribe" and ready is not None:
                     ready.set()
                 if message.get("type") != "message":
                     continue
                 yield _decode(message["data"])
+        except ValkeyError:
+            VALKEY_SUBSCRIPTION_FAILURES.inc()
+            raise
         finally:
-            await pubsub.unsubscribe(room_channel(room))
+            # Closing the dedicated pub/sub connection drops all subscriptions
+            # without another command on a potentially broken transport.
             await pubsub.aclose()
 
 

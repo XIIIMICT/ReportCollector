@@ -1,0 +1,33 @@
+rule_files:
+  - alert-rules.yml
+
+evaluation_interval: 30s
+
+tests:
+  # A saturated pool with no allowed overflow must still alert. Another
+  # instance's larger capacity must not hide this instance's exhaustion.
+  - interval: 30s
+    input_series:
+      - series: 'db_connections_in_use{job="reportcollector-back",instance="small"}'
+        values: '2+0x12'
+      - series: 'db_pool_capacity{job="reportcollector-back",instance="small"}'
+        values: '2+0x12'
+      - series: 'db_pool_overflow{job="reportcollector-back",instance="small"}'
+        values: '0+0x12'
+      - series: 'db_connections_in_use{job="reportcollector-back",instance="large"}'
+        values: '1+0x12'
+      - series: 'db_pool_capacity{job="reportcollector-back",instance="large"}'
+        values: '20+0x12'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: DatabasePoolExhausted
+        exp_alerts:
+          - exp_labels:
+              job: reportcollector-back
+              instance: small
+              severity: warning
+            exp_annotations:
+              summary: "Пул PostgreSQL работает на пределе"
+              description: >-
+                Все доступные соединения заняты (включая разрешённый overflow). Проверьте
+                ожидание пула, длительные транзакции и фоновые импорты/выгрузки.

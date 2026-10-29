@@ -65,6 +65,17 @@ async def test_health_is_measured_even_though_it_is_not_logged(client: AsyncClie
     assert 'route="/health",status="200"' in body
 
 
+async def test_http_bytes_and_runtime_metrics_are_exposed(client: AsyncClient) -> None:
+    """Byte accounting and saturation samplers are visible to Prometheus."""
+    response = await client.post("/api/auth/login", json={"email": "missing@example.ru", "password": "bad"})
+    assert response.status_code in {400, 401, 404, 422}
+    body = (await client.get("/metrics")).text
+    assert "# TYPE http_request_upload_bytes histogram" in body
+    assert "# TYPE http_response_bytes histogram" in body
+    assert "# TYPE runtime_event_loop_lag_seconds histogram" in body
+    assert "# TYPE db_pool_capacity gauge" in body
+
+
 def test_websocket_metrics_are_registered() -> None:
     """
     The collaboration series exist in the registry.
