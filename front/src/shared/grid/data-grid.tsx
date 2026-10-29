@@ -33,6 +33,7 @@ import { isFromTextEditor } from "@/shared/keyboard";
 import {
     computeRowFacets,
     facetWindow,
+    precedingColumnFilters,
     rowMatchesFilters,
     searchRowFacets,
     withFilterMarkers,
@@ -426,7 +427,6 @@ function DataGridInner(
     // unrelated records. Both triggers therefore turn them off, and this effect
     // must not put them back — it used to, because filtering does not change the
     // prop, but the state below survives only while nothing re-applies it.
-    const [mergesDropped, setMergesDropped] = useState(false);
     /** The merges the owner configured — restored when the view is reset. */
     const configuredCellMergeRef = useRef(cellMerge);
     configuredCellMergeRef.current = cellMerge;
@@ -440,14 +440,6 @@ function DataGridInner(
      * instead of an event, so every path into a filtered view agrees.
      */
     const filtersActive = columnFilters !== undefined && Object.keys(columnFilters).length > 0;
-    useEffect(() => {
-        if (filtersActive) setMergesDropped(true);
-    }, [filtersActive]);
-    useEffect(() => {
-        const grid = gridRef.current;
-        if (!grid || cellMerge === undefined || mergesDropped) return;
-        grid.cellMerge = cellMerge;
-    }, [cellMerge, mergesDropped]);
     const shellRef = useRef<HTMLDivElement>(null);
     const verticalScrollRef = useRef<HTMLDivElement>(null);
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
@@ -740,6 +732,16 @@ function DataGridInner(
         }
     }
 
+    const sortingActive = (sortingBySectionRef.current.get(section)?.columns.length ?? 0) > 0;
+    const mergesSuppressed = filtersActive || sortingActive;
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (grid && cellMerge !== undefined) grid.cellMerge = mergesSuppressed ? [] : cellMerge;
+    }, [cellMerge, mergesSuppressed, section, sortingVersion]);
+    useEffect(() => {
+        onSortingChange?.(sortingActive);
+    }, [onSortingChange, sortingActive]);
+
     // Always OUR sorting — the user's clicks, a restored one, or nothing. It is
     // pushed to the plugin IMPERATIVELY (see `pushSortingToPlugin`), not through a
     // `sorting` prop: the plugin reads the column list order as the sort PRIORITY,
@@ -790,13 +792,11 @@ function DataGridInner(
     }, [descriptorByKey, section]);
 
     const filteredColumnPaths = useCallback(() => {
-        const applied = new Set(Object.keys(columnFilters ?? {}));
-        // Ordered by the DESCRIPTOR list (the columns' on-screen order), not by
-        // the filter object — the tooltip must read left to right like the table.
-        return descriptors
-            .filter((descriptor) => applied.has(descriptor.key))
-            .map((descriptor) => [...(descriptor.path ?? []), descriptor.label]);
-    }, [columnFilters, descriptors]);
+        return Object.keys(columnFilters ?? {}).flatMap((column) => {
+            const descriptor = descriptorByKey.get(column);
+            return descriptor ? [[...(descriptor.path ?? []), descriptor.label]] : [];
+        });
+    }, [columnFilters, descriptorByKey]);
 
     // ── Header column filters (client-side) ────────────────────────────────
     // Every table uses the SAME popover (`ColumnFilterPopover`); here the
@@ -877,13 +877,8 @@ function DataGridInner(
     );
     facetTextRef.current = facetText;
 
-    /**
-     * A `FacetSource` over the rows visible under the OTHER filters: a column's
-     * option list must not collapse to what its own filter already kept, or the
-     * user could never bring a value back. Same rule the plan applies
-     * server-side (its facets are counted over the panel filters, never over the
-     * header filters themselves).
-     */
+    // Options use only preceding filters, preserving every choice when editing
+    // an earlier step. Final rows still apply all constraints with AND.
     /** Real records only: the «＋» row and deleted ghosts are not data. */
     const realRows = useMemo(
         () => rows.filter((row) => !row.isPlaceholder && !row.isDeleted),
@@ -892,7 +887,7 @@ function DataGridInner(
 
     const facetSourceFor = useCallback(
         (column: string): FacetSource => {
-            const others = activeFilters.filter((filter) => filter.column !== column);
+            const others = precedingColumnFilters(activeFilters, column);
             // Virtual rows are not records: the «＋» placeholder has no values at
             // all, so counting it put a phantom entry in the «Пустые» bucket and
             // inflated every count by one.
@@ -2205,6 +2200,9 @@ function DataGridInner(
             previous.totalCols === next.totalCols &&
             previous.filtersApplied === next.filtersApplied &&
             previous.filteredColumns.length === next.filteredColumns.length &&
+            previous.filteredColumns.every(
+                (path, index) => path.join("→") === next.filteredColumns[index]?.join("→"),
+            ) &&
             previous.sortedColumns.length === next.sortedColumns.length &&
             previous.sortedColumns.every(
                 (entry, index) =>
@@ -2219,7 +2217,7 @@ function DataGridInner(
         }
         lastStatsRef.current = next;
         onViewStatsChange(next);
-    }, [descriptors, gridAdapter, onViewStatsChange, rows]);
+    }, [descriptors, filteredColumnPaths, gridAdapter, onViewStatsChange, rows, sortedColumnPaths]);
 
     /**
      * Drop this section's sorting: the grids' plugin, our state, the stored order,
@@ -2252,10 +2250,9 @@ function DataGridInner(
             if (columns.length === 0) {
                 userSortedSectionsRef.current.delete(section);
                 gridRef.current?.classList.remove("data-grid--user-sorted");
-                setMergesDropped(false);
                 const configured = configuredCellMergeRef.current;
                 if (configured !== undefined && gridRef.current) {
-                    gridRef.current.cellMerge = configured;
+                    gridRef.current.cellMerge = filtersActive ? [] : configured;
                 }
                 onSortingChange?.(false);
             }
@@ -2271,7 +2268,7 @@ function DataGridInner(
                 pushSortingToPlugin(columns);
             })();
         },
-        [bumpSorting, onSortingChange, pushSortingToPlugin, section, sortingScope],
+        [bumpSorting, filtersActive, onSortingChange, pushSortingToPlugin, section, sortingScope],
     );
 
     /** Drop this section's whole sorting (the «reset view» menu). */
@@ -2281,13 +2278,12 @@ function DataGridInner(
         writeStoredSorting(sortingScope, section, []);
         userSortedSectionsRef.current.delete(section);
         grid?.classList.remove("data-grid--user-sorted");
-        setMergesDropped(false);
         const configured = configuredCellMergeRef.current;
-        if (configured !== undefined && grid) grid.cellMerge = configured;
+        if (configured !== undefined && grid) grid.cellMerge = filtersActive ? [] : configured;
         if (grid) pushSortingToPlugin([]);
         onSortingChange?.(false);
         bumpSorting();
-    }, [bumpSorting, onSortingChange, section, sortingScope, pushSortingToPlugin]);
+    }, [bumpSorting, filtersActive, onSortingChange, section, sortingScope, pushSortingToPlugin]);
 
     const resetGridView = useCallback(async () => {
         const grid = gridRef.current;
@@ -2910,6 +2906,12 @@ function DataGridInner(
                                 : "header-filter-button"
                         }
                         aria-label={`Фильтр: ${funnel.label}`}
+                        aria-pressed={columnFilters?.[funnel.prop] !== undefined}
+                        data-filter-order={
+                            columnFilters?.[funnel.prop]
+                                ? Object.keys(columnFilters).indexOf(funnel.prop) + 1
+                                : undefined
+                        }
                         data-prop={funnel.prop}
                         data-cell-hover={hoveredHeaderProp === funnel.prop ? "true" : undefined}
                         style={{
@@ -2931,6 +2933,11 @@ function DataGridInner(
                         }}
                     >
                         <span className="header-filter-button__icon" aria-hidden="true" />
+                        {columnFilters?.[funnel.prop] ? (
+                            <span className="header-filter-button__order">
+                                {Object.keys(columnFilters).indexOf(funnel.prop) + 1}
+                            </span>
+                        ) : null}
                     </button>
                 ))}
             </div>
@@ -3066,9 +3073,9 @@ function DataGridInner(
                         // this event; queue the plugin update so it cannot reset
                         // the sort while the lifecycle event is still running.
                         queueMicrotask(() => {
-                            if (!onSortingChange || !gridRef.current) return;
+                            if (!gridRef.current || configuredCellMergeRef.current === undefined)
+                                return;
                             gridRef.current.cellMerge = [];
-                            setMergesDropped(true);
                         });
                         userSortedSectionsRef.current.add(section);
                         gridRef.current?.classList.add("data-grid--user-sorted");
@@ -3136,9 +3143,14 @@ function DataGridInner(
                         // `onBeforesorting`). Dropped on the same microtask, so
                         // the plugin update cannot fight the lifecycle event.
                         queueMicrotask(() => {
-                            if (!gridRef.current) return;
-                            gridRef.current.cellMerge = [];
-                            setMergesDropped(true);
+                            if (!gridRef.current || configuredCellMergeRef.current === undefined)
+                                return;
+                            const sorted =
+                                (sortingBySectionRef.current.get(section)?.columns.length ?? 0) > 0;
+                            gridRef.current.cellMerge =
+                                sorted || filtersAppliedRef.current
+                                    ? []
+                                    : configuredCellMergeRef.current;
                         });
                         setTimeout(() => void measureViewport(), 0);
                     }}

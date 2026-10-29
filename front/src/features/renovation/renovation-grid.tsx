@@ -1196,26 +1196,17 @@ function RenovationGridInner(
     );
 
     /**
-     * The plan's applied filters as header chains, leaf last — the status
-     * tooltip lists exactly these. The plan's columns are FLAT (one header
-     * level), so a chain is the field's own label.
-     *
-     * The «Предприятие» column is SYNTHETIC (`ASSET_COLUMN_PROP`): it is not a
-     * form field, so `displayFields` never holds it. Looking it up there alone
-     * dropped its filter from the tooltip — the funnel burned and the branch
-     * stayed narrowed while the status claimed nothing was filtered.
+     * The plan's applied filters as the same canonical header chains used by
+     * the numbered-column tooltip. This keeps synthetic, grouped and service
+     * columns on one source of truth instead of trying to reconstruct labels
+     * from the visible field list.
      */
     const filteredColumnPaths = useMemo(
         () =>
             [...(activeFilterColumns ?? [])]
-                .map((column) =>
-                    column === ASSET_COLUMN_PROP
-                        ? "Предприятие"
-                        : displayFields.find((field) => field.dbName === column)?.label,
-                )
-                .filter((label): label is string => label !== undefined)
-                .map((label) => [label]),
-        [activeFilterColumns, displayFields],
+                .map((column) => headerChainByProp.get(column))
+                .filter((path): path is string[] => path !== undefined),
+        [activeFilterColumns, headerChainByProp],
     );
 
     useEffect(() => {
@@ -1247,6 +1238,7 @@ function RenovationGridInner(
         assetFilter,
         displayFields,
         editableFieldKeys,
+        filteredColumnPaths,
         onViewStatsChange,
         totalRowsAll,
         totalRows,
@@ -3029,6 +3021,11 @@ function RenovationGridInner(
                                 }
                                 aria-label={`Фильтр: ${cell.text}`}
                                 aria-pressed={activeFilterColumns?.has(cell.filterColumn) ?? false}
+                                data-filter-order={
+                                    activeFilterColumns?.has(cell.filterColumn)
+                                        ? [...activeFilterColumns].indexOf(cell.filterColumn) + 1
+                                        : undefined
+                                }
                                 onPointerDown={(event) => {
                                     // Keep the resize handle and the grid from
                                     // treating this as a header drag/click.
@@ -3050,6 +3047,11 @@ function RenovationGridInner(
                                     affordance in the app (iconoir), so the
                                     header button reads as a filter. */}
                                 <span className="header-filter-button__icon" aria-hidden="true" />
+                                {activeFilterColumns?.has(cell.filterColumn) ? (
+                                    <span className="header-filter-button__order">
+                                        {[...activeFilterColumns].indexOf(cell.filterColumn) + 1}
+                                    </span>
+                                ) : null}
                             </button>
                         ) : null}
                     </div>
@@ -3080,6 +3082,11 @@ function RenovationGridInner(
                                 }
                                 aria-label={`Фильтр: ${cell.label ?? cell.text}`}
                                 aria-pressed={activeFilterColumns?.has(cell.filterColumn) ?? false}
+                                data-filter-order={
+                                    activeFilterColumns?.has(cell.filterColumn)
+                                        ? [...activeFilterColumns].indexOf(cell.filterColumn) + 1
+                                        : undefined
+                                }
                                 onPointerDown={(event) => {
                                     event.preventDefault();
                                     event.stopPropagation();
@@ -3096,6 +3103,11 @@ function RenovationGridInner(
                                 }}
                             >
                                 <span className="header-filter-button__icon" aria-hidden="true" />
+                                {activeFilterColumns?.has(cell.filterColumn) ? (
+                                    <span className="header-filter-button__order">
+                                        {[...activeFilterColumns].indexOf(cell.filterColumn) + 1}
+                                    </span>
+                                ) : null}
                             </button>
                         ) : null}
                     </div>

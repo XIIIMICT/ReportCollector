@@ -8,7 +8,7 @@
  *
  * - `serverFacetSource` — the renovation plan. Hundreds of thousands of
  *   distinct values live in PostgreSQL, so the list is paged over the wire
- *   (`GET /plan/facets`, imported by the owner and injected here — this module
+ *   (`POST /plan/facets/query`, imported by the owner and injected here — this module
  *   deliberately knows nothing about the plan's API or its columns).
  * - `rowFacetSource` — everything else. Those grids already hold their rows in
  *   memory, so the same buckets are computed here.
@@ -38,6 +38,15 @@ export type ColumnFilter = {
     from?: string | null;
     to?: string | null;
 };
+
+/** Active filters keep application order; editing a filter keeps its place. */
+export function precedingColumnFilters(
+    filters: readonly ColumnFilter[],
+    column: string,
+): ColumnFilter[] {
+    const index = filters.findIndex((filter) => filter.column === column);
+    return filters.slice(0, index < 0 ? filters.length : index);
+}
 
 /** The MIN–MAX window a `timestamptz` column's header filter asks for. */
 export type InstantRange = { from: Date | null; to: Date | null };

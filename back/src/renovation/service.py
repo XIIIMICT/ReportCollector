@@ -1438,6 +1438,7 @@ async def read_plan_summary(
     filters: list[RenovationColumnFilter] | None = None,
     position_from: int | None = None,
     position_to: int | None = None,
+    time_zone: str | None = None,
 ) -> dict[str, float]:
     """
     Sum every additive numeric field over the filtered plan (the pinned summary row).
@@ -1466,6 +1467,7 @@ async def read_plan_summary(
         label_map=label_map,
         position_from=position_from,
         position_to=position_to,
+        time_zone=time_zone,
     )
     numeric = [
         meta.db_name
@@ -1492,6 +1494,7 @@ async def read_plan_facets(
     search_min: float | None = None,
     search_max: float | None = None,
     search_timezone: str | None = None,
+    filters: list[RenovationColumnFilter] | None = None,
 ) -> RenovationFacetsRead:
     """
     Distinct display values of one plan column (the header-filter options).
@@ -1530,19 +1533,24 @@ async def read_plan_facets(
             error = RenovationPlanNotFoundError(f"Нет плана в состоянии «{state.value}».")
             raise error
 
-    asset_ids = [asset.id for asset in assets]
-    if asset_name is not None:
-        asset_ids = [asset.id for asset in assets if asset.name == asset_name]
-
     label_map = await _reference_labels(session)
-    row_condition = col(RenovationPlanRow.plan_id) == plan.id
-    if asset_name is not None:
-        row_condition = row_condition & col(RenovationPlanRow.asset_id).in_(asset_ids)
-    else:
-        row_condition = row_condition & (
-            col(RenovationPlanRow.asset_id).in_(asset_ids)
-            | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
-        )
+    # Only preceding filters constrain the option list. The current and later
+    # filters must not hide choices when the user edits an earlier step.
+    preceding = []
+    for item in filters or []:
+        if item.column == column:
+            break
+        preceding.append(item)
+    row_condition = _plan_row_condition(
+        plan,
+        assets,
+        asset_name=asset_name,
+        filters=preceding,
+        label_map=label_map,
+        position_from=None,
+        position_to=None,
+        time_zone=search_timezone,
+    )
 
     # Group in SQL by the raw column; references/asset need the joined tables or
     # the label map. Booleans and numbers are stringified in Python afterwards.

@@ -4,6 +4,20 @@ Raw-material planning system: Excel-like forms with real-time collaborative edit
 
 Sections: [System diagram](#system-diagram) · [Services and compose profiles](#services-and-compose-profiles) · [Environment variables](#environment-variables-root-env-single-source) · [Data model «Сырьё»](#data-model-project-сырьё-key-raw_materials) · [Dictionary ordering](#dictionary-ordering) · [Data model «КППК»](#data-model-project-кппк-key-kppk) · [Authentication](#authentication) · [API](#api-back-prefix-api) · [Logging](#logging) · [Deployment](#deployment-prod) · [Plan import](#renovation-plan-import-technical-directorate-xlsb) · [Export jobs](#renovation-plan-export-jobs) · [Transactional collaboration](#transactional-collaboration)
 
+## Ordered column filters
+
+- Header filters retain application order in per-table local storage. Editing
+  preserves priority; removing and reapplying appends a filter. Header badges
+  and the numbered status list show this order. A column's facet options use
+  only preceding filters; all active filters combine with AND for rows/totals.
+- Renovation sends header constraints, date zones and facet search in JSON to
+  `POST /plan/rows/query`, `/plan/summary/query` and `/plan/facets/query`.
+  Toolbar scope stays in the URL. Legacy GET reads remain available without
+  header constraints; a `filters` query parameter is rejected with 422.
+- Shared `DataGrid` suppresses index-based merges whenever filtering or sorting
+  is active, including restored state. KPPK supplies the original merge ranges.
+  Stacked toolbar rows keep a 0.75rem gap at every viewport size while visible.
+
 ## System diagram
 
 ```
@@ -449,9 +463,12 @@ the threshold the response is `202` + a job description and the shared
 background worker builds the same workbook — the front hands the job's file
 URL to the browser, which downloads the file WHILE it is still being
 generated (the append-only container makes the served bytes valid from the
-first byte). These generic tables still use the process-local
-`ExportJobManager`. The plan uses `DurableExportManager`; both consumers start
-in the app lifespan.
+first byte). The renovation plan and КППК cost/realization exports use a
+durable PostgreSQL query specification (`data_jobs`) and bounded cursor batches
+in the isolated worker; the worker reopens the authorized query instead of
+receiving materialized rows. Small КППК exports remain inline. Generic
+dictionary exports still use the process-local `ExportJobManager` until their
+query specifications are migrated.
 
 A full plan export is ~306k rows × 216 columns: minutes of CPU and ~500 MB of
 XLSX (the sheet XML exceeds 4 GB uncompressed → ZIP64). Doing that in the

@@ -270,7 +270,7 @@ export function FilterSection({ chains }: { chains: string[][] }) {
             <div className="form-status-detail__gap" aria-hidden="true" />
             <div className="form-status-detail__filters">
                 <b>Фильтры:</b>
-                <ul className="form-status-detail__filters-list">
+                <ol className="form-status-detail__filters-list form-status-detail__sort-list">
                     {chains.map((path) => (
                         <li key={path.join(" → ")} className="form-status-detail__filters-item">
                             {path.map((label, index) => (
@@ -288,7 +288,7 @@ export function FilterSection({ chains }: { chains: string[][] }) {
                             ))}
                         </li>
                     ))}
-                </ul>
+                </ol>
             </div>
         </>
     );

@@ -3,6 +3,8 @@ import { expect, test } from "bun:test";
 import {
     computeRowFacets,
     facetWindow,
+    precedingColumnFilters,
+    rowMatchesFilters,
     rowFacetSource,
     serverFacetSource,
     type FacetSearch,
@@ -18,6 +20,25 @@ const rows = [
 ];
 
 const name = (row: Record<string, unknown>) => row.name;
+
+test("ordered facets use earlier filters only and retain order after serialization", () => {
+    const filters = [
+        { column: "criticality", values: ["1"], includeNulls: false },
+        { column: "asset", values: ["B"], includeNulls: false },
+    ];
+    const records = [
+        { criticality: "1", asset: "A" },
+        { criticality: "1", asset: "B" },
+        { criticality: "2", asset: "C" },
+    ];
+    const preceding = precedingColumnFilters(JSON.parse(JSON.stringify(filters)), "asset");
+    const kept = records.filter((row) =>
+        rowMatchesFilters(row, preceding, (column, record) => record[column]),
+    );
+    expect(computeRowFacets(kept, (row) => row.asset).values).toEqual(["A", "B"]);
+    expect(precedingColumnFilters(filters, "criticality")).toEqual([]);
+    expect(precedingColumnFilters(filters, "newColumn")).toEqual(filters);
+});
 
 test("values are deduplicated by display text and sorted case-insensitively", () => {
     const facets = computeRowFacets(rows, name);

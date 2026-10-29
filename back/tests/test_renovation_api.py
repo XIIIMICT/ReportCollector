@@ -281,10 +281,11 @@ async def test_renovation_id_filter_is_two_buckets(client: AsyncClient, db_sessi
 
     async def rows_for(bucket: str) -> int:
         filters = json.dumps([{"column": "col_003", "values": [bucket], "includeNulls": False}])
-        response = await client.get(
-            "/api/renovation/plan/rows",
+        response = await client.post(
+            "/api/renovation/plan/rows/query",
             headers=ADMIN_HEADERS,
-            params={"offset": 0, "limit": 100, "filters": filters},
+            params={"offset": 0, "limit": 100},
+            json={"filters": json.loads(filters)},
         )
         assert response.status_code == 200, response.text
         return response.json()["total"]
@@ -411,6 +412,51 @@ async def test_read_plan_facets_unknown_column(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+async def test_facets_follow_preceding_filters_and_keep_first_step_choices(client: AsyncClient) -> None:
+    filters = [
+        {"column": "col_011", "values": ["Шкаф ПЛК"]},
+        {"column": "__assetName", "values": ["АО «БСК»"]},
+        {"column": "col_017", "values": ["not selected"]},
+    ]
+    second = await client.post(
+        "/api/renovation/plan/facets/query",
+        headers=ADMIN_HEADERS,
+        params={"column": "__assetName"},
+        json={"filters": filters},
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["values"] == [{"value": "АО «БСК»", "count": 1}]
+    first = await client.post(
+        "/api/renovation/plan/facets/query",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_011"},
+        json={"filters": filters},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["total"] == 2
+    assert first.json()["rowCount"] == 2
+    empty = await client.post(
+        "/api/renovation/plan/facets/query",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_016"},
+        json={"filters": filters},
+    )
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["total"] == empty.json()["rowCount"] == 0
+
+
+async def test_large_filter_body_and_validation(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/renovation/plan/rows/query",
+        headers=ADMIN_HEADERS,
+        json={"filters": [{"column": "col_011", "values": ["Шкаф ПЛК"] + [str(i) for i in range(5000)]}]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 1
+    invalid = await client.post("/api/renovation/plan/rows/query", headers=ADMIN_HEADERS, json={"filters": "bad"})
+    assert invalid.status_code == 422
+
+
 async def test_plan_rows_position_range(client: AsyncClient) -> None:
     """The row-number («№») range narrows the window and the total."""
     everything = await client.get(
@@ -450,10 +496,11 @@ async def test_plan_rows_total_all_is_the_whole_plan(
     await db_session.flush()
 
     filters = json.dumps([{"column": "col_003", "values": ["Корректные"], "includeNulls": False}])
-    response = await client.get(
-        "/api/renovation/plan/rows",
+    response = await client.post(
+        "/api/renovation/plan/rows/query",
         headers=ADMIN_HEADERS,
-        params={"offset": 0, "limit": 100, "filters": filters},
+        params={"offset": 0, "limit": 100},
+        json={"filters": json.loads(filters)},
     )
     assert response.status_code == 200
     body = response.json()
@@ -485,10 +532,11 @@ async def test_plan_summary_sums_numeric_fields(client: AsyncClient) -> None:
 async def test_plan_rows_filter_by_text_value(client: AsyncClient) -> None:
     """A text column filter keeps only matching rows (server-side, whole plan)."""
     filters = json.dumps([{"column": "col_011", "values": ["Шкаф ПЛК"], "includeNulls": False}])
-    response = await client.get(
-        "/api/renovation/plan/rows",
+    response = await client.post(
+        "/api/renovation/plan/rows/query",
         headers=ADMIN_HEADERS,
-        params={"offset": 0, "limit": 100, "filters": filters},
+        params={"offset": 0, "limit": 100},
+        json={"filters": json.loads(filters)},
     )
     assert response.status_code == 200
     body = response.json()
@@ -500,10 +548,11 @@ async def test_plan_rows_filter_by_reference_label(client: AsyncClient) -> None:
     """A reference filter maps the display label back to its value id."""
     # «Остановочный капитальный ремонт» is shared by both seeded rows.
     filters = json.dumps([{"column": "col_017", "values": ["Остановочный капитальный ремонт"]}])
-    response = await client.get(
-        "/api/renovation/plan/rows",
+    response = await client.post(
+        "/api/renovation/plan/rows/query",
         headers=ADMIN_HEADERS,
-        params={"offset": 0, "limit": 100, "filters": filters},
+        params={"offset": 0, "limit": 100},
+        json={"filters": json.loads(filters)},
     )
     assert response.status_code == 200
     assert response.json()["total"] == 2
@@ -517,10 +566,11 @@ async def test_plan_rows_filters_combine_with_and(client: AsyncClient) -> None:
             {"column": "col_011", "values": ["Насос НК"]},
         ]
     )
-    response = await client.get(
-        "/api/renovation/plan/rows",
+    response = await client.post(
+        "/api/renovation/plan/rows/query",
         headers=ADMIN_HEADERS,
-        params={"offset": 0, "limit": 100, "filters": filters},
+        params={"offset": 0, "limit": 100},
+        json={"filters": json.loads(filters)},
     )
     assert response.status_code == 200
     body = response.json()
@@ -533,10 +583,11 @@ async def test_plan_rows_filter_empties_keeps_only_nulls(client: AsyncClient) ->
     # col_016 is «Ремонтный бюджет» on both seeded rows, so ask for the empty
     # bucket only — nothing matches.
     filters = json.dumps([{"column": "col_016", "values": [], "includeNulls": True}])
-    response = await client.get(
-        "/api/renovation/plan/rows",
+    response = await client.post(
+        "/api/renovation/plan/rows/query",
         headers=ADMIN_HEADERS,
-        params={"offset": 0, "limit": 100, "filters": filters},
+        params={"offset": 0, "limit": 100},
+        json={"filters": json.loads(filters)},
     )
     assert response.status_code == 200
     assert response.json()["total"] == 0
@@ -545,10 +596,11 @@ async def test_plan_rows_filter_empties_keeps_only_nulls(client: AsyncClient) ->
 async def test_plan_rows_filter_asset_column(client: AsyncClient) -> None:
     """The synthetic asset column filter matches by asset name."""
     filters = json.dumps([{"column": "__assetName", "values": ["АО «БСК»"], "includeNulls": False}])
-    response = await client.get(
-        "/api/renovation/plan/rows",
+    response = await client.post(
+        "/api/renovation/plan/rows/query",
         headers=ADMIN_HEADERS,
-        params={"offset": 0, "limit": 100, "filters": filters},
+        params={"offset": 0, "limit": 100},
+        json={"filters": json.loads(filters)},
     )
     assert response.status_code == 200
     body = response.json()
@@ -573,33 +625,27 @@ async def test_plan_rows_filter_audit_instant_by_window(client: AsyncClient) -> 
     stamp = unfiltered.json()["rows"][0]["updatedAt"]
 
     # A window around the row's own instant keeps it…
-    inside = await client.get(
-        "/api/renovation/plan/rows",
+    inside = await client.post(
+        "/api/renovation/plan/rows/query",
         headers=ADMIN_HEADERS,
-        params={
-            "offset": 0,
-            "limit": 100,
-            "filters": json.dumps([{"column": "updatedAt", "from": stamp, "to": stamp}]),
-        },
+        params={"offset": 0, "limit": 100},
+        json={"filters": [{"column": "updatedAt", "from": stamp, "to": stamp}]},
     )
     assert inside.status_code == 200
     assert inside.json()["total"] >= 1
     # …and a window entirely BEFORE it keeps none of them.
-    none = await client.get(
-        "/api/renovation/plan/rows",
+    none = await client.post(
+        "/api/renovation/plan/rows/query",
         headers=ADMIN_HEADERS,
-        params={
-            "offset": 0,
-            "limit": 100,
-            "filters": json.dumps(
-                [
-                    {
-                        "column": "updatedAt",
-                        "from": "2000-01-01T00:00:00+00:00",
-                        "to": "2000-01-02T00:00:00+00:00",
-                    }
-                ]
-            ),
+        params={"offset": 0, "limit": 100},
+        json={
+            "filters": [
+                {
+                    "column": "updatedAt",
+                    "from": "2000-01-01T00:00:00+00:00",
+                    "to": "2000-01-02T00:00:00+00:00",
+                }
+            ]
         },
     )
     assert none.status_code == 200
@@ -608,14 +654,11 @@ async def test_plan_rows_filter_audit_instant_by_window(client: AsyncClient) -> 
 
 async def test_plan_rows_filter_audit_date_excludes_other_minutes(client: AsyncClient) -> None:
     """A minute nobody wrote in matches no row — the range is not a no-op."""
-    response = await client.get(
-        "/api/renovation/plan/rows",
+    response = await client.post(
+        "/api/renovation/plan/rows/query",
         headers=ADMIN_HEADERS,
-        params={
-            "offset": 0,
-            "limit": 100,
-            "filters": json.dumps([{"column": "updatedAt", "values": ["1999-01-01T00:00"]}]),
-        },
+        params={"offset": 0, "limit": 100},
+        json={"filters": [{"column": "updatedAt", "values": ["1999-01-01T00:00"]}]},
     )
     assert response.status_code == 200
     assert response.json()["total"] == 0
@@ -642,10 +685,11 @@ async def test_plan_rows_filter_include_nulls_on_typed_columns(client: AsyncClie
     """
     for column in ("col_023", "col_024", "col_202", "col_017"):
         filters = json.dumps([{"column": column, "values": [], "includeNulls": True}])
-        response = await client.get(
-            "/api/renovation/plan/rows",
+        response = await client.post(
+            "/api/renovation/plan/rows/query",
             headers=ADMIN_HEADERS,
-            params={"offset": 0, "limit": 100, "filters": filters},
+            params={"offset": 0, "limit": 100},
+            json={"filters": json.loads(filters)},
         )
         assert response.status_code == 200, (column, response.text)
 
@@ -661,10 +705,11 @@ async def test_plan_rows_filter_nulls_with_kept_number_and_date_values(client: A
         ({"column": "col_202", "values": ["Да"], "includeNulls": False}, 0),
     ]
     for filter_, expected_total in cases:
-        response = await client.get(
-            "/api/renovation/plan/rows",
+        response = await client.post(
+            "/api/renovation/plan/rows/query",
             headers=ADMIN_HEADERS,
-            params={"offset": 0, "limit": 100, "filters": json.dumps([filter_])},
+            params={"offset": 0, "limit": 100},
+            json={"filters": [filter_]},
         )
         assert response.status_code == 200, (filter_, response.text)
         assert response.json()["total"] == expected_total, filter_

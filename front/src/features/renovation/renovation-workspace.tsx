@@ -82,7 +82,7 @@ import {
     DeleteRecordDialog,
 } from "@/shared/ui/action-items";
 import { AppHeader } from "@/shared/ui/app-header";
-import type { ColumnFilter } from "@/shared/ui/column-filter-facets";
+import { precedingColumnFilters, type ColumnFilter } from "@/shared/ui/column-filter-facets";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
@@ -2038,6 +2038,7 @@ export function RenovationWorkspace({
                     instant={columnFilterTarget.instant === true}
                     {...(viewPlanId && { planId: viewPlanId })}
                     asset={assetFilter}
+                    filters={precedingColumnFilters(activeColumnFilters, columnFilterTarget.column)}
                     initial={columnFilters[columnFilterTarget.column] ?? null}
                     storageScope={filterDraftScope}
                     // «По умолчанию»: the same state «Сбросить все фильтры и

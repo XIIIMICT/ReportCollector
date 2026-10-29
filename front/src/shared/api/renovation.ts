@@ -335,14 +335,15 @@ export async function getRenovationPlanRows(
     // 00:00»), exactly what the cells print. Without the zone the server has to
     // read those bounds as UTC, and a filter the user typed would match nothing.
     const zone = browserTimeZone();
-    if (zone) params.set("tz", zone);
     if (planId) params.set("plan_id", planId);
     if (asset) params.set("asset", asset);
-    if (filters && filters.length > 0) params.set("filters", JSON.stringify(filters));
-    if (positionFrom != null) params.set("position_from", String(positionFrom));
-    if (positionTo != null) params.set("position_to", String(positionTo));
-    if (anchorPosition != null) params.set("anchor_position", String(anchorPosition));
-    return requestJson(`/api/renovation/plan/rows?${params.toString()}`);
+    return requestWrite(`/api/renovation/plan/rows/query?${params.toString()}`, "POST", {
+        filters: filters ?? [],
+        tz: zone,
+        position_from: positionFrom,
+        position_to: positionTo,
+        anchor_position: anchorPosition,
+    });
 }
 
 export async function getRenovationPlanSummary(
@@ -357,12 +358,15 @@ export async function getRenovationPlanSummary(
     const query = new URLSearchParams();
     if (params.planId) query.set("plan_id", params.planId);
     if (params.asset) query.set("asset", params.asset);
-    if (params.filters && params.filters.length > 0)
-        query.set("filters", JSON.stringify(params.filters));
-    if (params.positionFrom != null) query.set("position_from", String(params.positionFrom));
-    if (params.positionTo != null) query.set("position_to", String(params.positionTo));
-    const data = await requestJson<{ values: Record<string, number> }>(
-        `/api/renovation/plan/summary?${query.toString()}`,
+    const data = await requestWrite<{ values: Record<string, number> }>(
+        `/api/renovation/plan/summary/query?${query.toString()}`,
+        "POST",
+        {
+            filters: params.filters ?? [],
+            tz: browserTimeZone(),
+            position_from: params.positionFrom,
+            position_to: params.positionTo,
+        },
     );
     return data.values;
 }
@@ -393,6 +397,7 @@ export async function getRenovationPlanFacets(
         offset?: number | undefined;
         limit?: number | undefined;
         search?: FacetSearch | null | undefined;
+        filters?: RenovationColumnFilter[] | undefined;
     } = {},
 ): Promise<RenovationFacets> {
     const query = new URLSearchParams({ column });
@@ -400,17 +405,15 @@ export async function getRenovationPlanFacets(
     if (params.asset) query.set("asset", params.asset);
     if (params.offset !== undefined) query.set("offset", String(params.offset));
     if (params.limit !== undefined) query.set("limit", String(params.limit));
-    if (params.search) {
-        query.set("search_kind", params.search.kind);
-        if (params.search.kind === "text") query.set("search_query", params.search.query);
-        else {
-            if (params.search.min !== null) query.set("search_min", String(params.search.min));
-            if (params.search.max !== null) query.set("search_max", String(params.search.max));
-            const zone = browserTimeZone();
-            if (zone) query.set("search_tz", zone);
-        }
-    }
-    return requestJson(`/api/renovation/plan/facets?${query.toString()}`);
+    const search = params.search;
+    return requestWrite(`/api/renovation/plan/facets/query?${query.toString()}`, "POST", {
+        filters: params.filters ?? [],
+        tz: browserTimeZone(),
+        search_kind: search?.kind,
+        search_query: search?.kind === "text" ? search.query : undefined,
+        search_min: search && search.kind !== "text" ? search.min : undefined,
+        search_max: search && search.kind !== "text" ? search.max : undefined,
+    });
 }
 
 export async function getRenovationPlans(): Promise<RenovationPlanVersion[]> {

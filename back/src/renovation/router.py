@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, TypeAdapter
 from sqlalchemy import func
@@ -76,7 +76,6 @@ from src.renovation.schemas import (
     RenovationCatalogOptionRowRead,
     RenovationCatalogOptionUpdateRequest,
     RenovationCatalogReplaceRequest,
-    RenovationColumnFilter,
     RenovationDictionaryBatchRequest,
     RenovationDiffRead,
     RenovationExportJobRead,
@@ -86,6 +85,7 @@ from src.renovation.schemas import (
     RenovationPlanExportRequest,
     RenovationPlanImportApplyResult,
     RenovationPlanImportResult,
+    RenovationPlanQuery,
     RenovationPlanRead,
     RenovationPlanRowRead,
     RenovationPlanRowsRead,
@@ -347,7 +347,14 @@ async def get_renovation_plan(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
 
 
-@router.get("/plan/rows", response_model=RenovationPlanRowsRead)
+def reject_column_query_filters(request: Request) -> None:
+    """Do not silently ignore a retired column-filter URL contract."""
+    if "filters" in request.query_params:
+        raise HTTPException(status_code=422, detail="Фильтры столбцов передаются в JSON-теле запроса.")
+
+
+@router.get("/plan/rows", response_model=RenovationPlanRowsRead, dependencies=[Depends(reject_column_query_filters)])
+@router.post("/plan/rows/query", response_model=RenovationPlanRowsRead)
 async def get_renovation_plan_rows(
     session: SessionDependency,
     access: AccessDependency,
@@ -356,7 +363,7 @@ async def get_renovation_plan_rows(
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=10000)] = 1000,
     asset: Annotated[str | None, Query()] = None,
-    filters: Annotated[str | None, Query()] = None,
+    payload: RenovationPlanQuery | None = None,
     position_from: Annotated[int | None, Query(ge=1)] = None,
     position_to: Annotated[int | None, Query(ge=1)] = None,
     anchor_position: Annotated[int | None, Query(ge=1)] = None,
@@ -368,8 +375,8 @@ async def get_renovation_plan_rows(
     """
     Return a window of renovation plan rows plus the total (lazy loading).
 
-    `filters` is a JSON array of `{column, values, includeNulls}` (the header
-    filters) — combined with AND and applied in SQL so the window is correct.
+    Header constraints are a typed JSON body on POST /plan/rows/query,
+    combined with AND in SQL. GET remains for unconstrained compatibility reads.
     `position_from`/`position_to` narrow the window to a row-number («№») range.
     `anchor_position` resolves a stored row position onto the filtered scope
     (`anchorOffset` in the response) — the client centres the same row after a
@@ -384,11 +391,11 @@ async def get_renovation_plan_rows(
             offset=offset,
             limit=limit,
             asset_name=asset,
-            filters=parse_column_filters(filters),
-            position_from=position_from,
-            position_to=position_to,
-            anchor_position=anchor_position,
-            time_zone=tz,
+            filters=payload.filters if payload else None,
+            position_from=payload.position_from if payload else position_from,
+            position_to=payload.position_to if payload else position_to,
+            anchor_position=payload.anchor_position if payload else anchor_position,
+            time_zone=payload.tz if payload else tz,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
@@ -401,14 +408,17 @@ async def get_renovation_plan_rows(
     return Response(content=PLAN_ROWS_JSON.dump_json(page), media_type="application/json")
 
 
-@router.get("/plan/summary", response_model=RenovationPlanSummaryRead)
+@router.get(
+    "/plan/summary", response_model=RenovationPlanSummaryRead, dependencies=[Depends(reject_column_query_filters)]
+)
+@router.post("/plan/summary/query", response_model=RenovationPlanSummaryRead)
 async def get_renovation_plan_summary(
     session: SessionDependency,
     access: AccessDependency,
     plan_id: Annotated[UUID | None, Query()] = None,
     state: Annotated[RPlanState | None, Query()] = None,
     asset: Annotated[str | None, Query()] = None,
-    filters: Annotated[str | None, Query()] = None,
+    payload: RenovationPlanQuery | None = None,
     position_from: Annotated[int | None, Query(ge=1)] = None,
     position_to: Annotated[int | None, Query(ge=1)] = None,
 ) -> RenovationPlanSummaryRead:
@@ -425,30 +435,16 @@ async def get_renovation_plan_summary(
             plan_id=plan_id,
             state=state if state is not None else RPlanState.WORKING,
             asset_name=asset,
-            filters=parse_column_filters(filters),
-            position_from=position_from,
-            position_to=position_to,
+            filters=payload.filters if payload else None,
+            position_from=payload.position_from if payload else position_from,
+            position_to=payload.position_to if payload else position_to,
+            time_zone=payload.tz if payload else None,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except CellValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     return RenovationPlanSummaryRead(values=values)
-
-
-def parse_column_filters(raw: str | None) -> list[RenovationColumnFilter]:
-    """Parse the `filters` query param (JSON array); empty/invalid → no filters."""
-    if not raw:
-        return []
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as error:
-        message = "Некорректный параметр фильтров."
-        raise CellValidationError(message) from error
-    if not isinstance(payload, list):
-        message = "Некорректный параметр фильтров."
-        raise CellValidationError(message)
-    return [RenovationColumnFilter.model_validate(item) for item in payload]
 
 
 @router.get("/plans", response_model=list[RenovationPlanVersionRead])
@@ -460,7 +456,8 @@ async def get_renovation_plans(
     return await read_plan_versions(session)
 
 
-@router.get("/plan/facets", response_model=RenovationFacetsRead)
+@router.get("/plan/facets", response_model=RenovationFacetsRead, dependencies=[Depends(reject_column_query_filters)])
+@router.post("/plan/facets/query", response_model=RenovationFacetsRead)
 async def get_renovation_plan_facets(
     session: SessionDependency,
     access: AccessDependency,
@@ -475,6 +472,7 @@ async def get_renovation_plan_facets(
     search_min: Annotated[float | None, Query()] = None,
     search_max: Annotated[float | None, Query()] = None,
     search_tz: Annotated[str | None, Query()] = None,
+    payload: RenovationPlanQuery | None = None,
 ) -> RenovationFacetsRead:
     """Distinct display values of one plan column (the header-filter options)."""
     try:
@@ -487,11 +485,12 @@ async def get_renovation_plan_facets(
             asset_name=asset,
             offset=offset,
             limit=limit,
-            search_kind=search_kind,
-            search_query=search_query,
-            search_min=search_min,
-            search_max=search_max,
-            search_timezone=search_tz,
+            search_kind=payload.search_kind if payload else search_kind,
+            search_query=payload.search_query if payload else search_query,
+            search_min=payload.search_min if payload else search_min,
+            search_max=payload.search_max if payload else search_max,
+            search_timezone=payload.tz if payload else search_tz,
+            filters=payload.filters if payload else None,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error

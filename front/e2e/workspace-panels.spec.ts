@@ -76,6 +76,123 @@ async function viewAction(page: Page, name: string) {
     await page.mouse.move(800, 900);
 }
 
+test("KPPK restores sorting without merges and uses the same toolbar row gap", async ({ page }) => {
+    await openTable(page, "/kppk");
+    await page.getByRole("tab", { name: "Реализация", exact: true }).click();
+    const grid = page.locator("revo-grid");
+    await expect(grid).toBeVisible();
+    const mergeCount = () =>
+        grid.evaluate(
+            (element) =>
+                ((element as HTMLElement & { cellMerge?: unknown[] }).cellMerge ?? []).length,
+        );
+    await expect.poll(mergeCount).toBeGreaterThan(0);
+    const toolbar = page.locator(".workspace-card .table-toolbar--stacked");
+    const gaps = await toolbar.evaluate((element) => {
+        const row = element.querySelector(".table-toolbar__row")!;
+        const filters = element.querySelector(".toolbar-filters__row")!;
+        const controls = row.querySelector(".table-toolbar__controls")!;
+        return {
+            vertical: filters.getBoundingClientRect().top - row.getBoundingClientRect().bottom,
+            horizontal: parseFloat(getComputedStyle(controls).marginRight),
+        };
+    });
+    expect(Math.abs(gaps.vertical - gaps.horizontal)).toBeLessThan(1);
+    for (const width of [900, 600, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect
+            .poll(() =>
+                toolbar.evaluate((element) => {
+                    const row = element.querySelector(".table-toolbar__row")!;
+                    const filters = element.querySelector(".toolbar-filters__row")!;
+                    return filters.getBoundingClientRect().top - row.getBoundingClientRect().bottom;
+                }),
+            )
+            .toBeGreaterThan(11);
+    }
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    const header = grid
+        .locator(".rgHeaderCell")
+        .filter({ has: page.locator('[data-prop="product"]') });
+    await header.click();
+    await expect(grid).toHaveClass(/data-grid--user-sorted/);
+    await expect.poll(mergeCount).toBe(0);
+    await page.reload();
+    await expect(grid).toHaveClass(/data-grid--user-sorted/);
+    await expect.poll(mergeCount).toBe(0);
+    await viewAction(page, "Сбросить все фильтры и сортировки");
+    await expect.poll(mergeCount).toBeGreaterThan(0);
+});
+
+test("plan header filter priorities persist and facets use only earlier filters", async ({
+    page,
+}) => {
+    await openTable(page, "/renovation");
+    const rowsResponse = await page.request.get("/api/renovation/plan/rows?limit=20");
+    const body = await rowsResponse.json();
+    const row = body.rows.find((item: { values: Record<string, unknown> }) => item.values.col_011);
+    expect(row).toBeTruthy();
+    const filters = {
+        col_011: { column: "col_011", values: [row.values.col_011], includeNulls: false },
+        __assetName: { column: "__assetName", values: [row.assetName], includeNulls: false },
+    };
+    await page.evaluate(
+        (value) => localStorage.setItem("rc:filters:renovation:plan", JSON.stringify(value)),
+        filters,
+    );
+    await page.reload();
+    const first = page.locator(
+        '.renovation-grid__header-cell .header-filter-button[data-filter-order="1"]',
+    );
+    const second = page.locator(
+        '.renovation-grid__header-cell .header-filter-button[data-filter-order="2"]',
+    );
+    await expect(first).toHaveText("1");
+    await expect(second).toHaveText("2");
+    expect(
+        await first.evaluate((button) => {
+            const order = button
+                .querySelector(".header-filter-button__order")!
+                .getBoundingClientRect();
+            const icon = button
+                .querySelector(".header-filter-button__icon")!
+                .getBoundingClientRect();
+            return order.right <= icon.left;
+        }),
+    ).toBe(true);
+    const status = page.getByRole("button", { name: "Статус таблицы" });
+    await status.focus();
+    await expect(page.locator(".form-status-tooltip")).toBeVisible();
+    const filterList = page
+        .locator(".form-status-detail__filters")
+        .filter({ hasText: "Фильтры:" })
+        .locator("ol");
+    await expect(filterList.locator("li").last()).toHaveText("Предприятие");
+    await expect(filterList.locator("li")).toHaveCount(2);
+    await page.mouse.move(800, 400);
+    const request = page.waitForRequest(
+        (request) =>
+            request.url().includes("/plan/facets/query") &&
+            new URL(request.url()).searchParams.get("column") === "__assetName",
+    );
+    await second.evaluate((element) => (element as HTMLButtonElement).click());
+    const sent = await request;
+    expect(sent.method()).toBe("POST");
+    expect(new URL(sent.url()).searchParams.has("filters")).toBe(false);
+    expect(sent.postDataJSON().filters).toEqual([filters.col_011]);
+    await expect(page.locator(".column-filter__popover")).toBeVisible();
+    await page.keyboard.press("Escape");
+    const firstRequest = page.waitForRequest(
+        (request) =>
+            request.url().includes("/plan/facets/query") &&
+            new URL(request.url()).searchParams.get("column") === "col_011",
+    );
+    await first.evaluate((element) => (element as HTMLButtonElement).click());
+    expect((await firstRequest).postDataJSON().filters).toEqual([]);
+    await page.keyboard.press("Escape");
+    await viewAction(page, "Сбросить все фильтры и сортировки");
+});
+
 async function height(node: Locator) {
     return node.evaluate((element) => element.getBoundingClientRect().height);
 }
@@ -153,13 +270,14 @@ test("timestamp filter keeps its bounds and result count after reload, reset per
     await expect(time).toBeVisible();
     const beforeRequest = page.waitForResponse(
         (response) =>
-            response.url().includes("/plan/rows?") &&
-            response.url().includes("createdAt") &&
+            response.url().includes("/plan/rows/query?") &&
+            (response.request().postData() ?? "").includes("createdAt") &&
             response.status() === 200,
     );
     await page.getByRole("button", { name: "Применить", exact: true }).click();
     const before = await beforeRequest;
-    const beforeQuery = JSON.parse(new URL(before.url()).searchParams.get("filters")!);
+    expect(new URL(before.url()).searchParams.has("filters")).toBe(false);
+    const beforeQuery = before.request().postDataJSON().filters;
     const beforeBody = await before.json();
     expect(
         beforeQuery.find((filter: { column: string }) => filter.column === "createdAt").from,
@@ -167,14 +285,13 @@ test("timestamp filter keeps its bounds and result count after reload, reset per
     const afterRequest = page
         .waitForResponse(
             (response) =>
-                response.url().includes("/plan/rows?") &&
-                response.url().includes("createdAt") &&
+                response.url().includes("/plan/rows/query?") &&
+                (response.request().postData() ?? "").includes("createdAt") &&
                 response.status() === 200,
         )
-        .then((response) => response.url());
+        .then((response) => response.request().postDataJSON().filters);
     await page.reload();
-    const afterUrl = await afterRequest;
-    expect(JSON.parse(new URL(afterUrl).searchParams.get("filters")!)).toEqual(beforeQuery);
+    expect(await afterRequest).toEqual(beforeQuery);
     await expect(page.getByText(new RegExp(`Строки: ${beforeBody.total} найдено`))).toBeVisible();
     expect(beforeBody.total).toBeGreaterThan(0);
     await viewAction(page, "Сбросить все фильтры и сортировки");

@@ -198,6 +198,20 @@ class RenovationColumnFilter(BaseModel):
     to: str | None = None
 
 
+class RenovationPlanQuery(BaseModel):
+    """Column constraints travel in JSON, never in the request URL."""
+
+    filters: list[RenovationColumnFilter] = Field(default_factory=list, max_length=256)
+    position_from: int | None = Field(default=None, ge=1)
+    position_to: int | None = Field(default=None, ge=1)
+    anchor_position: int | None = Field(default=None, ge=1)
+    tz: str | None = None
+    search_kind: Literal["text", "range", "datetime"] | None = None
+    search_query: str | None = None
+    search_min: float | None = None
+    search_max: float | None = None
+
+
 class RenovationRowAddRequest(BaseModel):
     """A new working-plan row (the asset is the only required field)."""
 

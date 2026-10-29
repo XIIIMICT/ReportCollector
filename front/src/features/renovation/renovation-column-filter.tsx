@@ -1,6 +1,6 @@
 "use client";
 
-import { getRenovationPlanFacets } from "@/shared/api/renovation";
+import { getRenovationPlanFacets, type RenovationColumnFilter } from "@/shared/api/renovation";
 import { renderDateText, renderNumberText } from "@/shared/grid/grid-config";
 import {
     serverFacetSource,
@@ -39,6 +39,7 @@ export function RenovationColumnFilterPopover({
     anchor,
     planId,
     asset,
+    filters,
     order = "text",
     dateOnly = false,
     initial,
@@ -56,6 +57,7 @@ export function RenovationColumnFilterPopover({
     planId?: string | undefined;
     /** The «Предприятие» panel filter the facets are counted within. */
     asset?: string | null | undefined;
+    filters: RenovationColumnFilter[];
     /** How the column is searched: `number` gives the MIN–MAX pair. */
     order?: FacetOrder;
     /** When `order` is `date`: a calendar day, not a timestamp. */
@@ -86,6 +88,7 @@ export function RenovationColumnFilterPopover({
         const window = await getRenovationPlanFacets(target, {
             planId,
             asset,
+            filters,
             offset: page.offset,
             limit: page.limit,
             search: page.search,
