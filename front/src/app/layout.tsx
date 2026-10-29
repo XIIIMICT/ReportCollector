@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { Providers } from "./providers";
 
 import "./globals.css";
+import "../shared/grid/revo-grid-adapter.css";
 
 export const metadata: Metadata = {
     title: "РепортКоллектор",

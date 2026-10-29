@@ -305,13 +305,34 @@ that an edit attempt during stale loading sends no request.
 
 ### Phase 3 — performance and bundle boundaries
 
-Extract neutral header/profile modules (F-11), establish a Turbopack-compatible size report, and capture cold/warm authenticated Chrome traces. Index/window large facets and replace repeated full-row clones and JSON heartbeats (F-10). Coalesce header measurements into one settled/observer path.
+**Implementation status: header boundary complete; measurement and browser gates remain open.**
+
+`AppHeader` now lives in `shared/ui/app-header.tsx`. KPPK and renovation no
+longer import the raw-materials workspace at runtime, and neutral archive/undo
+types live in `shared/ui/workspace-state.ts`. A fresh Turbopack build reports
+the three dynamic project entries at approximately 818 KiB, 2,289 KiB and
+2,687 KiB raw emitted graph bytes; these are overlapping graph sums, not route
+transfers. The header extraction removes the accidental raw-workspace import
+edge, but it does not by itself make the RevoGrid-heavy routes small.
+
+The remaining work is to capture cold/warm authenticated Chrome traces, index or
+window large facets, replace repeated full-row clones and JSON heartbeats, and
+coalesce header measurements into one settled/observer path (F-10/F-11).
 
 **Gate:** p75 targets and route budgets are measured on a fixed desktop profile; any grid exception is documented with transfer, long-task, heap, and scroll-FPS evidence.
 
 ### Phase 4 — CSS and maintenance hardening
 
-Move private vendor selectors into a documented adapter stylesheet (F-14), remove dead abstractions only after consumer search, and raise the test floor for the core grid/workspace files rather than only increasing a global percentage.
+**Implementation status: selector inventory and adapter stylesheet complete; browser upgrade gate remains open.**
+
+The installed vendor selectors and private fields are catalogued in
+[REVOGRID_SELECTOR_MATRIX.md](REVOGRID_SELECTOR_MATRIX.md). Standalone vendor
+chrome is owned by `shared/grid/revo-grid-adapter.css`; the user-owned
+`revogr-attribution` rule was preserved in `app/globals.css`. Feature grids
+continue to reach private RevoGrid state only through the adapter. The adapter
+contract suite and focused grid tests are the fast maintenance floor; the
+remaining increase should be mounted/browser coverage at the real seams,
+followed by dead-abstraction removal only after another consumer search.
 
 **Gate:** the installed vendor upgrade checklist, browser matrix, no-document-scroll rule, dark theme, portals, and pinned/unpinned layout all have repeatable checks.
 

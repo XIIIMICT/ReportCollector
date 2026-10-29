@@ -1,14 +1,6 @@
 "use client";
 
-import {
-    AlertDialog,
-    Avatar,
-    Button,
-    ButtonGroup,
-    Spinner,
-    toast,
-    Typography,
-} from "@heroui/react";
+import { AlertDialog, Button, ButtonGroup, Spinner, toast, Typography } from "@heroui/react";
 import { CheckCircle, Xmark } from "iconoir-react";
 import { useTheme } from "next-themes";
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -101,7 +93,7 @@ import {
     type AddRecordField,
     type AddRecordValues,
 } from "@/shared/ui/add-record-modal";
-import { Brand } from "@/shared/ui/brand";
+import { AppHeader } from "@/shared/ui/app-header";
 import { downloadBlob as sharedDownloadBlob } from "@/shared/ui/download";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
@@ -110,12 +102,12 @@ import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
 import { ReplaceRecordDialog, type ReplaceTargetOption } from "@/shared/ui/replace-record-dialog";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
-import { SupportButton } from "@/shared/ui/support-button";
 import {
     errorMessage,
     recordLabel,
     trimmedText,
     publishSelection,
+    type ClipboardActions,
     type GridSelectionInfo,
     updateClipboardActions,
 } from "@/shared/ui/text-helpers";
@@ -133,6 +125,7 @@ import { ViewStrip } from "@/shared/ui/view-strip";
 import { GridLoadError, WorkspaceLoadError } from "@/shared/ui/workspace-feedback";
 import { WorkspaceContent, WorkspaceFullscreenPanels } from "@/shared/ui/workspace-layout";
 import { useDeleteShortcut, useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
+import type { ArchiveItem, ArchiveState, UndoState } from "@/shared/ui/workspace-state";
 
 import { ProfileModal } from "./profile-modal";
 
@@ -286,17 +279,6 @@ export type ExportMode = "all" | "visible";
 
 import type { ExportState } from "@/shared/ui/action-items";
 
-export type { ExportState };
-
-export type UndoState = {
-    enabled: boolean;
-    offline: boolean;
-    canUndo: boolean;
-    canRedo: boolean;
-    onUndo: () => void;
-    onRedo: () => void;
-};
-
 export type ApproveState = {
     pending: boolean;
     canApprove: boolean;
@@ -338,27 +320,9 @@ function samePublishedState(previous: unknown, next: unknown): boolean {
     return true;
 }
 
-export type ArchiveItem = {
-    id: string;
-    name: string;
-    description?: string;
-};
-
-export type ArchiveState = {
-    items: ArchiveItem[];
-    selectedKey: string | null;
-    onSelect: (snapshotId: string | null) => void;
-};
-
 export function downloadBlob(blob: Blob, fileName: string): void {
     sharedDownloadBlob(blob, fileName);
 }
-
-export type ClipboardActions = {
-    canPaste: boolean;
-    onCopy: () => void;
-    onPaste: () => void;
-};
 
 export type UserCreateState = {
     canCreate: boolean;
@@ -1849,71 +1813,6 @@ export function RawMaterialsWorkspace({
                 onProfileSaved={setUser}
             />
         </main>
-    );
-}
-
-export function AppHeader({
-    user,
-    projects,
-    activeProjectKey,
-    onProjectChange,
-    onOpenProfile,
-    supportMail,
-}: {
-    user: CurrentUser;
-    projects: Array<{ key: string; name: string }>;
-    activeProjectKey: string;
-    onProjectChange: (key: string) => void;
-    onOpenProfile: () => void;
-    /** ``SUPPORT_MAIL`` - the «Связаться с разработчиком» mailbox ('' hides it). */
-    supportMail: string;
-}) {
-    const fullname = user.name ?? "";
-    const email = user.email ?? "";
-    const initials = user.name
-        ? user.name
-              .trim()
-              .split(/\s+/)
-              .filter(Boolean)
-              .slice(0, 2)
-              .map((part) => part[0])
-              .join("")
-              .toUpperCase()
-        : (email[0] ?? "").toUpperCase();
-    const projectName =
-        projects.find((project) => project.key === activeProjectKey)?.name ?? "Сырьё";
-
-    return (
-        <header className="app-header">
-            <Brand
-                compact
-                projectName={projectName}
-                projects={projects}
-                activeProjectKey={activeProjectKey}
-                onProjectChange={onProjectChange}
-            />
-            <span aria-hidden="true" />
-            <div className="app-header__actions">
-                <Button
-                    className="profile-pill"
-                    variant="ghost"
-                    onPress={onOpenProfile}
-                    aria-label="Открыть профиль"
-                >
-                    <Avatar className="profile-pill__avatar" aria-hidden="true">
-                        <Avatar.Fallback>{initials || "?"}</Avatar.Fallback>
-                    </Avatar>
-                    <span className="profile-pill__copy">
-                        <strong>{fullname || email}</strong>
-                        <small>{email}</small>
-                    </span>
-                </Button>
-                {/* The developer contact sits right after the profile: it is
-                    about the same person's account, and it is the last resort
-                    when something is wrong with the app itself. */}
-                <SupportButton projectName={projectName} supportMail={supportMail} />
-            </div>
-        </header>
     );
 }
 

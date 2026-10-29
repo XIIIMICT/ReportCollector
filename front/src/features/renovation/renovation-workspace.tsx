@@ -15,13 +15,6 @@ import {
 
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
 import {
-    AppHeader,
-    type ArchiveItem,
-    type ArchiveState,
-    type ClipboardActions,
-    type UndoState,
-} from "@/features/raw-materials/raw-materials-workspace";
-import {
     AddRowDialog,
     ApprovePlanDialog,
     SubmitBlockedDialog,
@@ -88,6 +81,7 @@ import {
     buildPrimaryAction,
     DeleteRecordDialog,
 } from "@/shared/ui/action-items";
+import { AppHeader } from "@/shared/ui/app-header";
 import type { ColumnFilter } from "@/shared/ui/column-filter-facets";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
@@ -97,7 +91,11 @@ import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action
 import { readWorkspaceQuery } from "@/shared/ui/query-state";
 import { RowGoToFilter } from "@/shared/ui/row-go-to-filter";
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
-import { errorMessage, updateClipboardActions } from "@/shared/ui/text-helpers";
+import {
+    errorMessage,
+    updateClipboardActions,
+    type ClipboardActions,
+} from "@/shared/ui/text-helpers";
 import { ToolbarFilters } from "@/shared/ui/toolbar-filters";
 import { refreshUndoCounters } from "@/shared/ui/undo-counters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
@@ -112,6 +110,7 @@ import { ViewStrip } from "@/shared/ui/view-strip";
 import { WorkspaceLoadError } from "@/shared/ui/workspace-feedback";
 import { WorkspaceContent, WorkspaceFullscreenPanels } from "@/shared/ui/workspace-layout";
 import { useDeleteShortcut, useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
+import type { ArchiveItem, ArchiveState, UndoState } from "@/shared/ui/workspace-state";
 
 import { PlanExcelImportModal } from "./plan-excel-import-modal";
 import { RenovationColumnFilterPopover } from "./renovation-column-filter";

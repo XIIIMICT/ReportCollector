@@ -1,0 +1,16 @@
+/*
+ * RevoGrid 4.28.4 adapter stylesheet.
+ *
+ * Keep selectors that target vendor-owned DOM in this file. Application layout
+ * rules stay in app/globals.css and must use the .revo-grid-shell / .data-grid
+ * wrapper classes instead of depending on a RevoGrid implementation detail.
+ * The installed package matrix and the upgrade procedure live in
+ * docs/REVOGRID_CONTRACT.md and docs/REVOGRID_SELECTOR_MATRIX.md.
+ */
+
+/* RevoGrid's trial banner is rendered as a vendor element outside the grid
+   shadow tree. It is part of the installed trial package's chrome, not an
+   application overlay. */
+.revogrid-license-info {
+    display: none;
+}

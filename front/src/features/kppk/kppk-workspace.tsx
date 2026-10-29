@@ -11,7 +11,6 @@ import {
     KppkRealizationSection,
 } from "@/features/kppk/kppk-realization-section";
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
-import { AppHeader, type ExportState } from "@/features/raw-materials/raw-materials-workspace";
 import {
     createOrg,
     createProductPosition,
@@ -88,12 +87,14 @@ import {
     buildHistoryActions,
     buildAddRowAction,
     DeleteRecordDialog,
+    type ExportState,
 } from "@/shared/ui/action-items";
 import {
     AddRecordModal,
     type AddRecordField,
     type AddRecordValues,
 } from "@/shared/ui/add-record-modal";
+import { AppHeader } from "@/shared/ui/app-header";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
