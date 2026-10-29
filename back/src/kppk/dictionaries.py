@@ -51,7 +51,7 @@ def _check_source_number(value: object) -> int | None:
 
 
 async def read_product_position_rows(
-    session: AsyncSession, *, grouped: bool = False
+    session: AsyncSession, *, grouped: bool = False, row_ids: list[UUID] | None = None
 ) -> list[KppkProductPositionRowRead]:
     """
     Rows of «Продуктовые позиции», in one of the tab's two shapes.
@@ -77,6 +77,8 @@ async def read_product_position_rows(
         .outerjoin(KppkOrg, col(KppkOrg.id) == col(KppkOrgProduct.org_id))
         .order_by(col(KppkProduct.product_num), col(KppkProduct.name), col(KppkOrg.name))
     )
+    if row_ids is not None:
+        query = query.where(col(KppkProduct.id if grouped else KppkOrgProduct.id).in_(row_ids))
     rows = (await session.exec(query)).all()
     if grouped:
         grouped_rows: dict[UUID, tuple[KppkProduct, list[str], list[str]]] = {}
@@ -783,9 +785,12 @@ async def replace_org(session: AsyncSession, *, org_id: UUID, target_id: UUID | 
     ]
 
 
-async def read_raw_rows(session: AsyncSession) -> list[KppkRawRowRead]:
+async def read_raw_rows(session: AsyncSession, *, row_ids: list[UUID] | None = None) -> list[KppkRawRowRead]:
     """Rows of the «Сырьевые позиции» dictionary — in the source-number order."""
-    raws = (await session.exec(select(KppkRaw).order_by(col(KppkRaw.raw_num), col(KppkRaw.name)))).all()
+    query = select(KppkRaw).order_by(col(KppkRaw.raw_num), col(KppkRaw.name))
+    if row_ids is not None:
+        query = query.where(col(KppkRaw.id).in_(row_ids))
+    raws = (await session.exec(query)).all()
     return [
         KppkRawRowRead(
             id=raw.id,
@@ -950,9 +955,12 @@ async def delete_raw(session: AsyncSession, *, raw_id: UUID) -> list[AppliedCell
     ]
 
 
-async def read_org_rows(session: AsyncSession) -> list[KppkOrgRowRead]:
+async def read_org_rows(session: AsyncSession, *, row_ids: list[UUID] | None = None) -> list[KppkOrgRowRead]:
     """Rows of the «ДЗО» dictionary ordered by name."""
-    orgs = (await session.exec(select(KppkOrg).order_by(col(KppkOrg.name)))).all()
+    query = select(KppkOrg).order_by(col(KppkOrg.name))
+    if row_ids is not None:
+        query = query.where(col(KppkOrg.id).in_(row_ids))
+    orgs = (await session.exec(query)).all()
     return [
         KppkOrgRowRead(
             id=org.id,

@@ -9,6 +9,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError
 from src.common.export_jobs import ExportJob
 from src.common.job_models import DataJob
 from src.common.job_repository import JobRepository
+from src.common.query_exports import QueryExportSpec, generate_query_file
 from src.database import async_engine
 from src.observability import REQUEST_ID
 from src.renovation.export_jobs import ExportJobSpec, generate_plan_file
@@ -31,17 +32,17 @@ async def run(job_id: str, artifact: str) -> None:
     repository = JobRepository()
     async with repository.session_factory() as session:
         record = await session.get(DataJob, UUID(job_id))
-    if record is None or record.kind != "renovation_plan" or record.artifact != artifact:
+    if record is None or record.kind not in {"renovation_plan", "table_query"} or record.artifact != artifact:
         message = "Unknown export attempt"
         raise ValueError(message)
     if not await repository.owns(record):
         message = "Export attempt is no longer owned"
         raise RuntimeError(message)
     REQUEST_ID.set(record.request_id)
-    job = ExportJob(
-        id=job_id, user_id=record.user_id, spec=ExportJobSpec.model_validate(record.payload), artifact_key=artifact
-    )
-    work = asyncio.create_task(generate_plan_file(job, report=_progress))
+    spec = (ExportJobSpec if record.kind == "renovation_plan" else QueryExportSpec).model_validate(record.payload)
+    job = ExportJob(id=job_id, user_id=record.user_id, spec=spec, artifact_key=artifact)
+    generator = generate_plan_file if record.kind == "renovation_plan" else generate_query_file
+    work = asyncio.create_task(generator(job, report=_progress))
     watch = asyncio.create_task(_watch_lease(repository, record))
     try:
         done, _ = await asyncio.wait((work, watch), return_when=asyncio.FIRST_COMPLETED)

@@ -113,6 +113,7 @@ async def read_raw_material_rows(
     session: AsyncSession,
     *,
     raw_material_id: UUID | None = None,
+    row_ids: list[UUID] | None = None,
 ) -> list[RawMaterialRowRead]:
     """«Сырьевые позиции» dictionary rows with assets."""
     query = (
@@ -123,6 +124,8 @@ async def read_raw_material_rows(
     )
     if raw_material_id is not None:
         query = query.where(col(RawMaterial.id) == raw_material_id)
+    if row_ids is not None:
+        query = query.where(col(RawMaterial.id).in_(row_ids))
     rows = (await session.exec(query)).all()
     grouped: dict[UUID, tuple[RawMaterial, list[str]]] = {}
     for raw_material, asset, _ in rows:
@@ -160,11 +163,14 @@ async def read_delivery_basis_rows(
     session: AsyncSession,
     *,
     delivery_basis_id: UUID | None = None,
+    row_ids: list[UUID] | None = None,
 ) -> list[DeliveryBasisRowRead]:
     """«Базисы поставки» dictionary rows."""
     query = select(DeliveryBasis).order_by(DeliveryBasis.name)
     if delivery_basis_id is not None:
         query = query.where(col(DeliveryBasis.id) == delivery_basis_id)
+    if row_ids is not None:
+        query = query.where(col(DeliveryBasis.id).in_(row_ids))
     bases = (await session.exec(query)).all()
     return [
         DeliveryBasisRowRead(

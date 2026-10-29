@@ -32,11 +32,14 @@ async def read_renovation_asset_rows(
     session: AsyncSession,
     *,
     asset_id: UUID | None = None,
+    row_ids: list[UUID] | None = None,
 ) -> list[RenovationAssetRowRead]:
     """«Активы» dictionary rows (all assets, ordered by name)."""
     query = select(RAsset).order_by(RAsset.name)
     if asset_id is not None:
         query = query.where(col(RAsset.id) == asset_id)
+    if row_ids is not None:
+        query = query.where(col(RAsset.id).in_(row_ids))
     rows = (await session.exec(query)).all()
     # Computed columns of the working plan's rows per asset: the total
     # «Стоимость итого» (col_031) and the number of repair works (rows).
@@ -52,6 +55,7 @@ async def read_renovation_asset_rows(
                     func.count(),
                 )
                 .where(col(RenovationPlanRow.plan_id) == working_plan_id)
+                .where(col(RenovationPlanRow.asset_id).in_([row.id for row in rows]))
                 .group_by(col(RenovationPlanRow.asset_id))
             )
         ).all()

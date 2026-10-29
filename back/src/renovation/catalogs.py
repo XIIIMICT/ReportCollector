@@ -31,6 +31,7 @@ async def read_renovation_catalog_rows(
     *,
     catalog: str,
     option_id: UUID | None = None,
+    row_ids: list[UUID] | None = None,
 ) -> list[RenovationCatalogOptionRowRead]:
     """Options of a renovation reference catalog (ordered by label)."""
     query = (
@@ -40,6 +41,8 @@ async def read_renovation_catalog_rows(
     )
     if option_id is not None:
         query = query.where(col(RenovationReferenceValue.id) == option_id)
+    if row_ids is not None:
+        query = query.where(col(RenovationReferenceValue.id).in_(row_ids))
     rows = (await session.exec(query)).all()
     return [
         RenovationCatalogOptionRowRead(

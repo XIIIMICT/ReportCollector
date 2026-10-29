@@ -18,7 +18,7 @@ from .core import KppkNotFoundError, KppkValidationError, _now, kppk_project_id
 from .schemas import KppkUserCreateRequest, KppkUserRowRead, KppkUserUpdateRequest
 
 
-async def read_kppk_user_rows(session: AsyncSession) -> list[KppkUserRowRead]:
+async def read_kppk_user_rows(session: AsyncSession, *, row_ids: list[UUID] | None = None) -> list[KppkUserRowRead]:
     """Return the «КППК» project members (the users with a link to the project)."""
     project_id = await kppk_project_id(session)
     rows = (
@@ -26,6 +26,7 @@ async def read_kppk_user_rows(session: AsyncSession) -> list[KppkUserRowRead]:
             select(User, UserRole)
             .join(UserRole, col(UserRole.user_id) == col(User.id))
             .where(col(UserRole.project_id) == project_id, col(User.is_deleted).is_(False))
+            .where(True if row_ids is None else col(User.id).in_(row_ids))
             .order_by(func.coalesce(User.name, User.email))
         )
     ).all()

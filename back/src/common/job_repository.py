@@ -103,7 +103,6 @@ class JobRepository:
                     select(func.count())
                     .select_from(DataJob)
                     .where(
-                        DataJob.kind == kind,
                         DataJob.status == "running",
                     )
                 )

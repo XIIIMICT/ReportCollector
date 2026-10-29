@@ -149,6 +149,8 @@ async def read_movement_rows(
     session: AsyncSession,
     report_month: date,
     assets: list[RawMaterialAsset],
+    *,
+    row_ids: list[UUID] | None = None,
 ) -> list[MovementRowRead]:
     """«Движение» form rows for the report month (like read_current_movements in Tauri)."""
     query: MovementRowsSelect = cast(
@@ -168,6 +170,8 @@ async def read_movement_rows(
         .order_by(RawMaterial.name, RawMaterialAsset.name, col(AssetRawMaterial.id)),
     )
     query = query.where(col(RawMaterialAsset.id).in_([asset.id for asset in assets]))
+    if row_ids is not None:
+        query = query.where(col(MaterialMovement.id).in_(row_ids))
 
     rows = []
     for movement, arm, asset, raw_material, price in (await session.exec(query)).all():
@@ -206,6 +210,8 @@ async def read_snapshot_export_rows(
     session: AsyncSession,
     snapshot_id: UUID,
     assets: list[RawMaterialAsset],
+    *,
+    row_ids: list[UUID] | None = None,
 ) -> tuple[MovementSnapshotRead | None, list[MovementRowRead]]:
     """Archive «Движение» version rows as MovementRowRead for export."""
     snapshot = await session.get(ReportSnapshot, snapshot_id)
@@ -216,6 +222,7 @@ async def read_snapshot_export_rows(
             select(SnapshotMaterialMovement)
             .where(col(SnapshotMaterialMovement.snapshot_id) == snapshot_id)
             .where(col(SnapshotMaterialMovement.source_asset_id).in_([asset.id for asset in assets]))
+            .where(True if row_ids is None else col(SnapshotMaterialMovement.source_asset_raw_material_id).in_(row_ids))
             .order_by(
                 SnapshotMaterialMovement.raw_material_name,
                 SnapshotMaterialMovement.asset_name,
@@ -264,6 +271,8 @@ async def read_snapshot_export_rows(
 async def read_price_rows(
     session: AsyncSession,
     assets: list[RawMaterialAsset],
+    *,
+    row_ids: list[UUID] | None = None,
 ) -> list[PriceRowRead]:
     """«Цены» form rows (like read_current_prices in Tauri)."""
     query: PriceRowsSelect = cast(
@@ -276,6 +285,8 @@ async def read_price_rows(
         .order_by(RawMaterial.name, RawMaterialAsset.name, col(AssetRawMaterial.id)),
     )
     query = query.where(col(RawMaterialAsset.id).in_([asset.id for asset in assets]))
+    if row_ids is not None:
+        query = query.where(col(RawMaterialPrice.id).in_(row_ids))
 
     rows = []
     for price, arm, asset, raw_material, basis in (await session.exec(query)).all():

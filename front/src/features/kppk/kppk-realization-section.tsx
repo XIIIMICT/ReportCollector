@@ -261,17 +261,7 @@ export function KppkRealizationSection({
         setFilters: setColumnFilters,
         clearFilters,
     } = useGridColumnFilters("kppk", roomSection);
-    // A FILTER narrows the rows for the same reason a sort reorders them: the
-    // merges are INDEX ranges over the view, so a trimmed view can pair rows of
-    // different products. Both drop them.
-    //
-    // Derived from the filters, never from the `onFiltersChange` event: a filter
-    // restored from `localStorage` on mount never fires that callback, so the
-    // merges were handed to the grid while the filtered rows were already on
-    // screen.
-    const hasFilters = Object.keys(columnFilters).length > 0;
-    const mergesOff = isGridSorted || hasFilters;
-    /** Sorted OR filtered — the merges only hold on an untouched view. */
+    // DataGrid owns merge suppression for both live and restored filters/sorts.
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
     const queryScope = `${mode}:${orgId ?? "none"}:${slice}:${periodMonth ?? ""}:${periodYear ?? ""}`;
     const readStartedAtRef = useRef<number | null>(null);
@@ -561,7 +551,7 @@ export function KppkRealizationSection({
     // trailing excise column, whose figure belongs to the product, not to the
     // market.
     const cellMerge = useMemo<MergeData[]>(() => {
-        if (isCost || mergesOff) return [];
+        if (isCost) return [];
         const rows = view?.rows ?? [];
         const sweeps: MergeData[] = [];
         // The single Level/leaf array the merged columns sit in.
@@ -582,7 +572,7 @@ export function KppkRealizationSection({
         }
         if (start >= 0) push(start, rows.length);
         return sweeps;
-    }, [isCost, mergesOff, showExcise, slice, view?.rows]);
+    }, [isCost, showExcise, slice, view?.rows]);
 
     // ── Workspace wiring (footer actions, strip handlers) ──
     const gridRef = useRef<DataGridHandle>(null);

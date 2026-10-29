@@ -2,7 +2,7 @@
 
 **Review date:** 2026-10-29
 **Scope:** `back/src`, database migrations, CI/release workflow, Prometheus/Grafana/Loki/Alloy/Alertmanager configuration, and the backend-facing parts of the frontend workflow.
-**Status:** Phase A runtime hardening and baseline observability are complete in the local stack. Phase B has an initial durable renovation-plan export slice; generic table exports and imports remain open. Load calibration and production scrape discovery remain open.
+**Status:** Phase A runtime hardening and baseline observability are complete in the local stack. Phase B now has durable renovation-plan and КППК cost/realization query-export slices; generic dictionary exports and imports remain open. Load calibration and production scrape discovery remain open.
 **Repository constraint:** the existing user change in `compose.yaml` was left untouched.
 
 ## Dependency/runtime follow-up (2026-10-29)
@@ -101,7 +101,9 @@ The current design is not yet ready to promise predictable behaviour under large
   the same request transaction.
 - Generic exports first materialize all database rows and only then enqueue the writer.
 - The old renovation export endpoints still build a complete export read model synchronously.
-- The renovation plan export job is now durable in PostgreSQL with fenced attempts; generic table job state remains process-local.
+- Renovation plan and КППК cost/realization export jobs now persist a query
+  specification in PostgreSQL with fenced attempts; generic dictionary table
+  job state remains process-local.
 - A single in-process worker serializes all large exports.
 - The plan diff endpoint can return and compare two complete plans in Python.
 - The new baseline metrics make database pool pressure, job queueing, cache
@@ -189,19 +191,19 @@ A 300k-row plan can hold a long transaction and project lock for minutes. Cell e
 
 Return an import job immediately. Use a staging/import version with explicit states (`uploaded`, `validated`, `loading`, `recomputing`, `ready`, `failed`). Perform the expensive load and recomputation outside the request lifecycle. Acquire the project gate only for the short finalization/swap step, or use a version pointer so readers see either the old complete plan or the new complete plan. Expose progress, row counts, phase duration, cancellation and a stable error.
 
-### P0-3. Process-local job managers are not durable or replica-safe — plan export fixed, remaining exports open
+### P0-3. Process-local job managers are not durable or replica-safe — plan and KPPK query exports fixed, generic tables open
 
 **Evidence**
 
-The generic manager in `back/src/common/export_jobs.py` still creates one `asyncio.Queue` and one worker task. The renovation plan path now uses `back/src/common/durable_exports.py` and `data_jobs`; its job registry, ownership, limits and leases are database-backed. Artifacts still require a shared `EXPORT_DIR`.
+The generic manager in `back/src/common/export_jobs.py` still creates one `asyncio.Queue` and one worker task. Renovation plan and КППК cost/realization paths now use `back/src/common/durable_exports.py` and `data_jobs`; their job registry, ownership, limits and leases are database-backed. Artifacts still require a shared `EXPORT_DIR`.
 
 **Impact**
 
-A slow generic export blocks every other generic export in that process. The plan export recovers stale leases and exposes status across replicas, but a local filesystem is not a shared artifact store and generic/KPPK exports remain unsafe at replica scale.
+A slow generic export blocks every other generic export in that process. The durable query exports recover stale leases and expose status across replicas, but a local filesystem is not a shared artifact store and generic dictionary exports remain unsafe at replica scale.
 
 **Remediation**
 
-Keep the durable PostgreSQL queue for the plan slice and move artifacts to shared object storage with a dedicated worker deployment. Convert generic/KPPK jobs to the same repository; keep the in-process manager only as a development fallback until that migration is complete.
+Keep the durable PostgreSQL queue for plan and query-spec exports and move artifacts to shared object storage with a dedicated worker deployment. Convert generic dictionary jobs to the same repository; keep the in-process manager only as a development fallback until that migration is complete.
 
 ### P1-4. Generic “background” table export materializes all rows before enqueueing
 
@@ -253,19 +255,19 @@ The endpoint can allocate a complete wide plan and hold the request open despite
 
 Deprecate and remove the old endpoints after a compatibility window, or make them dispatch to the same job path. Enforce a maximum synchronous export size at the server boundary; never rely only on frontend routing.
 
-### P1-7. KPPK cost and realization exports render synchronous bytes
+### P1-7. KPPK cost and realization exports render synchronous bytes — fixed for large views
 
 **Evidence**
 
-`back/src/kppk/router.py:835-854` reads the full cost view, renders to `BytesIO`, and returns `Response(content=payload)`. `router.py:1031-1074` does the same for realization.
+`back/src/kppk/router.py` now counts an authorized query before reading it. Small views still render inline; larger views persist a serializable query specification and stream bounded batches from the durable worker. The previous synchronous path remains covered by the small-view branch.
 
 **Impact**
 
-A moderate data growth turns these endpoints into request-time memory and CPU spikes. They have no shared row threshold or job status.
+A moderate data growth no longer turns these endpoints into request-time memory and CPU spikes. The remaining operational caveat is the shared artifact directory until object storage is deployed.
 
 **Remediation**
 
-Route all potentially large KPPK exports through the durable export worker, or apply a server-side threshold based on both rows and estimated bytes. Use streaming writers and query specifications.
+Keep the server-side threshold, bounded cursor and query specification. Add object storage and load-calibrated byte/time limits before multi-replica rollout.
 
 ### P1-8. Plan diff loads two complete plans and creates an unbounded response
 
@@ -504,13 +506,13 @@ These are starting assumptions for load-test planning, not accepted SLOs:
 
 1. **Initial slice done 2026-10-29:** renovation plan export jobs now persist their query specification, ownership, status, progress, attempt, lease, retry class and artifact key in PostgreSQL (`data_jobs`). A polling worker claims rows with `FOR UPDATE SKIP LOCKED`; stale leases retry with bounded backoff, cancellation fences the writer, and status/download can be served by another backend process. Completed artifacts live under `EXPORT_DIR` (the default is the existing log volume) and are TTL-pruned. XLSX generation runs in a supervised child Python process, so CPU-heavy XML generation does not share the ASGI interpreter. The child reports bounded progress and exits without logging to the rotating application file.
 2. Add shared object storage and a dedicated long-lived worker deployment for production replicas. The current default directory is durable only when the deployment mounts the same volume; it is intentionally not presented as S3-compatible storage.
-3. Convert generic tables, KPPK cost/realization and renovation legacy exports to query-spec jobs; these paths still materialize rows in the request or use the legacy in-process manager.
+3. **Partially done 2026-10-29:** КППК cost/realization now use query-spec jobs with bounded cursor batches; generic tables and renovation legacy exports still materialize rows in the request or use the legacy in-process manager.
 4. Convert XLSB inspect/apply to bounded temporary-file parsing and one-pass metadata/row iteration.
 5. Move apply and recompute to a staged/versioned import job with atomic finalization.
 6. Extend idempotency, cancellation, heartbeat, retry classification and progress to imports and the remaining exports. Include isolated-worker DB/RSS/CPU metrics in production scraping.
 
-The initial slice was verified with 558 backend tests passing (6 optional
-skips), 372 frontend unit tests, backend lint/format/type checks, frontend
+The initial slices were verified with 562 backend tests passing (6 optional
+skips), 373 frontend unit tests, backend lint/format/type checks, frontend
 lint/type checks, and a Keycloak browser scenario that enqueues a one-row export,
 reloads the page, downloads the completed XLSX and repeats the request without
 creating another job. The migration roundtrip/catalog tests passed. The local

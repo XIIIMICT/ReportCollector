@@ -21,6 +21,7 @@ from .app_logging import configure_application_logging, log_event
 from .collab.outbox import run_outbox
 from .collab.store import get_collab_store
 from .common.export_jobs import export_dir, table_export_jobs
+from .common.query_exports import query_export_jobs
 from .common.upload_limits import ImportUploadLimitsMiddleware
 from .config import get_settings
 from .database import async_session_factory
@@ -87,6 +88,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     )
     await export_jobs.start()
     await table_export_jobs.start()
+    await query_export_jobs.start()
     try:
         yield
     finally:
@@ -98,6 +100,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             await dispatcher
         await export_jobs.stop()
         await table_export_jobs.stop()
+        await query_export_jobs.stop()
         await get_collab_store().close()
     log_event(LOGGER, "application_stopped", "Приложение ReportCollector остановлено.")
 

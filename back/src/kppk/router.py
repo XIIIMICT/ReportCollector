@@ -19,6 +19,7 @@ from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, Undo
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
 from src.common.export import ExportValidationError, safe_sheet_name
 from src.common.export_jobs import ExportJobRead, export_table_or_job, table_export_jobs
+from src.common.query_exports import new_query_spec, query_export_jobs, query_export_response
 from src.database import get_session
 from src.downloads import XLSX_MEDIA_TYPE
 from src.kppk.constants import (
@@ -54,10 +55,7 @@ from .dictionaries import (
 from .export import (
     REFERENCE_LISTS,
     SECTION_SHEET_NAMES,
-    render_cost_workbook,
-    render_realization_workbook,
     validate_export_request,
-    validate_realization_export,
 )
 from .models import KppkCost, KppkRealization, KppkRealizationPlan
 from .realization import (
@@ -837,21 +835,9 @@ async def export_cost(
     request: KppkRealizationExportRequest, session: SessionDependency, _access: AccessDependency
 ) -> Response:
     try:
-        view = await read_cost_rows(session, org_id=request.orgId, month=request.month, year=request.year)
-        rows = view.rows
-        if request.rowIds is not None:
-            by_id = {row.id: row for row in rows}
-            rows = [by_id[row_id] for row_id in request.rowIds if row_id in by_id]
-        payload = render_cost_workbook(request, rows)
+        return await query_export_response(session, new_query_spec("kppk_cost", request), str(_access.user.id))
     except (ExportValidationError, KppkValidationError, KppkNotFoundError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    return Response(
-        content=payload,
-        media_type=XLSX_MEDIA_TYPE,
-        headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(request.fileName)}",
-        },
-    )
 
 
 # ─── Участники проекта ────────────────────────────────────────────────────
@@ -1044,33 +1030,52 @@ async def export_kppk_realization(
     emitted in the order received, which keeps a sorted export sorted.
     """
     try:
-        validate_realization_export(request)
-        rows = await read_realization_rows(
-            session,
-            slice_id=request.slice,
-            org_id=request.orgId,
-            month=request.month,
-            year=request.year,
-        )
-        if request.rowIds is not None:
-            # Keep the CLIENT's order and drop anything that is not in view
-            # (a stale id — deleted elsewhere — simply does not export).
-            by_id = {row.id: row for row in rows}
-            rows = [by_id[row_id] for row_id in request.rowIds if row_id in by_id]
+        return await query_export_response(session, new_query_spec("kppk_realization", request), str(_access.user.id))
     except ExportValidationError as error:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     except (KppkValidationError, KppkNotFoundError) as error:
         status_code = status.HTTP_404_NOT_FOUND if isinstance(error, KppkNotFoundError) else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=str(error)) from error
-    payload = render_realization_workbook(request, rows)
-    quoted = quote(request.fileName)
-    return Response(
-        content=payload,
+
+
+@router.get("/cost/export/jobs/{job_id}", response_model=ExportJobRead)
+@router.get("/realization/export/jobs/{job_id}", response_model=ExportJobRead)
+async def get_kppk_query_export(job_id: str, access: AccessDependency) -> ExportJobRead:
+    try:
+        job = await query_export_jobs.get(job_id, str(access.user.id))
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Задание выгрузки не найдено.") from error
+    return ExportJobRead(
+        id=job.id,
+        status=job.status,
+        progress=job.progress,
+        total=job.spec.total,
+        fileName=job.spec.file_name,
+        error=job.error,
+    )
+
+
+@router.delete("/cost/export/jobs/{job_id}", response_model=ExportJobRead)
+@router.delete("/realization/export/jobs/{job_id}", response_model=ExportJobRead)
+async def cancel_kppk_query_export(job_id: str, access: AccessDependency) -> ExportJobRead:
+    try:
+        await query_export_jobs.cancel(job_id, str(access.user.id))
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Задание выгрузки не найдено.") from error
+    return await get_kppk_query_export(job_id, access)
+
+
+@router.get("/cost/export/jobs/{job_id}/file")
+@router.get("/realization/export/jobs/{job_id}/file")
+async def get_kppk_query_export_file(job_id: str, access: AccessDependency) -> StreamingResponse:
+    job = await get_kppk_query_export(job_id, access)
+    if job.status == "failed":
+        raise HTTPException(status_code=409, detail="Не удалось сформировать файл выгрузки.")
+    quoted = quote(job.fileName)
+    return StreamingResponse(
+        query_export_jobs.stream_growing(job_id, str(access.user.id)),
         media_type=XLSX_MEDIA_TYPE,
-        headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{quoted}",
-            "Content-Length": str(len(payload)),
-        },
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
     )
 
 

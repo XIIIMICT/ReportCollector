@@ -113,6 +113,7 @@ async def read_renovation_user_rows(
     session: AsyncSession,
     *,
     user_id: UUID | None = None,
+    row_ids: list[UUID] | None = None,
 ) -> list[RenovationUserRowRead]:
     """
     «Пользователи» dictionary rows (the «Ремонт» project, without deleted).
@@ -132,6 +133,8 @@ async def read_renovation_user_rows(
     )
     if user_id is not None:
         query = query.where(col(User.id) == user_id)
+    if row_ids is not None:
+        query = query.where(col(User.id).in_(row_ids))
     rows = (await session.exec(query)).all()
     users = [user for user, _ in rows]
     links_by_user = {user.id: link for user, link in rows}

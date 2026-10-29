@@ -499,8 +499,10 @@ export type KppkRealizationExportRequest = {
  * additionally carries the grid's visible rows in the grid's order, because the
  * column filters and the sort never leave the client.
  */
-export async function exportKppkRealization(request: KppkRealizationExportRequest): Promise<Blob> {
-    const result = await downloadTableExport<never>(
+export async function exportKppkRealization(
+    request: KppkRealizationExportRequest,
+): Promise<Blob | KppkExportJobDownload> {
+    const result = await downloadTableExport(
         "/api/kppk/realization/export",
         {
             slice: request.slice,
@@ -512,11 +514,7 @@ export async function exportKppkRealization(request: KppkRealizationExportReques
             columns: request.columns,
             fileName: request.fileName,
         },
-        () => {
-            // The view is bounded by one period and one ДЗО — it always renders
-            // inline; a job response would mean the server changed that.
-            throw new Error("Выгрузка «Реализации» не поддерживает фоновые задания.");
-        },
+        (job, base) => ({ job, fileUrl: tableExportJobFileUrl(base, job.id) }),
     );
     return result;
 }
@@ -533,16 +531,14 @@ export async function exportKppkTable(
 
 export async function exportKppkCost(
     request: KppkRealizationExportRequest & { rowIds: string[] | null },
-): Promise<Blob> {
-    return downloadTableExport<never>(
+): Promise<Blob | KppkExportJobDownload> {
+    return downloadTableExport(
         "/api/kppk/cost/export",
         {
             ...request,
             month: request.month === null ? null : Number(request.month),
             year: request.year === null ? null : Number(request.year),
         },
-        () => {
-            throw new Error("Фоновая выгрузка себестоимости недоступна.");
-        },
+        (job, base) => ({ job, fileUrl: tableExportJobFileUrl(base, job.id) }),
     );
 }
