@@ -186,6 +186,8 @@ class RenovationColumnFilter(BaseModel):
     column: str = Field(min_length=1)
     values: list[str] = []
     includeNulls: bool = False
+    # Explicit values distinguish a literal code from legacy validation labels.
+    valueMode: Literal["exact"] | None = None
     # A MIN–MAX window INSTEAD of `values`, for a `timestamptz` column: the server
     # then matches the rows between the two instants. A value list makes no sense
     # there (every row has its own timestamp), so only one of the two is set.
@@ -243,6 +245,8 @@ class RenovationFacetsRead(BaseModel):
 
     column: str
     values: list[RenovationFacetValueRead]
+    presets: list[RenovationFacetValueRead] = Field(default_factory=list)
+    totalWithoutSearch: int | None = None
     # Distinct values in total for the current filtered/search scope, not just this window.
     total: int
     rowCount: int = 0

@@ -30,6 +30,8 @@ export type ColumnFilter = {
     column: string;
     values: string[];
     includeNulls: boolean;
+    /** Literal values, even when a column also offers named group presets. */
+    valueMode?: "exact";
     /**
      * An INSTANT window, sent instead of `values` for a `timestamptz` column: the
      * server matches the rows between the two ends. A value list is useless there
@@ -103,6 +105,8 @@ export function withFilterMarkers<TColumn extends { prop: string | number; hasFi
 /** One window of a column's distinct values, plus the counts behind them. */
 export type FacetWindow = {
     values: Array<{ value: string; count: number }>;
+    /** Alternative group selections, independent of value search and paging. */
+    presets?: Array<{ value: string; count: number }> | undefined;
     /** Distinct values matching the current search (the loaded list length). */
     total: number;
     /**
@@ -170,6 +174,8 @@ export function serverFacetSource(
     ) => Promise<{
         values: Array<{ value: string | null; count: number }>;
         total: number;
+        totalWithoutSearch?: number | null | undefined;
+        presets?: Array<{ value: string | null; count: number }> | undefined;
         hasNulls: boolean;
         nullCount?: number | undefined;
         rowCount?: number | undefined;
@@ -205,7 +211,10 @@ export function serverFacetSource(
         return {
             values,
             total: facets.total,
-            totalWithoutSearch: await columnSize(column),
+            totalWithoutSearch: facets.totalWithoutSearch ?? (await columnSize(column)),
+            presets: facets.presets?.filter(
+                (entry): entry is { value: string; count: number } => entry.value !== null,
+            ),
             hasNulls: facets.hasNulls,
             nullCount: facets.nullCount,
             rowCount: facets.rowCount,

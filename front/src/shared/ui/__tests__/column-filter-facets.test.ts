@@ -21,6 +21,29 @@ const rows = [
 
 const name = (row: Record<string, unknown>) => row.name;
 
+test("server facet metadata keeps presets and avoids a redundant unsearched count", async () => {
+    let calls = 0;
+    const presets = [{ value: "Group", count: 20 }];
+    const source = serverFacetSource(async () => {
+        calls += 1;
+        return {
+            values: [{ value: "Code", count: 1 }],
+            total: 1,
+            totalWithoutSearch: 20,
+            presets,
+            hasNulls: false,
+        };
+    });
+    const result = await source("code", {
+        offset: 0,
+        limit: 200,
+        search: { kind: "text", query: "Code" },
+    });
+    expect(result.presets).toEqual(presets);
+    expect(result.totalWithoutSearch).toBe(20);
+    expect(calls).toBe(1);
+});
+
 test("ordered facets use earlier filters only and retain order after serialization", () => {
     const filters = [
         { column: "criticality", values: ["1"], includeNulls: false },

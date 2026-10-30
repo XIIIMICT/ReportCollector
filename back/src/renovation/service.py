@@ -154,8 +154,7 @@ EXPORT_BATCH_SIZE = 5000
 # (there is no matching row column — it is joined from r_assets).
 _ASSET_COLUMN_PROP = "__assetName"
 
-# The renovation ID column gets a dedicated two-bucket header filter instead of
-# a value list (see `_renovation_id_is_correct_condition`).
+# Validation presets accompany the concrete code list.
 _RENOVATION_ID_COLUMN = "col_003"
 _RENOVATION_ID_OK_LABEL = "Корректные"
 _RENOVATION_ID_BAD_LABEL = "Некорректные"
@@ -836,8 +835,7 @@ def _renovation_id_is_correct_condition(plan_id: UUID) -> ColumnElement[bool]:
     by uniqueness alone: a correct code is non-empty and appears exactly once in
     the plan. «Некорректные» therefore means an empty code or a duplicate — the
     two things that still block submit. The «Идентификационный код» header
-    filter offers exactly these two buckets (correct / incorrect) instead of a
-    value list, because a value list of mostly-unique codes would be useless.
+    filter offers these two groups above the searchable concrete code list.
     """
     raw = col(RenovationPlanRow.col_003)
     non_empty = raw.is_not(None) & (raw != "")
@@ -950,18 +948,26 @@ def _column_filter_condition(
     repeats INSIDE the plan, so the duplicate lookup must not see other plans.
     """
     column = column_filter.column
-    if column == _RENOVATION_ID_COLUMN:
-        # The two-bucket ID filter (correct / incorrect), not a value list.
+    if column == _RENOVATION_ID_COLUMN and column_filter.valueMode != "exact":
+        # Preserve saved group filters; new concrete selections use exact mode.
         if plan_id is None:
             message = "Фильтр идентификационных кодов требует план."
             raise ValueError(message)
         correct = _renovation_id_is_correct_condition(plan_id)
         conditions: list[ColumnElement[bool]] = []
+        codes: list[str] = []
         for value in column_filter.values:
             if value == _RENOVATION_ID_OK_LABEL:
                 conditions.append(correct)
             elif value == _RENOVATION_ID_BAD_LABEL:
                 conditions.append(~correct)
+            else:
+                codes.append(value)
+        if codes:
+            conditions.append(col(RenovationPlanRow.col_003).in_(codes))
+        if column_filter.includeNulls:
+            raw = col(RenovationPlanRow.col_003)
+            conditions.append(raw.is_(None) | (raw == ""))
         return or_(*conditions) if conditions else sa_false()
     value_conditions: list[ColumnElement[bool]] = []
     if column == _ASSET_COLUMN_PROP:
@@ -1547,39 +1553,60 @@ async def read_plan_facets(
     # Group in SQL by the raw column; references/asset need the joined tables or
     # the label map. Booleans and numbers are stringified in Python afterwards.
     if column == _RENOVATION_ID_COLUMN:
-        # The ID filter is two fixed buckets (correct / incorrect), not a value
-        # list: every ID is unique, so a value list would be unusable.
+        # Keep high-cardinality code grouping/search/paging inside PostgreSQL.
+        # Presets are independent of the page and search; their rows overlap
+        # code values, so they must not inflate the distinct/row counts.
+        raw_code = col(RenovationPlanRow.col_003)
+        non_empty = raw_code.is_not(None) & (raw_code != "")
         correct = _renovation_id_is_correct_condition(plan.id)
-        ok_count, bad_count = (
+        ok_count, bad_count, distinct_count, null_count = (
             await session.exec(  # ty: ignore[no-matching-overload]
-                sa_select(func.count().filter(correct), func.count().filter(~correct))
+                sa_select(
+                    func.count().filter(correct),
+                    func.count().filter(~correct),
+                    func.count(raw_code.distinct()).filter(non_empty),
+                    func.count().filter(~non_empty),
+                )
                 .select_from(RenovationPlanRow)
                 .where(row_condition)
             )
         ).one()
-        values = [
-            RenovationFacetValueRead(value=label, count=count)
+        presets = [
+            RenovationFacetValueRead(value=label, count=int(count))
             for label, count in (
-                (_RENOVATION_ID_OK_LABEL, int(ok_count)),
-                (_RENOVATION_ID_BAD_LABEL, int(bad_count)),
-            )
-            if search_kind is None
-            or _facet_matches_search(
-                label,
-                kind=search_kind,
-                query=search_query,
-                minimum=search_min,
-                maximum=search_max,
-                time_zone=search_timezone,
+                (_RENOVATION_ID_OK_LABEL, ok_count),
+                (_RENOVATION_ID_BAD_LABEL, bad_count),
             )
         ]
+        # PostgreSQL 18's Unicode fold matches Python casefold; C ordering is
+        # deterministic across pages. Escape LIKE metacharacters in typed codes.
+        folded = func.casefold(raw_code.collate("pg_unicode_fast"))
+        matches = row_condition & non_empty
+        if search_kind == "text":
+            matches &= folded.contains((search_query or "").casefold(), autoescape=True)
+        elif search_kind is not None:
+            matches &= sa_false()
+        grouped = select(raw_code.label("code"), func.count().label("rows")).where(matches).group_by(raw_code)
+        if search_kind is None:
+            total, matching_rows = int(distinct_count), int(ok_count) + int(bad_count)
+        else:
+            counts = grouped.subquery()
+            total, matching_rows = (
+                await session.exec(select(func.count(), func.coalesce(func.sum(counts.c.rows), 0)))
+            ).one()
+            matching_rows = int(matching_rows) + int(null_count)
+        entries = (
+            await session.exec(grouped.order_by(folded.collate("C"), raw_code.collate("C")).offset(offset).limit(limit))
+        ).all()
         return RenovationFacetsRead(
             column=column,
-            values=values,
-            total=len(values),
-            rowCount=sum(item.count for item in values),
-            hasNulls=False,
-            nullCount=0,
+            values=[RenovationFacetValueRead(value=code, count=int(count)) for code, count in entries],
+            presets=presets,
+            total=int(total),
+            totalWithoutSearch=int(distinct_count),
+            rowCount=int(matching_rows),
+            hasNulls=bool(null_count),
+            nullCount=int(null_count),
         )
     if is_asset_column:
         group_column = col(RAsset.name)

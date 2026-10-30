@@ -446,6 +446,94 @@ test("a two-bucket column: checking both buckets back checks «Выбрать в
     await waitFor(() => expect(master().getAttribute("aria-selected")).toBe("true"));
 });
 
+async function openCodes(initial: ColumnFilter | null = null) {
+    const applied: Array<ColumnFilter | null> = [];
+    const presets = [
+        { value: "Корректные", count: 2 },
+        { value: "Некорректные", count: 1 },
+    ];
+    const codes = ["2027_A", "2027_B", "Корректные"];
+    const source: FacetSource = async (_column, { offset, limit, search }) => {
+        const matching = codes.filter(
+            (value) => search?.kind !== "text" || value.includes(search.query),
+        );
+        return {
+            values: matching.slice(offset, offset + limit).map((value) => ({ value, count: 1 })),
+            presets,
+            total: matching.length,
+            totalWithoutSearch: codes.length,
+            rowCount: matching.length,
+            hasNulls: false,
+        };
+    };
+    render(
+        <ColumnFilterPopover
+            column="col_003"
+            columnLabel="Код"
+            anchor={anchor}
+            facets={source}
+            initial={initial}
+            forceSearchable
+            onApply={(filter) => applied.push(filter)}
+            onClose={() => {}}
+        />,
+    );
+    await waitFor(() => expect(screen.getByRole("option", { name: /^2027_A/ })).toBeTruthy());
+    return applied;
+}
+
+test("code search keeps group presets first and applies exact found codes only", async () => {
+    const applied = await openCodes();
+    const labels = screen
+        .getAllByRole("option")
+        .map((node) => node.querySelector("span")?.textContent);
+    expect(labels.slice(1, 5)).toEqual(["Корректные", "Некорректные", "2027_A", "2027_B"]);
+    const search = screen.getByRole("searchbox", { name: "Поиск: Код" });
+    fireEvent.change(search, { target: { value: "2027_B" } });
+    await waitFor(() => expect(screen.queryByRole("option", { name: /^2027_A/ })).toBeNull());
+    expect(screen.getByRole("option", { name: /^Некорректные/ })).toBeTruthy();
+    fireEvent.click(master());
+    fireEvent.click(master());
+    fireEvent.click(screen.getByRole("button", { name: "Применить" }));
+    expect(applied[0]).toEqual({
+        column: "col_003",
+        values: ["2027_B"],
+        includeNulls: false,
+        valueMode: "exact",
+    });
+});
+
+test("group preset replaces code selection without selecting the visible code page", async () => {
+    const applied = await openCodes();
+    fireEvent.click(screen.getByRole("option", { name: /^Некорректные/ }));
+    expect(screen.getByRole("option", { name: /^2027_A/ }).getAttribute("aria-selected")).toBe(
+        "false",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Применить" }));
+    expect(applied[0]).toEqual({
+        column: "col_003",
+        values: ["Некорректные"],
+        includeNulls: false,
+    });
+});
+
+test("saved group can switch to a literal code even when its label matches a preset", async () => {
+    const applied = await openCodes({
+        column: "col_003",
+        values: ["Некорректные"],
+        includeNulls: false,
+    });
+    const literal = screen.getAllByRole("option", { name: /^Корректные/ }).at(-1)!;
+    fireEvent.click(literal);
+    fireEvent.click(screen.getByRole("button", { name: "Применить" }));
+    expect(applied[0]).toEqual({
+        column: "col_003",
+        values: ["Корректные"],
+        includeNulls: false,
+        valueMode: "exact",
+    });
+});
+
 test("paged column: no «Загрузка…» caption, and new windows arrive checked", async () => {
     // A column with more values than one window, served with the real
     // offset/limit contract: the popover must NOT print a progress caption and

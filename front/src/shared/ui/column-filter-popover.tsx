@@ -43,6 +43,7 @@ export type { ColumnFilter, FacetSource } from "@/shared/ui/column-filter-facets
 /** Sentinel keys for the two pinned options (never column values). */
 const ALL_KEY = "__all__";
 const NULL_KEY = "__null__";
+const PRESET_KEY_PREFIX = "__preset__:";
 /** Below this many options the popover renders no search control at all. */
 const SEARCH_MIN_OPTIONS = 10;
 /** Start loading the next window this close (px) to the list's bottom. */
@@ -103,6 +104,7 @@ export function ColumnFilterPopover({
     initial,
     defaultFilter = null,
     showUniqueCount = true,
+    forceSearchable = false,
     order = "text",
     dateOnly = false,
     storageScope,
@@ -127,6 +129,8 @@ export function ColumnFilterPopover({
      * repeat the row count.
      */
     showUniqueCount?: boolean;
+    /** Keep text search available even in a small filtered scope. */
+    forceSearchable?: boolean;
     /**
      * How the column is searched. `number` swaps the text search for the MIN–MAX
      * pair: for numbers a substring query matches 312 and 1200 for «12», which
@@ -158,6 +162,11 @@ export function ColumnFilterPopover({
 }) {
     const [values, setValues] = useState<string[]>([]);
     const [counts, setCounts] = useState<Map<string, number>>(new Map());
+    const [presets, setPresets] = useState<Array<{ value: string; count: number }>>([]);
+    const [presetSelection, setPresetSelection] = useState<string[]>(
+        initial?.valueMode === "exact" ? [] : (initial?.values ?? []),
+    );
+    const seededPresetsRef = useRef(false);
     const [hasNulls, setHasNulls] = useState(false);
     const [nullCount, setNullCount] = useState<number | undefined>();
     // Distinct value count across the whole filtered scope — shown on the
@@ -405,6 +414,33 @@ export function ColumnFilterPopover({
                 if (cancelled) return;
                 const loaded = facets.values.map((entry) => entry.value);
                 setCounts(new Map(facets.values.map((entry) => [entry.value, entry.count])));
+                setPresets(facets.presets ?? []);
+                if (!seededPresetsRef.current && initial?.valueMode !== "exact") {
+                    const initialPresets = (facets.presets ?? []).filter((preset) =>
+                        initial?.values.includes(preset.value),
+                    );
+                    if (initialPresets.length > 0) {
+                        setPresetSelection(initialPresets.map((preset) => preset.value));
+                        setKept(
+                            (previous) =>
+                                new Set(
+                                    [...previous].filter(
+                                        (value) =>
+                                            !initialPresets.some(
+                                                (preset) => preset.value === value,
+                                            ),
+                                    ),
+                                ),
+                        );
+                    }
+                    seededPresetsRef.current = true;
+                }
+                if (
+                    initial?.valueMode !== "exact" &&
+                    facets.presets?.some((preset) => initial?.values.includes(preset.value))
+                ) {
+                    setAllActive(false);
+                }
                 setValues(loaded);
                 // Keep the paging refs in step with the FIRST window at once:
                 // the short-list effect may fire before React commits the
@@ -558,10 +594,18 @@ export function ColumnFilterPopover({
         // «selected» and pressing it would toggle the found values OFF, sending
         // an EMPTY filter to the grid while the funnel still lit up.
         for (const value of values) {
-            if (kept.has(value)) keys.push(value);
+            if (
+                kept.has(value) &&
+                !presets.some((preset) => presetSelection.includes(preset.value))
+            ) {
+                keys.push(value);
+            }
+        }
+        for (const preset of presets) {
+            if (presetSelection.includes(preset.value)) keys.push(PRESET_KEY_PREFIX + preset.value);
         }
         return keys;
-    }, [allActive, hasNulls, includeNulls, kept, values]);
+    }, [allActive, hasNulls, includeNulls, kept, values, presets, presetSelection]);
 
     searchRef.current = search;
 
@@ -570,6 +614,7 @@ export function ColumnFilterPopover({
      * The source narrowed the list, so `values` IS the found set.
      */
     const selectFound = () => {
+        setPresetSelection([]);
         setKept(new Set(values));
         // ???????? is not a value a search can match.
         setIncludeNulls(false);
@@ -612,9 +657,34 @@ export function ColumnFilterPopover({
 
     const onSelectionChange = (keys: Key[]) => {
         const next = new Set(keys);
+        const changedValue = [...new Set([...keys, ...selectedKeys])].some(
+            (key) =>
+                !String(key).startsWith(PRESET_KEY_PREFIX) &&
+                next.has(key) !== selectedKeys.includes(key),
+        );
+        const changedPreset = presets.find((preset) => {
+            const key = PRESET_KEY_PREFIX + preset.value;
+            return next.has(key) !== selectedKeys.includes(key) && (next.has(key) || !changedValue);
+        });
+        if (changedPreset) {
+            // Group presets replace the explicit code selection. This prevents
+            // a checked "all correct" group from masking unchecked code rows.
+            setPresetSelection(
+                presets
+                    .filter((preset) => next.has(PRESET_KEY_PREFIX + preset.value))
+                    .map((preset) => preset.value),
+            );
+            setKept(new Set());
+            setIncludeNulls(false);
+            setAllActive(false);
+            allStillSelectedRef.current = false;
+            foundAppliedRef.current = false;
+            return;
+        }
         const hadAll = selectedKeys.includes(ALL_KEY);
         const hasAll = next.has(ALL_KEY);
         if (ignoreMasterEchoRef.current) return;
+        setPresetSelection([]);
         // In the «Выбрать найденные» state the master does NOT mean "select
         // everything" — it means "select what I found". Checked BEFORE the
         // generic "ends the found state" reset below: that reset cleared the
@@ -652,10 +722,20 @@ export function ColumnFilterPopover({
         // counts as a master toggle only when the key comes back or the whole
         // selection became empty. The distinction from an individual uncheck is
         // that there ALL_KEY stays.
-        const nextKept = new Set<string>();
+        const nextKept = new Set<string>(
+            presets.length > 0 && search === null
+                ? [...kept].filter(
+                      (value) =>
+                          !values.includes(value) &&
+                          !presets.some((preset) => preset.value === value),
+                  )
+                : [],
+        );
         for (const key of next) {
             const text = String(key);
-            if (text !== ALL_KEY && text !== NULL_KEY) nextKept.add(text);
+            if (text !== ALL_KEY && text !== NULL_KEY && !text.startsWith(PRESET_KEY_PREFIX)) {
+                nextKept.add(text);
+            }
         }
         setKept(nextKept);
         // «Выбрать все» mirrors the extremes: unchecking the last kept option
@@ -668,12 +748,13 @@ export function ColumnFilterPopover({
         // off by itself.
         const keepsNulls = hasNulls && next.has(NULL_KEY);
         const keepsEverything =
+            search === null &&
             nextKept.size > 0 &&
             [...values].every((value) => nextKept.has(value)) &&
             (keepsNulls || !hasNulls) &&
             // A window is a SLICE; only a selection that also still holds every
             // value loaded so far counts as «everything».
-            nextKept.size >= values.length;
+            nextKept.size >= total;
         // «Выбрать все»/«Снять выбор» mirror the extremes: everything kept — on,
         // nothing kept — off, and ANY exclusion also counts as "off" (the caption
         // then offers «Выбрать все»/«Выбрать найденные», which is what the user
@@ -688,7 +769,18 @@ export function ColumnFilterPopover({
     };
 
     const applied = useMemo(() => {
-        const keptValues = values.filter((value) => kept.has(value));
+        const selectedPresets = presets.filter((preset) => presetSelection.includes(preset.value));
+        if (selectedPresets.length > 0) {
+            return {
+                column,
+                values: selectedPresets.map((preset) => preset.value),
+                includeNulls: false,
+            };
+        }
+        const keptValues =
+            presets.length > 0 && search === null
+                ? [...kept]
+                : values.filter((value) => kept.has(value));
         // A column without a null bucket has nothing to keep there, so the
         // state flag must not leak into the request.
         const keepsNulls = includeNulls && hasNulls;
@@ -714,18 +806,28 @@ export function ColumnFilterPopover({
         const excludedSomewhere = keptValues.length !== kept.size;
         if (search === null && allStillSelectedRef.current && !excludedSomewhere) return null;
         const keepsEverything =
-            keptValues.length > 0 &&
-            keptValues.length === values.length &&
-            (keepsNulls || !hasNulls);
+            keptValues.length > 0 && keptValues.length === total && (keepsNulls || !hasNulls);
         if (search === null && keepsEverything) return null;
         return {
             column,
             values: keptValues,
             includeNulls: keepsNulls,
+            ...(presets.length > 0 ? { valueMode: "exact" as const } : {}),
         } satisfies ColumnFilter;
         // `allActive` stays in the deps: it re-runs the memo after the master
         // toggle even though the decision reads the ref (which is not reactive).
-    }, [allActive, column, hasNulls, includeNulls, kept, search, values]);
+    }, [
+        allActive,
+        column,
+        hasNulls,
+        includeNulls,
+        kept,
+        search,
+        values,
+        total,
+        presets,
+        presetSelection,
+    ]);
 
     // The filter this popover opened with. «Отменить» (the footer, Escape, a
     // click outside) drops the pending selection, so the owner keeps exactly
@@ -847,7 +949,7 @@ export function ColumnFilterPopover({
     useEffect(() => {
         if (thresholdReached) setSearchShown(true);
     }, [thresholdReached]);
-    const showSearch = searchShown;
+    const showSearch = forceSearchable || searchShown;
 
     if (instant) {
         // A `timestamptz` column offers the WINDOW and nothing else: there is no
@@ -1059,6 +1161,20 @@ export function ColumnFilterPopover({
                             ) : null}
                         </ListBox.Item>
                         <Separator className="smart-select__separator" />
+                        {presets.map((preset) => (
+                            <ListBox.Item
+                                key={PRESET_KEY_PREFIX + preset.value}
+                                id={PRESET_KEY_PREFIX + preset.value}
+                                textValue={preset.value}
+                            >
+                                <span>{preset.value}</span>
+                                <span className="text-muted ms-1">{preset.count}</span>
+                                <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                        ))}
+                        {presets.length > 0 ? (
+                            <Separator className="smart-select__separator" />
+                        ) : null}
                         {hasNulls ? (
                             <ListBox.Item key={NULL_KEY} id={NULL_KEY} textValue="Пустые">
                                 <span>Пустые</span>

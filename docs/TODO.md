@@ -46,7 +46,8 @@ different milestones. Do not reopen the explicit product deferrals below.
 - [ ] Move high-cardinality plan facet search/order/paging into bounded SQL work,
   preserving Unicode casefold, decimal ordering, client-timezone dates,
   NULL/empty buckets and preceding-filter semantics. Current code loads the
-  entire grouped result with .all() and sorts it in Python before paging.
+  entire grouped result with .all() and sorts it in Python before paging, except
+  identification codes, whose search/order/paging already runs in PostgreSQL.
   Add a cardinality guard and revision/filter-scoped caching where beneficial.
 - [ ] Measure revision-aware counts/count-on-demand for lazy windows. Counts now
   restrict to the requested plan, combine anchor counting and correctly handle
@@ -97,7 +98,8 @@ different milestones. Do not reopen the explicit product deferrals below.
   structures; replace remote-map JSON fingerprints with stable collaboration
   revisions. Benchmark realistic row counts and 1k/10k remote cell markers.
 - [ ] Remove the extra unsearched facet request used for totalWithoutSearch in
-  serverFacetSource; return/cache the required count with the filtered page.
+  serverFacetSource for remaining columns; identification-code facets already
+  return this count with the filtered page.
 - [ ] Coalesce header-funnel geometry through one observer/RAF scheduling path.
 - [ ] Reconcile acknowledged dictionary edits locally instead of refetching the
   entire dictionary after every write.

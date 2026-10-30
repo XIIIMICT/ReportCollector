@@ -290,6 +290,7 @@ export function RenovationWorkspace({
                 column,
                 values: filter.values,
                 includeNulls: filter.includeNulls,
+                ...(filter.valueMode ? { valueMode: filter.valueMode } : {}),
                 // A `timestamptz` column filters by a window, not by values.
                 ...(filter.from != null || filter.to != null
                     ? { from: filter.from ?? null, to: filter.to ?? null }

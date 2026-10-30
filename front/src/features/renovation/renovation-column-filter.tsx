@@ -22,16 +22,14 @@ import { ColumnFilterPopover } from "@/shared/ui/column-filter-popover";
  *    narrowed by the open version and the «Предприятие» filter. The values
  *    arrive ALREADY in the shape the popover expects — that is why the server
  *    contract was mirrored in `column-filter-facets.ts` in the first place.
- * 2. **«Идентификационный код» (`col_002`) is not a value list.** Every ID is
- *    unique, so listing them would be useless: the backend serves exactly two
- *    buckets — «Корректные» / «Некорректные» — and the row count next to
- *    «Выбрать все» already says everything a unique count would, so the
- *    suffix is off for that column.
+ * 2. **«Идентификационный код» (`col_003`).** The backend keeps the two
+ *    validation buckets first, then serves every concrete code alphabetically.
+ *    The shared text search narrows this list like any other text column.
  *
  * Both are additive: the selection mechanics, the master toggle, the «Пустые»
  * bucket, the paging and the commit footer all stay in the shared component.
  */
-export const RENOVATION_ID_COLUMN = "col_002";
+export const RENOVATION_ID_COLUMN = "col_003";
 
 export function RenovationColumnFilterPopover({
     column,
@@ -109,7 +107,7 @@ export function RenovationColumnFilterPopover({
             facets={facets}
             order={order}
             dateOnly={dateOnly}
-            showUniqueCount={column !== RENOVATION_ID_COLUMN}
+            forceSearchable={column === RENOVATION_ID_COLUMN}
             initial={initial}
             defaultFilter={defaultFilter ?? null}
             storageScope={storageScope}

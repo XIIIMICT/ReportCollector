@@ -91,6 +91,118 @@ async function viewAction(page: Page, name: string) {
     await page.mouse.move(800, 900);
 }
 
+test("plan code filter lists groups first, searches all code pages and restores exact selection", async ({
+    page,
+}) => {
+    test.setTimeout(120000);
+    await openTable(page, "/renovation");
+    const origin = new URL(page.url()).origin;
+    const headers = { Origin: origin };
+    const firstRows = await page.request.get("/api/renovation/plan/rows?limit=1");
+    expect(firstRows.ok()).toBe(true);
+    const asset = process.env.E2E_PLAN_CODE_ASSET ?? (await firstRows.json()).rows[0].assetName;
+    const assetFilter = { column: "__assetName", values: [asset], includeNulls: false };
+    await page.evaluate(
+        (filter) =>
+            localStorage.setItem(
+                "rc:filters:renovation:plan",
+                JSON.stringify({ __assetName: filter }),
+            ),
+        assetFilter,
+    );
+    await page.reload();
+    const firstPage = await page.request.post(
+        "/api/renovation/plan/facets/query?column=col_003&limit=1",
+        {
+            headers,
+            data: { filters: [assetFilter] },
+        },
+    );
+    expect(firstPage.ok()).toBe(true);
+    const facets = await firstPage.json();
+    expect(facets.total).toBeGreaterThan(0);
+    const lastPage = await page.request.post(
+        `/api/renovation/plan/facets/query?column=col_003&limit=1&offset=${facets.total - 1}`,
+        {
+            headers,
+            data: { filters: [assetFilter] },
+        },
+    );
+    expect(lastPage.ok()).toBe(true);
+    const last = (await lastPage.json()).values[0];
+    const code = last.value as string;
+    const funnel = page.getByRole("button", {
+        name: "Фильтр: Идентификационный код работы/ремонта",
+        exact: true,
+    });
+    await funnel.evaluate((element) => (element as HTMLButtonElement).click());
+    const popover = page.locator(".column-filter__popover");
+    await expect(popover.getByRole("option", { name: /^Корректные/ })).toBeVisible();
+    const labels = await popover
+        .getByRole("option")
+        .evaluateAll((options) =>
+            options.slice(1, 3).map((option) => option.querySelector("span")?.textContent),
+        );
+    expect(labels).toEqual(["Корректные", "Некорректные"]);
+    await popover.getByRole("searchbox").fill(code);
+    const codeOption = popover.getByRole("option").filter({
+        has: page.locator("span", {
+            hasText: new RegExp(`^${code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+        }),
+    });
+    await expect(codeOption).toBeVisible();
+    await expect(popover.getByRole("option", { name: /^Некорректные/ })).toBeVisible();
+    await popover.getByRole("option", { name: /^Снять выбор/ }).click();
+    await codeOption.click();
+    const applied = page.waitForResponse(
+        (response) =>
+            response.url().includes("/plan/rows/query") &&
+            response.status() === 200 &&
+            response.request().postData()?.includes('"valueMode":"exact"') === true,
+    );
+    await popover.getByRole("button", { name: "Применить", exact: true }).click();
+    const rows = await (await applied).json();
+    expect(rows.total).toBe(last.count);
+    expect(rows.rows.every((row: { renovationId: string }) => row.renovationId === code)).toBe(
+        true,
+    );
+    await page.reload();
+    const restoredFilters = await page.evaluate(() => {
+        const raw = localStorage.getItem("rc:filters:renovation:plan");
+        return raw ? Object.values(JSON.parse(raw)) : [];
+    });
+    await expect
+        .poll(async () => {
+            const request = await page.request.post("/api/renovation/plan/rows/query?limit=10000", {
+                headers,
+                data: { filters: restoredFilters },
+            });
+            return request.ok() ? (await request.json()).total : -1;
+        })
+        .toBe(last.count);
+    const restoredFunnel = page.getByRole("button", {
+        name: "Фильтр: Идентификационный код работы/ремонта",
+        exact: true,
+    });
+    await restoredFunnel.evaluate((element) => (element as HTMLButtonElement).click());
+    const restoredPopover = page.locator(".column-filter__popover");
+    await expect(
+        restoredPopover.getByRole("option", {
+            name: new RegExp(`^${code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+        }),
+    ).toHaveAttribute("aria-selected", "true");
+    await restoredPopover.getByRole("option", { name: /^Некорректные/ }).click();
+    const grouped = page.waitForResponse(
+        (response) =>
+            response.url().includes("/plan/rows/query") &&
+            response.status() === 200 &&
+            response.request().postData()?.includes("Некорректные") === true,
+    );
+    await restoredPopover.getByRole("button", { name: "Применить", exact: true }).click();
+    expect((await (await grouped).json()).total).toBe(facets.presets[1].count);
+    await viewAction(page, "Сбросить все фильтры и сортировки");
+});
+
 test("invalid plan import reports its durable result after reload", async ({ page }) => {
     test.setTimeout(90000);
     await openTable(page, "/renovation");

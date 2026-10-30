@@ -327,6 +327,7 @@ export type RenovationColumnFilter = {
     column: string;
     values: string[];
     includeNulls: boolean;
+    valueMode?: "exact";
     /** A `timestamptz` window INSTEAD of `values` (both ends or one). */
     from?: string | null;
     to?: string | null;
@@ -401,6 +402,8 @@ export type RenovationFacetValue = {
 export type RenovationFacets = {
     column: string;
     values: RenovationFacetValue[];
+    presets?: RenovationFacetValue[];
+    totalWithoutSearch?: number | null;
     /** Distinct non-empty values across the whole filtered plan. */
     total: number;
     /** Whether the column has a NULL/empty bucket (the «Пустые» option). */

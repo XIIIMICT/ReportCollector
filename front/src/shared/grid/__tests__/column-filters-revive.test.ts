@@ -8,6 +8,17 @@ import {
 } from "@/shared/grid/use-grid-column-filters";
 
 describe("columnFiltersStorageKey", () => {
+    it("keeps exact code selections distinct from group labels after reload", () => {
+        const stored = {
+            col_003: {
+                column: "col_003",
+                values: ["Корректные"],
+                includeNulls: false,
+                valueMode: "exact" as const,
+            },
+        };
+        expect(reviveFilters(JSON.stringify(stored))).toEqual(stored);
+    });
     it("keys by project AND section, so no two tables share a bucket", () => {
         expect(columnFiltersStorageKey("renovation", "assets")).toBe(
             "rc:filters:renovation:assets",

@@ -264,9 +264,9 @@ async def test_read_plan_facets_asset_column(client: AsyncClient) -> None:
     assert [item["value"] for item in body["values"]] == ["АО «БСК»", "АО «Волжский Оргсинтез»"]
 
 
-async def test_renovation_id_filter_is_two_buckets(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_renovation_id_filter_lists_buckets_and_codes(client: AsyncClient, db_session: AsyncSession) -> None:
     """
-    The ID column filter offers «Корректные»/«Некорректные», not a value list.
+    The ID column keeps «Корректные»/«Некорректные» first and lists codes too.
 
     With the generator off a code is judged by uniqueness: «Некорректные» are the
     codes repeated inside the plan plus the empty ones — exactly what blocks
@@ -276,8 +276,29 @@ async def test_renovation_id_filter_is_two_buckets(client: AsyncClient, db_sessi
     assert facets.status_code == 200
     body = facets.json()
     assert body["hasNulls"] is False
-    assert [item["value"] for item in body["values"]] == ["Корректные", "Некорректные"]
-    assert [item["count"] for item in body["values"]] == [2, 0]
+    assert [item["value"] for item in body["presets"]] == ["Корректные", "Некорректные"]
+    assert [item["value"] for item in body["values"]] == sorted(["2027_BSKR_1.1.1_1382467", "2027_VOZR_1.1.1_2247000"])
+    assert body["total"] == body["totalWithoutSearch"] == body["rowCount"] == 2
+    assert [item["count"] for item in body["presets"]] == [2, 0]
+
+    searched = await client.post(
+        "/api/renovation/plan/facets/query",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_003"},
+        json={"filters": [], "search_kind": "text", "search_query": "vozr"},
+    )
+    assert searched.status_code == 200, searched.text
+    assert [item["value"] for item in searched.json()["values"]] == ["2027_VOZR_1.1.1_2247000"]
+    assert searched.json()["presets"] == body["presets"]
+    assert searched.json()["total"] == searched.json()["rowCount"] == 1
+    assert searched.json()["totalWithoutSearch"] == 2
+    page = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_003", "offset": 1, "limit": 1},
+    )
+    assert page.json()["values"] == body["values"][1:]
+    assert page.json()["presets"] == body["presets"]
 
     async def rows_for(bucket: str) -> int:
         filters = json.dumps([{"column": "col_003", "values": [bucket], "includeNulls": False}])
@@ -292,6 +313,7 @@ async def test_renovation_id_filter_is_two_buckets(client: AsyncClient, db_sessi
 
     assert await rows_for("Корректные") == 2
     assert await rows_for("Некорректные") == 0
+    assert await rows_for("2027_BSKR_1.1.1_1382467") == 1
 
     # A repeated code makes BOTH of its rows incorrect.
     first = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
@@ -299,7 +321,8 @@ async def test_renovation_id_filter_is_two_buckets(client: AsyncClient, db_sessi
     second.col_003 = first.col_003
     await db_session.flush()
     facets = await client.get("/api/renovation/plan/facets", headers=ADMIN_HEADERS, params={"column": "col_003"})
-    assert [item["count"] for item in facets.json()["values"]] == [0, 2]
+    assert [item["count"] for item in facets.json()["presets"]] == [0, 2]
+    assert facets.json()["values"] == [{"value": first.col_003, "count": 2}]
     assert await rows_for("Некорректные") == 2
 
     # An empty code is incorrect on its own, even with no duplicate around.
@@ -307,8 +330,63 @@ async def test_renovation_id_filter_is_two_buckets(client: AsyncClient, db_sessi
     first.col_003 = None
     await db_session.flush()
     facets = await client.get("/api/renovation/plan/facets", headers=ADMIN_HEADERS, params={"column": "col_003"})
-    assert [item["count"] for item in facets.json()["values"]] == [1, 1]
+    assert [item["count"] for item in facets.json()["presets"]] == [1, 1]
+    assert facets.json()["hasNulls"] is True
+    assert facets.json()["nullCount"] == 1
     assert await rows_for("Некорректные") == 1
+
+
+async def test_code_facets_search_literal_symbols_unicode_and_preceding_scope(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    first = await _row_by_asset_code(db_session, "bsk")
+    second = await _row_by_asset_code(db_session, "vos")
+    first.col_003 = "ß_СОДА%"
+    second.col_003 = "СС_СОДА1"
+    await db_session.flush()
+    for query, expected in [("ss_сода%", [first.col_003]), ("%", [first.col_003]), ("не найдено", [])]:
+        result = await client.post(
+            "/api/renovation/plan/facets/query",
+            headers=ADMIN_HEADERS,
+            params={"column": "col_003"},
+            json={"search_kind": "text", "search_query": query},
+        )
+        assert result.status_code == 200, result.text
+        assert [entry["value"] for entry in result.json()["values"]] == expected
+        assert len(result.json()["presets"]) == 2
+    scoped = await client.post(
+        "/api/renovation/plan/facets/query",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_003"},
+        json={
+            "filters": [
+                {"column": "__assetName", "values": ["АО «БСК»"]},
+                {"column": "col_003", "values": ["not found"]},
+            ]
+        },
+    )
+    assert scoped.json()["values"] == [{"value": first.col_003, "count": 1}]
+    assert [entry["count"] for entry in scoped.json()["presets"]] == [1, 0]
+
+
+async def test_literal_code_matching_group_label_survives_filter_and_export(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    row = await _row_by_asset_code(db_session, "bsk")
+    row.col_003 = "Корректные"
+    await db_session.flush()
+    query = {"filters": [{"column": "col_003", "values": ["Корректные"], "valueMode": "exact"}]}
+    rows = await client.post("/api/renovation/plan/rows/query", headers=ADMIN_HEADERS, json=query)
+    assert rows.status_code == 200, rows.text
+    assert rows.json()["total"] == 1
+    assert rows.json()["rows"][0]["id"] == str(row.id)
+    exported = await client.post("/api/renovation/plan/export", headers=ADMIN_HEADERS, json=query)
+    assert exported.status_code == 200, exported.text
+    worksheet = load_workbook(BytesIO(exported.content)).active
+    assert worksheet.max_row == 14
+    assert worksheet["B14"].value == "Корректные"
 
 
 async def test_edit_keeps_the_renovation_id_when_a_component_changes(

@@ -366,6 +366,7 @@ export function reviveFilters(raw: string): Record<string, ColumnFilter> {
             column,
             values: filter.values,
             includeNulls: filter.includeNulls !== false,
+            ...(filter.valueMode === "exact" ? { valueMode: "exact" as const } : {}),
             ...(hasWindow ? { from: filter.from ?? null, to: filter.to ?? null } : {}),
         };
     }
