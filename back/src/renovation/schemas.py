@@ -200,10 +200,18 @@ class RenovationColumnFilter(BaseModel):
     to: str | None = None
 
 
+class RenovationSortColumn(BaseModel):
+    """One server-side plan sort level, in priority order."""
+
+    column: str = Field(min_length=1, max_length=32)
+    order: Literal["asc", "desc"]
+
+
 class RenovationPlanQuery(BaseModel):
-    """Column constraints travel in JSON, never in the request URL."""
+    """Column constraints and server sort levels travel in JSON, never in the URL."""
 
     filters: list[RenovationColumnFilter] = Field(default_factory=list, max_length=256)
+    sorting: list[RenovationSortColumn] = Field(default_factory=list, max_length=256)
     position_from: int | None = Field(default=None, ge=1)
     position_to: int | None = Field(default=None, ge=1)
     anchor_position: int | None = Field(default=None, ge=1)
@@ -478,8 +486,8 @@ class RenovationPlanExportRequest(BaseModel):
     `rowIds` exports an exact set; when it is null, `asset` narrows the rows to
     one asset, `block` narrows the exported columns to one responsibility block
     and `filters` are the grid's active header filters (the same shape
-    `GET /plan/rows` takes) — together the server-side equivalent of the grid's
-    «видимая» filter.
+    `POST /plan/rows/query` takes) and `sorting` carries ordered server-side sort
+    levels — together the server-side equivalent of the grid's «видимая» view.
     """
 
     planId: UUID | None = None
@@ -487,6 +495,7 @@ class RenovationPlanExportRequest(BaseModel):
     asset: str | None = None
     block: RBlock | None = None
     filters: list[RenovationColumnFilter] | None = None
+    sorting: list[RenovationSortColumn] | None = None
 
 
 class RenovationPlanImportCellIssue(BaseModel):

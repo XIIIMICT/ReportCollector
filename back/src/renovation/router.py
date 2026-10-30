@@ -471,6 +471,7 @@ async def get_renovation_plan_rows(
             limit=limit,
             asset_name=asset,
             filters=payload.filters if payload else None,
+            sorting=payload.sorting if payload else None,
             position_from=payload.position_from if payload else position_from,
             position_to=payload.position_to if payload else position_to,
             anchor_position=payload.anchor_position if payload else anchor_position,
@@ -790,6 +791,7 @@ async def post_export_renovation_plan(
             asset_name=payload.asset,
             block=payload.block,
             filters=payload.filters,
+            sorting=payload.sorting,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
@@ -857,10 +859,13 @@ async def post_plan_export_job(
             row_ids=payload.rowIds,
             block=payload.block,
             filters=payload.filters,
+            sorting=payload.sorting,
             include_unassigned=payload.asset is None,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except CellValidationError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
     file_name = plan_export_filename(meta.state, meta.stamp)
     cache_key = hashlib.sha256(
         json.dumps(
@@ -872,6 +877,7 @@ async def post_plan_export_job(
                 payload.asset is None,
                 payload.block.value if payload.block is not None else None,
                 [item.model_dump() for item in payload.filters or []],
+                [item.model_dump() for item in payload.sorting or []],
                 meta.stamp.isoformat(),
                 PLAN_EXPORT_RENDER_VERSION,
             ],
@@ -885,6 +891,7 @@ async def post_plan_export_job(
         row_ids=payload.rowIds,
         block=payload.block,
         filters=payload.filters,
+        sorting=payload.sorting,
         include_unassigned=payload.asset is None,
         file_name=file_name,
         total=meta.total,

@@ -123,6 +123,11 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 ## Closed in the current slice
 
+- Renovation plan column sorting is now enabled for every leaf (server-side
+  ordering for the Infinity Scroll scope), with multi-level persistence,
+  numbered arrows/status output, stable SQL tie-breakers and visible-export
+  propagation. The old audit note that the plan had no sorting is obsolete.
+
 - Renovation export materialization preserves editable work codes and invalidates
   old renderer artifacts. Browser export of all 2,336 Soda-Chlorate rows matched
   the source codes exactly (the previous workbook omitted 855 codes).

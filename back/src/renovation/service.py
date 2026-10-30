@@ -90,6 +90,7 @@ from src.renovation.schemas import (
     RenovationPlanRowRead,
     RenovationPlanRowsRead,
     RenovationPlanVersionRead,
+    RenovationSortColumn,
 )
 
 from .assets import (
@@ -473,10 +474,10 @@ def _plan_export_scope(
     """
     Build the WHERE scope of an export read (mirrors `_plan_row_condition`).
 
-    `filters` are the same header filters the grid sends to `GET /plan/rows`, so
-    the «видимая таблица» export matches what the user sees; `include_unassigned`
-    keeps the not-yet-assigned draft rows the grid also shows when no asset
-    filter is active.
+    `filters` and `sorting` are the same header state the grid sends to
+    `POST /plan/rows/query`, so the «видимая таблица» export matches what the
+    user sees; `include_unassigned` keeps the not-yet-assigned draft rows the
+    grid also shows when no asset filter is active.
     """
     condition = col(RenovationPlanRow.plan_id) == plan_id
     asset_condition = col(RenovationPlanRow.asset_id).in_(asset_ids)
@@ -494,6 +495,7 @@ def _plan_export_query(
     row_ids: list[UUID] | None,
     *,
     filters: list[RenovationColumnFilter] | None = None,
+    sorting: list[RenovationSortColumn] | None = None,
     label_map: dict[UUID, str] | None = None,
     include_unassigned: bool = False,
 ) -> Select:
@@ -516,7 +518,7 @@ def _plan_export_query(
                 include_unassigned=include_unassigned,
             )
         )
-        .order_by(col(RenovationPlanRow.position))
+        .order_by(*_plan_order_by(sorting))
     )
     if row_ids is not None:
         query = query.where(col(RenovationPlanRow.id).in_(row_ids))
@@ -586,6 +588,7 @@ async def read_plan_export_meta(
     row_ids: list[UUID] | None = None,
     block: RBlock | None = None,
     filters: list[RenovationColumnFilter] | None = None,
+    sorting: list[RenovationSortColumn] | None = None,
     include_unassigned: bool = False,
 ) -> RenovationPlanExportMeta:
     """
@@ -596,6 +599,9 @@ async def read_plan_export_meta(
     total matches what the export actually writes.
     """
     plan = await _resolve_export_plan(session, plan_id, state)
+    # Validate the client-provided sort columns even when the count query does
+    # not otherwise touch the ordered row projection.
+    _plan_order_by(sorting)
     label_map = await _reference_labels(session)
     count_query = (
         sa_select(func.count())
@@ -645,6 +651,7 @@ async def iter_plan_export_rows(
     asset_ids: list[UUID],
     row_ids: list[UUID] | None = None,
     filters: list[RenovationColumnFilter] | None = None,
+    sorting: list[RenovationSortColumn] | None = None,
     include_unassigned: bool = False,
     batch_size: int = EXPORT_BATCH_SIZE,
 ) -> AsyncIterator[list[tuple[int, str, str, dict[str, object]]]]:
@@ -694,6 +701,7 @@ async def iter_plan_export_rows(
                 asset_ids,
                 ids,
                 filters=filters,
+                sorting=sorting,
                 include_unassigned=include_unassigned,
             )
             entries = (await session.exec(batch_query)).all()  # ty: ignore[no-matching-overload]
@@ -701,7 +709,14 @@ async def iter_plan_export_rows(
             by_id = {entry[0]: value for entry, value in zip(entries, prepared, strict=True)}
             yield [by_id[row_id] for row_id in ids if row_id in by_id]
         return
-    query = _plan_export_query(plan_id, asset_ids, None, filters=filters, include_unassigned=include_unassigned)
+    query = _plan_export_query(
+        plan_id,
+        asset_ids,
+        None,
+        filters=filters,
+        sorting=sorting,
+        include_unassigned=include_unassigned,
+    )
     result = await session.stream(query)
     try:
         async for partition in result.partitions(batch_size):
@@ -722,6 +737,7 @@ async def read_plan_export_data(
     asset_name: str | None = None,
     block: RBlock | None = None,
     filters: list[RenovationColumnFilter] | None = None,
+    sorting: list[RenovationSortColumn] | None = None,
 ) -> RenovationPlanExportData:
     """
     Read plan rows directly for XLSX export without a 94k-row Pydantic copy.
@@ -744,6 +760,7 @@ async def read_plan_export_data(
         row_ids=row_ids,
         block=block,
         filters=filters,
+        sorting=sorting,
         include_unassigned=include_unassigned,
     )
     rows: list[tuple[int, str, str, dict[str, object]]] = []
@@ -755,6 +772,7 @@ async def read_plan_export_data(
         asset_ids=asset_ids,
         row_ids=row_ids,
         filters=filters,
+        sorting=sorting,
         include_unassigned=include_unassigned,
     ):
         # READ COMMITTED can see inserts after the count. Never keep reading
@@ -1220,6 +1238,74 @@ def _plan_row_condition(
     return condition
 
 
+def _plan_sort_expression(
+    column: str,
+) -> ColumnElement[object]:
+    """
+    Return the display value used to order one plan column.
+
+    Reference columns are stored as UUIDs but displayed as catalog labels. A
+    correlated scalar lookup keeps ordering identical to what the grid shows
+    without loading the plan into Python. Text values use a lower-case key for
+    case-insensitive ordering; the raw value remains a deterministic tie-break.
+    """
+    if column == _ASSET_COLUMN_PROP:
+        return cast("ColumnElement[object]", RAsset.name)
+    if (audit_attr := _plan_audit_attr(column)) is not None:
+        if column == "updatedBy":
+            return cast(
+                "ColumnElement[object]",
+                sa_select(User.name)
+                .where(col(User.id) == col(audit_attr))
+                .correlate(RenovationPlanRow)
+                .scalar_subquery(),
+            )
+        return cast("ColumnElement[object]", col(audit_attr))
+    meta = field_meta(column)
+    if meta is None or meta.db_name in _VIRTUAL_FIELDS:
+        message = f"Неизвестный столбец «{column}»."
+        raise CellValidationError(message)
+    raw = cast("ColumnElement[object]", getattr(RenovationPlanRow, meta.db_name))
+    if meta.cell_type == "reference":
+        return cast(
+            "ColumnElement[object]",
+            sa_select(RenovationReferenceValue.label)
+            .where(col(RenovationReferenceValue.id) == raw)
+            .correlate(RenovationPlanRow)
+            .scalar_subquery(),
+        )
+    return raw
+
+
+def _plan_order_by(
+    sorting: list[RenovationSortColumn] | None,
+) -> list[ColumnElement[object]]:
+    """Build stable SQL ordering for the remote plan window."""
+    order: list[ColumnElement[object]] = []
+    for item in sorting or []:
+        expression = _plan_sort_expression(item.column)
+        meta = field_meta(item.column)
+        is_text = item.column in {_ASSET_COLUMN_PROP, "updatedBy"} or (
+            meta is not None and meta.cell_type in {"text", "reference"}
+        )
+        key = func.lower(expression) if is_text else expression
+        ordered = key.asc().nulls_last() if item.order == "asc" else key.desc().nulls_last()
+        order.append(cast("ColumnElement[object]", ordered))
+        # Case-insensitive keys can tie; raw text gives a stable, repeatable
+        # order before the final plan position tie-break below.
+        if is_text:
+            raw = _plan_sort_expression(item.column)
+            order.append(
+                cast(
+                    "ColumnElement[object]",
+                    raw.asc().nulls_last() if item.order == "asc" else raw.desc().nulls_last(),
+                )
+            )
+    order.append(cast("ColumnElement[object]", col(RenovationPlanRow.position).asc()))
+    order.append(cast("ColumnElement[object]", col(RenovationPlanRow.id).asc()))
+    return order
+
+
 async def _window_anchor_position(
     session: AsyncSession,
     *,
@@ -1314,6 +1400,7 @@ async def read_plan_rows(
     limit: int = 1000,
     asset_name: str | None = None,
     filters: list[RenovationColumnFilter] | None = None,
+    sorting: list[RenovationSortColumn] | None = None,
     position_from: int | None = None,
     position_to: int | None = None,
     anchor_position: int | None = None,
@@ -1370,7 +1457,7 @@ async def read_plan_rows(
     #     starts at `position > anchor_position_of_offset`;
     #   * otherwise resolve the anchor using an index-only OFFSET query.
     window_condition = row_condition
-    if offset > 0:
+    if offset > 0 and not sorting:
         anchor = await _window_anchor_position(
             session, row_condition=row_condition, offset=offset, positions_are_dense=dense
         )
@@ -1384,15 +1471,19 @@ async def read_plan_rows(
                 anchor_offset=anchor_offset,
             )
         window_condition = row_condition & (col(RenovationPlanRow.position) > anchor)
-    rows = (
-        await session.exec(
-            select(RenovationPlanRow, RAsset)
-            .outerjoin(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
-            .where(window_condition)
-            .order_by(col(RenovationPlanRow.position))
-            .limit(limit)
-        )
-    ).all()
+    rows_query = (
+        select(RenovationPlanRow, RAsset)
+        .outerjoin(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
+        .where(window_condition)
+        .order_by(*_plan_order_by(sorting))
+    )
+    if sorting:
+        # A sorted scope is ordered by arbitrary expressions, so the stored
+        # position cannot serve as a seek key. The grid's offset is bounded by
+        # its virtualized window; retain the fast keyset path for the default
+        # plan order above.
+        rows_query = rows_query.offset(offset)
+    rows = (await session.exec(rows_query.limit(limit))).all()
     baseline_boundary = await _baseline_boundary(session) if plan.state == RPlanState.WORKING else None
     return RenovationPlanRowsRead(
         id=plan.id,

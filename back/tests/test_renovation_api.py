@@ -564,6 +564,37 @@ async def test_plan_rows_position_range(client: AsyncClient) -> None:
     assert from_two.json()["rows"][0]["position"] == 2
 
 
+async def test_plan_rows_support_server_sorting_by_display_and_numeric_values(client: AsyncClient) -> None:
+    """The remote plan orders the full scope, not only the loaded window."""
+    response = await client.post(
+        "/api/renovation/plan/rows/query",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100},
+        json={"sorting": [{"column": "col_011", "order": "desc"}]},
+    )
+    assert response.status_code == 200
+    assert [row["values"]["col_011"] for row in response.json()["rows"]] == ["Шкаф ПЛК", "Насос НК"]
+
+    numeric = await client.post(
+        "/api/renovation/plan/rows/query",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100},
+        json={"sorting": [{"column": "col_028", "order": "asc"}]},
+    )
+    assert numeric.status_code == 200
+    assert [row["values"]["col_028"] for row in numeric.json()["rows"]] == [5.0, 10.0]
+
+
+async def test_plan_export_job_rejects_unknown_sort_column(client: AsyncClient) -> None:
+    """Invalid sort metadata is a client error before a worker is queued."""
+    response = await client.post(
+        "/api/renovation/plan/export/jobs",
+        headers=ADMIN_HEADERS,
+        json={"sorting": [{"column": "not-a-plan-column", "order": "asc"}]},
+    )
+    assert response.status_code == 422
+
+
 async def test_plan_rows_total_all_is_the_whole_plan(
     client: AsyncClient,
     db_session: AsyncSession,

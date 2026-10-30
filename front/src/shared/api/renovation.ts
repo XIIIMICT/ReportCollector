@@ -333,6 +333,11 @@ export type RenovationColumnFilter = {
     to?: string | null;
 };
 
+export type RenovationSortColumn = {
+    column: string;
+    order: "asc" | "desc";
+};
+
 /** The browser's IANA zone — the one the cells print their timestamps in. */
 export function browserTimeZone(): string | null {
     if (typeof Intl === "undefined") return null;
@@ -349,6 +354,7 @@ export async function getRenovationPlanRows(
     planId?: string,
     asset?: string | null,
     filters?: RenovationColumnFilter[] | null,
+    sorting?: RenovationSortColumn[] | null,
     positionFrom?: number | null,
     positionTo?: number | null,
     anchorPosition?: number | null,
@@ -362,6 +368,7 @@ export async function getRenovationPlanRows(
     if (asset) params.set("asset", asset);
     return requestWrite(`/api/renovation/plan/rows/query?${params.toString()}`, "POST", {
         filters: filters ?? [],
+        sorting: sorting ?? [],
         tz: zone,
         position_from: positionFrom,
         position_to: positionTo,
@@ -470,6 +477,8 @@ export type RenovationPlanExportParams = {
     block?: string | null | undefined;
     /** Active header filters — the server-side «видимая таблица» scope. */
     filters?: RenovationColumnFilter[] | null | undefined;
+    /** Active server-side row ordering, in priority order. */
+    sorting?: RenovationSortColumn[] | null | undefined;
 };
 
 export async function exportRenovationPlan(
@@ -484,6 +493,7 @@ export async function exportRenovationPlan(
             asset: params.asset ?? null,
             block: params.block ?? null,
             filters: params.filters ?? null,
+            sorting: params.sorting ?? null,
         }),
         cache: "no-store",
     });
@@ -550,6 +560,7 @@ export async function createRenovationExportJob(
         asset: params.asset ?? null,
         block: params.block ?? null,
         filters: params.filters ?? null,
+        sorting: params.sorting ?? null,
     });
 }
 

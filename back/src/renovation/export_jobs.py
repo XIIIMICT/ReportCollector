@@ -24,7 +24,7 @@ from src.database import async_session_factory
 from .export import RenovationWorkbookWriter, build_plan_sheet_layout
 from .models import RBlock  # noqa: TC001 - Pydantic resolves these types at runtime
 from .plan import RPlanState  # noqa: TC001
-from .schemas import RenovationColumnFilter  # noqa: TC001
+from .schemas import RenovationColumnFilter, RenovationSortColumn  # noqa: TC001
 from .service import iter_plan_export_rows, read_plan_export_meta
 
 
@@ -38,6 +38,7 @@ class ExportJobSpec(ExportSpec):
     block: RBlock | None
     # Header filters and whether unassigned draft rows belong to the scope.
     filters: list[RenovationColumnFilter] | None = None
+    sorting: list[RenovationSortColumn] | None = None
     include_unassigned: bool = False
 
 
@@ -56,6 +57,7 @@ async def generate_plan_file(job: ExportJob, *, report: Callable[[int, int], Non
             row_ids=spec.row_ids,
             block=spec.block,
             filters=spec.filters,
+            sorting=spec.sorting,
             include_unassigned=spec.include_unassigned,
         )
         spec.total = meta.total
@@ -78,6 +80,7 @@ async def generate_plan_file(job: ExportJob, *, report: Callable[[int, int], Non
                     asset_ids=spec.asset_ids,
                     row_ids=spec.row_ids,
                     filters=spec.filters,
+                    sorting=spec.sorting,
                     include_unassigned=spec.include_unassigned,
                 ):
                     # Keep the child process's lease watchdog responsive too.

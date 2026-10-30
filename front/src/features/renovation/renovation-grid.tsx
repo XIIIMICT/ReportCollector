@@ -73,6 +73,7 @@ import type {
     RenovationField,
     RenovationHeaderCell,
 } from "@/shared/api/renovation";
+import type { RenovationSortColumn } from "@/shared/api/renovation";
 import { parsePastedText, serializeCellValue } from "@/shared/grid";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/data-grid";
 import {
@@ -148,7 +149,7 @@ export type RenovationGridProps = {
     headerCells: RenovationHeaderCell[];
     catalogs: RenovationCatalog[];
     /**
-     * Identity of the remote row scope (plan + filters). The grid loads its
+     * Identity of the remote row scope (plan + filters + sorting). The grid loads its
      * own chunks; when this changes the plugin reloads from the first chunk,
      * so a filter/version switch shows the same rows the counters describe.
      * Built by the workspace via `renovationGridScopeKey`.
@@ -160,7 +161,7 @@ export type RenovationGridProps = {
     totalRowsAll: number;
     /**
      * Loads one chunk of the scope. `offset`/`limit` are rows of the FILTERED
-     * plan in the server's «№» order, so a row's grid index equals its offset
+     * plan in the server's current order, so a row's grid index equals its offset
      * (see `RenovationGridHandle.scrollToPosition`).
      */
     loadRows: (
@@ -242,6 +243,10 @@ export type RenovationGridProps = {
     onCenterPositionChange?: (position: number | null) => void;
     /** Columns with an active header filter (leaf header shows the active marker). */
     activeFilterColumns?: ReadonlySet<string>;
+    /** Server-side row sorting, in priority order. */
+    activeSorting?: readonly RenovationSortColumn[];
+    /** Toggle a header sort (Ctrl/Cmd adds a priority level). */
+    onSortColumn?: (column: string, additive: boolean) => void;
     /** Open the column-filter popover for a leaf header (anchor = its rect). */
     onOpenColumnFilter?: (column: string, anchor: DOMRect) => void;
     /** Open the «go to row» popover from the «№» corner (anchor = its rect). */
@@ -324,6 +329,8 @@ function RenovationGridInner(
         onCenterPositionChange,
         scrollToPosition,
         activeFilterColumns,
+        activeSorting = [],
+        onSortColumn,
         onOpenColumnFilter,
         onOpenRowFilter,
     }: RenovationGridProps,
@@ -1221,9 +1228,10 @@ function RenovationGridInner(
                 activeFilterColumns,
                 filteredColumnPaths,
             ),
-            // The plan reports no header sorting: this grid sorts server-side and
-            // keeps no client sort state of its own.
-            sortedColumns: [],
+            sortedColumns: activeSorting.flatMap((entry) => {
+                const path = headerChainByProp.get(entry.column);
+                return path ? [{ path, order: entry.order }] : [];
+            }),
             totalCols: displayFields.length,
             immutableCols: displayFields.filter((field) => field.isReadOnly && !field.isCalculated)
                 .length,
@@ -1235,6 +1243,7 @@ function RenovationGridInner(
         });
     }, [
         activeFilterColumns,
+        activeSorting,
         assetFilter,
         displayFields,
         editableFieldKeys,
@@ -1242,6 +1251,7 @@ function RenovationGridInner(
         onViewStatsChange,
         totalRowsAll,
         totalRows,
+        headerChainByProp,
     ]);
 
     useEffect(() => {
@@ -1253,7 +1263,7 @@ function RenovationGridInner(
     // fills/evicts chunks through `loadData`. A row's index in that array is
     // its offset in the filtered plan, so `scrollToRow(position - 1)` lands on
     // a «№» exactly. The config is rebuilt when the scope (plan + filters)
-    // changes — assigning a new object makes the plugin reload from the first
+    // (including sorting) changes — assigning a new object makes the plugin reload from the first
     // chunk, which is what a version/filter switch must do.
     const scopeKeyRef = useRef(scopeKey);
     scopeKeyRef.current = scopeKey;
@@ -3009,8 +3019,36 @@ function RenovationGridInner(
                             width: cell.width,
                             height: cell.height,
                         }}
+                        onClick={(event) => {
+                            if (!cell.filterColumn || !onSortColumn) return;
+                            const target = event.target as HTMLElement;
+                            if (target.closest("button")) return;
+                            onSortColumn(cell.filterColumn, event.ctrlKey || event.metaKey);
+                        }}
                     >
-                        <span className="renovation-grid__header-label">{cell.text}</span>
+                        <span className="renovation-grid__header-label">
+                            {cell.text}
+                            {cell.filterColumn && onSortColumn
+                                ? (() => {
+                                      const index = activeSorting.findIndex(
+                                          (entry) => entry.column === cell.filterColumn,
+                                      );
+                                      const entry = index >= 0 ? activeSorting[index] : null;
+                                      return entry ? (
+                                          <span
+                                              className="renovation-grid__sort-indicator"
+                                              aria-label={
+                                                  entry.order === "asc"
+                                                      ? "Сортировка по возрастанию"
+                                                      : "Сортировка по убыванию"
+                                              }
+                                          >
+                                              {index + 1} {entry.order === "asc" ? "↑" : "↓"}
+                                          </span>
+                                      ) : null;
+                                  })()
+                                : null}
+                        </span>
                         {cell.filterColumn && onOpenColumnFilter ? (
                             <button
                                 type="button"
@@ -3067,8 +3105,29 @@ function RenovationGridInner(
                             width: cell.width,
                             height: cell.height,
                         }}
+                        onClick={(event) => {
+                            if (!cell.filterColumn || !onSortColumn || headerPinned) return;
+                            const target = event.target as HTMLElement;
+                            if (target.closest("button")) return;
+                            onSortColumn(cell.filterColumn, event.ctrlKey || event.metaKey);
+                        }}
                     >
-                        <span className="renovation-grid__number-label">{cell.text}</span>
+                        <span className="renovation-grid__number-label">
+                            {cell.text}
+                            {cell.filterColumn && onSortColumn
+                                ? (() => {
+                                      const index = activeSorting.findIndex(
+                                          (entry) => entry.column === cell.filterColumn,
+                                      );
+                                      const entry = index >= 0 ? activeSorting[index] : null;
+                                      return entry ? (
+                                          <span className="renovation-grid__sort-indicator">
+                                              {index + 1} {entry.order === "asc" ? "↑" : "↓"}
+                                          </span>
+                                      ) : null;
+                                  })()
+                                : null}
+                        </span>
                         {/* The strip is the UNPINNED substitute: with the header
                             pinned every column draws its funnel in its own header
                             cell, and the strip must not duplicate it. */}

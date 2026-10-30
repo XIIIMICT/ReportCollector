@@ -49,6 +49,7 @@ import {
     type RenovationMeta,
     type RenovationPlanRow,
     type RenovationPlanVersion,
+    type RenovationSortColumn,
     type RenovationUndoResult,
 } from "@/shared/api/renovation";
 import {
@@ -66,6 +67,9 @@ import {
     clearFilterDrafts,
     isConstrainingFilter,
     readStoredFilters,
+    readStoredSorting,
+    writeStoredSorting,
+    type StoredSortColumn,
     writeStoredFilters,
 } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
@@ -126,7 +130,7 @@ import {
     type RenovationGridRow,
     type RenovationRowPatch,
 } from "./renovation-grid";
-import { AUDIT_COLUMNS } from "./renovation-grid-constants";
+import { ASSET_COLUMN_PROP, ASSET_FIELD_DB_NAME, AUDIT_COLUMNS } from "./renovation-grid-constants";
 
 /** Standard grid toasts: see `gridWarningHandlers`. */
 const gridWarnings = gridWarningHandlers({});
@@ -154,8 +158,14 @@ function renovationGridScopeKey(params: {
     planId: string | null;
     asset: string | null;
     filters: ColumnFilter[];
+    sorting: RenovationSortColumn[];
 }): string {
-    return JSON.stringify([params.planId ?? "working", params.asset ?? "", params.filters]);
+    return JSON.stringify([
+        params.planId ?? "working",
+        params.asset ?? "",
+        params.filters,
+        params.sorting,
+    ]);
 }
 
 /**
@@ -344,6 +354,49 @@ export function RenovationWorkspace({
         () => getRenovationPlans().catch(() => null),
         [metaReloadKey],
     );
+    const [columnSorting, setColumnSorting] = useState<StoredSortColumn[]>(() =>
+        readStoredSorting("renovation", "plan"),
+    );
+    const sortablePlanColumns = useMemo(() => {
+        const columns = new Set<string>([ASSET_COLUMN_PROP, ...Object.keys(AUDIT_COLUMNS)]);
+        for (const field of meta?.fields ?? []) {
+            if (field.dbName !== ASSET_FIELD_DB_NAME) columns.add(field.dbName);
+        }
+        return columns;
+    }, [meta]);
+    const activeSorting = useMemo<RenovationSortColumn[]>(
+        () =>
+            columnSorting
+                .filter(({ prop }) => sortablePlanColumns.has(prop))
+                .map(({ prop, order }) => ({ column: prop, order })),
+        [columnSorting, sortablePlanColumns],
+    );
+    useEffect(() => {
+        if (!meta) return;
+        const valid = columnSorting.filter(({ prop }) => sortablePlanColumns.has(prop));
+        if (valid.length === columnSorting.length) return;
+        setColumnSorting(valid);
+        writeStoredSorting("renovation", "plan", valid);
+    }, [columnSorting, meta, sortablePlanColumns]);
+    const toggleColumnSorting = useCallback((column: string, additive: boolean) => {
+        setColumnSorting((current) => {
+            const existing = current.find((item) => item.prop === column);
+            if (existing?.order === "desc") {
+                const next = current.filter((item) => item.prop !== column);
+                writeStoredSorting("renovation", "plan", next);
+                return next;
+            }
+            const nextEntry: StoredSortColumn = {
+                prop: column,
+                order: existing?.order === "asc" ? "desc" : "asc",
+            };
+            const next = additive
+                ? [...current.filter((item) => item.prop !== column), nextEntry]
+                : [nextEntry];
+            writeStoredSorting("renovation", "plan", next);
+            return next;
+        });
+    }, []);
     const [viewPlanId, setViewPlanId] = useState<string | null>(null);
     // After an approve, immediately show the resulting versions from the response
     // (the async meta/plans refetch may lag a moment); cleared once the server
@@ -430,7 +483,10 @@ export function RenovationWorkspace({
         let cancelled = false;
         setPlanError(null);
         setLoadedRows([]);
-        const anchor = centerPositionRef.current;
+        // The remembered plan position is a stored ordinal. Once rows are
+        // ordered by arbitrary columns it no longer identifies a viewport
+        // location, so sorted scopes intentionally reopen at their first page.
+        const anchor = activeSorting.length === 0 ? centerPositionRef.current : null;
         void (async () => {
             try {
                 // The head read doubles as the scope probe: it returns the
@@ -443,6 +499,7 @@ export function RenovationWorkspace({
                     viewPlanId ?? undefined,
                     assetFilter,
                     activeColumnFilters,
+                    activeSorting,
                     null,
                     null,
                     anchor,
@@ -463,7 +520,7 @@ export function RenovationWorkspace({
                         token: nextToken(),
                         centered: true,
                     });
-                } else if (!viewPlanId && head.total > 0) {
+                } else if (!viewPlanId && head.total > 0 && activeSorting.length === 0) {
                     // No remembered row yet: the working plan anchors at its
                     // tail — the user lands on the rows they append most; an
                     // archive reads top-down. The jump must be cleared for the
@@ -481,7 +538,7 @@ export function RenovationWorkspace({
         return () => {
             cancelled = true;
         };
-    }, [meta, viewPlanId, assetFilter, activeColumnFilters, isPlanSection]);
+    }, [meta, viewPlanId, assetFilter, activeColumnFilters, activeSorting, isPlanSection]);
 
     // No working plan — right after submit, or a cold load with only
     // pending/archived versions. Only on the plan section: auto-select the
@@ -537,8 +594,9 @@ export function RenovationWorkspace({
                 planId: viewPlanId,
                 asset: assetFilter,
                 filters: activeColumnFilters,
+                sorting: activeSorting,
             }),
-        [activeColumnFilters, assetFilter, viewPlanId],
+        [activeColumnFilters, activeSorting, assetFilter, viewPlanId],
     );
     const scopeKeyRef = useRef(scopeKey);
     scopeKeyRef.current = scopeKey;
@@ -559,6 +617,7 @@ export function RenovationWorkspace({
                 viewPlanId ?? undefined,
                 assetFilter,
                 activeColumnFilters,
+                activeSorting,
             );
             if (scopeKeyRef.current !== requestedScope) return { rows: [], total: 0 };
             const diffByRowId = diffByRowIdRef.current;
@@ -567,7 +626,7 @@ export function RenovationWorkspace({
                 total: page.total,
             };
         },
-        [activeColumnFilters, assetFilter, viewPlanId],
+        [activeColumnFilters, activeSorting, assetFilter, viewPlanId],
     );
 
     const { data: diff } = useAsyncData<RenovationDiff | null>(
@@ -1167,6 +1226,7 @@ export function RenovationWorkspace({
                     asset: visible ? assetFilter : null,
                     block: visible ? blockFilter : null,
                     filters: visible ? activeColumnFilters : null,
+                    sorting: visible ? activeSorting : null,
                 });
                 if (job.status === "failed") {
                     throw new Error(job.error ?? "Не удалось сформировать файл.");
@@ -1185,7 +1245,7 @@ export function RenovationWorkspace({
                 setExportPending(false);
             }
         },
-        [activeColumnFilters, exportPending, viewPlanId, assetFilter, blockFilter],
+        [activeColumnFilters, activeSorting, exportPending, viewPlanId, assetFilter, blockFilter],
     );
 
     const handleStripExport = useCallback(
@@ -1213,6 +1273,8 @@ export function RenovationWorkspace({
                     clearFilterDrafts("renovation", "plan");
                     writeStoredFilters("renovation", "plan", {});
                     setColumnFilters({});
+                    setColumnSorting([]);
+                    writeStoredSorting("renovation", "plan", []);
                 }
                 return;
             }
@@ -1248,6 +1310,7 @@ export function RenovationWorkspace({
                     viewPlanId ?? undefined,
                     assetFilter,
                     activeColumnFilters,
+                    activeSorting,
                 );
                 if (cancelled) return;
                 setBaselineBoundary(page.baselineBoundary ?? null);
@@ -1260,7 +1323,15 @@ export function RenovationWorkspace({
         return () => {
             cancelled = true;
         };
-    }, [reloadKey, assetFilter, viewPlanId, activeColumnFilters, isArchive, applyServerRows]);
+    }, [
+        reloadKey,
+        assetFilter,
+        viewPlanId,
+        activeColumnFilters,
+        activeSorting,
+        isArchive,
+        applyServerRows,
+    ]);
 
     const selectedRow = useMemo(
         () => loadedRows.find((row) => row.__id === selection?.rowId) ?? null,
@@ -1903,6 +1974,8 @@ export function RenovationWorkspace({
                                         rowPatches={rowPatches}
                                         scrollToPosition={scrollToPosition}
                                         activeFilterColumns={activeFilterColumns}
+                                        activeSorting={activeSorting}
+                                        onSortColumn={toggleColumnSorting}
                                         onOpenColumnFilter={(column, anchor) => {
                                             const field = meta.fields.find(
                                                 (candidate) => candidate.dbName === column,
