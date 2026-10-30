@@ -133,6 +133,9 @@ from src.renovation.users import (
 )
 
 router = APIRouter(prefix="/renovation", tags=["renovation"])
+
+# Bump when XLSX rendering/materialization changes to invalidate older artifacts.
+PLAN_EXPORT_RENDER_VERSION = 2
 _settings = get_settings()
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
 
@@ -870,6 +873,7 @@ async def post_plan_export_job(
                 payload.block.value if payload.block is not None else None,
                 [item.model_dump() for item in payload.filters or []],
                 meta.stamp.isoformat(),
+                PLAN_EXPORT_RENDER_VERSION,
             ],
             ensure_ascii=True,
         ).encode()

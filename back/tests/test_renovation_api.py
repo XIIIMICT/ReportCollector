@@ -1774,9 +1774,11 @@ async def test_export_visible_rows_only(client: AsyncClient) -> None:
     assert worksheet.max_row == 14
 
 
+@pytest.mark.parametrize("header_filter", [False, True])
 async def test_export_recalculates_derived_columns(
     client: AsyncClient,
     db_session: AsyncSession,
+    header_filter: bool,
 ) -> None:
     """A derived column («Продолжительность, дни» = col_026) is recomputed for export.
 
@@ -1787,12 +1789,24 @@ async def test_export_recalculates_derived_columns(
     row.col_024 = date(2027, 1, 10)
     row.col_025 = date(2027, 1, 25)
     row.col_026 = None
+    work_code = row.col_003
+    assert work_code
     db_session.add(row)
     await db_session.commit()
 
-    response = await client.get("/api/renovation/plan/export", headers=ADMIN_HEADERS)
+    if header_filter:
+        response = await client.post(
+            "/api/renovation/plan/export",
+            headers=ADMIN_HEADERS,
+            json={"filters": [{"column": "__assetName", "values": ["АО «БСК»"], "includeNulls": False}]},
+        )
+    else:
+        response = await client.get("/api/renovation/plan/export", headers=ADMIN_HEADERS)
     assert response.status_code == 200
     worksheet = load_workbook(BytesIO(response.content)).active
+    assert worksheet.max_row == (14 if header_filter else 15)
+    # Recomputing a missing derived value must preserve the editable work code.
+    assert worksheet["B14"].value == work_code
     # Hiding col_218 shifts every later field one column left (and the dropped
     # row-number column one more): col_024/col_025 land on W/X; col_026 on Y.
     assert worksheet["W14"].value.date() == date(2027, 1, 10)

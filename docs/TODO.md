@@ -121,6 +121,9 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 ## Closed in the current slice
 
+- Renovation export materialization preserves editable work codes and invalidates
+  old renderer artifacts. Browser export of all 2,336 Soda-Chlorate rows matched
+  the source codes exactly (the previous workbook omitted 855 codes).
 - KPPK exports carry the grid's merge-suppression state for active/restored
   filters and sorting; repeated clicks on the active tab preserve export state.
 - Development schema upgraded through 0029_data_job_runtime; job metadata

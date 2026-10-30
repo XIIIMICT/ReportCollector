@@ -12,6 +12,18 @@ from src.renovation.calculations import (
     FormulaEngine,
     FormulaError,
 )
+from src.renovation.form_schema import formula_engine
+
+
+def test_app_materialization_preserves_editable_work_code() -> None:
+    values: dict[str, object] = {
+        "col_003": "2027_SODA_1.1.1_1234567",
+        "col_024": date(2027, 1, 10),
+        "col_025": date(2027, 1, 25),
+    }
+    formula_engine().materialize(values)
+    assert values.get("col_003") == "2027_SODA_1.1.1_1234567"
+    assert values["col_026"] == Decimal(15)
 
 
 def number_definition(field: str, formula: str | None = None, calculated: bool = False) -> FormulaDefinition:

@@ -138,16 +138,21 @@ def editable_fields() -> tuple[str, ...]:
 
 @lru_cache(maxsize=1)
 def formula_engine() -> FormulaEngine:
-    """Compile the formula engine from the legacy formulas (single instance)."""
+    """
+    Compile using the same overrides and visible fields as the app metadata.
+
+    Raw legacy flags marked the editable work code as calculated, causing
+    materialization to erase it when another derived value was missing.
+    """
     definitions = [
         FormulaDefinition(
-            field=field["dbName"],
-            cell_type=field["cellType"],
-            formula=field.get("formula"),
-            is_calculated=field["isCalculated"],
-            decimal_places=field.get("decimals"),
+            field=meta.db_name,
+            cell_type=meta.cell_type,
+            formula=meta.formula,
+            is_calculated=meta.is_calculated,
+            decimal_places=meta.decimals,
         )
-        for field in _load_form()["fields"]
+        for meta in field_metas()
     ]
     return FormulaEngine(definitions)
 

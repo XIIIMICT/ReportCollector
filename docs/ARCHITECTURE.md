@@ -483,7 +483,9 @@ requests OOM'ed the container. The export is therefore a background job
 - `POST /plan/export/jobs` resolves the scope (plan + asset + block + header
   filters + optional rowIds), computes the export stamp (last row edit for the
   working plan) and enqueues a job; the response is immediate. An identical
-  scope+stamp reuses the ready file (cache key = sha256 of the scope + stamp).
+  scope+stamp+renderer version reuses the ready file. The cache key includes
+  `PLAN_EXPORT_RENDER_VERSION`; bump it after rendering/materialization fixes
+  so an unchanged query cannot reuse an outdated workbook.
 - A PostgreSQL claim bounds execution to `EXPORT_WORKER_CONCURRENCY` active plan exports across backend
   processes. The consumer supervises a child Python interpreter that streams a
   repeatable-read snapshot through the XLSX writer. Its CPU work has a separate
@@ -500,6 +502,10 @@ requests OOM'ed the container. The export is therefore a background job
   ~130 per-row Excel formula templates are XML-escaped once at layout build time
   instead of per cell — the full export went from ~13 min to ~1.7 min. The
   workbook sets `fullCalcOnLoad`, so Excel recalculates on open.
+- **Source values.** The formula engine compiles from normalized `field_metas`,
+  including application overrides, never directly from legacy JSON. Recomputing
+  missing derived values must preserve editable `col_003` work codes; its old
+  calculated flag used to erase codes in otherwise valid exported rows.
 - Limits: 8 durable active jobs globally, 2 per user → `429`. Admission and
   deduplication are transactional. Same-user scope+stamp requests share one job;
   another user receives a separate owner record/file. Terminal jobs expire one
