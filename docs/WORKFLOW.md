@@ -214,6 +214,8 @@ Both projects require a running stack and seed. `just e2e` selects smoke; its de
 
 `.github/workflows/ci.yaml` is the single CI entry point (PRs to main/dev, pushes to main/dev, manual runs and reusable release checks). Configure **CI required** as the required branch-protection check. There are no workflow path filters that could leave that check pending.
 
+`.github/workflows/dependency-review.yaml` is the separate package review: on PRs to `main`/`dev`, `actions/dependency-review-action` fails on a known-vulnerable (`moderate` and up) or badly licensed (GPL/AGPL/LGPL) addition. It is deliberately its own workflow so the review runs on every dependency change without widening `ci.yaml`; its `dependency-review-gate` job exists only to keep a required check green on the push events, where the review itself is skipped.
+
 - Backend: locked dependencies, Ruff lint/format, ty and the **entire pytest suite in a memory/valkey matrix**, with PostgreSQL 18 and Valkey 8. Each matrix job owns its disposable services. XML/JUnit and raw coverage data are uploaded separately. A required coverage job merges both runs and enforces 80% combined statement/branch coverage; neither individual transport run exercises the other implementation. Dedicated cross-connection tests additionally exercise server TTL, pub/sub and lease ownership. Missing Valkey is a CI failure, not a fallback to MemoryStore.
 - Frontend: Bun 1.4, generated Next route types, TypeScript, oxlint, stylelint, oxfmt and Bun tests with LCOV. Next type generation is required before typecheck in a fresh checkout.
 - Configuration: actionlint with ShellCheck plus semantic Compose validation (including custom `!override` tags).

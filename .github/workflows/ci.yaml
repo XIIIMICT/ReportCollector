@@ -81,7 +81,7 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.15"
           enable-cache: true
@@ -112,7 +112,7 @@ jobs:
         working-directory: back
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.15"
           enable-cache: true
@@ -176,25 +176,6 @@ jobs:
           path: front/coverage
           retention-days: 7
 
-  dependencies:
-    name: Dependency review
-    # CodeQL reviews the code we write; nothing reviewed what we PULL IN.
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/dependency-review-action@v4
-        with:
-          # Block a PR that introduces a known-vulnerable or badly licensed package.
-          fail-on-severity: moderate
-          # GPL/AGPL in a dependency is a legal problem for this product.
-          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0, LGPL-3.0
-          comment-summary-in-pr: on-failure
-
   secrets:
     name: Secret scan
     runs-on: ubuntu-24.04
@@ -232,7 +213,7 @@ jobs:
         with:
           node-version: "26"
       - uses: docker/setup-buildx-action@v4
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.15"
           enable-cache: true
@@ -310,7 +291,7 @@ jobs:
   required:
     name: CI required
     if: always()
-    needs: [config, back, coverage, front, dependencies, secrets, production]
+    needs: [config, back, coverage, front, secrets, production]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
