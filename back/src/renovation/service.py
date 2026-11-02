@@ -1255,7 +1255,7 @@ def _plan_sort_expression(
         if column == "updatedBy":
             return cast(
                 "ColumnElement[object]",
-                sa_select(User.name)
+                sa_select(col(User.name))
                 .where(col(User.id) == col(audit_attr))
                 .correlate(RenovationPlanRow)
                 .scalar_subquery(),
@@ -1269,7 +1269,7 @@ def _plan_sort_expression(
     if meta.cell_type == "reference":
         return cast(
             "ColumnElement[object]",
-            sa_select(RenovationReferenceValue.label)
+            sa_select(col(RenovationReferenceValue.label))
             .where(col(RenovationReferenceValue.id) == raw)
             .correlate(RenovationPlanRow)
             .scalar_subquery(),

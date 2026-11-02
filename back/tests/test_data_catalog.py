@@ -27,8 +27,9 @@ def test_catalog_covers_every_application_table_and_column() -> None:
     assert len(SQLModel.metadata.tables) == 32
     # 494: 0021 dropped `value_key`, 0022 swapped `payload` for `deleted_at`,
     # 0024 added the market dictionary's 6 columns.
-    # 0026 adds the durable operation queue; 0028 adds its bounded result.
-    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 521
+    # 0026 adds the durable operation queue; 0028 adds its bounded result;
+    # 0029 adds the job's worker lifecycle metadata (phase, worker, start, heartbeat).
+    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 525
     assert set(TABLE_COMMENTS) == set(SQLModel.metadata.tables)
     for table in SQLModel.metadata.tables.values():
         assert table.comment == TABLE_COMMENTS[table.name].rstrip(".")
