@@ -1,6 +1,7 @@
 "use client";
 
 import { getRenovationPlanFacets, type RenovationColumnFilter } from "@/shared/api/renovation";
+import { ReportCollectorApiError } from "@/shared/api/report-collector";
 import { renderDateText, renderNumberText } from "@/shared/grid/grid-config";
 import {
     serverFacetSource,
@@ -46,6 +47,7 @@ export function RenovationColumnFilterPopover({
     instant,
     onApply,
     onClose,
+    onInvalidQuery,
 }: {
     /** The plan field's db name (or the synthetic asset column prop). */
     column: string;
@@ -68,6 +70,8 @@ export function RenovationColumnFilterPopover({
     instant?: boolean | undefined;
     onApply: (filter: ColumnFilter | null) => void;
     onClose: () => void;
+    /** Remove a stale column state when the backend rejects a facet query. */
+    onInvalidQuery?: (reason: unknown) => void;
 }) {
     // The plan's facet values arrive RAW: the digits of a number column, the ISO
     // string of a date. The server never formats them — formatting there split
@@ -83,14 +87,22 @@ export function RenovationColumnFilterPopover({
               ? (raw: string) => renderDateText(raw.slice(0, 10))
               : null;
     const facets = serverFacetSource(async (target, page) => {
-        const window = await getRenovationPlanFacets(target, {
-            planId,
-            asset,
-            filters,
-            offset: page.offset,
-            limit: page.limit,
-            search: page.search,
-        });
+        let window;
+        try {
+            window = await getRenovationPlanFacets(target, {
+                planId,
+                asset,
+                filters,
+                offset: page.offset,
+                limit: page.limit,
+                search: page.search,
+            });
+        } catch (reason) {
+            if (reason instanceof ReportCollectorApiError && reason.status === 422) {
+                onInvalidQuery?.(reason);
+            }
+            throw reason;
+        }
         if (render === null) return window;
         return {
             ...window,

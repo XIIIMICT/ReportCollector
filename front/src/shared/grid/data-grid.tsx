@@ -735,6 +735,55 @@ function DataGridInner(
 
     const sortingActive = (sortingBySectionRef.current.get(section)?.columns.length ?? 0) > 0;
     const mergesSuppressed = filtersActive || sortingActive;
+    const syncSortPriorityMarkers = useCallback(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        const columns = sortingBySectionRef.current.get(section)?.columns ?? [];
+        const priorities = new Map(
+            columns.map((column, index) => [String(column.prop), index + 1]),
+        );
+        for (const cell of grid.querySelectorAll<HTMLElement>(".rgHeaderCell")) {
+            const prop = cell.querySelector("[data-prop]")?.getAttribute("data-prop");
+            const indicator = cell.querySelector<HTMLElement>(".sort-indicator");
+            if (!indicator) continue;
+            const priority = prop === null || prop === undefined ? undefined : priorities.get(prop);
+            if (priority === undefined) {
+                if (indicator.hasAttribute("data-sort-priority")) {
+                    indicator.removeAttribute("data-sort-priority");
+                }
+            } else {
+                const value = String(priority);
+                if (indicator.getAttribute("data-sort-priority") !== value) {
+                    indicator.setAttribute("data-sort-priority", value);
+                }
+            }
+        }
+    }, [section]);
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        syncSortPriorityMarkers();
+        // RevoGrid rebuilds the header cells on every sorting/columns change and
+        // renders NO rank for a single sort, so the markers are re-applied
+        // whenever a header node lands. The observer sits on the whole grid (the
+        // header mount is asynchronous), but the callback ignores the batches that
+        // only touch DATA rows — a 94k-row form scrolls constantly and must not
+        // pay for a header scan on every virtual re-render.
+        const touchesHeader = (records: MutationRecord[]) =>
+            records.some((record) => {
+                const target = record.target as Element | null;
+                if (target?.closest?.("revogr-header")) return true;
+                // The header element itself being mounted (it is created lazily).
+                return [...record.addedNodes].some(
+                    (node) => node.nodeType === 1 && (node as Element).tagName === "REVOGR-HEADER",
+                );
+            });
+        const observer = new MutationObserver((records) => {
+            if (touchesHeader(records)) syncSortPriorityMarkers();
+        });
+        observer.observe(grid, { childList: true, subtree: true });
+        return () => observer.disconnect();
+    }, [sortingVersion, syncSortPriorityMarkers]);
     useEffect(() => {
         const grid = gridRef.current;
         if (grid && cellMerge !== undefined) grid.cellMerge = mergesSuppressed ? [] : cellMerge;

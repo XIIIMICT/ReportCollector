@@ -1906,6 +1906,24 @@ body {
     opacity: 1;
 }
 
+/* RevoGrid intentionally omits its rank for a single active sort. Keep the
+   same numbered treatment for one and many levels by mirroring our priority
+   onto the rendered indicator and painting the number in one place. */
+.data-grid revogr-header .rgHeaderCell .header-controls .sort-indicator[data-sort-priority]::after {
+    content: attr(data-sort-priority);
+    font-size: 10px;
+    line-height: 1;
+}
+
+.data-grid
+    revogr-header
+    .rgHeaderCell
+    .header-controls
+    .sort-indicator[data-sort-priority]
+    .sort-order-index {
+    display: none;
+}
+
 .data-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content,
 .renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content {
     margin-left: 24px;
@@ -3184,12 +3202,42 @@ body {
     cursor: pointer;
 }
 
+.renovation-grid__header-cell:has(.renovation-grid__sort-indicator) .renovation-grid__header-label,
+.renovation-grid__number-cell:has(.renovation-grid__sort-indicator) .renovation-grid__number-label {
+    margin-left: 24px;
+}
+
 .renovation-grid__sort-indicator {
-    margin-left: 0.25rem;
+    position: absolute;
+    top: 50%;
+    left: 6px;
+    z-index: 1;
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 1px;
+    transform: translateY(-50%);
     color: var(--accent);
-    font-size: 0.75em;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+}
+
+.renovation-grid__sort-indicator i.asc::after,
+.renovation-grid__sort-indicator i.desc::after {
+    font-size: 13px;
+}
+
+.renovation-grid__sort-indicator i.asc::after {
+    content: "↑";
+}
+
+.renovation-grid__sort-indicator i.desc::after {
+    content: "↓";
+}
+
+.renovation-grid__sort-indicator .sort-order-index {
+    position: static;
+    font-size: 10px;
+    line-height: 1;
 }
 
 .renovation-grid__header-cell:hover:has(.header-filter-button) .renovation-grid__header-label,

@@ -169,6 +169,16 @@ function renovationGridScopeKey(params: {
 }
 
 /**
+ * The column a plan-query validation error names, if any: the backend reports a
+ * stale sorting/filter as «Неизвестный столбец «<db name>»» (or «… столбца
+ * «<db name>»» for a bad range bound). Matching the RUSSIAN message is the only
+ * signal there is — the 422 body carries no structured column field.
+ */
+function validationColumn(message: string): string | null {
+    return message.match(/столб(?:ец|ца|цу|цом|це)\s+«([^»]+)»/i)?.[1] ?? null;
+}
+
+/**
  * A server plan row as the grid renders it: the cell values plus the service
  * fields the columns, the row header and the live patches read. It is applied
  * as a chunk loads, so the diff state (an archived plan compared to its
@@ -378,6 +388,64 @@ export function RenovationWorkspace({
         setColumnSorting(valid);
         writeStoredSorting("renovation", "plan", valid);
     }, [columnSorting, meta, sortablePlanColumns]);
+    useEffect(() => {
+        if (!meta) return;
+        const valid = Object.fromEntries(
+            Object.entries(columnFilters).filter(([column]) => sortablePlanColumns.has(column)),
+        );
+        if (Object.keys(valid).length === Object.keys(columnFilters).length) return;
+        setColumnFilters(valid);
+        writeStoredFilters("renovation", "plan", valid);
+    }, [columnFilters, meta, sortablePlanColumns]);
+    /**
+     * Drop a column the server refused from the sorting AND the filters, in the
+     * state and in `localStorage` — the stale entry would otherwise come back on
+     * the next request (and on every reload). Returns whether it was there: an
+     * error that removes nothing must not be swallowed, or the caller would sit
+     * on a scope the server keeps rejecting.
+     */
+    const discardInvalidPlanColumn = useCallback(
+        (column: string | null): boolean => {
+            if (!column) return false;
+            const hadSorting = columnSorting.some((entry) => entry.prop === column);
+            const hadFilter = column in columnFilters;
+            if (!hadSorting && !hadFilter) return false;
+            if (hadSorting) {
+                setColumnSorting((current) => {
+                    const next = current.filter((entry) => entry.prop !== column);
+                    writeStoredSorting("renovation", "plan", next);
+                    return next;
+                });
+            }
+            if (hadFilter) {
+                setColumnFilters((current) => {
+                    if (!(column in current)) return current;
+                    const next = { ...current };
+                    delete next[column];
+                    writeStoredFilters("renovation", "plan", next);
+                    return next;
+                });
+            }
+            return true;
+        },
+        [columnFilters, columnSorting],
+    );
+    /**
+     * A 422 on a plan query means a saved or sent column is no longer valid
+     * (renamed, revoked). Drop it and let the caller retry the remaining scope;
+     * `false` — nothing to drop, or not a 422 — keeps the error visible.
+     */
+    const discardInvalidPlanQuery = useCallback(
+        (reason: unknown, fallbackColumn: string | null = null): boolean => {
+            if (!(reason instanceof ReportCollectorApiError) || reason.status !== 422) return false;
+            if (!discardInvalidPlanColumn(validationColumn(reason.message) ?? fallbackColumn)) {
+                return false;
+            }
+            setColumnFilterTarget(null);
+            return true;
+        },
+        [discardInvalidPlanColumn],
+    );
     const toggleColumnSorting = useCallback((column: string, additive: boolean) => {
         setColumnSorting((current) => {
             const existing = current.find((item) => item.prop === column);
@@ -532,13 +600,29 @@ export function RenovationWorkspace({
                     setScrollToPosition(null);
                 }
             } catch (reason) {
+                if (
+                    !cancelled &&
+                    reason instanceof ReportCollectorApiError &&
+                    reason.status === 422
+                ) {
+                    if (discardInvalidPlanQuery(reason)) return;
+                }
                 if (!cancelled) setPlanError(errorMessage(reason));
             }
         })();
         return () => {
             cancelled = true;
         };
-    }, [meta, viewPlanId, assetFilter, activeColumnFilters, activeSorting, isPlanSection]);
+    }, [
+        meta,
+        viewPlanId,
+        assetFilter,
+        activeColumnFilters,
+        activeSorting,
+        discardInvalidPlanColumn,
+        discardInvalidPlanQuery,
+        isPlanSection,
+    ]);
 
     // No working plan — right after submit, or a cold load with only
     // pending/archived versions. Only on the plan section: auto-select the
@@ -573,13 +657,15 @@ export function RenovationWorkspace({
             .then((values) => {
                 if (!cancelled) setSummaryValues(values);
             })
-            .catch(() => {
-                if (!cancelled) setSummaryValues(null);
+            .catch((reason) => {
+                if (cancelled) return;
+                if (discardInvalidPlanQuery(reason)) return;
+                setSummaryValues(null);
             });
         return () => {
             cancelled = true;
         };
-    }, [viewPlanId, assetFilter, activeColumnFilters, isPlanSection]);
+    }, [viewPlanId, assetFilter, activeColumnFilters, discardInvalidPlanQuery, isPlanSection]);
 
     // ── Row-scope loading (InfinityScrollPlugin's loadData) ────────────────
     // One chunk of the filtered plan in «№» order. The offset/limit are rows
@@ -611,14 +697,20 @@ export function RenovationWorkspace({
             limit: number,
         ): Promise<{ rows: RenovationGridRow[]; total: number }> => {
             const requestedScope = scopeKeyRef.current;
-            const page = await getRenovationPlanRows(
-                offset,
-                limit,
-                viewPlanId ?? undefined,
-                assetFilter,
-                activeColumnFilters,
-                activeSorting,
-            );
+            let page;
+            try {
+                page = await getRenovationPlanRows(
+                    offset,
+                    limit,
+                    viewPlanId ?? undefined,
+                    assetFilter,
+                    activeColumnFilters,
+                    activeSorting,
+                );
+            } catch (reason) {
+                if (discardInvalidPlanQuery(reason)) return { rows: [], total: 0 };
+                throw reason;
+            }
             if (scopeKeyRef.current !== requestedScope) return { rows: [], total: 0 };
             const diffByRowId = diffByRowIdRef.current;
             return {
@@ -626,7 +718,14 @@ export function RenovationWorkspace({
                 total: page.total,
             };
         },
-        [activeColumnFilters, activeSorting, assetFilter, viewPlanId],
+        [
+            activeColumnFilters,
+            activeSorting,
+            assetFilter,
+            discardInvalidPlanColumn,
+            discardInvalidPlanQuery,
+            viewPlanId,
+        ],
     );
 
     const { data: diff } = useAsyncData<RenovationDiff | null>(
@@ -1240,12 +1339,28 @@ export function RenovationWorkspace({
                 // the background worker) nor the browser-owned download.
                 triggerNativeDownload(renovationExportJobFileUrl(job.id), job.fileName);
             } catch (reason) {
+                if (discardInvalidPlanQuery(reason)) {
+                    // The stale column is gone, but THIS click produced no file:
+                    // say so, otherwise the export looks like a dead button.
+                    toast.warning("Сортировка или фильтр столбца удалены", {
+                        description: "Столбец больше не поддерживается — повторите выгрузку.",
+                    });
+                    return;
+                }
                 toast.danger("Не удалось выгрузить файл", { description: errorMessage(reason) });
             } finally {
                 setExportPending(false);
             }
         },
-        [activeColumnFilters, activeSorting, exportPending, viewPlanId, assetFilter, blockFilter],
+        [
+            activeColumnFilters,
+            activeSorting,
+            assetFilter,
+            blockFilter,
+            discardInvalidPlanQuery,
+            exportPending,
+            viewPlanId,
+        ],
     );
 
     const handleStripExport = useCallback(
@@ -1316,7 +1431,8 @@ export function RenovationWorkspace({
                 setBaselineBoundary(page.baselineBoundary ?? null);
                 setPlanTotals({ total: page.total, totalAll: page.totalAll ?? null });
                 applyServerRows(page.rows);
-            } catch {
+            } catch (reason) {
+                discardInvalidPlanQuery(reason);
                 // Keep the current rows; the next refresh retries.
             }
         })();
@@ -1329,6 +1445,7 @@ export function RenovationWorkspace({
         viewPlanId,
         activeColumnFilters,
         activeSorting,
+        discardInvalidPlanQuery,
         isArchive,
         applyServerRows,
     ]);
@@ -2128,6 +2245,9 @@ export function RenovationWorkspace({
                     // сортировки» restores — no constraint on this column.
                     defaultFilter={null}
                     onApply={applyColumnFilter(columnFilterTarget.column)}
+                    onInvalidQuery={(reason) =>
+                        discardInvalidPlanQuery(reason, columnFilterTarget.column)
+                    }
                     onClose={() => setColumnFilterTarget(null)}
                 />
             ) : null}

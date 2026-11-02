@@ -3036,14 +3036,15 @@ function RenovationGridInner(
                                       const entry = index >= 0 ? activeSorting[index] : null;
                                       return entry ? (
                                           <span
-                                              className="renovation-grid__sort-indicator"
+                                              className="sort-indicator renovation-grid__sort-indicator"
                                               aria-label={
                                                   entry.order === "asc"
                                                       ? "Сортировка по возрастанию"
                                                       : "Сортировка по убыванию"
                                               }
                                           >
-                                              {index + 1} {entry.order === "asc" ? "↑" : "↓"}
+                                              <i className={entry.order} aria-hidden="true" />
+                                              <sup className="sort-order-index">{index + 1}</sup>
                                           </span>
                                       ) : null;
                                   })()
@@ -3121,8 +3122,9 @@ function RenovationGridInner(
                                       );
                                       const entry = index >= 0 ? activeSorting[index] : null;
                                       return entry ? (
-                                          <span className="renovation-grid__sort-indicator">
-                                              {index + 1} {entry.order === "asc" ? "↑" : "↓"}
+                                          <span className="sort-indicator renovation-grid__sort-indicator">
+                                              <i className={entry.order} aria-hidden="true" />
+                                              <sup className="sort-order-index">{index + 1}</sup>
                                           </span>
                                       ) : null;
                                   })()
