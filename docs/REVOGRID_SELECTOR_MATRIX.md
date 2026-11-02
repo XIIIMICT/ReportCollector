@@ -1,7 +1,7 @@
 # RevoGrid selector matrix
 
 This is the inventory for the installed RevoGrid matrix (`@revolist/revogrid`
-4.28.4, `@revolist/react-datagrid` 4.29.1, `@revolist/rv-pro-trial` 2.9.6).
+4.30.0, `@revolist/react-datagrid` 4.30.0, `@revolist/rv-pro-trial` 2.9.6).
 It exists so a vendor upgrade has a finite review surface. New vendor DOM
 selectors require an entry here and a browser regression before they are used.
 

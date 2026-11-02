@@ -11,16 +11,16 @@ to pass again.
 | --- | --- |
 | `next` | `16.4.3` |
 | `react` / `react-dom` | `19.3.1` |
-| `@revolist/react-datagrid` | `4.29.1` |
-| `@revolist/revogrid` | `4.28.4` via the workspace override |
+| `@revolist/react-datagrid` | `4.30.0` |
+| `@revolist/revogrid` | `4.30.0` via the workspace override |
 | `@revolist/rv-pro-trial` | `2.9.6` |
 | `InfinityScrollPlugin` | exported by `@revolist/rv-pro-trial` |
 
 The wrapper and core versions are intentionally recorded separately because
-the override installs RevoGrid `4.28.4` while the React wrapper declares
-`4.29.1`. The override is a compatibility decision, not evidence that the
-versions are interchangeable. Do not upgrade either side without updating this
-table and running the contract/browser checks.
+the override installs RevoGrid `4.30.0` on its own. The override is a
+compatibility decision, not evidence that the versions are interchangeable. Do
+not upgrade either side without updating this table and running the
+contract/browser checks.
 
 ## Application-owned adapter
 

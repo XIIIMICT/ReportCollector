@@ -38,7 +38,7 @@ test("renovation single-cell edit persists and Ctrl+A stays disabled", async ({ 
         if (columnIndex < 0) throw new Error("Missing col_011");
         const rows = await grid.getVisibleSource("rgRow");
         const rowIndex = rows.findIndex((row) => row && row.id);
-        // `setCellEdit` opens the editor directly — on revo-grid 4.28 the old
+        // `setCellEdit` opens the editor directly — on revo-grid 4.30 the old
         // `setCellsFocus(...)` + `Enter` left focus on the body and never mounted
         // `revogr-edit`. Both calls share ONE evaluate: scrolling re-renders the
         // grid and would drop the editor's focus.

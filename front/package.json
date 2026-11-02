@@ -18,13 +18,13 @@
         "typecheck": "bun check"
     },
     "dependencies": {
-        "@heroui/react": "^3.2.6",
-        "@heroui/styles": "^3.2.6",
+        "@heroui/react": "^3.2.7",
+        "@heroui/styles": "^3.2.7",
         "@internationalized/date": "3.12.4",
-        "@revolist/react-datagrid": "4.29.1",
+        "@revolist/react-datagrid": "4.30.0",
         "@revolist/rv-pro-trial": "2.9.6",
         "iconoir-react": "^7.12.1",
-        "jose": "^6.2.13",
+        "jose": "^6.2.15",
         "next": "16.4.3",
         "next-themes": "^0.4.6",
         "react": "19.3.1",
@@ -38,7 +38,7 @@
         "@testing-library/dom": "^10.4.2",
         "@testing-library/react": "^16.3.3",
         "@types/bun": "^1.4.4",
-        "@types/node": "^26.6.5",
+        "@types/node": "^26.6.6",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
         "babel-plugin-react-compiler": "1.0.0",
@@ -51,7 +51,7 @@
     },
     "overrides": {
         "@internationalized/date": "3.12.4",
-        "@revolist/revogrid": "4.28.4",
+        "@revolist/revogrid": "4.30.0",
         "react-stately": "3.51.0"
     },
     "engines": {
