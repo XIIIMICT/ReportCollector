@@ -20,11 +20,14 @@ test("sorted Excel paste updates the visible row and preserves its neighbor", as
     const originalFirst = await page.evaluate(async () =>
         String((await document.querySelector("revo-grid")!.getVisibleSource("rgRow"))[0].id),
     );
-    await page.evaluate(async () => {
-        await document
-            .querySelector("revo-grid")!
-            .updateColumnSorting({ prop: "rawMaterialName" }, "desc", false);
-    });
+    // Sort the way a user does. `grid.updateColumnSorting()` only emits a
+    // sorting request; the workspace owns the applied sorting and pushes it to
+    // the grid itself, so the direct call changes nothing on screen.
+    const materialHeader = page
+        .locator("revo-grid .rgHeaderCell")
+        .filter({ has: page.locator('[data-prop="rawMaterialName"]') });
+    await materialHeader.click();
+    await materialHeader.click();
     await expect
         .poll(() =>
             page.evaluate(async () =>

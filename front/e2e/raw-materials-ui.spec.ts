@@ -79,11 +79,15 @@ test("evtushenko: project switcher and dictionary CRUD", async ({ page }) => {
     await expect(page.locator("[data-slot=dropdown-menu]")).toBeVisible();
     await expect(page.locator("[data-slot=dropdown-menu]")).toContainText("КППК");
 
-    // Switch to КППК → placeholder screen.
+    // Switch to КППК → its own workspace (the .project-placeholder is only for
+    // a project that still has no UI).
     await page
         .locator("[data-slot=dropdown-menu] [data-slot=menu-item]", { hasText: "КППК" })
         .click();
-    await expect(page.locator(".project-placeholder")).toBeVisible({ timeout: 10000 });
+    await page.waitForURL(/\/kppk/, { timeout: 15000 });
+    await expect(page.getByRole("tab", { name: "Реализация", exact: true })).toBeVisible({
+        timeout: 20000,
+    });
 
     // Switch back to Сырьё.
     await switcher.click();
@@ -160,7 +164,9 @@ test("evtushenko: project switcher and dictionary CRUD", async ({ page }) => {
     await expect(page.locator("revogr-data .rgCell.report-cell--selected").first()).toHaveCount(1, {
         timeout: 10000,
     });
-    await page.locator(".action-button.button--danger:not([aria-disabled=true])").click();
+    // The delete action is named after what it removes («запись» in a
+    // dictionary, «строку» in the forms) and is greyed out without a selection.
+    await page.getByRole("button", { name: /^Удалить (запись|строку)$/ }).click();
     const deleteDialog = page.getByRole("alertdialog").filter({ hasText: "Удалить запись?" });
     await expect(deleteDialog).toBeVisible({ timeout: 10000 });
     await deleteDialog.getByRole("button", { name: "Удалить" }).click();
@@ -280,8 +286,10 @@ test("evtushenko: header shows fullname, profile modal works with theme + passwo
 
     // Password fields exist only in local-auth mode: with Keycloak the
     // passwords are managed there and the modal hides the fields.
+    // Relative to the configured baseURL: a hardcoded :5000 made this branch
+    // read the dev stand's config while the rest of the spec ran elsewhere.
     const authConfig = await page.request
-        .get("http://127.0.0.1:5000/api/auth/config")
+        .get("/api/auth/config")
         .then((response) => response.json() as Promise<{ keycloakEnabled: boolean }>);
     if (!authConfig.keycloakEnabled) {
         // Password fields are editable
@@ -304,7 +312,7 @@ test("evtushenko: header shows fullname, profile modal works with theme + passwo
         await expect(page.getByRole("alertdialog")).toContainText("Сохранить новый пароль?");
 
         // Cancel keeps the modal open
-        await page.getByRole("alertdialog").getByRole("button", { name: "Отмена" }).click();
+        await page.getByRole("alertdialog").getByRole("button", { name: "Отменить" }).click();
         await expect(page.getByRole("alertdialog")).toHaveCount(0);
         await expect(page.locator(".profile-modal")).toBeVisible();
     }
@@ -314,5 +322,6 @@ test("evtushenko: header shows fullname, profile modal works with theme + passwo
     await expect(page.getByRole("alertdialog")).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole("alertdialog")).toContainText("Выйти из приложения?");
     await page.getByRole("alertdialog").getByRole("button", { name: "Выйти" }).last().click();
-    await page.waitForURL(/logout|realms/, { timeout: 20000 });
+    // Keycloak sends the browser to the realm; local auth to the login page.
+    await page.waitForURL(/\/api\/auth\/(logout|login)|realms\//, { timeout: 20000 });
 });

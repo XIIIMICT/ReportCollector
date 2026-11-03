@@ -202,14 +202,20 @@ test.describe("collab: совместное редактирование", () =>
         await expect(pageB.locator(".form-status__selection")).toContainText("Выделено:", {
             timeout: 15000,
         });
-        await expect(pageA.locator(".form-status__selection")).toHaveCount(0, { timeout: 15000 });
+        // The block is always mounted; an empty selection is marked by the
+        // modifier class (and aria-hidden), not by the element disappearing.
+        await expect(pageA.locator(".form-status__selection--shown")).toHaveCount(0, {
+            timeout: 15000,
+        });
 
         // 3. Обратно: A выделяет — сбрасывается у B.
         await cellA.click();
         await expect(pageA.locator(".form-status__selection")).toContainText("Выделено:", {
             timeout: 15000,
         });
-        await expect(pageB.locator(".form-status__selection")).toHaveCount(0, { timeout: 15000 });
+        await expect(pageB.locator(".form-status__selection--shown")).toHaveCount(0, {
+            timeout: 15000,
+        });
 
         await ctxA.close();
         await ctxB.close();

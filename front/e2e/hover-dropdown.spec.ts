@@ -88,7 +88,9 @@ test("view strip menu: opens on hover, no flicker, Escape closes", async ({ page
     await hoverWithRealMouse(page, btn);
     const menu = page.locator(".view-strip-popover");
     await expect(menu).toBeVisible({ timeout: 5000 });
-    await expect(menu.getByText("Закрепить заголовок")).toBeVisible();
+    // The entry names the table header («шапка») and flips with the current
+    // state, so a pinned header shows «Открепить…».
+    await expect(menu.getByText(/шапку таблицы$/)).toBeVisible();
 
     // The menu must stay open while the pointer sits still on the button.
     await assertNoFlicker(page, menu, 25);
