@@ -3115,7 +3115,11 @@ function RenovationGridInner(
                     >
                         <span className="renovation-grid__number-label">
                             {cell.text}
-                            {cell.filterColumn && onSortColumn
+                            {/* The strip is the UNPINNED header substitute:
+                                with the header pinned the sort arrow already
+                                sits in the column's own header cell, exactly
+                                like its funnel below. */}
+                            {!headerPinned && cell.filterColumn && onSortColumn
                                 ? (() => {
                                       const index = activeSorting.findIndex(
                                           (entry) => entry.column === cell.filterColumn,
