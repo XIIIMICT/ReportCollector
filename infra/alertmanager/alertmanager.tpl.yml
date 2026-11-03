@@ -12,7 +12,7 @@
 # `to`/`from`/`smarthost` are rendered at CONTAINER START by `entrypoint.sh`
 # (sed over this file) from `.env`: Alertmanager does NOT expand `${VAR}` in
 # those fields, and `--setenv` does not help. Editing `.env` therefore needs
-# `just monitoring` (a restart), not a reload.
+# `just monitoring-stand` (a restart), not a reload.
 
 global:
   resolve_timeout: 5m

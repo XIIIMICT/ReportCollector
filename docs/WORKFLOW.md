@@ -14,7 +14,7 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.15 and Node 26 
 
 1. Copy the config: `cp .env.example .env` (root — single source). To run the front on the host additionally `cp .env.example front/.env.local`.
 2. Dependencies: `just deps` (`uv sync --directory back` + `bun install --cwd front`).
-3. DB and services: `just db` (postgres+valkey), Keycloak if needed — `just keycloak`.
+3. DB and services: `just db-stand` (postgres+valkey), Keycloak if needed — `just auth-stand`.
 4. Migrations: `just migrate`. The migration connection runs with `lock_timeout=30s` (`back/migrations/env.py`) — if the app holds a lock (classic idle-in-transaction pool connection), the migration aborts with "canceling statement due to lock timeout" after 30s instead of hanging forever. On prod prefer running migrations with the app stopped/idle. Seed: `just seed` (**recreates the schema!** only with consent, never on prod). `alembic_version.version_num` is `TEXT` (migration `0020_alembic_version_text`) — Alembic's default is `VARCHAR(32)`, and a longer revision id used to fail the whole upgrade on the closing bookkeeping `UPDATE` (`value too long for type character varying(32)`) *after* the schema change had already run. Keep revision ids descriptive; there is no length limit now.
 - The renovation plan is seeded from the per-enterprise «РБ ПОФ_2027_*» workbooks in
   `docs/seed/Планы/` (one «РБ…» sheet each; header on row 1, data from row 3).

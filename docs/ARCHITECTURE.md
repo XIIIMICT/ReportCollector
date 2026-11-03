@@ -23,7 +23,7 @@ Sections: [System diagram](#system-diagram) · [Services and compose profiles](#
 ## System diagram
 
 ```
-Browser ── https://<host> ──► nginx (outside Docker, on prod)
+Browser ── https://<host> ──► nginx (central infra stack, on prod)
                               ├── /              → front (Next.js standalone, :5000)
                               └── /api/ws/       → back (FastAPI/Granian, :8000)
                               (HTTPS + WSS terminated in nginx)
@@ -36,16 +36,25 @@ Keycloak ── OIDC (login; local container or corporate)
 
 ## Services and compose profiles
 
-`compose.yaml` (name: `reportcollector`) `include`s `infra/compose.external-services.yaml` (postgres, keycloak, valkey) and `infra/compose.alloy.yaml` (loki, grafana, alloy).
+`compose.yaml` (name: `reportcollector`) `include`s four infra files in `ReportCollector/infra/`: `compose.db.yaml` (postgres + valkey, no profile), `compose.auth.yaml` (keycloak, no profile), `compose.monitoring.yaml` (alloy without a profile + loki/grafana/prometheus/alertmanager, no profile), and `compose.proxy.yaml` (nginx, no profile; raises separately — `just proxy-stand`).
 
 | Service | Container | Profile | What |
 |---|---|---|---|
 | `back` / `back-dev` | `rc-back` / `rc-back-dev` | prod / dev | FastAPI, Granian, port `BACKEND_PORT` |
 | `front` / `front-dev` | `rc-front` / `rc-front-dev` | prod / dev | Next.js standalone (prod) or `bun dev` (dev, hot-reload) |
-| postgres, keycloak, valkey | `rc-postgres` etc. | standalone | external dependencies (`just db`, `just keycloak`) |
-| loki, grafana, alloy, prometheus | — | standalone | logs + metrics (`just monitoring`) |
+| postgres, valkey | `rc-postgres` / `rc-valkey` | — | data services (`just db-stand`) |
+| keycloak | `rc-keycloak` | — | auth service (`just auth-stand`) |
+| alloy | `rc-alloy` | — | log collector (also starts with the full stack; `just monitoring` targets an external Loki) |
+| loki, grafana, prometheus, alertmanager | — | — | logs + metrics (`just monitoring-stand`) |
+| nginx | `rc-nginx` | — | reverse proxy (`just proxy-stand`) |
 
 Key point: **ports and hosts are set once in the root `.env`** and spread into the Dockerfiles (build-arg `PORT`/`BACKEND_PORT`), port publishing, healthchecks, and internal URLs. All mandatory (`:?` in compose — fails with a clear error instead of staying silent). No defaults in Dockerfiles.
+
+### Two deployment modes
+
+**Local standalone** (developer machine, one compose project): `just db-stand` / `just auth-stand` / `just monitoring-stand` / `just proxy-stand` bring up postgres + valkey, Keycloak, the whole observability stack (Loki, Grafana, Alloy, Prometheus, Alertmanager) and a reverse proxy (nginx, `fholzer/nginx-brotli` build — same files as the central infra stack, `infra/check-drift.py` verifies the copies don't drift). None of these services carries a profile: `just prod` / `just dev` name the app services explicitly (`back front` / `back-dev front-dev`), so they never start the local infrastructure by accident. `just monitoring` starts Alloy alone against an external Loki. Service-addressing conventions inside the local stack: `LOKI_URL=http://loki:3100` (service name within the same compose project) and the environment label comes from `LOG_ENV=local` in `.env`.
+
+**Central prod stack** (DWH infra/, a separate compose project, possibly another host): Loki + Grafana + Prometheus + Alertmanager + Pushgateway + nginx (brotli) live there and serve ALL apps; the app repo brings only stateless collectors. ReportCollector connects to the shared backends via `.env` values — `LOKI_URL` (the app's Alloy pushes there), and Prometheus in the central stack scrapes the backend through `host.docker.internal:<BACKEND_PORT>`; its config does not expand compose `${VAR}` (files: `infra/prometheus/prometheus.yml`). The app alert rules belong to the stack that scrapes — in prod they go into the central `infra/prometheus/rules/`. The label contract that keeps both apps distinguishable in the shared stack: `app=reportcollector|excel_loader`, `env=<LOG_ENV>`, `job=reportcollector-back` (the scrape job name).
 
 ## Environment variables (root `.env`, single source)
 
@@ -58,6 +67,8 @@ Mandatory:
 
 Optional/derived:
 - `VALKEY_URL` — empty = in-memory collaboration (one worker, no cross-worker sync); in the stack `redis://host.docker.internal:6379/0` or the service name.
+- `LOG_ENV` (`local`/`prod`) — the `env` label Alloy stamps onto every log line; `local` by default, set `prod` in a deployed `.env`.
+- `LOKI_URL` — the Loki the app's Alloy pushes to (`http://loki:3100` resolves inside the local compose project; a central/external Loki is `host.docker.internal:3100` or the server address).
 - `BACKEND_CORS_ORIGINS` — in compose derived from `AUTH_APP_ORIGIN` + localhost; set manually only when running back on the host.
 - `BACKEND_INTERNAL_URL` — derived in compose from `BACKEND_HOST/BACKEND_PORT`; mandatory when running front on the host (`front/.env.local`).
 - `NEXT_PUBLIC_URL` — **alias of `AUTH_APP_ORIGIN`**, derived automatically in compose, don't set manually.
@@ -264,7 +275,7 @@ Errors: `CellValidationError` → 422, `DictionaryReferenceError` → 409, `Valu
 
 ## Logging
 
-`back/src/app_logging.py`: structured events (`application_started`, `http_request`, `collab.ws_*`, `keycloak_identity_received`, …) to the `LOG_FILE` file and to Loki via Alloy; viewing — Grafana (`{app="reportcollector"}`). No tokens/secrets in logs.
+`back/src/app_logging.py`: structured events (`application_started`, `http_request`, `collab.ws_*`, `keycloak_identity_received`, …) to the `LOG_FILE` file and to Loki via Alloy; viewing — Grafana (`{app="reportcollector"}`). No tokens/secrets in logs. The Alloy config stamps every line with `app=reportcollector`, `job=reportcollector` and `env=<LOG_ENV>` from `compose`/`.env` (`local` by default; set `prod` on the server).
 
 The file rotates (`RotatingFileHandler`, 64 MB × 5 backups — at most ~320 MB; a plain handler reached 174 MB in 33 hours). Rotation **renames** the active file, so Alloy's path-based tail re-reads the new one on its 5 s `sync_period`; a handful of lines can be missed at a rollover, which is the accepted price of a bounded disk. Loki keeps 7 days (`retention_period: 168h` + the compactor that actually enforces it) — without both, retention is inert and chunks are never deleted.
 
@@ -281,12 +292,14 @@ Logs answer "what exactly happened"; metrics answer "how many and how often". **
 - Dashboards (`infra/grafana/provisioning/dashboards-json/`): **Сервис** (HTTP percentiles, database pool/query/lock pressure, import/export phases and queue, Valkey/dependency health, RSS/event loop/disk), **Сотрудничество** (WS load, slow consumers), **Ошибки** (Loki, with `request_id` correlation). Provisioned from git, `allowUiUpdates: false` — edit the JSON, not the browser.
 - Prometheus scrapes `host.docker.internal:<BACKEND_PORT>` (15 s, 15 days retention); the port is in `infra/prometheus/prometheus.yml` because Prometheus does not expand compose variables.
 - **Alerts** (`infra/prometheus/alert-rules.yml`, 12 rules): a 5xx burst (>0.05/s for 2 min), an immediate recent server/interrupted-response failure, accumulating 5xx (>20/h), `up == 0`, collaboration slow consumers, pool exhaustion, query timeout/deadlock failures, export failures, event-loop lag, disk pressure, readiness dependency failures and Valkey subscription failures. The immediate rule ignores the initial zero gauge and expires five minutes after the last failure. The event-loop/disk/capacity values are operational guardrails; load-based latency and memory thresholds remain to be calibrated. Alertmanager groups them (`group_wait 30s`, repeat 4h) and exposes them at `http://localhost:9093`.
-- **Mail delivery was verified 2026-10-27**, when a test alert produced `msg="Notify success"` and arrived at `SUPPORT_MAIL`. The current dev Alertmanager log (2026-10-29) shows repeated `connection refused` to `smtp.mail.ru:587`, so delivery is currently an operational item to recheck rather than a passing claim. `entrypoint.sh` renders `alertmanager.tpl.yml` with `ALERT_SMTP_*`/`SUPPORT_MAIL` from `.env` (editing `.env` needs `just monitoring`). The smarthost must be **587** (465 is implicit TLS and `smtp_require_tls` expects STARTTLS), and `ALERT_SMTP_USER` must be the sender mailbox, the same one as `ALERT_SMTP_FROM`. Remaining alert and load work is tracked in `docs/TODO.md`.
+- **Mail delivery was verified 2026-10-27**, when a test alert produced `msg="Notify success"` and arrived at `SUPPORT_MAIL`. The current dev Alertmanager log (2026-10-29) shows repeated `connection refused` to `smtp.mail.ru:587`, so delivery is currently an operational item to recheck rather than a passing claim. `entrypoint.sh` renders `alertmanager.tpl.yml` with `ALERT_SMTP_*`/`SUPPORT_MAIL` from `.env` (editing `.env` needs `just monitoring-stand`). The smarthost must be **587** (465 is implicit TLS and `smtp_require_tls` expects STARTTLS), and `ALERT_SMTP_USER` must be the sender mailbox, the same one as `ALERT_SMTP_FROM`. Remaining alert and load work is tracked in `docs/TODO.md`.
 - Remaining load, scaling and operational work — `docs/TODO.md`.
 
 ## Deployment (prod)
 
-nginx is **not in Docker**, config `/etc/nginx/conf.d/reportcollector.conf`: `location /` → front `127.0.0.1:5000`; `location /api/ws/` → back `127.0.0.1:8000` with `Upgrade`/`Connection "Upgrade"` and large timeouts (`proxy_read_timeout 86400s`). HTTPS/WSS terminated by nginx (cert in SAN). Prod address: `https://m2v-form-1.h2-group.ru`. Details and WS diagnostics — `docs/COLLAB.md`, section "Deployment and WS diagnostics".
+The reverse proxy is part of the central DWH infra stack now (`infra/compose.proxy.yaml`, image `fholzer/nginx-brotli`): its template does `location /` → `NGINX_UPSTREAM_HOST:NGINX_UPSTREAM_PORT` (front, defaults `host.docker.internal:5000`) and `location /api/ws/` → `NGINX_BACKEND_HOST:NGINX_BACKEND_PORT` (back, defaults `host.docker.internal:8000`, the old static `back` default never resolved from the central stack's own project). Upstream hostnames are resolved per request (resolver `127.0.0.11` + `set` variables), so nginx also starts before the app containers do. HTTPS/WSS is terminated in nginx (host certs via `NGINX_TLS_CERT_PATH`/`NGINX_TLS_KEY_PATH`, an empty pair falls back to a generated self-signed certificate). The standalone build of the same proxy lives in `ReportCollector/infra/nginx` (`just proxy-stand`); the two `infra/nginx` trees must stay identical — `infra/check-drift.py` (DWH checkout) fails on drift. Prod address: `https://m2v-form-1.h2-group.ru`. Details and WS diagnostics — `docs/COLLAB.md`, section "Deployment and WS diagnostics". The host-nginx configuration below remains for hosts where the proxy is deliberately NOT containerized.
+
+**Bind-folder ownership on Linux.** `./logs` (written by both app containers) belongs on the host to the account that deploys the repo, so images' built-in `appuser` (uid 100) hits «Permission denied» on it. `compose.yaml` runs `back`/`front` (and their dev variants) as `user: "${HOST_UID:-1000}:${HOST_GID:-1000}"` with `HOST_UID`/`HOST_GID` from `.env` (`id -u` / `id -g`; ignored on Docker Desktop). Fix legacy root-owned log files once with `sudo chown -R "$(id -u):$(id -g)" logs` — do not reach for 777.
 
 ### Compression (must be on in nginx)
 

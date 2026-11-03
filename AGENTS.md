@@ -20,7 +20,7 @@ editing a KPPK membership.
 - `front/` — Next.js 16 (App Router, React 19, revo-grid 4.27, HeroUI, Tailwind 4, Zod 4), package manager **Bun 1.4.x**.
 - `back/` — FastAPI + SQLModel + Alembic (Python 3.15, **uv**), asyncpg, Redis/Valkey for collaboration.
 - Ports: front **5000**, back **8000** — from the root `.env` (`FRONT_PORT`/`BACKEND_PORT`), mandatory.
-- Docker: `compose.yaml` (profiles `prod`/`dev`/`standalone`); in prod nginx runs **outside** Docker.
+- Docker: `compose.yaml` (profiles `prod`/`dev`); the external services are raised with `just db-stand` (postgres + valkey) and `just auth-stand` (keycloak); the full observability stack is `just monitoring-stand` (loki, grafana, alloy, prometheus, alertmanager); the proxy is `just proxy-stand` (nginx, `fholzer/nginx-brotli` — same build as the central DWH infra stack); in prod the reverse proxy lives in that central stack.
 
 ## Commands (from the repo root)
 
@@ -29,12 +29,13 @@ editing a KPPK membership.
 | Back tests | `uv run --directory back pytest -q` |
 | Front unit tests | `bun run --cwd front test` |
 | e2e smoke (needs a running stack) | `bun run --cwd front test:e2e --project=smoke` (`E2E_BASE_URL`, `KEYCLOAK_ENABLED=false`); `--project=keycloak` for the separately prepared Keycloak stack |
-| Back lint/format/type | `uv run --directory back ruff check --fix` · `ruff format` · `ty check` |
+| Back lint/format/type | `uv run --directory back ruff check --fix` · `ruff format` · `ty check --fix` |
 | Front lint/format/type | `bun run --cwd front lint` · `format` · `typecheck` |
 | Everything at once | `just lint` · `just typecheck` · `just test` · `just e2e` |
 | Stack dev/prod | `just dev` (hot-reload, `--watch`) · `just prod` |
-| DB / keycloak | `just db` · `just keycloak` (standalone profile) |
-| Observability | `just monitoring` — Loki + Alloy (logs), Prometheus + Alertmanager (metrics, alerts), Grafana (dashboards). Backend `/metrics`; alert mail is **wired and verified** (smarthost 587, `ALERT_SMTP_USER` = the sender mailbox — both load-bearing; see `docs/ARCHITECTURE.md`) |
+| DB / keycloak | `just db-stand` (postgres + valkey) · `just auth-stand` (keycloak) |
+| Observability | `just monitoring-stand` — Loki + Grafana + Alloy (logs), Prometheus + Alertmanager (metrics, alerts). `just monitoring` — Alloy only, against an external Loki. Backend `/metrics`; logs carry `env=<LOG_ENV>` (`.env`, default `local`). Alert mail is **wired and verified** (smarthost 587, `ALERT_SMTP_USER` = the sender mailbox — both load-bearing; see `docs/ARCHITECTURE.md`) |
+| Standalone proxy | `just proxy-stand` — reverse proxy (80/443 → front + WS back), same files as the central infra stack |
 | Migrations | `just migrate` (never edit already-applied prod migrations — only new ones). The migration connection sets `lock_timeout=30s` — a blocked migration (e.g. an ALTER waiting behind the running app) fails loudly instead of hanging |
 | New empty DB / baseline adoption | New: `just migrate`. Existing old head `0015_plan_row_col_218`: backed-up, stopped installation + `uv run --directory back python -m migrations.adopt_baseline` once, then `just migrate`. Guarded schema comparison; details in `docs/WORKFLOW.md` |
 | Seed | `just seed` — **fully recreates the DB schema**, don't run without asking |

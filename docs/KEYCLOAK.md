@@ -68,7 +68,7 @@ The three issuer variables: **PUBLIC** — the browser (redirect), **INTERNAL** 
 ## Local development
 
 - Without Keycloak: `KEYCLOAK_ENABLED=false` → email+password form; e2e run on it (`front/e2e/auth.spec.ts`).
-- Local Keycloak: `just keycloak` (standalone profile, `keycloak/keycloak:26.6`, realm imported from `infra/keycloak/import/reportcollector-realm.json`: realm `reportcollector`, client `ReportCollector`, secret `reportcollector-local-secret`; console `http://127.0.0.1:8080`, admin/admin). Env from `.env.example`:
+- Local Keycloak: `just auth-stand` (`keycloak/keycloak:26.6`, realm imported from `infra/keycloak/import/reportcollector-realm.json`: realm `reportcollector`, client `ReportCollector`, secret `reportcollector-local-secret`; console `http://127.0.0.1:8080`, admin/admin). Env from `.env.example`:
 
 ```dotenv
 AUTH_KEYCLOAK_PUBLIC_ISSUER=http://127.0.0.1:8080/realms/reportcollector
