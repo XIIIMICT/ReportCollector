@@ -87,6 +87,7 @@ import {
     buildPrimaryAction,
     buildReplaceAction,
     DeleteRecordDialog,
+    type DictionaryReplaceState,
 } from "@/shared/ui/action-items";
 import {
     AddRecordModal,
@@ -342,6 +343,7 @@ function SectionContent({
     room,
     remoteCellValues,
     onDeleteState,
+    onReplaceState,
     onExportState,
     onResetState,
     onUserCreateState,
@@ -381,6 +383,8 @@ function SectionContent({
     room: CollabRoom;
     remoteCellValues: Map<string, unknown>;
     onDeleteState: (state: DeleteActions) => void;
+    /** Registers the «Заменить» action of the mounted dictionary section. */
+    onReplaceState: (state: DictionaryReplaceState) => void;
     onExportState: (state: ExportState) => void;
     /** Registers the display-reset handlers of the active section grid. */
     onResetState: (state: {
@@ -589,15 +593,17 @@ function SectionContent({
             }));
     }, [rows, section, selectedRows]);
     // «Заменить» is a dictionary operation: only the reference tables, never
-    // the «Движение»/«Цены» forms.
-    const canReplace = canManageReferences && selectedRows.length === 1 && section !== "users";
-    const replaceBlockedReason =
-        selectedRows.length === 0
-            ? "Выберите запись для замены."
-            : selectedRows.length > 1
-              ? "Выберите ровно одну запись."
-              : null;
-    void replaceBlockedReason;
+    // the «Движение»/«Цены» forms, and never «Пользователи» (they are people,
+    // not values that other rows point at).
+    const replaceable = section !== "users" && sectionPolicy(section).rowOps !== "none";
+    const canReplace = canManageReferences && replaceable && selectedRows.length === 1;
+    const replaceBlockedReason = !replaceable
+        ? null
+        : selectedRows.length === 0
+          ? "Выберите запись для замены."
+          : selectedRows.length > 1
+            ? "Выберите ровно одну запись."
+            : null;
 
     // Ctrl+Delete — the shortcut advertised on the action-bar delete button:
     // opens the same confirmation dialog as the button press.
@@ -625,6 +631,18 @@ function SectionContent({
             onDelete: () => setDeleteOpen(true),
         });
     }, [deleteAllowed, deleteBlockedReason, onDeleteState]);
+
+    // «Заменить» is delegated up like delete: the section owns the selection and
+    // the dialog, the workspace footer only renders the shared action.
+    const openReplace = useCallback(() => setReplaceOpen(true), []);
+    useEffect(() => {
+        onReplaceState({
+            show: replaceable,
+            canReplace,
+            blockedReason: replaceBlockedReason,
+            onReplace: openReplace,
+        });
+    }, [canReplace, onReplaceState, openReplace, replaceBlockedReason, replaceable]);
 
     // Header column filters (client-side, shared with every table). ?????????
     // ??? ??????? ? ??????????? must clear them like it clears RevoGrid's own.
@@ -1373,6 +1391,13 @@ export function RawMaterialsWorkspace({
         blockedReason: null,
         onDelete: () => {},
     });
+    // «Заменить» of the mounted dictionary tab (published by `SectionContent`).
+    const [replaceState, setReplaceState] = useState<DictionaryReplaceState>({
+        show: false,
+        canReplace: false,
+        blockedReason: null,
+        onReplace: () => {},
+    });
     const [exportState, setExportState] = useState<ExportState>({
         pending: false,
         onExport: async () => {},
@@ -1444,6 +1469,12 @@ export function RawMaterialsWorkspace({
     const handleDeleteState = useCallback(
         (state: DeleteActions) =>
             setDeleteState((previous) => (samePublishedState(previous, state) ? previous : state)),
+        [],
+    );
+
+    const handleReplaceState = useCallback(
+        (state: DictionaryReplaceState) =>
+            setReplaceState((previous) => (samePublishedState(previous, state) ? previous : state)),
         [],
     );
 
@@ -1752,9 +1783,9 @@ export function RawMaterialsWorkspace({
                 onExport={(scope) => void exportState.onExport(scope)}
                 onDelete={deleteState.onDelete}
                 deleteBlockedReason={deleteState.blockedReason}
-                canReplace={false}
-                replaceBlockedReason={null}
-                onReplace={() => {}}
+                canReplace={replaceState.canReplace}
+                replaceBlockedReason={replaceState.blockedReason}
+                onReplace={replaceState.onReplace}
                 onCreateUser={userCreateState.onCreate}
                 onCopy={clipboardState.onCopy}
                 onPaste={clipboardState.onPaste}
@@ -1780,6 +1811,7 @@ export function RawMaterialsWorkspace({
                     room={room}
                     remoteCellValues={remoteCellValues}
                     onDeleteState={handleDeleteState}
+                    onReplaceState={handleReplaceState}
                     onExportState={handleExportState}
                     onResetState={setGridResetState}
                     onUserCreateState={handleUserCreateState}
