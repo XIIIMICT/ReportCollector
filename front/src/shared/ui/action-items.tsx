@@ -294,7 +294,7 @@ export function DeleteRecordDialog({
 }): ReactNode {
     return (
         <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialog.Backdrop>
+            <AlertDialog.Backdrop isDismissable isKeyboardDismissDisabled={false}>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
                         <AlertDialog.Header>

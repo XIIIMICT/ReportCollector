@@ -30,7 +30,7 @@ export function AddRowDialog({
 }) {
     return (
         <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialog.Backdrop isDismissable={!isPending}>
+            <AlertDialog.Backdrop isDismissable isKeyboardDismissDisabled={false}>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
                         <AlertDialog.Header>
@@ -95,7 +95,7 @@ export function SubmitPlanDialog({
 }) {
     return (
         <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialog.Backdrop isDismissable={!isPending}>
+            <AlertDialog.Backdrop isDismissable isKeyboardDismissDisabled={false}>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
                         <AlertDialog.Header>
@@ -149,7 +149,9 @@ export function SubmitBlockedDialog({
 }) {
     return (
         <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialog.Backdrop>
+            {/* Escape closes the refusal notice: it writes nothing. HeroUI's
+                AlertDialog blocks keyboard dismissal by default. */}
+            <AlertDialog.Backdrop isDismissable isKeyboardDismissDisabled={false}>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
                         <AlertDialog.Header>
@@ -188,7 +190,7 @@ export function ApprovePlanDialog({
 }) {
     return (
         <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialog.Backdrop isDismissable={!isPending}>
+            <AlertDialog.Backdrop isDismissable isKeyboardDismissDisabled={false}>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
                         <AlertDialog.Header>

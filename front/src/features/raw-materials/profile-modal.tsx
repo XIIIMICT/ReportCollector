@@ -139,7 +139,12 @@ export function ProfileModal({ isOpen, user, onOpenChange, onProfileSaved }: Pro
 
     return (
         <>
-            <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
+            <Modal.Backdrop
+                isOpen={isOpen}
+                onOpenChange={onOpenChange}
+                isDismissable
+                isKeyboardDismissDisabled={false}
+            >
                 <Modal.Container>
                     <Modal.Dialog className="profile-modal">
                         <Modal.CloseTrigger />
@@ -215,9 +220,9 @@ export function ProfileModal({ isOpen, user, onOpenChange, onProfileSaved }: Pro
 
             <ControlledAlertDialog
                 isOpen={confirmation !== null}
-                onOpenChange={(open) => !open && !isPending && setConfirmation(null)}
+                onOpenChange={(open) => !open && setConfirmation(null)}
             >
-                <AlertDialog.Backdrop isDismissable={!isPending}>
+                <AlertDialog.Backdrop isDismissable isKeyboardDismissDisabled={false}>
                     <AlertDialog.Container>
                         <AlertDialog.Dialog>
                             <AlertDialog.Header>

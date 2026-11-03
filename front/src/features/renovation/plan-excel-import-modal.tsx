@@ -184,7 +184,12 @@ export function PlanExcelImportModal({
 
     const dragging = isDragging || isPageDragging;
     return (
-        <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
+        <Modal.Backdrop
+            isOpen={isOpen}
+            onOpenChange={onOpenChange}
+            isDismissable
+            isKeyboardDismissDisabled={false}
+        >
             <Modal.Container size="lg">
                 <Modal.Dialog className="plan-excel-import-modal">
                     <Modal.CloseTrigger />

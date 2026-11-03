@@ -114,7 +114,12 @@ export function AddRecordModal({
     }
 
     return (
-        <Modal.Backdrop isOpen={isOpen} onOpenChange={isPending ? () => {} : onOpenChange}>
+        <Modal.Backdrop
+            isOpen={isOpen}
+            onOpenChange={onOpenChange}
+            isDismissable
+            isKeyboardDismissDisabled={false}
+        >
             <Modal.Container>
                 <Modal.Dialog className="add-record-modal">
                     <Modal.CloseTrigger />

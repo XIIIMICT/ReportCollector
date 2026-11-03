@@ -1940,7 +1940,7 @@ function ApproveDialog({
 }) {
     return (
         <ControlledAlertDialog isOpen={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialog.Backdrop isDismissable={!isPending}>
+            <AlertDialog.Backdrop isDismissable isKeyboardDismissDisabled={false}>
                 <AlertDialog.Container>
                     <AlertDialog.Dialog>
                         <AlertDialog.Header>
