@@ -46,6 +46,28 @@ test("an open alert dialog owns Escape", async () => {
     }
 });
 
+test("an alert dialog closes on Escape", async () => {
+    const changes: boolean[] = [];
+    render(
+        <ControlledAlertDialog isOpen onOpenChange={(open) => changes.push(open)}>
+            <AlertDialog.Backdrop isDismissable isKeyboardDismissDisabled={false}>
+                <AlertDialog.Container>
+                    <AlertDialog.Dialog>
+                        <AlertDialog.Header>
+                            <AlertDialog.Heading>Удалить записи?</AlertDialog.Heading>
+                        </AlertDialog.Header>
+                        <AlertDialog.Body>Записи будут удалены.</AlertDialog.Body>
+                    </AlertDialog.Dialog>
+                </AlertDialog.Container>
+            </AlertDialog.Backdrop>
+        </ControlledAlertDialog>,
+    );
+    await waitFor(() => expect(hasOpenModal()).toBe(true));
+    const focused = document.activeElement ?? document.body;
+    fireEvent.keyDown(focused, { key: "Escape" });
+    expect(changes).toContain(false);
+});
+
 test("a plain modal also counts as an overlay", async () => {
     render(
         <Modal.Backdrop isOpen onOpenChange={() => {}}>
