@@ -160,6 +160,15 @@ _RENOVATION_ID_COLUMN = "col_003"
 _RENOVATION_ID_OK_LABEL = "Корректные"
 _RENOVATION_ID_BAD_LABEL = "Некорректные"
 
+# Identification-code search must fold case on PostgreSQL 14 (production) as
+# well as 18 (CI). `casefold()` and the `pg_unicode_fast` collation exist only
+# in 18, and `lower()`'s mapping follows the database collation — a `C`
+# database would leave Cyrillic uppercase untouched. `translate` is
+# locale-independent and covers the identifiers' alphabet (ASCII + Russian
+# Cyrillic); the sharp s expands like Python's `str.casefold`.
+_ID_FOLD_UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ"
+_ID_FOLD_LOWER = "abcdefghijklmnopqrstuvwxyzабвгдеёжзийклмнопрстуфхцчшщъыьэюя"
+
 _CELL_MISSING_ROW_OR_FIELD = ValueError("Ячейка не содержит идентификатор строки или поля.")
 _CELL_PLAN_ROW_NOT_FOUND = ValueError("Строка плана не найдена.")
 _ERR_NO_WORKING_PLAN = RenovationPlanNotFoundError("Нет рабочего плана.")
@@ -1669,9 +1678,12 @@ async def read_plan_facets(
                 (_RENOVATION_ID_BAD_LABEL, bad_count),
             )
         ]
-        # PostgreSQL 18's Unicode fold matches Python casefold; C ordering is
-        # deterministic across pages. Escape LIKE metacharacters in typed codes.
-        folded = func.casefold(raw_code.collate("pg_unicode_fast"))
+        # PostgreSQL 14 has neither `casefold()` nor the `pg_unicode_fast`
+        # collation, so the fold is a portable, locale-independent expression;
+        # C ordering is deterministic across pages. Escape LIKE metacharacters
+        # in typed codes.
+        folded = func.translate(raw_code, _ID_FOLD_UPPER, _ID_FOLD_LOWER)
+        folded = func.replace(func.replace(folded, "ẞ", "ss"), "ß", "ss")
         matches = row_condition & non_empty
         if search_kind == "text":
             matches &= folded.contains((search_query or "").casefold(), autoescape=True)
