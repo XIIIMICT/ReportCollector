@@ -90,6 +90,15 @@ _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
     "r_plan_rows": {"col_218"},
 }
 
+# 0025_plan_row_facet_indexes (after the baseline) rebuilds the plan-row facet
+# indexes: ten plan_id-leading ones appear (five replacing single-column ones,
+# five on text columns that had none) and the five single-column ones go away.
+# Both spellings below matter — a legacy schema that still carries the pre-0013
+# table names reports the legacy form (`_adoption_metadata` renames the model
+# side to match).
+_FACET_INDEX_COLUMNS: tuple[str, ...] = ("003", "005", "006", "007", "008", "015", "017", "018", "019", "020")
+_FACET_INDEX_TABLES: tuple[str, ...] = ("r_plan_rows", "renovation_plan_rows")
+
 # Indexes the models declare that a legacy-0015 installation does not carry yet:
 # they are created by migrations that run AFTER the baseline during adoption
 # (0005_user_role_project_indexes), so their absence on the pre-adoption schema
@@ -101,17 +110,20 @@ _LEGACY_MISSING_INDEXES: frozenset[str] = frozenset(
         "ix_kppk_cost_scope",
         "ix_kppk_production_plan_scope",
     }
-)
+) | frozenset(f"ix_{table}_plan_col_{column}" for table in _FACET_INDEX_TABLES for column in _FACET_INDEX_COLUMNS)
 
 # Indexes a legacy-0015 installation still carries but the models dropped: they
 # go away in migrations that run AFTER the baseline during adoption
-# (0021_drop_reference_value_key drops the `value_key` uniqueness index). A
-# closed list — an unexpected leftover index is still drift.
+# (0021_drop_reference_value_key drops the `value_key` uniqueness index, 0025
+# drops the single-column facet indexes). A closed list — an unexpected
+# leftover index is still drift.
 _LEGACY_EXTRA_INDEXES: frozenset[str] = frozenset(
     {
         "ix_renovation_reference_values_catalog_key",
         "ix_r_reference_values_catalog_key",
     }
+) | frozenset(
+    f"ix_{table}_col_{column}" for table in _FACET_INDEX_TABLES for column in ("015", "017", "018", "019", "020")
 )
 
 # Tables the models declare that a legacy-0015 installation does not have yet:

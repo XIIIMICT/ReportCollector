@@ -107,11 +107,20 @@ class RenovationPlanRow(UpdaterDisplay, table=True):
     __table_args__ = (
         Index("uq_r_plan_rows_position", "plan_id", "position", unique=True),
         Index("ix_r_plan_rows_asset", "plan_id", "asset_id", "position"),
-        Index("ix_r_plan_rows_col_015", "col_015"),
-        Index("ix_r_plan_rows_col_017", "col_017"),
-        Index("ix_r_plan_rows_col_018", "col_018"),
-        Index("ix_r_plan_rows_col_019", "col_019"),
-        Index("ix_r_plan_rows_col_020", "col_020"),
+        # The header-filter facet lists always filter by `plan_id`, so these lead
+        # with it. Migration 0025 rebuilt the five that used to be single-column
+        # and added the text ones; the metadata has to match, because
+        # `create_all` and the migration tests compare it with the real schema.
+        Index("ix_r_plan_rows_plan_col_003", "plan_id", "col_003"),
+        Index("ix_r_plan_rows_plan_col_005", "plan_id", "col_005"),
+        Index("ix_r_plan_rows_plan_col_006", "plan_id", "col_006"),
+        Index("ix_r_plan_rows_plan_col_007", "plan_id", "col_007"),
+        Index("ix_r_plan_rows_plan_col_008", "plan_id", "col_008"),
+        Index("ix_r_plan_rows_plan_col_015", "plan_id", "col_015"),
+        Index("ix_r_plan_rows_plan_col_017", "plan_id", "col_017"),
+        Index("ix_r_plan_rows_plan_col_018", "plan_id", "col_018"),
+        Index("ix_r_plan_rows_plan_col_019", "plan_id", "col_019"),
+        Index("ix_r_plan_rows_plan_col_020", "plan_id", "col_020"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
