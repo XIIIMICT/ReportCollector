@@ -253,6 +253,11 @@ jobs:
           uv sync --directory back --locked --no-dev
           uv run --directory back --no-sync python -m migrations.upgrade
           docker compose -f infra/compose.ci.yaml run --rm --no-deps back python -m src.scripts.seed_database --data-only
+          # The КППК merge/export spec needs a non-empty realization grid,
+          # which comes from the period rows; the base seed owns only «Сырьё»
+          # and the renovation plan. On a clean database the script creates the
+          # `raw.kppk_*` sources from its demo rows, then the periods.
+          docker compose -f infra/compose.ci.yaml run --rm --no-deps back python -m src.scripts.seed_kppk
       - name: Start tested production images
         run: docker compose -f infra/compose.ci.yaml up -d --no-build --wait --wait-timeout 120 back front
       - name: Install browser
