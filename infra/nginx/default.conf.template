@@ -1,0 +1,88 @@
+# Reverse proxy in front of the app (ReportCollector): «/» → front,
+# /api/ws/ → back (WebSocket). The SAME file is baked into the central
+# infra/nginx/Dockerfile and into ReportCollector/infra/nginx — keep them
+# identical; `infra/check-drift.py` verifies the drift. The only per-stack
+# values are the NGINX_* env variables set by whichever compose brings the
+# container up (in the central stack the defaults point at the host, in the
+# ReportCollector standalone stack — at its own service names).
+#
+# Upstream hosts are resolved PER REQUEST through the Docker embedded DNS
+# (resolver 127.0.0.11) and passed as `set`/variables: `proxy_pass` with a
+# static hostname resolves once at config load and nginx refuses to start
+# when the app container is not up yet (standalone starts them separately).
+
+resolver 127.0.0.11 valid=10s ipv6=off;
+
+server {
+    listen 80;
+    server_name ${NGINX_SERVER_NAME};
+    return 308 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name ${NGINX_SERVER_NAME};
+
+    ssl_certificate /etc/nginx/tls/tls.crt;
+    ssl_certificate_key /etc/nginx/tls/tls.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # Resolved per request (see the resolver note above); the ${NGINX_*} here
+    # are replaced by the image's envsubst at container start and never again,
+    # the $-variables without braces stay live nginx variables.
+    set $app_upstream http://${NGINX_UPSTREAM_HOST}:${NGINX_UPSTREAM_PORT};
+    set $ws_upstream http://${NGINX_BACKEND_HOST}:${NGINX_BACKEND_PORT};
+
+    # Compression (docs/ReportCollector/docs/ARCHITECTURE.md, measured on the
+    # app bundle: gzip 5 → 952 KB over 2966 KB raw; brotli 5 adds ~9% more).
+    # gzip is the baseline every browser supports; brotli comes from the
+    # fholzer/nginx-brotli image. The blank Accept-Encoding makes nginx (and
+    # not the backend) do the compression: without it the proxied response
+    # arrives already encoded and nginx forwards it through.
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_vary on;
+    gzip_types
+        text/plain text/css text/xml
+        application/javascript application/json application/xml
+        application/rss+xml application/manifest+json
+        image/svg+xml;
+    brotli on;
+    brotli_comp_level 5;
+    brotli_min_length 1024;
+    brotli_types
+        text/plain text/css
+        application/javascript application/json
+        image/svg+xml;
+
+    location = /health {
+        access_log off;
+        return 200 "ok\n";
+        add_header Content-Type text/plain;
+    }
+
+    location /api/ws/ {
+        proxy_pass $ws_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 3600s;
+    }
+
+    location / {
+        proxy_set_header Accept-Encoding "";
+        proxy_pass $app_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}

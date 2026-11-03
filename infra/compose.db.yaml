@@ -1,0 +1,50 @@
+# Сервисы данных: PostgreSQL и Valkey (единый стандарт compose-файлов;
+# в excel_loader — только Postgres, в ReportCollector — Postgres и Valkey;
+# Keycloak — отдельно в compose.auth.yaml). Запускаются отдельно от
+# приложения через `just db-stand`. Зависимости: postgres → keycloak (auth).
+#
+# Приложение (профили prod/dev) рассчитано на внешний PostgreSQL и Loki,
+# поэтому эти контейнеры не должны запускаться вместе с ним.
+# Наблюдательный стек (alloy + loki/grafana/prometheus/alertmanager)
+# живёт в infra/compose.monitoring.yaml; proxy — в infra/compose.proxy.yaml.
+
+services:
+  postgres:
+    container_name: rc-postgres
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      # Значения из .env; приложение читает их через переменные POSTGRES_*.
+
+      POSTGRES_USER: ${POSTGRES_USER:?Нужно указать POSTGRES_USER в окружении или .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Нужно указать POSTGRES_PASSWORD в окружении или .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Нужно указать POSTGRES_DB в окружении или .env}
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - postgres-data:/var/lib/postgresql/18/docker
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [net, net-dev]
+
+  valkey:
+    container_name: rc-valkey
+    image: valkey/valkey:9-alpine
+    restart: unless-stopped
+    command: ["valkey-server", "--appendonly", "no"]
+    networks: [net, net-dev]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+    name: rc-postgres-data

@@ -1,0 +1,49 @@
+# Keycloak — внешний для приложения сервис (единый стандарт compose-файлов;
+# в excel_loader нет Keycloak; в ReportCollector Keycloak здесь, Postgres и
+# Valkey — в compose.db.yaml). Запускается отдельно от приложения через
+# `just auth-stand`. Зависит от postgres (compose.db.yaml).
+#
+# Приложение (профили prod/dev) рассчитано на внешний Keycloak и Loki,
+# поэтому эти контейнеры не должны запускаться вместе с приложением.
+# Наблюдательный стек (alloy + loki/grafana/prometheus/alertmanager)
+# живёт в infra/compose.monitoring.yaml.
+
+services:
+  keycloak:
+    container_name: rc-keycloak
+    image: keycloak/keycloak:26.6
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-http://127.0.0.1:8080}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      # Параметры OIDC-клиента приложения (совпадают с дефолтами кода; редко меняются).
+      AUTH_KEYCLOAK_SCOPES: openid profile email
+      AUTH_KEYCLOAK_SIGNING_ALGORITHMS: RS256
+      AUTH_KEYCLOAK_TOKEN_ENDPOINT_AUTH_METHOD: client_secret_basic
+    volumes:
+      - ./keycloak/import:/opt/keycloak/data/import:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [net, net-dev]

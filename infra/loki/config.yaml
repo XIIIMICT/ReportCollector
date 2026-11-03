@@ -16,6 +16,13 @@ common:
     kvstore:
       store: inmemory
 
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
+
 schema_config:
   configs:
     - from: 2024-01-01
@@ -29,10 +36,10 @@ schema_config:
 limits_config:
   allow_structured_metadata: true
   volume_enabled: true
-  # Retention was never set, which in Loki means "keep forever": the 174 MB/day
-  # this backend produces would accumulate indefinitely on the volume. 7 days
-  # matches what the dashboards ask for (compare today against last week) and
-  # is what the file logs can no longer hold after rotation.
+  # Retention was never set, which in Loki means "keep forever" (~175 MB/day of
+  # application logs accumulate on the volume). 7 days matches what the
+  # dashboards ask for (compare today against last week) and is what the
+  # rotated file logs can no longer hold.
   retention_period: 168h
 
 compactor:

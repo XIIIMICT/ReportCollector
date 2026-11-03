@@ -1,8 +1,10 @@
 name: reportcollector
 
 include:
-  - path: ./infra/compose.external-services.yaml
-  - path: ./infra/compose.alloy.yaml
+  - path: ./infra/compose.proxy.yaml
+  - path: ./infra/compose.db.yaml
+  - path: ./infra/compose.auth.yaml
+  - path: ./infra/compose.monitoring.yaml
 
 # ── Единые источники ─────────────────────────────────────────────────────────
 # Порт бэкенда и фронтенда задаются один раз в корневом .env (BACKEND_PORT /
@@ -15,6 +17,12 @@ services:
   back:
     profiles: [prod]
     container_name: rc-back
+    # Bind-папки ./logs (и /app/logs) принадлежат на Linux пользователю, от
+    # которого снят деплой: запускаем контейнер с его UID/GID, чтобы файлы
+    # логов не рождались root'ом и не ломали права. В .env задаются
+    # HOST_UID/HOST_GID (`id -u` / `id -g`); значения по умолчанию годятся для
+    # первого деплоя под обычным пользователем. В Docker Desktop не действует.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     build:
       context: ./back
       dockerfile: Dockerfile
@@ -67,11 +75,12 @@ services:
     networks: !override [net-dev]
     # Dev-стек: valkey — compose-сервис на той же сети (прямой путь, без
     # медленного host.docker.internal, который под нагрузкой даёт таймауты
-    # Redis и ломает совместное редактирование). Прод (профиль back)
+    # Redis и ломает совместное редактирование). Прод (профиль prod)
     # оставляет VALKEY_URL из .env — там valkey может жить на хосте.
     environment:
       VALKEY_URL: redis://valkey:6379/0
-      # Postgres тоже стоит в compose (профиль standalone, сети net + net-dev) —
+      # Postgres тоже стоит в compose (локальный стек `just db-stand`,
+      # сети net + net-dev) —
       # в контейнере .env-значение `localhost`/`host.docker.internal` не
       # работает (localhost — сам контейнер). Обращаемся по имени сервиса, как
       # к valkey; хост-запуск (just back/just front) по-прежнему берёт
@@ -90,6 +99,8 @@ services:
   front:
     profiles: [prod]
     container_name: rc-front
+    # См. комментарий у back: UID/GID хостового пользователя ради bind-логов.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     build:
       context: ./front
       dockerfile: Dockerfile

@@ -3,7 +3,7 @@ local.file_match "reportcollector_logs" {
     {
       "__path__" = "/var/log/reportcollector/*.log",
       "app"      = "reportcollector",
-      "env"      = "local",
+      "env"      = sys.env("LOG_ENV"), // LOG_ENV: local|prod — задаётся в compose (из .env)
       "job"      = "reportcollector",
     },
   ]

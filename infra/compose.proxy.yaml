@@ -1,0 +1,40 @@
+# nginx (локальный стек): тот же образ, entrypoint и шаблон, что и у центрального
+# стека (../ReportCollector/infra/nginx == ../../infra/nginx в корне DWH —
+# файлы поддерживаются идентичными, дрейф проверяет infra/check-drift.py).
+# Отличаются только дефолты: здесь upstream — собственные сервисы этого
+# compose-проекта (front + FRONT_PORT, back + BACKEND_PORT), там — хост.
+# Запускается отдельно (`just proxy-stand`) — между nginx и приложением нет
+# зависимости, и через dynamic resolver он стартует и до `just prod`/`just dev`.
+
+services:
+  nginx:
+    container_name: rc-nginx
+    build:
+      context: ./nginx
+    restart: unless-stopped
+    environment:
+      NGINX_SERVER_NAME: ${NGINX_SERVER_NAME:-localhost}
+      NGINX_ENVSUBST_FILTER: ^(NGINX_SERVER_NAME|NGINX_UPSTREAM_HOST|NGINX_UPSTREAM_PORT|NGINX_BACKEND_HOST|NGINX_BACKEND_PORT)$
+      # Приложение (front) и WS-бэкенд — имена сервисов этой же сети net.
+      # Для dev-стека задайте NGINX_UPSTREAM_HOST=front-dev и
+      # NGINX_BACKEND_HOST=back-dev; для внешнего — host.docker.internal.
+      NGINX_UPSTREAM_HOST: ${NGINX_UPSTREAM_HOST:-front}
+      NGINX_UPSTREAM_PORT: ${NGINX_UPSTREAM_PORT:-${FRONT_PORT:?}}
+      NGINX_BACKEND_HOST: ${NGINX_BACKEND_HOST:-back}
+      NGINX_BACKEND_PORT: ${NGINX_BACKEND_PORT:-${BACKEND_PORT:?}}
+      # Пути на хосте (cert/key) или пусто — временный self-signed
+      # сертификат только для локальной проверки.
+      NGINX_TLS_CERT_PATH: ${NGINX_TLS_CERT_PATH:-}
+      NGINX_TLS_KEY_PATH: ${NGINX_TLS_KEY_PATH:-}
+    volumes:
+      - /etc/ssl/certs:/host-certs:ro
+      - /etc/ssl/private:/host-private:ro
+    networks: [net, net-dev]
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://127.0.0.1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
