@@ -1,5 +1,5 @@
 /*
- * RevoGrid 4.30.0 adapter stylesheet.
+ * RevoGrid 4.31.4 adapter stylesheet.
  *
  * Keep selectors that target vendor-owned DOM in this file. Application layout
  * rules stay in app/globals.css and must use the .revo-grid-shell / .data-grid
