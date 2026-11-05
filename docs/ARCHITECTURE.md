@@ -299,7 +299,22 @@ Logs answer "what exactly happened"; metrics answer "how many and how often". **
 
 The reverse proxy is part of the central DWH infra stack now (`infra/compose.proxy.yaml`, image `fholzer/nginx-brotli`): its template does `location /` → `NGINX_UPSTREAM_HOST:NGINX_UPSTREAM_PORT` (front, defaults `host.docker.internal:5000`) and `location /api/ws/` → `NGINX_BACKEND_HOST:NGINX_BACKEND_PORT` (back, defaults `host.docker.internal:8000`, the old static `back` default never resolved from the central stack's own project). Upstream hostnames are resolved per request (resolver `127.0.0.11` + `set` variables), so nginx also starts before the app containers do. HTTPS/WSS is terminated in nginx (host certs via `NGINX_TLS_CERT_PATH`/`NGINX_TLS_KEY_PATH`, an empty pair falls back to a generated self-signed certificate). The standalone build of the same proxy lives in `ReportCollector/infra/nginx` (`just proxy-stand`); the two `infra/nginx` trees must stay identical — `infra/check-drift.py` (DWH checkout) fails on drift. Prod address: `https://m2v-form-1.h2-group.ru`. Details and WS diagnostics — `docs/COLLAB.md`, section "Deployment and WS diagnostics". The host-nginx configuration below remains for hosts where the proxy is deliberately NOT containerized.
 
-**Bind-folder ownership on Linux.** `./logs` (written by both app containers) belongs on the host to the account that deploys the repo, so images' built-in `appuser` (uid 100) hits «Permission denied» on it. `compose.yaml` runs `back`/`front` (and their dev variants) as `user: "${HOST_UID:-1000}:${HOST_GID:-1000}"` with `HOST_UID`/`HOST_GID` from `.env` (`id -u` / `id -g`; ignored on Docker Desktop). Fix legacy root-owned log files once with `sudo chown -R "$(id -u):$(id -g)" logs` — do not reach for 777.
+**Bind-folder ownership on Linux.** `./logs` (written by both app containers)
+belongs on the host to the account that deploys the repo, so images' built-in
+`appuser` (uid 100) hits «Permission denied» on it. `compose.yaml` runs
+`back`/`front` (and their dev variants) as
+`user: "${HOST_UID:+${HOST_UID}:${HOST_GID}}"` with `HOST_UID`/`HOST_GID` from
+`.env` (`id -u` / `id -g`) — set **both or neither**. The `:+` form is
+load-bearing: when the variables are unset it drops the `user:` key entirely, so
+the container runs as its image user (back `appuser` 100:101, front root) — what
+Windows and Docker Desktop need. A plain `${HOST_UID:-}:${HOST_GID:-}`
+substitutes the literal `:` and compose rejects it, while a `:-1000` default is
+applied even on Docker Desktop (the directive does take effect there, it is just
+invisible in Windows ACLs) and broke `just dev` outright: uid 1000 could neither
+append `/app/logs/reportcollector.log` (`PermissionError`) nor create
+`/app/.next` (`EACCES`), so both dev containers exited 1. Fix legacy root-owned
+log files once with `sudo chown -R "$(id -u):$(id -g)" logs` — do not reach for
+777.
 
 ### Compression (must be on in nginx)
 
@@ -431,16 +446,30 @@ Rows are matched by «Код работы» (`col_003`): a code already in the p
 that row in place, a code the plan does not have **appends** a row at the end
 (picking up the positional sequence after the current last row). A cell the file
 leaves empty keeps the plan's current value — a blank cell is never an
-instruction to clear a value.
+instruction to clear a value. The write boundary is thin but not free: the parser
+hands dates over as ISO text (the same value feeds the renovation-ID rule) while
+`col_024/025/191/199/203` are real `DATE` columns, so `_flush_batch` converts
+them; and because the parser **drops blank cells**, the rows of one batch carry
+different key sets — a multi-row `INSERT` demands identical keys per row
+(`CompileError: … explicitly rendered as a boundparameter`), so every row is
+padded to the batch's key union and the cell it omitted becomes `NULL` on a
+created row (on an existing row it still means «keep the current value»).
 
-Reference cells are resolved to the form catalog ids by the option **label**
-(`reference_data.reference_option_id`), the same deterministic ids the seed
-creates; numeric cells lose their float tail first (`3.0` → the label `3`).
-A label the catalog does not know (`ОКР`, `ДО`, `Собственными силами` in the
-current sample — the catalog spells them «Остановочный капитальный ремонт»,
-«Диагностические обследования», «Собственные силы») is a **strict error**: the
-preflight lists it under «Значение отсутствует в справочнике» and the load
-fails the job with a Russian error and rolls back the whole transaction.
+Reference cells are resolved to the ids of the **live** `r_reference_values`
+dictionary — the same rows the preflight (and the «Справочники» editor) sees.
+Both passes therefore agree: an option the operator adds after the seed is
+loadable at once. Reading the seed's static `REFERENCE_OPTIONS` here instead was
+a trap — the preflight said «ready» and the load then refused the whole file
+(«значение … не найдено в справочнике»). That is the «Собственными силами» case:
+the customer's file spells it in the instrumental case while the seed carries
+«Собственные силы»; likewise the file's «ОКР» and «ДО» are abbreviations the seed
+spells out («Остановочный капитальный ремонт», «Диагностические обследования»),
+so the operator adds them as options of «Категория работ» / «Вид работ». Numeric
+cells lose their float tail first
+(`3.0` → the label `3`). A label no dictionary row carries is a **strict
+error**: the preflight lists it under «Значение отсутствует в справочнике» and
+the load fails the job with a Russian error and rolls back the whole
+transaction.
 The same strictness covers blank required cells — «Код работы», «Предприятие»,
 «Группа критичности», «Категория работ», «Вид работ», «Отнесение затрат»,
 «Способ выполнения» — reported in the `blank_values` section; a row without a

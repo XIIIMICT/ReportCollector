@@ -19,10 +19,20 @@ services:
     container_name: rc-back
     # Bind-папки ./logs (и /app/logs) принадлежат на Linux пользователю, от
     # которого снят деплой: запускаем контейнер с его UID/GID, чтобы файлы
-    # логов не рождались root'ом и не ломали права. В .env задаются
-    # HOST_UID/HOST_GID (`id -u` / `id -g`); значения по умолчанию годятся для
-    # первого деплоя под обычным пользователем. В Docker Desktop не действует.
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    # логов не рождались root'ом и не ломали права. В .env задаются ОБЕ
+    # HOST_UID/HOST_GID (`id -u` / `id -g`).
+    #
+    # Значения по умолчанию здесь НЕТ намеренно. Подставленное число действует
+    # и в Docker Desktop (вопреки прежнему комментарию: директива user работает
+    # везде, просто не отображается на Windows-ACL), а образы рассчитаны на
+    # СВОИХ пользователей — back на appuser (100:101), front на root. Чужой UID
+    # 1000 не мог ни дописать /app/logs/reportcollector.log (PermissionError),
+    # ни создать /app/.next (EACCES), и `just dev` падал на старте обоих
+    # контейнеров. Форма `:+` при пустых переменных не подставляет НИЧЕГО —
+    # compose отбрасывает ключ, и контейнер идёт под пользователем образа, как
+    # и нужно на Windows / в Docker Desktop. Простая `${HOST_UID:-}:${HOST_GID:-}`
+    # так не работает: она даёт литерал `:` и падает.
+    user: "${HOST_UID:+${HOST_UID}:${HOST_GID}}"
     build:
       context: ./back
       dockerfile: Dockerfile
@@ -99,8 +109,9 @@ services:
   front:
     profiles: [prod]
     container_name: rc-front
-    # См. комментарий у back: UID/GID хостового пользователя ради bind-логов.
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    # См. комментарий у back: UID/GID хостового пользователя ради bind-логов;
+    # без HOST_UID/HOST_GID контейнер идёт под пользователем образа.
+    user: "${HOST_UID:+${HOST_UID}:${HOST_GID}}"
     build:
       context: ./front
       dockerfile: Dockerfile
