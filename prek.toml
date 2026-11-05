@@ -16,23 +16,17 @@ id = "check-merge-conflict"
 
 [[repos.hooks]]
 id = "check-yaml"
-# The builtin parser accepts Compose tags; semantic validation runs in CI.
-files = '.ya?ml$'
 
 [[repos.hooks]]
 id = "end-of-file-fixer"
-types = ["text"]
 
 [[repos.hooks]]
 id = "trailing-whitespace"
-types = ["text"]
 
 [[repos.hooks]]
 id = "mixed-line-ending"
 args = ["--fix=lf"]
-types = ["text"]
 
 [[repos.hooks]]
 id = "fix-byte-order-marker"
 types = ["text"]
-exclude = '^infra/keycloak/provision-renovation-users\.ps1$'  # UTF-8 BOM required for Cyrillic in PowerShell 5.1

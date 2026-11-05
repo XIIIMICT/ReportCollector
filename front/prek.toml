@@ -1,11 +1,6 @@
 #:schema https://www.schemastore.org/prek.json
 
-# prek runs a nested config's hooks from ITS OWN directory, so every entry is a
-# plain frontend command and every `files` pattern is relative to `front/`.
-# Every hook receives just the STAGED files — a project-wide run would rewrite
-# whatever another agent is editing mid-task.
-
-orphan = true
+default_install_hook_types = ["pre-commit"]
 default_stages = ["pre-commit"]
 
 [[repos]]

@@ -16,8 +16,7 @@ FROM python:${PYTHON_VERSION}-alpine AS pre-prod
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH"
-# Порт, на котором слушает Granian. Единственная точка в Dockerfile:
-# значение задаёт compose.yaml из BACKEND_PORT в .env.
+
 ARG BACKEND_PORT=8000
 ENV BACKEND_PORT=${BACKEND_PORT}
 

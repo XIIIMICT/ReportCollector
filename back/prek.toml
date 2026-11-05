@@ -1,8 +1,5 @@
 #:schema https://www.schemastore.org/prek.json
 
-# prek runs a nested config's hooks from ITS OWN directory, so every entry is a
-# plain backend command and every `files` pattern is relative to `back/`.
-
 orphan = true
 default_stages = ["pre-commit"]
 

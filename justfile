@@ -1,5 +1,3 @@
-# Порты берём из корневого .env (BACKEND_PORT / FRONT_PORT) — те же,
-# что уходят в compose.yaml; без них рецепты падают, а не молча используют дефолт.
 set dotenv-load := true
 
 [windows]

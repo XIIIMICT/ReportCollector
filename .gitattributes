@@ -1,13 +1,6 @@
-# All text is LF — in the repo and in every working copy, on every OS.
-# This overrides core.autocrlf, so editors/tools writing LF never cause
-# "phantom" modifications or "LF will be replaced by CRLF" noise.
 * text=auto eol=lf
 
-# Explicit binaries — never normalize, never diff as text.
 *.bin binary
-*.db binary
-*.db-shm binary
-*.db-wal binary
 *.docx binary
 *.xlsx binary
 *.xlsb binary
