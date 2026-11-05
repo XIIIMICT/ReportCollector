@@ -14,6 +14,10 @@ const nextConfig: NextConfig = {
     // gzip is still the better place (it also covers the HTML and the static
     // chunks it serves itself), but this makes the Node server self-sufficient
     // when someone fronts it with a proxy that does not compress.
+    //
+    // This does NOT cover API route handlers: Next's `sendResponse` drops
+    // `Content-Encoding` from their responses, so they stay plain and nginx
+    // compresses them (see `shared/api/backend-proxy.ts`).
     compress: true,
     allowedDevOrigins: ["127.0.0.1", "localhost"],
     // The support mailbox has to be readable from CLIENT components too — the

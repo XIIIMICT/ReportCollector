@@ -366,6 +366,8 @@ brotli_types text/plain text/css application/javascript application/json image/s
 
 Left uncompressed, the first load pays ~1.7 MB of avoidable transfer per visitor, on every cache miss.
 
+**API JSON is not compressed by the Next proxy.** Its former manual gzip broke on Next 16.4.5: `sendResponse` drops `Content-Encoding` from route-handler responses (it assumes a fetch-decompressed body), so the browser received gzip bytes labelled `application/json` and every workspace stayed on its loading skeleton. Compression belongs entirely to nginx: `location /` sends `Accept-Encoding: ""` upstream, the proxy returns the backend's plain JSON, and nginx gzips `application/json` (already in `gzip_types`). In dev, where the browser talks to Next directly, API JSON arrives uncompressed — a few MB over localhost traded for a response the browser can parse.
+
 ### Bundle shape (why the first load is heavy)
 
 `ReportWorkspace` used to import all three project workspaces statically, so opening «Движение» also downloaded the КППК and renovation grids — and a grid is `@revolist/react-datagrid`, the bulk of the largest chunk. They are now `next/dynamic`, one per URL: the largest chunk went **2 179 KB → 1 459 KB**, and the grid split into its own 746 KB chunk that only the project that needs it loads. Adding a new project to `report-workspace.tsx` means adding another `dynamic(...)` entry, not a static import.

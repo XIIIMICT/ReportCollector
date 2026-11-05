@@ -90,34 +90,26 @@ describe("proxyBackend uploads", () => {
     });
 });
 
-describe("proxyBackend compression", () => {
-    test("gzips a large JSON body when the client accepts gzip", async () => {
+describe("proxyBackend encoding", () => {
+    // Next's route-handler path drops `Content-Encoding` from the response
+    // (send-response's FORBIDDEN_HEADERS — it assumes a fetch-decompressed body),
+    // so a body encoded here reaches the browser as unreadable bytes. The proxy
+    // forwards the backend body untouched; nginx compresses it in prod.
+    test("passes a large JSON body through without re-encoding it", async () => {
         const body = JSON.stringify({
             rows: Array.from({ length: 500 }, (_, index) => ({ id: index, name: "x".repeat(60) })),
         });
         jsonResponse(body);
         const response = await proxyBackend(rowsRequest(), PATH);
-        expect(response.headers.get("Content-Encoding")).toBe("gzip");
-        expect(response.headers.get("Vary")).toBe("Accept-Encoding");
-        const decompressed = await new Response(
-            response.body?.pipeThrough(new DecompressionStream("gzip")),
-        ).text();
-        expect(decompressed).toBe(body);
+        expect(response.headers.get("Content-Encoding")).toBeNull();
+        expect(await response.text()).toBe(body);
     });
 
-    test("leaves a small JSON body uncompressed", async () => {
-        jsonResponse('{"ok":true}', { "Content-Length": "11" });
+    test("forwards the length and validators of the unchanged body", async () => {
+        jsonResponse('{"ok":true}', { "Content-Length": "11", ETag: '"v1"' });
         const response = await proxyBackend(rowsRequest(), PATH);
-        expect(response.headers.get("Content-Encoding")).toBeNull();
-        expect(await response.text()).toBe('{"ok":true}');
-    });
-
-    test("does not gzip when the client does not accept it", async () => {
-        jsonResponse(
-            JSON.stringify({ rows: Array.from({ length: 500 }, (_, index) => ({ id: index })) }),
-        );
-        const response = await proxyBackend(rowsRequest("identity"), PATH);
-        expect(response.headers.get("Content-Encoding")).toBeNull();
+        expect(response.headers.get("Content-Length")).toBe("11");
+        expect(response.headers.get("ETag")).toBe('"v1"');
     });
 
     test("passes an XLSX export through untouched", async () => {

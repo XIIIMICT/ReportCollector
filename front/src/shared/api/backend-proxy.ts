@@ -2,9 +2,6 @@ import { buildIdentityHeaders } from "@/shared/auth/identity-headers";
 import { getSession } from "@/shared/auth/session";
 import { getBackendInternalUrl } from "@/shared/config";
 
-/** Bodies at least this large are worth compressing (small ones grow). */
-const COMPRESS_MIN_BYTES = 1024;
-
 export async function proxyBackend(request: Request, path: string, method = request.method) {
     const session = await getSession();
 
@@ -43,39 +40,20 @@ export async function proxyBackend(request: Request, path: string, method = requ
 
     const response = await fetch(targetUrl, init);
     const responseContentType = response.headers.get("Content-Type") ?? "application/json";
-    const contentLengthHeader = response.headers.get("Content-Length");
-    const contentLength = contentLengthHeader === null ? null : Number(contentLengthHeader);
 
     // Forward the headers a browser cares about, for both JSON and binary
     // responses. Keep the body as a stream: buffering a large XLSX here delays
     // the first byte until the whole backend response has arrived and makes the
     // outer nginx proxy return 504 even though the backend export succeeds.
+    //
+    // Compression is NOT done here. A route handler cannot declare one: Next's
+    // `sendResponse` drops `Content-Encoding` (FORBIDDEN_HEADERS — it assumes a
+    // fetch-decompressed body), so gzipping in this function produced bytes the
+    // browser could not read. In prod nginx already compresses application/json
+    // and strips the request's `Accept-Encoding` before proxying here; in dev the
+    // JSON arrives uncompressed.
     const forwardedHeaders = new Headers({ "Content-Type": responseContentType });
-    for (const name of ["Content-Disposition", "Cache-Control"]) {
-        const value = response.headers.get(name);
-        if (value) forwardedHeaders.set(name, value);
-    }
-
-    // JSON window payloads are large and highly repetitive (a 1000-row
-    // renovation window is ~2 MB, ~30x smaller gzipped), and neither the backend
-    // nor the Next dev server compresses them, so do it here. Binary responses
-    // (the XLSX export) are already compressed and are passed through untouched.
-    const acceptsGzip = (request.headers.get("accept-encoding") ?? "").includes("gzip");
-    const largeEnough = contentLength === null || contentLength >= COMPRESS_MIN_BYTES;
-    if (
-        responseContentType.includes("json") &&
-        acceptsGzip &&
-        largeEnough &&
-        response.body &&
-        typeof CompressionStream !== "undefined"
-    ) {
-        forwardedHeaders.set("Content-Encoding", "gzip");
-        forwardedHeaders.set("Vary", "Accept-Encoding");
-        const compressed = response.body.pipeThrough(new CompressionStream("gzip"));
-        return new Response(compressed, { headers: forwardedHeaders, status: response.status });
-    }
-
-    for (const name of ["Content-Length", "ETag"]) {
+    for (const name of ["Content-Disposition", "Cache-Control", "Content-Length", "ETag"]) {
         const value = response.headers.get(name);
         if (value) forwardedHeaders.set(name, value);
     }
