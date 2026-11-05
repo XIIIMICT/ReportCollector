@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncGenerator, Callable, Generator, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import BinaryIO, cast
 from uuid import UUID
 
@@ -15,11 +15,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.collab.locking import lock_project
 from src.observability import observe_phase
 from src.renovation.constants import RENOVATION_PROJECT_KEY
-from src.renovation.form_schema import field_meta
+from src.renovation.form_schema import field_meta, field_metas
 from src.renovation.import_rows import ParsedPlanRow, iter_plan_row_batches, parse_plan_rows
 from src.renovation.models import RAsset
-from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
-from src.renovation.reference_data import REFERENCE_OPTIONS, reference_option_id
+from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
 from src.renovation.schemas import RenovationPlanImportApplyResult
 from src.renovation.service import recompute_plan_rows
 
@@ -78,7 +77,7 @@ async def apply_plan_file(
     plan = (await session.exec(plan_query)).first()
     if plan is None:
         raise _ERR_NO_WORKING_PLAN
-    reference_ids = _reference_ids()
+    reference_ids = await _reference_ids(session)
     asset_ids = {asset.repair_code.upper(): asset.id for asset in (await session.exec(select(RAsset))).all()}
 
     existing: dict[str, UUID] = {
@@ -192,6 +191,10 @@ async def _flush_batch(
                 if resolved is value:
                     raise _unknown_reference(pending.parsed.code, field, value)
                 values[field] = resolved
+            elif field in _DATE_FIELDS:
+                # The parser's contract is ISO text (see _DATE_FIELDS); the
+                # column is DATE. An empty cell stays NULL.
+                values[field] = date.fromisoformat(str(value)) if value else None
             else:
                 values[field] = value
         if pending.row_id is None:
@@ -218,7 +221,14 @@ async def _flush_batch(
             )
         )
     if new_rows:
-        await session.exec(insert(RenovationPlanRow).values(new_rows))
+        # One multi-row VALUES clause, so every dict must carry the SAME keys:
+        # the parser drops blank cells, which makes real rows ragged (and made
+        # SQLAlchemy raise "explicitly rendered as a boundparameter"). Pad them
+        # to the batch's union — an omitted cell is a NULL on a created row.
+        columns = sorted(set().union(*(row.keys() for row in new_rows)))
+        await session.exec(
+            insert(RenovationPlanRow).values([{column: row.get(column) for column in columns} for row in new_rows])
+        )
     for row_id, changes in updates:
         await session.exec(update(RenovationPlanRow).where(col(RenovationPlanRow.id) == row_id).values(**changes))
 
@@ -229,12 +239,29 @@ def _label(field: str) -> str:
     return meta.label if meta is not None else field
 
 
-def _reference_ids() -> dict[str, dict[str, str]]:
-    """Catalog id → {casefolded label: option id} for the form's own options."""
-    catalog_labels = {catalog for catalog, _label in REFERENCE_OPTIONS}
-    ids: dict[str, dict[str, str]] = {catalog: {} for catalog in catalog_labels}
-    for catalog, label in REFERENCE_OPTIONS:
-        ids[catalog][label.casefold()] = str(reference_option_id(catalog, label))
+# Columns the form renders as dates. The parser hands them over as ISO text —
+# it also feeds the renovation-ID calculation, which wants text — while the
+# column is a real DATE: asyncpg refuses a string ("'str' object has no
+# attribute 'toordinal'"), so the write boundary converts them.
+_DATE_FIELDS: frozenset[str] = frozenset(meta.db_name for meta in field_metas() if meta.cell_type == "date")
+
+
+async def _reference_ids(session: AsyncSession) -> dict[str, dict[str, str]]:
+    """
+    Catalog id → {casefolded label: option id}, from the LIVE dictionary.
+
+    These are the very rows the preflight (`/plan/import/inspect`) checks the
+    file against. Reading the static seed list instead meant every option the
+    operator added after the seed was unusable: the preflight said «ready» and
+    the load then refused the whole file with "значение не найдено в
+    справочнике" — the «Собственными силами» case. The dictionary is the
+    authority, in both passes.
+    """
+    ids: dict[str, dict[str, str]] = {}
+    for option in (await session.exec(select(RenovationReferenceValue))).all():
+        # `RReferenceCatalog` is a StrEnum, but a row added in THIS session still
+        # carries the raw string it was constructed with — `str()` covers both.
+        ids.setdefault(str(option.catalog), {})[option.label.casefold()] = str(option.id)
     return ids
 
 
