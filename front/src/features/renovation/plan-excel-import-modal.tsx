@@ -1,10 +1,10 @@
 "use client";
 
-import { Button, Modal, Spinner, toast } from "@heroui/react";
+import { Button, Label, Modal, ProgressBar, toast } from "@heroui/react";
 import { Upload } from "iconoir-react";
 import { useEffect, useState } from "react";
 
-import type { PlanImportProgress } from "@/shared/api/renovation";
+import type { PlanImportJobState, PlanImportProgress } from "@/shared/api/renovation";
 import { ReportCollectorApiError } from "@/shared/api/report-collector";
 import { FileInput } from "@/shared/ui/file-input";
 
@@ -43,6 +43,51 @@ export function loadSummary(result: Extract<PlanExcelUploadResult, { status: "do
     return [`Новых строк: ${result.newRows}`, `Обновлено строк: ${result.updatedRows}`].join(" · ");
 }
 
+/** The stage caption shown while the worker holds the import. */
+function uploadPhaseLabel(phase: string | null): string {
+    switch (phase) {
+        case "parse":
+            return "Разбор файла...";
+        case "write":
+            return "Запись строк...";
+        case "recompute":
+            return "Пересчёт формул...";
+        default:
+            return "Идёт загрузка в базу...";
+    }
+}
+
+/**
+ * The load's progress as a toast description.
+ *
+ * After the preflight the load runs detached from the dialog: the dialog closes
+ * and this bar travels in a toast, so the grid behind stays usable. The server
+ * sizes it from the preflight row count; until the first reply it is
+ * indeterminate.
+ */
+function ImportProgress({ state }: { state: PlanImportJobState | null }) {
+    const total = state?.total ?? 0;
+    const determinate = total > 0;
+    const label = state === null ? "Идёт загрузка в базу..." : uploadPhaseLabel(state.phase);
+    return (
+        <ProgressBar
+            aria-label={label}
+            className="plan-import-toast__progress"
+            // React Aria defaults a missing `value` to 0 (determinate), so the
+            // indeterminate state has to be requested explicitly.
+            isIndeterminate={!determinate}
+            maxValue={determinate ? total : 100}
+            value={determinate ? Math.min(state?.progress ?? 0, total) : 0}
+        >
+            <Label>{label}</Label>
+            {determinate ? <ProgressBar.Output /> : null}
+            <ProgressBar.Track>
+                <ProgressBar.Fill />
+            </ProgressBar.Track>
+        </ProgressBar>
+    );
+}
+
 export function PlanExcelImportModal({
     isOpen,
     result = null,
@@ -54,8 +99,14 @@ export function PlanExcelImportModal({
     result?: PlanExcelImportResult | null;
     onOpenChange: (open: boolean) => void;
     onFileSelected: (file: File, progress: PlanImportProgress) => Promise<unknown> | void;
-    /** Loads the already checked file; the dialog owns its pending state. */
-    onUpload?: (file: File) => Promise<PlanExcelUploadResult> | void;
+    /**
+     * Loads the already checked file; the dialog owns its pending state.
+     * `onProgress` is fed by the server-reported job state.
+     */
+    onUpload?: (
+        file: File,
+        onProgress: (state: PlanImportJobState) => void,
+    ) => Promise<PlanExcelUploadResult> | void;
 }) {
     const [fileName, setFileName] = useState("");
     const [checkPending, setCheckPending] = useState(false);
@@ -70,7 +121,6 @@ export function PlanExcelImportModal({
     // valid, but the load needs the bytes it described.
     const [file, setFile] = useState<File | null>(null);
     const [uploadPending, setUploadPending] = useState(false);
-    const [uploadResult, setUploadResult] = useState<PlanExcelUploadResult | null>(null);
     const hasResult = result !== null;
     // Every open starts clean: a previous file must not leak into a new check.
     useEffect(() => {
@@ -81,7 +131,6 @@ export function PlanExcelImportModal({
         setCheckError(null);
         setIsDragging(false);
         setUploadPending(false);
-        setUploadResult(null);
     }, [isOpen]);
     // Page-wide drag tracking: a drag carries no drop data until it enters a
     // drop target, so only the dialog/body handlers accept the drop itself.
@@ -133,7 +182,6 @@ export function PlanExcelImportModal({
         setFileName(selected.name);
         setCheckPending(true);
         setCheckError(null);
-        setUploadResult(null);
         // The request is ONE round trip: the browser streams the bytes, then the
         // server parses them and answers. `onFileSelected` cannot be told apart
         // from the outside, so the phase is switched at the first sign of the
@@ -159,29 +207,63 @@ export function PlanExcelImportModal({
     }
 
     async function upload() {
-        if (!file || uploadPending) return;
+        if (!file || uploadPending || !onUpload) return;
+        const selected = file;
         setUploadPending(true);
+        // The load is detached from the dialog at once: a toast carries its
+        // progress, so the dialog closes and stops blocking the grid behind it.
+        const toastId = toast("Загрузка файла в базу", {
+            description: <ImportProgress state={null} />,
+            isLoading: true,
+            timeout: 0,
+        });
+        onOpenChange(false);
         try {
-            const outcome = await onUpload?.(file);
-            if (!outcome) return;
-            if (outcome.status === "done") {
-                // A finished load needs no dialog: the summary moves to a toast
-                // and the grid behind it refetches the loaded rows.
-                toast.success("Файл загружен", { description: loadSummary(outcome) });
-                onOpenChange(false);
+            const outcome = await onUpload(selected, (state) => {
+                toast.update(toastId, "Загрузка файла в базу", {
+                    description: <ImportProgress state={state} />,
+                    isLoading: true,
+                    timeout: 0,
+                });
+            });
+            if (!outcome) {
+                // A handler that starts nothing gives no terminal state to show.
+                toast.close(toastId);
                 return;
             }
-            setUploadResult(outcome);
+            if (outcome.status === "done") {
+                toast.update(toastId, "Файл загружен", {
+                    description: loadSummary(outcome),
+                    isLoading: false,
+                    timeout: 4000,
+                    variant: "success",
+                });
+                return;
+            }
+            failLoad(toastId, outcome.message);
         } catch (error) {
-            setUploadResult({
-                status: "error",
-                message: error instanceof Error ? error.message : "Не удалось загрузить файл.",
-            });
+            failLoad(
+                toastId,
+                error instanceof Error ? error.message : "Не удалось загрузить файл.",
+            );
         } finally {
             setUploadPending(false);
         }
     }
 
+    /** Settle the running toast in place as the load's failure. */
+    function failLoad(toastId: string, message: string) {
+        toast.update(toastId, "Не удалось загрузить файл", {
+            description: message,
+            isLoading: false,
+            timeout: 8000,
+            variant: "danger",
+        });
+    }
+
+    // The check is ONE request with no server-reported progress: the bar only
+    // shows motion while the analysis runs. The load's percentage lives in a toast.
+    const statusLabel = phase === "uploading" ? "Идёт загрузка..." : "Идёт анализ...";
     const dragging = isDragging || isPageDragging;
     return (
         <Modal.Backdrop
@@ -222,30 +304,7 @@ export function PlanExcelImportModal({
                             void chooseFile(event.dataTransfer.files[0]);
                         }}
                     >
-                        {checkPending || uploadPending ? (
-                            <p className="plan-excel-import-modal__status" role="status">
-                                <Spinner size="sm" />
-                                {checkPending
-                                    ? phase === "uploading"
-                                        ? "Идёт загрузка..."
-                                        : "Идёт анализ..."
-                                    : "Идёт загрузка в базу..."}
-                            </p>
-                        ) : (
-                            <p
-                                className={`plan-excel-import-modal__hint${dragging ? " plan-excel-import-modal__hint--active" : ""}${hasResult ? " plan-excel-import-modal__hint--with-result" : ""}`}
-                            >
-                                {dragging
-                                    ? "Перетащите файл в это окно."
-                                    : "Выберите файл для загрузки в базу. Здесь будут выведены результаты его анализа."}
-                            </p>
-                        )}
                         {result?.status === "has-errors" ? <ImportErrors result={result} /> : null}
-                        {uploadResult?.status === "error" ? (
-                            <p className="plan-excel-import-modal__upload-error" role="alert">
-                                {uploadResult.message}
-                            </p>
-                        ) : null}
                         {result?.status === "ready" ? (
                             <div className="plan-excel-import-modal__summary">
                                 <p>
@@ -271,6 +330,31 @@ export function PlanExcelImportModal({
                                 ) : null}
                             </div>
                         ) : null}
+                        {checkPending ? (
+                            <div className="plan-excel-import-modal__middle">
+                                <div className="plan-excel-import-modal__status" role="status">
+                                    <ProgressBar
+                                        aria-label={statusLabel}
+                                        className="plan-excel-import-modal__progress"
+                                    >
+                                        <Label>{statusLabel}</Label>
+                                        <ProgressBar.Track>
+                                            <ProgressBar.Fill />
+                                        </ProgressBar.Track>
+                                    </ProgressBar>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="plan-excel-import-modal__middle">
+                                <p
+                                    className={`plan-excel-import-modal__hint${dragging ? " plan-excel-import-modal__hint--active" : ""}${hasResult ? " plan-excel-import-modal__hint--with-result" : ""}`}
+                                >
+                                    {dragging
+                                        ? "Перетащите файл в это окно."
+                                        : "Выберите файл для загрузки в базу. Здесь будут выведены результаты его анализа."}
+                                </p>
+                            </div>
+                        )}
                     </Modal.Body>
                     <Modal.Footer className="plan-excel-import-modal__footer">
                         <div className="plan-excel-import-modal__file-row">

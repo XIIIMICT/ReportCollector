@@ -1331,12 +1331,11 @@ export function RenovationWorkspace({
                     throw new Error(job.error ?? "Не удалось сформировать файл.");
                 }
                 // Hand the URL to the browser as a native download IMMEDIATELY.
-                // The file endpoint waits for the worker to finish, then streams
-                // the workbook with a Content-Length — so the browser shows its
-                // OWN save dialog and percentage progress (a .crdownload that
-                // becomes the finished .xlsx), instead of a site toast. Closing
-                // the tab or reloading neither cancels the generation (it runs in
-                // the background worker) nor the browser-owned download.
+                // The file endpoint streams the growing workbook, so the browser's
+                // own save dialog and download UI open at once and advance with the
+                // generation. Closing the tab or reloading neither cancels the
+                // generation (it runs in the background worker) nor the
+                // browser-owned download.
                 triggerNativeDownload(renovationExportJobFileUrl(job.id), job.fileName);
             } catch (reason) {
                 if (discardInvalidPlanQuery(reason)) {
@@ -1999,13 +1998,19 @@ export function RenovationWorkspace({
                         rowsToUpdate: result.rows_to_update,
                     });
                 }}
-                onUpload={async (file) => {
+                onUpload={async (file, onProgress) => {
                     try {
-                        const accepted = await applyRenovationPlanImport(file);
+                        const expectedRows =
+                            planExcelImportResult?.status === "ready"
+                                ? planExcelImportResult.newRows + planExcelImportResult.rowsToUpdate
+                                : 0;
+                        const accepted = await applyRenovationPlanImport(file, expectedRows);
+                        onProgress(accepted);
                         let applied = accepted;
                         while (applied.status === "pending" || applied.status === "running") {
                             await new Promise((resolve) => window.setTimeout(resolve, 750));
                             applied = await getRenovationPlanImportJob(accepted.id);
+                            onProgress(applied);
                         }
                         if (applied.status !== "done") {
                             throw new Error(applied.error ?? "Не удалось загрузить файл.");

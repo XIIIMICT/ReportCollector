@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 @import "@heroui/styles";
 
 @theme {
@@ -709,9 +709,17 @@ body {
     gap: 1.25rem;
 }
 
-/* Centred guidance of the drop zone; replaced by the analysis spinner. */
+/* Summary at the top, the progress/guidance in the grown middle, and the
+   load's own error at the bottom right above the file picker. */
+.plan-excel-import-modal__middle {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Centred guidance of the drop zone; replaced by the analysis progress bar. */
 .plan-excel-import-modal__hint {
-    margin: auto 0;
     padding: 1rem;
     color: var(--muted);
     font-size: 0.95rem;
@@ -732,12 +740,17 @@ body {
 
 .plan-excel-import-modal__status {
     display: flex;
-    margin: auto 0;
+    width: 100%;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
     color: var(--muted);
     font-size: 0.95rem;
+}
+
+/* The check is indeterminate and spans the dialog body. */
+.plan-excel-import-modal__progress {
+    width: 100%;
 }
 
 .file-input {
@@ -829,8 +842,16 @@ body {
     list-style: circle;
 }
 
-.plan-excel-import-modal__upload-error {
-    color: var(--danger);
+/* A progress bar inside a toast. The toast content aligns its children to the
+   start (content-sized), so the description that carries a bar is stretched to
+   the content column; the bar's own `w-full` then spans the toast. The top gap
+   separates it from the title line. */
+.plan-import-toast__progress {
+    margin-top: 0.5rem;
+}
+
+[data-slot="toast-description"]:has(.plan-import-toast__progress) {
+    align-self: stretch;
 }
 
 /* View strip between the toolbar and the grid: display-only controls in ONE

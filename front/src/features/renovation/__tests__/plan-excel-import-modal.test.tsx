@@ -1,35 +1,55 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 
-import { toast } from "@heroui/react";
+import { toast, toastQueue } from "@heroui/react";
+import type { HeroUIToastOptions, ToastContentValue } from "@heroui/react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import type { ReactNode } from "react";
+
+import type { PlanImportJobState } from "@/shared/api/renovation";
 
 import { type PlanExcelUploadResult, PlanExcelImportModal } from "../plan-excel-import-modal";
 
 const HINT = "Выберите файл для загрузки в базу. Здесь будут выведены результаты его анализа.";
 
-const toasts: string[] = [];
+type CapturedToast = {
+    title?: ReactNode | undefined;
+    description?: ReactNode | undefined;
+    isLoading?: boolean | undefined;
+    variant?: ToastContentValue["variant"] | undefined;
+};
+
 // The toast viewport needs a full landmark tree that happy-dom cannot provide,
-// so the dialog is checked against the notifications it raises. A spy (not a
-// module mock) keeps every other test in the run on the real implementation.
-let successSpy: ReturnType<typeof spyOn<typeof toast, "success">> | undefined;
+// so the dialog is checked against the notifications it raises. Spies (not
+// module mocks) keep every other test in the run on the real implementation.
+const created: CapturedToast[] = [];
+const updates: CapturedToast[] = [];
+let addSpy: ReturnType<typeof spyOn<typeof toastQueue, "add">> | undefined;
+let updateSpy: ReturnType<typeof spyOn<typeof toast, "update">> | undefined;
 
 beforeEach(() => {
-    toasts.length = 0;
-    successSpy = spyOn(toast, "success").mockImplementation(((
-        title: string,
-        options?: { description?: string },
-    ) => {
-        toasts.push([title, options?.description].filter(Boolean).join(" · "));
+    created.length = 0;
+    updates.length = 0;
+    addSpy = spyOn(toastQueue, "add").mockImplementation(((content: ToastContentValue) => {
+        created.push(content);
         return "toast-id";
-    }) as typeof toast.success);
+    }) as typeof toastQueue.add);
+    updateSpy = spyOn(toast, "update").mockImplementation(((
+        id: string,
+        message: ReactNode,
+        options?: HeroUIToastOptions,
+    ) => {
+        updates.push({ title: message, ...options });
+        return id;
+    }) as typeof toast.update);
 });
 
 afterEach(() => {
-    successSpy?.mockRestore();
+    addSpy?.mockRestore();
+    updateSpy?.mockRestore();
     cleanup();
 });
 
-test("opens the file picker and displays the selected file name", () => {
+test("opens the file picker and displays the selected file name", async () => {
     const selected: File[] = [];
     const view = render(
         <PlanExcelImportModal
@@ -44,7 +64,11 @@ test("opens the file picker and displays the selected file name", () => {
         type: "application/vnd.ms-excel.sheet.binary.macroEnabled.12",
     });
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [file] } });
+    // The check ends in a microtask (`finally` clears the pending state), so the
+    // change must be awaited inside act or React reports the late state update.
+    await act(async () => {
+        fireEvent.change(input, { target: { files: [file] } });
+    });
 
     expect(selected).toEqual([file]);
     expect((view.getByRole("textbox", { name: "Имя файла" }) as HTMLInputElement).value).toBe(
@@ -209,7 +233,7 @@ test("says «Идёт загрузка...» first, then «Идёт анализ.
 
     // The bytes are still on their way.
     expect(status()?.textContent).toContain("Идёт загрузка...");
-    expect(status()?.querySelector("svg")).toBeTruthy();
+    expect(status()?.querySelector('[role="progressbar"]')).toBeTruthy();
 
     // The upload is done; the server is parsing.
     await act(async () => {
@@ -227,17 +251,19 @@ test("says «Идёт загрузка...» first, then «Идёт анализ.
     ).toBeTruthy();
 });
 
-test("the upload shows the load state, then closes and raises a success toast", async () => {
+test("the upload closes the dialog at once and reports progress in a toast", async () => {
     const uploaded: File[] = [];
     const opened: boolean[] = [];
     let finish: ((value: PlanExcelUploadResult) => void) | undefined;
+    let report: ((state: PlanImportJobState) => void) | undefined;
     const view = render(
         <PlanExcelImportModal
             isOpen
             onFileSelected={() => {}}
             onOpenChange={(open) => opened.push(open)}
-            onUpload={(file) => {
+            onUpload={(file, onProgress) => {
                 uploaded.push(file);
+                report = onProgress;
                 return new Promise<PlanExcelUploadResult>((resolve) => {
                     finish = resolve;
                 });
@@ -259,32 +285,64 @@ test("the upload shows the load state, then closes and raises a success toast", 
         fireEvent.click(view.getByRole("button", { name: "Загрузить" }));
     });
 
-    // The load is highlighted the same way as the analysis: spinner + label,
-    // and the rest of the dialog steps aside while it runs.
-    const statuses = Array.from(document.querySelectorAll(".plan-excel-import-modal__status"));
-    const status = statuses[statuses.length - 1];
-    expect(status?.textContent).toContain("Идёт загрузка в базу...");
-    expect(status?.querySelector("svg")).toBeTruthy();
-    expect(opened).toEqual([]);
+    // The dialog steps aside at once: the load continues in a toast, so the
+    // grid behind it stays usable.
+    expect(opened).toContain(false);
+    expect(created).toHaveLength(1);
+    const createdToast = created[0];
+    if (!createdToast) throw new Error("the load did not raise a toast");
+    expect(createdToast.title).toBe("Загрузка файла в базу");
+    expect(createdToast.isLoading).toBe(true);
+    // Until the server sizes the work, the toast bar only shows motion.
+    const initial = render(<>{createdToast.description}</>);
+    expect(initial.getByRole("progressbar").hasAttribute("aria-valuenow")).toBe(false);
+    initial.unmount();
+    expect(uploaded).toEqual([file]);
+
+    // Write phase: 30 of 80 units (the preflight's 40 rows × write + recompute).
+    await act(async () => {
+        report?.({ progress: 30, total: 80, phase: "write" });
+    });
+    const running = updates.at(-1) as CapturedToast;
+    expect(running.title).toBe("Загрузка файла в базу");
+    expect(running.isLoading).toBe(true);
+    const bar = render(<>{running.description}</>);
+    const progress = bar.getByRole("progressbar");
+    expect(progress.getAttribute("aria-valuenow")).toBe("30");
+    expect(progress.getAttribute("aria-valuemax")).toBe("80");
+    expect(bar.getByText("Запись строк...")).toBeTruthy();
+    expect(bar.getByText("38%")).toBeTruthy();
+    bar.unmount();
+
+    await act(async () => {
+        report?.({ progress: 60, total: 80, phase: "recompute" });
+    });
+    expect(updates.at(-1)?.title).toBe("Загрузка файла в базу");
+    const recompute = render(<>{updates.at(-1)?.description}</>);
+    expect(recompute.getByText("Пересчёт формул...")).toBeTruthy();
+    expect(recompute.getByText("75%")).toBeTruthy();
+    recompute.unmount();
 
     await act(async () => {
         finish?.({ status: "done", newRows: 10, updatedRows: 30 });
     });
 
-    expect(uploaded).toEqual([file]);
-    // Done: the dialog closes for the grid behind it, the summary is a toast.
-    expect(opened).toContain(false);
-    expect(toasts).toEqual(["Файл загружен · Новых строк: 10 · Обновлено строк: 30"]);
-    // Nothing is reported inside the dialog any more.
-    expect(view.queryByText("Загружено: 40")).toBeNull();
+    // The running toast settles in place into the summary.
+    expect(updates.at(-1)).toMatchObject({
+        title: "Файл загружен",
+        description: "Новых строк: 10 · Обновлено строк: 30",
+        isLoading: false,
+        variant: "success",
+    });
 });
 
-test("a failed load keeps the checked file and shows the server message", async () => {
+test("a failed load settles the toast as an error instead of blocking the dialog", async () => {
+    const opened: boolean[] = [];
     const view = render(
         <PlanExcelImportModal
             isOpen
             onFileSelected={() => {}}
-            onOpenChange={() => {}}
+            onOpenChange={(open) => opened.push(open)}
             onUpload={() => {
                 throw new Error("Строка 5: значение «ОКР» не найдено в справочнике.");
             }}
@@ -299,10 +357,13 @@ test("a failed load keeps the checked file and shows the server message", async 
         fireEvent.click(view.getByRole("button", { name: "Загрузить" }));
     });
 
-    expect(view.getByRole("alert").textContent).toContain("не найдено в справочнике");
-    // The file is still there: the user only has to fix the sheet and re-pick.
-    const nameField = document.querySelector(".file-input__text") as HTMLInputElement;
-    expect(nameField.value).toBe("plan.xlsb");
+    expect(opened).toContain(false);
+    expect(updates.at(-1)).toMatchObject({
+        title: "Не удалось загрузить файл",
+        description: "Строка 5: значение «ОКР» не найдено в справочнике.",
+        isLoading: false,
+        variant: "danger",
+    });
 });
 
 test("the errors report lists blank required cells", () => {

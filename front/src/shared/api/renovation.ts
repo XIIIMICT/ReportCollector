@@ -211,19 +211,31 @@ export type RenovationPlanImportApplyResult = {
     error: string | null;
     new_rows: number;
     updated_rows: number;
+    /** `parse` | `write` | `recompute` | `done` — the server's current stage. */
+    phase: string | null;
 };
+
+/** The slice of the import job the progress bar reads. */
+export type PlanImportJobState = Pick<
+    RenovationPlanImportApplyResult,
+    "progress" | "total" | "phase"
+>;
 
 /**
  * Load a checked XLSB file into the working plan.
  *
- * The backend stages the workbook and returns a durable job. The caller may
- * poll `getRenovationPlanImportJob` while the worker parses and writes it.
+ * The backend stages the workbook and returns a durable job. `expectedRows` is
+ * the preflight's row count and lets the server size its progress bar to the
+ * write and recompute halves; the caller may poll
+ * `getRenovationPlanImportJob` while the worker runs.
  */
 export async function applyRenovationPlanImport(
     file: File,
+    expectedRows: number,
 ): Promise<RenovationPlanImportApplyResult> {
     const body = new FormData();
     body.append("file", file);
+    body.append("expected_rows", String(Math.max(0, Math.trunc(expectedRows))));
     const response = await fetch("/api/renovation/plan/import/apply", {
         method: "POST",
         body,
