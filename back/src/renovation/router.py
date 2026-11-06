@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Literal, cast
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import TypeAdapter
 from sqlalchemy import func
@@ -65,10 +65,16 @@ from src.renovation.export import (
 )
 from src.renovation.export_jobs import ExportJob, ExportJobSpec, ExportQueueFullError, export_jobs
 from src.renovation.import_jobs import import_jobs
-from src.renovation.import_plan import assets_in_file, inspect_plan_file_streaming
+from src.renovation.import_plan import PlanFileScope, inspect_plan_file_streaming, scan_file_scope
 from src.renovation.inspect_cache import get_inspect_cache
 from src.renovation.models import RAsset, RProjectRole, RUserRole
-from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
+from src.renovation.plan import (
+    RenovationPlan,
+    RenovationPlanRow,
+    RenovationReferenceValue,
+    RPlanState,
+    RReferenceCatalog,
+)
 from src.renovation.schemas import (
     RenovationApproveRead,
     RenovationAssetCreateRequest,
@@ -258,20 +264,75 @@ async def require_renovation_admin(access: AccessDependency) -> RenovationAccess
 AdminDependency = Annotated[RenovationAccess, Depends(require_renovation_admin)]
 
 
-def _import_cache_scope(asset_ids: list[UUID], latest_change: datetime | None) -> str:
-    """
-    Plan-state fingerprint of the imported assets.
+def _token(count: int, updated_at: datetime | None) -> str:
+    """`count(*) + max(updated_at)` of a dictionary — the self-invalidating token."""
+    stamp = updated_at.isoformat() if updated_at is not None else "none"
+    return f"{count}@{stamp}"
 
-    The asset ids plus the newest change in the working plan rows of exactly
-    those assets: an edit in any other asset keeps the cached report valid.
-    An empty id list means the file names no known asset, so the key carries no
-    plan state and only the TTL refreshes it.
+
+def _import_cache_scope(
+    asset_ids: list[UUID],
+    latest_change: datetime | None,
+    *,
+    dictionaries: str = "",
+) -> str:
     """
-    if not asset_ids:
-        return ""
-    stamp = latest_change.isoformat() if latest_change is not None else "none"
-    ids = ",".join(sorted(str(asset_id) for asset_id in asset_ids))
-    return f"{ids}@{stamp}"
+    Cache fingerprint of the plan and the dictionaries an upload was checked against.
+
+    The plan part names the uploaded assets and the newest change in the working
+    plan rows of exactly those assets: an edit in any other asset keeps the
+    cached report valid. The dictionary part carries each used dictionary's own
+    token (see `_dictionary_fingerprint`), so adding the value a cached report
+    called missing changes the key instead of serving the stale «has errors»
+    answer until the TTL. An empty plan part plus no dictionary token means no
+    scope at all.
+    """
+    parts: list[str] = []
+    if asset_ids:
+        stamp = latest_change.isoformat() if latest_change is not None else "none"
+        ids = ",".join(sorted(str(asset_id) for asset_id in asset_ids))
+        parts.append(f"{ids}@{stamp}")
+    if dictionaries:
+        parts.append(dictionaries)
+    return "|".join(parts)
+
+
+async def _dictionary_fingerprint(
+    session: AsyncSession,
+    *,
+    file_scope: PlanFileScope,
+    assets_by_code: dict[str, RAsset],
+) -> str:
+    """
+    Change tokens of the dictionaries the file validates against.
+
+    Only the reference catalogs the file has a column for are queried: a catalog
+    the file never mentions cannot change its report. The asset dictionary is
+    scoped to the codes the file names (including unknown ones — the report
+    lists them under «Предприятие не найдено», and adding the asset must let the
+    same file through). Both parts use `count(*)` + `max(updated_at)`: a rename
+    or an added/deleted option changes the key with no call site to remember.
+    """
+    parts: list[str] = []
+    catalogs = sorted(RReferenceCatalog(value) for value in file_scope.catalogs)
+    if catalogs:
+        rows = (
+            await session.exec(
+                select(
+                    col(RenovationReferenceValue.catalog),
+                    func.count(),
+                    func.max(col(RenovationReferenceValue.updated_at)),
+                )
+                .where(col(RenovationReferenceValue.catalog).in_(catalogs))
+                .group_by(col(RenovationReferenceValue.catalog))
+            )
+        ).all()
+        tokens = {catalog.value: _token(count, updated_at) for catalog, count, updated_at in rows}
+        parts.extend(f"{catalog.value}={tokens.get(catalog.value, _token(0, None))}" for catalog in catalogs)
+    touched_assets = [assets_by_code[code] for code in file_scope.assets if code in assets_by_code]
+    latest_asset_change = max((asset.updated_at for asset in touched_assets), default=None)
+    parts.append(f"assets={_token(len(touched_assets), latest_asset_change)}")
+    return ";".join(parts)
 
 
 @router.post("/plan/import/inspect", response_model=RenovationPlanImportResult)
@@ -285,16 +346,17 @@ async def inspect_renovation_plan_import(
         return RenovationPlanImportResult(status="invalid_format")
     with observe_phase("import", "hash_upload"):
         digest = await _rewind_and_hash_upload(file)
-    # Which assets the file touches decides the cache scope: a plan edit in an
-    # asset the file does not mention must not invalidate this report.
+    # Which assets and dictionaries the file touches decides the cache scope: a
+    # plan edit in an asset the file does not mention, or a catalog edit the
+    # file has no column for, must not invalidate this report.
     with observe_phase("import", "discover_assets"):
-        file_asset_codes = await asyncio.to_thread(assets_in_file, file.file)
+        file_scope = await asyncio.to_thread(scan_file_scope, file.file)
     await file.seek(0)
     assets_by_code = {
         asset.repair_code.upper(): asset for asset in (await session.exec(select(RAsset))).all() if asset.repair_code
     }
     assets = {code: asset.name for code, asset in assets_by_code.items()}
-    touched_asset_ids = [assets_by_code[raw_code].id for raw_code in file_asset_codes if raw_code in assets_by_code]
+    touched_asset_ids = [assets_by_code[raw_code].id for raw_code in file_scope.assets if raw_code in assets_by_code]
     latest_change = (
         (
             await session.exec(
@@ -306,9 +368,14 @@ async def inspect_renovation_plan_import(
         if touched_asset_ids
         else None
     )
-    scope = _import_cache_scope(touched_asset_ids, latest_change)
+    dictionaries = (
+        await _dictionary_fingerprint(session, file_scope=file_scope, assets_by_code=assets_by_code)
+        if file_scope.assets
+        else ""
+    )
+    scope = _import_cache_scope(touched_asset_ids, latest_change, dictionaries=dictionaries)
     cache = get_inspect_cache()
-    cached = await cache.get_digest(digest, scope=scope) if file_asset_codes else None
+    cached = await cache.get_digest(digest, scope=scope) if file_scope.assets else None
     if cached is not None:
         return cached
     existing_codes = {value for value in (await session.exec(select(col(RenovationPlanRow.col_003)))).all() if value}
@@ -324,7 +391,7 @@ async def inspect_renovation_plan_import(
             asset_names_by_code=assets,
             reference_values=references,
         )
-    if file_asset_codes:
+    if file_scope.assets:
         await cache.set_digest(digest, result, scope=scope)
     return result
 
@@ -334,13 +401,16 @@ async def apply_renovation_plan_import(
     session: SessionDependency,
     _access: AdminDependency,
     file: Annotated[UploadFile, File()],
+    expected_rows: Annotated[int, Form(ge=0)] = 0,
 ) -> RenovationImportJobRead:
     """
     Accept a validated XLSB file as a durable background job (admin only).
 
     Parsing, project locking and the write transaction run after the request
     ends. The load is not journaled into undo/redo because it rewrites many
-    rows at once.
+    rows at once. `expected_rows` is the preflight's `new_rows + rows_to_update`
+    and only sizes the progress bar (write + recompute); it does not gate the
+    load.
     """
     if not file.filename or not file.filename.casefold().endswith(".xlsb"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ожидается файл .xlsb.")
@@ -356,6 +426,7 @@ async def apply_renovation_plan_import(
             size=size,
             user_id=str(_access.user.id),
             plan_id=plan.id,
+            expected_rows=expected_rows,
         )
     except ExportQueueFullError as error:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(error)) from error

@@ -202,6 +202,36 @@ async def test_a_clean_file_creates_rows_once_and_updates_them_next_time(
     assert after_second == after_first
 
 
+async def test_the_load_reports_write_and_recompute_progress(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`expected_rows` sizes a two-phase bar: the write, then the derived values."""
+    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.repair_code) == "BSZR"))).first()
+    if bsz is None:
+        pytest.skip("the seed carries no BSZR asset")
+    rows = [
+        ParsedPlanRow(code=f"TEST_PROGRESS_{index}", asset_code="BSZR", values={"col_005": f"Работа {index}"})
+        for index in range(1, 4)
+    ]
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source: rows)
+    events: list[tuple[int, int, str]] = []
+
+    await apply_plan_file(
+        db_session,
+        source=None,  # ty: ignore[invalid-argument-type]
+        user_id=None,
+        expected_rows=3,
+        progress=lambda done, total, phase: events.append((done, total, phase)),
+    )
+
+    # Write + recompute: the preflight's 3 rows become a total of 6 units.
+    assert events[0] == (0, 6, "parse")
+    assert (3, 6, "write") in events
+    assert events[-1] == (6, 6, "recompute")
+    assert {phase for _, _, phase in events} == {"parse", "write", "recompute"}
+    assert [done for done, _, _ in events] == sorted(done for done, _, _ in events)
+
+
 async def test_a_ragged_batch_loads_and_its_dates_are_stored_as_dates(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -36,6 +36,9 @@ from src.observability import REQUEST_ID
 
 LOGGER = logging.getLogger("reportcollector.application")
 POLL_SECONDS = 1.0
+# The worker holds progress in memory; the heartbeat persists a change quickly
+# so the client's bar moves, and renews the lease on the old cadence.
+PROGRESS_POLL_SECONDS = 1.0
 JOB_TIMEOUT_SECONDS = 4 * 60 * 60
 
 
@@ -70,6 +73,7 @@ class ImportJob:
     request_id: str | None
     lease_token: UUID | None
     plan_id: UUID | None
+    expected_rows: int
     phase: str | None
     attempt: int
     started_at: datetime | None
@@ -118,6 +122,7 @@ class DurableImportManager:
             request_id=record.request_id,
             lease_token=record.lease_token,
             plan_id=UUID(str(payload["plan_id"])) if payload.get("plan_id") else None,
+            expected_rows=int(payload.get("expected_rows", 0)),
             phase=record.phase,
             attempt=record.attempt,
             started_at=record.started_at,
@@ -133,6 +138,7 @@ class DurableImportManager:
         size: int,
         user_id: str,
         plan_id: UUID,
+        expected_rows: int = 0,
     ) -> ImportJob:
         input_key = f"{uuid4().hex}.xlsb"
         target = input_path(input_key)
@@ -154,8 +160,10 @@ class DurableImportManager:
                 "size": size,
                 "input_key": input_key,
                 "plan_id": str(plan_id),
+                "expected_rows": max(expected_rows, 0),
             },
-            total=0,
+            # Write + recompute: the worker reports both halves against this.
+            total=max(expected_rows, 0) * 2,
             request_id=REQUEST_ID.get(),
         )
         admission = asyncio.create_task(self.repository.create(candidate))
@@ -328,13 +336,31 @@ class DurableImportManager:
                 REQUEST_ID.reset(token)
 
     async def _heartbeat(self, record: DataJob, job: ImportJob) -> None:
+        """
+        Persist the child's progress and keep the lease alive.
+
+        The child reports progress into `job` as it works (stdout events in the
+        subprocess runner, a direct callback in-process), so the loop watches
+        that state and writes a change within a second. The lease is still
+        renewed only every `LEASE_SECONDS / 3`.
+        """
+        # `None` forces the first pass to persist whatever the worker already
+        # reported; the child usually reports `parse` before this task runs.
+        last: tuple[int, int, str | None] | None = None
+        renewed_at = time.monotonic()
         while True:
-            await asyncio.sleep(LEASE_SECONDS / 3)
-            if not await self.repository.heartbeat(record, job.progress, job.total):
+            await asyncio.sleep(PROGRESS_POLL_SECONDS)
+            state = (job.progress, job.total, job.phase)
+            lease_due = time.monotonic() - renewed_at >= LEASE_SECONDS / 3
+            if state == last and not lease_due:
+                continue
+            if not await self.repository.heartbeat(record, job.progress, job.total, job.phase):
                 if (await self.repository.get(job.id, job.user_id, self.kind)).status == "done":
                     return
                 message = "Import lease is no longer owned by this worker"
                 raise LeaseLostError(message)
+            last = state
+            renewed_at = time.monotonic()
 
 
 def cleanup_expired_import(input_key: str) -> None:

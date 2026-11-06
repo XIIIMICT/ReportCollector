@@ -35,14 +35,17 @@ different milestones. Do not reopen the explicit product deferrals below.
   bounded validation result. Validate missing catalog definitions explicitly.
   Cap scanned rows and issue reports with total/truncated counts and matching
   frontend explanations (including duplicates and blank-code rows).
-- [ ] Correct preflight cache invalidation for catalog/asset changes and row
-  deletion, then measure lookup/cache latency. A max(updated_at) token scoped
-  only to touched assets cannot represent every dependency.
-- [ ] Reduce import recomputation to affected rows/dependencies and measure long
-  transaction/project-gate/row-lock contention. Detailed worker phases
-  (parse/validate/write/recompute/finalize) remain open; current persisted phase
-  is only lifecycle state. This performance work is separate from the deferred
-  concurrent-edit conflict policy.
+- [ ] Finish preflight cache invalidation for row deletion (deleting a row that
+  is not the newest leaves the max-`updated_at` plan token unchanged), then
+  measure lookup/cache latency. Catalog and asset changes are now covered by
+  their own `count(*) + max(updated_at)` tokens; the plan part is still a max
+  over the touched assets and cannot represent every dependency.
+- [ ] Measure long transaction/project-gate/row-lock contention on a big import.
+  The recompute is now narrowed to the rows the load wrote (and only changed
+  rows are updated), and the job reports `parse`/`write`/`recompute` progress;
+  finer validation/finalize phases and failure-after-`write` observability remain
+  open. This performance work is separate from the deferred concurrent-edit
+  conflict policy.
 - [ ] Move high-cardinality plan facet search/order/paging into bounded SQL work,
   preserving Unicode casefold, decimal ordering, client-timezone dates,
   NULL/empty buckets and preceding-filter semantics. Current code loads the

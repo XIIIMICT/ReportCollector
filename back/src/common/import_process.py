@@ -26,6 +26,10 @@ async def generate_import_in_process(job: ImportJob, _source: Path) -> dict:
             event = json.loads(line)
             if event.get("event") == "progress":
                 job.progress = int(event["progress"])
+                job.total = int(event.get("total", 0))
+                phase = event.get("phase")
+                if phase:
+                    job.phase = str(phase)
             elif event.get("event") == "done":
                 result = event["result"]
             elif event.get("event") == "failed":

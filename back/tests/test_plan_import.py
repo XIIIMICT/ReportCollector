@@ -190,12 +190,26 @@ def test_assets_in_file_are_the_cache_scope() -> None:
     assert assets_in_file(_SAMPLE) == frozenset({"BSZR"})
 
 
+def test_scan_file_scope_names_the_catalogs_the_file_validates() -> None:
+    """The template's reference columns decide which dictionaries can invalidate it."""
+    from src.renovation.import_plan import scan_file_scope
+
+    if _SAMPLE is None:
+        pytest.skip("no sample in docs/samples/")
+    scope = scan_file_scope(_SAMPLE)
+    assert scope.assets == frozenset({"BSZR"})
+    assert scope.catalogs == frozenset(
+        {"criticality", "work_category", "work_type", "cost_allocation", "execution_method"}
+    )
+
+
 def test_assets_in_file_tolerates_a_broken_workbook(tmp_path: Path) -> None:
-    from src.renovation.import_plan import assets_in_file
+    from src.renovation.import_plan import assets_in_file, scan_file_scope
 
     path = tmp_path / "broken.xlsb"
     path.write_bytes(b"not a workbook")
     assert assets_in_file(path) == frozenset()
+    assert scan_file_scope(path).catalogs == frozenset()
 
 
 def test_scope_is_stable_for_the_same_assets_and_change_time() -> None:
@@ -214,6 +228,48 @@ def test_scope_is_stable_for_the_same_assets_and_change_time() -> None:
     assert _import_cache_scope([first], stamp) != _import_cache_scope([first, second], stamp)
     assert _import_cache_scope([], stamp) == ""
     assert _import_cache_scope([first], None).endswith("@none")
+
+
+def test_scope_carries_dictionary_tokens() -> None:
+    """A changed dictionary must re-key the report even with the plan untouched."""
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from src.renovation.router import _import_cache_scope
+
+    asset = uuid4()
+    stamp = datetime(2026, 10, 23, 10, 0, tzinfo=UTC)
+    before = _import_cache_scope([asset], stamp, dictionaries="work_type=12@2026-10-23T09:00:00+00:00")
+    after = _import_cache_scope([asset], stamp, dictionaries="work_type=13@2026-10-23T10:30:00+00:00")
+    assert before != after
+    # The dictionary is part of the key even when the file names no known asset.
+    assert _import_cache_scope([], stamp, dictionaries="work_type=12@2026-10-23T09:00:00+00:00") != ""
+
+
+async def test_dictionary_fingerprint_tracks_only_the_catalogs_the_file_uses(db_session) -> None:
+    """
+    Adding an option to a used catalog re-keys the report; an unused one doesn't.
+
+    This is the cache-invalidation contract: a report that called a value
+    missing must be re-analysable as soon as that value exists, while an edit to
+    a catalog the file has no column for keeps the cached report valid.
+    """
+    from src.renovation.import_plan import PlanFileScope
+    from src.renovation.plan import RenovationReferenceValue, RReferenceCatalog
+    from src.renovation.router import _dictionary_fingerprint
+
+    scope = PlanFileScope(assets=frozenset({"BSZR"}), catalogs=frozenset({"work_type"}))
+    before = await _dictionary_fingerprint(db_session, file_scope=scope, assets_by_code={})
+
+    db_session.add(RenovationReferenceValue(catalog=RReferenceCatalog.CRITICALITY, label="5"))
+    await db_session.commit()
+    unchanged = await _dictionary_fingerprint(db_session, file_scope=scope, assets_by_code={})
+    assert unchanged == before
+
+    db_session.add(RenovationReferenceValue(catalog=RReferenceCatalog.WORK_TYPE, label="Новый вид работ"))
+    await db_session.commit()
+    changed = await _dictionary_fingerprint(db_session, file_scope=scope, assets_by_code={})
+    assert changed != before
 
 
 def test_sample_defect_numbers_keep_seven_digits() -> None:

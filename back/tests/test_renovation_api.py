@@ -1996,3 +1996,39 @@ async def test_recompute_plan_rows_materializes_derived_values(db_session: Async
     second = await recompute_plan_rows(db_session, plan_id=plan.id)
     assert second.scanned == 2
     assert second.changed == 0
+
+
+async def test_recompute_plan_rows_can_narrow_to_the_rows_an_import_wrote(db_session: AsyncSession) -> None:
+    """
+    The importer recomputes only its own rows, with progress after each batch.
+
+    The full sweep stays the backfill (`just recompute-renovation-plan`); a load
+    of ~20k rows must not rewrite the ~306k-row plan.
+    """
+    plan = (await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()
+    rows = list(
+        (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.plan_id) == plan.id))).all()
+    )
+    first, second = rows[0], rows[1]
+    first.col_026 = None
+    second.col_026 = None
+    await db_session.flush()
+
+    points: list[int] = []
+    result = await recompute_plan_rows(
+        db_session,
+        plan_id=plan.id,
+        row_ids=[first.id],
+        progress=points.append,
+    )
+    await db_session.flush()
+
+    assert (result.scanned, result.changed) == (1, 1)
+    assert points == [1]
+    untouched = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.id) == second.id))).one()
+    # The untouched row keeps its cleared value: the narrowed sweep read only
+    # the named row.
+    assert untouched.col_026 is None
+
+    rest = await recompute_plan_rows(db_session, plan_id=plan.id, row_ids=[second.id])
+    assert (rest.scanned, rest.changed) == (1, 1)

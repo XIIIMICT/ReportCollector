@@ -30,8 +30,11 @@ async def run(job_id: str, lease_token: str) -> dict:
     REQUEST_ID.set(record.request_id)
     job = DurableImportManager.job_from_record(record)
 
-    def report(progress: int) -> None:
-        print(json.dumps({"event": "progress", "progress": progress}), flush=True)
+    def report(progress: int, total: int, phase: str) -> None:
+        print(
+            json.dumps({"event": "progress", "progress": progress, "total": total, "phase": phase}),
+            flush=True,
+        )
 
     async def watch() -> None:
         while await repository.owns(record):  # noqa: ASYNC110 - watchdog for orphan processes

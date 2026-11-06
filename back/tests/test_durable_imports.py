@@ -12,7 +12,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.models import User, utc_now
-from src.common.durable_imports import DurableImportManager, input_path
+from src.common.durable_imports import DurableImportManager, ImportJob, input_path
 from src.common.import_process import generate_import_in_process
 from src.common.job_models import DataJob
 from src.common.job_repository import JobRepository
@@ -44,13 +44,19 @@ def manager(repository, generate=generate_plan_import):
     return DurableImportManager(kind="renovation_import", generate=generate, repository=repository)
 
 
-async def accept(worker, user, tmp_path, *, digest="digest"):
+async def accept(worker, user, tmp_path, *, digest="digest", expected_rows=0):
     path = tmp_path / "upload.tmp"
     path.write_bytes(b"accepted workbook")
     async with worker.repository.session_factory() as session:
         plan = (await session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()
     return await worker.create_from_path(
-        source=path, file_name="plan.xlsb", digest=digest, size=17, user_id=user, plan_id=plan.id
+        source=path,
+        file_name="plan.xlsb",
+        digest=digest,
+        size=17,
+        user_id=user,
+        plan_id=plan.id,
+        expected_rows=expected_rows,
     )
 
 
@@ -98,10 +104,16 @@ async def test_cancelled_or_expired_import_rolls_back_all_writes(setup_import, m
     claimed = await repository.claim(worker.kind)
 
     async def invalidate_after_write(
-        session, *, source, user_id, plan_id, streaming, progress
+        session, *, source, user_id, plan_id, streaming, expected_rows, progress
     ) -> RenovationPlanImportApplyResult:
         outcome = await apply_plan_file(
-            session, source=source, user_id=user_id, plan_id=plan_id, streaming=streaming, progress=progress
+            session,
+            source=source,
+            user_id=user_id,
+            plan_id=plan_id,
+            streaming=streaming,
+            expected_rows=expected_rows,
+            progress=progress,
         )
         if invalidation == "cancel":
             await worker.cancel(job.id, owner)
@@ -156,6 +168,46 @@ async def test_transient_failure_retains_input_and_shutdown_requeues(setup_impor
         await work
     assert (await worker.get(job.id, owner)).status == "pending"
     assert input_path(job.input_key).exists()
+
+
+async def test_in_flight_progress_is_visible_before_the_import_commits(setup_import) -> None:
+    """The bar moves while the worker holds its transaction; `total` is the preflight's 2× rows."""
+    repository, owner, directory = setup_import
+    released = asyncio.Event()
+    reached = asyncio.Event()
+
+    async def staged(job, _path) -> dict[str, int]:
+        job.progress, job.total, job.phase = 30, 80, "write"
+        reached.set()
+        await released.wait()
+        outcome = {"newRows": 1, "updatedRows": 1}
+        async with repository.session_factory() as session, session.begin():
+            await repository.complete_in_transaction(
+                session,
+                job_id=UUID(job.id),
+                lease_token=job.lease_token,
+                total=2,
+                result=outcome,
+            )
+        return outcome
+
+    worker = manager(repository, staged)
+    job = await accept(worker, owner, directory, expected_rows=40)
+    work = asyncio.create_task(worker.execute(await repository.claim(worker.kind)))
+    await asyncio.wait_for(reached.wait(), 5)
+
+    async def persisted() -> ImportJob:
+        while True:
+            current = await worker.get(job.id, owner)
+            if (current.progress, current.total, current.phase) == (30, 80, "write"):
+                return current
+            await asyncio.sleep(0.05)
+
+    seen = await asyncio.wait_for(persisted(), 5)
+    assert seen.status == "running"
+    released.set()
+    await work
+    assert (await worker.get(job.id, owner)).status == "done"
 
 
 async def test_lost_admission_reply_preserves_accepted_bytes(setup_import, monkeypatch) -> None:

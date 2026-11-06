@@ -408,8 +408,9 @@ response carries the assets (by name), the new rows and the rows to update
 The upload body is bounded by `ImportUploadLimitsMiddleware` before multipart
 parsing, then Starlette's `UploadFile` keeps it in its spooled temporary file.
 The inspect endpoint hashes and parses it through bounded row iterators; its
-asset-discovery pass remains intentionally separate until a future one-pass
-preflight. Apply stages the bytes and does not parse them in the HTTP request.
+scope-discovery pass (asset codes plus the reference catalogs the template
+header uses) remains intentionally separate until a future one-pass preflight.
+Apply stages the bytes and does not parse them in the HTTP request.
 
 `RENOVATION_IMPORT_MAX_BYTES` defaults to 256 MiB for each file. The HTTP body
 limit adds a 1 MiB allowance for multipart boundaries/fields and also covers
@@ -419,12 +420,19 @@ Oversized or slow bodies return 413/408, and the multipart parser closes partial
 temporary files. Match proxy upload limits to these values in production.
 
 Reports are cached in Valkey (`src/renovation/inspect_cache.py`): the key is
-`rc:planimport:<sha256 of the bytes>:<scope>`, where the scope is the file's
-assets («Наименование ДО» repaired codes → asset ids) plus the newest
-`updated_at` of the working plan rows **of those assets**. A plan edit in any
-other asset therefore keeps the cached report valid, while touching a loaded
-asset recomputes it. The TTL is one hour. The cache is optional — without
-`VALKEY_URL` or when Valkey is unreachable the file is analysed again.
+`rc:planimport:<sha256 of the bytes>:<scope>`, where the scope has two parts.
+The plan part is the file's assets («Наименование ДО» repaired codes → asset
+ids) plus the newest `updated_at` of the working plan rows **of those assets**;
+a plan edit in any other asset therefore keeps the cached report valid, while
+touching a loaded asset recomputes it. The dictionary part carries
+`count(*) + max(updated_at)` of every reference catalog the file has a column
+for (`scan_file_scope` maps the template header through the form schema, so a
+catalog the file never mentions cannot affect its report) and the same token
+for the asset entries the file names. Adding the value a cached report called
+missing therefore changes the key and lets the same file be re-uploaded
+immediately instead of serving the stale error until the TTL. The TTL is one
+hour. The cache is optional — without `VALKEY_URL` or when Valkey is
+unreachable the file is analysed again.
 
 `inspect_plan_file` returns only; the actual import is a separate step.
 
@@ -443,6 +451,18 @@ Cancellation/lease loss therefore rolls the transaction back; a lost HTTP
 response cannot cause a second apply. The input is removed only after a
 terminal job state or TTL cleanup. The gate still covers the full write and
 recompute phase; staged/versioned finalization is the next scale slice.
+
+The job reports progress per phase: `parse`, `write`, `recompute`. The client
+sends `expected_rows` (the preflight's `new_rows + rows_to_update`), so the
+worker's `total` is twice that — one half for the write, one for the recompute
+of exactly those rows — and the terminal result overwrites it with the actual
+row count. The manager persists a progress change within a second (it polls the
+child's in-memory counters, while the 30-second lease still renews every 10 s),
+which is what feeds the load toast's determinate progress bar: pressing
+«Загрузить» closes the dialog, the row/phase progress continues in a
+non-blocking toast, and that toast settles in place into the success or error
+message. The analysis wait before it keeps its indeterminate bar inside the
+dialog.
 
 Rows are matched by «Код работы» (`col_003`): a code already in the plan updates
 that row in place, a code the plan does not have **appends** a row at the end
@@ -648,6 +668,6 @@ PostgreSQL stores business data, `collab_edit_stacks`, `collab_cell_states` and 
 
 Renovation approval copies the plan with PostgreSQL INSERT SELECT rather than constructing all rows in Python. Submission deletes empty draft rows with SQL predicates. Cell edits batch-load affected rows and serialize updates of the same row to preserve derived calculations. No load-test latency or capacity certification is implied; the planning target is 50 concurrent users across projects.
 
-The renovation plan's 59 formula fields are **stored columns**, recomputed on every edit and read back verbatim by `GET /plan/rows` — recomputing them per read is infeasible (~90 s for the 306k-row plan) and SQL filters/facets need them as columns. The importer skips calculated fields, so imported/adopted rows are filled by `recompute_plan_rows` (`just recompute-renovation-plan`, also run at the end of `just seed-renovation-plan`); see `docs/WORKFLOW.md`.
+The renovation plan's 59 formula fields are **stored columns**, recomputed on every edit and read back verbatim by `GET /plan/rows` — recomputing them per read is infeasible (~90 s for the 306k-row plan) and SQL filters/facets need them as columns. The importer skips calculated fields, so imported/adopted rows are filled by `recompute_plan_rows` (`just recompute-renovation-plan`, also run at the end of `just seed-renovation-plan`); see `docs/WORKFLOW.md`. The importer passes the ids of the rows it just wrote, and the recompute writes only rows whose derived values changed: rewriting all 306k rows/133 calculated columns (≈0.95 ms each, ~290 s) was the dominant cost of a ~20k-row load. The full sweep remains the backfill; the import job additionally exposes `parse`/`write`/`recompute` phases and a progress total of twice the preflight row count.
 
 **The renovation ID (`col_003`) is NOT one of them** — the generator is currently off (`RENOVATION_ID_FORMULA_ENABLED = False` in `back/src/renovation/renovation_id.py`): the field is a plain editable text cell, loaded from the template as-is and typed by hand, because the agreement processes and the state of the data made a derived value impractical. `form_schema.CALCULATED_OVERRIDES` / `READ_ONLY_OVERRIDES` drop its legacy «calculated + read-only» flags without touching the legacy JSON entry, so the whole generator (`calculate_renovation_id`, its component validation, the import's correctness check) stays in the codebase and can be switched back on from that one flag. While it is off the import keeps **only the duplicate check** as a blocker («Некорректно рассчитанные коды» is archived in the UI), the «Некорректные» filter means *empty or duplicated*, and submit refuses an empty or repeated code. The «Лот» (`col_189`) code, by contrast, always ends with a dot: a correct code typed or imported without it gets it added silently (`renovation_id.normalize_direction_code`).

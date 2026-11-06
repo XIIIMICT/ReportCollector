@@ -15,18 +15,20 @@ from .import_apply import apply_plan_file
 
 
 async def generate_plan_import(
-    job: ImportJob, source: Path, *, report: Callable[[int], None] | None = None
+    job: ImportJob, source: Path, *, report: Callable[[int, int, str], None] | None = None
 ) -> dict[str, int]:
     """Apply one staged workbook in a worker-owned transaction."""
     async with async_session_factory() as session, session.begin():
 
-        def progress(processed: int) -> None:
-            # The parser is intentionally streamed, so an exact total is not
-            # available without a second full pass. The count is monotonic and
-            # is enough to show liveness while the worker holds the project gate.
+        def progress(processed: int, total: int, phase: str) -> None:
+            # `total` comes from the preflight row count the client accepted
+            # (write + recompute); the counter stays monotonic while the worker
+            # holds the project gate.
             job.progress = processed
+            job.total = total
+            job.phase = phase
             if report is not None:
-                report(processed)
+                report(processed, total, phase)
 
         with source.open("rb") as handle:
             result = await apply_plan_file(
@@ -35,6 +37,7 @@ async def generate_plan_import(
                 user_id=UUID(job.user_id),
                 plan_id=job.plan_id,
                 streaming=True,
+                expected_rows=job.expected_rows,
                 progress=progress,
             )
         outcome = {"newRows": result.new_rows, "updatedRows": result.updated_rows}

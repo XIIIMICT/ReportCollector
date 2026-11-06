@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Callable, Generator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import BinaryIO, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import insert, update
 from sqlmodel import col, select
@@ -45,7 +45,8 @@ async def apply_plan_file(
     user_id: UUID | None,
     plan_id: UUID | None = None,
     streaming: bool = False,
-    progress: Callable[[int], None] | None = None,
+    expected_rows: int = 0,
+    progress: Callable[[int, int, str], None] | None = None,
 ) -> RenovationPlanImportApplyResult:
     """
     Load a validated technical-directorate file into the working plan.
@@ -59,6 +60,12 @@ async def apply_plan_file(
 
     Rows are matched by the work code: a code already in the plan updates that
     row in place, a new code appends a row to the end of the plan.
+
+    `progress` receives `(done, total, phase)`: the write phase counts processed
+    rows, the recompute phase counts rescanned rows, and `total` is twice the
+    preflight's row count (the file is written, then those rows are recomputed).
+    `expected_rows=0` means the client did not send a preflight count — the
+    counters still advance, but the caller treats `total=0` as indeterminate.
     """
     if streaming:
         batches = _stream_parsed_batches(source)
@@ -100,6 +107,19 @@ async def apply_plan_file(
         )
     ).first() or 0
 
+    expected = max(expected_rows, 0)
+    total = expected * 2
+    processed = 0
+    affected: list[UUID] = []
+
+    def report(phase: str, done: int) -> None:
+        if progress is None:
+            return
+        # The file can differ from the preflight count (it was checked, then
+        # edited); never let a stale estimate push the bar past 100 %.
+        progress(min(done, total) if total else done, total, phase)
+
+    report("parse", 0)
     inserted = 0
     updated = 0
     batch: list[_PendingRow] = []
@@ -123,21 +143,34 @@ async def apply_plan_file(
                 batch.append(_PendingRow(parsed=row, asset_id=asset_id, row_id=row_id, position=position))
                 if len(batch) >= _BATCH_SIZE:
                     with observe_phase("import", "write_batch"):
-                        await _flush_batch(
-                            session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id
+                        affected.extend(
+                            await _flush_batch(
+                                session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id
+                            )
                         )
                     batch = []
-                    if progress is not None:
-                        progress(inserted + updated)
+                    processed = inserted + updated
+                    report("write", min(processed, expected) if total else processed)
     if batch:
         with observe_phase("import", "write_batch"):
-            await _flush_batch(session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id)
-        if progress is not None:
-            progress(inserted + updated)
+            affected.extend(
+                await _flush_batch(session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id)
+            )
+        processed = inserted + updated
+        report("write", min(processed, expected) if total else processed)
 
-    # Calculated fields and the renovation ID of every row of the plan.
+    # Only the rows this load wrote need their derived values: the full sweep
+    # (`just recompute-renovation-plan`) is the backfill, and rewriting all
+    # ~306k rows was where most of the former ~340-second import went.
     with observe_phase("import", "recompute"):
-        await recompute_plan_rows(session, plan_id=plan.id)
+        written = min(processed, expected) if total else 0
+        report("recompute", written)
+        await recompute_plan_rows(
+            session,
+            plan_id=plan.id,
+            row_ids=affected,
+            progress=lambda scanned: report("recompute", written + scanned if total else scanned),
+        )
     return RenovationPlanImportApplyResult(new_rows=inserted, updated_rows=updated)
 
 
@@ -173,11 +206,18 @@ async def _flush_batch(
     batch: Sequence[_PendingRow],
     reference_ids: dict[str, dict[str, str]],
     user_id: UUID | None,
-) -> None:
-    """Write one batch as bulk INSERT/UPDATE statements (no per-row round trip)."""
+) -> list[UUID]:
+    """
+    Write one batch as bulk INSERT/UPDATE statements (no per-row round trip).
+
+    Returns the ids of every row the batch touched: an INSERT needs its id
+    generated here so the narrowed recompute can name the new rows without a
+    second lookup by work code.
+    """
     now = datetime.now(UTC)
     new_rows: list[dict[str, object]] = []
     updates: list[tuple[UUID, dict[str, object]]] = []
+    affected: list[UUID] = []
     for pending in batch:
         # The parsed values are already coerced to the column types, so they go
         # to `values()` as-is; reference labels become catalog ids here.
@@ -198,8 +238,10 @@ async def _flush_batch(
             else:
                 values[field] = value
         if pending.row_id is None:
+            row_id = uuid4()
             new_rows.append(
                 {
+                    "id": row_id,
                     "plan_id": plan_id,
                     "asset_id": pending.asset_id,
                     "position": pending.position or 0,
@@ -212,6 +254,7 @@ async def _flush_batch(
                     **values,
                 }
             )
+            affected.append(row_id)
             continue
         # Values absent from the file keep their current plan values.
         updates.append(
@@ -220,6 +263,7 @@ async def _flush_batch(
                 {"asset_id": pending.asset_id, "updated_at": now, "updater_user_id": user_id, **values},
             )
         )
+        affected.append(pending.row_id)
     if new_rows:
         # One multi-row VALUES clause, so every dict must carry the SAME keys:
         # the parser drops blank cells, which makes real rows ragged (and made
@@ -231,6 +275,7 @@ async def _flush_batch(
         )
     for row_id, changes in updates:
         await session.exec(update(RenovationPlanRow).where(col(RenovationPlanRow.id) == row_id).values(**changes))
+    return affected
 
 
 def _label(field: str) -> str:

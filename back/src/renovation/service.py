@@ -9,7 +9,7 @@ labels (the same pattern as «deliveryBasisName» in the «Цены» form).
 """
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
 from datetime import UTC, date, datetime, tzinfo
@@ -2575,28 +2575,43 @@ async def recompute_plan_rows(
     session: AsyncSession,
     *,
     plan_id: UUID | None = None,
+    row_ids: Sequence[UUID] | None = None,
     batch_size: int = 1000,
+    progress: Callable[[int], None] | None = None,
 ) -> RenovationRecomputeResult:
     """
-    Materialize the calculated fields and the renovation ID of every plan row.
+    Materialize the calculated fields and the renovation ID of plan rows.
 
     The importer skips calculated fields (the app is expected to recompute them)
     and `read_plan_rows` never materializes, so imported/adopted rows carry no
     derived values until they are edited. This recomputes and stores them; run it
     once after importing a plan, and whenever the formula definitions change.
 
-    Rows stream by primary key (bounded memory) and are written with one batched
-    `UPDATE` per batch (a per-row ORM flush costs ~2 ms/row on a 300k-row plan).
-    The row `revision`/`updated_at` are left alone: this is a data fix, not an
-    edit, and bumping the revision would invalidate in-flight undo/redo.
+    `row_ids` narrows the sweep to the rows an import just wrote (~20k instead of
+    the whole ~306k-row plan); `None` keeps the full backfill used by
+    `just recompute-renovation-plan`. `progress` receives the number of rows
+    scanned so far, after every batch.
+
+    Rows stream by primary key (bounded memory) and only rows whose derived
+    values actually changed are written, in one batched `UPDATE` per batch (a
+    per-row ORM flush costs ~2 ms/row on a 300k-row plan). The row
+    `revision`/`updated_at` are left alone: this is a data fix, not an edit, and
+    bumping the revision would invalidate in-flight undo/redo.
     """
     if plan_id is None:
         plan = await _plan_by_state(session, RPlanState.WORKING)
         if plan is None:
             raise _ERR_NO_WORKING_PLAN
         plan_id = plan.id
-    label_map = await _reference_labels(session)
-    assets_by_id = {asset.id: asset for asset in (await session.exec(select(RAsset))).all()}
+    # The renovation-ID generator is off (`RENOVATION_ID_FORMULA_ENABLED`), so
+    # `col_003` keeps its stored value and neither label map nor assets are
+    # needed; skip both reads on the hot import path.
+    if RENOVATION_ID_FORMULA_ENABLED:
+        label_map = await _reference_labels(session)
+        assets_by_id = {asset.id: asset for asset in (await session.exec(select(RAsset))).all()}
+    else:
+        label_map = {}
+        assets_by_id = {}
     statement = (
         sa_update(RenovationPlanRow)
         .where(col(RenovationPlanRow.id) == bindparam("row_id"))
@@ -2606,6 +2621,43 @@ async def recompute_plan_rows(
     connection = await session.connection()
     scanned = 0
     changed = 0
+
+    async def write_batch(rows: Sequence[RenovationPlanRow]) -> None:
+        nonlocal scanned, changed
+        parameters: list[dict[str, object]] = []
+        for row in rows:
+            calculated, row_changed = _materialize_row(row)
+            asset = assets_by_id.get(row.asset_id)
+            new_id = row.col_003
+            if asset is not None and RENOVATION_ID_FORMULA_ENABLED:
+                new_id = _safe_renovation_id(_renovation_id_input(row, asset, label_map)).value
+            row_changed = row_changed or new_id != row.col_003
+            changed += row_changed
+            scanned += 1
+            if row_changed:
+                parameters.append({"row_id": row.id, **calculated, "col_003": new_id})
+        if parameters:
+            await connection.execute(statement, parameters)
+        for row in rows:
+            session.expunge(row)
+        if progress is not None:
+            progress(scanned)
+
+    if row_ids is not None:
+        # Deduplicate while keeping the caller's order; an import may name the
+        # same row twice only through a duplicate work code, which the preflight
+        # already refuses — the guard costs nothing.
+        pending = list(dict.fromkeys(row_ids))
+        for start in range(0, len(pending), batch_size):
+            chunk = pending[start : start + batch_size]
+            query = select(RenovationPlanRow).where(
+                col(RenovationPlanRow.plan_id) == plan_id,
+                col(RenovationPlanRow.id).in_(chunk),
+            )
+            rows = list((await session.exec(query.order_by(col(RenovationPlanRow.id)))).all())
+            await write_batch(rows)
+        return RenovationRecomputeResult(plan_id=plan_id, scanned=scanned, changed=changed)
+
     last_id: UUID | None = None
     while True:
         query = select(RenovationPlanRow).where(col(RenovationPlanRow.plan_id) == plan_id)
@@ -2614,20 +2666,8 @@ async def recompute_plan_rows(
         rows = list((await session.exec(query.order_by(col(RenovationPlanRow.id)).limit(batch_size))).all())
         if not rows:
             break
-        parameters: list[dict[str, object]] = []
-        for row in rows:
-            calculated, row_changed = _materialize_row(row)
-            asset = assets_by_id.get(row.asset_id)
-            new_id = row.col_003
-            if asset is not None and RENOVATION_ID_FORMULA_ENABLED:
-                new_id = _safe_renovation_id(_renovation_id_input(row, asset, label_map)).value
-            changed += row_changed or new_id != row.col_003
-            scanned += 1
-            parameters.append({"row_id": row.id, **calculated, "col_003": new_id})
-        await connection.execute(statement, parameters)
+        await write_batch(rows)
         last_id = rows[-1].id
-        for row in rows:
-            session.expunge(row)
     return RenovationRecomputeResult(plan_id=plan_id, scanned=scanned, changed=changed)
 
 

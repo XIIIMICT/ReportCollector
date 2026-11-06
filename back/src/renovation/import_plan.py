@@ -2,6 +2,7 @@
 
 from collections import Counter
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from itertools import chain, islice
 from pathlib import Path
@@ -12,6 +13,7 @@ from pyxlsb import open_workbook
 
 from src.renovation.constants import R_ASSETS
 from src.renovation.form_schema import field_metas, normalize_label
+from src.renovation.plan import RReferenceCatalog
 from src.renovation.reference_data import REFERENCE_OPTIONS
 from src.renovation.renovation_id import (
     DIRECTION_CODE_FIELD,
@@ -115,26 +117,44 @@ _TEMPLATE_FIELDS: dict[str, str] = {
 }
 
 
-def assets_in_file(source: Path | BinaryIO) -> frozenset[str]:
-    """
-    Repair codes («Наименование ДО») present in the workbook's plan sheet.
+@dataclass(frozen=True)
+class PlanFileScope:
+    """Dictionaries an uploaded plan file validates against."""
 
-    Used to scope the cache key: a plan change in another asset does not
-    invalidate this file's report. Read errors yield an empty set, which the
-    caller treats as «unknown» (no caching).
+    # Repair codes («Наименование ДО») present in the sheet.
+    assets: frozenset[str]
+    # Reference catalogs the file has a column for; only those can report a
+    # missing value, so only their changes may invalidate the report.
+    catalogs: frozenset[str]
+
+
+# A file's «Предприятие» column is the asset dictionary, not a
+# `RenovationReferenceValue` catalog: the asset codes are scoped separately.
+_REFERENCE_CATALOGS = frozenset(catalog.value for catalog in RReferenceCatalog)
+
+
+def scan_file_scope(source: Path | BinaryIO) -> PlanFileScope:
     """
+    Asset codes and reference catalogs present in the workbook's plan sheet.
+
+    Used to scope the cache key: a plan change in another asset, or an edit to a
+    catalog the file has no column for, does not invalidate this file's report.
+    Read errors yield an empty scope, which the caller treats as «unknown» (no
+    caching).
+    """
+    empty = PlanFileScope(assets=frozenset(), catalogs=frozenset())
     try:
         rows = _iter_plan_rows(source)
         first_rows = list(islice(rows, 2))
     except BadZipFile, KeyError, OSError, ValueError:
-        return frozenset()
+        return empty
     header, data_start = _locate_header(first_rows)
     if header is None:
-        return frozenset()
+        return empty
     code_index = next((i for i, value in enumerate(header) if _norm(value) == _norm(_CODE_HEADER)), None)
     asset_index = next((i for i, value in enumerate(header) if _norm(value) == _norm(_ASSET_HEADER)), None)
     if asset_index is None:
-        return frozenset()
+        return empty
     data_rows = chain(first_rows[data_start:], rows)
     first_data_row = next(iter(data_rows), None)
     if first_data_row is None:
@@ -146,7 +166,38 @@ def assets_in_file(source: Path | BinaryIO) -> frozenset[str]:
         for raw in data_rows
         if raw is not None and asset_index < len(raw) and raw[asset_index] not in (None, "")
     }
-    return frozenset(code for code in codes if code)
+    return PlanFileScope(
+        assets=frozenset(code for code in codes if code),
+        catalogs=_catalogs_in_header(header),
+    )
+
+
+def _catalogs_in_header(header: list[object]) -> frozenset[str]:
+    """Return the reference catalogs the template columns resolve to (assets excluded)."""
+    fields = {field.db_name: field for field in field_metas()}
+    mapping = _header_map()
+    catalogs: set[str] = set()
+    for value in header:
+        normalized = _norm(value)
+        if not normalized:
+            continue
+        field = mapping.get(normalized)
+        if field is None and normalized.startswith(_norm("Дефектная ведомость/ВОР")):
+            field = "col_023"
+        meta = fields.get(field) if field is not None else None
+        if meta is not None and meta.catalog in _REFERENCE_CATALOGS:
+            catalogs.add(meta.catalog)
+    return frozenset(catalogs)
+
+
+def assets_in_file(source: Path | BinaryIO) -> frozenset[str]:
+    """
+    Repair codes («Наименование ДО») present in the workbook's plan sheet.
+
+    Kept as the narrow form of `scan_file_scope` for callers that only need the
+    codes; the preflight uses the full scope so catalog edits invalidate too.
+    """
+    return scan_file_scope(source).assets
 
 
 def _locate_header(rows: list[list[object]]) -> tuple[list[object] | None, int]:
