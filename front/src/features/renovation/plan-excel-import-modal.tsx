@@ -243,6 +243,10 @@ export function PlanExcelImportModal({
                                     <ProgressBar
                                         aria-label={statusLabel}
                                         className="plan-excel-import-modal__progress"
+                                        // The check is one opaque request: there
+                                        // is no size or count to state, so the bar
+                                        // shows motion, never a fake percentage.
+                                        isIndeterminate
                                     >
                                         <Label>{statusLabel}</Label>
                                         <ProgressBar.Track>

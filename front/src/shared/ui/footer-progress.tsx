@@ -1,6 +1,6 @@
 "use client";
 
-import { ProgressBar } from "@heroui/react";
+import { Label, ProgressBar } from "@heroui/react";
 
 /** What a background operation reports to the footer's center slot. */
 export type FooterProgressState = {
@@ -16,9 +16,11 @@ export type FooterProgressState = {
  * A long-running background operation in the footer, between the form status
  * and the action buttons.
  *
- * The wrapper (`.table-footer__progress`) is bounded at 10em and shrinks when
- * the side blocks press on it, so the bar never pushes the actions out and
- * never disappears. Until the first server reply it only shows motion.
+ * The label names the current stage and the output states the percentage; the
+ * wrapper (`.table-footer__progress`) is bounded at 20em — 10em once the view
+ * strip's label collapses — and shrinks under pressure, so the bar never
+ * pushes the actions out and never disappears. Until the first server reply
+ * it only shows motion: there is no percentage to state yet.
  */
 export function FooterProgress({ label, progress, total }: FooterProgressState) {
     const determinate = total > 0;
@@ -33,6 +35,8 @@ export function FooterProgress({ label, progress, total }: FooterProgressState) 
                 maxValue={determinate ? total : 100}
                 value={determinate ? Math.max(0, Math.min(progress, total)) : 0}
             >
+                <Label>{label}</Label>
+                {determinate ? <ProgressBar.Output /> : null}
                 <ProgressBar.Track>
                     <ProgressBar.Fill />
                 </ProgressBar.Track>

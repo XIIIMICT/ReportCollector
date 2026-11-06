@@ -1229,21 +1229,58 @@ body {
     align-items: center;
 }
 
-/* A background operation's progress (the Excel load). It is bounded at 10em
+/* A background operation's progress (the Excel load). It is bounded at 20em
    and centered in the free space between the status and the actions; when the
    sides press on it, it shrinks to a still-visible bar instead of vanishing. */
 .table-footer__progress {
     display: flex;
-    min-width: 3.5em;
-    max-width: 10em;
-    flex: 0 1 10em;
+    min-width: 5em;
+    max-width: 20em;
+    flex: 0 1 20em;
     align-items: center;
     margin-inline: auto;
+}
+
+/* Below sm the view strip's «Вид таблицы» label collapses (the same
+   `width <= 40rem` block), so the footer is tighter and the bar gives half its
+   width back. */
+@media (width <= 40rem) {
+    .table-footer__progress {
+        max-width: 10em;
+        flex-basis: 10em;
+    }
 }
 
 .table-footer__progress-bar {
     width: 100%;
     min-width: 0;
+}
+
+/* The bar's caption line: the current stage on the left, the percentage on the
+   right. Both step down to the footer's scale, and the caption ellipsizes
+   instead of pushing the percentage out of the bounded slot. */
+.table-footer__progress .table-footer__progress-bar [data-slot="label"] {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.table-footer__progress .table-footer__progress-bar .progress-bar__output {
+    color: var(--text);
+    font-size: 0.75rem;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* While a background operation runs, the footer's width belongs to its bar:
+   the form status collapses to the presence badge (its tooltip still works). */
+.table-footer:has(.table-footer__progress) .form-status__body {
+    display: none;
 }
 
 /* A toolbar control shown only on some sections (the «Рабочая версия» picker,
