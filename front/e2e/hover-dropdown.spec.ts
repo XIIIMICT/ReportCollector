@@ -8,7 +8,7 @@ import { loginAsLocalUser } from "./helpers/auth";
 // open, which would make a mouseleave-based close loop forever), must close on
 // an outside click, and must close on Escape without immediately reopening
 // (the closing menu un-inerts the trigger and the still-hovering pointer would
-// otherwise re-open it). The compact action menu (below sm) and the view
+// otherwise re-open it). The compact action menu (below lg) and the view
 // strip's «Вид таблицы» menu run on the same HoverDropdown.
 
 // The shared local-login helper: these suites exercise hover behaviour, not
@@ -53,7 +53,7 @@ test("compact action menu: no flicker on hover, closes on outside click and Esca
     page,
 }) => {
     await login(page);
-    // The compact «Действия» menu renders below sm (40rem = 640px).
+    // The compact «Действия» menu renders below lg (64rem = 1024px).
     await page.setViewportSize({ width: 600, height: 900 });
     await page.waitForTimeout(1000);
 

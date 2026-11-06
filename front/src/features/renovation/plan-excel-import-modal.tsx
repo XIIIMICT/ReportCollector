@@ -1,10 +1,10 @@
 "use client";
 
-import { Button, Label, Modal, ProgressBar, toast } from "@heroui/react";
+import { Button, Label, Modal, ProgressBar } from "@heroui/react";
 import { Upload } from "iconoir-react";
 import { useEffect, useState } from "react";
 
-import type { PlanImportJobState, PlanImportProgress } from "@/shared/api/renovation";
+import type { PlanImportProgress } from "@/shared/api/renovation";
 import { ReportCollectorApiError } from "@/shared/api/report-collector";
 import { FileInput } from "@/shared/ui/file-input";
 
@@ -33,61 +33,10 @@ export type PlanExcelImportResult =
           columns?: string[];
       };
 
-/** What the dialog shows after the load finished (or failed). */
-export type PlanExcelUploadResult =
-    | { status: "done"; newRows: number; updatedRows: number }
-    | { status: "error"; message: string };
-
-/** The one-line load summary carried by the success toast. */
-export function loadSummary(result: Extract<PlanExcelUploadResult, { status: "done" }>): string {
-    return [`Новых строк: ${result.newRows}`, `Обновлено строк: ${result.updatedRows}`].join(" · ");
-}
-
-/** The stage caption shown while the worker holds the import. */
-function uploadPhaseLabel(phase: string | null): string {
-    switch (phase) {
-        case "parse":
-            return "Разбор файла...";
-        case "write":
-            return "Запись строк...";
-        case "recompute":
-            return "Пересчёт формул...";
-        default:
-            return "Идёт загрузка в базу...";
-    }
-}
-
 /**
- * The load's progress as a toast description.
- *
- * After the preflight the load runs detached from the dialog: the dialog closes
- * and this bar travels in a toast, so the grid behind stays usable. The server
- * sizes it from the preflight row count; until the first reply it is
- * indeterminate.
+ * The preflight dialog. It owns the file check; the detached load itself is
+ * reported by the workspace's footer progress bar and settles as a toast.
  */
-function ImportProgress({ state }: { state: PlanImportJobState | null }) {
-    const total = state?.total ?? 0;
-    const determinate = total > 0;
-    const label = state === null ? "Идёт загрузка в базу..." : uploadPhaseLabel(state.phase);
-    return (
-        <ProgressBar
-            aria-label={label}
-            className="plan-import-toast__progress"
-            // React Aria defaults a missing `value` to 0 (determinate), so the
-            // indeterminate state has to be requested explicitly.
-            isIndeterminate={!determinate}
-            maxValue={determinate ? total : 100}
-            value={determinate ? Math.min(state?.progress ?? 0, total) : 0}
-        >
-            <Label>{label}</Label>
-            {determinate ? <ProgressBar.Output /> : null}
-            <ProgressBar.Track>
-                <ProgressBar.Fill />
-            </ProgressBar.Track>
-        </ProgressBar>
-    );
-}
-
 export function PlanExcelImportModal({
     isOpen,
     result = null,
@@ -100,13 +49,10 @@ export function PlanExcelImportModal({
     onOpenChange: (open: boolean) => void;
     onFileSelected: (file: File, progress: PlanImportProgress) => Promise<unknown> | void;
     /**
-     * Loads the already checked file; the dialog owns its pending state.
-     * `onProgress` is fed by the server-reported job state.
+     * Starts the detached load; the dialog closes at once, and the workspace's
+     * footer bar owns the progress from there.
      */
-    onUpload?: (
-        file: File,
-        onProgress: (state: PlanImportJobState) => void,
-    ) => Promise<PlanExcelUploadResult> | void;
+    onUpload?: (file: File) => Promise<void> | void;
 }) {
     const [fileName, setFileName] = useState("");
     const [checkPending, setCheckPending] = useState(false);
@@ -210,59 +156,20 @@ export function PlanExcelImportModal({
         if (!file || uploadPending || !onUpload) return;
         const selected = file;
         setUploadPending(true);
-        // The load is detached from the dialog at once: a toast carries its
-        // progress, so the dialog closes and stops blocking the grid behind it.
-        const toastId = toast("Загрузка файла в базу", {
-            description: <ImportProgress state={null} />,
-            isLoading: true,
-            timeout: 0,
-        });
+        // The load is detached from the dialog at once: the workspace's footer
+        // bar carries its progress, so the dialog closes and stops blocking the
+        // grid behind it.
         onOpenChange(false);
         try {
-            const outcome = await onUpload(selected, (state) => {
-                toast.update(toastId, "Загрузка файла в базу", {
-                    description: <ImportProgress state={state} />,
-                    isLoading: true,
-                    timeout: 0,
-                });
-            });
-            if (!outcome) {
-                // A handler that starts nothing gives no terminal state to show.
-                toast.close(toastId);
-                return;
-            }
-            if (outcome.status === "done") {
-                toast.update(toastId, "Файл загружен", {
-                    description: loadSummary(outcome),
-                    isLoading: false,
-                    timeout: 4000,
-                    variant: "success",
-                });
-                return;
-            }
-            failLoad(toastId, outcome.message);
-        } catch (error) {
-            failLoad(
-                toastId,
-                error instanceof Error ? error.message : "Не удалось загрузить файл.",
-            );
+            await onUpload(selected);
         } finally {
             setUploadPending(false);
         }
     }
 
-    /** Settle the running toast in place as the load's failure. */
-    function failLoad(toastId: string, message: string) {
-        toast.update(toastId, "Не удалось загрузить файл", {
-            description: message,
-            isLoading: false,
-            timeout: 8000,
-            variant: "danger",
-        });
-    }
-
     // The check is ONE request with no server-reported progress: the bar only
-    // shows motion while the analysis runs. The load's percentage lives in a toast.
+    // shows motion while the analysis runs. The load's percentage lives in the
+    // footer.
     const statusLabel = phase === "uploading" ? "Идёт загрузка..." : "Идёт анализ...";
     const dragging = isDragging || isPageDragging;
     return (

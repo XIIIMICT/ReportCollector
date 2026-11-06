@@ -842,18 +842,6 @@ body {
     list-style: circle;
 }
 
-/* A progress bar inside a toast. The toast content aligns its children to the
-   start (content-sized), so the description that carries a bar is stretched to
-   the content column; the bar's own `w-full` then spans the toast. The top gap
-   separates it from the title line. */
-.plan-import-toast__progress {
-    margin-top: 0.5rem;
-}
-
-[data-slot="toast-description"]:has(.plan-import-toast__progress) {
-    align-self: stretch;
-}
-
 /* View strip between the toolbar and the grid: display-only controls in ONE
    row — asset/block filters («Ремонт» plan) on the left, export/fullscreen
    buttons on the right. The filters take exactly the width they need. */
@@ -1231,6 +1219,31 @@ body {
     flex: 0 1 auto;
     align-items: center;
     gap: 0.8rem;
+}
+
+/* The footer's left slot. It yields width before the action bar does. */
+.table-footer__status {
+    display: flex;
+    min-width: 0;
+    flex: 0 1 auto;
+    align-items: center;
+}
+
+/* A background operation's progress (the Excel load). It is bounded at 10em
+   and centered in the free space between the status and the actions; when the
+   sides press on it, it shrinks to a still-visible bar instead of vanishing. */
+.table-footer__progress {
+    display: flex;
+    min-width: 3.5em;
+    max-width: 10em;
+    flex: 0 1 10em;
+    align-items: center;
+    margin-inline: auto;
+}
+
+.table-footer__progress-bar {
+    width: 100%;
+    min-width: 0;
 }
 
 /* A toolbar control shown only on some sections (the «Рабочая версия» picker,

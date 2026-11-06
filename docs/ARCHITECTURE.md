@@ -458,11 +458,15 @@ worker's `total` is twice that — one half for the write, one for the recompute
 of exactly those rows — and the terminal result overwrites it with the actual
 row count. The manager persists a progress change within a second (it polls the
 child's in-memory counters, while the 30-second lease still renews every 10 s),
-which is what feeds the load toast's determinate progress bar: pressing
-«Загрузить» closes the dialog, the row/phase progress continues in a
-non-blocking toast, and that toast settles in place into the success or error
-message. The analysis wait before it keeps its indeterminate bar inside the
-dialog.
+which is what feeds the footer's determinate progress bar: pressing «Загрузить»
+closes the dialog, the load continues behind a bar in the footer's center slot
+(between the form status and the action buttons), and only the terminal outcome
+is a toast. The bar survives a switch between the project's forms (the same
+workspace instance) and re-attaches after leaving and returning to the project:
+the job id is kept per project in `sessionStorage`
+(`front/src/features/renovation/use-plan-import-job.ts`), so a remount resumes
+polling until the job settles. The analysis wait before it keeps its
+indeterminate bar inside the dialog.
 
 Rows are matched by «Код работы» (`col_003`): a code already in the plan updates
 that row in place, a code the plan does not have **appends** a row at the end

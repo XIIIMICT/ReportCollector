@@ -30,8 +30,6 @@ import {
     getRenovationMeta,
     getRenovationPlanRows,
     getRenovationPlanSummary,
-    applyRenovationPlanImport,
-    getRenovationPlanImportJob,
     inspectRenovationPlanImport,
     getRenovationPlans,
     getUndoState,
@@ -88,6 +86,7 @@ import {
 } from "@/shared/ui/action-items";
 import { AppHeader } from "@/shared/ui/app-header";
 import { precedingColumnFilters, type ColumnFilter } from "@/shared/ui/column-filter-facets";
+import { FooterProgress } from "@/shared/ui/footer-progress";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
@@ -131,6 +130,7 @@ import {
     type RenovationRowPatch,
 } from "./renovation-grid";
 import { ASSET_COLUMN_PROP, ASSET_FIELD_DB_NAME, AUDIT_COLUMNS } from "./renovation-grid-constants";
+import { usePlanImportJob } from "./use-plan-import-job";
 
 /** Standard grid toasts: see `gridWarningHandlers`. */
 const gridWarnings = gridWarningHandlers({});
@@ -1025,6 +1025,13 @@ export function RenovationWorkspace({
         setMetaReloadKey((key) => key + 1);
         setViewPlanId(null);
     }, []);
+    // The Excel load runs detached from its dialog: the footer bar owns it
+    // while the project is open and re-attaches after a project round-trip
+    // (the job id is kept per project in sessionStorage).
+    const planImport = usePlanImportJob({
+        projectKey: activeProjectKey,
+        onApplied: refresh,
+    });
 
     const handleCellChanged = useCallback((event: CollabCellChanged) => {
         const key = canonicalCellKey(
@@ -1969,6 +1976,7 @@ export function RenovationWorkspace({
                     />
                 ) : null}
             </div>
+            {planImport.progress ? <FooterProgress {...planImport.progress} /> : null}
             <ActionBar
                 items={isPlanSection ? actions : dictActions}
                 onDropdownOpenChange={setToolbarControlOpen}
@@ -1998,40 +2006,12 @@ export function RenovationWorkspace({
                         rowsToUpdate: result.rows_to_update,
                     });
                 }}
-                onUpload={async (file, onProgress) => {
-                    try {
-                        const expectedRows =
-                            planExcelImportResult?.status === "ready"
-                                ? planExcelImportResult.newRows + planExcelImportResult.rowsToUpdate
-                                : 0;
-                        const accepted = await applyRenovationPlanImport(file, expectedRows);
-                        onProgress(accepted);
-                        let applied = accepted;
-                        while (applied.status === "pending" || applied.status === "running") {
-                            await new Promise((resolve) => window.setTimeout(resolve, 750));
-                            applied = await getRenovationPlanImportJob(accepted.id);
-                            onProgress(applied);
-                        }
-                        if (applied.status !== "done") {
-                            throw new Error(applied.error ?? "Не удалось загрузить файл.");
-                        }
-                        // The grid still holds the plan as it was before the load:
-                        // a new key refetches rows, summary and the «№» order.
-                        setReloadKey((key) => key + 1);
-                        return {
-                            status: "done" as const,
-                            newRows: applied.new_rows,
-                            updatedRows: applied.updated_rows,
-                        };
-                    } catch (error) {
-                        return {
-                            status: "error" as const,
-                            message:
-                                error instanceof Error
-                                    ? error.message
-                                    : "Не удалось загрузить файл.",
-                        };
-                    }
+                onUpload={(file) => {
+                    const expectedRows =
+                        planExcelImportResult?.status === "ready"
+                            ? planExcelImportResult.newRows + planExcelImportResult.rowsToUpdate
+                            : 0;
+                    void planImport.start(file, expectedRows);
                 }}
             />
         </div>

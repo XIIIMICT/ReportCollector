@@ -62,8 +62,9 @@ export function groupActionItems(items: ActionItem[]): ActionItem[][] {
 /**
  * The desktop action bar: the caller builds the ordered `ActionItem` list, this
  * renders it with the responsive tiers (everything collapses into one
- * «Действия» menu on sm; a primary action collapses to an icon on md) and the
- * floating shortcut hint. Shared by both workspaces.
+ * «Действия» menu below lg — the same 64rem breakpoint where the card margins
+ * and the header padding shrink) and the floating shortcut hint. Shared by
+ * both workspaces.
  */
 export function ActionBar({
     items,
@@ -73,10 +74,8 @@ export function ActionBar({
     /** Holds the fullscreen panels open while an action menu is expanded. */
     onDropdownOpenChange?: ((open: boolean) => void) | undefined;
 }) {
-    const isSm = useMediaQuery("(max-width: 40rem)");
-    const isMd = useMediaQuery("(max-width: 48rem)");
-    const collapsePrimaryAtMd = isMd && !isSm;
-    const isExpanded = (action: ActionItem) => action.variant === "primary" && !collapsePrimaryAtMd;
+    const isCompact = useMediaQuery("(width < 64rem)");
+    const isExpanded = (action: ActionItem) => action.variant === "primary";
     // Floating hint: shows the label plus a Kbd with the shortcut over every
     // inline action button, including the ones grouped in a ButtonGroup (whose
     // children can't be wrapped in a per-button Tooltip).
@@ -165,7 +164,7 @@ export function ActionBar({
         );
     };
 
-    if (isSm) {
+    if (isCompact) {
         return (
             <div
                 className="action-bar action-bar--compact"
