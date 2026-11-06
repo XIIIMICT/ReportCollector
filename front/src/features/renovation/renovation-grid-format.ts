@@ -4,10 +4,14 @@
  * Split out of `renovation-grid.tsx`. The plan is a Russian-language form, so
  * display formatting is ru-RU throughout while the stored values stay ISO
  * (`YYYY-MM-DD`, full ISO for datetimes) — the converters below bridge the two
- * and never trust the shape blindly (a legacy cell may hold anything).
+ * and never trust the shape blindly (a legacy cell may hold anything). A
+ * datetime is an instant and is printed in the browser's local zone; a date is
+ * a calendar day and is taken from its own parts, so neither shifts wrongly.
  */
 
 import type { HyperFunc, VNode } from "@revolist/react-datagrid";
+
+import { renderDateTimeText } from "@/shared/grid/grid-config";
 
 /** Right-aligned numeric cell with the field's own decimal count. */
 export function numberTemplate(decimals: number | null | undefined) {
@@ -43,12 +47,14 @@ export function formatPlanDate(value: unknown): string {
 
 export function formatPlanDateTime(value: unknown): string {
     if (value === null || value === undefined || value === "") return "";
-    const s = String(value);
-    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(s.trim());
-    if (m) return `${m[3]}.${m[2]}.${m[1]}, ${m[4]}:${m[5]}:${m[6]}`;
-    const parsed = new Date(s);
+    // A timestamp is an INSTANT: parse it and let `Intl` print it in the
+    // browser's zone. Slicing the ISO string used to print the server's UTC
+    // clock as if it were local — «Время добавления» showed GMT+0 while every
+    // other form showed GMT+3. `renderDateTimeText` is the shared rule.
+    if (typeof value === "string") return renderDateTimeText(value);
+    const parsed = value instanceof Date ? value : new Date(String(value));
     return Number.isNaN(parsed.getTime())
-        ? s
+        ? String(value)
         : new Intl.DateTimeFormat("ru-RU", {
               day: "2-digit",
               month: "2-digit",
