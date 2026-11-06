@@ -9,7 +9,7 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 - [ ] Establish a repeatable production-like workload matrix: 306k-row plan
   windows/counts/facets with combined filters, KPPK slices, full/filtered exports,
-  representative XLSB inspect/apply, concurrent collaboration, and worker restart
+  representative XLSB/XLSX inspect/apply, concurrent collaboration, and worker restart
   during jobs. Record p50/p95/p99, RSS/CPU, pool/lock/queue waits, throughput and
   dropped sockets. The successful full-plan browser download on 2026-10-30 is
   one functional check, not this concurrency baseline. Keep disposable schemas
@@ -28,7 +28,7 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 ## P1 — backend correctness and bounded work
 
-- [ ] Finish XLSB preflight as one bounded worker operation. It currently hashes
+- [ ] Finish plan preflight as one bounded worker operation. It currently hashes
   the upload, scans assets, then parses again; holds a request DB session during
   parsing and reads existing codes across plans. Scope lookups to the target
   plan/assets, release connections before CPU work, and persist the digest and

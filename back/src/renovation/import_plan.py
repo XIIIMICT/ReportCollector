@@ -1,4 +1,4 @@
-"""Validate a technical-directorate XLSB plan without changing the database."""
+"""Validate a technical-directorate Excel plan without changing the database."""
 
 from collections import Counter
 from collections.abc import Iterable, Iterator
@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import BinaryIO
 from zipfile import BadZipFile
 
+from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 from pyxlsb import open_workbook
 
 from src.renovation.constants import R_ASSETS
@@ -133,7 +135,7 @@ class PlanFileScope:
 _REFERENCE_CATALOGS = frozenset(catalog.value for catalog in RReferenceCatalog)
 
 
-def scan_file_scope(source: Path | BinaryIO) -> PlanFileScope:
+def scan_file_scope(source: Path | BinaryIO, suffix: str | None = None) -> PlanFileScope:
     """
     Asset codes and reference catalogs present in the workbook's plan sheet.
 
@@ -144,9 +146,9 @@ def scan_file_scope(source: Path | BinaryIO) -> PlanFileScope:
     """
     empty = PlanFileScope(assets=frozenset(), catalogs=frozenset())
     try:
-        rows = _iter_plan_rows(source)
+        rows = _iter_plan_rows(source, suffix)
         first_rows = list(islice(rows, 2))
-    except BadZipFile, KeyError, OSError, ValueError:
+    except BadZipFile, KeyError, OSError, ValueError, InvalidFileException:
         return empty
     header, data_start = _locate_header(first_rows)
     if header is None:
@@ -190,14 +192,14 @@ def _catalogs_in_header(header: list[object]) -> frozenset[str]:
     return frozenset(catalogs)
 
 
-def assets_in_file(source: Path | BinaryIO) -> frozenset[str]:
+def assets_in_file(source: Path | BinaryIO, suffix: str | None = None) -> frozenset[str]:
     """
     Repair codes («Наименование ДО») present in the workbook's plan sheet.
 
     Kept as the narrow form of `scan_file_scope` for callers that only need the
     codes; the preflight uses the full scope so catalog edits invalidate too.
     """
-    return scan_file_scope(source).assets
+    return scan_file_scope(source, suffix).assets
 
 
 def _locate_header(rows: list[list[object]]) -> tuple[list[object] | None, int]:
@@ -270,14 +272,37 @@ _CATALOG_ALIASES: dict[str, frozenset[str]] = {
     "execution_method": frozenset({"собственными силами"}),
 }
 
+# The two Excel containers the customer drops: binary and OOXML.
+PLAN_FILE_SUFFIXES: tuple[str, ...] = (".xlsb", ".xlsx")
 
-def _read_rows(path: Path | BinaryIO) -> list[list[object]]:
+
+def plan_file_suffix(file_name: str | None) -> str | None:
+    """Return the plan workbook's suffix, or None when the name is another format."""
+    if not file_name:
+        return None
+    suffix = Path(file_name).suffix.casefold()
+    return suffix if suffix in PLAN_FILE_SUFFIXES else None
+
+
+def _source_suffix(source: Path | BinaryIO, suffix: str | None) -> str:
+    """Resolve the workbook format: the path's suffix, an explicit stream hint, or xlsb."""
+    if suffix is not None:
+        return suffix.casefold()
+    if isinstance(source, Path):
+        return source.suffix.casefold()
+    return ".xlsb"
+
+
+def _read_rows(path: Path | BinaryIO, suffix: str | None = None) -> list[list[object]]:
     """Read all worksheet rows for compatibility and small unit-test fixtures."""
-    return list(_iter_plan_rows(path))
+    return list(_iter_plan_rows(path, suffix))
 
 
-def _iter_plan_rows(path: Path | BinaryIO) -> Iterator[list[object]]:
+def _iter_plan_rows(path: Path | BinaryIO, suffix: str | None = None) -> Iterator[list[object]]:
     """Yield plan-sheet rows without materializing the workbook."""
+    if _source_suffix(path, suffix) == ".xlsx":
+        yield from _iter_xlsx_rows(path)
+        return
     source = str(path) if isinstance(path, Path) else path
     with open_workbook(source) as workbook:
         sheet = next((name for name in workbook.sheets if name.strip().upper().startswith("РБ")), None)
@@ -288,24 +313,39 @@ def _iter_plan_rows(path: Path | BinaryIO) -> Iterator[list[object]]:
             yield from ([cell.v for cell in row] for row in worksheet.rows())
 
 
+def _iter_xlsx_rows(source: Path | BinaryIO) -> Iterator[list[object]]:
+    """Yield plan-sheet rows from an OOXML workbook, using its cached formula values."""
+    workbook = load_workbook(source, read_only=True, data_only=True, keep_links=False)
+    try:
+        sheet = next((name for name in workbook.sheetnames if name.strip().upper().startswith("РБ")), None)
+        if sheet is None:
+            msg = "no plan sheet"
+            raise ValueError(msg)
+        worksheet = workbook[sheet]
+        yield from (list(row) for row in worksheet.iter_rows(values_only=True))
+    finally:
+        workbook.close()
+
+
 def inspect_plan_file_streaming(
     source: Path | BinaryIO,
     *,
     existing_codes: set[str],
     asset_names_by_code: dict[str, str],
     reference_values: dict[str, set[str]] | None = None,
+    suffix: str | None = None,
 ) -> RenovationPlanImportResult:
-    """Inspect an XLSB from a row iterator, keeping memory bounded by the report."""
-    if isinstance(source, Path) and source.suffix.casefold() != ".xlsb":
+    """Inspect an Excel workbook from a row iterator, keeping memory bounded by the report."""
+    if isinstance(source, Path) and source.suffix.casefold() not in PLAN_FILE_SUFFIXES:
         return RenovationPlanImportResult(status="invalid_format")
     try:
         return _inspect_rows(
-            _iter_plan_rows(source),
+            _iter_plan_rows(source, suffix),
             existing_codes=existing_codes,
             asset_names_by_code=asset_names_by_code,
             reference_values=reference_values,
         )
-    except BadZipFile, KeyError, OSError, ValueError:
+    except BadZipFile, KeyError, OSError, ValueError, InvalidFileException:
         return RenovationPlanImportResult(status="invalid_format")
 
 
@@ -315,19 +355,20 @@ def inspect_plan_file(
     existing_codes: set[str],
     asset_names_by_code: dict[str, str],
     reference_values: dict[str, set[str]] | None = None,
+    suffix: str | None = None,
 ) -> RenovationPlanImportResult:
     """Run template, type, duplicate, formula and summary checks."""
-    if isinstance(source, Path) and source.suffix.casefold() != ".xlsb":
+    if isinstance(source, Path) and source.suffix.casefold() not in PLAN_FILE_SUFFIXES:
         return RenovationPlanImportResult(status="invalid_format")
     try:
-        rows = _read_rows(source)
+        rows = _read_rows(source, suffix)
         return _inspect_rows(
             iter(rows),
             existing_codes=existing_codes,
             asset_names_by_code=asset_names_by_code,
             reference_values=reference_values,
         )
-    except BadZipFile, KeyError, OSError, ValueError:
+    except BadZipFile, KeyError, OSError, ValueError, InvalidFileException:
         return RenovationPlanImportResult(status="invalid_format")
 
 

@@ -119,7 +119,7 @@ async def test_parser_closes_without_producing_more_after_write_failure(monkeypa
     seen = []
     closed = Event()
 
-    def parse(_source: object, _size: int) -> Iterator[list[object]]:
+    def parse(_source: object, _size: int, _suffix: str | None = None) -> Iterator[list[object]]:
         try:
             for number in range(10):
                 seen.append(number)
@@ -146,7 +146,7 @@ async def test_cancelled_parser_waits_for_current_read_before_closing(monkeypatc
 
     entered, release, closed = Event(), Event(), Event()
 
-    def parse(_source: object, _size: int) -> Iterator[list[object]]:
+    def parse(_source: object, _size: int, _suffix: str | None = None) -> Iterator[list[object]]:
         try:
             entered.set()
             if not release.wait(5):

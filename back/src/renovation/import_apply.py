@@ -47,6 +47,7 @@ async def apply_plan_file(
     streaming: bool = False,
     expected_rows: int = 0,
     progress: Callable[[int, int, str], None] | None = None,
+    source_suffix: str | None = None,
 ) -> RenovationPlanImportApplyResult:
     """
     Load a validated technical-directorate file into the working plan.
@@ -66,11 +67,13 @@ async def apply_plan_file(
     preflight's row count (the file is written, then those rows are recomputed).
     `expected_rows=0` means the client did not send a preflight count — the
     counters still advance, but the caller treats `total=0` as indeterminate.
+    `source_suffix` names the container when `source` is an already-open stream
+    (the durable job reads a path whose suffix may be `.xlsb` or `.xlsx`).
     """
     if streaming:
-        batches = _stream_parsed_batches(source)
+        batches = _stream_parsed_batches(source, source_suffix)
     else:
-        parsed = await asyncio.to_thread(parse_plan_rows, source)
+        parsed = await asyncio.to_thread(parse_plan_rows, source, source_suffix)
 
         async def one_batch() -> AsyncGenerator[list[ParsedPlanRow]]:
             yield parsed
@@ -174,9 +177,9 @@ async def apply_plan_file(
     return RenovationPlanImportApplyResult(new_rows=inserted, updated_rows=updated)
 
 
-async def _stream_parsed_batches(source: BinaryIO) -> AsyncGenerator[list[ParsedPlanRow]]:
+async def _stream_parsed_batches(source: BinaryIO, suffix: str | None = None) -> AsyncGenerator[list[ParsedPlanRow]]:
     """Pull one batch at a time; never leave a producer blocked after a failed write."""
-    batches = cast("Generator[list[ParsedPlanRow]]", iter_plan_row_batches(source, _BATCH_SIZE))
+    batches = cast("Generator[list[ParsedPlanRow]]", iter_plan_row_batches(source, _BATCH_SIZE, suffix))
     try:
         while True:
 

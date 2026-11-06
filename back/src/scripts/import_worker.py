@@ -1,4 +1,4 @@
-"""Execute one fenced XLSB import without sharing the ASGI interpreter or log file."""
+"""Execute one fenced Excel import without sharing the ASGI interpreter or log file."""
 
 import asyncio
 import json

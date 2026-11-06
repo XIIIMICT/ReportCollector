@@ -1,4 +1,4 @@
-"""Background execution for accepted renovation XLSB uploads."""
+"""Background execution for accepted renovation Excel uploads."""
 
 from collections.abc import Callable
 from pathlib import Path
@@ -39,6 +39,7 @@ async def generate_plan_import(
                 streaming=True,
                 expected_rows=job.expected_rows,
                 progress=progress,
+                source_suffix=source.suffix,
             )
         outcome = {"newRows": result.new_rows, "updatedRows": result.updated_rows}
         if not await JobRepository().complete_in_transaction(

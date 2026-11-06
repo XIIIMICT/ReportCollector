@@ -1,6 +1,6 @@
 """Parsing a technical-directorate plan sheet into row values.
 
-Covers `parse_plan_rows` — the CPU-bound half of the XLSB load that runs in a
+Covers `parse_plan_rows` — the CPU-bound half of the Excel load that runs in a
 worker thread. Only the workbook READ (`_read_rows`) is patched: header
 location, column mapping, the numbering row, code/asset extraction, reference
 normalization and type coercion all run for real, which is what the loader
@@ -38,7 +38,7 @@ def sheet(monkeypatch):
     """Replace only the workbook read; hand the parser a plain row matrix."""
     state: dict[str, list[list[object]]] = {"rows": []}
 
-    def fake_read_rows(_source: object) -> list[list[object]]:
+    def fake_read_rows(_source: object, _suffix: str | None = None) -> list[list[object]]:
         return state["rows"]
 
     monkeypatch.setattr("src.renovation.import_rows._read_rows", fake_read_rows)
@@ -181,3 +181,22 @@ def test_calculated_fields_are_never_parsed_from_the_file(sheet) -> None:
     parsed = parse_plan_rows(Path("ignored.xlsb"))
 
     assert calculated.db_name not in parsed[0].values
+
+
+def test_an_ooxml_workbook_is_read_by_the_real_reader(tmp_path: Path) -> None:
+    """An `.xlsx` drop goes through openpyxl, not the `.xlsb` reader."""
+    from openpyxl import Workbook
+
+    book = Workbook()
+    worksheet = book.active
+    worksheet.title = "РБ_2027_БСЗ"
+    for row in _sheet(_row("Р-010", "SNHZ", workshop="Цех 2")):
+        worksheet.append(row)
+    path = tmp_path / "plan.xlsx"
+    book.save(path)
+
+    parsed = parse_plan_rows(path)
+
+    assert [row.code for row in parsed] == ["Р-010"]
+    assert parsed[0].asset_code == "SNHZ"
+    assert parsed[0].values["col_005"] == "Цех 2"

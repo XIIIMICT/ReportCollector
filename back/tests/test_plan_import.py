@@ -1,8 +1,9 @@
-"""Preflight of a technical-directorate XLSB plan (no database writes)."""
+"""Preflight of a technical-directorate Excel plan (no database writes)."""
 
 from pathlib import Path
 
 import pytest
+from openpyxl import Workbook
 from pyxlsb import open_workbook
 
 from src.renovation.import_plan import _norm, inspect_plan_file
@@ -13,6 +14,31 @@ from src.renovation.import_plan import _norm, inspect_plan_file
 _SAMPLE = Path(__file__).resolve().parents[2] / "docs" / "samples" / "renovation_td_example.xlsb"
 if not _SAMPLE.exists():  # a checkout without the sample keeps the tests skipped
     _SAMPLE = None
+
+
+@pytest.fixture(scope="session")
+def xlsx_sample(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """
+    Convert the committed sample to OOXML at runtime.
+
+    The customer ships either container, and the two readers must agree. A second
+    committed binary would only add a second fixture to keep in sync, so the
+    workbook is regenerated from the real `.xlsb` instead.
+    """
+    if _SAMPLE is None:
+        pytest.skip("no sample in docs/samples/")
+    target = tmp_path_factory.mktemp("xlsx-sample") / "renovation_td_example.xlsx"
+    with open_workbook(str(_SAMPLE)) as workbook:
+        sheet_name = workbook.sheets[0]
+        with workbook.get_sheet(sheet_name) as worksheet:
+            rows = [[cell.v for cell in row] for row in worksheet.rows()]
+    book = Workbook()
+    sheet = book.active
+    sheet.title = sheet_name
+    for row in rows:
+        sheet.append(row)
+    book.save(target)
+    return target
 
 
 def test_real_template_is_recognised() -> None:
@@ -163,22 +189,23 @@ def test_sample_is_uploaded_through_the_api(tmp_path: Path) -> None:
     assert response.status_code in {401, 403, 200}, response.text
 
 
-async def test_sample_upload_returns_the_preflight_report(client) -> None:
+async def test_sample_upload_returns_the_preflight_report(client, xlsx_sample: Path) -> None:
     """Full endpoint path: the real sample is accepted and its errors reported."""
     from conftest import signed_identity_headers
 
-    if _SAMPLE is None:
-        pytest.skip("no sample in docs/samples/")
-    response = await client.post(
-        "/api/renovation/plan/import/inspect",
-        files={"file": (_SAMPLE.name, _SAMPLE.read_bytes(), "application/octet-stream")},
-        headers=signed_identity_headers(email="admin@example.ru", name="Admin User"),
-    )
-    assert response.status_code == 200, response.text
-    body = response.json()
-    # The template is recognised: a wrong-format answer would mean the columns
-    # were not matched by name.
-    assert body["status"] != "invalid_format", body
+    for sample_path in (_SAMPLE, xlsx_sample):
+        if sample_path is None:
+            pytest.skip("no sample in docs/samples/")
+        response = await client.post(
+            "/api/renovation/plan/import/inspect",
+            files={"file": (sample_path.name, sample_path.read_bytes(), "application/octet-stream")},
+            headers=signed_identity_headers(email="admin@example.ru", name="Admin User"),
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        # The template is recognised: a wrong-format answer would mean the columns
+        # were not matched by name. Both containers go through the same reader.
+        assert body["status"] != "invalid_format", body
 
 
 def test_assets_in_file_are_the_cache_scope() -> None:
@@ -295,8 +322,17 @@ def test_headers_are_matched_by_name_not_position() -> None:
     assert all(_norm(name) not in mapping for name in ("Год", "№ п/п", "Код работы"))
 
 
-def test_non_xlsb_is_rejected(tmp_path: Path) -> None:
-    path = tmp_path / "plan.xlsx"
+def test_the_xlsx_container_is_analyzed_identically(xlsx_sample: Path) -> None:
+    """The same workbook as OOXML yields the same report as the binary original."""
+    if _SAMPLE is None:
+        pytest.skip("no sample in docs/samples/")
+    binary = inspect_plan_file(_SAMPLE, existing_codes=set(), asset_names_by_code={"BSZR": "АО «БСЗ»"})
+    ooxml = inspect_plan_file(xlsx_sample, existing_codes=set(), asset_names_by_code={"BSZR": "АО «БСЗ»"})
+    assert ooxml.model_dump() == binary.model_dump()
+
+
+def test_an_unsupported_suffix_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "plan.csv"
     path.write_bytes(b"not a workbook")
     assert inspect_plan_file(path, existing_codes=set(), asset_names_by_code={}).status == "invalid_format"
 

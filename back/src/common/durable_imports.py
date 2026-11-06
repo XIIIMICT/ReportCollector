@@ -50,10 +50,15 @@ def import_dir() -> Path:
     return base
 
 
+# The accepted workbook containers; the internal key keeps the upload's own
+# suffix so the worker can pick the reader without guessing from bytes.
+INPUT_SUFFIXES = frozenset({".xlsb", ".xlsx"})
+
+
 def input_path(input_key: str) -> Path:
     """Resolve an internal upload key; callers never provide an arbitrary path."""
     candidate = Path(input_key)
-    if candidate.name != input_key or candidate.suffix.casefold() != ".xlsb":
+    if candidate.name != input_key or candidate.suffix.casefold() not in INPUT_SUFFIXES:
         message = "Некорректный ключ файла импорта."
         raise ValueError(message)
     return import_dir() / candidate.name
@@ -140,7 +145,11 @@ class DurableImportManager:
         plan_id: UUID,
         expected_rows: int = 0,
     ) -> ImportJob:
-        input_key = f"{uuid4().hex}.xlsb"
+        input_suffix = Path(file_name).suffix.casefold()
+        if input_suffix not in INPUT_SUFFIXES:
+            message = "Неподдерживаемый формат файла импорта."
+            raise ValueError(message)
+        input_key = f"{uuid4().hex}{input_suffix}"
         target = input_path(input_key)
         # The move is atomic and happens before the row becomes claimable.
         move = asyncio.create_task(asyncio.to_thread(source.replace, target))
@@ -374,7 +383,7 @@ def _stale_inputs() -> list[Path]:
     with os.scandir(import_dir()) as entries:
         for entry in entries:
             path = Path(entry.path)
-            if path.suffix not in {".upload", ".xlsb"} or len(path.stem) != 32:
+            if path.suffix not in {".upload", ".xlsb", ".xlsx"} or len(path.stem) != 32:
                 continue
             if any(char not in "0123456789abcdef" for char in path.stem):
                 continue

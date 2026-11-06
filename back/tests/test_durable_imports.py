@@ -44,14 +44,14 @@ def manager(repository, generate=generate_plan_import):
     return DurableImportManager(kind="renovation_import", generate=generate, repository=repository)
 
 
-async def accept(worker, user, tmp_path, *, digest="digest", expected_rows=0):
+async def accept(worker, user, tmp_path, *, digest="digest", expected_rows=0, file_name="plan.xlsb"):
     path = tmp_path / "upload.tmp"
     path.write_bytes(b"accepted workbook")
     async with worker.repository.session_factory() as session:
         plan = (await session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()
     return await worker.create_from_path(
         source=path,
-        file_name="plan.xlsb",
+        file_name=file_name,
         digest=digest,
         size=17,
         user_id=user,
@@ -104,7 +104,7 @@ async def test_cancelled_or_expired_import_rolls_back_all_writes(setup_import, m
     claimed = await repository.claim(worker.kind)
 
     async def invalidate_after_write(
-        session, *, source, user_id, plan_id, streaming, expected_rows, progress
+        session, *, source, user_id, plan_id, streaming, expected_rows, progress, source_suffix=None
     ) -> RenovationPlanImportApplyResult:
         outcome = await apply_plan_file(
             session,
@@ -114,6 +114,7 @@ async def test_cancelled_or_expired_import_rolls_back_all_writes(setup_import, m
             streaming=streaming,
             expected_rows=expected_rows,
             progress=progress,
+            source_suffix=source_suffix,
         )
         if invalidation == "cancel":
             await worker.cancel(job.id, owner)
@@ -243,6 +244,31 @@ async def test_empty_expiry_list_does_not_block_worker(setup_import) -> None:
         assert (await worker.get(job.id, owner)).status == "done"
     finally:
         await worker.stop()
+
+
+async def test_xlsx_upload_keeps_its_suffix_for_the_worker(setup_import, client, monkeypatch) -> None:
+    """The internal key keeps the upload's container so the worker reads the right format."""
+    from conftest import signed_identity_headers
+
+    repository, owner, directory = setup_import
+    worker = manager(repository)
+    monkeypatch.setattr("src.renovation.router.import_jobs", worker)
+    headers = signed_identity_headers(email="admin@example.ru", name="Admin User")
+    response = await client.post(
+        "/api/renovation/plan/import/apply",
+        files={"file": ("plan.xlsx", b"bytes")},
+        headers=headers,
+    )
+    assert response.status_code == 202, response.text
+    accepted = response.json()
+    assert accepted["file_name"] == "plan.xlsx"
+    assert len(list(directory.glob("*.xlsx"))) == 1
+    assert not list(directory.glob("*.upload"))
+    queued = await repository.get(accepted["id"], owner, worker.kind)
+    assert input_path(queued.payload["input_key"]).suffix == ".xlsx"
+    await worker.execute(await repository.claim(worker.kind))
+    assert (await worker.get(accepted["id"], owner)).status == "done"
+    assert await imported_count(repository) == 1
 
 
 async def test_http_acceptance_queues_without_parsing_and_enforces_owner(setup_import, client, monkeypatch) -> None:

@@ -222,7 +222,7 @@ export type PlanImportJobState = Pick<
 >;
 
 /**
- * Load a checked XLSB file into the working plan.
+ * Load a checked Excel file (`.xlsb` or `.xlsx`) into the working plan.
  *
  * The backend stages the workbook and returns a durable job. `expectedRows` is
  * the preflight's row count and lets the server size its progress bar to the

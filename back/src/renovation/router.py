@@ -65,7 +65,12 @@ from src.renovation.export import (
 )
 from src.renovation.export_jobs import ExportJob, ExportJobSpec, ExportQueueFullError, export_jobs
 from src.renovation.import_jobs import import_jobs
-from src.renovation.import_plan import PlanFileScope, inspect_plan_file_streaming, scan_file_scope
+from src.renovation.import_plan import (
+    PlanFileScope,
+    inspect_plan_file_streaming,
+    plan_file_suffix,
+    scan_file_scope,
+)
 from src.renovation.inspect_cache import get_inspect_cache
 from src.renovation.models import RAsset, RProjectRole, RUserRole
 from src.renovation.plan import (
@@ -341,8 +346,9 @@ async def inspect_renovation_plan_import(
     _access: AdminDependency,
     file: Annotated[UploadFile, File()],
 ) -> RenovationPlanImportResult:
-    """Validate an XLSB technical-directorate plan without persisting rows."""
-    if not file.filename or not file.filename.casefold().endswith(".xlsb"):
+    """Validate an Excel technical-directorate plan without persisting rows."""
+    suffix = plan_file_suffix(file.filename)
+    if suffix is None:
         return RenovationPlanImportResult(status="invalid_format")
     with observe_phase("import", "hash_upload"):
         digest = await _rewind_and_hash_upload(file)
@@ -350,7 +356,7 @@ async def inspect_renovation_plan_import(
     # plan edit in an asset the file does not mention, or a catalog edit the
     # file has no column for, must not invalidate this report.
     with observe_phase("import", "discover_assets"):
-        file_scope = await asyncio.to_thread(scan_file_scope, file.file)
+        file_scope = await asyncio.to_thread(scan_file_scope, file.file, suffix)
     await file.seek(0)
     assets_by_code = {
         asset.repair_code.upper(): asset for asset in (await session.exec(select(RAsset))).all() if asset.repair_code
@@ -390,6 +396,7 @@ async def inspect_renovation_plan_import(
             existing_codes=existing_codes,
             asset_names_by_code=assets,
             reference_values=references,
+            suffix=suffix,
         )
     if file_scope.assets:
         await cache.set_digest(digest, result, scope=scope)
@@ -404,7 +411,7 @@ async def apply_renovation_plan_import(
     expected_rows: Annotated[int, Form(ge=0)] = 0,
 ) -> RenovationImportJobRead:
     """
-    Accept a validated XLSB file as a durable background job (admin only).
+    Accept a validated Excel file as a durable background job (admin only).
 
     Parsing, project locking and the write transaction run after the request
     ends. The load is not journaled into undo/redo because it rewrites many
@@ -412,8 +419,10 @@ async def apply_renovation_plan_import(
     and only sizes the progress bar (write + recompute); it does not gate the
     load.
     """
-    if not file.filename or not file.filename.casefold().endswith(".xlsb"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ожидается файл .xlsb.")
+    file_name = file.filename
+    suffix = plan_file_suffix(file_name)
+    if file_name is None or suffix is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ожидается файл .xlsb или .xlsx.")
     plan = (await session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).first()
     if plan is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Нет рабочего плана для загрузки.")
@@ -421,7 +430,7 @@ async def apply_renovation_plan_import(
     try:
         job = await import_jobs.create_from_path(
             source=staged,
-            file_name=file.filename,
+            file_name=file_name,
             digest=digest,
             size=size,
             user_id=str(_access.user.id),

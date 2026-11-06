@@ -127,11 +127,11 @@ The 0.143 → 0.162 range is full of **breaking** changes to request parsing. Ch
 
 | Change | Touches us? | Why |
 |---|---|---|
-| 0.162 / 0.147 / 0.149 — omitted or empty **form** fields become missing / `False` | no | the only `Form`/`File` inputs are two `UploadFile` `.xlsb` endpoints in `renovation/router.py`; there are no `Form(...)` fields, no form models, no OAuth2 form |
+| 0.162 / 0.147 / 0.149 — omitted or empty **form** fields become missing / `False` | no | the only `Form`/`File` inputs are two `UploadFile` `.xlsb`/`.xlsx` endpoints in `renovation/router.py`; there are no `Form(...)` fields, no form models, no OAuth2 form |
 | 0.153 / 0.158–0.161 — form **model** unions and combinations | no | no request models are parsed from forms |
 | 0.160 — a parameter model's `extra` config applies to sibling fields in the same location | no | query/header params are plain annotated scalars, not models; `extra="forbid"` exists only on **JSON body** schemas (`kppk/schemas.py`), which this change does not cover |
 | 0.151 — explicit JSON `null` ≠ omitted body value | no | handlers bind models directly (`payload: XRequest`) without optional body defaults; no client sends `null` to mean "use the default" |
-| 0.150 — unselected browser file input = missing | no | the import dialog requires a real file before the upload button enables; the endpoint 400s on a non-`.xlsb` name anyway |
+| 0.150 — unselected browser file input = missing | no | the import dialog requires a real file before the upload button enables; the endpoint 400s on a suffix other than `.xlsb`/`.xlsx` anyway |
 | 0.155 — `**extra` removed from `Path`/`Query`/`Header`/`Cookie`/`Body`/`Form`/`File` | no | grep finds no extra keyword on those parameters |
 | 0.146 / 0.145 — `root_path` deprecated, `openapi_prefix` removed | no | the app is served by plain Granian (Dockerfile) with nginx proxying `/api`; neither identifier appears in `back/` |
 | 0.152 / 0.156.x — header error `loc` uses the HTTP header name; `AliasChoices`/`Field` metadata fixes | beneficial | the identity headers (`X-ReportCollector-*`) now report their HTTP names in validation errors |

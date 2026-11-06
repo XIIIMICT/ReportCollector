@@ -63,7 +63,7 @@ async def test_an_option_added_to_the_dictionary_after_the_seed_is_loadable(
             },
         )
     ]
-    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source: rows)
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
 
     result = await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
     assert (result.new_rows, result.updated_rows) == (1, 0)
@@ -132,7 +132,7 @@ async def test_an_asset_outside_the_dictionary_refuses_the_whole_file(
         ParsedPlanRow(code="TEST_ASSET_KNOWN", asset_code="BSZR", values={"col_005": "известный актив"}),
         ParsedPlanRow(code="TEST_ASSET_UNKNOWN", asset_code="ZZZR", values={"col_005": "неизвестный актив"}),
     ]
-    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source: rows)
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
 
     with pytest.raises(ValueError, match="TEST_ASSET_UNKNOWN"):
         await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
@@ -179,7 +179,7 @@ async def test_a_clean_file_creates_rows_once_and_updates_them_next_time(
         )
         for index in range(1, 4)
     ]
-    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source: rows)
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
 
     first = await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
     assert (first.new_rows, first.updated_rows) == (3, 0)
@@ -213,7 +213,7 @@ async def test_the_load_reports_write_and_recompute_progress(
         ParsedPlanRow(code=f"TEST_PROGRESS_{index}", asset_code="BSZR", values={"col_005": f"Работа {index}"})
         for index in range(1, 4)
     ]
-    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source: rows)
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
     events: list[tuple[int, int, str]] = []
 
     await apply_plan_file(
@@ -279,7 +279,7 @@ async def test_a_ragged_batch_loads_and_its_dates_are_stored_as_dates(
             },
         ),
     ]
-    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source: rows)
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
 
     result = await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
     assert (result.new_rows, result.updated_rows) == (2, 0)

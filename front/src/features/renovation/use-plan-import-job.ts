@@ -71,7 +71,7 @@ function forgetJob(storageKey: string): void {
 type TrackedJob = { cancelled: boolean };
 
 /**
- * Tracks the XLSB load in the footer instead of a toast.
+ * Tracks the Excel load in the footer instead of a toast.
  *
  * The job outlives the dialog (which closes at once) and the project switch:
  * its id is kept in sessionStorage per project, so coming back re-attaches and

@@ -266,7 +266,7 @@ export function PlanExcelImportModal({
                     <Modal.Footer className="plan-excel-import-modal__footer">
                         <div className="plan-excel-import-modal__file-row">
                             <FileInput
-                                accept=".xlsb,application/vnd.ms-excel.sheet.binary.macroEnabled.12"
+                                accept=".xlsb,.xlsx,application/vnd.ms-excel.sheet.binary.macroEnabled.12,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                 error={inputError}
                                 fileName={fileName}
                                 isDisabled={checkPending || uploadPending}

@@ -528,7 +528,7 @@ class RenovationPlanImportApplyResult(BaseModel):
 
 
 class RenovationImportJobRead(BaseModel):
-    """Durable XLSB import status and bounded result."""
+    """Durable Excel import status and bounded result."""
 
     id: str
     status: Literal["pending", "running", "done", "failed"]

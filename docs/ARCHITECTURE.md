@@ -2,7 +2,7 @@
 
 Raw-material planning system: Excel-like forms with real-time collaborative editing. Monorepo: `front/` (Next.js), `back/` (FastAPI), `infra/` (compose of external services), `docs/`.
 
-Sections: [System diagram](#system-diagram) · [Services and compose profiles](#services-and-compose-profiles) · [Environment variables](#environment-variables-root-env-single-source) · [Data model «Сырьё»](#data-model-project-сырьё-key-raw_materials) · [Dictionary ordering](#dictionary-ordering) · [Data model «КППК»](#data-model-project-кппк-key-kppk) · [Authentication](#authentication) · [API](#api-back-prefix-api) · [Logging](#logging) · [Deployment](#deployment-prod) · [Plan import](#renovation-plan-import-technical-directorate-xlsb) · [Export jobs](#renovation-plan-export-jobs) · [Transactional collaboration](#transactional-collaboration)
+Sections: [System diagram](#system-diagram) · [Services and compose profiles](#services-and-compose-profiles) · [Environment variables](#environment-variables-root-env-single-source) · [Data model «Сырьё»](#data-model-project-сырьё-key-raw_materials) · [Dictionary ordering](#dictionary-ordering) · [Data model «КППК»](#data-model-project-кппк-key-kppk) · [Authentication](#authentication) · [API](#api-back-prefix-api) · [Logging](#logging) · [Deployment](#deployment-prod) · [Plan import](#renovation-plan-import-technical-directorate-xlsb--xlsx) · [Export jobs](#renovation-plan-export-jobs) · [Transactional collaboration](#transactional-collaboration)
 
 ## Ordered column filters
 
@@ -265,8 +265,8 @@ Nothing else is persisted: the selected version, the report month and the grid's
   - Fixing: `POST /movement/fix` (admin) — see "Landmines" in AGENTS.md.
   - `POST /export` — Excel (openpyxl): whole/visible selection, for «Движение» — archive versions.
   - Renovation plan export — **background jobs**: `POST /plan/export/jobs` (202 + job id), `GET /plan/export/jobs/{id}` (status/progress), `GET /plan/export/jobs/{id}/file` (download). The legacy `GET/POST /plan/export` endpoints remain for compatibility: bounded requests render inline, while larger scopes are admitted to the same durable job boundary.
-  - Renovation plan **import preflight** (admin): `POST /plan/import/inspect` (multipart `file`, `.xlsb` only) validates the technical-directorate workbook **without writing** to the database. Readiness and the response contract — see «Renovation plan import» below.
-  - Renovation plan **import load** (admin): `POST /plan/import/apply` (multipart `file`, `.xlsb` only) stages the checked workbook and returns `202` with a durable job. Poll `GET /plan/import/jobs/{id}` (or cancel with `DELETE`) while a worker parses and writes the workbook under the project gate. See «Loading the checked file» below.
+  - Renovation plan **import preflight** (admin): `POST /plan/import/inspect` (multipart `file`, `.xlsb` or `.xlsx`) validates the technical-directorate workbook **without writing** to the database. Readiness and the response contract — see «Renovation plan import» below.
+  - Renovation plan **import load** (admin): `POST /plan/import/apply` (multipart `file`, `.xlsb` or `.xlsx`) stages the checked workbook and returns `202` with a durable job. Poll `GET /plan/import/jobs/{id}` (or cancel with `DELETE`) while a worker parses and writes the workbook under the project gate. See «Loading the checked file» below.
 - `kppk` (signed identity; reads for every project member, mutations admin-only): dictionary CRUD — `GET/POST/PATCH/DELETE /product-positions[/{id}]` (PATCH `{field, value}`, `field` = `name` | `orgNames` | `productNum`; create accepts `productNum`; delete removes the product with its links), `/raws` (PATCH `{field, value}` for `name`/`rawNum`), `/orgs` (PATCH `{field, value}` for `code`/`name`), `/periods` (PATCH `{field, value}`; no UI in this phase). The source number («№», `productNum`/`rawNum`) is editable and unique — an occupied number is rejected with a clear `400`; `null` stands for a row added by hand (several NULLs are allowed); positions/raws are returned in the source-number order (unnumbered rows last). The «ДЗО» list is ordered by the full name and exposes no number. Undo/redo join the shared collaboration journal: every mutation carries the page-lifetime `session_id` (query) and is journaled as one action scoped to the tab (`scope = f"{section}/"`, no report month; `collab/undo.py` dispatches `kppk_products`/`kppk_raws`/`kppk_orgs` to `apply_kppk_cell_value`) — `GET /undo-state?section=&session_id=`, `POST /undo`, `POST /redo` (body `{skipActionId, section}`, admin; no WebSocket room and no `cell:changed` — the front refreshes the grid itself after undo/redo). `POST /export` streams the tab as XLSX (whole/visible via `rowIds`, `columns` from the grid). Deletes follow RESTRICT: a ДЗО/period referenced by the fact/plan copies is rejected with a clear `400`.
 - `ws`: `WS /ws/raw-materials` — collaboration (see `docs/COLLAB.md`).
 - Service: `GET /health` (process liveness), `GET /ready` (PostgreSQL/Valkey readiness, including the required outbox migration), rate-limit and log middlewares in `back/src/main.py`. HTTP responses carry `X-Request-ID`, also recorded in structured request logs. Granian access/handshake logs redact credential query parameters (`ticket`, `access_token`, `token`); the external reverse proxy must apply its own redaction policy.
@@ -372,7 +372,7 @@ Left uncompressed, the first load pays ~1.7 MB of avoidable transfer per visitor
 
 `ReportWorkspace` used to import all three project workspaces statically, so opening «Движение» also downloaded the КППК and renovation grids — and a grid is `@revolist/react-datagrid`, the bulk of the largest chunk. They are now `next/dynamic`, one per URL: the largest chunk went **2 179 KB → 1 459 KB**, and the grid split into its own 746 KB chunk that only the project that needs it loads. Adding a new project to `report-workspace.tsx` means adding another `dynamic(...)` entry, not a static import.
 
-## Renovation plan import (technical directorate, `.xlsb`)
+## Renovation plan import (technical directorate, `.xlsb` / `.xlsx`)
 
 `back/src/renovation/import_plan.py` validates an uploaded «РБ ПОФ» workbook
 before anything is written. Columns are matched **only by header names** —
@@ -391,7 +391,14 @@ added silently when the file has `1.1.1` instead of `1.1.1.`
 (`renovation_id.normalize_direction_code` — the same rule the grid applies on
 edit).
 
-Checks, in order: the file must be a readable `.xlsb` whose header carries
+Both containers the customer drops are accepted, chosen by the upload's suffix:
+`.xlsb` is read with `pyxlsb`, `.xlsx` with `openpyxl` (`read_only`,
+`data_only`). The OOXML reader therefore sees the formula **cached values** the
+last Excel save left behind — it never re-evaluates a formula; the plan's own
+recompute rebuilds the derived columns after the load regardless.
+
+Checks, in order: the file must be a readable `.xlsb` or `.xlsx` whose header
+carries
 «Код работы» plus the asset code and at least half of the template columns;
 cell types under the header (text/number/date); duplicate work codes
 («Код работы», listed with the rows they occupy) — the **only** blocker on the
@@ -438,13 +445,13 @@ unreachable the file is analysed again.
 
 ### Loading the checked file
 
-`POST /plan/import/apply` (admin, multipart `file`, `.xlsb` only) stages the
+`POST /plan/import/apply` (admin, multipart `file`, `.xlsb` or `.xlsx`) stages the
 validated workbook and returns `202` with a durable `renovation_import` job.
 The accepted bytes live under `IMPORT_DIR`; the job payload stores only a
 digest, plan id and internal input key. `GET /plan/import/jobs/{id}` polls the
 bounded result and `DELETE` cancels it. A supervisor claims the PostgreSQL
 lease and starts `src.scripts.import_worker` in a separate Python process, so
-XLSB parsing and plan recomputation do not share the ASGI interpreter or its
+XLSB/XLSX parsing and plan recomputation do not share the ASGI interpreter or its
 log handler. The child takes the project gate, streams batches of 200 and
 commits the plan writes **and** the terminal job result in one transaction.
 Cancellation/lease loss therefore rolls the transaction back; a lost HTTP

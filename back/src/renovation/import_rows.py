@@ -1,4 +1,4 @@
-"""Parse a technical-directorate XLSB file into plan-row values (CPU-bound, thread-safe)."""
+"""Parse a technical-directorate Excel workbook into plan-row values (CPU-bound, thread-safe)."""
 
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
@@ -30,7 +30,7 @@ class ParsedPlanRow:
     values: dict[str, object]
 
 
-def parse_plan_rows(source: Path | BinaryIO) -> list[ParsedPlanRow]:
+def parse_plan_rows(source: Path | BinaryIO, suffix: str | None = None) -> list[ParsedPlanRow]:
     """
     Read every data row of the plan sheet into plain values.
 
@@ -39,18 +39,20 @@ def parse_plan_rows(source: Path | BinaryIO) -> list[ParsedPlanRow]:
     parsed. Reference labels stay as TEXT here: the caller resolves them to
     option ids inside the write transaction.
     """
-    return list(_parse_plan_rows(_read_rows(source)))
+    return list(_parse_plan_rows(_read_rows(source, suffix)))
 
 
-def iter_plan_rows(source: Path | BinaryIO) -> Iterator[ParsedPlanRow]:
+def iter_plan_rows(source: Path | BinaryIO, suffix: str | None = None) -> Iterator[ParsedPlanRow]:
     """Yield parsed rows directly from the workbook without retaining them all."""
-    yield from _parse_plan_rows(_iter_plan_rows(source))
+    yield from _parse_plan_rows(_iter_plan_rows(source, suffix))
 
 
-def iter_plan_row_batches(source: Path | BinaryIO, batch_size: int = 200) -> Iterator[list[ParsedPlanRow]]:
+def iter_plan_row_batches(
+    source: Path | BinaryIO, batch_size: int = 200, suffix: str | None = None
+) -> Iterator[list[ParsedPlanRow]]:
     """Yield bounded parsed batches for an async writer/worker bridge."""
     batch: list[ParsedPlanRow] = []
-    for row in iter_plan_rows(source):
+    for row in iter_plan_rows(source, suffix):
         batch.append(row)
         if len(batch) >= batch_size:
             yield batch
