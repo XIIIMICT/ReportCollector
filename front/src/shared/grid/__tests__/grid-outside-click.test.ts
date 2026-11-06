@@ -1,5 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 
+import { keepsGridSelection } from "@/shared/grid/grid-selection";
+
 /**
  * The rule behind the grids' outside-click selection clear.
  *
@@ -10,15 +12,12 @@ import { afterEach, expect, test } from "bun:test";
  * BOTH grids implement it, because they are different components: the plan
  * renders its own RevoGrid (`features/renovation/renovation-grid.tsx`) while
  * «Сырьё», КППК and the renovation dictionaries share
- * `shared/grid/data-grid.tsx`. Wiring it into only the shared one
- * left the plan broken — the first attempt at this fix did exactly that.
+ * `shared/grid/data-grid.tsx`. Both call the same `keepsGridSelection`.
  */
 type Verdict = "clear" | "keep";
 
-// Mirrors `handleOutsidePointerDown` in both grids.
 function outsideClickVerdict(target: Element, shell: Element): Verdict {
-    if (target.closest('[data-slot="popover-dialog"], [role="dialog"], [role="alertdialog"]'))
-        return "keep";
+    if (keepsGridSelection(target)) return "keep";
     return shell.contains(target) ? "keep" : "clear";
 }
 
@@ -67,5 +66,19 @@ test("a click in a dialog portal keeps it", () => {
     const button = document.createElement("button");
     dialog.appendChild(button);
     document.body.appendChild(dialog);
+    expect(outsideClickVerdict(button, shell)).toBe("keep");
+});
+
+test("a click in the table action bar keeps it", () => {
+    // «Заменить запись»/«Удалить строку» are disabled without a selection.
+    // Clearing on their pointerdown disables the pressed button before React
+    // Aria's pointerup, which then cancels the press: the click looked like a
+    // silent selection reset and the dialog never opened.
+    const shell = mountShell();
+    const actionBar = document.createElement("div");
+    actionBar.setAttribute("data-grid-selection-keep", "");
+    const button = document.createElement("button");
+    actionBar.appendChild(button);
+    document.body.appendChild(actionBar);
     expect(outsideClickVerdict(button, shell)).toBe("keep");
 });

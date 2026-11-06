@@ -26,6 +26,7 @@ import {
 } from "react";
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
+import { keepsGridSelection } from "@/shared/grid/grid-selection";
 import { reactEditor } from "@/shared/grid/react-editor";
 import { createGridEpoch, createRevoGridAdapter } from "@/shared/grid/revo-grid-adapter";
 import { readStoredSorting, writeStoredSorting } from "@/shared/grid/use-grid-column-filters";
@@ -61,7 +62,7 @@ import {
 } from "./grid-config";
 import { extractEdits, parseNumericText } from "./grid-edit";
 import { MultiAssetEditor, ReferenceEditor, SelectEditor } from "./grid-editors";
-import { parsePastedText, serializeCellValue } from "./index";
+import { parsePastedText, pasteTargetRange, serializeCellValue } from "./index";
 import { readScrollPosition, scrollScopeKey, writeScrollPosition } from "./scroll-position";
 import { isChunkedSection } from "./section-policy";
 import { describeSelection } from "./selection-label";
@@ -2504,60 +2505,57 @@ function DataGridInner(
 
             const pasteHeight = parsed.length;
             const pasteWidth = Math.max(0, ...parsed.map((row) => row.length));
-            const selectedHeight = range.y1 - range.y + 1;
-            const selectedWidth = range.x1 - range.x + 1;
-            const singleCell = selectedHeight === 1 && selectedWidth === 1;
-
-            // One cell — paste the whole buffer starting from it. Two or more —
-            // paste only into the selection: a bigger buffer is trimmed by it
-            // (Toast), a smaller one is pasted as-is, other cells untouched.
             // Models come from the current visible source: under sorting/filtering
             // the displayed row index doesn't match the original rows index.
             const visibleRows = await getVisibleRows();
             const visible = visibleRows.filter((row): row is GridRow => row !== undefined);
-            let toY = range.y;
-            let toY1 = range.y1;
-            let toX = range.x;
-            let toX1 = range.x1;
-            if (singleCell) {
-                toY1 = Math.min(visible.length - 1, range.y + pasteHeight - 1);
-                toX1 = Math.min(flatColumns.length - 1, range.x + pasteWidth - 1);
-            } else if (pasteHeight > selectedHeight || pasteWidth > selectedWidth) {
-                onPasteTruncated?.();
-            }
+            // One cell — paste the whole buffer starting from it. Two or more —
+            // paste only into the selection: a bigger buffer is trimmed by it
+            // (Toast), a smaller one is pasted as-is, other cells untouched.
+            const { range: target, truncated } = pasteTargetRange(
+                range,
+                { height: pasteHeight, width: pasteWidth },
+                { rows: visible.length, columns: flatColumns.length },
+            );
+            if (truncated) onPasteTruncated?.();
 
             const data: Record<string, Record<string, unknown>> = {};
             const models: GridRow[] = [];
-            for (let y = toY; y <= toY1; y++) {
+            for (let y = target.y; y <= target.y1; y++) {
                 const row = visible[y];
                 if (!row) continue;
                 models[y] = row;
                 const patch: Record<string, unknown> = {};
-                for (let x = toX; x <= toX1; x++) {
+                for (let x = target.x; x <= target.x1; x++) {
                     const column = flatColumns[x] as ColumnRegular | undefined;
                     if (!column) continue;
-                    const sourceCol = parsed[y - range.y]?.[x - range.x];
+                    const sourceCol = parsed[y - target.y]?.[x - target.x];
                     if (sourceCol === undefined) continue;
                     patch[String(column.prop)] = sourceCol;
                 }
                 if (Object.keys(patch).length > 0) data[String(y)] = patch;
             }
-            // newRange defines both the apply area and the resulting selection —
-            // after the paste, exactly the pasted cells are selected.
-            const newRange: RangeArea = { y: toY, y1: toY1, x: toX, x1: toX1 };
             gridAdapter.dispatchRangeEdit({
                 data,
                 models,
                 type: "rgRow",
                 oldRange: range,
-                newRange,
+                newRange: target,
             });
-            // After the paste, select exactly the pasted cells — and presence
-            // picks up the new range via updateSelectionRange
-            // (the setrange event doesn't emit this path).
-            void applyGridRange({ x: toX, y: toY }, { x: toX1, y: toY1 });
+            // After the paste, select exactly the pasted cells. The grid's own
+            // `setrange` event does not fire on the programmatic path, so the
+            // published range (footer status + presence) is updated here.
+            await applyGridRange({ x: target.x, y: target.y }, { x: target.x1, y: target.y1 });
+            updateSelectionRange(target);
         },
-        [applyGridRange, flatColumns, getVisibleRows, gridAdapter, onPasteTruncated],
+        [
+            applyGridRange,
+            flatColumns,
+            getVisibleRows,
+            gridAdapter,
+            onPasteTruncated,
+            updateSelectionRange,
+        ],
     );
 
     useEffect(() => {
@@ -2698,19 +2696,14 @@ function DataGridInner(
          * INSIDE the grid is ignored, and so is a click on one of the grid's
          * PORTALS — the cell editor, a header-filter popover, the smart select —
          * which React renders into `document.body`, outside the shell; treating
-         * those as outside would clear the very range being edited.
+         * those as outside would clear the very range being edited. The table
+         * action bar is exempt for the same reason (`keepsGridSelection`): its
+         * row buttons read the selection they would otherwise erase mid-press.
          */
         const handleOutsidePointerDown = (event: PointerEvent) => {
             const target = event.target;
             if (!(target instanceof Element)) return;
-            if (
-                // HeroUI overlays (filter popover, smart select, dialogs) and
-                // anything else modal/toast-like pinned to the body.
-                target.closest(
-                    '[data-slot="popover-dialog"], [role="dialog"], [role="alertdialog"]',
-                )
-            )
-                return;
+            if (keepsGridSelection(target)) return;
             const shell = grid.closest(".revo-grid-shell") ?? grid;
             if (shell.contains(target)) return;
             clearGridSelection();

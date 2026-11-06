@@ -5,6 +5,25 @@
 import type { RangeArea } from "@revolist/revogrid";
 
 /**
+ * Targets that must keep the grid selection on an outside pointerdown.
+ *
+ * Both grids drop the row/cell selection when the pointer goes to the page, but
+ * the overlays the grid itself opens (popovers, dialogs) and the table action
+ * bar all operate ON the selection. Clearing on their pointerdown would disable
+ * the pressed action mid-press (React Aria cancels a button that becomes
+ * disabled before pointerup), so «Заменить запись» and «Удалить строку» would
+ * silently do nothing. The action bar marks itself with
+ * `data-grid-selection-keep`.
+ */
+const SELECTION_KEEPING_SELECTOR =
+    '[data-slot="popover-dialog"], [role="dialog"], [role="alertdialog"], [data-grid-selection-keep]';
+
+/** Whether a pointerdown target leaves the current grid selection in place. */
+export function keepsGridSelection(target: Element): boolean {
+    return target.closest(SELECTION_KEEPING_SELECTOR) !== null;
+}
+
+/**
  * Check if an event target is within the grid element
  */
 export function isGridTarget(event: Event, grid: HTMLElement): boolean {

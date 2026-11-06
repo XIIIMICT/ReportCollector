@@ -74,7 +74,7 @@ import type {
     RenovationHeaderCell,
 } from "@/shared/api/renovation";
 import type { RenovationSortColumn } from "@/shared/api/renovation";
-import { parsePastedText, serializeCellValue } from "@/shared/grid";
+import { parsePastedText, pasteTargetRange, serializeCellValue } from "@/shared/grid";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/data-grid";
 import {
     cellValuesEqual,
@@ -83,6 +83,7 @@ import {
     toCellValue,
 } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
+import { keepsGridSelection } from "@/shared/grid/grid-selection";
 import { reactEditor } from "@/shared/grid/react-editor";
 import {
     createGridEpoch,
@@ -2208,24 +2209,21 @@ function RenovationGridInner(
 
             const pasteHeight = parsed.length;
             const pasteWidth = Math.max(0, ...parsed.map((row) => row.length));
-            const selectedHeight = range.y1 - range.y + 1;
-            const selectedWidth = range.x1 - range.x + 1;
-            const singleCell = selectedHeight === 1 && selectedWidth === 1;
-
-            let toY = range.y;
-            let toY1 = range.y1;
-            let toX = range.x;
-            let toX1 = range.x1;
-            if (singleCell) {
-                toY1 = Math.min(totalRows - 1, range.y + pasteHeight - 1);
-                toX1 = Math.min(columns.length - 1, range.x + pasteWidth - 1);
-            } else if (pasteHeight > selectedHeight || pasteWidth > selectedWidth) {
+            // One cell — spread the whole buffer from it. A range — write the
+            // buffer into the selection only (a bigger buffer is trimmed, a
+            // smaller one leaves the other selected cells untouched).
+            const { range: target, truncated } = pasteTargetRange(
+                range,
+                { height: pasteHeight, width: pasteWidth },
+                { rows: totalRows, columns: columns.length },
+            );
+            if (truncated) {
                 onPasteSkipped("Буфер шире или выше выделения — вставлена только его часть.");
             }
 
             const data: Record<string, Record<string, unknown>> = {};
             const models: RenovationGridRow[] = [];
-            const missing = missingRangeIndexes(toY, toY1, rowsByIndex);
+            const missing = missingRangeIndexes(target.y, target.y1, rowsByIndex);
             if (missing.length > 0) {
                 const firstMissing = missing[0];
                 const lastMissing = missing[missing.length - 1];
@@ -2235,31 +2233,42 @@ function RenovationGridInner(
                 );
                 return;
             }
-            for (let y = toY; y <= toY1; y += 1) {
+            for (let y = target.y; y <= target.y1; y += 1) {
                 const row = rowsByIndex.get(y);
                 if (!row) return;
                 models[y] = row;
                 const patch: Record<string, unknown> = {};
-                for (let x = toX; x <= toX1; x += 1) {
+                for (let x = target.x; x <= target.x1; x += 1) {
                     const column = columns[x] as ColumnRegular | undefined;
                     if (!column || column.prop === undefined) continue;
-                    const sourceCell = parsed[y - range.y]?.[x - range.x];
+                    const sourceCell = parsed[y - target.y]?.[x - target.x];
                     if (sourceCell === undefined) continue;
                     patch[String(column.prop)] = sourceCell;
                 }
                 if (Object.keys(patch).length > 0) data[String(y)] = patch;
             }
-            const newRange: RangeArea = { y: toY, y1: toY1, x: toX, x1: toX1 };
             gridAdapter.dispatchRangeEdit({
                 data,
                 models,
                 type: "rgRow",
                 oldRange: range,
-                newRange,
+                newRange: target,
             });
-            void applyGridRange({ x: toX, y: toY }, { x: toX1, y: toY1 });
+            // Publish the pasted range ourselves: the grid's `setrange` event
+            // does not fire on the programmatic path, so the footer status and
+            // collaboration presence would keep the pre-paste selection.
+            await applyGridRange({ x: target.x, y: target.y }, { x: target.x1, y: target.y1 });
+            updateSelectionRange(target);
         },
-        [applyGridRange, columns, gridAdapter, onPasteSkipped, rowsByIndex, totalRows],
+        [
+            applyGridRange,
+            columns,
+            gridAdapter,
+            onPasteSkipped,
+            rowsByIndex,
+            totalRows,
+            updateSelectionRange,
+        ],
     );
 
     // Window-level copy/paste (capture): works regardless of the focus inside
@@ -2455,17 +2464,13 @@ function RenovationGridInner(
          * inside the shell is ignored (no clear-then-reselect flicker), and so
          * is one on a PORTAL the grid opens — the popovers and dialogs React
          * renders into `document.body` — or editing would drop the range being
-         * edited.
+         * edited. The table action bar is exempt too: its row buttons read the
+         * selection they would otherwise erase mid-press.
          */
         const handleOutsidePointerDown = (event: PointerEvent) => {
             const target = event.target;
             if (!(target instanceof Element)) return;
-            if (
-                target.closest(
-                    '[data-slot="popover-dialog"], [role="dialog"], [role="alertdialog"]',
-                )
-            )
-                return;
+            if (keepsGridSelection(target)) return;
             const gridElement = gridRef.current;
             if (!gridElement) return;
             const shell = gridElement.closest(".revo-grid-shell") ?? gridElement;

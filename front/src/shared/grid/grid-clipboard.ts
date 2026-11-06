@@ -2,6 +2,8 @@
  * Grid clipboard utilities for copy/paste operations
  */
 
+import type { RangeArea } from "@revolist/revogrid";
+
 /**
  * Serialize a cell value to string for clipboard export
  */
@@ -42,6 +44,40 @@ export function parsePastedText(text: string): string[][] {
     }
 
     return split.map((cells) => cells.slice(0, width));
+}
+
+/**
+ * Where a paste writes, and whether the buffer had to be trimmed.
+ *
+ * One selected cell is an anchor: the whole buffer spreads from it, clamped to
+ * the grid. A range selection is the target: the buffer is written into it, so
+ * a bigger buffer is trimmed (the caller warns) and a smaller one leaves the
+ * rest of the selection untouched. The returned range is also the selection to
+ * leave active after the paste — pasting must not drop it.
+ */
+export function pasteTargetRange(
+    selection: RangeArea,
+    buffer: { height: number; width: number },
+    bounds: { rows: number; columns: number },
+): { range: RangeArea; truncated: boolean } {
+    const height = selection.y1 - selection.y + 1;
+    const width = selection.x1 - selection.x + 1;
+    if (height !== 1 || width !== 1) {
+        return {
+            range: selection,
+            truncated: buffer.height > height || buffer.width > width,
+        };
+    }
+    // A single cell is before the first paste cell, so offsets stay at 0.
+    return {
+        range: {
+            x: selection.x,
+            y: selection.y,
+            x1: Math.min(bounds.columns - 1, selection.x + buffer.width - 1),
+            y1: Math.min(bounds.rows - 1, selection.y + buffer.height - 1),
+        },
+        truncated: false,
+    };
 }
 
 /**

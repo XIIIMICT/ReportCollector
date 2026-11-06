@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parsePastedText } from "@/shared/grid/grid-clipboard";
+import { parsePastedText, pasteTargetRange } from "@/shared/grid/grid-clipboard";
 import type { ColumnDescriptor, GridRow } from "@/shared/grid/grid-config";
 import { extractEdits } from "@/shared/grid/grid-edit";
 
@@ -270,5 +270,52 @@ describe("parsePastedText (Excel buffer)", () => {
     test("пустой и пробельный буфер дают пустой результат", () => {
         expect(parsePastedText("")).toEqual([]);
         expect(parsePastedText("\n\n")).toEqual([]);
+    });
+});
+
+describe("pasteTargetRange (выделение после вставки)", () => {
+    const bounds = { rows: 100, columns: 10 };
+
+    test("одиночная ячейка растягивается на весь буфер", () => {
+        const result = pasteTargetRange(
+            { x: 2, y: 5, x1: 2, y1: 5 },
+            { height: 2, width: 3 },
+            bounds,
+        );
+        expect(result).toEqual({
+            range: { x: 2, y: 5, x1: 4, y1: 6 },
+            truncated: false,
+        });
+    });
+
+    test("буфер обрезается границей таблицы", () => {
+        const result = pasteTargetRange(
+            { x: 8, y: 98, x1: 8, y1: 98 },
+            { height: 3, width: 3 },
+            bounds,
+        );
+        expect(result).toEqual({
+            range: { x: 8, y: 98, x1: 9, y1: 99 },
+            truncated: false,
+        });
+    });
+
+    test("выделенный диапазон остаётся целью вставки", () => {
+        const selection = { x: 1, y: 1, x1: 2, y1: 2 };
+        const result = pasteTargetRange(selection, { height: 2, width: 2 }, bounds);
+        expect(result).toEqual({ range: selection, truncated: false });
+    });
+
+    test("больший буфер обрезается выделением и сообщает об этом", () => {
+        const selection = { x: 1, y: 1, x1: 2, y1: 2 };
+        const result = pasteTargetRange(selection, { height: 3, width: 4 }, bounds);
+        expect(result.range).toEqual(selection);
+        expect(result.truncated).toBe(true);
+    });
+
+    test("диапазон не расширяется меньшим буфером", () => {
+        const selection = { x: 1, y: 1, x1: 2, y1: 2 };
+        const result = pasteTargetRange(selection, { height: 1, width: 1 }, bounds);
+        expect(result).toEqual({ range: selection, truncated: false });
     });
 });

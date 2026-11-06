@@ -167,7 +167,11 @@ export function ActionBar({
 
     if (isSm) {
         return (
-            <div className="action-bar action-bar--compact" aria-label="Действия с таблицей">
+            <div
+                className="action-bar action-bar--compact"
+                aria-label="Действия с таблицей"
+                data-grid-selection-keep=""
+            >
                 <CompactActionMenu
                     items={items}
                     {...(onDropdownOpenChange && { onOpenChange: onDropdownOpenChange })}
@@ -179,6 +183,9 @@ export function ActionBar({
         <div
             className="action-bar"
             aria-label="Действия с таблицей"
+            // The footer actions act on the grid's row selection; the grids
+            // keep it on a pointerdown here instead of clearing it mid-press.
+            data-grid-selection-keep=""
             onPointerMove={(event) => {
                 const target = (event.target as Element).closest?.("[data-action-tooltip]") ?? null;
                 if (target === actionTipTargetRef.current) return;
