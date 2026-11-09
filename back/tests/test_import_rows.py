@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from src.renovation.import_plan import _ASSET_HEADER, _CODE_HEADER
+from src.renovation.import_plan import _ASSET_HEADER, _ASSET_NAME_HEADER, _CODE_HEADER
 from src.renovation.import_rows import parse_plan_rows
 
 CODE_COL = 2
@@ -54,7 +54,8 @@ def test_a_data_row_becomes_a_code_asset_and_values(sheet) -> None:
     row = parsed[0]
     assert row.code == "Р-001"
     # The asset code is upper-cased: template codes are case-insensitive.
-    assert row.asset_code == "SNHZ"
+    assert row.asset_key == "SNHZ"
+    assert row.asset_is_name is False
     assert row.values["col_005"] == "Цех 1"
 
 
@@ -120,7 +121,7 @@ def test_a_missing_asset_leaves_an_empty_code(sheet) -> None:
 
     parsed = parse_plan_rows(Path("ignored.xlsb"))
 
-    assert parsed[0].asset_code == ""
+    assert parsed[0].asset_key == ""
 
 
 def test_a_numeric_reference_is_normalized_to_its_catalog_label(sheet) -> None:
@@ -158,6 +159,26 @@ def test_a_sheet_without_the_code_column_is_refused(sheet) -> None:
         parse_plan_rows(Path("ignored.xlsb"))
 
 
+def _name_sheet(*data_rows: list[object]) -> list[list[object]]:
+    """Build a drop without «Наименование ДО», naming the entity in «Предприятие»."""
+    header: list[object] = ["", "", _CODE_HEADER, _ASSET_NAME_HEADER, "Цех", "Наименование ЕО", "Примечание"]
+    return [header, ["", "", 1, 2, 3, 4, 5], *data_rows]
+
+
+def test_an_asset_named_in_predpriyatie_is_parsed_by_name(sheet) -> None:
+    """The repair-code column is absent, «Предприятие» names the legal entity."""
+    sheet["rows"] = _name_sheet(_row("Р-011", ' АО "БСЗ" ', workshop="Цех 3"))
+
+    parsed = parse_plan_rows(Path("ignored.xlsb"))
+
+    assert len(parsed) == 1
+    row = parsed[0]
+    # The name is kept as the file spells it; the writer folds quotes/case.
+    assert row.asset_key == 'АО "БСЗ"'
+    assert row.asset_is_name is True
+    assert row.values["col_005"] == "Цех 3"
+
+
 def test_a_sheet_without_a_recognisable_header_is_refused(sheet) -> None:
     sheet["rows"] = [["случайный", "текст"], ["и", "ещё"]]
 
@@ -192,7 +213,7 @@ def test_short_rows_do_not_crash_the_parser(sheet) -> None:
     parsed = parse_plan_rows(Path("ignored.xlsb"))
 
     assert parsed[0].code == "Р-008"
-    assert parsed[0].asset_code == ""
+    assert parsed[0].asset_key == ""
 
 
 def test_calculated_fields_are_never_parsed_from_the_file(sheet) -> None:
@@ -224,5 +245,5 @@ def test_an_ooxml_workbook_is_read_by_the_real_reader(tmp_path: Path) -> None:
     parsed = parse_plan_rows(path)
 
     assert [row.code for row in parsed] == ["Р-010"]
-    assert parsed[0].asset_code == "SNHZ"
+    assert parsed[0].asset_key == "SNHZ"
     assert parsed[0].values["col_005"] == "Цех 2"

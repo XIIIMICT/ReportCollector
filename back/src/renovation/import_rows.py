@@ -8,9 +8,9 @@ from typing import BinaryIO
 
 from src.renovation.form_schema import field_metas
 from src.renovation.import_plan import (
-    _ASSET_HEADER,
     _CODE_HEADER,
     _REQUIRED_FIELDS,
+    _asset_column,
     _coerce,
     _data_rows,
     _header_map,
@@ -24,11 +24,15 @@ from src.renovation.import_plan import (
 
 @dataclass(slots=True)
 class ParsedPlanRow:
-    """One file row ready to be written: the work code, asset code and values."""
+    """One file row ready to be written: the work code, asset key and values."""
 
     code: str
-    asset_code: str
+    # Repair code («Наименование ДО»), or the asset NAME when the drop has no
+    # such column and names the entity in «Предприятие» — `asset_is_name` says
+    # which key the writer must resolve.
+    asset_key: str
     values: dict[str, object]
+    asset_is_name: bool = False
 
 
 def parse_plan_rows(source: Path | BinaryIO, suffix: str | None = None) -> list[ParsedPlanRow]:
@@ -82,12 +86,15 @@ def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
         if field is not None:
             columns.setdefault(field, index)
     code_index = next((i for i, value in enumerate(header_row) if _norm(value) == _norm(_CODE_HEADER)), None)
-    asset_index = next((i for i, value in enumerate(header_row) if _norm(value) == _norm(_ASSET_HEADER)), None)
+    asset_index, assets_are_names = _asset_column(header_row)
     if code_index is None or asset_index is None:
         msg = "no work-code column"
         raise ValueError(msg)
     data_rows: Iterable[list[object]] = chain(first_rows[data_start:], rows_iter)
-    required_columns = tuple(index for field, index in columns.items() if field in _REQUIRED_FIELDS)
+    # The asset is the row's foreign key, not a plan column.
+    required_columns = tuple(
+        index for field, index in columns.items() if field in _REQUIRED_FIELDS and field != "col_002"
+    )
     field_by_name = {field.db_name: field for field in field_metas()}
     for _row_number, raw in _data_rows(data_rows, data_start, code_index):
         code = str(raw[code_index]).strip() if code_index < len(raw) and raw[code_index] is not None else ""
@@ -97,9 +104,10 @@ def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
             # The preflight skips the same rows and lists their sheet numbers:
             # a row missing a required reference is not written at all.
             continue
-        asset_code = (
-            str(raw[asset_index]).strip().upper() if asset_index < len(raw) and raw[asset_index] is not None else ""
-        )
+        raw_asset = raw[asset_index] if asset_index < len(raw) and raw[asset_index] is not None else ""
+        # The writer resolves a name through the dictionary, whose canonical
+        # spelling is what the plan references; the key normalizes the rest.
+        asset_key = str(raw_asset).strip() if assets_are_names else str(raw_asset).strip().upper()
         values: dict[str, object] = {}
         for field, index in columns.items():
             meta = field_by_name.get(field)
@@ -118,4 +126,4 @@ def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
             value = _coerce(raw[index], meta.cell_type)
             if value is not None:
                 values[field] = value
-        yield ParsedPlanRow(code=code, asset_code=asset_code, values=values)
+        yield ParsedPlanRow(code=code, asset_key=asset_key, values=values, asset_is_name=assets_are_names)

@@ -33,7 +33,7 @@ async def setup_import(db_session, my_engine, monkeypatch, tmp_path):
     repository = JobRepository(factory)
     monkeypatch.setenv("IMPORT_DIR", str(tmp_path))
     monkeypatch.setattr("src.renovation.import_jobs.async_session_factory", factory)
-    rows = [ParsedPlanRow(code="DURABLE_IMPORT", asset_code="BSZR", values={"col_005": "Loaded"})]
+    rows = [ParsedPlanRow(code="DURABLE_IMPORT", asset_key="BSZR", values={"col_005": "Loaded"})]
     monkeypatch.setattr("src.renovation.import_apply.iter_plan_row_batches", lambda *_args: (batch for batch in [rows]))
     user = (await db_session.exec(select(User).where(col(User.email) == "admin@example.ru"))).one()
     await db_session.commit()

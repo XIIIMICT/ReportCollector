@@ -16,6 +16,7 @@ from src.collab.locking import lock_project
 from src.observability import observe_phase
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.form_schema import field_meta, field_metas
+from src.renovation.import_plan import _asset_name_key
 from src.renovation.import_rows import ParsedPlanRow, iter_plan_row_batches, parse_plan_rows
 from src.renovation.models import RAsset
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
@@ -88,7 +89,11 @@ async def apply_plan_file(
     if plan is None:
         raise _ERR_NO_WORKING_PLAN
     reference_ids = await _reference_ids(session)
-    asset_ids = {asset.repair_code.upper(): asset.id for asset in (await session.exec(select(RAsset))).all()}
+    assets = (await session.exec(select(RAsset))).all()
+    asset_ids = {asset.repair_code.upper(): asset.id for asset in assets}
+    # A drop without «Наименование ДО» names the entity in «Предприятие»: the
+    # same dictionary, matched by name (case/quote/space-insensitive).
+    asset_ids_by_name = {_asset_name_key(asset.name): asset.id for asset in assets}
 
     existing: dict[str, UUID] = {
         code: row_id
@@ -129,12 +134,15 @@ async def apply_plan_file(
     async with contextlib.aclosing(batches):
         async for parsed_batch in batches:
             for row in parsed_batch:
-                asset_id = asset_ids.get(row.asset_code)
+                if row.asset_is_name:
+                    asset_id = asset_ids_by_name.get(_asset_name_key(row.asset_key))
+                else:
+                    asset_id = asset_ids.get(row.asset_key)
                 if asset_id is None:
                     # A reference value like any catalog label: an asset the project's
                     # dictionary does not have refuses the whole file (the preflight
                     # reports it) instead of dropping its rows from the plan.
-                    raise _unknown_asset(row.code, row.asset_code)
+                    raise _unknown_asset(row.code, row.asset_key)
                 row_id = existing.get(row.code)
                 position: int | None = None
                 if row_id is not None:
@@ -334,10 +342,10 @@ def _unknown_reference(code: str, field: str, value: object) -> ValueError:
     )
 
 
-def _unknown_asset(code: str, asset_code: str) -> ValueError:
+def _unknown_asset(code: str, asset_key: str) -> ValueError:
     """Abort on an asset the project's dictionary does not have (nothing written)."""
     return ValueError(
-        f"Строка {code}: актив «{asset_code}» не найден в справочнике активов. "
+        f"Строка {code}: актив «{asset_key}» не найден в справочнике активов. "
         "План не изменён — добавьте актив в справочник или исправьте файл."
     )
 

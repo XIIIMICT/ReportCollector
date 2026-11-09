@@ -30,6 +30,9 @@ from src.renovation.schemas import RenovationPlanImportCellIssue, RenovationPlan
 
 _CODE_HEADER = "Код работы"
 _ASSET_HEADER = "Наименование ДО"
+# Fallback asset column when a drop has no «Наименование ДО»: the legal entity
+# is then matched by its name through the same asset dictionary.
+_ASSET_NAME_HEADER = "Предприятие"
 # The direction code («Лот») is read for the work-code check only, never stored.
 LOT_FIELD = "__lot__"
 _EXCEL_EPOCH = date(1899, 12, 30)
@@ -96,6 +99,49 @@ def _norm(value: object) -> str:
     return normalize_label(str(value or "")).casefold()
 
 
+# Quote styles Excel writes around a legal-entity name («АО «БСЗ»», `АО "БСЗ"`,
+# «АО “БСЗ”»). The file and the dictionary use different ones for the same asset,
+# so the name key folds them all to one ordinary double quote.
+_QUOTES: dict[int, str] = str.maketrans(
+    {"\u00ab": '"', "\u00bb": '"', "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u2033": '"'}
+)
+
+
+def _asset_name_key(value: object) -> str:
+    """
+    Match key of an asset NAME: case-, whitespace- and quote-insensitive.
+
+    The files spell «АО "БСЗ"» while the dictionary holds «АО «БСЗ»»: a byte-wise
+    comparison would call every such row an unknown asset. Codes use the same
+    key (`" bszr "` → `"bszr"`).
+    """
+    return _norm(str(value or "").translate(_QUOTES))
+
+
+def _asset_column(header: list[object]) -> tuple[int | None, bool]:
+    """
+    Locate the asset column: `(index, is_name)`.
+
+    «Наименование ДО» (the repair code) is authoritative when present. A drop
+    without it still names the legal entity in «Предприятие», which is matched
+    by the asset NAME through the same dictionary — hence the flag.
+    """
+    code_index = next((i for i, value in enumerate(header) if _norm(value) == _norm(_ASSET_HEADER)), None)
+    if code_index is not None:
+        return code_index, False
+    name_index = next((i for i, value in enumerate(header) if _norm(value) == _norm(_ASSET_NAME_HEADER)), None)
+    return name_index, name_index is not None
+
+
+# Template asset list keyed the way a file spells it: a «Предприятие» drop is
+# matched by name, a «Наименование ДО» drop by repair code. Used only when the
+# database has no assets yet — the live dictionary wins.
+_TEMPLATE_ASSET_NAMES: dict[str, str] = {_asset_name_key(name): name for _, _, name in R_ASSETS}
+_REPAIR_CODES_BY_NAME: dict[str, str] = {
+    _asset_name_key(name): repair_code.upper() for _, repair_code, name in R_ASSETS
+}
+
+
 # Header texts of the template → plan-row field (the frozen reference captured
 # from the current «РБ ПОФ» drop). A file with an extra column simply maps it to
 # nothing; a missing one is skipped.
@@ -141,6 +187,9 @@ class PlanFileScope:
     # Reference catalogs the file has a column for; only those can report a
     # missing value, so only their changes may invalidate the report.
     catalogs: frozenset[str]
+    # When the drop has no «Наименование ДО», `assets` holds asset NAMES (from
+    # «Предприятие») instead of codes.
+    assets_are_names: bool = False
 
 
 # A file's «Предприятие» column is the asset dictionary, not a
@@ -150,7 +199,7 @@ _REFERENCE_CATALOGS = frozenset(catalog.value for catalog in RReferenceCatalog)
 
 def scan_file_scope(source: Path | BinaryIO, suffix: str | None = None) -> PlanFileScope:
     """
-    Asset codes and reference catalogs present in the workbook's plan sheet.
+    Asset codes (or names) and reference catalogs present in the workbook's sheet.
 
     Used to scope the cache key: a plan change in another asset, or an edit to a
     catalog the file has no column for, does not invalidate this file's report.
@@ -167,17 +216,18 @@ def scan_file_scope(source: Path | BinaryIO, suffix: str | None = None) -> PlanF
     if header is None:
         return empty
     code_index = next((i for i, value in enumerate(header) if _norm(value) == _norm(_CODE_HEADER)), None)
-    asset_index = next((i for i, value in enumerate(header) if _norm(value) == _norm(_ASSET_HEADER)), None)
+    asset_index, assets_are_names = _asset_column(header)
     if asset_index is None:
         return empty
     data_rows = chain(first_rows[data_start:], rows)
-    codes = {
-        str(raw[asset_index]).strip().upper()
+    keys = {
+        _asset_name_key(raw[asset_index])
         for _row_number, raw in _data_rows(data_rows, data_start, code_index)
         if asset_index < len(raw) and raw[asset_index] not in (None, "")
     }
     return PlanFileScope(
-        assets=frozenset(code for code in codes if code),
+        assets=frozenset(key for key in keys if key),
+        assets_are_names=assets_are_names,
         catalogs=_catalogs_in_header(header),
     )
 
@@ -465,11 +515,17 @@ def _inspect_rows(
     # Only a resolvable set of template columns marks a compatible file: the
     # work code and the asset plus at least the majority of the loaded fields.
     code_index = next((i for i, value in enumerate(header_row) if _norm(value) == _norm(_CODE_HEADER)), None)
-    asset_index = next((i for i, value in enumerate(header_row) if _norm(value) == _norm(_ASSET_HEADER)), None)
+    asset_index, assets_are_names = _asset_column(header_row)
     if code_index is None or asset_index is None or len(columns) < len(TEMPLATE_COLUMNS) // 2:
         return RenovationPlanImportResult(status="invalid_format")
     data_rows: Iterable[list[object]] = chain(first_rows[data_start:], rows_iter)
-    required_columns = tuple(index for field, index in columns.items() if field in _REQUIRED_FIELDS)
+    # The asset column is the row's own foreign key, never a plan column: it is
+    # read here and resolved against the dictionary, not through `columns`.
+    required_columns = tuple(
+        index for field, index in columns.items() if field in _REQUIRED_FIELDS and field != "col_002"
+    )
+    name_by_key = {_asset_name_key(name): name for name in asset_names_by_code.values()}
+    repair_code_by_name = {_asset_name_key(name): code for code, name in asset_names_by_code.items()}
 
     type_errors: list[RenovationPlanImportCellIssue] = []
     missing: list[RenovationPlanImportCellIssue] = []
@@ -480,7 +536,7 @@ def _inspect_rows(
     assets: set[str] = set()
     codes: list[str] = []
     valid_rows: list[dict[str, object]] = []
-    asset_codes: list[str | None] = []
+    asset_repair_codes: list[str | None] = []
     row_numbers: list[int] = []
     field_by_name = {field.db_name: field for field in field_metas()}
     for row_number, raw in _data_rows(data_rows, data_start, code_index):
@@ -498,28 +554,38 @@ def _inspect_rows(
             # sees the row numbers under «Пропущенные строки».
             skipped_rows.append(row_number)
             continue
-        asset_code = (
-            str(raw[asset_index]).strip().upper() if asset_index < len(raw) and raw[asset_index] is not None else ""
-        )
+        asset_cell = raw[asset_index] if asset_index < len(raw) else None
+        asset_key = _asset_name_key(asset_cell)
         codes.append(code)
         row_numbers.append(row_number)
-        if asset_code in asset_names_by_code:
-            assets.add(asset_names_by_code[asset_code])
+        # In «Предприятие» mode the cell holds the legal-entity NAME; the repair
+        # code is then derived for the (archived) ID check only.
+        repair_code = asset_key.upper()
+        if assets_are_names:
+            # The cell holds the legal-entity name: the dictionary turns it into
+            # its canonical spelling (quotes included), with a template fallback
+            # for a database whose asset list is still empty.
+            asset_name = name_by_key.get(asset_key) or _TEMPLATE_ASSET_NAMES.get(asset_key, "")
+            repair_code = repair_code_by_name.get(asset_key) or _REPAIR_CODES_BY_NAME.get(asset_key, "")
+        else:
+            asset_name = asset_names_by_code.get(_REPAIR_CODES.get(repair_code, repair_code), "")
+        if asset_name:
+            assets.add(asset_name)
         else:
             # The asset is a reference value like any catalog label: a code the
             # project's dictionary does not have makes the file invalid — it is
             # never silently dropped from the load.
             unknown_assets.append(
                 RenovationPlanImportCellIssue(
-                    location=f"{_column_name(asset_index)}, строка {row_number}", value=str(raw[asset_index])
+                    location=f"{_column_name(asset_index)}, строка {row_number}", value=str(asset_cell)
                 )
             )
-            if (default_name := _TEMPLATE_ASSETS.get(asset_code)) is not None:
+            if not assets_are_names and (default_name := _TEMPLATE_ASSETS.get(asset_key.upper())) is not None:
                 # Still counted among the file's assets: the cache scope must
                 # cover the rows a fixed file would touch.
                 assets.add(default_name)
         if RENOVATION_ID_FORMULA_ENABLED:
-            asset_codes.append(asset_code or None)
+            asset_repair_codes.append(repair_code or None)
         values: dict[str, object] = {}
         for field, index in columns.items():
             if index >= len(raw) or raw[index] in (None, ""):
@@ -576,9 +642,11 @@ def _inspect_rows(
     # blocker left, and they keep blocking.
     invalid_codes: list[str] = []
     if RENOVATION_ID_FORMULA_ENABLED:
-        for row_number, code, values, asset_code in zip(row_numbers, codes, valid_rows, asset_codes, strict=False):
+        for row_number, code, values, asset_repair_code in zip(
+            row_numbers, codes, valid_rows, asset_repair_codes, strict=False
+        ):
             try:
-                expected = _calculate_code(values, _REPAIR_CODES.get((asset_code or "").upper(), asset_code))
+                expected = _calculate_code(values, asset_repair_code)
             except RenovationIdError:
                 # An unassemblable row (e.g. an empty «Лот») is an invalid code.
                 invalid_codes.append(f"{code} (строка {row_number})")

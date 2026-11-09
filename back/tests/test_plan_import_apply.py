@@ -52,7 +52,7 @@ async def test_an_option_added_to_the_dictionary_after_the_seed_is_loadable(
     rows = [
         ParsedPlanRow(
             code="TEST_LIVE_DICTIONARY",
-            asset_code="BSZR",
+            asset_key="BSZR",
             values={
                 "col_015": "3",
                 "col_017": "ТОиР",
@@ -129,8 +129,8 @@ async def test_an_asset_outside_the_dictionary_refuses_the_whole_file(
     )
     rows = [
         # A known asset first: the refusal must undo what the batch would write.
-        ParsedPlanRow(code="TEST_ASSET_KNOWN", asset_code="BSZR", values={"col_005": "известный актив"}),
-        ParsedPlanRow(code="TEST_ASSET_UNKNOWN", asset_code="ZZZR", values={"col_005": "неизвестный актив"}),
+        ParsedPlanRow(code="TEST_ASSET_KNOWN", asset_key="BSZR", values={"col_005": "известный актив"}),
+        ParsedPlanRow(code="TEST_ASSET_UNKNOWN", asset_key="ZZZR", values={"col_005": "неизвестный актив"}),
     ]
     monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
 
@@ -142,6 +142,56 @@ async def test_an_asset_outside_the_dictionary_refuses_the_whole_file(
     ).all()
     assert len(after) == before
     assert "TEST_ASSET_KNOWN" not in after
+
+
+async def test_an_asset_named_in_the_file_resolves_through_the_dictionary(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    A drop without «Наименование ДО» is loaded by the asset NAME.
+
+    The file spells the entity `АО "БСЗ"` (straight quotes) while the dictionary
+    holds «АО «БСЗ»» (guillemets): the name key must match them, otherwise a
+    perfectly good file would be refused as an unknown asset.
+    """
+    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.repair_code) == "BSZR"))).first()
+    if bsz is None:
+        pytest.skip("the seed carries no BSZR asset")
+    rows = [
+        ParsedPlanRow(
+            code="TEST_ASSET_BY_NAME",
+            asset_key='  ао "бсз" ',
+            values={"col_005": "Работа по наименованию"},
+            asset_is_name=True,
+        )
+    ]
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
+
+    result = await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
+    assert (result.new_rows, result.updated_rows) == (1, 0)
+
+    loaded = (
+        await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.col_003) == "TEST_ASSET_BY_NAME"))
+    ).one()
+    assert loaded.asset_id == bsz.id
+
+
+async def test_an_unknown_asset_name_refuses_the_whole_file(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A name the dictionary lacks is an error, exactly like an unknown code."""
+    rows = [
+        ParsedPlanRow(
+            code="TEST_ASSET_UNKNOWN_NAME",
+            asset_key="АО «Нет такого завода»",
+            values={"col_005": "неизвестный актив"},
+            asset_is_name=True,
+        )
+    ]
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
+
+    with pytest.raises(ValueError, match="TEST_ASSET_UNKNOWN_NAME"):
+        await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
 
 
 async def test_a_clean_file_creates_rows_once_and_updates_them_next_time(
@@ -167,7 +217,7 @@ async def test_a_clean_file_creates_rows_once_and_updates_them_next_time(
     rows = [
         ParsedPlanRow(
             code=f"TEST_IMPORT_{index}",
-            asset_code="BSZR",
+            asset_key="BSZR",
             values={
                 "col_015": "3",
                 "col_017": "ТОиР",
@@ -210,7 +260,7 @@ async def test_the_load_reports_write_and_recompute_progress(
     if bsz is None:
         pytest.skip("the seed carries no BSZR asset")
     rows = [
-        ParsedPlanRow(code=f"TEST_PROGRESS_{index}", asset_code="BSZR", values={"col_005": f"Работа {index}"})
+        ParsedPlanRow(code=f"TEST_PROGRESS_{index}", asset_key="BSZR", values={"col_005": f"Работа {index}"})
         for index in range(1, 4)
     ]
     monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
@@ -253,7 +303,7 @@ async def test_a_ragged_batch_loads_and_its_dates_are_stored_as_dates(
     rows = [
         ParsedPlanRow(
             code="TEST_RAGGED_1",
-            asset_code="BSZR",
+            asset_key="BSZR",
             values={
                 "col_015": "3",
                 "col_017": "ТОиР",
@@ -266,7 +316,7 @@ async def test_a_ragged_batch_loads_and_its_dates_are_stored_as_dates(
         ),
         ParsedPlanRow(
             code="TEST_RAGGED_2",
-            asset_code="BSZR",
+            asset_key="BSZR",
             values={
                 "col_015": "3",
                 "col_017": "ТОиР",

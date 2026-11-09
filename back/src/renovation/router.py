@@ -67,6 +67,7 @@ from src.renovation.export_jobs import ExportJob, ExportJobSpec, ExportQueueFull
 from src.renovation.import_jobs import import_jobs
 from src.renovation.import_plan import (
     PlanFileScope,
+    _asset_name_key,
     inspect_plan_file_streaming,
     plan_file_suffix,
     scan_file_scope,
@@ -306,17 +307,18 @@ async def _dictionary_fingerprint(
     session: AsyncSession,
     *,
     file_scope: PlanFileScope,
-    assets_by_code: dict[str, RAsset],
+    touched_assets: list[RAsset],
 ) -> str:
     """
     Change tokens of the dictionaries the file validates against.
 
     Only the reference catalogs the file has a column for are queried: a catalog
     the file never mentions cannot change its report. The asset dictionary is
-    scoped to the codes the file names (including unknown ones — the report
-    lists them under «Предприятие не найдено», and adding the asset must let the
-    same file through). Both parts use `count(*)` + `max(updated_at)`: a rename
-    or an added/deleted option changes the key with no call site to remember.
+    scoped to the assets the file names — by repair code or, in a drop without
+    «Наименование ДО», by name — including unknown ones (the report lists them
+    under «Предприятие не найдено», and adding the asset must let the same file
+    through). Both parts use `count(*)` + `max(updated_at)`: a rename or an
+    added/deleted option changes the key with no call site to remember.
     """
     parts: list[str] = []
     catalogs = sorted(RReferenceCatalog(value) for value in file_scope.catalogs)
@@ -334,7 +336,6 @@ async def _dictionary_fingerprint(
         ).all()
         tokens = {catalog.value: _token(count, updated_at) for catalog, count, updated_at in rows}
         parts.extend(f"{catalog.value}={tokens.get(catalog.value, _token(0, None))}" for catalog in catalogs)
-    touched_assets = [assets_by_code[code] for code in file_scope.assets if code in assets_by_code]
     latest_asset_change = max((asset.updated_at for asset in touched_assets), default=None)
     parts.append(f"assets={_token(len(touched_assets), latest_asset_change)}")
     return ";".join(parts)
@@ -358,11 +359,14 @@ async def inspect_renovation_plan_import(
     with observe_phase("import", "discover_assets"):
         file_scope = await asyncio.to_thread(scan_file_scope, file.file, suffix)
     await file.seek(0)
-    assets_by_code = {
-        asset.repair_code.upper(): asset for asset in (await session.exec(select(RAsset))).all() if asset.repair_code
-    }
-    assets = {code: asset.name for code, asset in assets_by_code.items()}
-    touched_asset_ids = [assets_by_code[raw_code].id for raw_code in file_scope.assets if raw_code in assets_by_code]
+    assets = (await session.exec(select(RAsset))).all()
+    assets_by_code = {asset.repair_code.upper(): asset for asset in assets if asset.repair_code}
+    assets_by_name = {_asset_name_key(asset.name): asset for asset in assets}
+    # The file names its assets either by repair code («Наименование ДО») or,
+    # when that column is absent, by name («Предприятие»).
+    by_key = assets_by_name if file_scope.assets_are_names else assets_by_code
+    touched = [by_key[key] for key in file_scope.assets if key in by_key]
+    touched_asset_ids = [asset.id for asset in touched]
     latest_change = (
         (
             await session.exec(
@@ -375,7 +379,7 @@ async def inspect_renovation_plan_import(
         else None
     )
     dictionaries = (
-        await _dictionary_fingerprint(session, file_scope=file_scope, assets_by_code=assets_by_code)
+        await _dictionary_fingerprint(session, file_scope=file_scope, touched_assets=touched)
         if file_scope.assets
         else ""
     )
@@ -388,13 +392,14 @@ async def inspect_renovation_plan_import(
     references: dict[str, set[str]] = {}
     for value in (await session.exec(select(RenovationReferenceValue))).all():
         references.setdefault(value.catalog.value, set()).add(value.label.casefold())
+    asset_names_by_code = {asset.repair_code: asset.name for asset in assets if asset.repair_code}
     await file.seek(0)
     with observe_phase("import", "inspect"):
         result = await asyncio.to_thread(
             inspect_plan_file_streaming,
             file.file,
             existing_codes=existing_codes,
-            asset_names_by_code=assets,
+            asset_names_by_code=asset_names_by_code,
             reference_values=references,
             suffix=suffix,
         )

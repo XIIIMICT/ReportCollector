@@ -387,6 +387,14 @@ headings need an alias: «Лот» → direction code (`col_189`) and the
 suffix-free «Отнесение затрат (OPEX/CAPEX)» / «Способ выполнения работ».
 Asset identification uses «Наименование ДО» — the official repair code
 (`BSZR`) that is also an input of the work ID; the UI shows the asset name.
+A drop without that column names the legal entity in «Предприятие» instead:
+both are matched against the same `rm_assets` dictionary, the code by code and
+the name by name (trimmed, case-folded, and with every quote style folded to a
+plain `"` — the files write `АО "БСЗ"` while the dictionary holds «АО «БСЗ»»).
+Whether the file resolved by code or by name is carried as
+`PlanFileScope.assets_are_names` / `ParsedPlanRow.asset_is_name`, so the router
+and the loader look up the right map. A name the dictionary does not have is a
+file error, exactly like an unknown code — never a silently dropped row.
 Text cells are stored trimmed (a non-breaking space included) and an empty
 string counts as an empty cell; the «Лот» code gets its mandatory trailing dot
 added silently when the file has `1.1.1` instead of `1.1.1.`
@@ -409,13 +417,14 @@ recompute rebuilds the derived columns after the load regardless.
 
 Checks, in order: the file must be a readable `.xlsb` or `.xlsx` whose header
 carries
-«Код работы» plus the asset code and at least half of the template columns;
+«Код работы» plus an asset column («Наименование ДО», or «Предприятие» when
+the code column is absent) and at least half of the template columns;
 cell types under the header (text/number/date); duplicate work codes
 («Код работы», listed with the rows they occupy) — the **only** blocker on the
 code itself, since the code is loaded from the file as-is (the ID formula is
 off, see «Renovation plan» below; the «Некорректно рассчитанные коды» check is
 archived in `inspect_plan_file` behind `RENOVATION_ID_FORMULA_ENABLED`); an
-asset whose code is not in the project's `rm_assets` dictionary
+asset whose code (or name) is not in the project's `rm_assets` dictionary
 (`unknown_assets` — the asset is a reference value like any catalog label);
 and reference labels absent from the form's own catalogs, compared strictly
 (whitespace/case only — no typo tolerance, no «@» options). Without errors the
@@ -443,8 +452,9 @@ temporary files. Match proxy upload limits to these values in production.
 
 Reports are cached in Valkey (`src/renovation/inspect_cache.py`): the key is
 `rc:planimport:<sha256 of the bytes>:<scope>`, where the scope has two parts.
-The plan part is the file's assets («Наименование ДО» repaired codes → asset
-ids) plus the newest `updated_at` of the working plan rows **of those assets**;
+The plan part is the file's assets («Наименование ДО» repair codes → asset
+ids, or «Предприятие» names → asset ids when the code column is absent) plus
+the newest `updated_at` of the working plan rows **of those assets**;
 a plan edit in any other asset therefore keeps the cached report valid, while
 touching a loaded asset recomputes it. The dictionary part carries
 `count(*) + max(updated_at)` of every reference catalog the file has a column

@@ -225,7 +225,7 @@ def test_assets_in_file_are_the_cache_scope() -> None:
 
     if _SAMPLE is None:
         pytest.skip("no sample in docs/samples/")
-    assert assets_in_file(_SAMPLE) == frozenset({"BSZR"})
+    assert assets_in_file(_SAMPLE) == frozenset({"bszr"})
 
 
 def test_scan_file_scope_names_the_catalogs_the_file_validates() -> None:
@@ -235,7 +235,8 @@ def test_scan_file_scope_names_the_catalogs_the_file_validates() -> None:
     if _SAMPLE is None:
         pytest.skip("no sample in docs/samples/")
     scope = scan_file_scope(_SAMPLE)
-    assert scope.assets == frozenset({"BSZR"})
+    assert scope.assets == frozenset({"bszr"})
+    assert scope.assets_are_names is False
     assert scope.catalogs == frozenset(
         {"criticality", "work_category", "work_type", "cost_allocation", "execution_method"}
     )
@@ -297,16 +298,16 @@ async def test_dictionary_fingerprint_tracks_only_the_catalogs_the_file_uses(db_
     from src.renovation.router import _dictionary_fingerprint
 
     scope = PlanFileScope(assets=frozenset({"BSZR"}), catalogs=frozenset({"work_type"}))
-    before = await _dictionary_fingerprint(db_session, file_scope=scope, assets_by_code={})
+    before = await _dictionary_fingerprint(db_session, file_scope=scope, touched_assets=[])
 
     db_session.add(RenovationReferenceValue(catalog=RReferenceCatalog.CRITICALITY, label="5"))
     await db_session.commit()
-    unchanged = await _dictionary_fingerprint(db_session, file_scope=scope, assets_by_code={})
+    unchanged = await _dictionary_fingerprint(db_session, file_scope=scope, touched_assets=[])
     assert unchanged == before
 
     db_session.add(RenovationReferenceValue(catalog=RReferenceCatalog.WORK_TYPE, label="Новый вид работ"))
     await db_session.commit()
-    changed = await _dictionary_fingerprint(db_session, file_scope=scope, assets_by_code={})
+    changed = await _dictionary_fingerprint(db_session, file_scope=scope, touched_assets=[])
     assert changed != before
 
 
@@ -340,6 +341,75 @@ def test_the_xlsx_container_is_analyzed_identically(xlsx_sample: Path) -> None:
     binary = inspect_plan_file(_SAMPLE, existing_codes=set(), asset_names_by_code={"BSZR": "АО «БСЗ»"})
     ooxml = inspect_plan_file(xlsx_sample, existing_codes=set(), asset_names_by_code={"BSZR": "АО «БСЗ»"})
     assert ooxml.model_dump() == binary.model_dump()
+
+
+def test_a_drop_without_the_code_column_is_matched_by_predpriyatie_name(xlsx_sample: Path, tmp_path: Path) -> None:
+    """
+    No «Наименование ДО»: the entity is identified by its «Предприятие» name.
+
+    The name is matched against the asset dictionary case- and quote-insensitively
+    (the file writes `АО "БСЗ"`, the dictionary «АО «БСЗ»»). The known name loads,
+    an unknown one is a file error — never a silently dropped row.
+    """
+    from openpyxl import load_workbook
+
+    book = load_workbook(xlsx_sample)
+    sheet = book.active
+    headers = [_norm(cell.value) for cell in sheet[1]]
+    code_column = headers.index(_norm(_ASSET_HEADER)) + 1
+    asset_column = headers.index(_norm("Предприятие")) + 1
+    sheet.cell(row=1, column=code_column).value = "Служебное поле"
+    target = tmp_path / "by-name.xlsx"
+    book.save(target)
+
+    known = inspect_plan_file(
+        target,
+        existing_codes=set(),
+        asset_names_by_code={"BSZR": "АО «БСЗ»"},
+        reference_values={},
+    )
+    assert known.status != "invalid_format"
+    assert known.unknown_assets == []
+    assert known.assets == ["АО «БСЗ»"]
+    assert known.new_rows > 0
+
+    book = load_workbook(target)
+    sheet = book.active
+    for row in range(2, sheet.max_row + 1):
+        sheet.cell(row=row, column=asset_column).value = "АО «Нет такого завода»"
+    book.save(target)
+    unknown = inspect_plan_file(
+        target,
+        existing_codes=set(),
+        asset_names_by_code={"BSZR": "АО «БСЗ»"},
+        reference_values={},
+    )
+    assert unknown.status == "has_errors"
+    assert unknown.unknown_assets
+    assert all("строка" in issue.location for issue in unknown.unknown_assets)
+
+
+def test_the_name_scope_says_whether_assets_are_names(xlsx_sample: Path, tmp_path: Path) -> None:
+    """The cache scope carries asset keys and the flag the router resolves them with."""
+    from openpyxl import load_workbook
+
+    from src.renovation.import_plan import scan_file_scope
+
+    by_code = scan_file_scope(xlsx_sample)
+    assert by_code.assets_are_names is False
+    assert by_code.assets == frozenset({"bszr"})
+
+    book = load_workbook(xlsx_sample)
+    sheet = book.active
+    headers = [_norm(cell.value) for cell in sheet[1]]
+    sheet.cell(row=1, column=headers.index(_norm(_ASSET_HEADER)) + 1).value = "Служебное поле"
+    target = tmp_path / "scope-by-name.xlsx"
+    book.save(target)
+
+    by_name = scan_file_scope(target)
+    assert by_name.assets_are_names is True
+    # A name key: trimmed, case-folded, guillemets folded to a plain quote.
+    assert by_name.assets == frozenset({'ао "бсз"'})
 
 
 def test_a_date_typed_as_text_is_accepted(xlsx_sample: Path, tmp_path: Path) -> None:
