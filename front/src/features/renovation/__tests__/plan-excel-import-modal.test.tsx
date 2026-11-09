@@ -257,7 +257,7 @@ test("the errors report lists the rows skipped for a blank required cell", () =>
             }}
         />,
     );
-    expect(view.getByText("Пропущенные строки:")).toBeTruthy();
+    expect(view.getByText("Пропущенные строки (2):")).toBeTruthy();
     expect(view.getByText("7, 9")).toBeTruthy();
 });
 
@@ -276,7 +276,7 @@ test("a successful analysis also lists the rows it will skip", () => {
             }}
         />,
     );
-    expect(view.getByText("Пропущенные строки:")).toBeTruthy();
+    expect(view.getByText("Пропущенные строки (1):")).toBeTruthy();
     expect(view.getByText("4")).toBeTruthy();
 });
 

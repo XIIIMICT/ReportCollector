@@ -563,6 +563,33 @@ def test_rows_with_a_blank_required_column_are_skipped_and_listed() -> None:
     assert result.all_rows_skipped is False
 
 
+def test_skipped_rows_never_block_the_load() -> None:
+    """
+    A skipped row is filtered out of the load, not an error of the file.
+
+    The operator loads the rest; the report only names what will not be written,
+    and the count in the dialog's heading comes from this list.
+    """
+    result = _inspect(
+        [
+            _PREFLIGHT_HEADER,
+            list(range(1, len(_PREFLIGHT_HEADER) + 1)),
+            _preflight_row("Р-001", criticality=None),
+            _preflight_row("Р-002"),
+            _preflight_row("Р-003"),
+            _preflight_row("Р-004", criticality=""),
+        ]
+    )
+
+    assert result.status == "ready"
+    assert (result.new_rows, result.rows_to_update) == (2, 0)
+    assert result.skipped_rows == [3, 6]
+    assert result.all_rows_skipped is False
+    assert result.duplicate_codes == []
+    assert result.invalid_data_types == []
+    assert result.unknown_assets == []
+
+
 def test_a_row_without_a_work_code_is_listed_as_skipped() -> None:
     """A blank code already skipped the row; the report now names it too."""
     result = _inspect(

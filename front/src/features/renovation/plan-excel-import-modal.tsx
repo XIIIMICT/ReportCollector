@@ -365,7 +365,7 @@ function SkippedRows({
     if (!rows?.length) return null;
     return (
         <section className="plan-excel-import-modal__skipped">
-            <strong>Пропущенные строки:</strong>
+            <strong>Пропущенные строки ({rows.length}):</strong>
             {allRowsSkipped ? (
                 <p>Во всех строках не заполнены обязательные столбцы. Нечего загружать.</p>
             ) : (
