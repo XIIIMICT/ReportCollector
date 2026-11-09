@@ -46,7 +46,7 @@ async def test_an_option_added_to_the_dictionary_after_the_seed_is_loadable(
     db_session.add(option)
     await db_session.flush()
 
-    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.repair_code) == "BSZR"))).first()
+    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSZR"))).first()
     if bsz is None:
         pytest.skip("the seed carries no BSZR asset")
     rows = [
@@ -87,7 +87,7 @@ async def test_the_sample_file_is_refused_while_it_carries_unknown_catalog_value
     """
     if _SAMPLE is None:
         pytest.skip("no template sample in docs/")
-    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.repair_code) == "BSZR"))).first()
+    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSZR"))).first()
     if bsz is None:
         pytest.skip("the seed carries no BSZR asset")
     plan = (
@@ -117,7 +117,7 @@ async def test_an_asset_outside_the_dictionary_refuses_the_whole_file(
     from the plan — the preflight reports it and the load refuses the file, so
     the plan stays exactly as it was.
     """
-    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.repair_code) == "BSZR"))).first()
+    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSZR"))).first()
     if bsz is None:
         pytest.skip("the seed carries no BSZR asset")
     plan = (
@@ -154,7 +154,7 @@ async def test_an_asset_named_in_the_file_resolves_through_the_dictionary(
     holds «АО «БСЗ»» (guillemets): the name key must match them, otherwise a
     perfectly good file would be refused as an unknown asset.
     """
-    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.repair_code) == "BSZR"))).first()
+    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSZR"))).first()
     if bsz is None:
         pytest.skip("the seed carries no BSZR asset")
     rows = [
@@ -204,7 +204,7 @@ async def test_a_clean_file_creates_rows_once_and_updates_them_next_time(
     need the very catalog values the strict load rejects). Everything after the
     parse ? reference resolution, batching, recompute ? runs for real.
     """
-    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.repair_code) == "BSZR"))).first()
+    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSZR"))).first()
     if bsz is None:
         pytest.skip("the seed carries no BSZR asset")
     plan = (
@@ -256,7 +256,7 @@ async def test_the_load_reports_write_and_recompute_progress(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`expected_rows` sizes a two-phase bar: the write, then the derived values."""
-    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.repair_code) == "BSZR"))).first()
+    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSZR"))).first()
     if bsz is None:
         pytest.skip("the seed carries no BSZR asset")
     rows = [
@@ -298,7 +298,7 @@ async def test_a_ragged_batch_loads_and_its_dates_are_stored_as_dates(
     renovation-ID rule) while the columns are DATE; asyncpg rejects a string
     with «'str' object has no attribute 'toordinal'», so the write converts.
     """
-    if (await db_session.exec(select(RAsset).where(col(RAsset.repair_code) == "BSZR"))).first() is None:
+    if (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSZR"))).first() is None:
         pytest.skip("the seed carries no BSZR asset")
     rows = [
         ParsedPlanRow(

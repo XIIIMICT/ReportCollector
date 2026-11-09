@@ -116,7 +116,7 @@ async def test_meta_lists_form_fields_and_catalogs(client: AsyncClient) -> None:
     # 217 form fields minus the hidden «Корректировка» (col_218).
     assert len(body["fields"]) == 216
     assert len(body["catalogs"]) == 5
-    assert {asset["code"] for asset in body["assets"]} >= {"bsk", "vos"}
+    assert {asset["code"] for asset in body["assets"]} >= {"BSKR", "VOZR"}
     col_003 = next(field for field in body["fields"] if field["dbName"] == "col_003")
     # The renovation-ID formula is OFF: the code is a plain typed value, loaded
     # from the template as-is (see RENOVATION_ID_FORMULA_ENABLED).
@@ -145,14 +145,14 @@ async def test_read_plan_returns_rows_with_labels_and_ids(
     assert body["baselineGeneration"] == 1
     assert len(body["rows"]) == 2
     by_asset = {row["assetCode"]: row for row in body["rows"]}
-    bsk = by_asset["bsk"]
+    bsk = by_asset["BSKR"]
     assert bsk["values"]["col_017"] == "Остановочный капитальный ремонт"
     assert bsk["values"]["col_018"] == "ТР"
     assert bsk["values"]["col_028"] == 10.0
     assert bsk["values"]["col_002"] == "АО «БСК»"
     assert bsk["renovationId"] == "2027_BSKR_1.1.1_1382467"
     assert bsk["missingComponents"] == []
-    assert by_asset["vos"]["renovationId"] == "2027_VOZR_1.1.1_2247000"
+    assert by_asset["VOZR"]["renovationId"] == "2027_VOZR_1.1.1_2247000"
 
 
 async def test_read_plan_facets_sorted_distinct(client: AsyncClient) -> None:
@@ -233,8 +233,8 @@ async def test_read_plan_facets_date_search_uses_client_timezone(client: AsyncCl
 async def test_read_plan_facets_reports_empty_count_on_every_page(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    first = await _row_by_asset_code(db_session, "bsk")
-    second = await _row_by_asset_code(db_session, "vos")
+    first = await _row_by_asset_code(db_session, "BSKR")
+    second = await _row_by_asset_code(db_session, "VOZR")
     first.col_011 = None
     second.col_011 = ""
     await db_session.commit()
@@ -340,8 +340,8 @@ async def test_code_facets_search_literal_symbols_unicode_and_preceding_scope(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    first = await _row_by_asset_code(db_session, "bsk")
-    second = await _row_by_asset_code(db_session, "vos")
+    first = await _row_by_asset_code(db_session, "BSKR")
+    second = await _row_by_asset_code(db_session, "VOZR")
     first.col_003 = "ß_СОДА%"
     second.col_003 = "СС_СОДА1"
     await db_session.flush()
@@ -374,7 +374,7 @@ async def test_literal_code_matching_group_label_survives_filter_and_export(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     row.col_003 = "Корректные"
     await db_session.flush()
     query = {"filters": [{"column": "col_003", "values": ["Корректные"], "valueMode": "exact"}]}
@@ -399,7 +399,7 @@ async def test_edit_keeps_the_renovation_id_when_a_component_changes(
     The generator is off (`RENOVATION_ID_FORMULA_ENABLED`), so clearing the ДВ
     number (col_023) must not rewrite the code behind the user's back.
     """
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     before = row.col_003
     assert before
     status, _ = await _patch(client, [{"rowId": str(row.id), "field": "col_023", "value": None}])
@@ -413,7 +413,7 @@ async def test_edit_renovation_id_directly_is_allowed(
     db_session: AsyncSession,
 ) -> None:
     """The code itself is an ordinary editable cell (it used to be read-only)."""
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     status, body = await _patch(client, [{"rowId": str(row.id), "field": "col_003", "value": "  СВОЙ-КОД 1  "}])
     assert status == 200, body
     await db_session.refresh(row)
@@ -426,7 +426,7 @@ async def test_edit_rejects_a_value_breaking_the_field_rule(
     db_session: AsyncSession,
 ) -> None:
     """col_028 is «не может быть отрицательным» — a negative edit is refused."""
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     status, _ = await _patch(client, [{"rowId": str(row.id), "field": "col_028", "value": -1}])
     assert status == 422
 
@@ -441,7 +441,7 @@ async def test_read_plan_reports_calculated_rule_violations(
     the dates are edited directly, so the violation is only visible after the
     recalculation and must be reported as an invalid field.
     """
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     # Start after end → col_026 becomes negative. The edit is applied and the
     # row recalced by the same PATCH; the dates themselves have no minimum
     # rule, so only the derived duration breaks one.
@@ -463,7 +463,7 @@ async def test_read_plan_reports_calculated_rule_violations(
 
     response = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
     assert response.status_code == 200
-    bsk = next(item for item in response.json()["rows"] if item["assetCode"] == "bsk")
+    bsk = next(item for item in response.json()["rows"] if item["assetCode"] == "BSKR")
     assert "col_026" in bsk["invalidFields"]
 
 
@@ -650,7 +650,7 @@ async def test_plan_rows_filter_by_text_value(client: AsyncClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 1
-    assert [row["assetCode"] for row in body["rows"]] == ["bsk"]
+    assert [row["assetCode"] for row in body["rows"]] == ["BSKR"]
 
 
 async def test_plan_rows_filter_by_reference_label(client: AsyncClient) -> None:
@@ -684,7 +684,7 @@ async def test_plan_rows_filters_combine_with_and(client: AsyncClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 1
-    assert [row["assetCode"] for row in body["rows"]] == ["vos"]
+    assert [row["assetCode"] for row in body["rows"]] == ["VOZR"]
 
 
 async def test_plan_rows_filter_empties_keeps_only_nulls(client: AsyncClient) -> None:
@@ -714,7 +714,7 @@ async def test_plan_rows_filter_asset_column(client: AsyncClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 1
-    assert [row["assetCode"] for row in body["rows"]] == ["bsk"]
+    assert [row["assetCode"] for row in body["rows"]] == ["BSKR"]
 
 
 async def test_plan_rows_filter_audit_instant_by_window(client: AsyncClient) -> None:
@@ -832,11 +832,11 @@ async def test_read_plan_rows_omits_empty_cells(client: AsyncClient) -> None:
         params={"offset": 0, "limit": 100},
     )
     assert response.status_code == 200, response.text
-    row = next(entry for entry in response.json()["rows"] if entry["assetCode"] == "bsk")
+    row = next(entry for entry in response.json()["rows"] if entry["assetCode"] == "BSKR")
     values = row["values"]
     # Set cells keep their transformed value.
     assert values["col_011"] == "Шкаф ПЛК"
-    assert values["col_023"] == 1382467
+    assert values["col_023"] == "1382467"
     assert values["col_024"] == "2027-01-01"
     assert values["col_017"] == "Остановочный капитальный ремонт"
     # The synthetic «Предприятие» column is never null — it is "" when unset.
@@ -848,9 +848,9 @@ async def test_read_plan_rows_omits_empty_cells(client: AsyncClient) -> None:
 
 async def test_read_plan_rows_tolerates_invalid_renovation_id(client: AsyncClient, db_session: AsyncSession) -> None:
     """A row whose old ID components are nonsense reads back as-is (no 500)."""
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     row.col_003 = None
-    row.col_023 = Decimal(12345678)  # more than the required seven digits
+    row.col_023 = "12345678"  # more than the required seven digits
     db_session.add(row)
     await db_session.commit()
 
@@ -862,7 +862,7 @@ async def test_read_plan_rows_tolerates_invalid_renovation_id(client: AsyncClien
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["total"] == 2
-    bad = next(entry for entry in body["rows"] if entry["assetCode"] == "bsk")
+    bad = next(entry for entry in body["rows"] if entry["assetCode"] == "BSKR")
     # The generator is off: nothing is predicted, an empty cell reads empty.
     assert bad["renovationId"] is None
     assert bad["missingComponents"] == []
@@ -870,9 +870,9 @@ async def test_read_plan_rows_tolerates_invalid_renovation_id(client: AsyncClien
 
 async def test_export_tolerates_invalid_renovation_id(client: AsyncClient, db_session: AsyncSession) -> None:
     """The export recomputes missing IDs too, so it must survive the same bad row."""
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     row.col_003 = None
-    row.col_023 = Decimal(12345678)
+    row.col_023 = "12345678"
     db_session.add(row)
     await db_session.commit()
 
@@ -968,7 +968,7 @@ async def test_patch_edits_recalculates_and_journals(
     db_session: AsyncSession,
     store,
 ) -> None:
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     status, body = await _patch(client, [{"rowId": str(row.id), "field": "col_028", "value": 15}])
     assert status == 200
     assert body["applied"] == 1
@@ -979,7 +979,7 @@ async def test_patch_edits_recalculates_and_journals(
     assert body["renovationIds"][0]["value"] == "2027_BSKR_1.1.1_1382467"
 
     response = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
-    row_read = next(r for r in response.json()["rows"] if r["assetCode"] == "bsk")
+    row_read = next(r for r in response.json()["rows"] if r["assetCode"] == "BSKR")
     assert row_read["values"]["col_028"] == 15.0
 
     admin = (await db_session.exec(select(User).where(col(User.email) == "admin@example.ru"))).one()
@@ -989,7 +989,7 @@ async def test_patch_edits_recalculates_and_journals(
 
 async def test_patch_recomputes_only_the_dependency_closure(client: AsyncClient, db_session: AsyncSession) -> None:
     """AUD-28: an edit recomputes the affected formulas, not every derived column."""
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     # col_026 (duration = col_025 - col_024) does not depend on col_028 (work cost).
     row.col_026 = Decimal(999)
     await db_session.flush()
@@ -1003,7 +1003,7 @@ async def test_patch_recomputes_only_the_dependency_closure(client: AsyncClient,
 
 
 async def test_patch_multiple_cells_in_one_request(client: AsyncClient, db_session: AsyncSession) -> None:
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     status, body = await _patch(
         client,
         [
@@ -1018,31 +1018,31 @@ async def test_patch_multiple_cells_in_one_request(client: AsyncClient, db_sessi
 
 
 async def test_patch_accepts_reference_labels(client: AsyncClient, db_session: AsyncSession) -> None:
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     status, body = await _patch(client, [{"rowId": str(row.id), "field": "col_017", "value": "ПИР"}])
     assert status == 200
     assert body["applied"] == 1
     response = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
-    row_read = next(r for r in response.json()["rows"] if r["assetCode"] == "bsk")
+    row_read = next(r for r in response.json()["rows"] if r["assetCode"] == "BSKR")
     assert row_read["values"]["col_017"] == "ПИР"
 
 
 async def test_patch_rejects_unknown_reference_label(client: AsyncClient, db_session: AsyncSession) -> None:
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     status, body = await _patch(client, [{"rowId": str(row.id), "field": "col_017", "value": "Нет такого"}])
     assert status == 422
     assert "не найдено" in body["detail"]
 
 
 async def test_patch_rejects_calculated_field(client: AsyncClient, db_session: AsyncSession) -> None:
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     status, body = await _patch(client, [{"rowId": str(row.id), "field": "col_026", "value": 5}])
     assert status == 422
     assert "только для чтения" in body["detail"]
 
 
 async def test_patch_rejects_unknown_field(client: AsyncClient, db_session: AsyncSession) -> None:
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     status, body = await _patch(client, [{"rowId": str(row.id), "field": "col_999", "value": "x"}])
     assert status == 422
     assert "Неизвестное поле" in body["detail"]
@@ -1054,7 +1054,7 @@ async def test_patch_rejects_unknown_row(client: AsyncClient) -> None:
 
 
 async def test_patch_rejects_bad_date(client: AsyncClient, db_session: AsyncSession) -> None:
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     status, _ = await _patch(client, [{"rowId": str(row.id), "field": "col_024", "value": "не дата"}])
     assert status == 422
 
@@ -1066,7 +1066,7 @@ async def test_patch_date_field_publishes_json_safe_values(
     # A date edit drives the col_203 date-shift calculation; the journal and
     # the collab cell_changed payload must carry ISO strings, not raw date
     # objects (json.dumps has no date default — the Redis store raises).
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     status, body = await _patch(client, [{"rowId": str(row.id), "field": "col_024", "value": "2027-02-15"}])
     assert status == 200
     calculated = {cell["field"]: cell["value"] for cell in body["calculated"]}
@@ -1083,10 +1083,10 @@ async def test_block_owner_edits_only_own_block(
         name="Block Owner",
         role=RProjectRole.BLOCK_OWNER,
         block=RBlock.MTO,
-        asset_codes=["bsk"],
+        asset_codes=["BSKR"],
     )
     headers = signed_identity_headers(email="block_owner@example.ru", name="Block Owner")
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     ok = await client.patch(
         "/api/renovation/plan",
         headers=headers,
@@ -1134,7 +1134,7 @@ async def test_block_owner_sees_all_assets_without_grants(
     # The block owner sees every seeded asset's rows even without an asset grant.
     assert body["total"] > 0
     codes = {row["assetCode"] for row in body["rows"]}
-    assert {"bsk", "vos"} <= codes
+    assert {"BSKR", "VOZR"} <= codes
 
 
 async def test_asset_worker_edits_only_own_asset(
@@ -1147,11 +1147,11 @@ async def test_asset_worker_edits_only_own_asset(
         name="Asset Worker",
         role=RProjectRole.ASSET_WORKER,
         block=RBlock.TECH,
-        asset_codes=["vos"],
+        asset_codes=["VOZR"],
     )
     headers = signed_identity_headers(email="asset_worker@example.ru", name="Asset Worker")
-    vos = await _row_by_asset_code(db_session, "vos")
-    bsk = await _row_by_asset_code(db_session, "bsk")
+    vos = await _row_by_asset_code(db_session, "VOZR")
+    bsk = await _row_by_asset_code(db_session, "BSKR")
     ok = await client.patch(
         "/api/renovation/plan",
         headers=headers,
@@ -1172,7 +1172,7 @@ async def test_undo_restores_previous_value(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     await _patch(client, [{"rowId": str(row.id), "field": "col_028", "value": 15}])
     response = await client.post(
         "/api/renovation/undo",
@@ -1186,7 +1186,7 @@ async def test_undo_restores_previous_value(
     assert body["field"] == "col_028"
     assert body["value"] == 10.0
     plan = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
-    row_read = next(r for r in plan.json()["rows"] if r["assetCode"] == "bsk")
+    row_read = next(r for r in plan.json()["rows"] if r["assetCode"] == "BSKR")
     assert row_read["values"]["col_028"] == 10.0
 
 
@@ -1194,7 +1194,7 @@ async def test_redo_reapplies_undone_value(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     await _patch(client, [{"rowId": str(row.id), "field": "col_028", "value": 15}])
     await client.post(
         "/api/renovation/undo",
@@ -1236,7 +1236,7 @@ async def test_submit_and_approve_plan_lifecycle(
 
     plan = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
     assert plan.json()["baselineGeneration"] == 2
-    bsk = next(row for row in plan.json()["rows"] if row["assetCode"] == "bsk")
+    bsk = next(row for row in plan.json()["rows"] if row["assetCode"] == "BSKR")
     assert bsk["values"]["col_028"] == 10.0
 
 
@@ -1262,7 +1262,7 @@ async def test_approve_requires_admin_or_approver(client: AsyncClient, db_sessio
         name="Block Owner 2",
         role=RProjectRole.BLOCK_OWNER,
         block=RBlock.KSIR,
-        asset_codes=["bsk"],
+        asset_codes=["BSKR"],
     )
     headers = signed_identity_headers(email="block_owner2@example.ru", name="Block Owner 2")
     response = await client.post("/api/renovation/plan/approve", headers=headers)
@@ -1282,7 +1282,7 @@ async def test_approver_reads_but_cannot_edit(client: AsyncClient, db_session: A
     plan = await client.get("/api/renovation/plan", headers=headers)
     assert plan.status_code == 200
     assert len(plan.json()["rows"]) == 2
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     denied = await client.patch(
         "/api/renovation/plan",
         headers=headers,
@@ -1297,7 +1297,7 @@ async def test_admin_can_refine_pending_plan(
     db_session: AsyncSession,
 ) -> None:
     await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
-    row = await _row_by_asset_code(db_session, "bsk", working=False)
+    row = await _row_by_asset_code(db_session, "BSKR", working=False)
     status, _ = await _patch(client, [{"rowId": str(row.id), "field": "col_028", "value": 15}])
     assert status == 200
 
@@ -1313,14 +1313,14 @@ async def test_only_admin_edits_pending_plan(
         name="Asset Worker Pend",
         role=RProjectRole.ASSET_WORKER,
         block=RBlock.TECH,
-        asset_codes=["bsk"],
+        asset_codes=["BSKR"],
     )
     worker_headers = signed_identity_headers(
         email="asset_worker_pend@example.ru",
         name="Asset Worker Pend",
     )
     await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
-    row = await _row_by_asset_code(db_session, "bsk", working=False)
+    row = await _row_by_asset_code(db_session, "BSKR", working=False)
 
     denied = await client.patch(
         "/api/renovation/plan",
@@ -1420,7 +1420,7 @@ async def test_add_row_appends_assetless_draft(client: AsyncClient, db_session: 
 
 async def test_add_row_uses_the_requested_asset(client: AsyncClient, db_session: AsyncSession) -> None:
     """POST /plan/rows with an assetId pre-fills the row's asset."""
-    vos = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()
+    vos = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "VOZR"))).one()
     response = await client.post(
         "/api/renovation/plan/rows",
         headers=ADMIN_HEADERS,
@@ -1429,7 +1429,7 @@ async def test_add_row_uses_the_requested_asset(client: AsyncClient, db_session:
     assert response.status_code == 200
     body = response.json()
     assert body["assetId"] == str(vos.id)
-    assert body["assetCode"] == "vos"
+    assert body["assetCode"] == "VOZR"
     assert body["assetName"] == vos.name
 
     # The new row is found by the asset filter (it belongs to the asset).
@@ -1449,10 +1449,10 @@ async def test_add_row_rejects_a_foreign_asset(client: AsyncClient, db_session: 
         name="Asset Worker 4",
         role=RProjectRole.ASSET_WORKER,
         block=RBlock.TECH,
-        asset_codes=["vos"],
+        asset_codes=["VOZR"],
     )
     headers = signed_identity_headers(email="asset_worker4@example.ru", name="Asset Worker 4")
-    bsk = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "bsk"))).one()
+    bsk = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSKR"))).one()
     response = await client.post(
         "/api/renovation/plan/rows",
         headers=headers,
@@ -1469,16 +1469,16 @@ async def test_add_row_for_single_asset_worker_autofills_asset(client: AsyncClie
         name="Asset Worker 3",
         role=RProjectRole.ASSET_WORKER,
         block=RBlock.TECH,
-        asset_codes=["vos"],
+        asset_codes=["VOZR"],
     )
     headers = signed_identity_headers(email="asset_worker3@example.ru", name="Asset Worker 3")
-    vos = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()
+    vos = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "VOZR"))).one()
     own = await client.post(
         "/api/renovation/plan/rows",
         headers=headers,
     )
     assert own.status_code == 200
-    assert own.json()["assetCode"] == "vos"
+    assert own.json()["assetCode"] == "VOZR"
     assert own.json()["assetId"] == str(vos.id)
 
 
@@ -1512,7 +1512,7 @@ async def test_add_row_is_limited_to_admin_and_tech_block_workers(
         name="KSIR worker (no add)",
         role=RProjectRole.ASSET_WORKER,
         block=RBlock.KSIR,
-        asset_codes=["vos"],
+        asset_codes=["VOZR"],
     )
     await _grant_role(
         db_session,
@@ -1520,7 +1520,7 @@ async def test_add_row_is_limited_to_admin_and_tech_block_workers(
         name="Tech worker (add)",
         role=RProjectRole.ASSET_WORKER,
         block=RBlock.TECH,
-        asset_codes=["vos"],
+        asset_codes=["VOZR"],
     )
     for email, name in (
         ("block_owner_noadd@example.ru", "Block Owner (no add)"),
@@ -1541,7 +1541,7 @@ async def test_add_row_is_limited_to_admin_and_tech_block_workers(
 
 async def test_assign_asset_to_draft_row(client: AsyncClient, db_session: AsyncSession) -> None:
     """An asset-less draft can be pointed at an asset by an admin."""
-    asset = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()
+    asset = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "VOZR"))).one()
     draft = (await client.post("/api/renovation/plan/rows", headers=ADMIN_HEADERS)).json()
     assert draft["assetId"] is None
 
@@ -1551,7 +1551,7 @@ async def test_assign_asset_to_draft_row(client: AsyncClient, db_session: AsyncS
         json={"assetId": str(asset.id)},
     )
     assert assigned.status_code == 200
-    assert assigned.json()["assetCode"] == "vos"
+    assert assigned.json()["assetCode"] == "VOZR"
     assert assigned.json()["assetName"] == asset.name
 
 
@@ -1577,7 +1577,7 @@ async def test_delete_baseline_row_is_forbidden(client: AsyncClient, db_session:
         headers=ADMIN_HEADERS,
     )
     assert added.json()["position"] == 3
-    baseline_row = await _row_by_asset_code(db_session, "bsk")
+    baseline_row = await _row_by_asset_code(db_session, "BSKR")
     denied = await client.delete(
         f"/api/renovation/plan/rows/{baseline_row.id}",
         headers=ADMIN_HEADERS,
@@ -1608,7 +1608,7 @@ async def test_diff_compares_archived_versions(
     first_approve = await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)
     first_id = first_approve.json()["archived"]["id"]
 
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     await _patch(client, [{"rowId": str(row.id), "field": "col_028", "value": 15}])
     await client.post("/api/renovation/plan/submit", headers=ADMIN_HEADERS)
     second_approve = await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)
@@ -1666,7 +1666,7 @@ async def test_diff_marks_new_rows(client: AsyncClient, db_session: AsyncSession
     first_id = (await client.post("/api/renovation/plan/approve", headers=ADMIN_HEADERS)).json()["archived"]["id"]
     # New rows are added as empty drafts; give it an asset + content so it is a
     # real new row (an empty draft would be dropped again on the next submit).
-    asset = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "vos"))).one()
+    asset = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "VOZR"))).one()
     added = (await client.post("/api/renovation/plan/rows", headers=ADMIN_HEADERS)).json()
     new_row = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.id) == added["id"]))).one()
     new_row.asset_id = asset.id
@@ -1674,7 +1674,7 @@ async def test_diff_marks_new_rows(client: AsyncClient, db_session: AsyncSession
     # The plan can only be submitted when every work ID is filled, and the code
     # is a typed value now — set it like an import or a user would.
     new_row.col_003 = "2027_BSKR_1.1.1_9999999"
-    new_row.col_023 = Decimal(9999999)
+    new_row.col_023 = "9999999"
     new_row.col_024 = date(2027, 1, 1)
     new_row.col_189 = "1.1.1."
     db_session.add(new_row)
@@ -1894,7 +1894,7 @@ async def test_export_recalculates_derived_columns(
     col_026 has no stored value until an edit recalcs the row; the export must
     derive it from col_025 - col_024 (else the column is blank on the sheet).
     """
-    row = await _row_by_asset_code(db_session, "bsk")
+    row = await _row_by_asset_code(db_session, "BSKR")
     row.col_024 = date(2027, 1, 10)
     row.col_025 = date(2027, 1, 25)
     row.col_026 = None

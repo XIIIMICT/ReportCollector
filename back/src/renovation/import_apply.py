@@ -90,7 +90,7 @@ async def apply_plan_file(
         raise _ERR_NO_WORKING_PLAN
     reference_ids = await _reference_ids(session)
     assets = (await session.exec(select(RAsset))).all()
-    asset_ids = {asset.repair_code.upper(): asset.id for asset in assets}
+    asset_ids = {asset.code.upper(): asset.id for asset in assets}
     # A drop without «Наименование ДО» names the entity in «Предприятие»: the
     # same dictionary, matched by name (case/quote/space-insensitive).
     asset_ids_by_name = {_asset_name_key(asset.name): asset.id for asset in assets}

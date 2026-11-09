@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import func
 from sqlmodel import col, select
@@ -64,7 +64,7 @@ async def read_renovation_asset_rows(
     return [
         RenovationAssetRowRead(
             id=asset.id,
-            repairCode=asset.repair_code,
+            repairCode=asset.code,
             name=asset.name,
             createdAt=asset.created_at,
             updatedAt=asset.updated_at,
@@ -87,7 +87,7 @@ async def _ensure_asset_unique(
     where = [] if exclude_id is None else [RAsset.id != exclude_id]
     if await session.scalar(select(RAsset.id).where(RAsset.name == name, *where)) is not None:
         raise _DICT_ASSET_NAME_EXISTS
-    if await session.scalar(select(RAsset.id).where(RAsset.repair_code == repair_code, *where)) is not None:
+    if await session.scalar(select(RAsset.id).where(RAsset.code == repair_code, *where)) is not None:
         raise _DICT_ASSET_CODE_EXISTS
 
 
@@ -99,14 +99,13 @@ async def create_renovation_asset(
     repair_code: str,
     user: User,
 ) -> tuple[RAsset, RenovationAssetRowRead]:
-    """Create a renovation asset (code is auto-generated; never shown)."""
+    """Create a renovation asset (the code is the repair code of the work ID)."""
     now = datetime.now(UTC)
     name = name.strip()
     repair_code = repair_code.strip()
     await _ensure_asset_unique(session, name=name, repair_code=repair_code)
     asset = RAsset(
-        code=uuid4().hex,
-        repair_code=repair_code,
+        code=repair_code,
         name=name,
         created_at=now,
         updated_at=now,
@@ -133,19 +132,19 @@ async def update_renovation_asset(
     if asset is None:
         raise _DICT_ASSET_NOT_FOUND
     old_name = asset.name
-    old_repair_code = asset.repair_code
+    old_repair_code = asset.code
     if name is not None:
         name = name.strip()
     if repair_code is not None:
         repair_code = repair_code.strip()
     if name is not None and name != old_name:
-        await _ensure_asset_unique(session, name=name, repair_code=asset.repair_code, exclude_id=asset_id)
+        await _ensure_asset_unique(session, name=name, repair_code=asset.code, exclude_id=asset_id)
     if repair_code is not None and repair_code != old_repair_code:
         await _ensure_asset_unique(session, name=asset.name, repair_code=repair_code, exclude_id=asset_id)
     if name is not None:
         asset.name = name
     if repair_code is not None:
-        asset.repair_code = repair_code
+        asset.code = repair_code
     asset.updated_at = datetime.now(UTC)
     asset.updater_user_id = user.id
     session.add(asset)
@@ -161,14 +160,14 @@ async def update_renovation_asset(
                 new_value=asset.name,
             )
         )
-    if asset.repair_code != old_repair_code:
+    if asset.code != old_repair_code:
         applied.append(
             AppliedCell(
                 target_table=RAsset.__tablename__,
                 row_id=asset.id,
                 field="repairCode",
                 old_value=old_repair_code,
-                new_value=asset.repair_code,
+                new_value=asset.code,
             )
         )
     return asset, applied
@@ -273,9 +272,8 @@ async def delete_renovation_asset(
     for link in user_links:
         await session.delete(link)
     snapshot = {
-        "code": asset.code,
         "name": asset.name,
-        "repairCode": asset.repair_code,
+        "repairCode": asset.code,
         "userLinks": links,
     }
     await session.delete(asset)
@@ -312,11 +310,11 @@ async def _apply_renovation_asset_deleted(
     if not isinstance(value, dict):
         message = "Некорректные данные для восстановления актива."
         raise CellValidationError(message)
+    # `repairCode` is the journal's historical field name for the asset code.
     asset = RAsset(
         id=row_id,
-        code=str(value.get("code") or ""),
+        code=str(value.get("repairCode") or ""),
         name=str(value.get("name") or ""),
-        repair_code=str(value.get("repairCode") or ""),
         updater_user_id=updater_user_id,
     )
     session.add(asset)

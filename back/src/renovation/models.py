@@ -42,10 +42,8 @@ class RAsset(UpdaterDisplay, table=True):
     __tablename__ = "r_assets"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    # Internal stable code, e.g. «vos» (used in asset-scoped user names).
+    # Official legal-entity code from the renovation ID, e.g. «VOZR».
     code: str = Field(sa_column=Column(Text, unique=True, index=True, nullable=False))
-    # Official legal-entity repair code from the renovation ID, e.g. «VOZR».
-    repair_code: str = Field(sa_column=Column(Text, unique=True, nullable=False))
     name: str = Field(sa_column=Column(Text, unique=True, nullable=False))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(

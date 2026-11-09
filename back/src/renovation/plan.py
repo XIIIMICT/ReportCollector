@@ -170,7 +170,7 @@ class RenovationPlanRow(UpdaterDisplay, table=True):
     )
     col_021: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
     col_022: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_023: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    col_023: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     col_024: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
     col_025: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
     col_026: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))

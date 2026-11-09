@@ -388,13 +388,20 @@ suffix-free «Отнесение затрат (OPEX/CAPEX)» / «Способ в
 Asset identification uses «Наименование ДО» — the official repair code
 (`BSZR`) that is also an input of the work ID; the UI shows the asset name.
 A drop without that column names the legal entity in «Предприятие» instead:
-both are matched against the same `rm_assets` dictionary, the code by code and
+both are matched against the same `r_assets` dictionary (renovation assets are
+`r_assets`, the raw-materials ones `rm_assets`), the code by code and
 the name by name (trimmed, case-folded, and with every quote style folded to a
 plain `"` — the files write `АО "БСЗ"` while the dictionary holds «АО «БСЗ»»).
 Whether the file resolved by code or by name is carried as
 `PlanFileScope.assets_are_names` / `ParsedPlanRow.asset_is_name`, so the router
 and the loader look up the right map. A name the dictionary does not have is a
 file error, exactly like an unknown code — never a silently dropped row.
+The dictionary's key is `r_assets.code`, which IS the repair code (migration
+0030 dropped the old internal slug). «Дефектная ведомость/ВОР №»
+(`r_plan_rows.col_023`) is TEXT for the same reason: a seven-digit number with a
+meaningful leading zero (`0706179`) cannot be stored as a number — the grid, the
+importer and the legacy ID path all normalise it to digits and, when needed,
+pad short values to seven.
 Text cells are stored trimmed (a non-breaking space included) and an empty
 string counts as an empty cell; the «Лот» code gets its mandatory trailing dot
 added silently when the file has `1.1.1` instead of `1.1.1.`
@@ -449,10 +456,17 @@ chunked uploads without `Content-Length`. `RENOVATION_UPLOAD_TIMEOUT_SECONDS`
 (300 seconds) bounds receiving the body, excluding subsequent parse/apply time.
 Oversized or slow bodies return 413/408, and the multipart parser closes partial
 temporary files. Match proxy upload limits to these values in production.
+The preflight answers in ONE request after the whole workbook is parsed, so the
+reverse proxy must outlast that parse: `location /` in `infra/nginx/` sets
+`proxy_read_timeout`/`proxy_send_timeout 86400s` (nginx's 60 s default answered
+504 on a big drop while the analysis was still running).
 
 Reports are cached in Valkey (`src/renovation/inspect_cache.py`): the key is
-`rc:planimport:<sha256 of the bytes>:<scope>`, where the scope has two parts.
-The plan part is the file's assets («Наименование ДО» repair codes → asset
+`rc:planimport:v<INSPECT_CACHE_VERSION>:<sha256 of the bytes>:<scope>`, where
+the scope has two parts. The version is the analyzer's: bump
+`INSPECT_CACHE_VERSION` whenever a deploy changes what a report contains, so a
+report written by the previous analyzer is not served for up to the TTL. The
+plan part is the file's assets («Наименование ДО» repair codes → asset
 ids, or «Предприятие» names → asset ids when the code column is absent) plus
 the newest `updated_at` of the working plan rows **of those assets**;
 a plan edit in any other asset therefore keeps the cached report valid, while

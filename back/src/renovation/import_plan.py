@@ -729,14 +729,7 @@ def _value_in_catalog(known: set[str], value: object) -> bool:
 
 
 def _defect_text(value: object) -> str:
-    """
-    Render a ДВ number as digits, restoring the dropped leading zero.
-
-    The form stores the defect number as a number, so a 7-digit value picked up
-    from an Excel cell loses its leading zero (`0706179` → `706179`); the work
-    ID rule requires exactly seven digits, so short values are left-padded —
-    the same normalisation the edit path applies.
-    """
+    """Render a ДВ number as digits for the work-code check."""
     if value is None or isinstance(value, bool):
         return ""
     text = str(int(value)) if isinstance(value, float) and value.is_integer() else str(value).strip()

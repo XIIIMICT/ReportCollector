@@ -54,7 +54,13 @@ _EMPTY_AS_NULL_COLUMNS: dict[str, tuple[str, ...]] = {
 # they exist on the pre-adoption snapshot but not after the upgrade, so the data
 # comparison excludes them.
 _DROPPED_COLUMNS: dict[str, tuple[str, ...]] = {
-    "r_plan_rows": ("col_218",),
+    # col_218: 0007 drops the obsolete «Корректировка» column.
+    # repair_code: 0030 renames it to `code` (unchanged value, and its type and
+    # comment differ, so the JSON comparison cannot line the two up).
+    # col_023: 0030 makes the defect number TEXT, re-rendering `706179` as
+    # `0706179` — the same value, restored to its real seven digits.
+    "r_plan_rows": ("col_218", "col_023"),
+    "r_assets": ("repair_code",),
 }
 
 _RENOVATION_TABLE_RENAMES = {
@@ -121,6 +127,10 @@ async def test_adopt_preserves_data_and_refuses_drift(db_session, monkeypatch, m
     await db_session.commit()
     async with migration_engine.begin() as conn:
         config = config_for(conn.sync_connection)
+        # Start from the NEWEST schema: a test that already ran may have left the
+        # shared migration schema anywhere in the chain, and 0030 renames a pair
+        # of `r_assets` columns (a second downgrade cannot find them).
+        await conn.run_sync(lambda _: command.upgrade(config, "head"))
         await conn.run_sync(lambda _: command.downgrade(config, BASELINE))
         await conn.run_sync(lambda _: command.stamp(config, BASELINE))
         await conn.execute(text("UPDATE alembic_version SET version_num=:version"), {"version": LEGACY_HEAD})
@@ -333,7 +343,7 @@ async def test_adopt_accepts_unique_constraint_plus_plain_index(db_session, migr
     """
     await db_session.close()
     async with migration_engine.begin() as conn:
-        await conn.execute(text("DROP INDEX ix_r_assets_code"))
+        await conn.execute(text("DROP INDEX IF EXISTS ix_r_assets_code"))
         await conn.execute(text("ALTER TABLE r_assets DROP CONSTRAINT IF EXISTS r_assets_code_key"))
         await conn.execute(text("ALTER TABLE r_assets ADD CONSTRAINT r_assets_code_key UNIQUE (code)"))
         await conn.execute(text("CREATE INDEX ix_r_assets_code ON r_assets (code)"))

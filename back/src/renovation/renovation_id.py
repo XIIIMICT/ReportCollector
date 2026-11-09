@@ -18,6 +18,8 @@ MISSING_COMPONENT = "<NULL>"
 
 # «Направление деятельности» («Лот») — the loT code always ends with a dot.
 DIRECTION_CODE_FIELD = "col_189"
+# «Дефектная ведомость/ВОР №» — a seven-digit number whose leading zero matters.
+DEFECT_NUMBER_FIELD = "col_023"
 
 # Whether the renovation-ID generator is ON.
 #

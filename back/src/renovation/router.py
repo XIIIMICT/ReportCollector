@@ -360,7 +360,7 @@ async def inspect_renovation_plan_import(
         file_scope = await asyncio.to_thread(scan_file_scope, file.file, suffix)
     await file.seek(0)
     assets = (await session.exec(select(RAsset))).all()
-    assets_by_code = {asset.repair_code.upper(): asset for asset in assets if asset.repair_code}
+    assets_by_code = {asset.code.upper(): asset for asset in assets if asset.code}
     assets_by_name = {_asset_name_key(asset.name): asset for asset in assets}
     # The file names its assets either by repair code («Наименование ДО») or,
     # when that column is absent, by name («Предприятие»).
@@ -392,7 +392,7 @@ async def inspect_renovation_plan_import(
     references: dict[str, set[str]] = {}
     for value in (await session.exec(select(RenovationReferenceValue))).all():
         references.setdefault(value.catalog.value, set()).add(value.label.casefold())
-    asset_names_by_code = {asset.repair_code: asset.name for asset in assets if asset.repair_code}
+    asset_names_by_code = {asset.code: asset.name for asset in assets if asset.code}
     await file.seek(0)
     with observe_phase("import", "inspect"):
         result = await asyncio.to_thread(
@@ -1140,7 +1140,7 @@ async def post_renovation_asset(
                     new_value={
                         "code": created.code,
                         "name": created.name,
-                        "repairCode": created.repair_code,
+                        "repairCode": created.code,
                     },
                 )
             ],

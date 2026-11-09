@@ -29,7 +29,8 @@ def test_catalog_covers_every_application_table_and_column() -> None:
     # 0024 added the market dictionary's 6 columns.
     # 0026 adds the durable operation queue; 0028 adds its bounded result;
     # 0029 adds the job's worker lifecycle metadata (phase, worker, start, heartbeat).
-    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 525
+    # 0030 drops `r_assets.code` (the internal slug; `repair_code` becomes `code`).
+    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 524
     assert set(TABLE_COMMENTS) == set(SQLModel.metadata.tables)
     for table in SQLModel.metadata.tables.values():
         assert table.comment == TABLE_COMMENTS[table.name].rstrip(".")
@@ -57,7 +58,9 @@ def test_frozen_migration_matches_current_catalog() -> None:
     # frozen snapshot still describes them, the live metadata does not.
     # 0024 replaced the text `product`/`region` of the realization copies with
     # `product_id`/`market_id`, so the snapshot keeps the text descriptions.
-    _replaced = {"sort_order", "value_key", "payload", "product", "region"}
+    # 0030 renamed the assets' `repair_code` to `code` (the old pair is gone) and
+    # retyped `r_plan_rows.col_023` as text — the snapshot keeps the old wording.
+    _replaced = {"sort_order", "value_key", "payload", "product", "region", "repair_code", "col_023"}
     migration_tables = {
         name: (
             description,
@@ -65,6 +68,12 @@ def test_frozen_migration_matches_current_catalog() -> None:
         )
         for name, (description, columns) in migration.COMMENTS.items()
     }
+    # The asset dictionary's `code` was described as an internal slug; 0030 made
+    # it the repair code, so the live catalog's wording is the expected one.
+    expected["r_assets"] = (
+        expected["r_assets"][0],
+        {**expected["r_assets"][1], "code": migration.COMMENTS["r_assets"][1]["code"]},
+    )
     # 0017 added `kppk_org_products.has_excise` after 0015 froze the snapshot.
     for name, (description, columns) in migration_tables.items():
         columns.update(

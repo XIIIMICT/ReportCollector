@@ -4516,14 +4516,14 @@
     "Техническая дирекция",
     "Дефектная ведомость/ВОР\r\n№ (в случаях когда инв.№ распространяется на отделение или установку, или блок из нескольких единиц оборудования)"
    ],
-   "cellType": "number",
+   "cellType": "text",
    "isCalculated": false,
    "formula": null,
    "excelFormula": null,
-   "decimals": 0,
+   "decimals": null,
    "catalog": null,
    "validation": {
-    "sourceType": "число",
+    "sourceType": "текст",
     "sourceHint": null,
     "allowNull": true,
     "rules": []

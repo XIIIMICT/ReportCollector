@@ -344,7 +344,7 @@ def _price_business_plan_tons(index: int) -> float:
 # (renovation-form.json), NOT by position.
 #
 # The enterprise is resolved from the «Наименование ДО» code (an r_assets
-# repair_code) when present, else from the normalized «Предприятие» name; the
+# code) when present, else from the normalized «Предприятие» name; the
 # master dictionaries are never re-seeded — existing asset ids are reused.
 
 # Repository-root-relative folder with the plan workbooks.
@@ -689,7 +689,7 @@ def iter_renovation_plan_rows(
     all at once OOM-killed the seed on a small production container (exit 137).
 
     Columns are resolved by their header text: the «Наименование ДО» code (an
-    asset repair_code) picks the asset and every other header is matched against
+    asset code) picks the asset and every other header is matched against
     the form labels. The plan position is a gap-free global sequence over the
     imported rows (each source file restarts its own «№ п/п»). Calculated fields
     and the structural columns are dropped; reference labels are resolved to
@@ -900,9 +900,9 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
     # Renovation assets (legal entities): static master data from the legacy form.
     r_assets_by_code: dict[str, RAsset] = {}
     for code, repair_code, name in R_ASSETS:
-        asset = (await session.exec(select(RAsset).where(RAsset.code == code))).one_or_none()
+        asset = (await session.exec(select(RAsset).where(RAsset.code == repair_code))).one_or_none()
         if asset is None:
-            asset = RAsset(code=code, repair_code=repair_code, name=name, created_at=now)
+            asset = RAsset(code=repair_code, name=name, created_at=now)
             session.add(asset)
             await session.flush()
         r_assets_by_code[code] = asset
@@ -1038,18 +1038,12 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
         await session.flush()
         # Resolve the «Предприятие» name (straight quotes) to an r_assets id,
         # and reference labels to renovation_reference_values ids. The plan
-        # workbooks name the enterprise by its repair_code (the «Наименование
-        # ДО» cell) first, so both lookup tables are prepared.
+        # workbooks name the enterprise by its code (the «Наименование ДО» cell)
+        # or by its name, so both lookup tables are prepared.
         asset_by_normalized_name = {
             _normalize_asset_name(name): r_assets_by_code[code].id for code, _, name in R_ASSETS
         }
-        asset_by_code = {
-            **{code.upper(): r_assets_by_code[code].id for code in r_assets_by_code},
-            **{
-                (r_assets_by_code[code].repair_code or "").upper(): r_assets_by_code[code].id
-                for code in r_assets_by_code
-            },
-        }
+        asset_by_code = {code.upper(): r_assets_by_code[code].id for code in r_assets_by_code}
         references = _ReferenceResolver(session)
         await references.load()
 
@@ -1149,8 +1143,6 @@ async def seed_renovation_plan(session: AsyncSession) -> None:
     asset_by_normalized_name: dict[str, UUID] = {}
     for asset in assets:
         asset_by_code[asset.code.upper()] = asset.id
-        if asset.repair_code:
-            asset_by_code[asset.repair_code.upper()] = asset.id
         asset_by_normalized_name[_normalize_asset_name(asset.name)] = asset.id
 
     working_plan = RenovationPlan(

@@ -60,6 +60,7 @@ from src.renovation.plan import (
 )
 from src.renovation.read_cache import reference_labels as cached_reference_labels
 from src.renovation.renovation_id import (
+    DEFECT_NUMBER_FIELD,
     DIRECTION_CODE_FIELD,
     MISSING_COMPONENT,
     RENOVATION_ID_FORMULA_ENABLED,
@@ -323,7 +324,7 @@ def _asset_read(asset: RAsset) -> RenovationAssetRead:
     return RenovationAssetRead(
         id=asset.id,
         code=asset.code,
-        repairCode=asset.repair_code,
+        repairCode=asset.code,
         name=asset.name,
     )
 
@@ -514,7 +515,7 @@ def _plan_export_query(
             col(RenovationPlanRow.id),
             col(RenovationPlanRow.position),
             col(RAsset.name),
-            col(RAsset.repair_code),
+            col(RAsset.code),
             *EXPORT_COLUMNS,
         )
         .join(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
@@ -846,7 +847,7 @@ def _sparse_row_renovation_id(
             bpof_section=str(values.get("col_016") or "") or None,
             work_category=label_map.get(UUID(str(work_category_id))) if work_category_id else None,
             project_code=str(project_code) if project_code else None,
-            defect_number=_defect_number_text(defect),
+            defect_number=defect_number_text(defect),
             technology_position=str(values.get("col_011") or "") or None,
             work_type_label=label_map.get(UUID(str(work_type_id))) if work_type_id else None,
         )
@@ -2208,7 +2209,7 @@ def _plan_row_read(
         assetId=asset.id if asset is not None else None,
         assetCode=asset.code if asset is not None else None,
         assetName=asset.name if asset is not None else None,
-        assetRepairCode=asset.repair_code if asset is not None else None,
+        assetRepairCode=asset.code if asset is not None else None,
         position=row.position,
         revision=row.revision,
         createdAt=row.created_at,
@@ -2302,19 +2303,19 @@ _RENOVATION_ID_INPUT_FIELDS = frozenset(
 )
 
 
-def _defect_number_text(value: object) -> str | None:
+def defect_number_text(value: object) -> str | None:
     """
     Return the 7-digit defect-statement number as text.
 
-    The source stores it as a number, so a dropped leading zero is restored
-    (`706179` → `0706179`); the legacy id expects exactly seven digits.
+    The column is TEXT now, but the value still arrives as a float from Excel or
+    as digits-without-zero from an older number cell: a dropped leading zero is
+    restored (`706179` → `0706179`), and a numeric tail is dropped (`7.0` →
+    `7`). The legacy id expects exactly seven digits; anything that is not a
+    plain number is kept verbatim.
     """
     if value is None:
         return None
-    try:
-        text = f"{Decimal(str(value)):.0f}"
-    except InvalidOperation, ValueError:
-        return str(value)
+    text = str(int(value)) if isinstance(value, float) and value.is_integer() else str(value).strip()
     if text.isdigit() and len(text) < 7:
         return text.zfill(7)
     return text
@@ -2337,12 +2338,12 @@ def _renovation_id_input(
     return RenovationIdInput(
         existing_id=row.col_003 if keep_existing else None,
         start_date=row.col_024.isoformat() if isinstance(row.col_024, date) else None,
-        asset_repair_code=asset.repair_code,
+        asset_repair_code=asset.code,
         direction_code=row.col_189,
         bpof_section=row.col_016,
         work_category=label_map.get(row.col_017) if row.col_017 is not None else None,
         project_code=row.col_136,
-        defect_number=_defect_number_text(row.col_023),
+        defect_number=defect_number_text(row.col_023),
         technology_position=row.col_011,
         work_type_label=label_map.get(row.col_018) if row.col_018 is not None else None,
     )
@@ -2721,6 +2722,10 @@ async def _coerce_cell(
     text = coerce_text(value)
     if meta.db_name == DIRECTION_CODE_FIELD:
         text = normalize_direction_code(text)
+    if meta.db_name == DEFECT_NUMBER_FIELD:
+        # Text now: the seven-digit number keeps its leading zero (`706179` →
+        # `0706179`), the same normalisation the importer applies.
+        text = defect_number_text(text)
     return text, text
 
 
@@ -2841,7 +2846,7 @@ async def apply_renovation_cell_value(
         if field == "name":
             asset.name = value if isinstance(value, str) else ""
         elif field == "repairCode":
-            asset.repair_code = value if isinstance(value, str) else ""
+            asset.code = value if isinstance(value, str) else ""
         else:
             message = f"Неизвестное поле «{field}» справочника «Активы»."
             raise CellValidationError(message)

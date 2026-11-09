@@ -318,6 +318,19 @@ def _is_legacy_price_timestamp_change(diff: object) -> bool:
 
 def _is_legacy_equivalent(diff: tuple) -> bool:
     """Match a single known legacy-only difference (a dropped column or index)."""
+    # 0030 renames `r_assets.repair_code` to `code` (dropping the internal slug):
+    # a pre-adoption schema still carries the old pair, so those objects are
+    # expected there. Checked FIRST, before the generic column branches below.
+    # Alembic reports a renamed/dropped column as a LIST of changes on it
+    # («modify_type», «modify_comment»), so the list branch is tried here too.
+    if isinstance(diff, list):
+        if bool(diff) and all(
+            _is_r_assets_code_drift(item) or _is_defect_number_drift(item) or _is_legacy_equivalent(item)
+            for item in diff
+        ):
+            return True
+    elif _is_r_assets_code_drift(diff) or _is_defect_number_drift(diff):
+        return True
     # 0014 adds the catalog after adoption. Only absent comments whose target
     # matches a documented application object are deferred, never structural edits.
     if isinstance(diff, tuple) and len(diff) == 3 and diff[0] == "add_table_comment":
@@ -327,6 +340,11 @@ def _is_legacy_equivalent(diff: tuple) -> bool:
         return expected is not None and diff[2] is None and table.comment == expected.comment
     if isinstance(diff, tuple) and len(diff) == 7 and diff[0] == "modify_comment":
         name = _RENOVATION_TABLE_RENAMES.get(diff[2], diff[2])
+        if name == "r_assets" and getattr(diff[3], "name", diff[3]) in _LEGACY_ASSET_CODE_COLUMNS:
+            return True
+        # 0030 types col_023 as text, which also gives it a comment.
+        if name == "r_plan_rows" and diff[3] == "col_023":
+            return True
         table = SQLModel.metadata.tables.get(name)
         column = table.c.get(diff[3]) if table is not None else None
         if name == "r_plan_rows" and diff[3].startswith("col_"):
@@ -374,11 +392,49 @@ def _is_legacy_equivalent(diff: tuple) -> bool:
         return diff[1].name in _LEGACY_EXTRA_INDEXES
     if isinstance(diff, tuple) and len(diff) >= 2 and diff[0] == "add_table":
         return diff[1].name in _LEGACY_MISSING_TABLES
+    # 0030 renames `r_assets.repair_code` to `code` (dropping the internal slug):
+    # a pre-adoption schema still carries the old pair, so the old objects and
+    # their type/comment differences are expected there. Nothing else in
+    # `r_assets` may differ, so the tolerance names the columns it covers.
     if isinstance(diff, list):
         # Alembic groups the changes on one column into a nested list; tolerate
         # it only when every change is a known deferred timestamp/comment edit.
         return bool(diff) and all(_is_legacy_equivalent(item) for item in diff)
     return _is_legacy_price_timestamp_change(diff)
+
+
+_LEGACY_ASSET_CODE_COLUMNS = frozenset({"code", "repair_code"})
+
+
+def _is_defect_number_drift(diff: object) -> bool:
+    """0030 makes `r_plan_rows.col_023` TEXT on a legacy NUMERIC schema."""
+    if not (isinstance(diff, tuple) and len(diff) > 3 and diff[0] == "modify_type"):
+        return False
+    return diff[2] == "renovation_plan_rows" and str(diff[3]) == "col_023"
+
+
+def _is_r_assets_code_drift(diff: object) -> bool:
+    """One expected difference on the assets' code column before 0030 ran."""
+    if not (isinstance(diff, tuple) and diff):
+        return False
+    kind = diff[0]
+    if kind == "remove_column":
+        return len(diff) > 3 and diff[2] == "r_assets" and diff[3].name in _LEGACY_ASSET_CODE_COLUMNS
+    if kind == "add_column":
+        return len(diff) > 3 and diff[2] == "r_assets" and diff[3].name in _LEGACY_ASSET_CODE_COLUMNS
+    if kind in {"remove_constraint", "remove_index"}:
+        target = diff[1]
+        table = getattr(target, "table", None)
+        return (
+            table is not None
+            and table.name == "r_assets"
+            and {column.name for column in target.columns} <= _LEGACY_ASSET_CODE_COLUMNS
+        )
+    if kind in {"modify_type", "modify_nullable", "modify_comment"}:
+        return (
+            len(diff) > 3 and diff[2] == "r_assets" and getattr(diff[3], "name", diff[3]) in _LEGACY_ASSET_CODE_COLUMNS
+        )
+    return False
 
 
 def _describe_diffs(diffs: list[tuple]) -> str:

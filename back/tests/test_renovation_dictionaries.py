@@ -101,7 +101,7 @@ async def test_asset_delete_blocked_while_used(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    asset = await _asset_by_code(db_session, "bsk")
+    asset = await _asset_by_code(db_session, "BSKR")
     response = await client.delete(
         f"/api/renovation/dictionary/assets/{asset.id}",
         headers=ADMIN_HEADERS,

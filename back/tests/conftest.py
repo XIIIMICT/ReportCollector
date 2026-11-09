@@ -253,10 +253,7 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
         )
     )
 
-    assets = {
-        code: RAsset(code=code, repair_code=repair_code, name=name, created_at=now)
-        for code, repair_code, name in R_ASSETS
-    }
+    assets = {repair_code: RAsset(code=repair_code, name=name, created_at=now) for _, repair_code, name in R_ASSETS}
     for asset in assets.values():
         session.add(asset)
     await session.flush()
@@ -298,7 +295,7 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
         session.add(
             RenovationPlanRow(
                 plan_id=working.id,
-                asset_id=assets[code].id,
+                asset_id=assets[repair_code].id,
                 position=position,
                 baseline_generation=1,
                 revision=0,

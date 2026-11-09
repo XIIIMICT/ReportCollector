@@ -11,7 +11,6 @@ export const RENOVATION_SECTION = "renovationPlan";
 export type RenovationAsset = {
     id: string;
     code: string;
-    repairCode: string;
     name: string;
 };
 

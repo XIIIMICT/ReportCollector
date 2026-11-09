@@ -84,5 +84,11 @@ server {
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # The Excel preflight answers ONE request: the backend hashes and parses
+        # the whole workbook before it replies (tens of seconds on a big drop,
+        # and nothing is sent meanwhile). nginx's 60 s default closed the
+        # connection and answered 504 while the analysis was still running.
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
     }
 }
