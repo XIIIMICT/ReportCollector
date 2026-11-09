@@ -9,8 +9,8 @@ name `code`.
 
 `r_plan_rows.col_023` («Дефектная ведомость/ВОР №») was NUMERIC: a seven-digit
 number with a meaningful leading zero, which a number cannot keep. The column
-becomes TEXT and the stored values are re-rendered as digits (`706179` →
-`0706179`), the same normalisation the row editor and the importer apply.
+becomes TEXT; the stored values keep their digits as they are (`::numeric::text`
+would render `706179.0000`, so the integer cast drops the scale).
 """
 
 import sqlalchemy as sa
@@ -34,14 +34,14 @@ def upgrade() -> None:
     op.create_index("ix_r_assets_code", "r_assets", ["code"], unique=True)
 
     # `::numeric::text` would render `706179.0000`; the integer cast drops the
-    # scale Excel/psycopg put there, and lpad restores the dropped leading zero.
+    # scale. The digits themselves are left alone — no leading zero is added.
     op.execute(
         """
         ALTER TABLE r_plan_rows
         ALTER COLUMN col_023 TYPE text
         USING CASE
             WHEN col_023 IS NULL THEN NULL
-            ELSE lpad(col_023::numeric::bigint::text, 7, '0')
+            ELSE col_023::numeric::bigint::text
         END
         """
     )

@@ -131,10 +131,11 @@ KPPK_SOURCE_TABLES: dict[str, str] = {
     "kppk_f_production_plan": "kppk_production_plan",
 }
 
-# The market order of the source workbook. The markets themselves live in the
-# `kppk_markets` dictionary (migration 0024 seeded it from this tuple, in this
-# order); the constant stays as the reference for a fresh database and for tests.
-MARKET_CODES: tuple[str, ...] = ("РФ", "ДЗ", "БЗ")
+# The presentation order of the markets in the forms («РФ», then «БЗ», then «ДЗ»).
+# The dictionary lives in `kppk_markets` (migration 0024 seeded it from the source
+# tuple `РФ/ДЗ/БЗ`); the constant stays as the reference for a fresh database and
+# for tests.
+MARKET_CODES: tuple[str, ...] = ("РФ", "БЗ", "ДЗ")
 
 
 # The explicit presentation order of the markets, as a SQL sort key. `created_at`

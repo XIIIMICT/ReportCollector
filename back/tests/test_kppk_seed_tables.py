@@ -147,7 +147,9 @@ async def test_seed_recopies_sources_after_application_tables_were_deleted(db_se
         )
     ).scalar_one()
     assert period_rows == 0, "the seed rebuilds the period tables, source figures included"
-    # The build order carries the period window (September 2023 → next December).
+    # The build order carries the period window (September 2023 → next December):
+    # every matrix pair × every month gets a row, so an uncovered month is still
+    # a place to type a figure.
     span = (
         await connection.execute(
             text(f'SELECT min(period_date), count(DISTINCT period_date) FROM "{TEST_SCHEMA}".kppk_cost')  # noqa: S608
@@ -155,6 +157,19 @@ async def test_seed_recopies_sources_after_application_tables_were_deleted(db_se
     ).one()
     assert str(span[0]) == "2023-09-01"
     assert span[1] == len(seed_kppk.target_periods())
+    # …but a period the source says nothing about stays EMPTY: a copied zero is
+    # data, an invented zero is not.
+    zeros = (
+        await connection.execute(
+            text(
+                f'SELECT count(*) FROM "{TEST_SCHEMA}".kppk_cost '  # noqa: S608 — test schema
+                "WHERE full_cost_bp = 0 OR production_cost_bp = 0 OR variable_cost_bp = 0 "
+                "OR full_cost_op = 0 OR production_cost_op = 0 OR variable_cost_op = 0 "
+                "OR full_cost_fact = 0 OR production_cost_fact = 0 OR variable_cost_fact = 0"
+            )
+        )
+    ).scalar_one()
+    assert zeros == 0, "a figure the source does not carry must be NULL, not a zero"
     # The seed is idempotent as a whole: a second run copies nothing and the
     # generator produces the same rows again (it truncates, it does not append).
     again = await seed_kppk.seed(db_session)

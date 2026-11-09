@@ -101,7 +101,7 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.15 and Node 26 
   and its user links come from `just seed` / self-provisioning, so a fresh install
   runs `just seed` → `just seed-kppk`. Dictionary edits — the editable unique «№»
   included — are reconciled from the source on the next run. The **market column
-  order is «РФ», «ДЗ», «БЗ»** (`MARKET_CODES`): it is not alphabetical and not by
+  order is «РФ», «БЗ», «ДЗ»** (`MARKET_CODES`): it is not alphabetical and not by
   `created_at` — all three markets are inserted in one transaction, so they share
   a timestamp and `created_at` ordering degrades to `БЗ, ДЗ, РФ`. A market code
   outside the tuple sorts last by code.

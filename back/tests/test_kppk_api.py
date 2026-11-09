@@ -33,7 +33,7 @@ async def _product_by_name(session: AsyncSession, name: str) -> KppkProduct:
 async def test_market_codes_follow_the_source_order_not_the_alphabet(
     db_session: AsyncSession,
 ) -> None:
-    """«РФ», «ДЗ», «БЗ» — never `БЗ, ДЗ, РФ`.
+    """«РФ», «БЗ», «ДЗ» — never `БЗ, ДЗ, РФ` and never the source order.
 
     `created_at` cannot order them: the seeder inserts all three in ONE
     transaction, so they share a timestamp and the order silently degraded to
@@ -53,9 +53,9 @@ async def test_market_codes_follow_the_source_order_not_the_alphabet(
     assert others == sorted(others)
     assert codes == source_codes + others
     # The regression itself: with all three source markets present, «БЗ» is
-    # NOT first (alphabetical would put it there).
+    # NOT first (alphabetical would put it there), and «ДЗ» comes last.
     if set(MARKET_CODES) <= set(stored):
-        assert codes[0] == "РФ"
+        assert codes[:3] == ["РФ", "БЗ", "ДЗ"]
 
 
 # ─── Access ────────────────────────────────────────────────────────────────

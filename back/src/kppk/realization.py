@@ -114,12 +114,12 @@ async def read_current_period(
 
 async def read_market_codes(session: AsyncSession) -> list[str]:
     """
-    Return the market codes of the «Реализация» form, in the SOURCE order.
+    Return the market codes of the «Реализация» form, in the BUSINESS order.
 
-    The order is «РФ», «ДЗ», «БЗ» (`MARKET_CODES`) — the order the business reads
-    them in, not alphabetical. It cannot come from `created_at`: the seeder
-    inserts all three in one transaction, so they share a timestamp and the old
-    `ORDER BY created_at, code` silently degraded to «БЗ, ДЗ, РФ».
+    The order is «РФ», «БЗ», «ДЗ» (`MARKET_CODES`) — not alphabetical and not the
+    source workbook's. It cannot come from `created_at`: the seeder inserts all
+    three in one transaction, so they share a timestamp and an
+    `ORDER BY created_at, code` silently degrades to «БЗ, ДЗ, РФ».
     """
     rows = (
         await session.exec(

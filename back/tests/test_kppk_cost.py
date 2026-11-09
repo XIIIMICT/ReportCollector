@@ -12,6 +12,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.kppk.models import KppkCost, KppkOrg, KppkProduct, KppkProductionPlan, KppkRealization, KppkRealizationPlan
+from src.scripts import seed_kppk
 from src.scripts.seed_kppk import _rebuild_costs
 
 HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
@@ -51,7 +52,17 @@ async def test_cost_import_selects_selling_markets_per_slice(db_session: AsyncSe
     await db_session.flush()
     connection = await db_session.connection()
     await _rebuild_costs(connection, TEST_SCHEMA)
-    row = (await db_session.exec(select(KppkCost).where(col(KppkCost.product_id) == selling.product_id))).one()
+    # Every month of the window has its own row: read the one these figures
+    # belong to, not «the product's only row».
+    row = (
+        await db_session.exec(
+            select(KppkCost).where(
+                col(KppkCost.product_id) == selling.product_id,
+                col(KppkCost.org_id) == selling.org_id,
+                col(KppkCost.period_date) == selling.period_date,
+            )
+        )
+    ).one()
     assert (row.production_cost_bp, row.variable_cost_bp) == (Decimal(100), Decimal(60))
     assert (row.production_cost_op, row.variable_cost_op) == (Decimal(120), Decimal(70))
     assert (row.full_cost_bp, row.full_cost_op) == (Decimal(150), Decimal(170))
@@ -69,7 +80,12 @@ async def test_cost_import_keeps_no_sales_production_and_reports_conflicts(db_se
     await db_session.flush()
     connection = await db_session.connection()
     await _rebuild_costs(connection, TEST_SCHEMA)
-    cost = (await db_session.exec(select(KppkCost).where(col(KppkCost.product_id) == product_rows[0].product_id))).one()
+    scope = (
+        col(KppkCost.product_id) == product_rows[0].product_id,
+        col(KppkCost.org_id) == product_rows[0].org_id,
+        col(KppkCost.period_date) == product_rows[0].period_date,
+    )
+    cost = (await db_session.exec(select(KppkCost).where(*scope))).one()
     assert cost.production_cost_bp == Decimal(25)
     product_rows[0].month_bp_plan = Decimal(1)
     product_rows[1].month_bp_plan = Decimal(2)
@@ -78,7 +94,7 @@ async def test_cost_import_keeps_no_sales_production_and_reports_conflicts(db_se
     product_rows[1].var_exp_bp_plan = Decimal(51)
     await db_session.flush()
     assert await _rebuild_costs(connection, TEST_SCHEMA) > 0
-    cost = (await db_session.exec(select(KppkCost).where(col(KppkCost.product_id) == product_rows[0].product_id))).one()
+    cost = (await db_session.exec(select(KppkCost).where(*scope))).one()
     assert cost.production_cost_bp == Decimal(26)
     assert cost.variable_cost_bp == Decimal(51)
     warnings = capsys.readouterr().out
@@ -87,6 +103,38 @@ async def test_cost_import_keeps_no_sales_production_and_reports_conflicts(db_se
     assert "kppk_realization_plan.var_exp_bp_plan" in warnings
     assert "максимум 26" in warnings
     assert "максимум 51" in warnings
+
+
+async def test_cost_rows_exist_for_every_product_with_empty_cells(db_session: AsyncSession) -> None:
+    """
+    Every product × month keeps a ROW; an unsourced month keeps EMPTY cells.
+
+    The form is where the figures are entered, so the row must exist — but a
+    zero the source never carried would read as a measured «0.00» cost.
+    """
+    connection = await db_session.connection()
+    await _rebuild_costs(connection, TEST_SCHEMA)
+    pairs = (
+        await connection.execute(
+            text(
+                f'SELECT count(*) FROM "{TEST_SCHEMA}".kppk_org_products op '  # noqa: S608 — test schema
+                f'JOIN "{TEST_SCHEMA}".kppk_products p ON p.id = op.product_id'
+            )
+        )
+    ).scalar_one()
+    expected_rows = pairs * len(seed_kppk.target_periods())
+    assert await _rebuild_costs(connection, TEST_SCHEMA) == expected_rows
+    invented_zero = (
+        await connection.execute(
+            text(
+                f'SELECT count(*) FROM "{TEST_SCHEMA}".kppk_cost '  # noqa: S608 — test schema
+                "WHERE full_cost_bp = 0 OR production_cost_bp = 0 OR variable_cost_bp = 0 "
+                "OR full_cost_op = 0 OR production_cost_op = 0 OR variable_cost_op = 0 "
+                "OR full_cost_fact = 0 OR production_cost_fact = 0 OR variable_cost_fact = 0"
+            )
+        )
+    ).scalar_one()
+    assert invented_zero == 0
 
 
 async def test_cost_api_number_order_scope_edit_undo_and_export(client: AsyncClient, db_session: AsyncSession) -> None:

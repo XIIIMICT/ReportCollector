@@ -380,8 +380,8 @@ async def _ensure_markets(connection: AsyncConnection, app_schema: str) -> int:
     """
     Fill the market dictionary with the source markets that are missing.
 
-    The markets normally come from migration 0024, which seeds «РФ», «ДЗ» и «БЗ»
-    in that order. A restored schema (`_ensure_copy_tables` recreates a missing
+    The markets normally come from migration 0024, which seeds «РФ», «ДЗ» и «БЗ».
+    A restored schema (`_ensure_copy_tables` recreates a missing
     `kppk_markets`) starts empty, and an empty dictionary would make the seed
     produce no realization rows at all — so the seed tops it up. `ON CONFLICT DO
     NOTHING` keeps this idempotent and non-destructive: an existing market, even
@@ -632,6 +632,13 @@ async def _rebuild_costs(connection: AsyncConnection, app_schema: str) -> int:
     """
     Rebuild production costs without the realization market dimension.
 
+    Like «Реализация», the table keeps ONE ROW PER (ДЗО × product × month) of the
+    matrix over the period window — an empty month is a place to type a figure,
+    not a gap. The figures are COPIED from the source and never invented: a
+    period the source says nothing about keeps its row with NULL cells, and a
+    zero is written only where the source itself carries one (a measured zero is
+    data; an absent value is not).
+
     Prefer markets with nonzero realization in the corresponding slice. If a
     product has no sales at all, preserve its only nonzero cost anyway: costs
     belong to production and do not disappear when the sales volume is zero.
@@ -639,6 +646,17 @@ async def _rebuild_costs(connection: AsyncConnection, app_schema: str) -> int:
     """
     cost = _qualified(app_schema, "kppk_cost")
     await connection.execute(text(f"TRUNCATE TABLE {cost}"))
+    # The scaffolding: every matrix pair × every month of the window, all values
+    # NULL. Real figures are filled in below, only where the source has them.
+    await connection.execute(
+        text(
+            f"INSERT INTO {cost} (id, org_id, period_date, product_id) "  # noqa: S608 — server-owned identifiers
+            f"SELECT gen_random_uuid(), op.org_id, period.period_date, p.id "
+            f"FROM {_qualified(app_schema, 'kppk_org_products')} op "
+            f"JOIN {_qualified(app_schema, 'kppk_products')} p ON p.id = op.product_id "
+            f"CROSS JOIN unnest(CAST(:periods AS date[])) AS period(period_date)"
+        ).bindparams(periods=list(target_periods()))
+    )
     sources = (
         (
             "kppk_realization",
@@ -670,10 +688,11 @@ async def _rebuild_costs(connection: AsyncConnection, app_schema: str) -> int:
         # All identifiers are module-owned constants and a server schema setting;
         # no request data reaches this SQL. Windowing keeps no-sales products.
         active = f"coalesce({volume}, 0) <> 0" if volume else "true"
+        coverage = " OR ".join(f"{field} IS NOT NULL" for field in mapping)
         candidates = (
             f"WITH scoped AS (SELECT *, bool_or({active}) OVER "  # noqa: S608 — server-owned identifiers
             f"(PARTITION BY org_id, period_date, product_id) AS has_sales FROM {qualified} WHERE {scope}), "
-            f"candidates AS (SELECT * FROM scoped WHERE NOT has_sales OR {active}) "
+            f"candidates AS (SELECT * FROM scoped WHERE (NOT has_sales OR {active}) AND ({coverage})) "
         )
         for field in mapping:
             conflicts = (
@@ -692,18 +711,19 @@ async def _rebuild_costs(connection: AsyncConnection, app_schema: str) -> int:
                     f"ДЗО {conflict.org_id}, {conflict.period_date}, {conflict.product_id}: "
                     f"{conflict.cost_values}. Берём максимум {max(conflict.cost_values)}."
                 )
-        columns = ", ".join(mapping.values())
-        aggregates = ", ".join(f"coalesce(max(nullif({field}, 0)), 0)" for field in mapping)
+        # A column the source left empty stays NULL — an absent value is not a
+        # zero cost. An explicit zero in the source is stored as 0.
+        aggregates = ", ".join(f"max({field})" for field in mapping)
         updates = ", ".join(f"{column} = excluded.{column}" for column in mapping.values())
         await connection.execute(
             text(
-                candidates + f"INSERT INTO {cost} (id, org_id, period_date, product_id, {columns}) "  # noqa: S608 — server-owned identifiers
+                candidates + f"INSERT INTO {cost} (id, org_id, period_date, product_id, {', '.join(mapping.values())}) "  # noqa: S608 — server-owned identifiers
                 f"SELECT gen_random_uuid(), org_id, period_date, product_id, {aggregates} FROM candidates "
                 f"GROUP BY org_id, period_date, product_id "
                 f"ON CONFLICT (org_id, period_date, product_id) DO UPDATE SET {updates}"
             )
         )
-    return int((await connection.execute(text(f"SELECT count(*) FROM {cost}"))).scalar_one())  # noqa: S608 — server-owned identifier
+    return int((await connection.execute(text(f"SELECT count(*) FROM {cost}"))).scalar_one())  # noqa: S608
 
 
 def _matrix_matches() -> list[MatrixMatch]:
@@ -956,8 +976,9 @@ async def _generate_periods(connection: AsyncConnection, app_schema: str) -> dic
             )
         )
     ).all()
-    # «РФ», «ДЗ», «БЗ» — the source order, NOT `created_at` (all three share one
-    # transaction timestamp, so that order degrades to alphabetical).
+    # «РФ», «БЗ», «ДЗ» — the business order (`MARKET_CODES`), NOT `created_at`
+    # (all three share one transaction timestamp, so that order degrades to
+    # alphabetical).
     market_ids = [
         (row.id, row.code)
         for row in (
