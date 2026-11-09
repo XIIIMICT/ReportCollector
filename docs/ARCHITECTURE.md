@@ -479,12 +479,16 @@ of exactly those rows — and the terminal result overwrites it with the actual
 row count. The manager persists a progress change within a second (it polls the
 child's in-memory counters, while the 30-second lease still renews every 10 s),
 which is what feeds the footer's determinate progress bar: pressing «Загрузить»
-closes the dialog, the load continues behind a bar in the footer's center slot
-(between the form status and the action buttons) that names the current stage,
-states the percentage, and collapses the status summary to its badge while it
-runs; only the terminal outcome is a toast. The bar survives a switch between
-the project's forms (the same workspace instance) and re-attaches after leaving
-and returning to the project: the job id is kept per project in
+closes the dialog, the load continues behind a bar that names the current stage
+and states the percentage, centered on the footer itself — the status and the
+action bar take equal tracks around it, so it holds the panel's center instead
+of the gap their content leaves. Just above `lg` the full action bar needs more
+than its half, and the bar gives that width back (it never covers the buttons);
+below `sm` it halves to 10em and the status summary collapses to its badge,
+while the status lines ellipsize rather than run under the bar on a tight
+footer. Only the terminal outcome is a toast. The bar survives a switch
+between the project's forms (the same workspace instance) and re-attaches after
+leaving and returning to the project: the job id is kept per project in
 `sessionStorage` (`front/src/features/renovation/use-plan-import-job.ts`), so a
 remount resumes polling until the job settles. The analysis wait before it
 keeps its indeterminate bar inside the dialog.

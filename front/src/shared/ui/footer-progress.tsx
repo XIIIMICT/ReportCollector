@@ -17,10 +17,12 @@ export type FooterProgressState = {
  * and the action buttons.
  *
  * The label names the current stage and the output states the percentage; the
- * wrapper (`.table-footer__progress`) is bounded at 20em — 10em once the view
- * strip's label collapses — and shrinks under pressure, so the bar never
- * pushes the actions out and never disappears. Until the first server reply
- * it only shows motion: there is no percentage to state yet.
+ * wrapper (`.table-footer__progress`) holds the footer's center — the status
+ * and the action bar take equal tracks around it — and is bounded at 20em,
+ * narrowed to 10em once the view strip's label collapses. Just above lg it
+ * gives back exactly the width the full action bar cannot spare, so it never
+ * covers the buttons and never disappears. Until the first server reply it
+ * only shows motion: there is no percentage to state yet.
  */
 export function FooterProgress({ label, progress, total }: FooterProgressState) {
     const determinate = total > 0;

@@ -1230,24 +1230,71 @@ body {
 }
 
 /* A background operation's progress (the Excel load). It is bounded at 20em
-   and centered in the free space between the status and the actions; when the
-   sides press on it, it shrinks to a still-visible bar instead of vanishing. */
+   and centered on the footer itself, never on the gap the status and the
+   actions happen to leave: while it is shown both sides take equal tracks, so
+   the bar holds the panel's center instead of drifting with their content. */
 .table-footer__progress {
     display: flex;
     min-width: 5em;
     max-width: 20em;
     flex: 0 1 20em;
     align-items: center;
-    margin-inline: auto;
+}
+
+.table-footer:has(.table-footer__progress) .table-footer__status,
+.table-footer:has(.table-footer__progress) .action-bar {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+/* The action bar never shrinks below its buttons — they would slide under the
+   bar. With a wider action set (an approver's «Согласовать» and the like) the
+   bar therefore gives up the exact center instead of being covered. */
+.table-footer:has(.table-footer__progress) .action-bar {
+    min-width: max-content;
+}
+
+/* The status gets at most the other half while the bar holds the center, so
+   its lines ellipsize instead of running under the bar on a tight footer (its
+   tooltip still spells out the presence list and the numbers). The tooltip
+   trigger in between defaults to `min-width: auto`, which would pin the track
+   to the text's full width. */
+.table-footer:has(.table-footer__progress) .table-footer__status > * {
+    min-width: 0;
+}
+
+.table-footer:has(.table-footer__progress) .form-status__presence,
+.table-footer:has(.table-footer__progress) .form-status__selection,
+.table-footer:has(.table-footer__progress) .form-status__rows {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Just above lg the full action bar (four two-button groups, ~23.5rem) needs
+   more than the half the centering reserves for it, so a 20em bar would cover
+   it. There the bar yields exactly the width the action side cannot spare —
+   `100% - 48rem` is what remains once each side keeps the action bar plus the
+   footer gap — and holds the panel's center all the same. From ~72rem on it is
+   20em again. */
+@media (width >= 64rem) {
+    .table-footer:has(.table-footer__progress) .table-footer__progress {
+        max-width: min(20em, calc(100% - 48rem));
+    }
 }
 
 /* Below sm the view strip's «Вид таблицы» label collapses (the same
    `width <= 40rem` block), so the footer is tighter and the bar gives half its
-   width back. */
+   width back. Only at that size does the load get the status's width: the form
+   status collapses to its presence badge (its tooltip still works). On a
+   roomier footer the status keeps its lines. */
 @media (width <= 40rem) {
     .table-footer__progress {
         max-width: 10em;
         flex-basis: 10em;
+    }
+
+    .table-footer:has(.table-footer__progress) .form-status__body {
+        display: none;
     }
 }
 
@@ -1275,12 +1322,6 @@ body {
     line-height: 1.2;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-}
-
-/* While a background operation runs, the footer's width belongs to its bar:
-   the form status collapses to the presence badge (its tooltip still works). */
-.table-footer:has(.table-footer__progress) .form-status__body {
-    display: none;
 }
 
 /* A toolbar control shown only on some sections (the «Рабочая версия» picker,
