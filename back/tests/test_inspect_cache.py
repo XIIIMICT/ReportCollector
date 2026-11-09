@@ -1,5 +1,7 @@
 """Valkey-backed cache of renovation plan preflight reports."""
 
+import hashlib
+
 import pytest
 from valkey.exceptions import ValkeyError
 
@@ -55,6 +57,17 @@ def test_key_is_the_file_hash() -> None:
     assert inspect_cache_key(b"same").startswith("rc:planimport:")
 
 
+def test_key_carries_the_analyzer_version() -> None:
+    """A report written by another analyzer version is never served as this one."""
+    from src.renovation.inspect_cache import INSPECT_CACHE_VERSION
+
+    key = inspect_cache_key(b"same")
+    assert f"rc:planimport:v{INSPECT_CACHE_VERSION}:" in key
+    # The old, version-less key is a different entry: a deploy invalidates it.
+    digest = hashlib.sha256(b"same").hexdigest()
+    assert key != f"rc:planimport:{digest}"
+
+
 def test_key_carries_the_asset_and_plan_state_scope() -> None:
     """The same file is cached separately per asset set and plan change time."""
     plain = inspect_cache_key(b"file")
@@ -67,7 +80,9 @@ def test_key_carries_the_asset_and_plan_state_scope() -> None:
     assert first != plain
     assert first != edited
     assert first != other_asset
+    # The scope is the last part of the key: same file, a different scope.
     assert first.startswith(plain + ":")
+    assert first == f"{plain}:a1@2026-10-23T10:00:00+00:00"
 
 
 async def test_scope_separates_entries_for_the_same_file() -> None:

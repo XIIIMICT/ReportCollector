@@ -151,6 +151,23 @@ def test_blank_cells_are_left_out_instead_of_stored_empty(sheet) -> None:
     assert values["col_009"] == "ЕО-1"
 
 
+def test_a_numbering_row_hidden_by_a_stray_trailing_number_is_still_skipped(sheet) -> None:
+    """
+    The counting row is 200+ columns wide; a data row stops far earlier.
+
+    Only the cells up to the work code decide. A helper row padded past the
+    header width is still the helper row, and a real row is judged by its code,
+    not by the stray number it may end with.
+    """
+    sheet["rows"] = _sheet(_row("Р-001", "SNHZ", workshop="Цех 1"))
+    # The numbering row matches the sheet width; the data rows do not.
+    sheet["rows"][1] = ["", "", 3, 4, 5, 6, 7, 8, 9]
+
+    parsed = parse_plan_rows(Path("ignored.xlsb"))
+
+    assert [row.code for row in parsed] == ["Р-001"]
+
+
 def test_a_sheet_without_the_code_column_is_refused(sheet) -> None:
     """The code header is present (so the sheet IS a plan), the asset column is not."""
     sheet["rows"] = [["", _CODE_HEADER, "Что-то другое"], ["", "Р-001", "значение"]]

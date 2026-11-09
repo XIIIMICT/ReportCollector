@@ -19,6 +19,13 @@ from src.renovation.schemas import RenovationPlanImportResult
 # gets the report instantly; an hour later the file is analysed again.
 INSPECT_CACHE_TTL_SECONDS = 3600
 
+# Version of the analyzer whose report the entry holds. Part of every key: a
+# cached report outlives a deploy by up to the TTL, so without this an entry
+# written by a buggy preflight (the numbering row read as data, twice) kept
+# being served after the fix — the operator re-uploaded the same file and saw
+# the old analysis. Bump it whenever the report's content changes.
+INSPECT_CACHE_VERSION = "2"
+
 
 def inspect_cache_key(payload: bytes, *, scope: str = "") -> str:
     """
@@ -34,7 +41,8 @@ def inspect_cache_key(payload: bytes, *, scope: str = "") -> str:
 
 def inspect_cache_key_from_digest(digest: str, *, scope: str = "") -> str:
     """Build a cache key when the upload was hashed without retaining its bytes."""
-    return f"rc:planimport:{digest}:{scope}" if scope else f"rc:planimport:{digest}"
+    base = f"rc:planimport:v{INSPECT_CACHE_VERSION}:{digest}"
+    return f"{base}:{scope}" if scope else base
 
 
 class InspectCacheClient(Protocol):

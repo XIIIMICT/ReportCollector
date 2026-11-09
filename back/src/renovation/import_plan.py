@@ -282,22 +282,18 @@ def _column_name(index: int) -> str:
 
 def _is_numbering_row(raw: list[object], code_index: int | None) -> bool:
     """
-    Detect the «№ п/п» helper row: numbers everywhere, no work code.
+    Detect the «№ п/п» helper row: a number where the work code belongs.
 
-    Numbers may arrive as numbers or as text: a workbook formatted as «Текстовый»
-    hands the same counting row over as strings (`"1"`, `"2"`, …), and it is the
-    shape — a numeric-only row under the header — that identifies the helper, not
-    Excel's cell type. A work code always contains letters or underscores, so a
-    purely numeric row cannot be a data row.
+    The counting row has numbers everywhere — typed or stored as text
+    (`"1"`, `"2"`, …, a «Текстовый» column does that). A real data row always has
+    a work code (letters/underscores) or none at all, so a numeric value in the
+    code column cannot be a data row. The surrounding cells are not consulted:
+    the counting row matches the sheet width while a data row may end with a
+    stray number, so the code cell alone is the reliable signal.
     """
-    values = [value for value in raw if value not in (None, "")]
-    if not values:
+    if code_index is None or code_index >= len(raw):
         return False
-    if code_index is not None and code_index < len(raw):
-        code = raw[code_index]
-        if code not in (None, "") and not _is_number_text(code):
-            return False
-    return all(_is_number_text(value) for value in values)
+    return _is_number_text(raw[code_index])
 
 
 def _is_number_text(value: object) -> bool:
@@ -332,7 +328,10 @@ def _data_rows(
     """
     numbering_pending = True
     for row_number, raw in enumerate(rows, start=data_start + 1):
-        if not any(value not in (None, "") for value in raw):
+        # `value is None or value == ""`, not `value not in (None, "")`: the
+        # free-threaded build's `in` returns True for an empty string against a
+        # tuple holding None, so that idiom silently drops blank-but-valid cells.
+        if all(value is None or value == "" for value in raw):
             continue
         if numbering_pending:
             numbering_pending = False
