@@ -67,6 +67,32 @@ def test_the_numbering_helper_row_is_not_a_data_row(sheet) -> None:
     assert [row.code for row in parsed] == ["Р-001"]
 
 
+def test_a_numbering_row_stored_as_text_is_still_skipped(sheet) -> None:
+    """A «Текстовый» column hands the counting row over as strings, not numbers."""
+    sheet["rows"] = _sheet(_row("Р-001", "SNHZ"))
+    sheet["rows"][1] = ["", "", "1", "2", "3", "4", "5"]
+
+    parsed = parse_plan_rows(Path("ignored.xlsb"))
+
+    assert [row.code for row in parsed] == ["Р-001"]
+
+
+def test_a_row_missing_a_required_column_is_not_loaded(sheet) -> None:
+    """The preflight skips such a row; the loader must skip exactly the same one."""
+    sheet["rows"] = _sheet(
+        _row("Р-002", "SNHZ"),
+        _row("Р-003", "SNHZ"),
+    )
+    sheet["rows"][0].append("Группа критичности оборудования")
+    sheet["rows"][1] = [*sheet["rows"][1], 3]
+    sheet["rows"][2] = [*sheet["rows"][2], None]
+    sheet["rows"][3] = [*sheet["rows"][3], 3]
+
+    parsed = parse_plan_rows(Path("ignored.xlsb"))
+
+    assert [row.code for row in parsed] == ["Р-003"]
+
+
 def test_rows_without_a_work_code_are_skipped(sheet) -> None:
     sheet["rows"] = _sheet(
         _row(None, "SNHZ", workshop="без кода"),

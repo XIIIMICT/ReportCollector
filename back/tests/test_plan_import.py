@@ -1,12 +1,21 @@
 """Preflight of a technical-directorate Excel plan (no database writes)."""
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from openpyxl import Workbook
 from pyxlsb import open_workbook
 
-from src.renovation.import_plan import _norm, inspect_plan_file
+from src.renovation.import_plan import (
+    _ASSET_HEADER,
+    _CODE_HEADER,
+    _norm,
+    inspect_plan_file,
+)
+
+if TYPE_CHECKING:
+    from src.renovation.schemas import RenovationPlanImportResult
 
 # The checked-in technical-directorate plan sample (`docs/samples/`): the real
 # workbook the importer is matched against. Committed on purpose — it is small
@@ -104,21 +113,23 @@ def test_every_reported_problem_points_at_a_row() -> None:
     for duplicate in result.duplicate_codes:
         assert "строк" in duplicate, duplicate
     # A cell-level issue carries «<column>, строка <n>».
-    for issue in (*result.invalid_data_types, *result.missing_dictionary_values, *result.blank_values):
+    for issue in (*result.invalid_data_types, *result.missing_dictionary_values):
         assert "строка" in issue.location, issue.location
+    # A skipped row is the sheet's own 1-based row number.
+    assert all(row_number > 0 for row_number in result.skipped_rows)
     # A bad code carries its row too: «CODE (строка 15)».
     for code in result.invalid_calculated_codes:
         assert "строка" in code, code
-    # The status agrees with the findings: nothing to report means `ready`.
+    # The status agrees with the findings: nothing to report means `ready`;
+    # skipped rows alone do not fail the file unless every row was skipped.
     reported = (
         result.duplicate_codes
         or result.invalid_calculated_codes
         or result.invalid_data_types
         or result.missing_dictionary_values
-        or result.blank_values
         or result.unknown_assets
     )
-    assert (result.status == "has_errors") is bool(reported)
+    assert (result.status == "has_errors") is (bool(reported) or result.all_rows_skipped)
 
 
 def test_an_unknown_asset_makes_the_file_invalid() -> None:
@@ -343,7 +354,9 @@ def test_a_date_typed_as_text_is_accepted(xlsx_sample: Path, tmp_path: Path) -> 
 
     from src.renovation.form_schema import field_meta, normalize_label
 
-    date_label = normalize_label(field_meta("col_024").label)
+    date_meta = field_meta("col_024")
+    assert date_meta is not None
+    date_label = normalize_label(date_meta.label)
     book = load_workbook(xlsx_sample)
     sheet = book.active
     header_row = 1
@@ -384,3 +397,131 @@ def test_broken_workbook_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "plan.xlsb"
     path.write_bytes(b"broken")
     assert inspect_plan_file(path, existing_codes=set(), asset_names_by_code={}).status == "invalid_format"
+
+
+# A minimal but fully recognized template: the code and asset columns plus
+# enough mapped headings to pass the «at least half the template» gate. The six
+# required reference fields are present, so a row can be made skippable by
+# blanking exactly one of them.
+_PREFLIGHT_HEADER: list[object] = [
+    _CODE_HEADER,
+    _ASSET_HEADER,
+    "Предприятие",
+    "Группа критичности оборудования",
+    "Категория работ",
+    "Вид работ",
+    "Отнесение затрат",
+    "Способ выполнения работ",
+    "Наименование производства",
+    "Цех",
+    "Отделение/установка",
+    "Класс оборудования",
+    "Наименование ЕО",
+    "Содержание работ",
+    "Дата начала работ",
+]
+
+
+def _preflight_row(
+    code: object = "Р-001",
+    *,
+    criticality: object = "4",
+) -> list[object]:
+    """One valid data row; `criticality` is the required cell a test may blank."""
+    return [
+        code,
+        "BSZR",
+        'АО "БСЗ"',
+        criticality,
+        "ТОиР",
+        "ТО",
+        "OPEX",
+        "Собственные силы",
+        "Производство",
+        "Цех",
+        "Отделение",
+        "Класс",
+        "ЕО",
+        "Содержание",
+        "2027-01-01",
+    ]
+
+
+def _inspect(matrix: list[list[object]]) -> RenovationPlanImportResult:
+    """Run the preflight on a plain row matrix (no workbook round trip)."""
+    from src.renovation.import_plan import _inspect_rows
+
+    return _inspect_rows(
+        iter(matrix),
+        existing_codes=set(),
+        asset_names_by_code={"BSZR": "АО «БСЗ»"},
+        reference_values=None,
+    )
+
+
+def test_a_numbering_row_stored_as_text_is_skipped() -> None:
+    """
+    The helper row may arrive as text cells and must still not become a data row.
+
+    Excel hands numbers over as strings when the row is formatted «Текстовый»;
+    reading only the cell type made the counting row load with the code «1».
+    """
+    numbering: list[object] = [str(number) for number in range(1, len(_PREFLIGHT_HEADER) + 1)]
+    result = _inspect([_PREFLIGHT_HEADER, numbering, _preflight_row()])
+
+    assert result.status == "ready"
+    assert result.new_rows == 1
+    assert result.skipped_rows == []
+
+
+def test_rows_with_a_blank_required_column_are_skipped_and_listed() -> None:
+    """A blank required reference skips the row, not the whole file."""
+    result = _inspect(
+        [
+            _PREFLIGHT_HEADER,
+            list(range(1, len(_PREFLIGHT_HEADER) + 1)),
+            _preflight_row("Р-001", criticality=None),
+            _preflight_row("Р-002"),
+            _preflight_row("Р-003", criticality=""),
+        ]
+    )
+
+    assert result.status == "ready"
+    assert result.new_rows == 1
+    assert result.rows_to_update == 0
+    assert result.skipped_rows == [3, 5]
+    assert result.all_rows_skipped is False
+
+
+def test_a_row_without_a_work_code_is_listed_as_skipped() -> None:
+    """A blank code already skipped the row; the report now names it too."""
+    result = _inspect(
+        [
+            _PREFLIGHT_HEADER,
+            list(range(1, len(_PREFLIGHT_HEADER) + 1)),
+            _preflight_row(None),
+            _preflight_row("Р-002"),
+        ]
+    )
+
+    assert result.status == "ready"
+    assert result.new_rows == 1
+    assert result.skipped_rows == [3]
+
+
+def test_a_file_with_every_row_skipped_has_nothing_to_load() -> None:
+    """No loadable row is a failing preflight, even with no other cell errors."""
+    result = _inspect(
+        [
+            _PREFLIGHT_HEADER,
+            list(range(1, len(_PREFLIGHT_HEADER) + 1)),
+            _preflight_row("Р-001", criticality=None),
+            _preflight_row("Р-002", criticality=""),
+        ]
+    )
+
+    assert result.status == "has_errors"
+    assert result.all_rows_skipped is True
+    assert result.skipped_rows == [3, 4]
+    assert result.new_rows == 0
+    assert result.rows_to_update == 0

@@ -244,7 +244,7 @@ test("the upload closes the dialog at once and hands the file to the caller", as
     expect(uploaded).toEqual([file]);
 });
 
-test("the errors report lists blank required cells", () => {
+test("the errors report lists the rows skipped for a blank required cell", () => {
     const view = render(
         <PlanExcelImportModal
             isOpen
@@ -252,13 +252,47 @@ test("the errors report lists blank required cells", () => {
             onOpenChange={() => {}}
             result={{
                 status: "has-errors",
-                blankValues: [{ location: "Код работы, строка 7", value: "" }],
+                duplicateCodes: ["Р-001 (строки 7, 9)"],
+                skippedRows: [7, 9],
             }}
         />,
     );
-    expect(view.getByText(/Не заполнены обязательные ячейки \(1\)/)).toBeTruthy();
-    expect(view.getByText("Столбец Код работы:")).toBeTruthy();
-    expect(view.getByText("(строки: 7)", { exact: false })).toBeTruthy();
+    expect(view.getByText("Пропущенные строки:")).toBeTruthy();
+    expect(view.getByText("7, 9")).toBeTruthy();
+});
+
+test("a successful analysis also lists the rows it will skip", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{
+                status: "ready",
+                assets: ["АЭС-1"],
+                newRows: 10,
+                rowsToUpdate: 2,
+                skippedRows: [4],
+            }}
+        />,
+    );
+    expect(view.getByText("Пропущенные строки:")).toBeTruthy();
+    expect(view.getByText("4")).toBeTruthy();
+});
+
+test("a file with every row skipped says there is nothing to load", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{ status: "has-errors", skippedRows: [3, 4], allRowsSkipped: true }}
+        />,
+    );
+    expect(
+        view.getByText("Во всех строках не заполнены обязательные столбцы. Нечего загружать."),
+    ).toBeTruthy();
+    expect(view.queryByText("3, 4")).toBeNull();
 });
 
 test("an asset outside the project dictionary is an error of the file", () => {

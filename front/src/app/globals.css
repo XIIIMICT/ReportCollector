@@ -815,6 +815,18 @@ body {
     margin-top: 0.5rem;
 }
 
+/* Rows the load will not write because a required cell is empty: the report
+   closes with them in both outcomes — after the valid-file summary and after
+   the error sections. */
+.plan-excel-import-modal__skipped {
+    margin-top: 0.5rem;
+}
+
+.plan-excel-import-modal__skipped p {
+    margin: 0.25rem 0 0;
+    line-height: 1.6;
+}
+
 .plan-excel-import-modal__columns ul {
     margin: 0.25rem 0 0;
     padding-left: 1.25rem;

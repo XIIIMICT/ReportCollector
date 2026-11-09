@@ -379,7 +379,9 @@ before anything is written. Columns are matched **only by header names** —
 normalised (case, whitespace, quotes), never by positions, since columns are
 added/removed between drops. The header may be row 1 or row 2 (row 1 then holds
 the extra info); a numbering helper row under the headings is detected by shape
-and skipped. `TEMPLATE_COLUMNS` freezes the headings of the current sample; a
+— a row of numbers, whether typed or stored as text under a «Текстовый» format —
+and skipped, as is a blank spacer between the header and it. `TEMPLATE_COLUMNS`
+freezes the headings of the current sample; a
 missing column is simply not loaded, an unknown one is ignored. Only two
 headings need an alias: «Лот» → direction code (`col_189`) and the
 suffix-free «Отнесение затрат (OPEX/CAPEX)» / «Способ выполнения работ».
@@ -497,11 +499,14 @@ Rows are matched by «Код работы» (`col_003`): a code already in the p
 that row in place, a code the plan does not have **appends** a row at the end
 (picking up the positional sequence after the current last row). A cell the file
 leaves empty keeps the plan's current value — a blank cell is never an
-instruction to clear a value. The write boundary is thin but not free: the parser
-hands dates over as ISO text (the same value feeds the renovation-ID rule) while
-`col_024/025/191/199/203` are real `DATE` columns, so `_flush_batch` converts
-them; and because the parser **drops blank cells**, the rows of one batch carry
-different key sets — a multi-row `INSERT` demands identical keys per row
+instruction to clear a value. A row whose work code or required reference column
+is empty is skipped by the loader with the same rule the preflight applies, so
+the written counts match the report. The write boundary is thin but not free:
+the parser hands dates over as ISO text (the same value feeds the renovation-ID
+rule) while `col_024/025/191/199/203` are real `DATE` columns, so `_flush_batch`
+converts them; and because the parser **drops blank cells**, the rows of one
+batch carry different key sets — a multi-row `INSERT` demands identical keys per
+row
 (`CompileError: … explicitly rendered as a boundparameter`), so every row is
 padded to the batch's key union and the cell it omitted becomes `NULL` on a
 created row (on an existing row it still means «keep the current value»).
@@ -523,11 +528,17 @@ the load fails the job with a Russian error and rolls back the whole
 transaction.
 The same strictness covers blank required cells — «Код работы», «Предприятие»,
 «Группа критичности», «Категория работ», «Вид работ», «Отнесение затрат»,
-«Способ выполнения» — reported in the `blank_values` section; a row without a
-work code is not loaded at all. The **asset** is held to the same rule: a code
-missing from the project's `rm_assets` (`unknown_assets` in the report) refuses
-the whole file instead of silently skipping its rows — nothing is dropped from
-the plan, so the response no longer carries a `skipped_rows` counter.
+«Способ выполнения» — but a row missing one is **skipped**, not a file-wide
+error: it is not loaded (so it does not count in `new_rows`/`rows_to_update`)
+and its sheet number is listed under «Пропущенные строки» (`skipped_rows`) at
+the end of the report, in both a successful and a failing analysis. The apply
+pass skips exactly the same rows. When every data row is skipped the preflight
+is a failure (`has_errors`, `all_rows_skipped`) and the report says «Во всех
+строках не заполнены обязательные столбцы. Нечего загружать.». The **asset** is
+held to the same rule: a code missing from the project's `rm_assets`
+(`unknown_assets` in the report) refuses the whole file instead of silently
+skipping its rows — an unknown asset is a file error, never a `skipped_rows`
+entry.
 
 The load is **not** journaled into undo/redo: it rewrites many rows at once, so
 a single «Отменить» cannot meaningfully revert it.

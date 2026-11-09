@@ -171,15 +171,10 @@ def scan_file_scope(source: Path | BinaryIO, suffix: str | None = None) -> PlanF
     if asset_index is None:
         return empty
     data_rows = chain(first_rows[data_start:], rows)
-    first_data_row = next(iter(data_rows), None)
-    if first_data_row is None:
-        data_rows = iter(())
-    elif code_index is None or not _is_numbering_row(first_data_row, code_index):
-        data_rows = chain((first_data_row,) if first_data_row is not None else (), data_rows)
     codes = {
         str(raw[asset_index]).strip().upper()
-        for raw in data_rows
-        if raw is not None and asset_index < len(raw) and raw[asset_index] not in (None, "")
+        for _row_number, raw in _data_rows(data_rows, data_start, code_index)
+        if asset_index < len(raw) and raw[asset_index] not in (None, "")
     }
     return PlanFileScope(
         assets=frozenset(code for code in codes if code),
@@ -235,16 +230,65 @@ def _column_name(index: int) -> str:
     return result
 
 
-def _is_numbering_row(raw: list[object], code_index: int) -> bool:
-    """Detect the «№ п/п» helper row: plain numbers everywhere, no work code."""
+def _is_numbering_row(raw: list[object], code_index: int | None) -> bool:
+    """
+    Detect the «№ п/п» helper row: numbers everywhere, no work code.
+
+    Numbers may arrive as numbers or as text: a workbook formatted as «Текстовый»
+    hands the same counting row over as strings (`"1"`, `"2"`, …), and it is the
+    shape — a numeric-only row under the header — that identifies the helper, not
+    Excel's cell type. A work code always contains letters or underscores, so a
+    purely numeric row cannot be a data row.
+    """
     values = [value for value in raw if value not in (None, "")]
     if not values:
         return False
-    if code_index < len(raw):
+    if code_index is not None and code_index < len(raw):
         code = raw[code_index]
-        if code not in (None, "") and not isinstance(code, (int, float)):
+        if code not in (None, "") and not _is_number_text(code):
             return False
-    return all(isinstance(value, int | float) and not isinstance(value, bool) for value in values)
+    return all(_is_number_text(value) for value in values)
+
+
+def _is_number_text(value: object) -> bool:
+    """Whether a cell holds a plain number, either typed or stored as text."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int | float):
+        return True
+    if not isinstance(value, str):
+        return False
+    text = value.replace("\u00a0", " ").strip().replace(",", ".")
+    if not text:
+        return False
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _data_rows(
+    rows: Iterable[list[object]], data_start: int, code_index: int | None
+) -> Iterator[tuple[int, list[object]]]:
+    """
+    Yield `(sheet row number, cells)` for the workbook's data rows.
+
+    Blank rows are dropped, and the counting row directly under the headings is
+    dropped when it is the FIRST non-blank row — a blank spacer between the
+    header and the numbering row must not hide it. Detecting it here, while the
+    sheet row number is known, keeps the report pointing at the real Excel row
+    instead of shifting every number by one.
+    """
+    numbering_pending = True
+    for row_number, raw in enumerate(rows, start=data_start + 1):
+        if not any(value not in (None, "") for value in raw):
+            continue
+        if numbering_pending:
+            numbering_pending = False
+            if _is_numbering_row(raw, code_index):
+                continue
+        yield row_number, raw
 
 
 def _header_map() -> dict[str, str]:
@@ -425,17 +469,12 @@ def _inspect_rows(
     if code_index is None or asset_index is None or len(columns) < len(TEMPLATE_COLUMNS) // 2:
         return RenovationPlanImportResult(status="invalid_format")
     data_rows: Iterable[list[object]] = chain(first_rows[data_start:], rows_iter)
-    first_data_row = next(iter(data_rows), None)
-    if first_data_row is None:
-        data_rows = iter(())
-    elif not _is_numbering_row(first_data_row, code_index):
-        data_rows = chain((first_data_row,) if first_data_row is not None else (), data_rows)
-    else:
-        data_start += 1
+    required_columns = tuple(index for field, index in columns.items() if field in _REQUIRED_FIELDS)
 
     type_errors: list[RenovationPlanImportCellIssue] = []
     missing: list[RenovationPlanImportCellIssue] = []
-    blank: list[RenovationPlanImportCellIssue] = []
+    skipped_rows: list[int] = []
+    data_row_count = 0
     unknown_assets: list[RenovationPlanImportCellIssue] = []
     unknown_catalogs: set[str] = set()
     assets: set[str] = set()
@@ -444,16 +483,20 @@ def _inspect_rows(
     asset_codes: list[str | None] = []
     row_numbers: list[int] = []
     field_by_name = {field.db_name: field for field in field_metas()}
-    for row_number, raw in enumerate(data_rows, start=data_start + 1):
-        if not any(value not in (None, "") for value in raw):
-            continue
+    for row_number, raw in _data_rows(data_rows, data_start, code_index):
+        data_row_count += 1
         code = str(raw[code_index]).strip() if code_index < len(raw) and raw[code_index] is not None else ""
         if not code:
             # The work code identifies the row: a blank one is a gap in the file,
-            # never an instruction to clear the plan.
-            blank.append(
-                RenovationPlanImportCellIssue(location=f"{_column_name(code_index)}, строка {row_number}", value="")
-            )
+            # never an instruction to clear the plan. The row is not loaded and
+            # is listed among the skipped rows in the report.
+            skipped_rows.append(row_number)
+            continue
+        if any(index >= len(raw) or raw[index] in (None, "") for index in required_columns):
+            # A row missing a required reference cannot be resolved to an option
+            # and is not loaded; the rest of the file still can be. The operator
+            # sees the row numbers under «Пропущенные строки».
+            skipped_rows.append(row_number)
             continue
         asset_code = (
             str(raw[asset_index]).strip().upper() if asset_index < len(raw) and raw[asset_index] is not None else ""
@@ -479,10 +522,6 @@ def _inspect_rows(
             asset_codes.append(asset_code or None)
         values: dict[str, object] = {}
         for field, index in columns.items():
-            if field in _REQUIRED_FIELDS and (index >= len(raw) or raw[index] in (None, "")):
-                blank.append(
-                    RenovationPlanImportCellIssue(location=f"{_column_name(index)}, строка {row_number}", value="")
-                )
             if index >= len(raw) or raw[index] in (None, ""):
                 continue
             meta = field_by_name.get(field)
@@ -546,15 +585,19 @@ def _inspect_rows(
                 continue
             if expected.value != code:
                 invalid_codes.append(f"{code} (строка {row_number})")
+    all_rows_skipped = bool(data_row_count) and len(skipped_rows) == data_row_count
     status = (
-        "has_errors" if duplicates or invalid_codes or type_errors or missing or blank or unknown_assets else "ready"
+        "has_errors"
+        if duplicates or invalid_codes or type_errors or missing or unknown_assets or all_rows_skipped
+        else "ready"
     )
     return RenovationPlanImportResult(
         status=status,
         duplicate_codes=_duplicates_with_rows(codes, row_numbers),
         invalid_calculated_codes=_sorted_without_duplicates(invalid_codes),
         invalid_data_types=type_errors,
-        blank_values=blank,
+        skipped_rows=sorted(skipped_rows),
+        all_rows_skipped=all_rows_skipped,
         missing_dictionary_values=missing,
         unknown_assets=unknown_assets,
         assets=sorted(assets),

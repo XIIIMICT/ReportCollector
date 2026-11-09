@@ -22,7 +22,10 @@ export type PlanExcelImportResult =
           invalidDataTypes?: ExcelCellIssue[];
           missingDictionaryValues?: ExcelCellIssue[];
           unknownAssets?: ExcelCellIssue[];
-          blankValues?: ExcelCellIssue[];
+          /** Sheet rows the load will not write: a required cell is empty. */
+          skippedRows?: number[];
+          /** Every data row was skipped — there is nothing to load. */
+          allRowsSkipped?: boolean;
       }
     | {
           status: "ready";
@@ -31,6 +34,8 @@ export type PlanExcelImportResult =
           rowsToUpdate: number;
           /** Form labels of the columns the load writes, in workbook order. */
           columns?: string[];
+          /** Rows the load will skip because a required cell is empty. */
+          skippedRows?: number[];
       };
 
 /**
@@ -238,6 +243,7 @@ export function PlanExcelImportModal({
                                         </ul>
                                     </div>
                                 ) : null}
+                                <SkippedRows rows={result.skippedRows} />
                             </div>
                         ) : null}
                         {checkPending ? (
@@ -336,13 +342,36 @@ function ImportErrors({
                     values={result.unknownAssets}
                 />
             ) : null}
-            {result.blankValues?.length ? (
-                <CellErrorList
-                    title="Не заполнены обязательные ячейки"
-                    values={result.blankValues}
-                />
-            ) : null}
+            <SkippedRows
+                allRowsSkipped={result.allRowsSkipped ?? false}
+                rows={result.skippedRows}
+            />
         </div>
+    );
+}
+
+/**
+ * Rows the load will not write, at the end of the analysis — after the summary
+ * when the file is valid and after the errors when it is not. A file whose every
+ * row was skipped has nothing to load, which is a failure of its own.
+ */
+function SkippedRows({
+    rows,
+    allRowsSkipped = false,
+}: {
+    rows: number[] | undefined;
+    allRowsSkipped?: boolean;
+}) {
+    if (!rows?.length) return null;
+    return (
+        <section className="plan-excel-import-modal__skipped">
+            <strong>Пропущенные строки:</strong>
+            {allRowsSkipped ? (
+                <p>Во всех строках не заполнены обязательные столбцы. Нечего загружать.</p>
+            ) : (
+                <p>{rows.join(", ")}</p>
+            )}
+        </section>
     );
 }
 

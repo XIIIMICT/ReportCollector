@@ -133,7 +133,10 @@ export type RenovationPlanImportResult = {
     invalid_data_types: RenovationPlanImportCellIssue[];
     missing_dictionary_values: RenovationPlanImportCellIssue[];
     unknown_assets: RenovationPlanImportCellIssue[];
-    blank_values: RenovationPlanImportCellIssue[];
+    /** Sheet rows the load will not write: a required cell is empty. */
+    skipped_rows: number[];
+    /** Every data row was skipped — there is nothing to load. */
+    all_rows_skipped: boolean;
     assets: string[];
     new_rows: number;
     rows_to_update: number;

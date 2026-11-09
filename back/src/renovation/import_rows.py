@@ -10,9 +10,10 @@ from src.renovation.form_schema import field_metas
 from src.renovation.import_plan import (
     _ASSET_HEADER,
     _CODE_HEADER,
+    _REQUIRED_FIELDS,
     _coerce,
+    _data_rows,
     _header_map,
-    _is_numbering_row,
     _iter_plan_rows,
     _locate_header,
     _norm,
@@ -86,17 +87,15 @@ def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
         msg = "no work-code column"
         raise ValueError(msg)
     data_rows: Iterable[list[object]] = chain(first_rows[data_start:], rows_iter)
-    first_data_row = next(iter(data_rows), None)
-    if first_data_row is None:
-        data_rows = iter(())
-    elif not _is_numbering_row(first_data_row, code_index):
-        data_rows = chain((first_data_row,), data_rows)
+    required_columns = tuple(index for field, index in columns.items() if field in _REQUIRED_FIELDS)
     field_by_name = {field.db_name: field for field in field_metas()}
-    for raw in data_rows:
-        if not any(value not in (None, "") for value in raw):
-            continue
+    for _row_number, raw in _data_rows(data_rows, data_start, code_index):
         code = str(raw[code_index]).strip() if code_index < len(raw) and raw[code_index] is not None else ""
         if not code:
+            continue
+        if any(index >= len(raw) or raw[index] in (None, "") for index in required_columns):
+            # The preflight skips the same rows and lists their sheet numbers:
+            # a row missing a required reference is not written at all.
             continue
         asset_code = (
             str(raw[asset_index]).strip().upper() if asset_index < len(raw) and raw[asset_index] is not None else ""

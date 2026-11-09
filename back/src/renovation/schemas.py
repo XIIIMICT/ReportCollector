@@ -510,7 +510,13 @@ class RenovationPlanImportResult(BaseModel):
     invalid_data_types: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
     missing_dictionary_values: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
     unknown_assets: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
-    blank_values: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
+    # Sheet rows the load will not write because a required cell is empty (the
+    # work code or a required reference column). Reported for both a successful
+    # and a failing file, under «Пропущенные строки».
+    skipped_rows: list[int] = Field(default_factory=list)
+    # Every non-empty data row was skipped: the file has nothing to load, and
+    # the preflight is a failure even though no cell itself is malformed.
+    all_rows_skipped: bool = False
     assets: list[str] = Field(default_factory=list)
     new_rows: int = 0
     rows_to_update: int = 0
