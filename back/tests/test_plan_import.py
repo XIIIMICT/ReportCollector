@@ -331,6 +331,49 @@ def test_the_xlsx_container_is_analyzed_identically(xlsx_sample: Path) -> None:
     assert ooxml.model_dump() == binary.model_dump()
 
 
+def test_a_date_typed_as_text_is_accepted(xlsx_sample: Path, tmp_path: Path) -> None:
+    """
+    A correct date stored as text is a date, not a «Неверный тип данных».
+
+    The customer's files routinely declare a date column (or a single cell) as
+    «Текстовый» while the values are real dates: the preflight must read the
+    value, not the declared type.
+    """
+    from openpyxl import load_workbook
+
+    from src.renovation.form_schema import field_meta, normalize_label
+
+    date_label = normalize_label(field_meta("col_024").label)
+    book = load_workbook(xlsx_sample)
+    sheet = book.active
+    header_row = 1
+    column = next(
+        index
+        for index in range(1, sheet.max_column + 1)
+        if isinstance(sheet.cell(row=header_row, column=index).value, str)
+        and normalize_label(sheet.cell(row=header_row, column=index).value) == date_label
+    )
+    row = next(
+        number
+        for number in range(header_row + 1, sheet.max_row + 1)
+        if isinstance(sheet.cell(row=number, column=column).value, (int, float))
+        and sheet.cell(row=number, column=column).value > 20000
+    )
+    # The date cell is now plain text, as Excel writes it in a «Текстовый» column.
+    sheet.cell(row=row, column=column).value = "05.11.2003"
+    target = tmp_path / "text-date.xlsx"
+    book.save(target)
+
+    result = inspect_plan_file(
+        target,
+        existing_codes=set(),
+        asset_names_by_code={"BSZR": "АО «БСЗ»"},
+        reference_values={},
+    )
+    assert result.status == "ready"
+    assert result.invalid_data_types == []
+
+
 def test_an_unsupported_suffix_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "plan.csv"
     path.write_bytes(b"not a workbook")

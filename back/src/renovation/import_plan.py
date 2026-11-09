@@ -33,6 +33,19 @@ _ASSET_HEADER = "Наименование ДО"
 # The direction code («Лот») is read for the work-code check only, never stored.
 LOT_FIELD = "__lot__"
 _EXCEL_EPOCH = date(1899, 12, 30)
+# Shapes a date takes when the workbook declares the cell/column as TEXT. The
+# declared type is not trusted: the customer's files routinely hold real dates
+# in text-formatted cells (`05.11.2003`), and those values are correct. Day
+# first — the files are Russian; the time part is optional.
+_DATE_TEXT_FORMATS: tuple[str, ...] = (
+    "%d.%m.%Y",
+    "%d.%m.%y",
+    "%d/%m/%Y",
+    "%d-%m-%Y",
+    "%d.%m.%Y %H:%M",
+    "%d.%m.%Y %H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+)
 # Fallback for a fresh database that has no assets yet: the plan files carry
 # the official repair code, the UI shows the legal-entity name.
 _TEMPLATE_ASSETS: dict[str, str] = {repair_code.upper(): name for _, repair_code, name in R_ASSETS}
@@ -628,6 +641,37 @@ def _trimmed_text(value: object) -> str | None:
     return text or None
 
 
+def _text_date(value: str) -> str | None:
+    """
+    Parse a date stored as text into ISO text (None when it is not a date).
+
+    The workbook's declared type is unreliable: a correct date often arrives as
+    plain text because the column — or just the cell — is formatted as «Текстовый»
+    (`05.11.2003`, `5.11.03`, an ISO string, optionally with a time). Rejecting
+    those would block a file whose values are fine, so the text is parsed here
+    instead of being reported as a wrong data type. Only a real calendar date
+    passes: `31.02.2003` and arbitrary text stay type errors.
+
+    The non-breaking space is normalized and runs of whitespace are collapsed
+    before matching, the same tolerance the text cells get.
+    """
+    text = " ".join(value.replace("\u00a0", " ").split())
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text).date().isoformat()
+    except ValueError:
+        pass
+    for date_format in _DATE_TEXT_FORMATS:
+        try:
+            # A date has no time zone: only the calendar day is kept.
+            parsed = datetime.strptime(text, date_format)  # noqa: DTZ007
+        except ValueError:
+            continue
+        return parsed.date().isoformat()
+    return None
+
+
 def _coerce(value: object, cell_type: str) -> object | None:
     if cell_type == "text":
         # Text is stored trimmed: stray whitespace (including the non-breaking
@@ -642,10 +686,14 @@ def _coerce(value: object, cell_type: str) -> object | None:
         # pyxlsb returns full floats: a ДВ number must not become `706179.0`.
         return str(int(number)) if number.is_integer() and abs(number) < 1e15 else number
     if cell_type == "date":
-        if isinstance(value, (date, datetime)):
-            return value.date().isoformat() if isinstance(value, datetime) else value.isoformat()
+        if isinstance(value, datetime):
+            return value.date().isoformat()
+        if isinstance(value, date):
+            return value.isoformat()
         if isinstance(value, (int, float)) and value > 20000:
             return (_EXCEL_EPOCH + timedelta(days=float(value))).isoformat()
+        if isinstance(value, str):
+            return _text_date(value)
         return None
     if cell_type == "boolean":
         return value if isinstance(value, bool) else None

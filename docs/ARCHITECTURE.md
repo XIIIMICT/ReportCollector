@@ -391,6 +391,14 @@ added silently when the file has `1.1.1` instead of `1.1.1.`
 (`renovation_id.normalize_direction_code` — the same rule the grid applies on
 edit).
 
+A date is read from its **value**, not from the workbook's declared cell type:
+the customer's files routinely store a correct date as text (the column or just
+the cell is formatted «Текстовый»), so `05.11.2003`, `5.11.03`, `05/11/2003`,
+an ISO string and any of those with an optional time are all accepted and
+normalised to a `date`. Only a value that is not a real calendar date
+(`31.02.2003`, arbitrary text) stays a «Неверный тип данных» error. The apply
+pass shares the parser, so the preflight and the load agree on what a date is.
+
 Both containers the customer drops are accepted, chosen by the upload's suffix:
 `.xlsb` is read with `pyxlsb`, `.xlsx` with `openpyxl` (`read_only`,
 `data_only`). The OOXML reader therefore sees the formula **cached values** the
