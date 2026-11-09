@@ -420,6 +420,11 @@ and reference labels absent from the form's own catalogs, compared strictly
 response carries the assets (by name), the new rows and the rows to update
 (existing `col_003`).
 
+The preflight dialog (`plan-excel-import-modal.tsx`) closes only by its close
+button, Escape, or the «Загрузить» hand-off: the backdrop is
+`isDismissable={false}`, so a stray click outside cannot discard a checked file
+or interrupt an upload.
+
 The upload body is bounded by `ImportUploadLimitsMiddleware` before multipart
 parsing, then Starlette's `UploadFile` keeps it in its spooled temporary file.
 The inspect endpoint hashes and parses it through bounded row iterators; its

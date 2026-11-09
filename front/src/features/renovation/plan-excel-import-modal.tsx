@@ -176,7 +176,10 @@ export function PlanExcelImportModal({
         <Modal.Backdrop
             isOpen={isOpen}
             onOpenChange={onOpenChange}
-            isDismissable
+            // A stray click on the backdrop must not throw away a checked file
+            // or interrupt an upload: the dialog closes only by its own close
+            // button, Escape, or the «Загрузить» hand-off.
+            isDismissable={false}
             isKeyboardDismissDisabled={false}
         >
             <Modal.Container size="lg">
