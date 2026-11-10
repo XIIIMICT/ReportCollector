@@ -13,12 +13,19 @@ import type { HyperFunc, VNode } from "@revolist/react-datagrid";
 
 import { renderDateTimeText } from "@/shared/grid/grid-config";
 
-/** Right-aligned numeric cell with the field's own decimal count. */
+/**
+ * Right-aligned numeric cell with the field's own decimal count.
+ *
+ * The form declares two decimals for every fractional field, so the cell shows
+ * exactly two: a stored 7062.176 reads «7 062,18». Only the DISPLAY is rounded —
+ * the column keeps all four digits the DB stores (`NUMERIC(18,4)`) and the
+ * editor opens with the full saved value, so nothing is lost by the format.
+ */
 export function numberTemplate(decimals: number | null | undefined) {
     const digits = decimals ?? 0;
     const formatter = new Intl.NumberFormat("ru-RU", {
         minimumFractionDigits: digits,
-        maximumFractionDigits: Math.max(digits, 6),
+        maximumFractionDigits: digits,
     });
     return (h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode => {
         if (value === null || value === undefined || value === "") return h("span", {});

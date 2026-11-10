@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 
-import { formatPlanDate, formatPlanDateTime } from "../renovation-grid-format";
+import type { HyperFunc, VNode } from "@revolist/react-datagrid";
+
+import { formatPlanDate, formatPlanDateTime, numberTemplate } from "../renovation-grid-format";
 
 /**
  * «Время добавления»/«Время редактирования» are instants stored as UTC ISO
@@ -43,4 +45,41 @@ test("an empty or unparsable timestamp is not a value", () => {
     expect(formatPlanDateTime("")).toBe("");
     // A value the browser cannot parse is shown as-is, like every other cell.
     expect(formatPlanDateTime("не дата")).toBe("не дата");
+});
+
+/**
+ * «Пообъектный план» stores fractional values as NUMERIC(18,4), but the form
+ * declares two decimals for every fractional field. The cell used to allow up
+ * to six (`Math.max(digits, 6)`), so 7062.176 leaked as «7 062,176».
+ */
+
+type Rendered = { tag: string; children: unknown[] };
+
+const h = ((tag: string, _props: Record<string, unknown>, ...children: unknown[]) => ({
+    tag,
+    children,
+})) as unknown as HyperFunc<VNode>;
+
+function cellText(value: unknown, decimals: number | null | undefined): string {
+    const node = numberTemplate(decimals)(h, { value }) as unknown as Rendered;
+    return String(node.children[0] ?? "");
+}
+
+/** Ignore the NBSP thousands separators and the decimal comma. */
+const digits = (text: string): string => text.replace(/\D/g, "");
+
+test("a fractional plan cell shows exactly the two declared decimals", () => {
+    // Rounding is display-only: the stored value and the editor keep all digits.
+    expect(digits(cellText(7062.176, 2))).toBe("706218");
+    expect(digits(cellText(7062.1, 2))).toBe("706210");
+    expect(digits(cellText(7062, 2))).toBe("706200");
+});
+
+test("an integer plan field shows no fractional digits", () => {
+    expect(digits(cellText(7062.176, 0))).toBe("7062");
+});
+
+test("an empty numeric cell stays blank", () => {
+    expect(cellText(null, 2)).toBe("");
+    expect(cellText("", 2)).toBe("");
 });
