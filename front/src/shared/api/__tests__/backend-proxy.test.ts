@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { Agent } from "undici";
+
 const PATH = "/api/renovation/plan/rows";
 
 const session = {
@@ -128,5 +130,27 @@ describe("proxyBackend encoding", () => {
         const response = await proxyBackend(rowsRequest(), PATH);
         expect(response.headers.get("Content-Encoding")).toBeNull();
         expect(await response.text()).toBe(body);
+    });
+});
+
+describe("proxyBackend timeouts", () => {
+    test("sends the backend call through the long-timeout undici dispatcher", async () => {
+        let received: (RequestInit & { dispatcher?: unknown }) | undefined;
+        globalThis.fetch = Object.assign(
+            async (_url: string | URL | Request, init?: RequestInit) => {
+                received = init as RequestInit & { dispatcher?: unknown };
+                return new Response("{}", { headers: { "Content-Type": "application/json" } });
+            },
+            { preconnect: originalFetch.preconnect },
+        ) as typeof fetch;
+
+        await proxyBackend(rowsRequest(), PATH);
+
+        // Node's fetch gives up on response headers after 300 s. The Excel
+        // preflight parses the whole workbook before answering, so the proxy
+        // pins a 24 h Agent; without it the request dies as
+        // UND_ERR_HEADERS_TIMEOUT even though nginx already waits 24 h.
+        expect(received?.cache).toBe("no-store");
+        expect(received?.dispatcher).toBeInstanceOf(Agent);
     });
 });

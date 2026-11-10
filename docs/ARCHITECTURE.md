@@ -456,10 +456,16 @@ chunked uploads without `Content-Length`. `RENOVATION_UPLOAD_TIMEOUT_SECONDS`
 (300 seconds) bounds receiving the body, excluding subsequent parse/apply time.
 Oversized or slow bodies return 413/408, and the multipart parser closes partial
 temporary files. Match proxy upload limits to these values in production.
-The preflight answers in ONE request after the whole workbook is parsed, so the
-reverse proxy must outlast that parse: `location /` in `infra/nginx/` sets
+The preflight answers in ONE request after the whole workbook is parsed, so
+every hop must outlast that parse: `location /` in `infra/nginx/` sets
 `proxy_read_timeout`/`proxy_send_timeout 86400s` (nginx's 60 s default answered
-504 on a big drop while the analysis was still running).
+504 on a big drop while the analysis was still running), and the shared backend
+proxy (`front/src/shared/api/backend-proxy.ts`) passes a dedicated
+`undici.Agent` with `headersTimeout`/`bodyTimeout` of 24 h. Without it Node's
+fetch gives up waiting for response headers after 300 s and raises
+`UND_ERR_HEADERS_TIMEOUT` — the dev server runs Bun, whose fetch ignores the
+dispatcher, so the failure appeared only in production. The same dispatcher
+keeps long export bodies from being cut.
 
 Reports are cached in Valkey (`src/renovation/inspect_cache.py`): the key is
 `rc:planimport:v<INSPECT_CACHE_VERSION>:<sha256 of the bytes>:<scope>`, where

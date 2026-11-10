@@ -1,6 +1,21 @@
+import { Agent } from "undici";
+
 import { buildIdentityHeaders } from "@/shared/auth/identity-headers";
 import { getSession } from "@/shared/auth/session";
 import { getBackendInternalUrl } from "@/shared/config";
+
+/**
+ * Node's fetch gives up waiting for response headers after five minutes
+ * (`UND_ERR_HEADERS_TIMEOUT`). The Excel preflight parses the whole workbook
+ * before it answers, so a large file outlives that default — nginx is already
+ * told to wait 24 h, and this is the remaining hop. The dispatcher applies to
+ * every proxied call: a long body stream (an export) must not be cut either.
+ */
+const BACKEND_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const backendDispatcher = new Agent({
+    headersTimeout: BACKEND_TIMEOUT_MS,
+    bodyTimeout: BACKEND_TIMEOUT_MS,
+});
 
 export async function proxyBackend(request: Request, path: string, method = request.method) {
     const session = await getSession();
@@ -24,11 +39,14 @@ export async function proxyBackend(request: Request, path: string, method = requ
         headers.set("Content-Type", contentType);
     }
 
-    const init: RequestInit = {
+    // `dispatcher` is undici's extension of RequestInit; the DOM type does not
+    // declare it. Next passes the init through untouched for `no-store`.
+    const init = {
         cache: "no-store",
         headers,
         method,
-    };
+        dispatcher: backendDispatcher,
+    } as RequestInit & { dispatcher: Agent };
     if (method !== "GET" && method !== "HEAD") {
         if (isMultipart) {
             init.body = Buffer.from(await request.arrayBuffer());
