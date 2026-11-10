@@ -54,45 +54,11 @@ _DATE_TEXT_FORMATS: tuple[str, ...] = (
 _TEMPLATE_ASSETS: dict[str, str] = {repair_code.upper(): name for _, repair_code, name in R_ASSETS}
 _REPAIR_CODES: dict[str, str] = {code.upper(): repair_code.upper() for code, repair_code, _ in R_ASSETS}
 
-# Template reference: header texts of the columns we load from the current
-# «РБ ПОФ» drop. Matching is by name only (see `_header_map`); this tuple pins
-# the exact headings so a wording change is caught instead of silently skipped.
-TEMPLATE_COLUMNS: tuple[str, ...] = (
-    "Наименование производства",
-    "Цех",
-    "Отделение/установка",
-    "Класс оборудования",
-    "Вид (категория) оборудования",
-    "Наименование ЕО",
-    "Название технического места",
-    "Технологическая позиция",
-    "Инвентарный №",
-    "Функциональное направление",
-    "Влияние на производство",
-    "Группа критичности оборудования",
-    "Раздел БПОФ",
-    "Категория работ",
-    "Вид работ",
-    "Отнесение затрат",
-    "Способ выполнения работ",
-    "Содержание работ",
-    (
-        "Дефектная ведомость/ВОР № (в случаях когда инв.№ распространяется на отделение "
-        "или установку, или блок из нескольких едениц оборудования)"
-    ),
-    "Дата начала работ",
-    "Дата окончания работ",
-    "Трудозатраты чел.час",
-    "Работа, руб. без ндс",
-    "МТР Заказчика, руб. без НДС",
-    "МТР Подрядчик, руб. без НДС",
-    "Стоимость итого, руб. без НДС",
-)
-
 # The template is matched by column NAMES only — never by their position: the
 # customer adds/removes columns between drops. Columns that are present but not
 # in `_TEMPLATE_FIELDS` (year, lot, numbering, pressure/temperature, repair
-# months, fact/forecast/reason) are ignored.
+# months, fact/forecast/reason) are ignored. Only the REQUIRED headings below
+# make a file a plan: any other missing heading is simply not loaded.
 
 
 def _norm(value: object) -> str:
@@ -260,14 +226,31 @@ def assets_in_file(source: Path | BinaryIO, suffix: str | None = None) -> frozen
     return scan_file_scope(source, suffix).assets
 
 
+def _header_score(row: list[object]) -> int:
+    """Count the cells that resolve to the work code, the asset or a form field."""
+    mapping = _header_map()
+    specials = {_norm(_CODE_HEADER), _norm(_ASSET_HEADER), _norm(_ASSET_NAME_HEADER)}
+    return sum(1 for value in row if (key := _norm(value)) and (key in mapping or key in specials))
+
+
 def _locate_header(rows: list[list[object]]) -> tuple[list[object] | None, int]:
-    """Return the header row and the first data row index (row 1 or row 2)."""
+    """
+    Return the header row and the first data row index (row 1 or row 2).
+
+    The work-code heading is the template's anchor. When it is absent, the row
+    carrying the most other template headings is still treated as the header:
+    the report must be able to name the missing required columns instead of
+    calling a readable workbook unreadable.
+    """
     if not rows:
         return None, 0
     for level in (0, 1):
         if level < len(rows) and any(_norm(value) == _norm(_CODE_HEADER) for value in rows[level]):
             return rows[level], level + 1
-    return None, 0
+    score, level = max(((_header_score(row), level) for level, row in enumerate(rows[:2])), default=(0, 0))
+    if score == 0:
+        return None, 0
+    return rows[level], level + 1
 
 
 def _column_name(index: int) -> str:
@@ -368,9 +351,41 @@ def _reference_values() -> dict[str, set[str]]:
 
 # Source wording that the form stores under a different, canonical label. A
 # closed list: anything else absent from the catalog is reported to the user.
-# Fields a valid plan row cannot leave empty: the asset and every reference
-# choice the plan is grouped by (a blank one cannot be resolved to an option).
-_REQUIRED_FIELDS: frozenset[str] = frozenset({"col_002", "col_015", "col_017", "col_018", "col_019", "col_020"})
+# Required columns and the headings the report names them by — the file's own
+# wording («Способ выполнения работ»), not the form's shorter label.
+_REQUIRED_COLUMN_LABELS: tuple[tuple[str, str], ...] = (
+    ("col_015", "Группа критичности оборудования"),
+    ("col_017", "Категория работ"),
+    ("col_018", "Вид работ"),
+    ("col_019", "Отнесение затрат"),
+    ("col_020", "Способ выполнения работ"),
+    ("col_024", "Дата начала работ"),
+    ("col_025", "Дата окончания работ"),
+)
+# Fields a valid plan row cannot leave empty: the asset, every reference choice
+# the plan is grouped by (a blank one cannot be resolved to an option) and the
+# work dates. The asset is listed for the row check even though its COLUMN is
+# resolved separately (`_asset_column`) — the heading report names
+# «Наименование ДО или Предприятие» once.
+_REQUIRED_FIELDS: tuple[str, ...] = ("col_002", *(field for field, _ in _REQUIRED_COLUMN_LABELS))
+_REQUIRED_ASSET_LABEL = f"{_ASSET_HEADER} или {_ASSET_NAME_HEADER}"
+
+
+def _missing_required_columns(columns: dict[str, int], code_index: int | None, asset_index: int | None) -> list[str]:
+    """
+    Human-readable labels of the required headings absent from a readable file.
+
+    A heading counts as present only when the header carries it; an empty cell
+    in a present column is a row-level value issue, reported separately.
+    """
+    missing: list[str] = []
+    if code_index is None:
+        missing.append(_CODE_HEADER)
+    if asset_index is None:
+        missing.append(_REQUIRED_ASSET_LABEL)
+    missing.extend(label for field, label in _REQUIRED_COLUMN_LABELS if field not in columns)
+    return missing
+
 
 _CATALOG_ALIASES: dict[str, frozenset[str]] = {
     "work_category": frozenset({"окр"}),
@@ -489,16 +504,22 @@ def _inspect_rows(
     rows_iter = iter(rows)
     first_rows = list(islice(rows_iter, 2))
     if not first_rows:
-        return RenovationPlanImportResult(status="invalid_format")
+        # An empty plan sheet is readable: every required heading is missing.
+        return RenovationPlanImportResult(
+            status="has_errors",
+            missing_required_columns=_missing_required_columns({}, None, None),
+        )
     # Row 1 is the header; some drops prepend an info row, then the header is
     # row 2. A numbering row under the headers (if any) holds numbers only and
     # is skipped by `_is_numbering_row`.
     header_row, data_start = _locate_header(first_rows)
     if header_row is None:
-        if len(first_rows) < 2:
-            return RenovationPlanImportResult(status="invalid_format")
-        header_row = first_rows[1]
-        data_start = 2
+        # The workbook opened, but the sheet carries none of the plan headings:
+        # this is a content error, not an unreadable container.
+        return RenovationPlanImportResult(
+            status="has_errors",
+            missing_required_columns=_missing_required_columns({}, None, None),
+        )
     mapping = _header_map()
     columns: dict[str, int] = {}
     for index, value in enumerate(header_row):
@@ -511,12 +532,19 @@ def _inspect_rows(
             field = "col_023"
         if field is not None:
             columns.setdefault(field, index)
-    # Only a resolvable set of template columns marks a compatible file: the
-    # work code and the asset plus at least the majority of the loaded fields.
     code_index = next((i for i, value in enumerate(header_row) if _norm(value) == _norm(_CODE_HEADER)), None)
     asset_index, assets_are_names = _asset_column(header_row)
-    if code_index is None or asset_index is None or len(columns) < len(TEMPLATE_COLUMNS) // 2:
-        return RenovationPlanImportResult(status="invalid_format")
+    missing_columns = _missing_required_columns(columns, code_index, asset_index)
+    if missing_columns:
+        # A column that is absent entirely cannot be skipped row by row: the
+        # file does not describe the plan, so it is reported as a whole.
+        return RenovationPlanImportResult(
+            status="has_errors",
+            missing_required_columns=missing_columns,
+            columns=_loaded_column_labels(columns),
+        )
+    assert code_index is not None  # noqa: S101 - the missing-columns check just refused the file
+    assert asset_index is not None  # noqa: S101 - same
     data_rows: Iterable[list[object]] = chain(first_rows[data_start:], rows_iter)
     # The asset column is the row's own foreign key, never a plan column: it is
     # read here and resolved against the dictionary, not through `columns`.
@@ -528,6 +556,7 @@ def _inspect_rows(
 
     type_errors: list[RenovationPlanImportCellIssue] = []
     missing: list[RenovationPlanImportCellIssue] = []
+    missing_required_values: list[RenovationPlanImportCellIssue] = []
     skipped_rows: list[int] = []
     data_row_count = 0
     unknown_assets: list[RenovationPlanImportCellIssue] = []
@@ -544,13 +573,16 @@ def _inspect_rows(
         if not code:
             # The work code identifies the row: a blank one is a gap in the file,
             # never an instruction to clear the plan. The row is not loaded and
-            # is listed among the skipped rows in the report.
+            # is listed among the skipped rows and the empty required values.
+            missing_required_values.append(_empty_cell_issue(code_index, row_number))
             skipped_rows.append(row_number)
             continue
-        if any(index >= len(raw) or raw[index] in (None, "") for index in required_columns):
-            # A row missing a required reference cannot be resolved to an option
-            # and is not loaded; the rest of the file still can be. The operator
-            # sees the row numbers under «Пропущенные строки».
+        empty_required = [index for index in required_columns if index >= len(raw) or raw[index] in (None, "")]
+        if empty_required:
+            # A row missing a required reference or a work date cannot be
+            # resolved and is not loaded; the rest of the file still can be.
+            # The operator sees the exact cells and the row numbers.
+            missing_required_values.extend(_empty_cell_issue(index, row_number) for index in empty_required)
             skipped_rows.append(row_number)
             continue
         asset_cell = raw[asset_index] if asset_index < len(raw) else None
@@ -663,6 +695,7 @@ def _inspect_rows(
         duplicate_codes=_duplicates_with_rows(codes, row_numbers),
         invalid_calculated_codes=_sorted_without_duplicates(invalid_codes),
         invalid_data_types=type_errors,
+        missing_required_values=missing_required_values,
         skipped_rows=sorted(skipped_rows),
         all_rows_skipped=all_rows_skipped,
         missing_dictionary_values=missing,
@@ -672,6 +705,11 @@ def _inspect_rows(
         rows_to_update=sum(code in existing_codes for code in codes),
         columns=_loaded_column_labels(columns),
     )
+
+
+def _empty_cell_issue(index: int, row_number: int) -> RenovationPlanImportCellIssue:
+    """Build the report entry for a required cell left empty in a data row."""
+    return RenovationPlanImportCellIssue(location=f"{_column_name(index)}, строка {row_number}", value="")
 
 
 def _loaded_column_labels(columns: dict[str, int]) -> list[str]:

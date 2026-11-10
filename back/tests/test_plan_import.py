@@ -12,6 +12,7 @@ from src.renovation.import_plan import (
     _CODE_HEADER,
     _norm,
     inspect_plan_file,
+    inspect_plan_file_streaming,
 )
 
 if TYPE_CHECKING:
@@ -113,7 +114,11 @@ def test_every_reported_problem_points_at_a_row() -> None:
     for duplicate in result.duplicate_codes:
         assert "строк" in duplicate, duplicate
     # A cell-level issue carries «<column>, строка <n>».
-    for issue in (*result.invalid_data_types, *result.missing_dictionary_values):
+    for issue in (
+        *result.invalid_data_types,
+        *result.missing_dictionary_values,
+        *result.missing_required_values,
+    ):
         assert "строка" in issue.location, issue.location
     # A skipped row is the sheet's own 1-based row number.
     assert all(row_number > 0 for row_number in result.skipped_rows)
@@ -469,10 +474,88 @@ def test_broken_workbook_is_rejected(tmp_path: Path) -> None:
     assert inspect_plan_file(path, existing_codes=set(), asset_names_by_code={}).status == "invalid_format"
 
 
-# A minimal but fully recognized template: the code and asset columns plus
-# enough mapped headings to pass the «at least half the template» gate. The six
-# required reference fields are present, so a row can be made skippable by
-# blanking exactly one of them.
+def test_a_readable_workbook_without_required_columns_is_a_content_error(tmp_path: Path) -> None:
+    """
+    An opened file is never «некорректного формата»: it is a plan with errors.
+
+    The report names the headings the load cannot work without, so the operator
+    knows what to add instead of being told the whole workbook is broken.
+    """
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "РБ 2027"
+    sheet.append([_CODE_HEADER, "Наименование производства", "Цех"])
+    sheet.append(["Р-001", "Производство", "Цех"])
+    path = tmp_path / "plan.xlsx"
+    book.save(path)
+
+    # The endpoint uses the streaming reader; both must agree on the answer.
+    for inspect in (inspect_plan_file, inspect_plan_file_streaming):
+        result = inspect(path, existing_codes=set(), asset_names_by_code={})
+
+        assert result.status == "has_errors"
+        assert result.missing_required_columns == [
+            "Наименование ДО или Предприятие",
+            "Группа критичности оборудования",
+            "Категория работ",
+            "Вид работ",
+            "Отнесение затрат",
+            "Способ выполнения работ",
+            "Дата начала работ",
+            "Дата окончания работ",
+        ]
+
+
+def test_missing_date_columns_are_named_in_the_report() -> None:
+    """Both work dates are required columns from now on, not optional extras."""
+    header = _PREFLIGHT_HEADER[:-2]
+    row = _preflight_row()[:-2]
+
+    result = _inspect([header, list(range(1, len(header) + 1)), row])
+
+    assert result.status == "has_errors"
+    assert result.missing_required_columns == ["Дата начала работ", "Дата окончания работ"]
+    assert result.new_rows == 0
+
+
+def test_an_empty_readable_sheet_reports_every_required_column() -> None:
+    """A plan sheet with no rows at all is a content error, not a broken file."""
+    result = _inspect([])
+
+    assert result.status == "has_errors"
+    assert len(result.missing_required_columns) == 9
+    assert result.missing_required_columns[0] == _CODE_HEADER
+
+
+def test_empty_required_values_are_reported_with_their_cells() -> None:
+    """
+    A present required column with blank cells is a value issue, not a heading.
+
+    The rows are still skipped (the rest of the file loads), but the operator
+    sees the exact column and row instead of only a row number.
+    """
+    result = _inspect(
+        [
+            _PREFLIGHT_HEADER,
+            list(range(1, len(_PREFLIGHT_HEADER) + 1)),
+            _preflight_row("Р-001", start_date=None),
+            _preflight_row("Р-002", criticality=""),
+            _preflight_row("Р-003"),
+        ]
+    )
+
+    assert result.missing_required_columns == []
+    assert result.status == "ready"
+    assert result.skipped_rows == [3, 4]
+    assert [(issue.location, issue.value) for issue in result.missing_required_values] == [
+        ("O, строка 3", ""),
+        ("D, строка 4", ""),
+    ]
+
+
+# A minimal but fully recognized template: the code and asset columns plus the
+# required reference fields and both work dates. A row can be made skippable by
+# blanking exactly one required cell.
 _PREFLIGHT_HEADER: list[object] = [
     _CODE_HEADER,
     _ASSET_HEADER,
@@ -489,6 +572,7 @@ _PREFLIGHT_HEADER: list[object] = [
     "Наименование ЕО",
     "Содержание работ",
     "Дата начала работ",
+    "Дата окончания работ",
 ]
 
 
@@ -496,8 +580,10 @@ def _preflight_row(
     code: object = "Р-001",
     *,
     criticality: object = "4",
+    start_date: object = "2027-01-01",
+    end_date: object = "2027-02-01",
 ) -> list[object]:
-    """One valid data row; `criticality` is the required cell a test may blank."""
+    """One valid data row; a test may blank any required cell."""
     return [
         code,
         "BSZR",
@@ -513,7 +599,8 @@ def _preflight_row(
         "Класс",
         "ЕО",
         "Содержание",
-        "2027-01-01",
+        start_date,
+        end_date,
     ]
 
 

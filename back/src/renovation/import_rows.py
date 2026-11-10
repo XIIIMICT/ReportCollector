@@ -16,6 +16,7 @@ from src.renovation.import_plan import (
     _header_map,
     _iter_plan_rows,
     _locate_header,
+    _missing_required_columns,
     _norm,
     _read_rows,
     normalized_option,
@@ -87,9 +88,14 @@ def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
             columns.setdefault(field, index)
     code_index = next((i for i, value in enumerate(header_row) if _norm(value) == _norm(_CODE_HEADER)), None)
     asset_index, assets_are_names = _asset_column(header_row)
-    if code_index is None or asset_index is None:
-        msg = "no work-code column"
+    missing_columns = _missing_required_columns(columns, code_index, asset_index)
+    if missing_columns:
+        # The preflight refuses such a file before the load button is enabled;
+        # the worker refuses it too, so a direct call cannot write a partial plan.
+        msg = "Не найдены обязательные столбцы: " + ", ".join(missing_columns)
         raise ValueError(msg)
+    assert code_index is not None  # noqa: S101 - the missing-columns check just refused the file
+    assert asset_index is not None  # noqa: S101 - same
     data_rows: Iterable[list[object]] = chain(first_rows[data_start:], rows_iter)
     # The asset is the row's foreign key, not a plan column.
     required_columns = tuple(

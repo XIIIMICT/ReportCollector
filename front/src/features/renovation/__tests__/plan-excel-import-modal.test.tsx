@@ -82,6 +82,72 @@ test("renders only the supplied error categories", () => {
     expect(view.queryByText(/Некорректно рассчитанные коды/)).toBeNull();
 });
 
+test("a readable file without required columns lists every missing heading", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{
+                status: "has-errors",
+                missingRequiredColumns: [
+                    "Код работы",
+                    "Наименование ДО или Предприятие",
+                    "Дата начала работ",
+                ],
+            }}
+        />,
+    );
+
+    // The file opened: this is a content error, not a broken container.
+    expect(view.getByText("Файл содержит ошибки")).toBeTruthy();
+    expect(view.queryByText("Файл имеет некорректный формат")).toBeNull();
+    expect(view.getByText("Не найдены обязательные столбцы:")).toBeTruthy();
+    expect(view.getByText("Код работы")).toBeTruthy();
+    expect(view.getByText("Наименование ДО или Предприятие")).toBeTruthy();
+    expect(view.getByText("Дата начала работ")).toBeTruthy();
+});
+
+test("only an unreadable file reports an incorrect format", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{ status: "invalid-format" }}
+        />,
+    );
+
+    expect(view.getByText("Файл имеет некорректный формат")).toBeTruthy();
+    expect(view.queryByText("Файл содержит ошибки")).toBeNull();
+});
+
+test("blank required values are listed by column and row", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{
+                status: "ready",
+                assets: ["АЭС-1"],
+                newRows: 1,
+                rowsToUpdate: 0,
+                missingRequiredValues: [
+                    { location: "O, строка 3", value: "" },
+                    { location: "O, строка 5", value: "" },
+                ],
+                skippedRows: [3, 5],
+            }}
+        />,
+    );
+
+    expect(view.getByText("Не заполнены обязательные значения (2):")).toBeTruthy();
+    expect(view.getByText("Столбец O:")).toBeTruthy();
+    expect(view.getByText("пусто (строки: 3, 5)")).toBeTruthy();
+    expect(view.getByText("Пропущенные строки (2):")).toBeTruthy();
+});
+
 test("drops a dragged file into the same picker and shows the analysis state", async () => {
     const selected: File[] = [];
     const view = render(

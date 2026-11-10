@@ -127,9 +127,13 @@ export type RenovationPlan = {
 export type RenovationPlanImportCellIssue = { location: string; value: string };
 export type RenovationPlanImportResult = {
     status: "invalid_format" | "has_errors" | "ready";
+    /** Required headings absent from a readable file (a content error). */
+    missing_required_columns: string[];
     duplicate_codes: string[];
     invalid_calculated_codes: string[];
     invalid_data_types: RenovationPlanImportCellIssue[];
+    /** Required cells left empty in a row; the row is skipped. */
+    missing_required_values: RenovationPlanImportCellIssue[];
     missing_dictionary_values: RenovationPlanImportCellIssue[];
     unknown_assets: RenovationPlanImportCellIssue[];
     /** Sheet rows the load will not write: a required cell is empty. */

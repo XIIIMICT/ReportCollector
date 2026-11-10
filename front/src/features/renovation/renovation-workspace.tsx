@@ -1998,9 +1998,11 @@ export function RenovationWorkspace({
                                 : result.status === "has_errors"
                                   ? "has-errors"
                                   : "ready",
+                        missingRequiredColumns: result.missing_required_columns,
                         duplicateCodes: result.duplicate_codes,
                         invalidCalculatedCodes: result.invalid_calculated_codes,
                         invalidDataTypes: result.invalid_data_types,
+                        missingRequiredValues: result.missing_required_values,
                         missingDictionaryValues: result.missing_dictionary_values,
                         unknownAssets: result.unknown_assets,
                         skippedRows: result.skipped_rows,

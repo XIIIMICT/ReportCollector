@@ -18,19 +18,55 @@ from src.renovation.import_rows import parse_plan_rows
 CODE_COL = 2
 ASSET_COL = 3
 
+# Headings a row cannot do without: the preflight refuses a file that lacks one
+# of these columns and skips a row whose cell is empty.
+REQUIRED_HEADERS: list[str] = [
+    "Группа критичности оборудования",
+    "Категория работ",
+    "Вид работ",
+    "Отнесение затрат",
+    "Способ выполнения работ",
+    "Дата начала работ",
+    "Дата окончания работ",
+]
+
 
 def _sheet(*data_rows: list[object], numbering: bool = True) -> list[list[object]]:
     """Build a sheet whose first row is the template header the parser recognises."""
-    header: list[object] = ["", "", _CODE_HEADER, _ASSET_HEADER, "Цех", "Наименование ЕО", "Примечание"]
+    header: list[object] = [
+        "",
+        "",
+        _CODE_HEADER,
+        _ASSET_HEADER,
+        *REQUIRED_HEADERS,
+        "Цех",
+        "Наименование ЕО",
+        "Примечание",
+    ]
     rows: list[list[object]] = [header]
     if numbering:
-        rows.append(["", "", 1, 2, 3, 4, 5])
+        rows.append(["", "", *range(1, len(header) - 1)])
     rows.extend(data_rows)
     return rows
 
 
 def _row(code: object, asset: object, workshop: object = None, equipment: object = None) -> list[object]:
-    return ["", "", code, asset, workshop, equipment, None]
+    return [
+        "",
+        "",
+        code,
+        asset,
+        "4",
+        "ТОиР",
+        "ТО",
+        "OPEX",
+        "Собственные силы",
+        "2027-01-01",
+        "2027-02-01",
+        workshop,
+        equipment,
+        None,
+    ]
 
 
 @pytest.fixture
@@ -80,14 +116,9 @@ def test_a_numbering_row_stored_as_text_is_still_skipped(sheet) -> None:
 
 def test_a_row_missing_a_required_column_is_not_loaded(sheet) -> None:
     """The preflight skips such a row; the loader must skip exactly the same one."""
-    sheet["rows"] = _sheet(
-        _row("Р-002", "SNHZ"),
-        _row("Р-003", "SNHZ"),
-    )
-    sheet["rows"][0].append("Группа критичности оборудования")
-    sheet["rows"][1] = [*sheet["rows"][1], 3]
-    sheet["rows"][2] = [*sheet["rows"][2], None]
-    sheet["rows"][3] = [*sheet["rows"][3], 3]
+    blank = _row("Р-002", "SNHZ")
+    blank[4] = None
+    sheet["rows"] = _sheet(blank, _row("Р-003", "SNHZ"))
 
     parsed = parse_plan_rows(Path("ignored.xlsb"))
 
@@ -130,14 +161,14 @@ def test_a_numeric_reference_is_normalized_to_its_catalog_label(sheet) -> None:
     The analyzer and the loader must agree on what a known option looks like,
     so the normalization happens here, once.
     """
-    sheet["rows"] = _sheet(_row("Р-005", "SNHZ"))
-    sheet["rows"][0].append("Категория работ")
-    sheet["rows"][-1] = [*sheet["rows"][-1], 3.0]
+    row = _row("Р-005", "SNHZ")
+    row[5] = 3.0
+    sheet["rows"] = _sheet(row)
 
     parsed = parse_plan_rows(Path("ignored.xlsb"))
 
     values = parsed[0].values
-    assert "3" in values.values(), values
+    assert values["col_017"] == "3"
 
 
 def test_blank_cells_are_left_out_instead_of_stored_empty(sheet) -> None:
@@ -169,17 +200,29 @@ def test_a_numbering_row_hidden_by_a_stray_trailing_number_is_still_skipped(shee
 
 
 def test_a_sheet_without_the_code_column_is_refused(sheet) -> None:
-    """The code header is present (so the sheet IS a plan), the asset column is not."""
-    sheet["rows"] = [["", _CODE_HEADER, "Что-то другое"], ["", "Р-001", "значение"]]
+    """The asset heading is present (so the sheet IS a plan), the code column is not."""
+    sheet["rows"] = [["", _ASSET_HEADER, "Что-то другое"], ["", "SNHZ", "значение"]]
 
-    with pytest.raises(ValueError, match="work-code column"):
+    with pytest.raises(ValueError, match="Не найдены обязательные столбцы"):
+        parse_plan_rows(Path("ignored.xlsb"))
+
+
+def test_a_sheet_without_the_required_columns_is_refused(sheet) -> None:
+    """A readable plan sheet that lacks a required heading is not loaded."""
+    sheet["rows"] = _sheet(_row("Р-001", "SNHZ"))
+    sheet["rows"][0].remove("Дата окончания работ")
+    for row in sheet["rows"][1:]:
+        row.pop(10)
+
+    with pytest.raises(ValueError, match="Дата окончания работ"):
         parse_plan_rows(Path("ignored.xlsb"))
 
 
 def _name_sheet(*data_rows: list[object]) -> list[list[object]]:
     """Build a drop without «Наименование ДО», naming the entity in «Предприятие»."""
-    header: list[object] = ["", "", _CODE_HEADER, _ASSET_NAME_HEADER, "Цех", "Наименование ЕО", "Примечание"]
-    return [header, ["", "", 1, 2, 3, 4, 5], *data_rows]
+    rows = _sheet(*data_rows)
+    rows[0][3] = _ASSET_NAME_HEADER
+    return rows
 
 
 def test_an_asset_named_in_predpriyatie_is_parsed_by_name(sheet) -> None:
@@ -224,13 +267,13 @@ def test_a_header_on_the_second_level_is_still_found(sheet) -> None:
 
 
 def test_short_rows_do_not_crash_the_parser(sheet) -> None:
-    """A trailing row cut before the last column is still a row."""
-    sheet["rows"] = _sheet(["", "", "Р-008"])
+    """A trailing row cut before the optional columns is still a row."""
+    sheet["rows"] = _sheet(_row("Р-008", "SNHZ")[:12])
 
     parsed = parse_plan_rows(Path("ignored.xlsb"))
 
     assert parsed[0].code == "Р-008"
-    assert parsed[0].asset_key == ""
+    assert parsed[0].asset_key == "SNHZ"
 
 
 def test_calculated_fields_are_never_parsed_from_the_file(sheet) -> None:

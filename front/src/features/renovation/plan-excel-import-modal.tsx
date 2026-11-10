@@ -17,9 +17,13 @@ export type PlanExcelImportResult =
     | { status: "invalid-format" }
     | {
           status: "has-errors";
+          /** Required headings absent from a readable file. */
+          missingRequiredColumns?: string[];
           duplicateCodes?: string[];
           invalidCalculatedCodes?: string[];
           invalidDataTypes?: ExcelCellIssue[];
+          /** Required cells left empty in a row; the row is skipped. */
+          missingRequiredValues?: ExcelCellIssue[];
           missingDictionaryValues?: ExcelCellIssue[];
           unknownAssets?: ExcelCellIssue[];
           /** Sheet rows the load will not write: a required cell is empty. */
@@ -34,6 +38,8 @@ export type PlanExcelImportResult =
           rowsToUpdate: number;
           /** Form labels of the columns the load writes, in workbook order. */
           columns?: string[];
+          /** Required cells left empty in a row; the row is skipped. */
+          missingRequiredValues?: ExcelCellIssue[];
           /** Rows the load will skip because a required cell is empty. */
           skippedRows?: number[];
       };
@@ -243,6 +249,10 @@ export function PlanExcelImportModal({
                                         </ul>
                                     </div>
                                 ) : null}
+                                <CellErrorList
+                                    title="Не заполнены обязательные значения"
+                                    values={result.missingRequiredValues}
+                                />
                                 <SkippedRows rows={result.skippedRows} />
                             </div>
                         ) : null}
@@ -310,6 +320,16 @@ function ImportErrors({
 }) {
     return (
         <div className="plan-excel-import-modal__errors" role="alert">
+            {result.missingRequiredColumns?.length ? (
+                <section>
+                    <strong>Не найдены обязательные столбцы:</strong>
+                    <ul>
+                        {result.missingRequiredColumns.map((column) => (
+                            <li key={column}>{column}</li>
+                        ))}
+                    </ul>
+                </section>
+            ) : null}
             {result.duplicateCodes?.length ? (
                 <ErrorList title="Дублирующиеся коды" values={result.duplicateCodes} />
             ) : null}
@@ -329,6 +349,12 @@ function ImportErrors({
             ) : null}
             {result.invalidDataTypes?.length ? (
                 <CellErrorList title="Неверный тип данных" values={result.invalidDataTypes} />
+            ) : null}
+            {result.missingRequiredValues?.length ? (
+                <CellErrorList
+                    title="Не заполнены обязательные значения"
+                    values={result.missingRequiredValues}
+                />
             ) : null}
             {result.missingDictionaryValues?.length ? (
                 <CellErrorList
@@ -390,7 +416,8 @@ function ErrorList({ title, values }: { title: string; values: string[] }) {
     );
 }
 
-function CellErrorList({ title, values }: { title: string; values: ExcelCellIssue[] }) {
+function CellErrorList({ title, values }: { title: string; values: ExcelCellIssue[] | undefined }) {
+    if (!values?.length) return null;
     return (
         <section>
             <strong>
@@ -403,7 +430,7 @@ function CellErrorList({ title, values }: { title: string; values: ExcelCellIssu
                         <ul>
                             {group.values.map((grouped) => (
                                 <li key={`${group.column}-${grouped.value}`}>
-                                    {grouped.value} (строки: {grouped.rows.join(", ")})
+                                    {grouped.value || "пусто"} (строки: {grouped.rows.join(", ")})
                                 </li>
                             ))}
                         </ul>

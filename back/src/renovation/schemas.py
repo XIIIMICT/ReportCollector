@@ -505,9 +505,17 @@ class RenovationPlanImportCellIssue(BaseModel):
 
 class RenovationPlanImportResult(BaseModel):
     status: Literal["invalid_format", "has_errors", "ready"]
+    # Human-readable names of required headings absent from a READABLE file:
+    # the work code, the asset, the reference fields and the work dates. This is
+    # a content error (`has_errors`), never `invalid_format` — that one is kept
+    # for a workbook the analyzer cannot open at all.
+    missing_required_columns: list[str] = Field(default_factory=list)
     duplicate_codes: list[str] = Field(default_factory=list)
     invalid_calculated_codes: list[str] = Field(default_factory=list)
     invalid_data_types: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
+    # Required cells (a reference choice or a work date) left empty in a row:
+    # the row is skipped and the exact cells are listed for the operator.
+    missing_required_values: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
     missing_dictionary_values: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
     unknown_assets: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
     # Sheet rows the load will not write because a required cell is empty (the

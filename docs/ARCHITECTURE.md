@@ -378,11 +378,21 @@ Left uncompressed, the first load pays ~1.7 MB of avoidable transfer per visitor
 before anything is written. Columns are matched **only by header names** —
 normalised (case, whitespace, quotes), never by positions, since columns are
 added/removed between drops. The header may be row 1 or row 2 (row 1 then holds
-the extra info); a numbering helper row under the headings is detected by shape
-— a row of numbers, whether typed or stored as text under a «Текстовый» format —
-and skipped, as is a blank spacer between the header and it. `TEMPLATE_COLUMNS`
-freezes the headings of the current sample; a
-missing column is simply not loaded, an unknown one is ignored. Only two
+the extra info); the work-code heading is the anchor, and a sheet without it is
+still read by its other headings so the report can name what is missing. A
+numbering helper row under the headings is detected by shape — a row of numbers,
+whether typed or stored as text under a «Текстовый» format — and skipped, as is
+a blank spacer between the header and it.
+A workbook the analyzer cannot open at all (a broken container, another format,
+no sheet whose name starts with «РБ») is `invalid_format`. A **readable** sheet
+is never rejected for its format: when a required heading is absent, the
+preflight answers `has_errors` with `missing_required_columns`, and the dialog
+shows «Файл содержит ошибки» under the input plus «Не найдены обязательные
+столбцы:» with the missing names. Required headings: «Код работы»,
+«Наименование ДО» (or its fallback «Предприятие»), «Группа критичности
+оборудования», «Категория работ», «Вид работ», «Отнесение затрат», «Способ
+выполнения работ», «Дата начала работ», «Дата окончания работ». Any other
+missing column is simply not loaded; an unknown one is ignored. Only two
 headings need an alias: «Лот» → direction code (`col_189`) and the
 suffix-free «Отнесение затрат (OPEX/CAPEX)» / «Способ выполнения работ».
 Asset identification uses «Наименование ДО» — the official repair code
@@ -556,19 +566,22 @@ cells lose their float tail first
 error**: the preflight lists it under «Значение отсутствует в справочнике» and
 the load fails the job with a Russian error and rolls back the whole
 transaction.
-The same strictness covers blank required cells — «Код работы», «Предприятие»,
-«Группа критичности», «Категория работ», «Вид работ», «Отнесение затрат»,
-«Способ выполнения» — but a row missing one is **skipped**, not a file-wide
-error: it is not loaded (so it does not count in `new_rows`/`rows_to_update`)
+The same strictness covers blank required cells — «Код работы», «Группа
+критичности», «Категория работ», «Вид работ», «Отнесение затрат», «Способ
+выполнения» and both work dates — but a row missing one is **skipped**, not a
+file-wide error: it is not loaded (so it does not count in
+`new_rows`/`rows_to_update`), its exact cells are listed under «Не заполнены
+обязательные значения» (`missing_required_values`, column letter and sheet row),
 and its sheet number is listed under «Пропущенные строки» (`skipped_rows`) at
 the end of the report, in both a successful and a failing analysis. The apply
-pass skips exactly the same rows. When every data row is skipped the preflight
-is a failure (`has_errors`, `all_rows_skipped`) and the report says «Во всех
-строках не заполнены обязательные столбцы. Нечего загружать.». The **asset** is
-held to the same rule: a code missing from the project's `rm_assets`
-(`unknown_assets` in the report) refuses the whole file instead of silently
-skipping its rows — an unknown asset is a file error, never a `skipped_rows`
-entry.
+pass skips exactly the same rows (a required heading absent from the workbook
+makes it refuse the whole file before writing). When every data row is skipped
+the preflight is a failure (`has_errors`, `all_rows_skipped`) and the report says
+«Во всех строках не заполнены обязательные столбцы. Нечего загружать.». The
+**asset** is held to the same rule: a code missing from the project's
+`rm_assets` (`unknown_assets` in the report) refuses the whole file instead of
+silently skipping its rows — an unknown asset is a file error, never a
+`skipped_rows` entry.
 
 The load is **not** journaled into undo/redo: it rewrites many rows at once, so
 a single «Отменить» cannot meaningfully revert it.
