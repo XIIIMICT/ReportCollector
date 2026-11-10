@@ -24,8 +24,8 @@
         "@revolist/react-datagrid": "4.31.4",
         "@revolist/rv-pro-trial": "3.0.18",
         "iconoir-react": "^7.12.2",
-        "jose": "^6.2.15",
-        "next": "16.4.5",
+        "jose": "^6.2.17",
+        "next": "16.4.6",
         "next-themes": "^0.4.6",
         "react": "19.3.1",
         "react-dom": "19.3.1",
@@ -33,9 +33,9 @@
         "zod": "^4.6.7"
     },
     "devDependencies": {
-        "@next/bundle-analyzer": "^16.4.5",
-        "@playwright/test": "^1.64.1",
-        "@tailwindcss/postcss": "^4.3.4",
+        "@next/bundle-analyzer": "^16.4.6",
+        "@playwright/test": "^1.65.0",
+        "@tailwindcss/postcss": "^4.3.5",
         "@testing-library/dom": "^10.4.2",
         "@testing-library/react": "^16.3.3",
         "@types/bun": "^1.4.4",
@@ -44,10 +44,10 @@
         "@types/react-dom": "^19.3.0",
         "babel-plugin-react-compiler": "1.0.0",
         "happy-dom": "^21.0.4",
-        "oxfmt": "^0.76.0",
-        "oxlint": "^1.91.0",
-        "stylelint": "18.0.0",
-        "tailwindcss": "^4.3.4",
+        "oxfmt": "^0.78.0",
+        "oxlint": "^1.93.0",
+        "stylelint": "^18.0.0",
+        "tailwindcss": "^4.3.5",
         "typescript": "^7.0.2"
     },
     "overrides": {
