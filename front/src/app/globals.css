@@ -2392,10 +2392,27 @@ body {
     text-decoration: line-through;
 }
 
-.data-grid revogr-data .rgCell.report-cell--number,
-.report-cell__number {
+/* Numbers read aligned to the right edge in EVERY grid — the dictionaries,
+   «Сырьё», КППК and the plan's own form. The class comes from the shared column
+   config for a generic grid and from the plan's own column builder, so the rule
+   is deliberately NOT scoped to `.data-grid`: the plan is `.renovation-grid`
+   and used to fall through to the default left alignment. `justify-content`
+   covers a cell a layout turns into a flex container; `text-align` covers the
+   plain block cell. */
+revogr-data .rgCell.report-cell--number {
     justify-content: flex-end;
+    text-align: right;
+}
+
+/* The span a numeric cell template renders (the plan's `numberTemplate`, the
+   shared `numberCellTemplate`). As an inline span `width`/`text-align` were
+   inert — the text was aligned by the CELL, not by the span. */
+.report-cell__number {
+    display: block;
     width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     text-align: right;
 }
 
