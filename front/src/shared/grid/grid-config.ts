@@ -76,6 +76,12 @@ export type ColumnDescriptor = {
     width: number;
     kind: ColumnKind;
     options?: SelectOption[];
+    /**
+     * Digits after the decimal mark in a `number`/`calculated` cell. The VALUE is
+     * stored as entered; only its display is rounded (`renovation-grid-format`
+     * uses the same rule for the plan's own form fields).
+     */
+    decimals?: number;
     fixed?: boolean;
     adminOnly?: boolean;
     exportable?: boolean;
@@ -347,8 +353,25 @@ function text(key: string, label: string, width: number): ColumnDescriptor {
     return { key, label, width, kind: "text" };
 }
 
-function number(key: string, label: string, width: number, path?: string[]): ColumnDescriptor {
-    return { key, label, ...(path && { path }), width, kind: "number" };
+/**
+ * A numeric column. `decimals` fixes the DISPLAY only (the value keeps every
+ * digit it was saved with); omit it to render whole numbers as they are.
+ */
+function number(
+    key: string,
+    label: string,
+    width: number,
+    path?: string[],
+    decimals?: number,
+): ColumnDescriptor {
+    return {
+        key,
+        label,
+        ...(path && { path }),
+        width,
+        kind: "number",
+        ...(decimals !== undefined && { decimals }),
+    };
 }
 
 function calculated(key: string, label: string, width: number, path?: string[]): ColumnDescriptor {
@@ -584,7 +607,30 @@ function buildLeaf(
         }),
     };
     if (descriptor.kind === "number" || descriptor.kind === "calculated") {
-        column.cellTemplate = numberCellTemplate;
+        column.cellTemplate =
+            descriptor.decimals === undefined
+                ? numberCellTemplate
+                : fixedDecimalsCellTemplate(descriptor.decimals);
+        // Numbers read aligned to the right edge in EVERY grid, not only where a
+        // template happens to wrap them (the plan's own cells, the KPPK forms):
+        // the column's own cell props are the one place a revo-grid cell template
+        // cannot override.
+        const baseCellProperties = column.cellProperties;
+        const numberCellProperties = ((props: { model: unknown }) => {
+            const own =
+                typeof baseCellProperties === "function"
+                    ? (baseCellProperties as (input: unknown) => unknown)(props)
+                    : baseCellProperties;
+            const classes =
+                own && typeof own === "object" && "className" in own
+                    ? (own as { className?: unknown }).className
+                    : undefined;
+            return {
+                ...(own as object),
+                className: { ...(classes as object), "report-cell--number": true },
+            };
+        }) as NonNullable<ColumnRegular["cellProperties"]>;
+        column.cellProperties = numberCellProperties;
     }
     if (descriptor.kind === "datetime") {
         column.cellTemplate = dateTimeCellTemplate;
@@ -885,6 +931,22 @@ export function facetTextOf(
 }
 
 /**
+ * The text a numeric cell shows with a FIXED decimal count — the same rule the
+ * grid's `fixedDecimalsCellTemplate` uses, so a filter option reads exactly like
+ * the cell it stands for.
+ */
+export function renderFixedDecimalsText(value: unknown, decimals: number): string {
+    if (value === null || value === undefined || value === "") return "";
+    const parsed = typeof value === "number" ? value : Number(String(value).replace(",", "."));
+    return Number.isFinite(parsed)
+        ? new Intl.NumberFormat("ru-RU", {
+              minimumFractionDigits: decimals,
+              maximumFractionDigits: decimals,
+          }).format(parsed)
+        : String(value);
+}
+
+/**
  * The text a numeric cell shows — the single formatting rule for numbers in
  * the grid: its `numberCellTemplate` renders through it, and a filter matches
  * through it, so the facet list and the cells can never disagree.
@@ -998,6 +1060,27 @@ function selectCellTemplate(
 function numberCellTemplate(h: HyperFunc<VNode>, { value }: { value?: unknown }): VNode {
     if (value === null || value === undefined || value === "") return h("span", {}, "");
     return h("span", { class: "report-cell__number" }, renderNumberText(value));
+}
+
+/**
+ * The numeric cell of a column that fixes its decimal count (see
+ * `ColumnDescriptor.decimals`). The stored value keeps every digit it was saved
+ * with — only the DISPLAY is rounded, and the filter list follows the same
+ * rendering (`renderFacetText`).
+ */
+function fixedDecimalsCellTemplate(
+    decimals: number,
+): (h: HyperFunc<VNode>, props: { value?: unknown }) => VNode {
+    const formatter = new Intl.NumberFormat("ru-RU", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+    });
+    return (h, { value }) => {
+        if (value === null || value === undefined || value === "") return h("span", {}, "");
+        const parsed = typeof value === "number" ? value : Number(String(value).replace(",", "."));
+        const label = Number.isFinite(parsed) ? formatter.format(parsed) : String(value);
+        return h("span", { class: "report-cell__number" }, label);
+    };
 }
 
 /**

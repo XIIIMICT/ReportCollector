@@ -82,43 +82,109 @@ const KPPK_REALIZATION_DESCRIPTORS: Record<KppkRealizationSlice, ColumnDescripto
     bp: [
         { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
         { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
-        { key: "buyoutBpPlan", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
-        { key: "fcaPriceBpPlan", label: "Цена FCA", width: 130, kind: "number", path: ["Выкуп"] },
-        { key: "monthBpPlan", label: "Объем", width: 140, kind: "number", path: ["Реализация"] },
+        {
+            key: "buyoutBpPlan",
+            label: "Объем",
+            width: 140,
+            kind: "number",
+            path: ["Выкуп"],
+            decimals: 2,
+        },
+        {
+            key: "fcaPriceBpPlan",
+            label: "Цена FCA",
+            width: 130,
+            kind: "number",
+            path: ["Выкуп"],
+            decimals: 2,
+        },
+        {
+            key: "monthBpPlan",
+            label: "Объем",
+            width: 140,
+            kind: "number",
+            path: ["Реализация"],
+            decimals: 2,
+        },
         {
             key: "fcaPriceMarketBpPlan",
             label: "Цена FCA",
             width: 130,
             kind: "number",
             path: ["Реализация"],
+            decimals: 2,
         },
     ],
     op: [
         { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
         { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
-        { key: "buyoutMaxPlan", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
-        { key: "fcaPriceMaxPlan", label: "Цена FCA", width: 130, kind: "number", path: ["Выкуп"] },
-        { key: "monthMaxPlan", label: "Объем", width: 140, kind: "number", path: ["Реализация"] },
+        {
+            key: "buyoutMaxPlan",
+            label: "Объем",
+            width: 140,
+            kind: "number",
+            path: ["Выкуп"],
+            decimals: 2,
+        },
+        {
+            key: "fcaPriceMaxPlan",
+            label: "Цена FCA",
+            width: 130,
+            kind: "number",
+            path: ["Выкуп"],
+            decimals: 2,
+        },
+        {
+            key: "monthMaxPlan",
+            label: "Объем",
+            width: 140,
+            kind: "number",
+            path: ["Реализация"],
+            decimals: 2,
+        },
         {
             key: "fcaPriceMarketMaxPlan",
             label: "Цена FCA",
             width: 130,
             kind: "number",
             path: ["Реализация"],
+            decimals: 2,
         },
     ],
     fact: [
         { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
         { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
-        { key: "buyoutFact", label: "Объем", width: 140, kind: "number", path: ["Выкуп"] },
-        { key: "fcaPriceFact", label: "Цена FCA", width: 130, kind: "number", path: ["Выкуп"] },
-        { key: "fact", label: "Объем", width: 140, kind: "number", path: ["Реализация"] },
+        {
+            key: "buyoutFact",
+            label: "Объем",
+            width: 140,
+            kind: "number",
+            path: ["Выкуп"],
+            decimals: 2,
+        },
+        {
+            key: "fcaPriceFact",
+            label: "Цена FCA",
+            width: 130,
+            kind: "number",
+            path: ["Выкуп"],
+            decimals: 2,
+        },
+        {
+            key: "fact",
+            label: "Объем",
+            width: 140,
+            kind: "number",
+            path: ["Реализация"],
+            decimals: 2,
+        },
         {
             key: "fcaPriceMarketFact",
             label: "Цена FCA",
             width: 130,
             kind: "number",
             path: ["Реализация"],
+            decimals: 2,
         },
     ],
 };
@@ -224,7 +290,13 @@ export function KppkRealizationSection({
                 // asset levies no excise at all (`showExcise` needs the loaded
                 // view). Keeping it declarative here means the descriptors stay
                 // independent of the fetch.
-                { key: exciseKey, label: "Акциз", width: 130, kind: "number" as const },
+                {
+                    key: exciseKey,
+                    label: "Акциз",
+                    width: 130,
+                    kind: "number" as const,
+                    decimals: 2,
+                },
             ];
         const fields = KPPK_COST_SLICE_FIELDS[slice];
         const labels = [
@@ -246,6 +318,7 @@ export function KppkRealizationSection({
                 label: labels[index]!,
                 width: 220,
                 kind: "number",
+                decimals: 2,
             })),
         ];
     }, [exciseKey, isCost, slice]);

@@ -328,6 +328,8 @@ export function RenovationWorkspace({
         dateOnly: boolean;
         /** A `timestamptz` column: the popover asks for a window, not values. */
         instant?: boolean;
+        /** A numeric field with a fixed display precision. */
+        decimals?: number;
         anchor: DOMRect;
     } | null>(null);
     // The row-number («№») range filter popover anchor (the corner's rect).
@@ -2110,6 +2112,11 @@ export function RenovationWorkspace({
                                                 // filter asks for days only. The
                                                 // audit instants keep their time.
                                                 dateOnly: field?.cellType === "date",
+                                                // The option list reads like the cells:
+                                                // a field with a fixed precision shows it.
+                                                ...(typeof field?.decimals === "number" && {
+                                                    decimals: field.decimals,
+                                                }),
                                                 anchor,
                                             });
                                         }}
@@ -2216,6 +2223,7 @@ export function RenovationWorkspace({
                     anchor={columnFilterTarget.anchor}
                     order={columnFilterTarget.order}
                     dateOnly={columnFilterTarget.dateOnly}
+                    decimals={columnFilterTarget.decimals}
                     instant={columnFilterTarget.instant === true}
                     {...(viewPlanId && { planId: viewPlanId })}
                     asset={assetFilter}

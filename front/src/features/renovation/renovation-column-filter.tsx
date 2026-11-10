@@ -2,7 +2,11 @@
 
 import { getRenovationPlanFacets, type RenovationColumnFilter } from "@/shared/api/renovation";
 import { ReportCollectorApiError } from "@/shared/api/report-collector";
-import { renderDateText, renderNumberText } from "@/shared/grid/grid-config";
+import {
+    renderDateText,
+    renderFixedDecimalsText,
+    renderNumberText,
+} from "@/shared/grid/grid-config";
 import {
     serverFacetSource,
     type ColumnFilter,
@@ -45,6 +49,7 @@ export function RenovationColumnFilterPopover({
     defaultFilter,
     storageScope,
     instant,
+    decimals,
     onApply,
     onClose,
     onInvalidQuery,
@@ -68,6 +73,11 @@ export function RenovationColumnFilterPopover({
     storageScope?: { project: string; section: string } | undefined;
     /** A `timestamptz` column: the popover asks for a window instead of values. */
     instant?: boolean | undefined;
+    /**
+     * Digits after the decimal mark of a `number` column (`decimals` of the
+     * field): the option list then reads exactly like the cells («1,50»).
+     */
+    decimals?: number | undefined;
     onApply: (filter: ColumnFilter | null) => void;
     onClose: () => void;
     /** Remove a stale column state when the backend rejects a facet query. */
@@ -82,7 +92,9 @@ export function RenovationColumnFilterPopover({
     // compared against.
     const render =
         order === "number"
-            ? renderNumberText
+            ? decimals === undefined
+                ? renderNumberText
+                : (raw: string) => renderFixedDecimalsText(raw, decimals)
             : order === "date"
               ? (raw: string) => renderDateText(raw.slice(0, 10))
               : null;

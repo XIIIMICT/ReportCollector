@@ -96,7 +96,19 @@ _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
 # Both spellings below matter — a legacy schema that still carries the pre-0013
 # table names reports the legacy form (`_adoption_metadata` renames the model
 # side to match).
-_FACET_INDEX_COLUMNS: tuple[str, ...] = ("003", "005", "006", "007", "008", "015", "017", "018", "019", "020")
+_FACET_INDEX_COLUMNS: tuple[str, ...] = (
+    "003",
+    "005",
+    "006",
+    "007",
+    "008",
+    "015",
+    "017",
+    "018",
+    "019",
+    "020",
+    "023",
+)
 _FACET_INDEX_TABLES: tuple[str, ...] = ("r_plan_rows", "renovation_plan_rows")
 
 # Indexes the models declare that a legacy-0015 installation does not carry yet:

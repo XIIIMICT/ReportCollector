@@ -121,6 +121,12 @@ class RenovationPlanRow(UpdaterDisplay, table=True):
         Index("ix_r_plan_rows_plan_col_018", "plan_id", "col_018"),
         Index("ix_r_plan_rows_plan_col_019", "plan_id", "col_019"),
         Index("ix_r_plan_rows_plan_col_020", "plan_id", "col_020"),
+        # «Дефектная ведомость/ВОР №». It is TEXT (0030) and every row carries its
+        # own number, so the facet list has ~90k distinct values per plan: without
+        # this index the facet query seq-scanned the whole plan (~1.4 s on 261k
+        # rows, and it is asked TWICE per popover — the list and the column size).
+        # An index-only scan answers both in ~60 ms.
+        Index("ix_r_plan_rows_plan_col_023", "plan_id", "col_023"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
