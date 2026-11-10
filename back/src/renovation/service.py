@@ -976,6 +976,13 @@ def _column_filter_condition(
     repeats INSIDE the plan, so the duplicate lookup must not see other plans.
     """
     column = column_filter.column
+    if (column_filter.from_ is not None or column_filter.to is not None) and _plan_audit_attr(column) is None:
+        # A MIN–MAX window is the shape of an INSTANT column only; the audit
+        # columns are routed to their own branch below. Any other column is
+        # filtered by VALUES, so a window here is a stale client — refuse it
+        # instead of returning an empty match nobody can explain.
+        message = f"Столбец «{column}» фильтруется по значениям, а не по диапазону."
+        raise CellValidationError(message)
     if column == _RENOVATION_ID_COLUMN and column_filter.valueMode != "exact":
         # Preserve saved group filters; new concrete selections use exact mode.
         if plan_id is None:
@@ -1052,6 +1059,38 @@ def _column_filter_condition(
         return or_(*value_conditions)
     # A filter that keeps nothing must match no row, never the whole table.
     return sa_false()
+
+
+def _facet_field_kind(meta: RenovationFieldMeta | None) -> str:
+    """
+    Derive the search a column's facet accepts from the FIELD's own type.
+
+    The filter must follow the field, never the other way round: the defect
+    number is text since migration 0030, so «706179» is searched as a substring
+    and a numeric window is refused — before, the client kept sending a range
+    for a column that no longer held numbers.
+    """
+    if meta is None:
+        return "text"
+    if meta.cell_type == "number" or meta.is_calculated:
+        return "range"
+    if meta.cell_type in {"date", "datetime"}:
+        return "datetime"
+    return "text"
+
+
+def _check_facet_search(kind: str, search_kind: str | None) -> str:
+    """Refuse a search shape the column's type does not offer (no silent rewrite)."""
+    wanted = search_kind or "text"
+    if wanted == kind:
+        return wanted
+    if kind == "text" and wanted == "range":
+        message = "Столбец фильтруется по тексту, а не по числовому диапазону."
+    elif kind == "range" and wanted == "text":
+        message = "Столбец фильтруется по числовому диапазону, а не по тексту."
+    else:
+        message = "Столбец фильтруется по диапазону дат, а не по выбранному типу поиска."
+    raise CellValidationError(message)
 
 
 def _parse_instant(
@@ -1605,6 +1644,12 @@ async def read_plan_facets(
     the sorted window; `total` counts the distinct non-empty values across the
     whole filtered plan after the optional search, so the window (offset/limit)
     can be lazy-loaded without losing matches.
+
+    The SEARCH shape follows the field's own type (`_facet_field_kind`): text
+    columns take a substring query, numeric ones the MIN–MAX window, dates the
+    date window. A request that names another shape is refused rather than
+    quietly rewritten, so a stale client cannot ask for a number range on a
+    column that stopped holding numbers.
     """
     if column in _PLAN_AUDIT_COLUMNS:
         # An INSTANT column has no usable option list: every row carries its own
@@ -1621,6 +1666,7 @@ async def read_plan_facets(
             message = f"Неизвестный столбец «{column}»."
             raise CellValidationError(message)
         meta = resolved
+    search_kind = _check_facet_search(_facet_field_kind(meta), search_kind)
 
     if plan_id is not None:
         plan = await session.get(RenovationPlan, plan_id)

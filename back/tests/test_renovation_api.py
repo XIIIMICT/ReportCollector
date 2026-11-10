@@ -212,6 +212,48 @@ async def test_read_plan_facets_numeric_search_filters_before_offset(client: Asy
     assert body["values"] == [{"value": "10", "count": 1}]
 
 
+async def test_read_plan_facets_search_follows_the_field_type(client: AsyncClient) -> None:
+    """
+    The facet search shape follows the FIELD, and a wrong shape is refused.
+
+    «Дефектная ведомость/ВОР №» became TEXT in migration 0030, so its facet
+    takes a substring query and rejects the numeric MIN–MAX pair a stale client
+    still sends; the opposite holds for a numeric column.
+    """
+    text = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_023", "search_kind": "text", "search_query": "138"},
+    )
+    assert text.status_code == 200, text.text
+    assert text.json()["values"] == [{"value": "1382467", "count": 1}]
+
+    numeric_window = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_023", "search_kind": "range", "search_min": 100},
+    )
+    assert numeric_window.status_code == 422, numeric_window.text
+
+    text_on_number = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_028", "search_kind": "text", "search_query": "1"},
+    )
+    assert text_on_number.status_code == 422, text_on_number.text
+
+
+async def test_a_value_filter_refuses_a_range_window(client: AsyncClient) -> None:
+    """A MIN–MAX window on a value-filtered column is a stale client, not an empty match."""
+    response = await client.post(
+        "/api/renovation/plan/rows/query",
+        headers=ADMIN_HEADERS,
+        params={"offset": 0, "limit": 100},
+        json={"filters": [{"column": "col_023", "from": "1", "to": "9"}], "sorting": []},
+    )
+    assert response.status_code == 422, response.text
+
+
 async def test_read_plan_facets_date_search_uses_client_timezone(client: AsyncClient) -> None:
     minimum = datetime(2027, 1, 15, tzinfo=UTC).timestamp() * 1000
     response = await client.get(

@@ -898,9 +898,32 @@ export function renderNumberText(value: unknown): string {
 }
 
 /**
+ * How a renovation FORM FIELD is searched by its header filter.
+ *
+ * The field's own type decides, so the filter can never drift from the editor:
+ * a numeric (or calculated) cell gets the MIN–MAX pair — «12» as a substring
+ * also matches 312 and 1200 — a `date` cell a day range, everything else
+ * (text, reference, boolean) a substring search over the displayed options.
+ * «Дефектная ведомость/ВОР №» is text since migration 0030 and is searched as
+ * text; it used to be numeric and kept offering a number range long after.
+ */
+export function fieldFacetOrder(
+    field: { cellType: string; isCalculated: boolean } | undefined,
+): FacetOrder {
+    if (!field) return "text";
+    if (field.cellType === "number" || field.isCalculated) return "number";
+    if (field.cellType === "date") return "date";
+    return "text";
+}
+
+/**
  * How a column's filter list is ordered: text alphabetically, numbers and dates
  * NUMERICALLY — a string sort would put «10» before «9» and «01.02.2024»
  * before «31.01.2024», which reads as broken next to the cells.
+ *
+ * Descriptor kinds describe the GRID column; for a plan column that comes from
+ * the form field (see `fieldFacetOrder`), so this only covers the dictionaries
+ * and the audit columns.
  */
 export function facetOrderOf(descriptor: ColumnDescriptor | undefined): FacetOrder {
     if (descriptor?.kind === "number" || descriptor?.kind === "calculated") return "number";

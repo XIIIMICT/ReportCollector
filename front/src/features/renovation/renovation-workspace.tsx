@@ -59,6 +59,7 @@ import { canonicalCellKey, useCollabRoom } from "@/shared/collab/use-collab-room
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/data-grid";
+import { fieldFacetOrder } from "@/shared/grid/grid-config";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { SectionTabs } from "@/shared/grid/section-tabs";
 import {
@@ -2088,12 +2089,9 @@ export function RenovationWorkspace({
                                             // their shape comes from the same
                                             // rule the cells use.
                                             const audit = AUDIT_COLUMNS[column];
-                                            const kind =
-                                                field?.cellType === "number" || field?.isCalculated
-                                                    ? "number"
-                                                    : field?.cellType === "date"
-                                                      ? "date"
-                                                      : (audit?.kind ?? "text");
+                                            // The FIELD's type decides the filter (see
+                                            // `fieldFacetOrder`), so a text cell never
+                                            // gets a number range and vice versa.
                                             setColumnFilterTarget({
                                                 column,
                                                 label: field?.label ?? audit?.label ?? column,
@@ -2101,14 +2099,11 @@ export function RenovationWorkspace({
                                                 // MIN–MAX window applied to the rows;
                                                 // the popover shows no value list for it.
                                                 instant: audit?.kind === "date",
-                                                // Numeric fields search by MIN–MAX,
-                                                // not by a text query.
-                                                order:
-                                                    kind === "number"
-                                                        ? "number"
-                                                        : kind === "date"
-                                                          ? "date"
-                                                          : "text",
+                                                order: field
+                                                    ? fieldFacetOrder(field)
+                                                    : audit
+                                                      ? audit.kind
+                                                      : "text",
                                                 // A `date` cell holds a calendar
                                                 // day («Дата начала/окончания
                                                 // работ»), not an instant: its
