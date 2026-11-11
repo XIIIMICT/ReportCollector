@@ -413,7 +413,9 @@ meaningful leading zero (`0706179`) cannot be stored as a number — the grid, t
 importer and the legacy ID path all normalise it to digits and, when needed,
 pad short values to seven.
 Text cells are stored trimmed (a non-breaking space included) and an empty
-string counts as an empty cell; the «Лот» code gets its mandatory trailing dot
+string — or a cell holding only whitespace — counts as an empty cell: it is
+skipped, never reported as «Неверный тип данных», even for an optional field
+such as «Влияние на производство». The «Лот» code gets its mandatory trailing dot
 added silently when the file has `1.1.1` instead of `1.1.1.`
 (`renovation_id.normalize_direction_code` — the same rule the grid applies on
 edit).
@@ -443,10 +445,15 @@ off, see «Renovation plan» below; the «Некорректно рассчит�
 archived in `inspect_plan_file` behind `RENOVATION_ID_FORMULA_ENABLED`); an
 asset whose code (or name) is not in the project's `rm_assets` dictionary
 (`unknown_assets` — the asset is a reference value like any catalog label);
-and reference labels absent from the form's own catalogs, compared strictly
-(whitespace/case only — no typo tolerance, no «@» options). Without errors the
-response carries the assets (by name), the new rows and the rows to update
-(existing `col_003`).
+Excel's cached `#REF!` values (`formula_reference_errors` — a formula whose
+referenced cell/range is gone; it is its own category, because in a text field
+it would otherwise be stored as ordinary text and in a numeric one it would
+masquerade as a type error; calculated template columns are checked too, even
+though their values are recomputed after the load); and reference labels
+absent from the form's own
+catalogs, compared strictly (whitespace/case only — no typo tolerance, no «@»
+options). Without errors the response carries the assets (by name), the new
+rows and the rows to update (existing `col_003`).
 
 The preflight dialog (`plan-excel-import-modal.tsx`) closes only by its close
 button, Escape, or the «Загрузить» hand-off: the backdrop is

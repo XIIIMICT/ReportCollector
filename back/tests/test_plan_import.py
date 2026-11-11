@@ -116,6 +116,7 @@ def test_every_reported_problem_points_at_a_row() -> None:
     # A cell-level issue carries «<column>, строка <n>».
     for issue in (
         *result.invalid_data_types,
+        *result.formula_reference_errors,
         *result.missing_dictionary_values,
         *result.missing_required_values,
     ):
@@ -131,6 +132,7 @@ def test_every_reported_problem_points_at_a_row() -> None:
         result.duplicate_codes
         or result.invalid_calculated_codes
         or result.invalid_data_types
+        or result.formula_reference_errors
         or result.missing_required_values
         or result.missing_dictionary_values
         or result.unknown_assets
@@ -631,6 +633,69 @@ def test_a_numbering_row_stored_as_text_is_skipped() -> None:
     assert result.status == "ready"
     assert result.new_rows == 1
     assert result.skipped_rows == []
+
+
+def test_a_whitespace_only_optional_text_is_empty_not_a_type_error() -> None:
+    """
+    An optional text cell holding only spaces is EMPTY, like a blank cell.
+
+    Text is stored trimmed, so whitespace must not reach the type check: it made
+    «Влияние на производство» — a nullable field — report «неверный тип данных».
+    """
+    header = [*_PREFLIGHT_HEADER, "Влияние на производство"]
+    result = _inspect(
+        [
+            header,
+            list(range(1, len(header) + 1)),
+            [*_preflight_row(), "   "],
+        ]
+    )
+
+    assert result.status == "ready"
+    assert result.invalid_data_types == []
+    assert result.formula_reference_errors == []
+
+
+def test_a_broken_formula_reference_is_its_own_error_category() -> None:
+    """
+    Excel's cached «#REF!» is a formula error, not a valid text/number value.
+
+    In a text field it would be stored as ordinary text; in a number field it
+    would be reported as a type error. Both hide the real cause, so the
+    analysis reports the reference error separately.
+    """
+    header = [*_PREFLIGHT_HEADER, "Влияние на производство"]
+    result = _inspect(
+        [
+            header,
+            list(range(1, len(header) + 1)),
+            [*_preflight_row(), "#REF!"],
+        ]
+    )
+
+    assert result.status == "has_errors"
+    assert [(issue.location, issue.value) for issue in result.formula_reference_errors] == [
+        ("Q, строка 3", "#REF!"),
+    ]
+    assert result.invalid_data_types == []
+    assert result.new_rows == 1
+
+
+def test_a_broken_reference_in_a_calculated_column_is_still_reported() -> None:
+    """Calculated columns are recomputed, but a broken formula is still an error."""
+    header = [*_PREFLIGHT_HEADER, "Стоимость итого, руб. без НДС"]
+    result = _inspect(
+        [
+            header,
+            list(range(1, len(header) + 1)),
+            [*_preflight_row(), "#REF!"],
+        ]
+    )
+
+    assert result.status == "has_errors"
+    assert [(issue.location, issue.value) for issue in result.formula_reference_errors] == [
+        ("Q, строка 3", "#REF!"),
+    ]
 
 
 def test_a_blank_required_cell_is_an_error_not_a_skip() -> None:

@@ -22,6 +22,8 @@ export type PlanExcelImportResult =
           duplicateCodes?: string[];
           invalidCalculatedCodes?: string[];
           invalidDataTypes?: ExcelCellIssue[];
+          /** Excel «#REF!» cached values — a broken formula reference. */
+          formulaReferenceErrors?: ExcelCellIssue[];
           /** Required cells left empty in a row — an error of the file. */
           missingRequiredValues?: ExcelCellIssue[];
           missingDictionaryValues?: ExcelCellIssue[];
@@ -343,6 +345,12 @@ function ImportErrors({
             ) : null}
             {result.invalidDataTypes?.length ? (
                 <CellErrorList title="Неверный тип данных" values={result.invalidDataTypes} />
+            ) : null}
+            {result.formulaReferenceErrors?.length ? (
+                <CellErrorList
+                    title="Ошибки ссылок в формулах"
+                    values={result.formulaReferenceErrors}
+                />
             ) : null}
             {result.missingRequiredValues?.length ? (
                 <CellErrorList

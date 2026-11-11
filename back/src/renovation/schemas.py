@@ -513,6 +513,10 @@ class RenovationPlanImportResult(BaseModel):
     duplicate_codes: list[str] = Field(default_factory=list)
     invalid_calculated_codes: list[str] = Field(default_factory=list)
     invalid_data_types: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
+    # Excel cached «#REF!» values: a formula whose referenced cell/range is
+    # gone. Its own category — in a text field it is not a type error, so it
+    # would otherwise be stored as ordinary text.
+    formula_reference_errors: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
     # Required cells (the work code, a reference choice or a work date) left
     # empty in a row: an error of the file — the row is not written and the
     # load is refused until the cells are filled.

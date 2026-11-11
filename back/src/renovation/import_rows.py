@@ -13,9 +13,11 @@ from src.renovation.import_plan import (
     _REQUIRED_FIELDS,
     _asset_column,
     _coerce,
+    _column_name,
     _data_rows,
     _header_map,
     _is_blank,
+    _is_reference_error,
     _iter_plan_rows,
     _locate_header,
     _missing_required_columns,
@@ -130,9 +132,19 @@ def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
         values: dict[str, object] = {}
         for field, index in columns.items():
             meta = field_by_name.get(field)
-            if meta is None or meta.is_calculated:
+            if meta is None:
                 continue
-            if index >= len(raw) or raw[index] in (None, ""):
+            # A broken reference is refused even in a calculated column: the
+            # preflight reports it, and a direct apply must not silently ignore
+            # the broken source formula.
+            if index < len(raw) and _is_reference_error(raw[index]):
+                msg = f"Строка {row_number}: ошибка ссылки в формуле в столбце {_column_name(index)}."
+                raise ValueError(msg)
+            if meta.is_calculated:
+                continue
+            # Whitespace-only text is empty, exactly as in the preflight: it
+            # must not become an empty reference label or a coerced value.
+            if index >= len(raw) or _is_blank(raw[index]):
                 continue
             if meta.catalog:
                 # Excel hands a numeric option over as 3.0 while the catalog

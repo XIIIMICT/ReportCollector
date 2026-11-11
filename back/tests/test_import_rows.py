@@ -195,6 +195,14 @@ def test_text_cells_are_trimmed_and_whitespace_becomes_absent(sheet) -> None:
     assert "col_009" not in row.values
 
 
+def test_a_broken_formula_reference_is_refused_instead_of_stored(sheet) -> None:
+    """A direct load must not write Excel's «#REF!» text into a field."""
+    sheet["rows"] = _sheet(_row("Р-008", "SNHZ", workshop="#REF!"))
+
+    with pytest.raises(ValueError, match="ошибка ссылки"):
+        parse_plan_rows(Path("ignored.xlsb"))
+
+
 def test_a_numbering_row_hidden_by_a_stray_trailing_number_is_still_skipped(sheet) -> None:
     """
     The counting row is 200+ columns wide; a data row stops far earlier.

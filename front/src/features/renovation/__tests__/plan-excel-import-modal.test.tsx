@@ -380,3 +380,20 @@ test("an asset outside the project dictionary is an error of the file", () => {
     expect(view.getByText("Столбец C:")).toBeTruthy();
     expect(view.getByText("ZZZR (строки: 12, 40)")).toBeTruthy();
 });
+
+test("broken formula references are reported as their own error category", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{
+                status: "has-errors",
+                formulaReferenceErrors: [{ location: "Q, строка 3", value: "#REF!" }],
+            }}
+        />,
+    );
+    expect(view.getByText("Ошибки ссылок в формулах (1):")).toBeTruthy();
+    expect(view.getByText("Столбец Q:")).toBeTruthy();
+    expect(view.getByText("#REF! (строки: 3)")).toBeTruthy();
+});

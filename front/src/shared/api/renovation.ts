@@ -132,6 +132,8 @@ export type RenovationPlanImportResult = {
     duplicate_codes: string[];
     invalid_calculated_codes: string[];
     invalid_data_types: RenovationPlanImportCellIssue[];
+    /** Excel «#REF!» cached values — a broken formula reference. */
+    formula_reference_errors: RenovationPlanImportCellIssue[];
     /** Required cells left empty in a row — an error of the file. */
     missing_required_values: RenovationPlanImportCellIssue[];
     missing_dictionary_values: RenovationPlanImportCellIssue[];

@@ -70,6 +70,17 @@ def _is_blank(value: object) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+# Cached value Excel writes for a formula whose referenced cell/range is gone.
+# It arrives as ordinary TEXT through both readers, so without an explicit check
+# a text field would silently store «#REF!» and the analysis would call the file
+# clean.
+_REFERENCE_ERROR_VALUES = frozenset({"#ref!", "#ref"})
+
+
+def _is_reference_error(value: object) -> bool:
+    return isinstance(value, str) and value.strip().casefold() in _REFERENCE_ERROR_VALUES
+
+
 # Quote styles Excel writes around a legal-entity name («АО «БСЗ»», `АО "БСЗ"`,
 # «АО “БСЗ”»). The file and the dictionary use different ones for the same asset,
 # so the name key folds them all to one ordinary double quote.
@@ -560,6 +571,7 @@ def _inspect_rows(
     repair_code_by_name = {_asset_name_key(name): code for code, name in asset_names_by_code.items()}
 
     type_errors: list[RenovationPlanImportCellIssue] = []
+    formula_reference_errors: list[RenovationPlanImportCellIssue] = []
     missing: list[RenovationPlanImportCellIssue] = []
     missing_required_values: list[RenovationPlanImportCellIssue] = []
     skipped_rows: list[int] = []
@@ -623,10 +635,27 @@ def _inspect_rows(
             asset_repair_codes.append(repair_code or None)
         values: dict[str, object] = {}
         for field, index in columns.items():
-            if index >= len(raw) or raw[index] in (None, ""):
+            # Whitespace-only text is EMPTY, exactly like an empty cell: the
+            # text cells are stored trimmed, so a blank must never reach the
+            # type check (there it became «неверный тип данных», even for an
+            # optional field like «Влияние на производство»).
+            if index >= len(raw) or _is_blank(raw[index]):
                 continue
             meta = field_by_name.get(field)
-            if meta is None or meta.is_calculated:
+            if meta is None:
+                continue
+            # Calculated columns are not stored, but a broken reference there is
+            # still a broken formula the operator must see — check BEFORE the
+            # calculated-field skip.
+            if _is_reference_error(raw[index]):
+                formula_reference_errors.append(
+                    RenovationPlanImportCellIssue(
+                        location=f"{_column_name(index)}, строка {row_number}",
+                        value=str(raw[index]).strip(),
+                    )
+                )
+                continue
+            if meta.is_calculated:
                 continue
             # The «Направление деятельности» («Лот») code always ends with a dot:
             # a correct code typed or stored without it gets it added silently.
@@ -695,6 +724,7 @@ def _inspect_rows(
             duplicates
             or invalid_codes
             or type_errors
+            or formula_reference_errors
             or missing
             or missing_required_values
             or unknown_assets
@@ -707,6 +737,7 @@ def _inspect_rows(
         duplicate_codes=_duplicates_with_rows(codes, row_numbers),
         invalid_calculated_codes=_sorted_without_duplicates(invalid_codes),
         invalid_data_types=type_errors,
+        formula_reference_errors=formula_reference_errors,
         missing_required_values=missing_required_values,
         skipped_rows=sorted(skipped_rows),
         all_rows_skipped=all_rows_skipped,
