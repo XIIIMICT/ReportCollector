@@ -491,17 +491,28 @@ the scope has two parts. The version is the analyzer's: bump
 report written by the previous analyzer is not served for up to the TTL. The
 plan part is the file's assets («Наименование ДО» repair codes → asset
 ids, or «Предприятие» names → asset ids when the code column is absent) plus
-the newest `updated_at` of the working plan rows **of those assets**;
-a plan edit in any other asset therefore keeps the cached report valid, while
-touching a loaded asset recomputes it. The dictionary part carries
-`count(*) + max(updated_at)` of every reference catalog the file has a column
-for (`scan_file_scope` maps the template header through the form schema, so a
-catalog the file never mentions cannot affect its report) and the same token
-for the asset entries the file names. Adding the value a cached report called
-missing therefore changes the key and lets the same file be re-uploaded
-immediately instead of serving the stale error until the TTL. The TTL is one
-hour. The cache is optional — without `VALKEY_URL` or when Valkey is
-unreachable the file is analysed again.
+the `count(*) + max(updated_at)` token of the working plan rows **of those
+assets**; a plan edit in any other asset therefore keeps the cached report
+valid, while a row edit/insert/delete in a loaded asset recomputes it. The
+dictionary part carries `count(*) + max(updated_at)` of every reference catalog
+the file has a column for (`scan_file_scope` maps the template header through
+the form schema, so a catalog the file never mentions cannot affect its report)
+and the same token for the asset entries the file names. Adding the value a
+cached report called missing therefore changes the key and lets the same file
+be re-uploaded immediately instead of serving the stale error until the TTL.
+The TTL is one hour. The cache is optional — without `VALKEY_URL` or when Valkey
+is unreachable the file is analysed again.
+
+The upload is **hashed before any workbook reader is opened**: the hash of the
+received bytes is the cache key, so a repeat never pays parse time to find out
+whether it may use the cache. The scope-discovery pass (`scan_file_scope`) is
+itself a full workbook read, so its result is cached separately by digest
+(`rc:planimport:v<version>:scope:<sha256>`, 7 days) and a scope-cache hit skips
+that pass entirely: a repeated upload of a large file reads the bytes for the
+hash, then hits Valkey and answers without opening the workbook. Scope keys are
+case-folded for both repair codes and legal-entity names; an upper-cased code
+lookup used to resolve no touched asset on code-based files and silently
+dropped the plan part from the scope.
 
 `inspect_plan_file` returns only; the actual import is a separate step.
 

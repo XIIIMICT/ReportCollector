@@ -5,10 +5,13 @@ import hashlib
 import pytest
 from valkey.exceptions import ValkeyError
 
+from src.renovation.import_plan import PlanFileScope
 from src.renovation.inspect_cache import (
     INSPECT_CACHE_TTL_SECONDS,
+    INSPECT_SCOPE_TTL_SECONDS,
     InspectResultCache,
     inspect_cache_key,
+    inspect_scope_key_from_digest,
 )
 from src.renovation.schemas import RenovationPlanImportResult
 
@@ -93,6 +96,41 @@ async def test_scope_separates_entries_for_the_same_file() -> None:
     # Another asset set / a newer plan change misses and is analysed again.
     assert await cache.get(b"file", scope="a1@t2") is None
     assert await cache.get(b"file", scope="a2@t1") is None
+
+
+async def test_the_file_scope_is_cached_by_digest() -> None:
+    """A repeated upload must not re-read the whole workbook to discover assets."""
+    redis = _FakeRedis()
+    cache = InspectResultCache(redis)
+    scope = PlanFileScope(assets=frozenset({"bszr"}), catalogs=frozenset({"work_type"}))
+
+    assert await cache.get_scope_digest("digest") is None
+    await cache.set_scope_digest("digest", scope)
+
+    assert await cache.get_scope_digest("digest") == scope
+    assert redis.ttls[inspect_scope_key_from_digest("digest")] == INSPECT_SCOPE_TTL_SECONDS
+    # A different file has its own scope entry.
+    assert await cache.get_scope_digest("other") is None
+
+
+async def test_the_scope_cache_round_trips_the_name_mode() -> None:
+    cache = InspectResultCache(_FakeRedis())
+    scope = PlanFileScope(
+        assets=frozenset({'ао "бсз"'}),
+        catalogs=frozenset(),
+        assets_are_names=True,
+    )
+    await cache.set_scope_digest("digest", scope)
+    restored = await cache.get_scope_digest("digest")
+    assert restored == scope
+    assert restored is not None
+    assert restored.assets_are_names is True
+
+
+async def test_a_malformed_scope_entry_is_a_miss() -> None:
+    redis = _FakeRedis()
+    redis.store[inspect_scope_key_from_digest("digest")] = '{"assets": 1}'
+    assert await InspectResultCache(redis).get_scope_digest("digest") is None
 
 
 async def test_report_is_reused_for_the_same_file_with_a_one_hour_ttl() -> None:

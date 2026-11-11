@@ -227,6 +227,65 @@ async def test_sample_upload_returns_the_preflight_report(client, xlsx_sample: P
         assert body["status"] != "invalid_format", body
 
 
+async def test_a_repeated_upload_skips_both_the_scan_and_the_analysis(client, monkeypatch) -> None:
+    """The second upload of the same bytes is served from Valkey without opening the workbook."""
+    from conftest import signed_identity_headers
+    from fastapi import UploadFile
+
+    from src.renovation import router as renovation_router
+    from src.renovation.import_plan import PlanFileScope
+    from src.renovation.inspect_cache import InspectResultCache
+    from src.renovation.schemas import RenovationPlanImportResult
+
+    class _FakeRedis:
+        def __init__(self) -> None:
+            self.store: dict[str, str] = {}
+
+        async def get(self, key: str) -> str | None:
+            return self.store.get(key)
+
+        async def set(self, key: str, value: str, *, ex: int | None = None) -> None:
+            del ex
+            self.store[key] = value
+
+    cache = InspectResultCache(_FakeRedis())
+    monkeypatch.setattr(renovation_router, "get_inspect_cache", lambda: cache)
+    calls = {"scan": 0, "inspect": 0}
+    order: list[str] = []
+    real_hash_upload = renovation_router._rewind_and_hash_upload
+
+    async def counting_hash(file: UploadFile) -> str:
+        order.append("hash")
+        return await real_hash_upload(file)
+
+    def fake_scan(*_args: object, **_kwargs: object) -> PlanFileScope:
+        calls["scan"] += 1
+        order.append("scan")
+        return PlanFileScope(assets=frozenset({"bszr"}), catalogs=frozenset())
+
+    def fake_inspect(*_args: object, **_kwargs: object) -> RenovationPlanImportResult:
+        calls["inspect"] += 1
+        return RenovationPlanImportResult(status="ready", assets=["АО «БСЗ»"], new_rows=1)
+
+    monkeypatch.setattr(renovation_router, "_rewind_and_hash_upload", counting_hash)
+    monkeypatch.setattr(renovation_router, "scan_file_scope", fake_scan)
+    monkeypatch.setattr(renovation_router, "inspect_plan_file_streaming", fake_inspect)
+
+    for _ in range(2):
+        response = await client.post(
+            "/api/renovation/plan/import/inspect",
+            files={"file": ("plan.xlsx", b"same-bytes", "application/octet-stream")},
+            headers=signed_identity_headers(email="admin@example.ru", name="Admin User"),
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["new_rows"] == 1
+
+    # One scope-discovery read and one analysis, both remembered for the repeat.
+    assert calls == {"scan": 1, "inspect": 1}
+    # The second upload reads the bytes for the hash ONLY: no workbook parse.
+    assert order == ["hash", "scan", "hash"]
+
+
 def test_assets_in_file_are_the_cache_scope() -> None:
     """The file's «Наименование ДО» codes decide which assets scope the cache."""
     from src.renovation.import_plan import assets_in_file
@@ -275,6 +334,23 @@ def test_scope_is_stable_for_the_same_assets_and_change_time() -> None:
     assert _import_cache_scope([first], stamp) != _import_cache_scope([first, second], stamp)
     assert _import_cache_scope([], stamp) == ""
     assert _import_cache_scope([first], None).endswith("@none")
+    # A deleted row that was not the newest changes the count, so the report is
+    # re-analysed even when max(updated_at) stays the same.
+    assert _import_cache_scope([first], stamp, row_count=10) != _import_cache_scope([first], stamp, row_count=9)
+    assert _import_cache_scope([first], stamp, row_count=10) == _import_cache_scope([first], stamp, row_count=10)
+
+
+def test_the_asset_lookup_uses_the_case_folded_scope_keys() -> None:
+    """A code-based file must resolve its touched assets, not silently none."""
+    from src.renovation.models import RAsset
+    from src.renovation.router import _asset_scope_lookup
+
+    asset = RAsset(code="BSZR", name="АО «БСЗ»")
+    by_code = _asset_scope_lookup([asset], assets_are_names=False)
+    by_name = _asset_scope_lookup([asset], assets_are_names=True)
+
+    assert by_code["bszr"] is asset
+    assert by_name['ао "бсз"'] is asset
 
 
 def test_scope_carries_dictionary_tokens() -> None:

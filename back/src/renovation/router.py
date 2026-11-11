@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import uuid
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Literal, cast
@@ -280,24 +281,28 @@ def _import_cache_scope(
     asset_ids: list[UUID],
     latest_change: datetime | None,
     *,
+    row_count: int | None = None,
     dictionaries: str = "",
 ) -> str:
     """
     Cache fingerprint of the plan and the dictionaries an upload was checked against.
 
-    The plan part names the uploaded assets and the newest change in the working
-    plan rows of exactly those assets: an edit in any other asset keeps the
-    cached report valid. The dictionary part carries each used dictionary's own
-    token (see `_dictionary_fingerprint`), so adding the value a cached report
-    called missing changes the key instead of serving the stale «has errors»
-    answer until the TTL. An empty plan part plus no dictionary token means no
-    scope at all.
+    The plan part names the uploaded assets and the `count(*) + max(updated_at)`
+    token of their working plan rows: an edit in any other asset keeps the
+    cached report valid, while an edit/insert/delete of a row in a touched asset
+    re-keys it (the max alone missed a deleted row that was not the newest). The
+    dictionary part carries each used dictionary's own token (see
+    `_dictionary_fingerprint`), so adding the value a cached report called
+    missing changes the key instead of serving the stale «has errors» answer
+    until the TTL. An empty plan part plus no dictionary token means no scope at
+    all.
     """
     parts: list[str] = []
     if asset_ids:
         stamp = latest_change.isoformat() if latest_change is not None else "none"
         ids = ",".join(sorted(str(asset_id) for asset_id in asset_ids))
-        parts.append(f"{ids}@{stamp}")
+        plan_token = f"{row_count}@{stamp}" if row_count is not None else stamp
+        parts.append(f"{ids}@{plan_token}")
     if dictionaries:
         parts.append(dictionaries)
     return "|".join(parts)
@@ -341,6 +346,20 @@ async def _dictionary_fingerprint(
     return ";".join(parts)
 
 
+def _asset_scope_lookup(assets: Iterable[RAsset], *, assets_are_names: bool) -> dict[str, RAsset]:
+    """
+    Assets keyed exactly as `scan_file_scope` keys the uploaded file.
+
+    The scope uses case-folded keys for BOTH modes (a repair code `bszr` and a
+    legal-entity name). Keying codes in upper case here silently resolved no
+    touched asset for every code-based file, which dropped the plan state from
+    the cache scope.
+    """
+    if assets_are_names:
+        return {_asset_name_key(asset.name): asset for asset in assets}
+    return {asset.code.casefold(): asset for asset in assets if asset.code}
+
+
 @router.post("/plan/import/inspect", response_model=RenovationPlanImportResult)
 async def inspect_renovation_plan_import(
     session: SessionDependency,
@@ -353,38 +372,47 @@ async def inspect_renovation_plan_import(
         return RenovationPlanImportResult(status="invalid_format")
     with observe_phase("import", "hash_upload"):
         digest = await _rewind_and_hash_upload(file)
+    cache = get_inspect_cache()
     # Which assets and dictionaries the file touches decides the cache scope: a
     # plan edit in an asset the file does not mention, or a catalog edit the
-    # file has no column for, must not invalidate this report.
+    # file has no column for, must not invalidate this report. The discovery is
+    # a full read of the workbook, so its result is cached by the file digest
+    # too: otherwise every HIT still paid that read and large files looked just
+    # as slow as the first analysis.
     with observe_phase("import", "discover_assets"):
-        file_scope = await asyncio.to_thread(scan_file_scope, file.file, suffix)
+        file_scope = await cache.get_scope_digest(digest)
+        if file_scope is None:
+            file_scope = await asyncio.to_thread(scan_file_scope, file.file, suffix)
+            if file_scope.assets:
+                await cache.set_scope_digest(digest, file_scope)
     await file.seek(0)
     assets = (await session.exec(select(RAsset))).all()
-    assets_by_code = {asset.code.upper(): asset for asset in assets if asset.code}
-    assets_by_name = {_asset_name_key(asset.name): asset for asset in assets}
     # The file names its assets either by repair code («Наименование ДО») or,
     # when that column is absent, by name («Предприятие»).
-    by_key = assets_by_name if file_scope.assets_are_names else assets_by_code
+    by_key = _asset_scope_lookup(assets, assets_are_names=file_scope.assets_are_names)
     touched = [by_key[key] for key in file_scope.assets if key in by_key]
     touched_asset_ids = [asset.id for asset in touched]
-    latest_change = (
-        (
+    plan_row_count = 0
+    latest_change: datetime | None = None
+    if touched_asset_ids:
+        plan_row_count, latest_change = (
             await session.exec(
-                select(func.max(RenovationPlanRow.updated_at)).where(
+                select(func.count(), func.max(RenovationPlanRow.updated_at)).where(
                     col(RenovationPlanRow.asset_id).in_(touched_asset_ids)
                 )
             )
         ).one()
-        if touched_asset_ids
-        else None
-    )
     dictionaries = (
         await _dictionary_fingerprint(session, file_scope=file_scope, touched_assets=touched)
         if file_scope.assets
         else ""
     )
-    scope = _import_cache_scope(touched_asset_ids, latest_change, dictionaries=dictionaries)
-    cache = get_inspect_cache()
+    scope = _import_cache_scope(
+        touched_asset_ids,
+        latest_change,
+        row_count=plan_row_count,
+        dictionaries=dictionaries,
+    )
     cached = await cache.get_digest(digest, scope=scope) if file_scope.assets else None
     if cached is not None:
         return cached
