@@ -6,8 +6,6 @@ import {
     CompressLines,
     Expand,
     ExpandLines,
-    Eye,
-    EyeClosed,
     MoreHoriz,
     Pin,
     PinSlash,
@@ -21,17 +19,16 @@ import { DEFAULT_ROW_HEIGHT, MIN_ROW_HEIGHT } from "@/shared/ui/use-view-state";
 
 /**
  * The right-aligned control cluster of the toolbar: the «Вид таблицы» button
- * whose menu carries the display toggles (pin the header, show service
- * columns — as checked entries), the resets and the fullscreen action
- * (success). Excel export is NOT here: it lives in the bottom action bar, one
+ * whose menu carries the display toggles (pin the header — as a checked
+ * entry), the resets and the fullscreen action (success). Service columns are
+ * NOT here any more: they are revealed by the header's + button, project-wide.
+ * Excel export is NOT here: it lives in the bottom action bar, one
  * button per form. The button is expanded by default and collapses at the same
  * breakpoint as the bottom action bar.
  */
 export function ViewStrip({
     headerPinned,
     onHeaderPinnedChange,
-    showServiceColumns,
-    onShowServiceColumnsChange,
     rowHeight,
     onRowHeightChange,
     onResetRowHeight,
@@ -44,8 +41,6 @@ export function ViewStrip({
 }: {
     headerPinned?: boolean;
     onHeaderPinnedChange?: (value: boolean) => void;
-    showServiceColumns?: boolean;
-    onShowServiceColumnsChange?: (value: boolean) => void;
     rowHeight?: number;
     onRowHeightChange?: (value: number) => void;
     onResetRowHeight?: () => void;
@@ -59,11 +54,7 @@ export function ViewStrip({
     /** Label of the column-reset entry (the plan also resets header heights). */
     columnResetLabel?: string;
 }) {
-    const hasToggles =
-        headerPinned !== undefined &&
-        onHeaderPinnedChange !== undefined &&
-        showServiceColumns !== undefined &&
-        onShowServiceColumnsChange !== undefined;
+    const hasToggles = headerPinned !== undefined && onHeaderPinnedChange !== undefined;
     const hasRowHeight = onRowHeightChange !== undefined;
 
     const viewButton = (
@@ -130,20 +121,6 @@ export function ViewStrip({
                                   ),
                               )
                             : null}
-                        {hasToggles
-                            ? menuItem(
-                                  "service-columns",
-                                  showServiceColumns
-                                      ? "Скрыть данные о редактировании строк"
-                                      : "Показать данные о редактировании строк",
-                                  false,
-                                  showServiceColumns ? (
-                                      <EyeClosed aria-hidden="true" />
-                                  ) : (
-                                      <Eye aria-hidden="true" />
-                                  ),
-                              )
-                            : null}
                         {menuItem(
                             "reset-column-widths",
                             columnResetLabel,
@@ -195,9 +172,6 @@ export function ViewStrip({
         switch (String(key)) {
             case "pin-header":
                 onHeaderPinnedChange?.(!headerPinned);
-                break;
-            case "service-columns":
-                onShowServiceColumnsChange?.(!showServiceColumns);
                 break;
             case "row-density":
                 onRowHeightChange?.(

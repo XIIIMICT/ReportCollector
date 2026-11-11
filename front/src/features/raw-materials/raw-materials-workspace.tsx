@@ -350,6 +350,7 @@ function SectionContent({
     currentUserEmail,
     headerPinned,
     showServiceColumns,
+    onShowServiceColumnsChange,
     rowHeight,
     scrollForm,
     onUndoState,
@@ -396,6 +397,8 @@ function SectionContent({
     /** Controlled display toggles (rendered in the workspace view strip). */
     headerPinned: boolean;
     showServiceColumns: boolean;
+    /** Show/hide the project-wide service columns (the header + button). */
+    onShowServiceColumnsChange: (visible: boolean) => void;
     rowHeight: number;
     onUndoState: (state: UndoState) => void;
     onApproveState: (state: ApproveState) => void;
@@ -1190,6 +1193,7 @@ function SectionContent({
                         hasBaseline={false}
                         headerPinned={headerPinned}
                         showServiceColumns={showServiceColumns}
+                        onServiceColumnsChange={onShowServiceColumnsChange}
                         rowHeight={rowHeight}
                         scrollPosition={{ form: `${scrollForm}:${section}` }}
                         assets={assets}
@@ -1745,8 +1749,6 @@ export function RawMaterialsWorkspace({
             <ViewStrip
                 headerPinned={headerPinned}
                 onHeaderPinnedChange={setHeaderPinned}
-                showServiceColumns={showServiceColumns}
-                onShowServiceColumnsChange={setShowServiceColumns}
                 rowHeight={rowHeight}
                 onRowHeightChange={setRowHeight}
                 onResetRowHeight={resetRowHeight}
@@ -1817,6 +1819,7 @@ export function RawMaterialsWorkspace({
                     onUserCreateState={handleUserCreateState}
                     headerPinned={headerPinned}
                     showServiceColumns={showServiceColumns}
+                    onShowServiceColumnsChange={setShowServiceColumns}
                     rowHeight={rowHeight}
                     scrollForm={activeProjectKey}
                     onUndoState={handleUndoState}

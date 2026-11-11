@@ -12,6 +12,7 @@ import {
 import type { CollabRoom } from "@/shared/collab/use-collab-room";
 import type { CollabMember } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/data-grid";
+import { HiddenColumnsList } from "@/shared/grid/hidden-columns-list";
 
 /**
  * One merged footer summary for a collaborating table: the collab presence
@@ -178,6 +179,12 @@ export function FormStatus({
                                 {gridStats.calculatedCols} расчётных + {gridStats.editableCols}{" "}
                                 заполняемых = {gridStats.totalCols} всего
                             </span>
+                        </div>
+                    ) : null}
+                    {gridStats?.hiddenColumns?.length ? (
+                        <div className="form-status-detail__hidden">
+                            <b>Скрытые столбцы:</b>
+                            <HiddenColumnsList entries={gridStats.hiddenColumns} />
                         </div>
                     ) : null}
                     <FilterSection chains={gridStats?.filteredColumns ?? []} />

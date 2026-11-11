@@ -59,9 +59,9 @@ export const BLOCK_HEADER_LABELS: Record<string, string> = {
     mto: "3) Дирекция МТО",
 };
 
-/** Service columns revealed by the corner menu («Показать служебные столбцы»):
- * the same audit trio as every other dictionary (creation time, edit time and
- * the last editor) — not the internal id/position/revision. */
+/** Service columns revealed by the header's «+»: the same audit trio as every
+ * other dictionary (creation time, edit time and the last editor) — not the
+ * internal id/position/revision. */
 export const SERVICE_COLUMNS: ReadonlyArray<{ dbName: string; label: string; width: number }> =
     SERVICE_DESCRIPTORS.map((descriptor) => ({
         dbName: descriptor.key,

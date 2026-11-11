@@ -875,8 +875,8 @@ body {
     gap: 0.75rem;
 }
 
-/* «Закрепить заголовок» / «Показать служебные столбцы» — compact inline
-   checkboxes right after the block filter. */
+/* «Закрепить заголовок» — compact inline checkbox right after the block
+   filter. */
 .view-strip__toggles {
     display: flex;
     flex: 0 0 auto;
@@ -1104,6 +1104,39 @@ body {
     flex-direction: column;
     gap: 0.4rem;
     margin-top: 0.6rem;
+}
+
+/* The numbered list of hidden columns: the table numbers (not list indexes)
+   followed by the header chain, exactly as the «+» tooltip spells them out. */
+.form-status-detail__hidden {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-top: 0.6rem;
+    white-space: normal;
+}
+
+.grid-hidden-columns {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    white-space: normal;
+}
+
+.grid-hidden-columns li {
+    color: inherit;
+}
+
+.grid-hidden-columns strong {
+    font-variant-numeric: tabular-nums;
+}
+
+.grid-unhide-tooltip {
+    max-width: 22rem;
+    white-space: normal;
 }
 
 /* One empty line between the stats block and the «Фильтры:» list. */
@@ -3496,6 +3529,99 @@ revogr-data .rgCell.report-cell--number {
     font-weight: 700;
     line-height: 1;
     font-variant-numeric: tabular-nums;
+}
+
+/* ─── Hidden columns ───────────────────────────────────────── */
+
+/* The layer holding the expand buttons. It covers the header band only, so a
+   button can never float over the data rows. `measureUnhide` writes its top
+   and height from the live header cells. */
+.report-header-unhide {
+    position: absolute;
+    z-index: 7;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 0;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.grid-unhide-anchor {
+    position: absolute;
+    z-index: 8;
+    display: inline-flex;
+    /* Centred ON the hidden block's left boundary, not started at it. */
+    transform: translateX(-50%);
+    pointer-events: auto;
+}
+
+.grid-unhide-button {
+    min-width: 22px;
+    width: 22px;
+    height: 22px;
+    min-height: 22px;
+    padding: 0;
+}
+
+.grid-unhide-button svg {
+    width: 13px;
+    height: 13px;
+}
+
+/* Zero-size fixed anchor for the header context menu: the HeroUI Dropdown
+   opens its animated popover at the right-click point, while the trigger keeps
+   the menu's focus and keyboard handling intact. */
+.grid-header-menu__anchor {
+    position: fixed;
+    z-index: 2000;
+    width: 1px;
+    height: 1px;
+    min-width: 1px;
+    min-height: 1px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* HeroUI exposes data-entering/data-exiting on the popover; these two keyframes
+   make the context menu appear from the pointer and fade back out. */
+@keyframes grid-header-menu-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes grid-header-menu-out {
+    from {
+        opacity: 1;
+        transform: none;
+    }
+
+    to {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.98);
+    }
+}
+
+.grid-header-menu__popover {
+    transform-origin: top left;
+}
+
+.grid-header-menu__popover[data-entering] {
+    animation: grid-header-menu-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.grid-header-menu__popover[data-exiting] {
+    animation: grid-header-menu-out 120ms ease-in;
 }
 
 /* The Autocomplete trigger is an invisible zero-height anchor placed at the

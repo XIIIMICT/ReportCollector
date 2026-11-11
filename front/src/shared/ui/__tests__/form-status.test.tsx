@@ -39,6 +39,40 @@ test("collaboration online keeps the «На форме:» prefix", () => {
     expect(document.querySelector(".form-status__presence--bold")).toBeNull();
 });
 
+test("the status tooltip lists the hidden columns by table number and hierarchy", async () => {
+    render(
+        <FormStatus
+            room={room("online")}
+            selectionLabel={null}
+            gridStats={{
+                totalRows: 10,
+                filteredRows: 10,
+                totalCols: 10,
+                filtersApplied: false,
+                filteredColumns: [],
+                sortedColumns: [],
+                immutableCols: 1,
+                calculatedCols: 1,
+                editableCols: 8,
+                hiddenColumns: [
+                    { number: 3, path: ["Потребность", "План, т"] },
+                    { number: 4, path: ["Потребность", "Факт, т"] },
+                ],
+            }}
+        />,
+    );
+    const trigger = screen.getByRole("button");
+    act(() => {
+        trigger.focus();
+    });
+    fireEvent.mouseEnter(trigger);
+    await waitFor(() => expect(document.querySelector(".form-status-detail__hidden")).toBeTruthy());
+    const block = document.querySelector(".form-status-detail__hidden");
+    expect(block?.textContent).toContain("Скрытые столбцы:");
+    expect(block?.textContent).toContain("3. Потребность → План, т");
+    expect(block?.textContent).toContain("4. Потребность → Факт, т");
+});
+
 test("tooltip lists other people first and self last, with a separate selection section", async () => {
     const me = {
         userId: "self",

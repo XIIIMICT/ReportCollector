@@ -60,6 +60,7 @@ import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/data-grid";
 import { fieldFacetOrder } from "@/shared/grid/grid-config";
+import { useGridHiddenColumns } from "@/shared/grid/hidden-columns";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { SectionTabs } from "@/shared/grid/section-tabs";
 import {
@@ -198,7 +199,7 @@ function toGridRow(
         ...row.values,
         // The read-only «№ ремонта» column shows the computed value.
         col_003: row.renovationId,
-        // Service columns (corner menu «Показать служебные столбцы»).
+        // Service columns (header «+» / project-wide view state).
         id: row.id,
         position: row.position,
         revision: row.revision,
@@ -303,6 +304,13 @@ export function RenovationWorkspace({
     const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilter>>(() =>
         readStoredFilters("renovation", "plan"),
     );
+    // Hidden plan columns. Remembered like the filters (per project + form) and
+    // owned here because the plan grid is not the shared DataGrid.
+    const {
+        hidden: hiddenPlanFields,
+        hide: hidePlanFields,
+        show: showPlanFields,
+    } = useGridHiddenColumns("renovation", "plan");
     // Flat filter list for the rows API; a column with nothing kept selects
     // nothing, which the server treats as "no rows" (never "all").
     const activeColumnFilters = useMemo(
@@ -1829,8 +1837,6 @@ export function RenovationWorkspace({
             <ViewStrip
                 headerPinned={headerPinned}
                 onHeaderPinnedChange={setHeaderPinned}
-                showServiceColumns={showServiceColumns}
-                onShowServiceColumnsChange={setShowServiceColumns}
                 rowHeight={rowHeight}
                 onRowHeightChange={setRowHeight}
                 onResetRowHeight={resetRowHeight}
@@ -2077,6 +2083,10 @@ export function RenovationWorkspace({
                                         onCenterPositionChange={handleCenterPositionChange}
                                         headerPinned={headerPinned}
                                         showServiceColumns={showServiceColumns}
+                                        hiddenFields={hiddenPlanFields}
+                                        onHideFields={hidePlanFields}
+                                        onShowFields={showPlanFields}
+                                        onShowServiceColumnsChange={setShowServiceColumns}
                                         rowHeight={rowHeight}
                                         summaryValues={summaryValues}
                                         rowPatches={rowPatches}
@@ -2149,6 +2159,7 @@ export function RenovationWorkspace({
                             onUserCreateState={setDictUserCreateState}
                             headerPinned={headerPinned}
                             showServiceColumns={showServiceColumns}
+                            onShowServiceColumnsChange={setShowServiceColumns}
                             rowHeight={rowHeight}
                             onClipboardStateChange={handleDictClipboardState}
                             onUndoHistoryChanged={() => {

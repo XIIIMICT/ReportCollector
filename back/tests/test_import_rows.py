@@ -183,6 +183,18 @@ def test_blank_cells_are_left_out_instead_of_stored_empty(sheet) -> None:
     assert values["col_009"] == "ЕО-1"
 
 
+def test_text_cells_are_trimmed_and_whitespace_becomes_absent(sheet) -> None:
+    """Loaded strings are trimmed; a whitespace-only cell is the same as empty."""
+    sheet["rows"] = _sheet(_row("Р-006", "  snhz  ", workshop="  Цех 1  ", equipment="   "))
+
+    parsed = parse_plan_rows(Path("ignored.xlsb"))
+
+    row = parsed[0]
+    assert row.asset_key == "SNHZ"
+    assert row.values["col_005"] == "Цех 1"
+    assert "col_009" not in row.values
+
+
 def test_a_numbering_row_hidden_by_a_stray_trailing_number_is_still_skipped(sheet) -> None:
     """
     The counting row is 200+ columns wide; a data row stops far earlier.

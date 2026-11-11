@@ -9,9 +9,10 @@ import { readWorkspaceQuery, writeWorkspaceQuery } from "./query-state";
 /**
  * The view state every project shares: pinned header and service columns.
  *
- * Both flags live in one hook (they are always used together by the view strip)
- * and are remembered between sessions in `localStorage`, so a user who prefers
- * a pinned header keeps it after a reload and across projects. The storage key
+ * Both flags are remembered between sessions in `localStorage`, so a user who
+ * prefers a pinned header keeps it after a reload and across projects. Service
+ * columns are no longer toggled from «Вид таблицы»: the header's «+» / the
+ * right-click «Скрыть» drive `showServiceColumns` project-wide. The storage key
  * is per project: switching from «Сырьё» to «Ремонт» shouldn't force one
  * project's look onto the other, and the renovation plan/dictionaries keep a
  * single pair inside their project (they used to hold two separate ones).

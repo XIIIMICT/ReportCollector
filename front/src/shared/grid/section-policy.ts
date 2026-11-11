@@ -15,7 +15,8 @@ import type { SectionId } from "@/shared/grid/grid-config";
  *     ones (fixed month and immutable archive; pending-plan rules stay local);
  *   - clipboard, undo/redo and export work the same in every project;
  *   - Ctrl+A is disabled on chunked (large) tables;
- *   - the pin/service-columns controls are common to every project.
+ *   - the pin/service-columns controls are common to every project (the pin
+ *     toggle in «Вид таблицы», service columns via the header's «+»).
  */
 
 /** Who may join the section's collaboration room. */

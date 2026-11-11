@@ -88,6 +88,12 @@ export type ColumnDescriptor = {
     /** Read-only in every row (e.g. an email that is only set at creation). */
     readOnly?: boolean;
     /**
+     * The table's identifying column(s), pinned left: they cannot be hidden.
+     * Distinct from `fixed`, which means "read-only" (a calculated or projected
+     * column is hideable but never editable).
+     */
+    pinned?: boolean;
+    /**
      * A NULL value is a legal state of the field (the renovation plan's
      * «Наличие МТР»), so its checkbox cycles пусто → Да → Нет → пусто.
      * Without the flag the checkbox is a plain binary toggle (dictionaries).
@@ -124,6 +130,11 @@ export type GridColumnContext = {
     onBooleanChange: (row: GridRow, field: string, value: boolean | null) => void;
     /** Custom column set — overrides the built-in descriptors for the section. */
     descriptors?: ColumnDescriptor[];
+    /**
+     * Data columns the user hid. Fixed columns are never filtered out: they are
+     * not hideable, and the grid keeps at least its identifying column set.
+     */
+    hiddenKeys?: ReadonlySet<string>;
 };
 
 export type ExportColumn = {
@@ -161,8 +172,8 @@ export const ADMIN_SECTIONS: SectionId[] = ["rawMaterials", "assets", "deliveryB
 
 const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     materialMovement: [
-        fixed("rawMaterialName", "Сырьевая позиция", 270),
-        { ...fixed("assetName", "Актив", 170), adminOnly: true },
+        { ...fixed("rawMaterialName", "Сырьевая позиция", 270), pinned: true },
+        { ...fixed("assetName", "Актив", 170), adminOnly: true, pinned: true },
         // The business plan is filled only in the «Цены» form (businessPlanQuantityTons)
         // and is projected here; the column is non-editable in «Движение».
         { ...fixed("businessPlanTons", "Бизнес-план, т", 142), kind: "number" },
@@ -187,8 +198,8 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
         text("deviationReason", "Причина отклонения", 260),
     ],
     rawMaterialPrices: [
-        fixed("rawMaterialName", "Сырьевая позиция", 270),
-        { ...fixed("assetName", "Актив", 170), adminOnly: true },
+        { ...fixed("rawMaterialName", "Сырьевая позиция", 270), pinned: true },
+        { ...fixed("assetName", "Актив", 170), adminOnly: true, pinned: true },
         select("deliveryBasisName", "Базис поставки", 150, "basis"),
         number("fact2025", "Факт 2025", 130),
         number("businessPlanQuantityTons", "Объём, т", 135, ["Бизнес-план 2026"]),
@@ -528,7 +539,7 @@ export function buildGridColumns(
         context.showAssetColumn,
         context.showServiceColumns,
         { keycloakEnabled: context.keycloakEnabled, descriptors: context.descriptors },
-    );
+    ).filter((descriptor) => descriptor.pinned || !context.hiddenKeys?.has(descriptor.key));
     const hasGroupedHeaders = descriptors.some((descriptor) => descriptor.path?.length);
     const leaves = descriptors.map((descriptor, index) =>
         buildLeaf(descriptor, context, index, descriptors.length, hasGroupedHeaders, section),
@@ -554,11 +565,18 @@ export function buildGridColumns(
             if (leaf) children.push(leaf);
             index += 1;
         }
-        result.push({
-            name: parent,
-            children,
-            columnProperties: () => ({ className: "report-header-cell--outer-top" }),
-        } as ColumnGrouping);
+        if (children.length > 0) {
+            result.push({
+                name: parent,
+                children,
+                // The header menu reads the grouping this cell stands for; a
+                // leaf carries its prop on the title span instead.
+                columnProperties: () => ({
+                    className: "report-header-cell--outer-top",
+                    "data-group": parent,
+                }),
+            } as ColumnGrouping);
+        }
     }
     return result;
 }

@@ -22,11 +22,23 @@ import {
     forwardRef,
     useImperativeHandle,
     type CSSProperties,
+    type MouseEvent as ReactMouseEvent,
     type Ref,
 } from "react";
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
+import {
+    GridHeaderMenu,
+    GridUnhideButton,
+    type GridHideRequest,
+} from "@/shared/grid/grid-header-menu";
 import { keepsGridSelection } from "@/shared/grid/grid-selection";
+import {
+    hiddenColumnBlocks,
+    useGridHiddenColumns,
+    type HiddenColumnAnchors,
+} from "@/shared/grid/hidden-columns";
+import { type HiddenColumnEntry } from "@/shared/grid/hidden-columns-list";
 import { reactEditor } from "@/shared/grid/react-editor";
 import { createGridEpoch, createRevoGridAdapter } from "@/shared/grid/revo-grid-adapter";
 import { readStoredSorting, writeStoredSorting } from "@/shared/grid/use-grid-column-filters";
@@ -54,6 +66,7 @@ import {
     getVisibleDescriptors,
     markFilterableColumns,
     placeholderLastCellCompare,
+    SERVICE_DESCRIPTORS,
     type ColumnDescriptor,
     type ExportColumn,
     type GridRow,
@@ -144,6 +157,12 @@ export type GridViewStats = {
     calculatedCols: number;
     /** Editable columns. */
     editableCols: number;
+    /**
+     * Columns hidden by the user, in table order — the same numbered list the
+     * expand button's tooltip shows. Service columns appear too while their
+     * project-wide toggle is off.
+     */
+    hiddenColumns?: HiddenColumnEntry[];
 };
 
 export type DataGridHandle = {
@@ -168,8 +187,10 @@ type Props = {
     hasBaseline: boolean;
     /** Controlled «Закрепить заголовок» toggle (rendered in the view strip). */
     headerPinned: boolean;
-    /** Controlled «Показать служебные столбцы» toggle (lives in the view strip). */
+    /** Whether the project-wide service columns are shown. */
     showServiceColumns: boolean;
+    /** Show/hide the service columns for the whole project (the + button). */
+    onServiceColumnsChange?: (visible: boolean) => void;
     /** Controlled RevoGrid data row height. */
     rowHeight: number;
     /** Pinned summary row(s) rendered above the data (revo-grid `pinnedTopSource`). */
@@ -385,6 +406,7 @@ function DataGridInner(
         hasBaseline,
         headerPinned,
         showServiceColumns,
+        onServiceColumnsChange,
         rowHeight,
         pinnedTopSource,
         assets,
@@ -735,7 +757,6 @@ function DataGridInner(
     }
 
     const sortingActive = (sortingBySectionRef.current.get(section)?.columns.length ?? 0) > 0;
-    const mergesSuppressed = filtersActive || sortingActive;
     const syncSortPriorityMarkers = useCallback(() => {
         const grid = gridRef.current;
         if (!grid) return;
@@ -786,10 +807,6 @@ function DataGridInner(
         return () => observer.disconnect();
     }, [sortingVersion, syncSortPriorityMarkers]);
     useEffect(() => {
-        const grid = gridRef.current;
-        if (grid && cellMerge !== undefined) grid.cellMerge = mergesSuppressed ? [] : cellMerge;
-    }, [cellMerge, mergesSuppressed, section, sortingVersion]);
-    useEffect(() => {
         onSortingChange?.(sortingActive);
     }, [onSortingChange, sortingActive]);
 
@@ -816,6 +833,97 @@ function DataGridInner(
         () => new Map(descriptors.map((descriptor) => [descriptor.key, descriptor])),
         [descriptors],
     );
+
+    // ── Hidden data columns ────────────────────────────────────────────────
+    // Persisted per table (project scope + section) exactly like the filters
+    // and sorting. Fixed columns and the project-wide service columns are not
+    // part of this set: they have their own rules.
+    const { hidden, hide, show } = useGridHiddenColumns(sortingScope, section);
+    const dataDescriptors = useMemo(
+        () =>
+            getVisibleDescriptors(section, showAssetColumn, false, {
+                keycloakEnabled,
+                descriptors: columnDescriptors,
+            }),
+        [section, showAssetColumn, keycloakEnabled, columnDescriptors],
+    );
+    const hideableKeys = useMemo(
+        () =>
+            new Set(
+                dataDescriptors
+                    .filter((descriptor) => !descriptor.pinned)
+                    .map((descriptor) => descriptor.key),
+            ),
+        [dataDescriptors],
+    );
+    const effectiveHidden = useMemo<HiddenColumnAnchors>(() => {
+        const result: HiddenColumnAnchors = {};
+        for (const [prop, level] of Object.entries(hidden)) {
+            if (hideableKeys.has(prop)) result[prop] = level;
+        }
+        return result;
+    }, [hidden, hideableKeys]);
+    const hiddenKeys = useMemo(() => new Set(Object.keys(effectiveHidden)), [effectiveHidden]);
+    const hiddenBlocks = useMemo(
+        () =>
+            hiddenColumnBlocks(
+                dataDescriptors.map((descriptor) => descriptor.key),
+                effectiveHidden,
+            ),
+        [dataDescriptors, effectiveHidden],
+    );
+    /**
+     * The numbered hidden-column list of this table: data columns in their
+     * full order, then the service trio while its project flag is off. The
+     * number is the column's place in the TABLE, never the list index.
+     */
+    const hiddenColumnEntries = useMemo<HiddenColumnEntry[]>(() => {
+        const entries: HiddenColumnEntry[] = [];
+        dataDescriptors.forEach((descriptor, index) => {
+            if (effectiveHidden[descriptor.key] === undefined) return;
+            entries.push({
+                number: index + 1,
+                path: [...(descriptor.path ?? []), descriptor.label],
+            });
+        });
+        if (!showServiceColumns) {
+            SERVICE_DESCRIPTORS.forEach((descriptor, index) => {
+                entries.push({
+                    number: dataDescriptors.length + index + 1,
+                    path: [descriptor.label],
+                });
+            });
+        }
+        return entries;
+    }, [dataDescriptors, effectiveHidden, showServiceColumns]);
+    const serviceKeys = useMemo(
+        () => new Set(SERVICE_DESCRIPTORS.map((descriptor) => descriptor.key)),
+        [],
+    );
+    const [headerMenu, setHeaderMenu] = useState<GridHideRequest | null>(null);
+    const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+    const [unhideButtons, setUnhideButtons] = useState<
+        Array<{
+            key: string;
+            props: string[];
+            entries: HiddenColumnEntry[];
+            left: number;
+            top: number;
+            label: string;
+            service: boolean;
+        }>
+    >([]);
+    const unhideLayerRef = useRef<HTMLDivElement>(null);
+
+    const mergesSuppressed = filtersActive || sortingActive || hiddenKeys.size > 0;
+    // The event handlers below are registered once and must not restore
+    // index-based merges after the column set changed.
+    const hiddenActiveRef = useRef(false);
+    hiddenActiveRef.current = hiddenKeys.size > 0;
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (grid && cellMerge !== undefined) grid.cellMerge = mergesSuppressed ? [] : cellMerge;
+    }, [cellMerge, mergesSuppressed, section, sortingVersion]);
 
     /**
      * The applied filters spelled out as header chains, leaf LAST: a grouped
@@ -1047,6 +1155,7 @@ function DataGridInner(
             showServiceColumns,
             remoteLocks,
             remoteCellInfo,
+            hiddenKeys,
             ...(columnDescriptors && { descriptors: columnDescriptors }),
             onBooleanChange: (row, field, value) => {
                 if (row.isPlaceholder) void onPlaceholderCommit({ [field]: value });
@@ -1170,6 +1279,7 @@ function DataGridInner(
         columnDescriptors,
         deliveryBases,
         hasBaseline,
+        hiddenKeys,
         isAdmin,
         keycloakEnabled,
         showAssetColumn,
@@ -1203,7 +1313,11 @@ function DataGridInner(
     );
     flatColumnsRef.current = flatColumns;
 
-    const headerRowCount = descriptors.some((descriptor) => descriptor.path?.length) ? 2 : 1;
+    const headerRowCount = columns.some(
+        (column) => ((column as ColumnGrouping).children?.length ?? 0) > 0,
+    )
+        ? 2
+        : 1;
     const headerHeight = headerRowCount * rowHeight;
     const contentHeight = headerHeight + rows.length * rowHeight + 18;
 
@@ -2122,6 +2236,272 @@ function DataGridInner(
         });
     }, [measureFunnels]);
 
+    /**
+     * Place the hidden-column expand buttons from the live column widths.
+     *
+     * The button stands at the LEFT edge of a maximal hidden block: the sum of
+     * the visible columns before it (hidden ones take no width), with the row
+     * header offset. `anchor` is the header level the block was hidden from —
+     * a leaf starts under the group row, a whole group at the very top. The
+     * horizontal scrollbar is subtracted because the layer is outside the
+     * scrolled content.
+     */
+    const measureUnhide = useCallback(() => {
+        const grid = gridRef.current;
+        const layer = unhideLayerRef.current;
+        const shell = shellRef.current;
+        if (!grid || !layer || !shell) return;
+        const shellRect = shell.getBoundingClientRect();
+        let headerTop = Number.POSITIVE_INFINITY;
+        for (const cell of grid.querySelectorAll(".rgHeaderCell")) {
+            const rect = cell.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) headerTop = Math.min(headerTop, rect.top);
+        }
+        if (!Number.isFinite(headerTop)) {
+            setUnhideButtons((previous) => (previous.length > 0 ? [] : previous));
+            return;
+        }
+        const layerTop = Math.round(headerTop - shellRect.top);
+        layer.style.top = `${layerTop}px`;
+        layer.style.height = `${headerRowCount * rowHeight}px`;
+        const scrollLeft = horizontalScrollRef.current?.scrollLeft ?? 0;
+        const widthByKey = new Map(
+            dataDescriptors.map((descriptor) => [
+                descriptor.key,
+                resizedWidthsRef.current.get(columnWidthKey(widthKeySection, descriptor.key)) ??
+                    descriptor.width,
+            ]),
+        );
+        const orderedKeys = dataDescriptors.map((descriptor) => descriptor.key);
+        const indexByKey = new Map(orderedKeys.map((key, index) => [key, index]));
+        const entryFor = (prop: string): HiddenColumnEntry | null => {
+            const index = indexByKey.get(prop);
+            const descriptor = index === undefined ? undefined : dataDescriptors[index];
+            return descriptor
+                ? {
+                      number: (index ?? 0) + 1,
+                      path: [...(descriptor.path ?? []), descriptor.label],
+                  }
+                : null;
+        };
+        const next: typeof unhideButtons = [];
+        for (const block of hiddenBlocks) {
+            const first = block.props[0];
+            if (!first) continue;
+            const firstIndex = indexByKey.get(first) ?? 0;
+            let left = 52;
+            for (let index = 0; index < firstIndex; index += 1) {
+                const key = orderedKeys[index];
+                if (key !== undefined && effectiveHidden[key] === undefined) {
+                    left += widthByKey.get(key) ?? 0;
+                }
+            }
+            // Prefer the live header-cell edge: it already includes the row
+            // header and the exact horizontal scroll, without the scrollbar's
+            // width rounding.
+            const previous = orderedKeys
+                .slice(0, firstIndex)
+                .reverse()
+                .find((key) => effectiveHidden[key] === undefined);
+            const previousCell =
+                previous === undefined
+                    ? null
+                    : grid
+                          .querySelector(`.rgHeaderCell [data-prop="${previous}"]`)
+                          ?.closest(".rgHeaderCell");
+            if (previousCell instanceof HTMLElement) {
+                left = previousCell.getBoundingClientRect().right - shellRect.left;
+            } else {
+                left -= scrollLeft;
+            }
+            const anchor = Math.max(0, Math.min(block.anchor, headerRowCount - 1));
+            next.push({
+                key: block.props.join("|"),
+                props: block.props,
+                entries: block.props
+                    .map(entryFor)
+                    .filter((entry): entry is HiddenColumnEntry => entry !== null),
+                left: Math.round(left),
+                top: anchor * rowHeight,
+                label: `Показать скрытые столбцы (${block.props.length})`,
+                service: false,
+            });
+        }
+        if (!showServiceColumns && onServiceColumnsChange) {
+            let left = 52;
+            for (const key of orderedKeys) {
+                if (effectiveHidden[key] === undefined) left += widthByKey.get(key) ?? 0;
+            }
+            const last = [...orderedKeys]
+                .reverse()
+                .find((key) => effectiveHidden[key] === undefined);
+            const lastCell =
+                last === undefined
+                    ? null
+                    : grid
+                          .querySelector(`.rgHeaderCell [data-prop="${last}"]`)
+                          ?.closest(".rgHeaderCell");
+            if (lastCell instanceof HTMLElement) {
+                left = lastCell.getBoundingClientRect().right - shellRect.left;
+            } else {
+                left -= scrollLeft;
+            }
+            // The data grid's scrollbar can leave the very last pixels off the
+            // right edge; keep the service reveal button on screen regardless.
+            left = Math.min(left, Math.max(0, shell.clientWidth - 22));
+            next.push({
+                key: "__service__",
+                props: [],
+                entries: SERVICE_DESCRIPTORS.map((descriptor, index) => ({
+                    number: dataDescriptors.length + index + 1,
+                    path: [descriptor.label],
+                })),
+                // The button is centred on the boundary by CSS; at the very
+                // end of the content that would put half of it outside, so it
+                // is nudged left to sit fully inside.
+                left: Math.round(left - 11),
+                top: 0,
+                label: "Показать служебные столбцы",
+                service: true,
+            });
+        }
+        setUnhideButtons((previous) =>
+            previous.length === next.length &&
+            previous.every((entry, index) => {
+                const candidate = next[index];
+                return (
+                    candidate !== undefined &&
+                    entry.key === candidate.key &&
+                    entry.left === candidate.left &&
+                    entry.top === candidate.top &&
+                    entry.label === candidate.label &&
+                    entry.service === candidate.service
+                );
+            })
+                ? previous
+                : next,
+        );
+    }, [
+        dataDescriptors,
+        effectiveHidden,
+        headerRowCount,
+        hiddenBlocks,
+        onServiceColumnsChange,
+        rowHeight,
+        showServiceColumns,
+        widthKeySection,
+    ]);
+
+    const scheduleUnhideMeasure = useCallback(() => {
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => measureUnhide());
+        });
+    }, [measureUnhide]);
+
+    useEffect(() => {
+        const epoch = createGridEpoch();
+        const token = epoch.next();
+        let attempts = 0;
+        let lastCount = -1;
+        const tick = () => {
+            if (!epoch.isCurrent(token)) return;
+            measureUnhide();
+            const count = gridRef.current?.querySelectorAll(".rgHeaderCell").length ?? 0;
+            attempts += 1;
+            const settled = count === lastCount && count > 0;
+            lastCount = count;
+            if (!settled && attempts < 40) window.setTimeout(tick, 100);
+        };
+        tick();
+        return () => {
+            epoch.next();
+        };
+    }, [columns, measureUnhide, rowHeight, showServiceColumns]);
+
+    /**
+     * Right-click on a header: a leaf hides one column, a grouping cell hides
+     * every (non-fixed) leaf under it. Fixed columns have no menu — they are the
+     * table's identity and stay.
+     */
+    const openHeaderMenu = useCallback(
+        (event: ReactMouseEvent<HTMLDivElement>) => {
+            const path = event.nativeEvent.composedPath?.() ?? [];
+            const cell = path.find(
+                (node): node is HTMLElement =>
+                    node instanceof HTMLElement && node.classList.contains("rgHeaderCell"),
+            );
+            if (!cell) return;
+            const leaf = cell.querySelector("[data-prop]")?.getAttribute("data-prop") ?? null;
+            let props: string[] = [];
+            let level = headerRowCount > 1 ? 1 : 0;
+            let service = false;
+            if (leaf !== null) {
+                if (serviceKeys.has(leaf)) {
+                    if (!onServiceColumnsChange) return;
+                    props = [leaf];
+                    service = true;
+                } else {
+                    const descriptor = descriptorByKey.get(leaf);
+                    if (!descriptor || descriptor.pinned) return;
+                    props = [leaf];
+                }
+            } else {
+                const groupNames = [
+                    ...new Set(
+                        descriptors
+                            .map((descriptor) => descriptor.path?.[0])
+                            .filter((name): name is string => Boolean(name)),
+                    ),
+                ];
+                const text = cell.textContent?.trim() ?? "";
+                const group =
+                    cell.getAttribute("data-group") ??
+                    groupNames.find((name) => text.includes(name)) ??
+                    null;
+                if (!group) return;
+                props = descriptors
+                    .filter(
+                        (descriptor) =>
+                            descriptor.path?.[0] === group &&
+                            !descriptor.pinned &&
+                            !serviceKeys.has(descriptor.key),
+                    )
+                    .map((descriptor) => descriptor.key);
+                if (props.length === 0) return;
+                level = 0;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            setHeaderMenuOpen(true);
+            setHeaderMenu({ x: event.clientX, y: event.clientY, props, level, service });
+        },
+        [descriptorByKey, descriptors, headerRowCount, onServiceColumnsChange, serviceKeys],
+    );
+
+    const handleHideRequest = useCallback(
+        (request: GridHideRequest) => {
+            if (request.service) {
+                onServiceColumnsChange?.(false);
+                return;
+            }
+            hide(request.props, request.level);
+            clearGridSelection();
+        },
+        [clearGridSelection, hide, onServiceColumnsChange],
+    );
+
+    const handleUnhide = useCallback(
+        (button: (typeof unhideButtons)[number]) => {
+            if (button.service) {
+                onServiceColumnsChange?.(true);
+                return;
+            }
+            show(button.props);
+            clearGridSelection();
+        },
+        [clearGridSelection, onServiceColumnsChange, show],
+    );
+
     // First placement, and again whenever the columns change (the header is laid
     // out asynchronously, so a single early frame is not enough).
     useEffect(() => {
@@ -2245,6 +2625,7 @@ function DataGridInner(
             immutableCols: counted.immutable,
             calculatedCols: counted.calculated,
             editableCols: counted.editable,
+            hiddenColumns: hiddenColumnEntries,
         };
         const previous = lastStatsRef.current;
         if (
@@ -2265,13 +2646,27 @@ function DataGridInner(
             ) &&
             previous.immutableCols === next.immutableCols &&
             previous.calculatedCols === next.calculatedCols &&
-            previous.editableCols === next.editableCols
+            previous.editableCols === next.editableCols &&
+            (previous.hiddenColumns?.length ?? 0) === (next.hiddenColumns?.length ?? 0) &&
+            (previous.hiddenColumns ?? []).every(
+                (entry, index) =>
+                    entry.number === next.hiddenColumns?.[index]?.number &&
+                    entry.path.join("→") === next.hiddenColumns?.[index]?.path.join("→"),
+            )
         ) {
             return;
         }
         lastStatsRef.current = next;
         onViewStatsChange(next);
-    }, [descriptors, filteredColumnPaths, gridAdapter, onViewStatsChange, rows, sortedColumnPaths]);
+    }, [
+        descriptors,
+        filteredColumnPaths,
+        gridAdapter,
+        hiddenColumnEntries,
+        onViewStatsChange,
+        rows,
+        sortedColumnPaths,
+    ]);
 
     /**
      * Drop this section's sorting: the grids' plugin, our state, the stored order,
@@ -2851,13 +3246,21 @@ function DataGridInner(
         const observer = new ResizeObserver(() => {
             void refreshHorizontalScrollbar();
             void measureViewport();
+            scheduleUnhideMeasure();
         });
         if (gridRef.current) observer.observe(gridRef.current);
         return () => {
             cancelAnimationFrame(frame);
             observer.disconnect();
         };
-    }, [columns, headerPinned, measureViewport, refreshHorizontalScrollbar, rows]);
+    }, [
+        columns,
+        headerPinned,
+        measureViewport,
+        refreshHorizontalScrollbar,
+        rows,
+        scheduleUnhideMeasure,
+    ]);
 
     // Wheel over the horizontal scrollbar strip scrolls it horizontally
     // (native Chrome behavior scrolls the vertical axis instead). The strips
@@ -2926,6 +3329,7 @@ function DataGridInner(
                 remoteTooltipTargetRef.current = null;
                 setRemoteTooltip(null);
             }}
+            onContextMenu={openHeaderMenu}
         >
             <Tooltip isOpen={remoteTooltip !== null}>
                 <Tooltip.Trigger
@@ -2985,6 +3389,17 @@ function DataGridInner(
                             </span>
                         ) : null}
                     </button>
+                ))}
+            </div>
+            <div ref={unhideLayerRef} className="report-header-unhide">
+                {unhideButtons.map((button) => (
+                    <GridUnhideButton
+                        key={button.key}
+                        label={button.label}
+                        entries={button.entries}
+                        style={{ left: button.left, top: button.top }}
+                        onPress={() => handleUnhide(button)}
+                    />
                 ))}
             </div>
             <div ref={verticalScrollRef} className="revo-grid-vertical-scroller">
@@ -3194,7 +3609,7 @@ function DataGridInner(
                             const sorted =
                                 (sortingBySectionRef.current.get(section)?.columns.length ?? 0) > 0;
                             gridRef.current.cellMerge =
-                                sorted || filtersAppliedRef.current
+                                sorted || filtersAppliedRef.current || hiddenActiveRef.current
                                     ? []
                                     : configuredCellMergeRef.current;
                         });
@@ -3203,6 +3618,7 @@ function DataGridInner(
                     onContentsizechanged={() => {
                         void refreshHorizontalScrollbar();
                         scheduleFunnelMeasure();
+                        scheduleUnhideMeasure();
                     }}
                     onViewportscroll={(event) => {
                         if (event.detail.dimension === "rgCol") {
@@ -3217,6 +3633,7 @@ function DataGridInner(
                         }
                         void measureViewport();
                         scheduleFunnelMeasure();
+                        scheduleUnhideMeasure();
                     }}
                     onAftercolumnresize={(event) => {
                         for (const column of Object.values(event.detail)) {
@@ -3230,6 +3647,7 @@ function DataGridInner(
                         void refreshHorizontalScrollbar();
                         void measureViewport();
                         scheduleFunnelMeasure();
+                        scheduleUnhideMeasure();
                     }}
                     onBeforeeditstart={beforeEditStart}
                     onBeforeedit={beforeEdit}
@@ -3292,6 +3710,12 @@ function DataGridInner(
                     onClose={() => setFilterTarget(null)}
                 />
             ) : null}
+            <GridHeaderMenu
+                request={headerMenu}
+                isOpen={headerMenuOpen}
+                onOpenChange={setHeaderMenuOpen}
+                onHide={handleHideRequest}
+            />
         </div>
     );
 }

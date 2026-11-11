@@ -411,6 +411,7 @@ function KppkSection({
     assets,
     headerPinned,
     showServiceColumns,
+    onShowServiceColumnsChange,
     rowHeight,
     onDeleteState,
     onReplaceState,
@@ -432,6 +433,8 @@ function KppkSection({
     assets: ReferenceOption[];
     headerPinned: boolean;
     showServiceColumns: boolean;
+    /** Show/hide the project-wide service columns (the header + button). */
+    onShowServiceColumnsChange: (visible: boolean) => void;
     rowHeight: number;
     onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
     /** Publishes the shared ?????????? action of this tab to the footer. */
@@ -993,6 +996,7 @@ function KppkSection({
                         hasBaseline={false}
                         headerPinned={headerPinned}
                         showServiceColumns={showServiceColumns}
+                        onServiceColumnsChange={onShowServiceColumnsChange}
                         rowHeight={rowHeight}
                         scrollPosition={{ form: `${scrollForm ?? KPPK_PROJECT_KEY}:${section}` }}
                         assets={assets}
@@ -1537,8 +1541,6 @@ export function KppkWorkspace({
                 <ViewStrip
                     headerPinned={headerPinned}
                     onHeaderPinnedChange={setHeaderPinned}
-                    showServiceColumns={showServiceColumns}
-                    onShowServiceColumnsChange={setShowServiceColumns}
                     rowHeight={rowHeight}
                     onRowHeightChange={setRowHeight}
                     onResetRowHeight={resetRowHeight}
@@ -1609,6 +1611,7 @@ export function KppkWorkspace({
                             periodYear={realizationYear}
                             headerPinned={headerPinned}
                             showServiceColumns={showServiceColumns}
+                            onShowServiceColumnsChange={setShowServiceColumns}
                             rowHeight={rowHeight}
                             onDeleteState={setDeleteState}
                             onClipboardStateChange={handleClipboardActions}
@@ -1629,6 +1632,7 @@ export function KppkWorkspace({
                             assets={orgOptions}
                             headerPinned={headerPinned}
                             showServiceColumns={showServiceColumns}
+                            onShowServiceColumnsChange={setShowServiceColumns}
                             rowHeight={rowHeight}
                             onDeleteState={setDeleteState}
                             onClipboardStateChange={handleClipboardActions}

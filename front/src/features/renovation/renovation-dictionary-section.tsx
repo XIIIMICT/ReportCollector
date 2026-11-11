@@ -205,6 +205,7 @@ export function RenovationDictionarySection({
     onUserCreateState,
     headerPinned,
     showServiceColumns,
+    onShowServiceColumnsChange,
     rowHeight,
     onClipboardStateChange,
     onUndoHistoryChanged,
@@ -246,6 +247,8 @@ export function RenovationDictionarySection({
     /** Controlled display toggles (rendered in the workspace view strip). */
     headerPinned: boolean;
     showServiceColumns: boolean;
+    /** Show/hide the project-wide service columns (the header + button). */
+    onShowServiceColumnsChange: (visible: boolean) => void;
     rowHeight: number;
     onClipboardStateChange: (state: {
         canPaste: boolean;
@@ -778,6 +781,7 @@ export function RenovationDictionarySection({
                 hasBaseline={false}
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}
+                onServiceColumnsChange={onShowServiceColumnsChange}
                 rowHeight={rowHeight}
                 scrollPosition={{ form: `renovation:${dictSection}` }}
                 pinnedTopSource={pinnedTopSource}

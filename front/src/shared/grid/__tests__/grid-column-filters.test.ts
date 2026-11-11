@@ -96,3 +96,32 @@ test("a computed column is filterable like any other", () => {
         expect(byProp.get(prop)?.columnTemplate).toBeFunction();
     }
 });
+
+function leavesOf(columns: ReturnType<typeof buildGridColumns>) {
+    return columns.flatMap((column) =>
+        "children" in column && column.children?.length
+            ? (column.children as Array<{ prop: string }>)
+            : [column as unknown as { prop: string }],
+    );
+}
+
+test("hidden data columns are not built, their group keeps the rest", () => {
+    const columns = buildGridColumns("materialMovement", {
+        ...context,
+        hiddenKeys: new Set(["demandPlanTons"]),
+    });
+    const leaves = leavesOf(columns);
+    expect(leaves.some((leaf) => String(leaf.prop) === "demandPlanTons")).toBe(false);
+    expect(leaves.some((leaf) => String(leaf.prop) === "consumptionFactTons")).toBe(true);
+    const groups = columns.filter((column) => "children" in column);
+    const demand = groups.find((group) => "name" in group && group.name === "Потребность");
+    expect(demand).toBeDefined();
+});
+
+test("a group whose every child is hidden disappears", () => {
+    const columns = buildGridColumns("materialMovement", {
+        ...context,
+        hiddenKeys: new Set(["demandPlanTons", "consumptionFactTons", "demandDeviationTons"]),
+    });
+    expect(columns.some((column) => "name" in column && column.name === "Потребность")).toBe(false);
+});

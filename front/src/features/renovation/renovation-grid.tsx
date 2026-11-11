@@ -25,6 +25,7 @@ import {
     useRef,
     useState,
     type CSSProperties,
+    type MouseEvent as ReactMouseEvent,
     type Ref,
 } from "react";
 
@@ -83,7 +84,14 @@ import {
     toCellValue,
 } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
+import {
+    GridHeaderMenu,
+    GridUnhideButton,
+    type GridHideRequest,
+} from "@/shared/grid/grid-header-menu";
 import { keepsGridSelection } from "@/shared/grid/grid-selection";
+import { hiddenColumnBlocks, type HiddenColumnAnchors } from "@/shared/grid/hidden-columns";
+import { type HiddenColumnEntry } from "@/shared/grid/hidden-columns-list";
 import { reactEditor } from "@/shared/grid/react-editor";
 import {
     createGridEpoch,
@@ -215,6 +223,11 @@ export type RenovationGridProps = {
     /** Controlled display toggles (rendered in the view strip). */
     headerPinned: boolean;
     showServiceColumns: boolean;
+    /** Hidden form fields: prop -> the header level the hiding started at. */
+    hiddenFields: HiddenColumnAnchors;
+    onHideFields: (fields: readonly string[], level: number) => void;
+    onShowFields: (fields: readonly string[]) => void;
+    onShowServiceColumnsChange?: (visible: boolean) => void;
     /** Controlled RevoGrid data row height. */
     rowHeight: number;
     /** Numeric totals of the filtered plan — the pinned summary row (null hides it). */
@@ -323,6 +336,10 @@ function RenovationGridInner(
         onViewStatsChange,
         headerPinned,
         showServiceColumns,
+        hiddenFields,
+        onHideFields,
+        onShowFields,
+        onShowServiceColumnsChange,
         rowHeight,
         summaryValues = null,
         rowPatches,
@@ -437,6 +454,9 @@ function RenovationGridInner(
         top: number;
     } | null>(null);
     const numberTooltipTargetRef = useRef<Element | null>(null);
+    // The header right-click menu (hide a column or a whole grouping cell).
+    const [headerMenu, setHeaderMenu] = useState<GridHideRequest | null>(null);
+    const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
 
     const catalogLabelsByField = useMemo(() => {
         const optionsByCatalog = new Map<string, string[]>();
@@ -454,7 +474,7 @@ function RenovationGridInner(
         return byField;
     }, [catalogs, fields]);
 
-    const visibleFields = useMemo(() => {
+    const blockFields = useMemo(() => {
         // col_002 (the form's «Предприятие» field) is replaced by the
         // synthetic asset column (ASSET_COLUMN_PROP) — keep it out of the
         // field columns to avoid a duplicated column. col_003 (the renovation
@@ -471,6 +491,37 @@ function RenovationGridInner(
             )
             .sort((a, b) => a.position - b.position);
     }, [blockFilter, fields]);
+
+    // The synthetic asset column is the plan's identifying column: it is never
+    // hidden. Service columns have their own project-wide toggle.
+    const hideableFields = useMemo(
+        () =>
+            blockFields.filter(
+                (field) =>
+                    field.dbName !== ASSET_COLUMN_PROP && !SERVICE_DB_NAMES.has(field.dbName),
+            ),
+        [blockFields],
+    );
+    const effectiveHiddenFields = useMemo<HiddenColumnAnchors>(() => {
+        const allowed = new Set(hideableFields.map((field) => field.dbName));
+        const result: HiddenColumnAnchors = {};
+        for (const [dbName, level] of Object.entries(hiddenFields)) {
+            if (allowed.has(dbName)) result[dbName] = level;
+        }
+        return result;
+    }, [hiddenFields, hideableFields]);
+    const hiddenFieldBlocks = useMemo(
+        () =>
+            hiddenColumnBlocks(
+                hideableFields.map((field) => field.dbName),
+                effectiveHiddenFields,
+            ),
+        [effectiveHiddenFields, hideableFields],
+    );
+    const visibleFields = useMemo(
+        () => blockFields.filter((field) => effectiveHiddenFields[field.dbName] === undefined),
+        [blockFields, effectiveHiddenFields],
+    );
 
     const fieldByDbName = useMemo(() => {
         const result = new Map<string, RenovationField>();
@@ -673,9 +724,16 @@ function RenovationGridInner(
             filterColumn?: string;
         }> = [];
         for (const cell of headerCells) {
-            const startIndex = visibleIndexByPosition.get(cell.startPosition + 1);
-            if (startIndex === undefined) continue;
             const endPosition = cell.startPosition + cell.colSpan + 1;
+            // A grouping cell may START on a hidden field: find the first
+            // visible field inside its range, so the band keeps the part that
+            // is still on screen instead of disappearing with its first leaf.
+            let startIndex: number | undefined;
+            for (let position = cell.startPosition + 1; position < endPosition; position += 1) {
+                startIndex = visibleIndexByPosition.get(position);
+                if (startIndex !== undefined) break;
+            }
+            if (startIndex === undefined) continue;
             let width = 0;
             for (let i = startIndex; i < visibleFields.length; i += 1) {
                 const field = visibleFields[i];
@@ -770,6 +828,20 @@ function RenovationGridInner(
         widthOf,
     ]);
 
+    const hideableByPosition = useMemo(
+        () => new Map(hideableFields.map((field) => [field.position, field])),
+        [hideableFields],
+    );
+    const headerLevelByPosition = useMemo(() => {
+        const levels = new Map<number, number>();
+        for (const cell of overlayCells) {
+            for (let position = cell.fromPosition; position < cell.toPosition; position += 1) {
+                levels.set(position, Math.max(levels.get(position) ?? 0, cell.level));
+            }
+        }
+        return levels;
+    }, [overlayCells]);
+
     /**
      * The header chain of every numbered column: the cells covering it, from
      * the top level down to the leaf — the column-number tooltip spells them
@@ -802,6 +874,81 @@ function RenovationGridInner(
         }
         return chains;
     }, [assetPosition, displayFields, overlayCells]);
+
+    /**
+     * The header chain of a form position, from the raw header cells.
+     *
+     * `headerChainByProp` is built from the VISIBLE overlay cells; a hidden
+     * column has no overlay cell, so its tooltip line is reconstructed from the
+     * full `headerCells` data instead. Canonical block labels are applied the
+     * same way the overlay does it.
+     */
+    const headerChainForPosition = useCallback(
+        (position: number): string[] => {
+            const covered = headerCells
+                .filter(
+                    (cell) =>
+                        cell.startPosition + 1 <= position &&
+                        position < cell.startPosition + cell.colSpan + 1,
+                )
+                .sort((left, right) => left.level - right.level);
+            const texts: string[] = [];
+            for (const cell of covered) {
+                let text = cell.text.trim();
+                if (cell.level === 0 && text.startsWith("Блок ")) {
+                    for (
+                        let candidatePosition = cell.startPosition + 1;
+                        candidatePosition < cell.startPosition + cell.colSpan + 1;
+                        candidatePosition += 1
+                    ) {
+                        const field = fields.find(
+                            (candidate) =>
+                                candidate.position === candidatePosition &&
+                                candidate.responsibilityBlock &&
+                                candidate.responsibilityBlock !== "read_only",
+                        );
+                        if (field?.responsibilityBlock) {
+                            text = BLOCK_HEADER_LABELS[field.responsibilityBlock] ?? text;
+                            break;
+                        }
+                    }
+                }
+                if (text !== "" && text !== texts[texts.length - 1]) texts.push(text);
+            }
+            return texts;
+        },
+        [fields, headerCells],
+    );
+
+    /** Numbered entries of the hidden form fields, in table order. */
+    const hiddenEntryByDbName = useMemo(() => {
+        const entries = new Map<string, HiddenColumnEntry>();
+        for (const field of blockFields) {
+            if (effectiveHiddenFields[field.dbName] === undefined) continue;
+            entries.set(field.dbName, {
+                number: columnNumber(field),
+                path: headerChainForPosition(field.position),
+            });
+        }
+        return entries;
+    }, [blockFields, effectiveHiddenFields, headerChainForPosition]);
+
+    /** The service trio's numbered entries (hidden by default, project-wide). */
+    const hiddenServiceEntries = useMemo<HiddenColumnEntry[]>(() => {
+        const lastOrdinal = fields.reduce((max, field) => Math.max(max, field.ordinal), 0);
+        return SERVICE_COLUMNS.map((column, index) => ({
+            number: lastOrdinal + 1 + index,
+            path: [column.label],
+        }));
+    }, [fields]);
+
+    const hiddenColumnEntries = useMemo<HiddenColumnEntry[]>(
+        () => [
+            ...hiddenEntryByDbName.values(),
+            ...(showServiceColumns ? [] : hiddenServiceEntries),
+        ],
+        [hiddenEntryByDbName, hiddenServiceEntries, showServiceColumns],
+    );
 
     const editableCell = useCallback(
         (field: RenovationField, row: RenovationGridRow): boolean => {
@@ -1094,6 +1241,172 @@ function RenovationGridInner(
         });
     }, [gridAdapter]);
 
+    const hideFieldTargets = useCallback(
+        (targets: readonly string[], level: number) => {
+            if (targets.length === 0) return;
+            onHideFields(targets, Math.max(0, Math.min(level, HEADER_LEVEL_COUNT - 1)));
+            clearGridSelection();
+        },
+        [clearGridSelection, onHideFields],
+    );
+
+    const handleHideRequest = useCallback(
+        (request: GridHideRequest) => {
+            if (request.service) {
+                onShowServiceColumnsChange?.(false);
+                return;
+            }
+            hideFieldTargets(request.props, request.level);
+        },
+        [hideFieldTargets, onShowServiceColumnsChange],
+    );
+
+    const showHiddenFields = useCallback(
+        (fields: readonly string[]) => {
+            onShowFields(fields);
+            clearGridSelection();
+        },
+        [clearGridSelection, onShowFields],
+    );
+
+    /** Right-click on a header cell: a leaf hides one field, a band hides all. */
+    const openHeaderMenu = useCallback(
+        (
+            event: ReactMouseEvent,
+            cell: {
+                id: string;
+                level: number;
+                fromPosition: number;
+                toPosition: number;
+                filterColumn?: string | undefined;
+            },
+        ) => {
+            if (cell.id.startsWith("asset:")) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (cell.id.startsWith("service:")) {
+                if (!onShowServiceColumnsChange) return;
+                setHeaderMenuOpen(true);
+                setHeaderMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    props: [],
+                    level: 0,
+                    service: true,
+                });
+                return;
+            }
+            if (cell.filterColumn) {
+                setHeaderMenuOpen(true);
+                setHeaderMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    props: [cell.filterColumn],
+                    level: cell.level,
+                });
+                return;
+            }
+            const targets: string[] = [];
+            for (let position = cell.fromPosition; position < cell.toPosition; position += 1) {
+                const field = hideableByPosition.get(position);
+                if (field) targets.push(field.dbName);
+            }
+            if (targets.length === 0) return;
+            setHeaderMenuOpen(true);
+            setHeaderMenu({
+                x: event.clientX,
+                y: event.clientY,
+                props: targets,
+                level: cell.level,
+            });
+        },
+        [hideableByPosition, onShowServiceColumnsChange],
+    );
+
+    /** Right-click on a column-number cell (the strip) hides that column. */
+    const openNumberMenu = useCallback(
+        (event: ReactMouseEvent, column: string) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (SERVICE_DB_NAMES.has(column)) {
+                if (!onShowServiceColumnsChange) return;
+                setHeaderMenuOpen(true);
+                setHeaderMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    props: [],
+                    level: 0,
+                    service: true,
+                });
+                return;
+            }
+            const field = fieldByDbName.get(column);
+            if (!field) return;
+            setHeaderMenuOpen(true);
+            setHeaderMenu({
+                x: event.clientX,
+                y: event.clientY,
+                props: [column],
+                level: headerLevelByPosition.get(field.position) ?? 0,
+            });
+        },
+        [fieldByDbName, headerLevelByPosition, onShowServiceColumnsChange],
+    );
+
+    const unhideButtons = useMemo(() => {
+        const buttons = hiddenFieldBlocks.map((block) => {
+            const first = block.props[0];
+            const firstIndex = first
+                ? blockFields.findIndex((field) => field.dbName === first)
+                : -1;
+            let left = ROW_HEADER_WIDTH + assetWidth;
+            for (let index = firstIndex - 1; index >= 0; index -= 1) {
+                const field = blockFields[index];
+                if (!field || effectiveHiddenFields[field.dbName] !== undefined) continue;
+                left = (geometry.offsets.get(field.dbName) ?? left) + fieldWidth(field);
+                break;
+            }
+            return {
+                key: block.props.join("|"),
+                props: block.props,
+                entries: block.props
+                    .map((prop) => hiddenEntryByDbName.get(prop))
+                    .filter((entry): entry is HiddenColumnEntry => entry !== undefined),
+                left,
+                top: levelOffsets[Math.min(block.anchor, HEADER_LEVEL_COUNT - 1)] ?? 0,
+                label: `Показать скрытые столбцы (${block.props.length})`,
+                service: false,
+            };
+        });
+        if (!showServiceColumns && onShowServiceColumnsChange) {
+            buttons.push({
+                key: "__service__",
+                props: [],
+                entries: hiddenServiceEntries,
+                // Centred by CSS; at the content edge that would clip half of
+                // the button, so it is nudged left to stay fully visible.
+                left: geometry.totalWidth - 11,
+                top: 0,
+                label: "Показать служебные столбцы",
+                service: true,
+            });
+        }
+        return buttons;
+    }, [
+        assetWidth,
+        blockFields,
+        effectiveHiddenFields,
+        fieldWidth,
+        geometry.offsets,
+        geometry.totalWidth,
+        hiddenEntryByDbName,
+        hiddenFieldBlocks,
+        hiddenServiceEntries,
+        levelOffsets,
+        onShowServiceColumnsChange,
+        showServiceColumns,
+    ]);
+
     // Row-number click: select the whole row (shift — range, Ctrl/Cmd —
     // toggle). Mirrors the shared DataGrid; the cell range is cleared
     // BEFORE the row state updates, or the columns rebuild (selectedRowIds
@@ -1241,6 +1554,7 @@ function RenovationGridInner(
                 (field) =>
                     !field.isCalculated && !field.isReadOnly && editableFieldKeys.has(field.dbName),
             ).length,
+            hiddenColumns: hiddenColumnEntries,
         });
     }, [
         activeFilterColumns,
@@ -1249,6 +1563,7 @@ function RenovationGridInner(
         displayFields,
         editableFieldKeys,
         filteredColumnPaths,
+        hiddenColumnEntries,
         onViewStatsChange,
         totalRowsAll,
         totalRows,
@@ -3030,6 +3345,7 @@ function RenovationGridInner(
                             if (target.closest("button")) return;
                             onSortColumn(cell.filterColumn, event.ctrlKey || event.metaKey);
                         }}
+                        onContextMenu={(event) => openHeaderMenu(event, cell)}
                     >
                         <span className="renovation-grid__header-label">
                             {cell.text}
@@ -3117,6 +3433,9 @@ function RenovationGridInner(
                             if (target.closest("button")) return;
                             onSortColumn(cell.filterColumn, event.ctrlKey || event.metaKey);
                         }}
+                        onContextMenu={(event) => {
+                            if (cell.filterColumn) openNumberMenu(event, cell.filterColumn);
+                        }}
                     >
                         <span className="renovation-grid__number-label">
                             {cell.text}
@@ -3181,6 +3500,19 @@ function RenovationGridInner(
                             </button>
                         ) : null}
                     </div>
+                ))}
+                {unhideButtons.map((button) => (
+                    <GridUnhideButton
+                        key={button.key}
+                        label={button.label}
+                        entries={button.entries}
+                        style={{ left: button.left, top: button.top }}
+                        onPress={() =>
+                            button.service
+                                ? onShowServiceColumnsChange?.(true)
+                                : showHiddenFields(button.props)
+                        }
+                    />
                 ))}
                 {/* Level-height handles first: the vertical (column) handles
                     rendered after them win the 6×6 intersections, so a column
@@ -3485,6 +3817,12 @@ function RenovationGridInner(
             >
                 <div style={{ width: horizontalContentWidth }} />
             </div>
+            <GridHeaderMenu
+                request={headerMenu}
+                isOpen={headerMenuOpen}
+                onOpenChange={setHeaderMenuOpen}
+                onHide={handleHideRequest}
+            />
         </div>
     );
 }

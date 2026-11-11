@@ -80,8 +80,15 @@ const KPPK_REALIZATION_SLICES: { id: KppkRealizationSlice; label: string }[] = [
  */
 const KPPK_REALIZATION_DESCRIPTORS: Record<KppkRealizationSlice, ColumnDescriptor[]> = {
     bp: [
-        { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
-        { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
+        { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true, pinned: true },
+        {
+            key: "region",
+            label: "Рынок сбыта",
+            width: 140,
+            kind: "text",
+            fixed: true,
+            pinned: true,
+        },
         {
             key: "buyoutBpPlan",
             label: "Объем",
@@ -116,8 +123,15 @@ const KPPK_REALIZATION_DESCRIPTORS: Record<KppkRealizationSlice, ColumnDescripto
         },
     ],
     op: [
-        { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
-        { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
+        { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true, pinned: true },
+        {
+            key: "region",
+            label: "Рынок сбыта",
+            width: 140,
+            kind: "text",
+            fixed: true,
+            pinned: true,
+        },
         {
             key: "buyoutMaxPlan",
             label: "Объем",
@@ -152,8 +166,15 @@ const KPPK_REALIZATION_DESCRIPTORS: Record<KppkRealizationSlice, ColumnDescripto
         },
     ],
     fact: [
-        { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true },
-        { key: "region", label: "Рынок сбыта", width: 140, kind: "text", fixed: true },
+        { key: "product", label: "Продукция", width: 320, kind: "text", fixed: true, pinned: true },
+        {
+            key: "region",
+            label: "Рынок сбыта",
+            width: 140,
+            kind: "text",
+            fixed: true,
+            pinned: true,
+        },
         {
             key: "buyoutFact",
             label: "Объем",
@@ -234,6 +255,8 @@ type KppkRealizationSectionProps = {
     periodYear: string | null;
     headerPinned: boolean;
     showServiceColumns: boolean;
+    /** Show/hide the project-wide service columns (the header + button). */
+    onShowServiceColumnsChange: (visible: boolean) => void;
     rowHeight: number;
     onGridStatsChange: (stats: GridViewStats) => void;
     onSelectionLabelChange: (label: string | null) => void;
@@ -266,6 +289,7 @@ export function KppkRealizationSection({
     periodYear,
     headerPinned,
     showServiceColumns,
+    onShowServiceColumnsChange,
     rowHeight,
     onGridStatsChange,
     onSelectionLabelChange,
@@ -311,6 +335,7 @@ export function KppkRealizationSection({
                 width: 320,
                 kind: "text",
                 fixed: true,
+                pinned: true,
                 readOnly: true,
             },
             ...fields.map((key, index): ColumnDescriptor => ({
@@ -817,6 +842,7 @@ export function KppkRealizationSection({
                 hasBaseline={false}
                 headerPinned={headerPinned}
                 showServiceColumns={showServiceColumns}
+                onServiceColumnsChange={onShowServiceColumnsChange}
                 rowHeight={rowHeight}
                 scrollPosition={{ form: `kppk:${roomSection}` }}
                 columnDescriptors={visibleDescriptors}
