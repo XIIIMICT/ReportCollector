@@ -186,6 +186,27 @@ async def test_read_plan_facets_shared_value(client: AsyncClient) -> None:
     assert body["hasNulls"] is False
 
 
+async def test_read_plan_facets_initial_window_works_for_every_column_type(
+    client: AsyncClient,
+) -> None:
+    """The FIRST facet request has no search — number/date columns must still load."""
+    number = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_028"},
+    )
+    assert number.status_code == 200, number.text
+    assert [item["value"] for item in number.json()["values"]] == ["5", "10"]
+
+    date = await client.get(
+        "/api/renovation/plan/facets",
+        headers=ADMIN_HEADERS,
+        params={"column": "col_025"},
+    )
+    assert date.status_code == 200, date.text
+    assert date.json()["values"] == [{"value": "2027-01-31", "count": 2}]
+
+
 async def test_read_plan_facets_search_is_applied_before_paging(client: AsyncClient) -> None:
     """A search returns matches outside the first unfiltered facet window."""
     response = await client.get(

@@ -1079,14 +1079,22 @@ def _facet_field_kind(meta: RenovationFieldMeta | None) -> str:
     return "text"
 
 
-def _check_facet_search(kind: str, search_kind: str | None) -> str:
-    """Refuse a search shape the column's type does not offer (no silent rewrite)."""
-    wanted = search_kind or "text"
-    if wanted == kind:
-        return wanted
-    if kind == "text" and wanted == "range":
+def _check_facet_search(kind: str, search_kind: str | None) -> str | None:
+    """
+    Refuse a search shape the column's type does not offer (no silent rewrite).
+
+    No `search_kind` means the popover is loading its FIRST, unfiltered window —
+    that request is valid for every column type. Treating it as a text search
+    made the initial load of every number/date column a 422, so their option
+    lists showed «Не удалось загрузить значения».
+    """
+    if search_kind is None:
+        return None
+    if search_kind == kind:
+        return search_kind
+    if kind == "text" and search_kind == "range":
         message = "Столбец фильтруется по тексту, а не по числовому диапазону."
-    elif kind == "range" and wanted == "text":
+    elif kind == "range" and search_kind == "text":
         message = "Столбец фильтруется по числовому диапазону, а не по тексту."
     else:
         message = "Столбец фильтруется по диапазону дат, а не по выбранному типу поиска."
