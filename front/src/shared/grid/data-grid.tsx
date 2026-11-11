@@ -931,6 +931,12 @@ function DataGridInner(
     const [pinnedRowIds, setPinnedRowIds] = useState<string[]>([]);
     const pinnedRowIdSet = useMemo(() => new Set(pinnedRowIds), [pinnedRowIds]);
     /**
+     * Snapshots of the pinned rows. The copy must survive a filter that hides
+     * the original (filtering/sorting are VIEW state and must not evict a pin),
+     * so the row is kept here and refreshed from `rows` while it still exists.
+     */
+    const [pinnedRowSnapshots, setPinnedRowSnapshots] = useState<Record<string, GridRow>>({});
+    /**
      * The numbers the pinned copies show. Captured from the RENDERED row order
      * (RevoGrid sorts its own source, so `visibleRows` is not the display
      * order) and refreshed after every source pass — a pinned copy must keep
@@ -940,9 +946,11 @@ function DataGridInner(
     const pinnedRowIdsRef = useRef(pinnedRowIds);
     pinnedRowIdsRef.current = pinnedRowIds;
     // Row pins are session-only AND table-scoped: an id from another section
-    // must not come back when the user returns to it.
+    // must not come back when the user returns to it. Sorting and filtering do
+    // NOT reset them.
     useEffect(() => {
         setPinnedRowIds([]);
+        setPinnedRowSnapshots({});
         setPinnedRowNumbers({});
     }, [section, sortingScope]);
     const [unhideButtons, setUnhideButtons] = useState<
@@ -1125,30 +1133,53 @@ function DataGridInner(
     }, [activeFilters, facetText, filteringEnabled, rows]);
 
     /**
-     * The read-only snapshots shown in the pinned strip. A copy mirrors a row
-     * that is STILL in `visibleRows` — pinning never removes or reorders it;
-     * the copy carries the row's current number and a unique id so RevoGrid
-     * treats it as a separate record.
+     * Keep a pinned snapshot in step with its source row and drop it when the
+     * row is really gone from `rows`. `visibleRows` is the FILTERED view: using
+     * it here would evict a pin as soon as a filter hides the row.
+     */
+    useEffect(() => {
+        setPinnedRowSnapshots((previous) => {
+            const ids = Object.keys(previous);
+            if (ids.length === 0) return previous;
+            const byId = new Map(rows.map((row) => [row.id, row]));
+            let changed = false;
+            const next: Record<string, GridRow> = {};
+            for (const id of ids) {
+                const live = byId.get(id);
+                if (!live) {
+                    changed = true;
+                    continue;
+                }
+                next[id] = live;
+                if (live !== previous[id]) changed = true;
+            }
+            return changed ? next : previous;
+        });
+    }, [rows]);
+
+    /**
+     * The read-only snapshots shown in the pinned strip. Filtering and sorting
+     * are view state: a pinned copy survives both, even when its original row
+     * is filtered out. The copy carries the row's current number and a unique
+     * id so RevoGrid treats it as a separate record.
      */
     const pinnedCopyRows = useMemo<GridRow[]>(() => {
         if (pinnedRowIds.length === 0) return [];
-        const indexById = new Map(visibleRows.map((row, index) => [row.id, index]));
         const copies: GridRow[] = [];
         for (const id of pinnedRowIds) {
-            const index = indexById.get(id);
-            if (index === undefined) continue;
-            const row = visibleRows[index];
+            const row = pinnedRowSnapshots[id];
             if (!row || row.isPlaceholder) continue;
+            const fallbackNumber = rows.findIndex((candidate) => candidate.id === id) + 1;
             copies.push({
                 ...row,
                 id: `${row.id}::pinned`,
                 __pinnedCopy: true,
                 __pinSourceId: row.id,
-                __pinNumber: pinnedRowNumbers[id] ?? index + 1,
+                __pinNumber: pinnedRowNumbers[id] ?? (fallbackNumber > 0 ? fallbackNumber : null),
             });
         }
         return copies;
-    }, [pinnedRowIds, pinnedRowNumbers, visibleRows]);
+    }, [pinnedRowIds, pinnedRowNumbers, pinnedRowSnapshots, rows]);
 
     /** The summary row (if any) stays FIRST; the pinned copies follow it. */
     const gridPinnedTopSource = useMemo<Record<string, unknown>[]>(() => {
@@ -1428,11 +1459,18 @@ function DataGridInner(
         const ids = pinnedRowIdsRef.current;
         const visible = await getVisibleRows();
         const idSet = new Set(ids);
-        const next: Record<string, number> = {};
+        const positions: Record<string, number> = {};
         visible.forEach((row, index) => {
-            if (idSet.has(row.id)) next[row.id] = index + 1;
+            if (idSet.has(row.id)) positions[row.id] = index + 1;
         });
         setPinnedRowNumbers((previous) => {
+            const next: Record<string, number> = {};
+            // A row hidden by the filter keeps its last known number: the pin
+            // itself must survive filtering, so do not drop its entry.
+            for (const [id, value] of Object.entries(previous)) {
+                if (idSet.has(id)) next[id] = positions[id] ?? value;
+            }
+            for (const [id, value] of Object.entries(positions)) next[id] = value;
             const previousKeys = Object.keys(previous);
             const nextKeys = Object.keys(next);
             if (
@@ -2639,23 +2677,37 @@ function DataGridInner(
         ],
     );
 
-    const setRowPinned = useCallback((rowId: string, pinned: boolean, number?: number) => {
-        setPinnedRowIds((previous) => {
-            if (pinned) return previous.includes(rowId) ? previous : [...previous, rowId];
-            return previous.filter((id) => id !== rowId);
-        });
-        setPinnedRowNumbers((previous) => {
-            if (pinned) {
-                const next = number ?? previous[rowId];
-                if (next === undefined) return previous;
-                return previous[rowId] === next ? previous : { ...previous, [rowId]: next };
-            }
-            if (previous[rowId] === undefined) return previous;
-            const next = { ...previous };
-            delete next[rowId];
-            return next;
-        });
-    }, []);
+    const setRowPinned = useCallback(
+        (rowId: string, pinned: boolean, number?: number) => {
+            setPinnedRowIds((previous) => {
+                if (pinned) return previous.includes(rowId) ? previous : [...previous, rowId];
+                return previous.filter((id) => id !== rowId);
+            });
+            setPinnedRowSnapshots((previous) => {
+                if (!pinned) {
+                    if (previous[rowId] === undefined) return previous;
+                    const next = { ...previous };
+                    delete next[rowId];
+                    return next;
+                }
+                const row = rows.find((candidate) => candidate.id === rowId);
+                if (!row) return previous;
+                return previous[rowId] === row ? previous : { ...previous, [rowId]: row };
+            });
+            setPinnedRowNumbers((previous) => {
+                if (pinned) {
+                    const next = number ?? previous[rowId];
+                    if (next === undefined) return previous;
+                    return previous[rowId] === next ? previous : { ...previous, [rowId]: next };
+                }
+                if (previous[rowId] === undefined) return previous;
+                const next = { ...previous };
+                delete next[rowId];
+                return next;
+            });
+        },
+        [rows],
+    );
 
     /**
      * Right-click on a row number or anywhere on a pinned-row copy.

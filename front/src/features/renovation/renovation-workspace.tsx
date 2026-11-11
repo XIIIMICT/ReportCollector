@@ -2061,6 +2061,7 @@ export function RenovationWorkspace({
                                         headerCells={meta.headerCells}
                                         catalogs={meta.catalogs}
                                         scopeKey={scopeKey}
+                                        planKey={viewPlanId ?? ""}
                                         totalRows={planTotals.total}
                                         totalRowsAll={planTotals.totalAll ?? planTotals.total}
                                         loadRows={loadRows}

@@ -173,6 +173,12 @@ export type RenovationGridProps = {
      * Built by the workspace via `renovationGridScopeKey`.
      */
     scopeKey: string;
+    /**
+     * Identity of the plan/version being viewed. Pinned rows must survive
+     * filter and sorting changes (they are view state), but a different
+     * plan/version does not share rows, so only this key clears the pins.
+     */
+    planKey: string;
     /** Filtered row count — `total` for the remote loader (0 = nothing to load). */
     totalRows: number;
     /** Whole-plan row count, independent of asset/header filters. */
@@ -322,6 +328,7 @@ function RenovationGridInner(
         headerCells,
         catalogs,
         scopeKey,
+        planKey,
         totalRows,
         totalRowsAll,
         loadRows,
@@ -3383,26 +3390,36 @@ function RenovationGridInner(
     }, [pinnedRowCopies, pinnedSummaryRow]);
 
     // A pinned row keeps the number it had when pinned; live edits patch the
-    // snapshot (the remote source itself is untouched).
+    // snapshot (the remote source itself is untouched). Patches carry the
+    // CURRENT grid index, so resolve it back to a row id first: sorting or a
+    // filter re-numbers the window, and an index-only match would patch the
+    // wrong pinned row.
     useEffect(() => {
         if (rowPatches.length === 0 || pinnedRowSnapshots.length === 0) return;
+        const rowsByIndex = new Map(
+            loadedRows
+                .filter((row) => row.__index !== undefined)
+                .map((row) => [row.__index, row] as const),
+        );
         setPinnedRowSnapshots((previous) => {
             let changed = false;
             const next = previous.map((snapshot) => {
-                const patch = rowPatches.find((entry) => entry.index === snapshot.__index);
+                const patch = rowPatches.find(
+                    (entry) => rowsByIndex.get(entry.index)?.__id === snapshot.__id,
+                );
                 if (!patch) return snapshot;
                 changed = true;
                 return { ...snapshot, ...patch.fields };
             });
             return changed ? next : previous;
         });
-    }, [pinnedRowSnapshots.length, rowPatches]);
+    }, [loadedRows, pinnedRowSnapshots.length, rowPatches]);
 
-    // A different scope (plan/version/filter/sorting) is a different row set:
-    // stale pinned snapshots from the previous one would be meaningless.
+    // A different PLAN/VERSION is a different row set; filtering and sorting
+    // are view state and must not clear the pinned copies.
     useEffect(() => {
         setPinnedRowSnapshots([]);
-    }, [scopeKey]);
+    }, [planKey]);
 
     // The vertical scrollbar's lane: the width it takes away from the data
     // area at the grid's right edge. The custom horizontal strip must end

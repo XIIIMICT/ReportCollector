@@ -112,9 +112,13 @@ has a pinned summary row, the summary stays first and copies follow it. Copies
 are `disabled` (no editing, no leases), are not in the main `rgRow` source, and
 the clipboard/paste guards ignore them (their coordinates would otherwise map
 to unrelated main rows). Row pins are session-only — unlike column pins they
-are not persisted. The plan keeps the copy as a SNAPSHOT (the Infinity Scroll
-plugin evicts rows that scroll away); `rowPatches` update the snapshot in place,
-and a scope change (plan/version/filter/sorting) drops all pinned copies.
+are not persisted. Both grids keep a SNAPSHOT of the row, not just its id:
+sorting and filtering are VIEW state and never evict a pin (the copy stays even
+when the filter hides its original; its number is refreshed from the rendered
+order while the row is visible). The plan's snapshot outlives Infinity Scroll
+eviction and is patched by `rowPatches` resolved through the CURRENT grid index
+to the row id — an index-only match would patch the wrong row after a sort.
+Only switching to another plan/version drops the pinned copies.
 
 **Service columns** («Время добавления/редактирования», «Автор последней
 редакции») are no longer toggled from «Вид таблицы». They are hidden by default;
