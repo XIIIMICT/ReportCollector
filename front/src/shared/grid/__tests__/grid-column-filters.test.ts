@@ -118,6 +118,16 @@ test("hidden data columns are not built, their group keeps the rest", () => {
     expect(demand).toBeDefined();
 });
 
+test("a pinned column is built with RevoGrid's colPinStart", () => {
+    const columns = buildGridColumns("materialMovement", {
+        ...context,
+        pinnedKeys: new Set(["demandPlanTons"]),
+    });
+    const leaves = leavesOf(columns) as Array<{ prop: string; pin?: string }>;
+    expect(leaves.find((leaf) => String(leaf.prop) === "demandPlanTons")?.pin).toBe("colPinStart");
+    expect(leaves.find((leaf) => String(leaf.prop) === "consumptionFactTons")?.pin).toBeUndefined();
+});
+
 test("a group whose every child is hidden disappears", () => {
     const columns = buildGridColumns("materialMovement", {
         ...context,

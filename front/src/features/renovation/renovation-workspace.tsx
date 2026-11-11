@@ -61,6 +61,7 @@ import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import type { GridViewStats } from "@/shared/grid/data-grid";
 import { fieldFacetOrder } from "@/shared/grid/grid-config";
 import { useGridHiddenColumns } from "@/shared/grid/hidden-columns";
+import { useGridPinnedColumns } from "@/shared/grid/pinned-columns";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { SectionTabs } from "@/shared/grid/section-tabs";
 import {
@@ -311,6 +312,10 @@ export function RenovationWorkspace({
         hide: hidePlanFields,
         show: showPlanFields,
     } = useGridHiddenColumns("renovation", "plan");
+    const { overrides: pinnedPlanColumns, setMany: setPlanColumnsPinned } = useGridPinnedColumns(
+        "renovation",
+        "plan",
+    );
     // Flat filter list for the rows API; a column with nothing kept selects
     // nothing, which the server treats as "no rows" (never "all").
     const activeColumnFilters = useMemo(
@@ -2086,6 +2091,8 @@ export function RenovationWorkspace({
                                         hiddenFields={hiddenPlanFields}
                                         onHideFields={hidePlanFields}
                                         onShowFields={showPlanFields}
+                                        pinnedColumns={pinnedPlanColumns}
+                                        onPinColumns={setPlanColumnsPinned}
                                         onShowServiceColumnsChange={setShowServiceColumns}
                                         rowHeight={rowHeight}
                                         summaryValues={summaryValues}

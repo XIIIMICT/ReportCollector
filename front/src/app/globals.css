@@ -2675,6 +2675,18 @@ revogr-data .rgCell.report-cell--number {
     display: block;
 }
 
+/* Pinned-row copies: read-only snapshots under the column-number strip. The
+   original row stays in the table; the copy is marked by its number only so a
+   glance is enough to tell where «Открепить» lives. */
+.data-grid revogr-data .rgCell.data-grid__pinned-copy {
+    background: var(--surface);
+}
+
+.report-row-header__button--pinned-copy {
+    color: var(--accent);
+    font-weight: 650;
+}
+
 .data-grid.data-grid--merged-header revogr-header .rgHeaderCell.report-row-header--heading {
     top: calc(-1 * var(--grid-header-height) / 2);
     height: 200%;
@@ -2976,6 +2988,27 @@ revogr-data .rgCell.report-cell--number {
     left: 0;
 }
 
+/* The pinned column area stays fixed while the header body slides. The
+   backdrop closes the gaps between grouped header cells; the pinned cells
+   counter-translate by the same amount as the body, so their net position is
+   constant. */
+.renovation-grid__header-pinned-backdrop {
+    position: absolute;
+    top: 0;
+    z-index: 1;
+    height: 100%;
+    background: var(--surface);
+    transform: translateX(var(--renovation-scroll-x, 0px));
+    box-shadow: 1px 0 0 var(--cell-border);
+}
+
+.renovation-grid__header-cell--pinned,
+.renovation-grid__number-cell--pinned {
+    z-index: 2;
+    background: var(--surface);
+    transform: translateX(var(--renovation-scroll-x, 0px));
+}
+
 .renovation-grid__header-cell {
     position: absolute;
     box-sizing: border-box;
@@ -3097,6 +3130,11 @@ revogr-data .rgCell.report-cell--number {
 .renovation-grid__resize-handle:hover,
 .renovation-grid__resize-handle.is-dragging {
     background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.renovation-grid__resize-handle--pinned {
+    z-index: 3;
+    transform: translateX(var(--renovation-scroll-x, 0px));
 }
 
 /* Header level height: a horizontal handle on each level's bottom boundary

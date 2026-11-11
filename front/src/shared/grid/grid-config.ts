@@ -37,6 +37,12 @@ export type GridRow = Record<string, unknown> & {
     isDeleted: boolean;
     canonicalCells?: Record<string, string>;
     isPlaceholder?: boolean;
+    /** View-only copy of a pinned row, rendered above the data. */
+    __pinnedCopy?: boolean;
+    /** The original row id a pinned copy mirrors. */
+    __pinSourceId?: string;
+    /** The row's number in the main table, shown on the pinned copy. */
+    __pinNumber?: number | null;
     /** View-only row (for example, the signed-in user's administration row). */
     readOnlyRow?: boolean;
     /**
@@ -135,6 +141,8 @@ export type GridColumnContext = {
      * not hideable, and the grid keeps at least its identifying column set.
      */
     hiddenKeys?: ReadonlySet<string>;
+    /** Columns the user pinned to the left (`colPinStart`). */
+    pinnedKeys?: ReadonlySet<string>;
 };
 
 export type ExportColumn = {
@@ -602,6 +610,7 @@ function buildLeaf(
         minSize: 82,
         maxSize: 620,
         sortable: true,
+        ...(context.pinnedKeys?.has(descriptor.key) && { pin: "colPinStart" }),
         cellCompare: placeholderLastCellCompare,
         readonly: ({ model }) => {
             const row = model as GridRow;
@@ -726,6 +735,7 @@ function isCellReadOnly(
     const canonicalKey = row.canonicalCells?.[descriptor.key];
     return (
         context.readOnly ||
+        row.__pinnedCopy === true ||
         (canonicalKey !== undefined && context.remoteLocks.has(canonicalKey)) ||
         descriptor.fixed === true ||
         descriptor.kind === "calculated" ||
@@ -783,6 +793,7 @@ function cellProperties(
                 !calculated &&
                 row.changedFields.includes(descriptor.key),
             "report-cell--calculated": calculated,
+            "data-grid__pinned-copy": row.__pinnedCopy === true,
             "report-cell--empty":
                 !row.isDeleted &&
                 !row.isPlaceholder &&
@@ -796,6 +807,11 @@ function cellProperties(
                 ? `${remoteUser.name} — ${remoteUser.label}`
                 : remoteUser.name
             : undefined,
+        // Only a pinned copy carries the row id on its DATA cells: right-click
+        // anywhere on the copy opens the «Открепить» menu. Real rows are
+        // addressed through their row header.
+        "data-row-id": row.__pinnedCopy === true ? row.__pinSourceId : undefined,
+        "data-pinned-copy": row.__pinnedCopy === true ? "true" : undefined,
     };
 }
 

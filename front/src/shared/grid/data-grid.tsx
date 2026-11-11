@@ -28,9 +28,11 @@ import {
 
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import {
-    GridHeaderMenu,
+    columnMenuItems,
+    GridContextMenu,
     GridUnhideButton,
-    type GridHideRequest,
+    type GridMenuItem,
+    type GridMenuRequest,
 } from "@/shared/grid/grid-header-menu";
 import { keepsGridSelection } from "@/shared/grid/grid-selection";
 import {
@@ -39,6 +41,7 @@ import {
     type HiddenColumnAnchors,
 } from "@/shared/grid/hidden-columns";
 import { type HiddenColumnEntry } from "@/shared/grid/hidden-columns-list";
+import { isColumnPinned, useGridPinnedColumns } from "@/shared/grid/pinned-columns";
 import { reactEditor } from "@/shared/grid/react-editor";
 import { createGridEpoch, createRevoGridAdapter } from "@/shared/grid/revo-grid-adapter";
 import { readStoredSorting, writeStoredSorting } from "@/shared/grid/use-grid-column-filters";
@@ -839,6 +842,10 @@ function DataGridInner(
     // and sorting. Fixed columns and the project-wide service columns are not
     // part of this set: they have their own rules.
     const { hidden, hide, show } = useGridHiddenColumns(sortingScope, section);
+    const { overrides: pinnedOverrides, setMany: setPinnedMany } = useGridPinnedColumns(
+        sortingScope,
+        section,
+    );
     const dataDescriptors = useMemo(
         () =>
             getVisibleDescriptors(section, showAssetColumn, false, {
@@ -847,14 +854,26 @@ function DataGridInner(
             }),
         [section, showAssetColumn, keycloakEnabled, columnDescriptors],
     );
+    /** Columns pinning to the left for the CURRENT table. */
+    const pinnedKeys = useMemo(
+        () =>
+            new Set(
+                dataDescriptors
+                    .filter((descriptor) =>
+                        isColumnPinned(descriptor.key, pinnedOverrides, descriptor.pinned),
+                    )
+                    .map((descriptor) => descriptor.key),
+            ),
+        [dataDescriptors, pinnedOverrides],
+    );
     const hideableKeys = useMemo(
         () =>
             new Set(
                 dataDescriptors
-                    .filter((descriptor) => !descriptor.pinned)
+                    .filter((descriptor) => !pinnedKeys.has(descriptor.key))
                     .map((descriptor) => descriptor.key),
             ),
-        [dataDescriptors],
+        [dataDescriptors, pinnedKeys],
     );
     const effectiveHidden = useMemo<HiddenColumnAnchors>(() => {
         const result: HiddenColumnAnchors = {};
@@ -900,8 +919,32 @@ function DataGridInner(
         () => new Set(SERVICE_DESCRIPTORS.map((descriptor) => descriptor.key)),
         [],
     );
-    const [headerMenu, setHeaderMenu] = useState<GridHideRequest | null>(null);
-    const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+    /** The shared column/row context menu (opened by a header or a row number). */
+    const [gridMenu, setGridMenu] = useState<GridMenuRequest | null>(null);
+    const [gridMenuOpen, setGridMenuOpen] = useState(false);
+    /**
+     * Rows the user pinned. Session-only (unlike the persisted column pins):
+     * a pinned row stays in the main source and gets a READ-ONLY copy right
+     * under the column-number strip, so nothing is re-indexed and the original
+     * remains where the user found it.
+     */
+    const [pinnedRowIds, setPinnedRowIds] = useState<string[]>([]);
+    const pinnedRowIdSet = useMemo(() => new Set(pinnedRowIds), [pinnedRowIds]);
+    /**
+     * The numbers the pinned copies show. Captured from the RENDERED row order
+     * (RevoGrid sorts its own source, so `visibleRows` is not the display
+     * order) and refreshed after every source pass — a pinned copy must keep
+     * the same number as the row it mirrors.
+     */
+    const [pinnedRowNumbers, setPinnedRowNumbers] = useState<Record<string, number>>({});
+    const pinnedRowIdsRef = useRef(pinnedRowIds);
+    pinnedRowIdsRef.current = pinnedRowIds;
+    // Row pins are session-only AND table-scoped: an id from another section
+    // must not come back when the user returns to it.
+    useEffect(() => {
+        setPinnedRowIds([]);
+        setPinnedRowNumbers({});
+    }, [section, sortingScope]);
     const [unhideButtons, setUnhideButtons] = useState<
         Array<{
             key: string;
@@ -1081,6 +1124,39 @@ function DataGridInner(
         );
     }, [activeFilters, facetText, filteringEnabled, rows]);
 
+    /**
+     * The read-only snapshots shown in the pinned strip. A copy mirrors a row
+     * that is STILL in `visibleRows` — pinning never removes or reorders it;
+     * the copy carries the row's current number and a unique id so RevoGrid
+     * treats it as a separate record.
+     */
+    const pinnedCopyRows = useMemo<GridRow[]>(() => {
+        if (pinnedRowIds.length === 0) return [];
+        const indexById = new Map(visibleRows.map((row, index) => [row.id, index]));
+        const copies: GridRow[] = [];
+        for (const id of pinnedRowIds) {
+            const index = indexById.get(id);
+            if (index === undefined) continue;
+            const row = visibleRows[index];
+            if (!row || row.isPlaceholder) continue;
+            copies.push({
+                ...row,
+                id: `${row.id}::pinned`,
+                __pinnedCopy: true,
+                __pinSourceId: row.id,
+                __pinNumber: pinnedRowNumbers[id] ?? index + 1,
+            });
+        }
+        return copies;
+    }, [pinnedRowIds, pinnedRowNumbers, visibleRows]);
+
+    /** The summary row (if any) stays FIRST; the pinned copies follow it. */
+    const gridPinnedTopSource = useMemo<Record<string, unknown>[]>(() => {
+        const summary = pinnedTopSource ?? EMPTY_PINNED_SOURCE;
+        if (pinnedCopyRows.length === 0) return summary;
+        return [...summary, ...pinnedCopyRows];
+    }, [pinnedCopyRows, pinnedTopSource]);
+
     /** Scroll to a 1-based position in the rows the grid currently shows. */
     const scrollToRowPosition = useCallback(async (position: number) => {
         const grid = gridRef.current;
@@ -1156,12 +1232,15 @@ function DataGridInner(
             remoteLocks,
             remoteCellInfo,
             hiddenKeys,
+            pinnedKeys,
             ...(columnDescriptors && { descriptors: columnDescriptors }),
             onBooleanChange: (row, field, value) => {
                 if (row.isPlaceholder) void onPlaceholderCommit({ [field]: value });
                 else void onCommit([{ rowId: row.id, field, value }]);
             },
         });
+        // The SUMMARY row, never a pinned copy: a grid without a summary must
+        // not merge its header over the first pinned copy.
         const summaryRow = pinnedTopSource?.[0];
         // Sorting is carried BOTH ways: by the `sorting` prop (the sorting job
         // itself) and by the columns' own `order` (`columnChanged` collects it
@@ -1280,6 +1359,7 @@ function DataGridInner(
         deliveryBases,
         hasBaseline,
         hiddenKeys,
+        pinnedKeys,
         isAdmin,
         keycloakEnabled,
         showAssetColumn,
@@ -1322,6 +1402,13 @@ function DataGridInner(
     const contentHeight = headerHeight + rows.length * rowHeight + 18;
 
     const selectionRangeRef = useRef<RangeArea | null>(null);
+    /**
+     * The current focus/range belongs to the pinned-row strip. Its coordinates
+     * are indices of `pinnedTopSource`, NOT of the main `rgRow` source — any
+     * clipboard or edit action that maps `y` to `visibleRows` must be refused
+     * rather than silently touching the wrong row.
+     */
+    const selectionInPinnedRowRef = useRef(false);
     const updateSelectionRange = useCallback((range: RangeArea | null) => {
         selectionRangeRef.current = range;
         setSelectionRange(range);
@@ -1335,6 +1422,28 @@ function DataGridInner(
     const getVisibleRows = useCallback(async (): Promise<GridRow[]> => {
         return gridAdapter.getVisibleRows(rows);
     }, [gridAdapter, rows]);
+
+    /** Keep the pinned copies' numbers in step with the rendered row order. */
+    const syncPinnedRowNumbers = useCallback(async () => {
+        const ids = pinnedRowIdsRef.current;
+        const visible = await getVisibleRows();
+        const idSet = new Set(ids);
+        const next: Record<string, number> = {};
+        visible.forEach((row, index) => {
+            if (idSet.has(row.id)) next[row.id] = index + 1;
+        });
+        setPinnedRowNumbers((previous) => {
+            const previousKeys = Object.keys(previous);
+            const nextKeys = Object.keys(next);
+            if (
+                previousKeys.length === nextKeys.length &&
+                nextKeys.every((key) => previous[key] === next[key])
+            ) {
+                return previous;
+            }
+            return next;
+        });
+    }, [getVisibleRows]);
 
     // Selected rows (row-number buttons) — we reflect them in presence too.
     const selectedRowsRange = useMemo(() => {
@@ -1574,12 +1683,20 @@ function DataGridInner(
             }),
             cellProperties: ({ model }) => {
                 const row = model as GridRow;
+                const sourceId = row.__pinnedCopy ? row.__pinSourceId : row.id;
                 return {
                     className: {
                         "report-row-header": true,
-                        "report-row-header--selected": selectedRowIds.includes(row.id),
+                        "report-row-header--selected":
+                            !row.__pinnedCopy && selectedRowIds.includes(row.id),
                         "report-row-header--summary": row.id === SUMMARY_ROW_ID,
+                        "report-row-header--pinned-copy": row.__pinnedCopy === true,
                     },
+                    // The row menu needs the row behind the cell. Real rows are
+                    // addressed by their own id; a pinned copy points at the
+                    // source row it mirrors. The «＋» placeholder is not a row.
+                    "data-row-id": row.isPlaceholder ? undefined : sourceId,
+                    "data-pinned-copy": row.__pinnedCopy === true ? "true" : undefined,
                 };
             },
             cellTemplate: (h: HyperFunc<VNode>, { rowIndex, model }) => {
@@ -1588,9 +1705,12 @@ function DataGridInner(
                 if (row.id === SUMMARY_ROW_ID) {
                     return h("span", { class: "report-row-header__summary" });
                 }
-                // The go-to popover clamps to the running row number.
-                if (!row.isPlaceholder) visibleRowCountRef.current = rowIndex + 1;
-                const selected = selectedRowIds.includes(row.id);
+                const isCopy = row.__pinnedCopy === true;
+                // The go-to popover clamps to the running row number. A pinned
+                // copy is not part of the main source and must not move it.
+                if (!row.isPlaceholder && !isCopy) visibleRowCountRef.current = rowIndex + 1;
+                const selected = !isCopy && selectedRowIds.includes(row.id);
+                const number = isCopy ? (row.__pinNumber ?? rowIndex + 1) : rowIndex + 1;
                 // The trailing «добавить запись» row shows «+» instead of a
                 // number — same as the renovation plan grid.
                 return h(
@@ -1600,21 +1720,25 @@ function DataGridInner(
                         class: {
                             "report-row-header__button": true,
                             "report-row-header__button--selected": selected,
+                            "report-row-header__button--pinned-copy": isCopy,
                         },
                         title: row.isPlaceholder
                             ? "Добавить строку"
-                            : selected
-                              ? `Снять выделение строки ${rowIndex + 1}`
-                              : `Выделить строку ${rowIndex + 1}`,
+                            : isCopy
+                              ? `Закреплённая строка ${number}`
+                              : selected
+                                ? `Снять выделение строки ${number}`
+                                : `Выделить строку ${number}`,
                         onMouseDown: (event: MouseEvent) => {
                             event.stopPropagation();
                         },
                         onClick: (event: MouseEvent) => {
                             event.stopPropagation();
+                            if (isCopy) return;
                             handleRowNumberClick(event, rowIndex, row.id);
                         },
                     },
-                    row.isPlaceholder ? "+" : String(rowIndex + 1),
+                    row.isPlaceholder ? "+" : String(number),
                 );
             },
         }),
@@ -1662,6 +1786,7 @@ function DataGridInner(
     function canEditDescriptor(descriptor: ColumnDescriptor, row: GridRow): boolean {
         return !(
             readOnly ||
+            row.__pinnedCopy === true ||
             row.readOnlyRow === true ||
             row.lockedCells?.includes(descriptor.key) ||
             row.isDeleted ||
@@ -1676,7 +1801,7 @@ function DataGridInner(
 
     const canPasteRange = useCallback(
         (range: RangeArea | null, source: GridRow[]): boolean => {
-            if (!range || readOnly) return false;
+            if (!range || readOnly || selectionInPinnedRowRef.current) return false;
             for (let y = range.y; y <= Math.min(range.y1, source.length - 1); y++) {
                 const row = source[y];
                 if (!row) continue;
@@ -1862,6 +1987,11 @@ function DataGridInner(
     }
 
     function beforeRangeEdit(event: CustomEvent<BeforeRangeSaveDataDetails>) {
+        // Pinned copies are read-only and their coordinates are not rgRow ones.
+        if (event.detail.type === "rowPinStart") {
+            event.preventDefault();
+            return;
+        }
         const patches = event.detail.data as Record<string, GridRow>;
         const models = event.detail.models as Record<string, GridRow | undefined>;
         const skippedColumns = new Map<string, string>();
@@ -2432,18 +2562,16 @@ function DataGridInner(
             );
             if (!cell) return;
             const leaf = cell.querySelector("[data-prop]")?.getAttribute("data-prop") ?? null;
-            let props: string[] = [];
+            let targets: string[] = [];
             let level = headerRowCount > 1 ? 1 : 0;
             let service = false;
             if (leaf !== null) {
                 if (serviceKeys.has(leaf)) {
                     if (!onServiceColumnsChange) return;
-                    props = [leaf];
+                    targets = [leaf];
                     service = true;
                 } else {
-                    const descriptor = descriptorByKey.get(leaf);
-                    if (!descriptor || descriptor.pinned) return;
-                    props = [leaf];
+                    targets = [leaf];
                 }
             } else {
                 const groupNames = [
@@ -2459,35 +2587,136 @@ function DataGridInner(
                     groupNames.find((name) => text.includes(name)) ??
                     null;
                 if (!group) return;
-                props = descriptors
+                targets = dataDescriptors
                     .filter(
                         (descriptor) =>
                             descriptor.path?.[0] === group &&
-                            !descriptor.pinned &&
+                            effectiveHidden[descriptor.key] === undefined &&
                             !serviceKeys.has(descriptor.key),
                     )
                     .map((descriptor) => descriptor.key);
-                if (props.length === 0) return;
+                if (targets.length === 0) return;
                 level = 0;
             }
             event.preventDefault();
             event.stopPropagation();
-            setHeaderMenuOpen(true);
-            setHeaderMenu({ x: event.clientX, y: event.clientY, props, level, service });
+            const items = columnMenuItems({
+                targets,
+                level,
+                pinnedKeys,
+                service,
+                onHide: (props, targetLevel) => {
+                    hide(props, targetLevel);
+                    clearGridSelection();
+                },
+                onPin: (props) => {
+                    setPinnedMany(props, true);
+                    show(props);
+                    clearGridSelection();
+                },
+                onUnpin: (props) => {
+                    setPinnedMany(props, false);
+                    clearGridSelection();
+                },
+                onHideService: () => onServiceColumnsChange?.(false),
+            });
+            if (items.length === 0) return;
+            setGridMenuOpen(true);
+            setGridMenu({ x: event.clientX, y: event.clientY, items });
         },
-        [descriptorByKey, descriptors, headerRowCount, onServiceColumnsChange, serviceKeys],
+        [
+            clearGridSelection,
+            dataDescriptors,
+            descriptors,
+            effectiveHidden,
+            headerRowCount,
+            hide,
+            onServiceColumnsChange,
+            pinnedKeys,
+            serviceKeys,
+            setPinnedMany,
+            show,
+        ],
     );
 
-    const handleHideRequest = useCallback(
-        (request: GridHideRequest) => {
-            if (request.service) {
-                onServiceColumnsChange?.(false);
-                return;
+    const setRowPinned = useCallback((rowId: string, pinned: boolean, number?: number) => {
+        setPinnedRowIds((previous) => {
+            if (pinned) return previous.includes(rowId) ? previous : [...previous, rowId];
+            return previous.filter((id) => id !== rowId);
+        });
+        setPinnedRowNumbers((previous) => {
+            if (pinned) {
+                const next = number ?? previous[rowId];
+                if (next === undefined) return previous;
+                return previous[rowId] === next ? previous : { ...previous, [rowId]: next };
             }
-            hide(request.props, request.level);
-            clearGridSelection();
+            if (previous[rowId] === undefined) return previous;
+            const next = { ...previous };
+            delete next[rowId];
+            return next;
+        });
+    }, []);
+
+    /**
+     * Right-click on a row number or anywhere on a pinned-row copy.
+     *
+     * The row's real place in the source is untouched: the copy in the pinned
+     * strip is the only thing that appears or disappears. Returns `true` when
+     * the event belonged to a row so the header menu does not also open.
+     */
+    const openRowMenu = useCallback(
+        (event: ReactMouseEvent<HTMLDivElement>): boolean => {
+            const path = event.nativeEvent.composedPath?.() ?? [];
+            const cell = path.find(
+                (node): node is HTMLElement =>
+                    node instanceof HTMLElement &&
+                    node.classList.contains("rgCell") &&
+                    node.hasAttribute("data-row-id"),
+            );
+            if (!cell) return false;
+            const rowId = cell.getAttribute("data-row-id");
+            if (!rowId || rowId === SUMMARY_ROW_ID) return false;
+            const isCopy = cell.getAttribute("data-pinned-copy") === "true";
+            // The row header's `data-rgrow` is the RENDERED index (sorting
+            // included), which is exactly the number the copy must show.
+            const renderedIndex = Number(cell.getAttribute("data-rgrow"));
+            event.preventDefault();
+            event.stopPropagation();
+            const pinned = isCopy || pinnedRowIdSet.has(rowId);
+            const items: GridMenuItem[] = [
+                pinned
+                    ? {
+                          id: "unpin-row",
+                          label: "Открепить",
+                          icon: "unpin" as const,
+                          onSelect: () => setRowPinned(rowId, false),
+                      }
+                    : {
+                          id: "pin-row",
+                          label: "Закрепить",
+                          icon: "pin" as const,
+                          onSelect: () =>
+                              setRowPinned(
+                                  rowId,
+                                  true,
+                                  Number.isFinite(renderedIndex) ? renderedIndex + 1 : undefined,
+                              ),
+                      },
+            ];
+            setGridMenuOpen(true);
+            setGridMenu({ x: event.clientX, y: event.clientY, items });
+            return true;
         },
-        [clearGridSelection, hide, onServiceColumnsChange],
+        [pinnedRowIdSet, setRowPinned],
+    );
+
+    /** The grid shell's right-click: a row menu wins, then a header menu. */
+    const openGridContextMenu = useCallback(
+        (event: ReactMouseEvent<HTMLDivElement>) => {
+            if (openRowMenu(event)) return;
+            openHeaderMenu(event);
+        },
+        [openHeaderMenu, openRowMenu],
     );
 
     const handleUnhide = useCallback(
@@ -2758,6 +2987,8 @@ function DataGridInner(
     const buildCopyText = useCallback(
         async (range: RangeArea | null): Promise<string | null> => {
             if (columns.length === 0) return null;
+            // A range in the pinned strip is not a range of the main source.
+            if (selectionInPinnedRowRef.current && selectedRowIds.length === 0) return null;
             const allProps = flatColumns.map((column) => column.prop);
             const lines: string[] = [];
             if (selectedRowIds.length > 0) {
@@ -2897,6 +3128,9 @@ function DataGridInner(
             if (parsed.length === 0) return;
             const range = selectionRangeRef.current;
             if (!range) return;
+            // Coordinates in the pinned strip index `pinnedTopSource` — pasting
+            // there would land on unrelated main rows.
+            if (selectionInPinnedRowRef.current) return;
 
             const pasteHeight = parsed.length;
             const pasteWidth = Math.max(0, ...parsed.map((row) => row.length));
@@ -3329,7 +3563,7 @@ function DataGridInner(
                 remoteTooltipTargetRef.current = null;
                 setRemoteTooltip(null);
             }}
-            onContextMenu={openHeaderMenu}
+            onContextMenu={openGridContextMenu}
         >
             <Tooltip isOpen={remoteTooltip !== null}>
                 <Tooltip.Trigger
@@ -3409,13 +3643,14 @@ function DataGridInner(
                         "data-grid",
                         headerRowCount > 1 && "data-grid--merged-header",
                         Boolean(pinnedTopSource?.length) && "data-grid--summary",
+                        pinnedCopyRows.length > 0 && "data-grid--pinned-rows",
                         userSortedSectionsRef.current.has(section) && "data-grid--user-sorted",
                     ]
                         .filter(Boolean)
                         .join(" ")}
                     columns={columns}
                     source={visibleRows}
-                    pinnedTopSource={pinnedTopSource ?? EMPTY_PINNED_SOURCE}
+                    pinnedTopSource={gridPinnedTopSource}
                     plugins={plugins ?? EMPTY_PLUGIN_LIST}
                     theme="compact"
                     range
@@ -3431,6 +3666,7 @@ function DataGridInner(
                         void refreshHorizontalScrollbar();
                         void measureViewport();
                         scheduleFunnelMeasure();
+                        void syncPinnedRowNumbers();
                     }}
                     onHeaderclick={(event) => {
                         // Ctrl+click ADDS a sort level; a plain click REPLACES the
@@ -3653,15 +3889,19 @@ function DataGridInner(
                     onBeforeedit={beforeEdit}
                     onAfteredit={afterEdit}
                     onBeforerangeedit={beforeRangeEdit}
-                    onBeforecellfocus={(event) =>
+                    onBeforecellfocus={(event) => {
+                        selectionInPinnedRowRef.current = event.detail.type === "rowPinStart";
                         updateSelectionRange({
                             x: event.detail.colIndex,
                             y: event.detail.rowIndex,
                             x1: event.detail.colIndex,
                             y1: event.detail.rowIndex,
-                        })
-                    }
-                    onBeforerange={(event) => updateSelectionRange(event.detail.newRange)}
+                        });
+                    }}
+                    onBeforerange={(event) => {
+                        selectionInPinnedRowRef.current = event.detail.type === "rowPinStart";
+                        updateSelectionRange(event.detail.newRange);
+                    }}
                 />
             </div>
             <div
@@ -3710,11 +3950,10 @@ function DataGridInner(
                     onClose={() => setFilterTarget(null)}
                 />
             ) : null}
-            <GridHeaderMenu
-                request={headerMenu}
-                isOpen={headerMenuOpen}
-                onOpenChange={setHeaderMenuOpen}
-                onHide={handleHideRequest}
+            <GridContextMenu
+                request={gridMenu}
+                isOpen={gridMenuOpen}
+                onOpenChange={setGridMenuOpen}
             />
         </div>
     );

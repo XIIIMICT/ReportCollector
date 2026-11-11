@@ -54,15 +54,15 @@ Native fullscreen is always attempted. Keyboard Lock is optional: when granted, 
 ## Hidden columns and service columns
 
 Right-click a leaf header (or the plan's column-number strip) to open the
-HeroUI Dropdown with «Скрыть»; right-click a grouping cell to hide every leaf
-under it. The menu animates in/out from the pointer, and the hidden set is
-remembered per table in `localStorage` under
+HeroUI Dropdown with «Скрыть»/«Закрепить»/«Открепить»; right-click a grouping
+cell to act on every leaf under it. Pinned columns are never hideable: their
+menu offers only «Открепить», so a mixed group shows «Закрепить» for its
+unpinned part and «Открепить» for its pinned one. The menu animates in/out from
+the pointer, and the hidden set is remembered per table in `localStorage` under
 `rc:hiddenColumns:<project>:<section>` as `{prop: headerLevel}` — the level the
 clicked cell started at, not pixels, so the expand button follows the header
-heights when they are dragged. `pinned` descriptors (the plan's synthetic
-«Предприятие», «Сырьевая позиция», «Актив», KPPK «Продукция»/«Рынок сбыта»)
-never open the menu; `fixed`/calculated columns are read-only but still
-hideable.
+heights when they are dragged. `fixed`/calculated columns are read-only but
+still hideable.
 
 Adjacent hidden columns collapse into ONE block. Its HeroUI `Button` («+»,
 icon-only) is centred on the block's left boundary at the block's anchor level —
@@ -80,6 +80,41 @@ Filters and sorting on a hidden column stay active (hiding is visual), and
 index-based cell merges are suppressed while any column is hidden (the same
 guard filters/sorting already use). Hidden columns are removed from the grid
 columns, so copy and range operations see only the visible order.
+
+## Pinned columns and rows
+
+**Columns.** «Закрепить» in the header (and number-strip) menu sets RevoGrid's
+`pin: "colPinStart"`: the column leaves the scrolling area and stays at the
+left edge. Several columns may be pinned; their order is the header order.
+`ColumnDescriptor.pinned` is only the DEFAULT (the «Сырьевая позиция»,
+«Актив», KPPK «Продукция»/«Рынок сбыта» and similar identity columns ship
+pinned) — the user may unpin even those. The plan's synthetic «Предприятие»
+has no form field behind it: it is the row identity and stays pinned always.
+The overrides are persisted per table in `localStorage` under
+`rc:pinnedColumns:<project>:<section>` as `{prop: boolean}` (`true` pins a
+regular column, `false` unpins a default-pinned one); an absent key follows the
+descriptor. Pinned columns are excluded from the hidden set, and pinning a
+column that was hidden reveals it (`show` first). The plan reorders its form
+fields pinned-first; its custom 11-level overlay splits every header band into a
+pinned and a scrolling run, draws an opaque pinned backdrop and counter-
+translates the pinned header cells, number cells and resize handles by
+`--renovation-scroll-x` (set from `onViewportscroll`), so the overlay stays
+aligned while the rest of the header slides. This applies to every table and
+every project (raw materials, КППК, the renovation dictionaries and the plan).
+
+**Rows.** Right-click a row number (any grid) to get «Закрепить»/«Открепить».
+Pinning does NOT remove or reorder the row: the original stays in the source
+and a READ-ONLY copy is appended to the grid's `pinnedTopSource`, below the
+column-number strip. The copy shows the original row's number, has its own id
+(`${id}::pinned`) and carries `data-row-id`/`data-pinned-copy` on its cells, so
+right-clicking ANYWHERE on the copy offers «Открепить». In a table that already
+has a pinned summary row, the summary stays first and copies follow it. Copies
+are `disabled` (no editing, no leases), are not in the main `rgRow` source, and
+the clipboard/paste guards ignore them (their coordinates would otherwise map
+to unrelated main rows). Row pins are session-only — unlike column pins they
+are not persisted. The plan keeps the copy as a SNAPSHOT (the Infinity Scroll
+plugin evicts rows that scroll away); `rowPatches` update the snapshot in place,
+and a scope change (plan/version/filter/sorting) drops all pinned copies.
 
 **Service columns** («Время добавления/редактирования», «Автор последней
 редакции») are no longer toggled from «Вид таблицы». They are hidden by default;

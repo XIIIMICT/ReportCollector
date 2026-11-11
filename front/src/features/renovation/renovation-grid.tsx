@@ -85,13 +85,16 @@ import {
 } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import {
-    GridHeaderMenu,
+    columnMenuItems,
+    GridContextMenu,
     GridUnhideButton,
-    type GridHideRequest,
+    type GridMenuItem,
+    type GridMenuRequest,
 } from "@/shared/grid/grid-header-menu";
 import { keepsGridSelection } from "@/shared/grid/grid-selection";
 import { hiddenColumnBlocks, type HiddenColumnAnchors } from "@/shared/grid/hidden-columns";
 import { type HiddenColumnEntry } from "@/shared/grid/hidden-columns-list";
+import { isColumnPinned, type PinnedColumnOverrides } from "@/shared/grid/pinned-columns";
 import { reactEditor } from "@/shared/grid/react-editor";
 import {
     createGridEpoch,
@@ -135,6 +138,12 @@ const EMPTY_PINNED_SOURCE: RenovationGridRow[] = [];
 export type RenovationGridRow = {
     /** Canonical row id (UUID). */
     __id: string;
+    /** View-only copy of a pinned row in the pinned strip. */
+    __pinnedCopy?: boolean;
+    /** The original row id a pinned copy mirrors. */
+    __pinSourceId?: string;
+    /** The row's sequential number in the filtered scope, shown on the copy. */
+    __pinNumber?: number;
     /**
      * Row index in the remote source (0-based) — the offset of the row in the
      * FILTERED plan, which is also the index the server pages by. Assigned when
@@ -227,6 +236,9 @@ export type RenovationGridProps = {
     hiddenFields: HiddenColumnAnchors;
     onHideFields: (fields: readonly string[], level: number) => void;
     onShowFields: (fields: readonly string[]) => void;
+    /** User pin overrides of the plan's form fields. */
+    pinnedColumns: PinnedColumnOverrides;
+    onPinColumns: (fields: readonly string[], pinned: boolean) => void;
     onShowServiceColumnsChange?: (visible: boolean) => void;
     /** Controlled RevoGrid data row height. */
     rowHeight: number;
@@ -339,6 +351,8 @@ function RenovationGridInner(
         hiddenFields,
         onHideFields,
         onShowFields,
+        pinnedColumns,
+        onPinColumns,
         onShowServiceColumnsChange,
         rowHeight,
         summaryValues = null,
@@ -454,9 +468,16 @@ function RenovationGridInner(
         top: number;
     } | null>(null);
     const numberTooltipTargetRef = useRef<Element | null>(null);
-    // The header right-click menu (hide a column or a whole grouping cell).
-    const [headerMenu, setHeaderMenu] = useState<GridHideRequest | null>(null);
-    const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+    // The shared context menu: header cells (hide/pin columns) and row
+    // numbers / pinned-row copies (pin/unpin rows).
+    const [gridMenu, setGridMenu] = useState<GridMenuRequest | null>(null);
+    const [gridMenuOpen, setGridMenuOpen] = useState(false);
+    /**
+     * Pinned plan rows, kept as SNAPSHOTS: the remote source evicts rows the
+     * user scrolled away from, and the pinned copy must stay. The row itself
+     * remains in the plan; only this read-only copy appears in the strip.
+     */
+    const [pinnedRowSnapshots, setPinnedRowSnapshots] = useState<RenovationGridRow[]>([]);
 
     const catalogLabelsByField = useMemo(() => {
         const optionsByCatalog = new Map<string, string[]>();
@@ -494,13 +515,24 @@ function RenovationGridInner(
 
     // The synthetic asset column is the plan's identifying column: it is never
     // hidden. Service columns have their own project-wide toggle.
+    const pinnedFieldKeys = useMemo(
+        () =>
+            new Set(
+                blockFields
+                    .filter((field) => isColumnPinned(field.dbName, pinnedColumns))
+                    .map((field) => field.dbName),
+            ),
+        [blockFields, pinnedColumns],
+    );
     const hideableFields = useMemo(
         () =>
             blockFields.filter(
                 (field) =>
-                    field.dbName !== ASSET_COLUMN_PROP && !SERVICE_DB_NAMES.has(field.dbName),
+                    field.dbName !== ASSET_COLUMN_PROP &&
+                    !SERVICE_DB_NAMES.has(field.dbName) &&
+                    !pinnedFieldKeys.has(field.dbName),
             ),
-        [blockFields],
+        [blockFields, pinnedFieldKeys],
     );
     const effectiveHiddenFields = useMemo<HiddenColumnAnchors>(() => {
         const allowed = new Set(hideableFields.map((field) => field.dbName));
@@ -518,23 +550,22 @@ function RenovationGridInner(
             ),
         [effectiveHiddenFields, hideableFields],
     );
-    const visibleFields = useMemo(
-        () => blockFields.filter((field) => effectiveHiddenFields[field.dbName] === undefined),
-        [blockFields, effectiveHiddenFields],
-    );
+    // The visual order: pinned fields first, then the rest; hidden fields are
+    // removed. The synthetic asset column is always first and pinned.
+    const visibleFields = useMemo(() => {
+        const present = blockFields.filter(
+            (field) => effectiveHiddenFields[field.dbName] === undefined,
+        );
+        return [
+            ...present.filter((field) => pinnedFieldKeys.has(field.dbName)),
+            ...present.filter((field) => !pinnedFieldKeys.has(field.dbName)),
+        ];
+    }, [blockFields, effectiveHiddenFields, pinnedFieldKeys]);
 
     const fieldByDbName = useMemo(() => {
         const result = new Map<string, RenovationField>();
         for (const field of visibleFields) {
             result.set(field.dbName, field);
-        }
-        return result;
-    }, [visibleFields]);
-
-    const visibleIndexByPosition = useMemo(() => {
-        const result = new Map<number, number>();
-        for (const [index, field] of visibleFields.entries()) {
-            result.set(field.position, index);
         }
         return result;
     }, [visibleFields]);
@@ -612,6 +643,16 @@ function RenovationGridInner(
         return { offsets, totalWidth: acc };
     }, [assetWidth, displayFields, fieldWidth]);
 
+    /** Width of the always-pinned asset plus the user-pinned form fields. */
+    const pinnedHeaderWidth = useMemo(
+        () =>
+            assetWidth +
+            visibleFields
+                .filter((field) => pinnedFieldKeys.has(field.dbName))
+                .reduce((sum, field) => sum + fieldWidth(field), 0),
+        [assetWidth, fieldWidth, pinnedFieldKeys, visibleFields],
+    );
+
     // The column-number strip of the overlay: every visible column shows its
     // number in the form (the workbook ordinal shifted so «Предприятие» = 1 —
     // see `columnNumber`), so hiding a field (e.g. the dropped col_218) never
@@ -643,6 +684,7 @@ function RenovationGridInner(
             /** Non-null for a numbered column: its prop + label (filter funnel). */
             filterColumn?: string;
             label?: string;
+            pinned: boolean;
         }> = [
             {
                 key: ASSET_COLUMN_PROP,
@@ -652,6 +694,7 @@ function RenovationGridInner(
                 height: heightOf(ASSET_COLUMN_PROP),
                 filterColumn: ASSET_COLUMN_PROP,
                 label: "Предприятие",
+                pinned: true,
             },
         ];
         for (const field of displayFields) {
@@ -666,6 +709,7 @@ function RenovationGridInner(
                 width: fieldWidth(field),
                 height: heightOf(field.dbName),
                 ...(number !== null && { filterColumn: field.dbName, label: field.label }),
+                pinned: pinnedFieldKeys.has(field.dbName),
             });
         }
         return cells;
@@ -675,6 +719,7 @@ function RenovationGridInner(
         displayFields,
         fieldWidth,
         geometry.offsets,
+        pinnedFieldKeys,
         summaryValues,
         rowHeight,
         summaryHeight,
@@ -722,59 +767,64 @@ function RenovationGridInner(
             toPosition: number;
             /** Leaf header of a filterable column (its dbName) — a filter button. */
             filterColumn?: string;
+            /** The cell belongs to the fixed, always-visible pinned area. */
+            pinned: boolean;
         }> = [];
         for (const cell of headerCells) {
+            const startPosition = cell.startPosition + 1;
             const endPosition = cell.startPosition + cell.colSpan + 1;
-            // A grouping cell may START on a hidden field: find the first
-            // visible field inside its range, so the band keeps the part that
-            // is still on screen instead of disappearing with its first leaf.
-            let startIndex: number | undefined;
-            for (let position = cell.startPosition + 1; position < endPosition; position += 1) {
-                startIndex = visibleIndexByPosition.get(position);
-                if (startIndex !== undefined) break;
-            }
-            if (startIndex === undefined) continue;
-            let width = 0;
-            for (let i = startIndex; i < visibleFields.length; i += 1) {
-                const field = visibleFields[i];
-                if (!field || field.position >= endPosition) break;
-                width += widthOf(field);
-            }
-            if (width === 0) continue;
-            const topLevel = coveredByTopRow.has(cell.startPosition) ? cell.level : 0;
-            const top = levelOffsets[topLevel] ?? 0;
-            // Level-0 directorate group headers carry a short label in the form
-            // data; show the same canonical name as the «Все блоки» filter.
-            let text = cell.text.trim();
-            if (cell.level === 0 && text.startsWith("Блок ")) {
-                for (let i = startIndex; i < visibleFields.length; i += 1) {
-                    const field = visibleFields[i];
-                    if (!field || field.position >= endPosition) break;
-                    const fieldBlock = field.responsibilityBlock;
-                    if (fieldBlock && fieldBlock !== "read_only") {
-                        text = BLOCK_HEADER_LABELS[fieldBlock] ?? text;
-                        break;
-                    }
+            const matched = visibleFields.filter(
+                (field) => field.position >= startPosition && field.position < endPosition,
+            );
+            if (matched.length === 0) continue;
+            // Pinned fields are moved to the left of the table. A band that
+            // spans both areas is rendered twice: one clipped piece in the
+            // pinned header and one in the scrolling header.
+            const runs = [
+                {
+                    pinned: true,
+                    fields: matched.filter((field) => pinnedFieldKeys.has(field.dbName)),
+                },
+                {
+                    pinned: false,
+                    fields: matched.filter((field) => !pinnedFieldKeys.has(field.dbName)),
+                },
+            ];
+            for (const run of runs) {
+                if (run.fields.length === 0) continue;
+                const first = run.fields[0];
+                if (!first) continue;
+                const width = run.fields.reduce((sum, field) => sum + widthOf(field), 0);
+                if (width === 0) continue;
+                const topLevel = coveredByTopRow.has(cell.startPosition) ? cell.level : 0;
+                const top = levelOffsets[topLevel] ?? 0;
+                // Level-0 directorate group headers carry a short label in the
+                // form data; show the canonical block name.
+                let text = cell.text.trim();
+                if (cell.level === 0 && text.startsWith("Блок ")) {
+                    const fieldBlock = run.fields.find(
+                        (field) =>
+                            field.responsibilityBlock && field.responsibilityBlock !== "read_only",
+                    )?.responsibilityBlock;
+                    if (fieldBlock) text = BLOCK_HEADER_LABELS[fieldBlock] ?? text;
                 }
+                const filterColumn =
+                    cell.colSpan === 1 && run.fields.length === 1 ? first.dbName : undefined;
+                cells.push({
+                    id: `${cell.id}:${run.pinned ? "p" : "u"}`,
+                    text,
+                    left: geometry.offsets.get(first.dbName) ?? ROW_HEADER_WIDTH,
+                    top,
+                    width,
+                    height: (levelOffsets[cell.level + cell.rowSpan] ?? headerHeight) - top,
+                    isTop: top === 0,
+                    level: cell.level,
+                    fromPosition: startPosition,
+                    toPosition: endPosition,
+                    pinned: run.pinned,
+                    ...(filterColumn && { filterColumn }),
+                });
             }
-            const startField = visibleFields[startIndex];
-            if (!startField) continue;
-            const filterColumn = cell.colSpan === 1 ? startField.dbName : undefined;
-            cells.push({
-                id: cell.id,
-                text,
-                left: geometry.offsets.get(startField.dbName) ?? ROW_HEADER_WIDTH,
-                top,
-                width,
-                height: (levelOffsets[cell.level + cell.rowSpan] ?? headerHeight) - top,
-                isTop: top === 0,
-                level: cell.level,
-                fromPosition: cell.startPosition + 1,
-                toPosition: endPosition,
-                // A single-field leaf header filters that column. Multi-field
-                // group headers have no single column to filter.
-                ...(filterColumn && { filterColumn }),
-            });
         }
         cells.sort((a, b) => a.top - b.top || a.left - b.left);
         cells.push({
@@ -791,6 +841,7 @@ function RenovationGridInner(
             fromPosition: assetPosition ?? 1,
             toPosition: (assetPosition ?? 1) + 1,
             filterColumn: ASSET_COLUMN_PROP,
+            pinned: true,
         });
         if (showServiceColumns) {
             for (const column of SERVICE_COLUMNS) {
@@ -810,6 +861,7 @@ function RenovationGridInner(
                     // funnel belongs here like every other column's — not in the
                     // strip above the summary row.
                     filterColumn: column.dbName,
+                    pinned: false,
                 });
             }
         }
@@ -824,14 +876,10 @@ function RenovationGridInner(
         serviceWidthOf,
         showServiceColumns,
         visibleFields,
-        visibleIndexByPosition,
+        pinnedFieldKeys,
         widthOf,
     ]);
 
-    const hideableByPosition = useMemo(
-        () => new Map(hideableFields.map((field) => [field.position, field])),
-        [hideableFields],
-    );
     const headerLevelByPosition = useMemo(() => {
         const levels = new Map<number, number>();
         for (const cell of overlayCells) {
@@ -956,6 +1004,8 @@ function RenovationGridInner(
             // An unloaded slot is a placeholder object (`{}`) the plugin renders
             // until its chunk arrives — it has no row id and is not editable.
             if (row.__id === undefined) return false;
+            // A pinned copy is a view-only snapshot of a row still in the plan.
+            if (row.__pinnedCopy === true) return false;
             if (field.isCalculated || field.isReadOnly) return false;
             if (!editableFieldKeys.has(field.dbName)) return false;
             if (row.__rowState === "deleted") return false;
@@ -983,6 +1033,8 @@ function RenovationGridInner(
             size: assetWidth,
             minSize: MIN_COLUMN_WIDTH,
             maxSize: MAX_COLUMN_WIDTH,
+            // The asset identifies the row; it is always pinned to the left.
+            pin: "colPinStart",
             // The asset is fixed per row — rows are added through the fixed
             // add-row strip below the table, not through this column.
             readonly: true,
@@ -996,7 +1048,10 @@ function RenovationGridInner(
                         "report-cell--baseline-boundary":
                             baselineBoundary !== null && row.__position === baselineBoundary,
                         "renovation-grid__summary-cell": isSummary,
+                        "data-grid__pinned-copy": row.__pinnedCopy === true,
                     },
+                    "data-row-id": row.__pinnedCopy ? row.__pinSourceId : undefined,
+                    "data-pinned-copy": row.__pinnedCopy === true ? "true" : undefined,
                 };
             },
         };
@@ -1009,6 +1064,7 @@ function RenovationGridInner(
                     size: fieldWidth(field),
                     minSize: MIN_COLUMN_WIDTH,
                     maxSize: MAX_COLUMN_WIDTH,
+                    ...(pinnedFieldKeys.has(field.dbName) && { pin: "colPinStart" }),
                     readonly: ({ model }) =>
                         SERVICE_DB_NAMES.has(field.dbName)
                             ? true
@@ -1075,7 +1131,10 @@ function RenovationGridInner(
                                 "renovation-grid__summary-cell": isSummary,
                                 "renovation-grid__summary-cell--filled":
                                     isSummary && typeof row[field.dbName] === "number",
+                                "data-grid__pinned-copy": row.__pinnedCopy === true,
                             },
+                            "data-row-id": row.__pinnedCopy ? row.__pinSourceId : undefined,
+                            "data-pinned-copy": row.__pinnedCopy === true ? "true" : undefined,
                             "data-remote-lock": remoteUser
                                 ? JSON.stringify({
                                       name: remoteUser.name,
@@ -1175,6 +1234,7 @@ function RenovationGridInner(
         fieldWidth,
         onCommit,
         onCommitFailed,
+        pinnedFieldKeys,
         remoteCellInfo,
         selectedRowIdSet,
         // `selectionEpoch` is not read here — Ctrl+A bumps it purely to force
@@ -1250,17 +1310,6 @@ function RenovationGridInner(
         [clearGridSelection, onHideFields],
     );
 
-    const handleHideRequest = useCallback(
-        (request: GridHideRequest) => {
-            if (request.service) {
-                onShowServiceColumnsChange?.(false);
-                return;
-            }
-            hideFieldTargets(request.props, request.level);
-        },
-        [hideFieldTargets, onShowServiceColumnsChange],
-    );
-
     const showHiddenFields = useCallback(
         (fields: readonly string[]) => {
             onShowFields(fields);
@@ -1269,7 +1318,32 @@ function RenovationGridInner(
         [clearGridSelection, onShowFields],
     );
 
-    /** Right-click on a header cell: a leaf hides one field, a band hides all. */
+    const setFieldsPinned = useCallback(
+        (fields: readonly string[], pinned: boolean) => {
+            if (fields.length === 0) return;
+            onPinColumns(fields, pinned);
+            if (pinned) onShowFields(fields);
+            clearGridSelection();
+        },
+        [clearGridSelection, onPinColumns, onShowFields],
+    );
+
+    const columnMenu = useCallback(
+        (targets: readonly string[], level: number, service = false) =>
+            columnMenuItems({
+                targets,
+                level,
+                pinnedKeys: pinnedFieldKeys,
+                service,
+                onHide: hideFieldTargets,
+                onPin: (fields) => setFieldsPinned(fields, true),
+                onUnpin: (fields) => setFieldsPinned(fields, false),
+                onHideService: () => onShowServiceColumnsChange?.(false),
+            }),
+        [hideFieldTargets, onShowServiceColumnsChange, pinnedFieldKeys, setFieldsPinned],
+    );
+
+    /** Right-click on a header cell: a leaf acts on one field, a band on all. */
     const openHeaderMenu = useCallback(
         (
             event: ReactMouseEvent,
@@ -1286,71 +1360,146 @@ function RenovationGridInner(
             event.stopPropagation();
             if (cell.id.startsWith("service:")) {
                 if (!onShowServiceColumnsChange) return;
-                setHeaderMenuOpen(true);
-                setHeaderMenu({
-                    x: event.clientX,
-                    y: event.clientY,
-                    props: [],
-                    level: 0,
-                    service: true,
-                });
+                const items = columnMenu([], 0, true);
+                if (items.length === 0) return;
+                setGridMenuOpen(true);
+                setGridMenu({ x: event.clientX, y: event.clientY, items });
                 return;
             }
+            let targets: string[];
             if (cell.filterColumn) {
-                setHeaderMenuOpen(true);
-                setHeaderMenu({
-                    x: event.clientX,
-                    y: event.clientY,
-                    props: [cell.filterColumn],
-                    level: cell.level,
-                });
-                return;
+                targets = [cell.filterColumn];
+            } else {
+                targets = visibleFields
+                    .filter(
+                        (field) =>
+                            field.position >= cell.fromPosition && field.position < cell.toPosition,
+                    )
+                    .map((field) => field.dbName);
             }
-            const targets: string[] = [];
-            for (let position = cell.fromPosition; position < cell.toPosition; position += 1) {
-                const field = hideableByPosition.get(position);
-                if (field) targets.push(field.dbName);
-            }
-            if (targets.length === 0) return;
-            setHeaderMenuOpen(true);
-            setHeaderMenu({
-                x: event.clientX,
-                y: event.clientY,
-                props: targets,
-                level: cell.level,
-            });
+            const items = columnMenu(targets, cell.level);
+            if (items.length === 0) return;
+            setGridMenuOpen(true);
+            setGridMenu({ x: event.clientX, y: event.clientY, items });
         },
-        [hideableByPosition, onShowServiceColumnsChange],
+        [columnMenu, onShowServiceColumnsChange, visibleFields],
     );
 
-    /** Right-click on a column-number cell (the strip) hides that column. */
+    /** Right-click on a column-number cell (the strip) acts on that column. */
     const openNumberMenu = useCallback(
         (event: ReactMouseEvent, column: string) => {
             event.preventDefault();
             event.stopPropagation();
             if (SERVICE_DB_NAMES.has(column)) {
                 if (!onShowServiceColumnsChange) return;
-                setHeaderMenuOpen(true);
-                setHeaderMenu({
-                    x: event.clientX,
-                    y: event.clientY,
-                    props: [],
-                    level: 0,
-                    service: true,
-                });
+                const items = columnMenu([], 0, true);
+                if (items.length === 0) return;
+                setGridMenuOpen(true);
+                setGridMenu({ x: event.clientX, y: event.clientY, items });
                 return;
             }
             const field = fieldByDbName.get(column);
             if (!field) return;
-            setHeaderMenuOpen(true);
-            setHeaderMenu({
-                x: event.clientX,
-                y: event.clientY,
-                props: [column],
-                level: headerLevelByPosition.get(field.position) ?? 0,
-            });
+            const items = columnMenu([column], headerLevelByPosition.get(field.position) ?? 0);
+            if (items.length === 0) return;
+            setGridMenuOpen(true);
+            setGridMenu({ x: event.clientX, y: event.clientY, items });
         },
-        [fieldByDbName, headerLevelByPosition, onShowServiceColumnsChange],
+        [columnMenu, fieldByDbName, headerLevelByPosition, onShowServiceColumnsChange],
+    );
+
+    const pinnedRowIdSet = useMemo(
+        () =>
+            new Set(
+                pinnedRowSnapshots
+                    .map((row) => row.__pinSourceId)
+                    .filter((id): id is string => Boolean(id)),
+            ),
+        [pinnedRowSnapshots],
+    );
+
+    /**
+     * Take the snapshot the pinned strip will show. The row stays in the
+     * remote source — this never removes or reorders anything. The snapshot is
+     * taken from the plugin's store so it outlives the eviction of the chunk
+     * the row came from.
+     */
+    const pinPlanRow = useCallback(async (rowIndex: number) => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        try {
+            const store = await grid.getSourceStore("rgRow");
+            const row = getSourceItem(store, rowIndex) as RenovationGridRow | undefined;
+            if (!row || row.__id === undefined || row.__id === SUMMARY_ROW_ID) return;
+            setPinnedRowSnapshots((previous) =>
+                previous.some((entry) => entry.__pinSourceId === row.__id)
+                    ? previous
+                    : [
+                          ...previous,
+                          {
+                              ...row,
+                              __pinSourceId: row.__id,
+                              __pinNumber: rowIndex + 1,
+                          },
+                      ],
+            );
+        } catch {
+            // The grid was disposed or its store is mid-reset — nothing to pin.
+        }
+    }, []);
+
+    const unpinPlanRow = useCallback((rowId: string) => {
+        setPinnedRowSnapshots((previous) => previous.filter((row) => row.__pinSourceId !== rowId));
+    }, []);
+
+    /**
+     * Right-click on a row number (pin/unpin) or anywhere on a pinned copy
+     * (unpin). Returns `true` when the event belonged to a row.
+     */
+    const openRowMenu = useCallback(
+        (event: ReactMouseEvent): boolean => {
+            const path = event.nativeEvent.composedPath?.() ?? [];
+            const cell = path.find(
+                (node): node is HTMLElement =>
+                    node instanceof HTMLElement &&
+                    node.classList.contains("rgCell") &&
+                    node.hasAttribute("data-row-id"),
+            );
+            if (!cell) return false;
+            const rowId = cell.getAttribute("data-row-id");
+            if (!rowId || rowId === SUMMARY_ROW_ID) return false;
+            const isCopy = cell.getAttribute("data-pinned-copy") === "true";
+            const pinned = isCopy || pinnedRowIdSet.has(rowId);
+            const indexAttr = cell.getAttribute("data-row-index");
+            let item: GridMenuItem | null = null;
+            if (pinned) {
+                item = {
+                    id: "unpin-row",
+                    label: "Открепить",
+                    icon: "unpin",
+                    onSelect: () => unpinPlanRow(rowId),
+                };
+            } else {
+                const rowIndex = indexAttr === null ? Number.NaN : Number(indexAttr);
+                if (Number.isFinite(rowIndex)) {
+                    item = {
+                        id: "pin-row",
+                        label: "Закрепить",
+                        icon: "pin",
+                        onSelect: () => {
+                            void pinPlanRow(rowIndex);
+                        },
+                    };
+                }
+            }
+            if (!item) return false;
+            event.preventDefault();
+            event.stopPropagation();
+            setGridMenuOpen(true);
+            setGridMenu({ x: event.clientX, y: event.clientY, items: [item] });
+            return true;
+        },
+        [pinPlanRow, pinnedRowIdSet, unpinPlanRow],
     );
 
     const unhideButtons = useMemo(() => {
@@ -1460,16 +1609,28 @@ function RenovationGridInner(
                     "report-row-header": true,
                 },
             }),
-            cellProperties: ({ model }) => {
+            cellProperties: ({ model, rowIndex }) => {
                 const row = model as RenovationGridRow;
+                const sourceId = row.__pinnedCopy ? row.__pinSourceId : row.__id;
                 return {
                     className: {
                         "report-row-header": true,
                         "report-row-header--deleted": row.__rowState === "deleted",
                         "report-row-header--boundary":
                             baselineBoundary !== null && row.__position === baselineBoundary,
-                        "report-row-header--selected": selectedRowIds.includes(row.__id),
+                        "report-row-header--selected":
+                            !row.__pinnedCopy && selectedRowIds.includes(row.__id),
+                        "report-row-header--pinned-copy": row.__pinnedCopy === true,
                     },
+                    "data-row-id": sourceId,
+                    "data-pinned-copy": row.__pinnedCopy === true ? "true" : undefined,
+                    // The grid index is the handle for reading the row from the
+                    // plugin's store when pinning (the snapshot must outlive
+                    // eviction, so it is taken once and kept).
+                    "data-row-index":
+                        !row.__pinnedCopy && row.__id !== undefined && row.__id !== SUMMARY_ROW_ID
+                            ? rowIndex
+                            : undefined,
                 };
             },
             cellTemplate: (h: HyperFunc<VNode>, { rowIndex, model }) => {
@@ -1478,17 +1639,18 @@ function RenovationGridInner(
                 if (row.__id === SUMMARY_ROW_ID) {
                     return h("span", { class: "report-row-header__summary" });
                 }
+                const isCopy = row.__pinnedCopy === true;
                 // The number is the SEQUENTIAL position in the current filtered
                 // scope (grid index + 1), not the stored plan position — after
-                // filtering the user sees 1..N. Unloaded slots show their
-                // number too (the number is positional, not data).
-                const number = rowIndex + 1;
+                // filtering the user sees 1..N. A pinned copy keeps the number
+                // it had when pinned (it is not in the remote source).
+                const number = isCopy ? (row.__pinNumber ?? rowIndex + 1) : rowIndex + 1;
                 // An unloaded slot has no id — render the number without the
                 // selection button; it becomes clickable once the chunk loads.
                 if (row.__id === undefined) {
                     return h("span", { class: "report-row-header__number" }, String(number));
                 }
-                const selected = selectedRowIds.includes(row.__id);
+                const selected = !isCopy && selectedRowIds.includes(row.__id);
                 return h(
                     "button",
                     {
@@ -1496,15 +1658,19 @@ function RenovationGridInner(
                         class: {
                             "report-row-header__button": true,
                             "report-row-header__button--selected": selected,
+                            "report-row-header__button--pinned-copy": isCopy,
                         },
-                        title: selected
-                            ? `Снять выделение строки ${number}`
-                            : `Выделить строку ${number}`,
+                        title: isCopy
+                            ? `Закреплённая строка ${number}`
+                            : selected
+                              ? `Снять выделение строки ${number}`
+                              : `Выделить строку ${number}`,
                         onMouseDown: (event: MouseEvent) => {
                             event.stopPropagation();
                         },
                         onClick: (event: MouseEvent) => {
                             event.stopPropagation();
+                            if (isCopy) return;
                             handleRowNumberClick(event, rowIndex, row.__id);
                         },
                     },
@@ -2163,6 +2329,7 @@ function RenovationGridInner(
         (field: RenovationField, row: RenovationGridRow): string | null => {
             // null — allowed; a string is the skip reason.
             if (readOnly) return "таблица открыта только для просмотра";
+            if (row.__pinnedCopy === true) return "закреплённая копия только для просмотра";
             if (field.isCalculated) return "расчётное поле";
             if (field.isReadOnly) return "поле доступно только для чтения";
             if (!editableFieldKeys.has(field.dbName)) return "поле недоступно для редактирования";
@@ -2237,6 +2404,11 @@ function RenovationGridInner(
     }
 
     function beforeRangeEdit(event: CustomEvent<BeforeRangeSaveDataDetails>) {
+        // Pinned copies are read-only snapshots outside the remote row source.
+        if (event.detail.type === "rowPinStart") {
+            event.preventDefault();
+            return;
+        }
         const patches = event.detail.data as Record<string, RenovationGridRow>;
         const models = event.detail.models as Record<string, RenovationGridRow | undefined>;
         const skipped = new Map<string, string>();
@@ -3093,8 +3265,9 @@ function RenovationGridInner(
             left: number;
             height: number;
             clipPath: string | null;
+            pinned: boolean;
         }> = [];
-        const push = (dbName: string, boundary: number) => {
+        const push = (dbName: string, boundary: number, pinned: boolean) => {
             const bands = mergeBands([
                 ...(edges.get(Math.round(boundary * 2)) ?? []),
                 { from: headerHeight, to: handleHeight },
@@ -3105,14 +3278,19 @@ function RenovationGridInner(
                 left: boundary - 3,
                 height: handleHeight,
                 clipPath: handleClipPath(bands, handleHeight, true),
+                pinned,
             });
         };
-        push(ASSET_COLUMN_PROP, ROW_HEADER_WIDTH + assetWidth);
+        push(ASSET_COLUMN_PROP, ROW_HEADER_WIDTH + assetWidth, true);
         for (let i = 0; i < displayFields.length - 1; i += 1) {
             const field = displayFields[i];
             if (!field) continue;
             if (SERVICE_DB_NAMES.has(field.dbName)) continue;
-            push(field.dbName, (geometry.offsets.get(field.dbName) ?? 0) + fieldWidth(field));
+            push(
+                field.dbName,
+                (geometry.offsets.get(field.dbName) ?? 0) + fieldWidth(field),
+                pinnedFieldKeys.has(field.dbName),
+            );
         }
         return result;
     }, [
@@ -3123,6 +3301,7 @@ function RenovationGridInner(
         headerHeight,
         overlayCells,
         overlayHeight,
+        pinnedFieldKeys,
         summaryHeight,
     ]);
 
@@ -3180,6 +3359,50 @@ function RenovationGridInner(
                 : undefined,
         [summaryValues],
     );
+
+    /**
+     * The pinned strip's read-only copies. A copy gets its own `__id` so the
+     * selection/lock stores never confuse it with the row it mirrors; the
+     * source id lives in `__pinSourceId`.
+     */
+    const pinnedRowCopies = useMemo<RenovationGridRow[]>(
+        () =>
+            pinnedRowSnapshots.map((row) => ({
+                ...row,
+                __id: `${row.__id}::pinned`,
+                __pinnedCopy: true,
+            })),
+        [pinnedRowSnapshots],
+    );
+
+    /** The summary row (if any) stays FIRST; pinned row copies follow it. */
+    const gridPinnedTopSource = useMemo<RenovationGridRow[]>(() => {
+        const summary = pinnedSummaryRow ?? EMPTY_PINNED_SOURCE;
+        if (pinnedRowCopies.length === 0) return summary;
+        return [...summary, ...pinnedRowCopies];
+    }, [pinnedRowCopies, pinnedSummaryRow]);
+
+    // A pinned row keeps the number it had when pinned; live edits patch the
+    // snapshot (the remote source itself is untouched).
+    useEffect(() => {
+        if (rowPatches.length === 0 || pinnedRowSnapshots.length === 0) return;
+        setPinnedRowSnapshots((previous) => {
+            let changed = false;
+            const next = previous.map((snapshot) => {
+                const patch = rowPatches.find((entry) => entry.index === snapshot.__index);
+                if (!patch) return snapshot;
+                changed = true;
+                return { ...snapshot, ...patch.fields };
+            });
+            return changed ? next : previous;
+        });
+    }, [pinnedRowSnapshots.length, rowPatches]);
+
+    // A different scope (plan/version/filter/sorting) is a different row set:
+    // stale pinned snapshots from the previous one would be meaningless.
+    useEffect(() => {
+        setPinnedRowSnapshots([]);
+    }, [scopeKey]);
 
     // The vertical scrollbar's lane: the width it takes away from the data
     // area at the grid's right edge. The custom horizontal strip must end
@@ -3318,11 +3541,16 @@ function RenovationGridInner(
                     height: overlayHeight,
                 }}
             >
+                <div
+                    className="renovation-grid__header-pinned-backdrop"
+                    style={{ left: ROW_HEADER_WIDTH, width: pinnedHeaderWidth }}
+                />
                 {overlayCells.map((cell) => (
                     <div
                         key={cell.id}
                         className={[
                             "renovation-grid__header-cell",
+                            cell.pinned ? "renovation-grid__header-cell--pinned" : "",
                             cell.isTop ? "renovation-grid__header-cell--top" : "",
                             // A bottom-most cell sits directly above the column-number
                             // strip — drop its bottom line so the strip's own top line
@@ -3419,7 +3647,12 @@ function RenovationGridInner(
                 {columnNumberCells.map((cell) => (
                     <div
                         key={cell.key}
-                        className="renovation-grid__number-cell"
+                        className={[
+                            "renovation-grid__number-cell",
+                            cell.pinned ? "renovation-grid__number-cell--pinned" : "",
+                        ]
+                            .filter(Boolean)
+                            .join(" ")}
                         data-column={cell.text === "" ? undefined : cell.key}
                         style={{
                             left: cell.left,
@@ -3540,11 +3773,13 @@ function RenovationGridInner(
                 {handles.map((handle) => (
                     <div
                         key={handle.key}
-                        className={
-                            resizingField === handle.dbName
-                                ? "renovation-grid__resize-handle is-dragging"
-                                : "renovation-grid__resize-handle"
-                        }
+                        className={[
+                            "renovation-grid__resize-handle",
+                            resizingField === handle.dbName ? "is-dragging" : "",
+                            handle.pinned ? "renovation-grid__resize-handle--pinned" : "",
+                        ]
+                            .filter(Boolean)
+                            .join(" ")}
                         style={{
                             left: handle.left,
                             // The bar runs to the bottom of the totals row, like
@@ -3740,7 +3975,7 @@ function RenovationGridInner(
                     </span>
                 </Tooltip.Content>
             </Tooltip>
-            <div className="revo-grid-vertical-scroller">
+            <div className="revo-grid-vertical-scroller" onContextMenu={openRowMenu}>
                 <RevoGrid
                     ref={gridRef}
                     className="renovation-grid"
@@ -3749,7 +3984,7 @@ function RenovationGridInner(
                     // filled chunk by chunk); `infinityScroll` is its config.
                     plugins={[InfinityScrollPlugin]}
                     infinityScroll={infinityScroll}
-                    pinnedTopSource={pinnedSummaryRow ?? EMPTY_PINNED_SOURCE}
+                    pinnedTopSource={gridPinnedTopSource}
                     theme="compact"
                     range
                     useClipboard={false}
@@ -3773,6 +4008,10 @@ function RenovationGridInner(
                             const body = headerBodyRef.current;
                             if (body) {
                                 body.style.transform = `translateX(${-event.detail.coordinate}px)`;
+                                body.style.setProperty(
+                                    "--renovation-scroll-x",
+                                    `${event.detail.coordinate}px`,
+                                );
                             }
                             const scrollbar = horizontalScrollRef.current;
                             if (scrollbar && scrollbar.scrollLeft !== event.detail.coordinate) {
@@ -3817,11 +4056,10 @@ function RenovationGridInner(
             >
                 <div style={{ width: horizontalContentWidth }} />
             </div>
-            <GridHeaderMenu
-                request={headerMenu}
-                isOpen={headerMenuOpen}
-                onOpenChange={setHeaderMenuOpen}
-                onHide={handleHideRequest}
+            <GridContextMenu
+                request={gridMenu}
+                isOpen={gridMenuOpen}
+                onOpenChange={setGridMenuOpen}
             />
         </div>
     );

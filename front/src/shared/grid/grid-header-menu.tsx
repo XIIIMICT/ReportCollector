@@ -1,43 +1,44 @@
 "use client";
 
 import { Button, Dropdown, Label, Tooltip } from "@heroui/react";
-import { Minus, Plus } from "iconoir-react";
-import type { CSSProperties } from "react";
+import { Minus, Pin, PinSlash, Plus } from "iconoir-react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { HiddenColumnsList, type HiddenColumnEntry } from "./hidden-columns-list";
 
-/** What a right-click on a header asked to hide. */
-export type GridHideRequest = {
-    /** Screen coordinates of the pointer. */
+/** One context-menu action. */
+export type GridMenuItem = {
+    id: string;
+    label: string;
+    icon: "hide" | "pin" | "unpin";
+    onSelect: () => void;
+};
+
+/** A right-click anywhere in a grid: the pointer and the applicable actions. */
+export type GridMenuRequest = {
     x: number;
     y: number;
-    /** Leaf props to hide. */
-    props: string[];
-    /** Header level the clicked cell starts at (the expand button's top). */
-    level: number;
-    /** The target is the project-wide service-column block, not a data column. */
-    service?: boolean;
+    items: GridMenuItem[];
 };
 
 /**
- * The header context menu — HeroUI's Dropdown, opened at the pointer.
+ * The grid context menu — HeroUI Dropdown, opened at the pointer.
  *
  * A zero-size fixed trigger is parked at the right-click coordinates; the
  * Dropdown's own popover brings the enter/exit animation, focus management and
- * keyboard navigation. The menu is a single item for now: «Скрыть».
+ * keyboard navigation. Header cells supply hide/pin actions, row numbers (and
+ * the pinned-row copy) supply row pin actions.
  */
-export function GridHeaderMenu({
+export function GridContextMenu({
     request,
     isOpen,
     onOpenChange,
-    onHide,
 }: {
-    request: GridHideRequest | null;
+    request: GridMenuRequest | null;
     isOpen: boolean;
     onOpenChange: (open: boolean) => void;
-    onHide: (request: GridHideRequest) => void;
 }) {
-    if (!request) return null;
+    if (!request || request.items.length === 0) return null;
     return (
         <Dropdown isOpen={isOpen} onOpenChange={onOpenChange}>
             <Dropdown.Trigger
@@ -51,20 +52,87 @@ export function GridHeaderMenu({
                 className="grid-header-menu__popover min-w-40"
             >
                 <Dropdown.Menu
-                    aria-label="Действия со столбцом"
-                    onAction={() => {
-                        onHide(request);
+                    aria-label="Действия"
+                    onAction={(key) => {
+                        const item = request.items.find((entry) => entry.id === String(key));
+                        if (!item) return;
+                        item.onSelect();
                         onOpenChange(false);
                     }}
                 >
-                    <Dropdown.Item id="hide-column" textValue="Скрыть">
-                        <Minus aria-hidden="true" />
-                        <Label>Скрыть</Label>
-                    </Dropdown.Item>
+                    {request.items.map((item) => (
+                        <Dropdown.Item key={item.id} id={item.id} textValue={item.label}>
+                            {menuIcon(item.icon)}
+                            <Label>{item.label}</Label>
+                        </Dropdown.Item>
+                    ))}
                 </Dropdown.Menu>
             </Dropdown.Popover>
         </Dropdown>
     );
+}
+
+function menuIcon(icon: GridMenuItem["icon"]): ReactNode {
+    if (icon === "hide") return <Minus aria-hidden="true" />;
+    if (icon === "pin") return <Pin aria-hidden="true" />;
+    return <PinSlash aria-hidden="true" />;
+}
+
+/**
+ * The header cell's actions: hide the unpinned part, pin/unpin the whole target
+ * set. A pinned column is never hidden (the same rule the previous static
+ * `pinned` descriptors followed), so a mixed group shows both actions.
+ */
+export function columnMenuItems({
+    targets,
+    level,
+    pinnedKeys,
+    service = false,
+    onHide,
+    onPin,
+    onUnpin,
+    onHideService,
+}: {
+    targets: readonly string[];
+    level: number;
+    pinnedKeys: ReadonlySet<string>;
+    service?: boolean;
+    onHide: (targets: readonly string[], level: number) => void;
+    onPin: (targets: readonly string[]) => void;
+    onUnpin: (targets: readonly string[]) => void;
+    onHideService: () => void;
+}): GridMenuItem[] {
+    if (service) {
+        return [{ id: "hide", label: "Скрыть", icon: "hide", onSelect: onHideService }];
+    }
+    const items: GridMenuItem[] = [];
+    const hideable = targets.filter((prop) => !pinnedKeys.has(prop));
+    const pinned = targets.filter((prop) => pinnedKeys.has(prop));
+    if (hideable.length > 0) {
+        items.push({
+            id: "hide",
+            label: "Скрыть",
+            icon: "hide",
+            onSelect: () => onHide(hideable, level),
+        });
+    }
+    if (hideable.length > 0) {
+        items.push({
+            id: "pin",
+            label: "Закрепить",
+            icon: "pin",
+            onSelect: () => onPin(hideable),
+        });
+    }
+    if (pinned.length > 0) {
+        items.push({
+            id: "unpin",
+            label: "Открепить",
+            icon: "unpin",
+            onSelect: () => onUnpin(pinned),
+        });
+    }
+    return items;
 }
 
 /**
