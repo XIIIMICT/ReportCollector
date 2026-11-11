@@ -2999,7 +2999,11 @@ revogr-data .rgCell.report-cell--number {
     height: 100%;
     background: var(--surface);
     transform: translateX(var(--renovation-scroll-x, 0px));
-    box-shadow: 1px 0 0 var(--cell-border);
+    /* The pinned boundary: the SAME pixel as the first unpinned header cell's
+       left line and the pinned data viewport's inset line (x = right - 1). An
+       outset line here sat one pixel to the right and doubled the boundary in
+       the header only — the thick header-only rule the users reported. */
+    box-shadow: -1px 0 0 var(--cell-border) inset;
 }
 
 .renovation-grid__header-cell--pinned,
