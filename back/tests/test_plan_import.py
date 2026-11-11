@@ -131,6 +131,7 @@ def test_every_reported_problem_points_at_a_row() -> None:
         result.duplicate_codes
         or result.invalid_calculated_codes
         or result.invalid_data_types
+        or result.missing_required_values
         or result.missing_dictionary_values
         or result.unknown_assets
     )
@@ -529,24 +530,24 @@ def test_an_empty_readable_sheet_reports_every_required_column() -> None:
 
 def test_empty_required_values_are_reported_with_their_cells() -> None:
     """
-    A present required column with blank cells is a value issue, not a heading.
+    A present required column with blank cells is an error, not a heading issue.
 
-    The rows are still skipped (the rest of the file loads), but the operator
-    sees the exact column and row instead of only a row number.
+    The cells are reported exactly; only a missing asset skips a row.
     """
     result = _inspect(
         [
             _PREFLIGHT_HEADER,
             list(range(1, len(_PREFLIGHT_HEADER) + 1)),
-            _preflight_row("Р-001", start_date=None),
+            _preflight_row("Р-001", start_date="   "),
             _preflight_row("Р-002", criticality=""),
             _preflight_row("Р-003"),
         ]
     )
 
     assert result.missing_required_columns == []
-    assert result.status == "ready"
-    assert result.skipped_rows == [3, 4]
+    assert result.status == "has_errors"
+    assert result.skipped_rows == []
+    assert result.new_rows == 1
     assert [(issue.location, issue.value) for issue in result.missing_required_values] == [
         ("O, строка 3", ""),
         ("D, строка 4", ""),
@@ -554,8 +555,8 @@ def test_empty_required_values_are_reported_with_their_cells() -> None:
 
 
 # A minimal but fully recognized template: the code and asset columns plus the
-# required reference fields and both work dates. A row can be made skippable by
-# blanking exactly one required cell.
+# required reference fields and both work dates. A row is skippable only by
+# blanking the asset; any other blank required cell is an error.
 _PREFLIGHT_HEADER: list[object] = [
     _CODE_HEADER,
     _ASSET_HEADER,
@@ -579,14 +580,15 @@ _PREFLIGHT_HEADER: list[object] = [
 def _preflight_row(
     code: object = "Р-001",
     *,
+    asset: object = "BSZR",
     criticality: object = "4",
     start_date: object = "2027-01-01",
     end_date: object = "2027-02-01",
 ) -> list[object]:
-    """One valid data row; a test may blank any required cell."""
+    """One valid data row; a test may blank any required cell or the asset."""
     return [
         code,
-        "BSZR",
+        asset,
         'АО "БСЗ"',
         criticality,
         "ТОиР",
@@ -631,8 +633,8 @@ def test_a_numbering_row_stored_as_text_is_skipped() -> None:
     assert result.skipped_rows == []
 
 
-def test_rows_with_a_blank_required_column_are_skipped_and_listed() -> None:
-    """A blank required reference skips the row, not the whole file."""
+def test_a_blank_required_cell_is_an_error_not_a_skip() -> None:
+    """Only a missing asset skips a row; a blank required reference is an error."""
     result = _inspect(
         [
             _PREFLIGHT_HEADER,
@@ -643,28 +645,31 @@ def test_rows_with_a_blank_required_column_are_skipped_and_listed() -> None:
         ]
     )
 
-    assert result.status == "ready"
+    assert result.status == "has_errors"
     assert result.new_rows == 1
     assert result.rows_to_update == 0
-    assert result.skipped_rows == [3, 5]
+    assert result.skipped_rows == []
     assert result.all_rows_skipped is False
+    assert [(issue.location, issue.value) for issue in result.missing_required_values] == [
+        ("D, строка 3", ""),
+        ("D, строка 5", ""),
+    ]
 
 
-def test_skipped_rows_never_block_the_load() -> None:
+def test_rows_without_an_asset_are_skipped_and_never_block_the_load() -> None:
     """
-    A skipped row is filtered out of the load, not an error of the file.
+    The asset is the only skip criterion, and a skip is not an error.
 
-    The operator loads the rest; the report only names what will not be written,
-    and the count in the dialog's heading comes from this list.
+    The operator loads the rest; the report only names what will not be written.
     """
     result = _inspect(
         [
             _PREFLIGHT_HEADER,
             list(range(1, len(_PREFLIGHT_HEADER) + 1)),
-            _preflight_row("Р-001", criticality=None),
+            _preflight_row("Р-001", asset=None),
             _preflight_row("Р-002"),
             _preflight_row("Р-003"),
-            _preflight_row("Р-004", criticality=""),
+            _preflight_row("Р-004", asset=""),
         ]
     )
 
@@ -672,13 +677,11 @@ def test_skipped_rows_never_block_the_load() -> None:
     assert (result.new_rows, result.rows_to_update) == (2, 0)
     assert result.skipped_rows == [3, 6]
     assert result.all_rows_skipped is False
-    assert result.duplicate_codes == []
-    assert result.invalid_data_types == []
-    assert result.unknown_assets == []
+    assert result.missing_required_values == []
 
 
-def test_a_row_without_a_work_code_is_listed_as_skipped() -> None:
-    """A blank code already skipped the row; the report now names it too."""
+def test_a_row_without_a_work_code_is_an_error() -> None:
+    """The code identifies the row: a blank one is an error, not a skip."""
     result = _inspect(
         [
             _PREFLIGHT_HEADER,
@@ -688,19 +691,22 @@ def test_a_row_without_a_work_code_is_listed_as_skipped() -> None:
         ]
     )
 
-    assert result.status == "ready"
+    assert result.status == "has_errors"
     assert result.new_rows == 1
-    assert result.skipped_rows == [3]
+    assert result.skipped_rows == []
+    assert [(issue.location, issue.value) for issue in result.missing_required_values] == [
+        ("A, строка 3", ""),
+    ]
 
 
 def test_a_file_with_every_row_skipped_has_nothing_to_load() -> None:
-    """No loadable row is a failing preflight, even with no other cell errors."""
+    """Every row lacks the asset: the one case where skipping alone fails."""
     result = _inspect(
         [
             _PREFLIGHT_HEADER,
             list(range(1, len(_PREFLIGHT_HEADER) + 1)),
-            _preflight_row("Р-001", criticality=None),
-            _preflight_row("Р-002", criticality=""),
+            _preflight_row("Р-001", asset=None),
+            _preflight_row("Р-002", asset=""),
         ]
     )
 
@@ -709,3 +715,4 @@ def test_a_file_with_every_row_skipped_has_nothing_to_load() -> None:
     assert result.skipped_rows == [3, 4]
     assert result.new_rows == 0
     assert result.rows_to_update == 0
+    assert result.missing_required_values == []

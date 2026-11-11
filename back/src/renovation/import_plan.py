@@ -65,6 +65,11 @@ def _norm(value: object) -> str:
     return normalize_label(str(value or "")).casefold()
 
 
+def _is_blank(value: object) -> bool:
+    """Whether a cell carries no value; whitespace-only text counts as empty."""
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
 # Quote styles Excel writes around a legal-entity name («АО «БСЗ»», `АО "БСЗ"`,
 # «АО “БСЗ”»). The file and the dictionary use different ones for the same asset,
 # so the name key folds them all to one ordinary double quote.
@@ -569,24 +574,23 @@ def _inspect_rows(
     field_by_name = {field.db_name: field for field in field_metas()}
     for row_number, raw in _data_rows(data_rows, data_start, code_index):
         data_row_count += 1
-        code = str(raw[code_index]).strip() if code_index < len(raw) and raw[code_index] is not None else ""
-        if not code:
-            # The work code identifies the row: a blank one is a gap in the file,
-            # never an instruction to clear the plan. The row is not loaded and
-            # is listed among the skipped rows and the empty required values.
-            missing_required_values.append(_empty_cell_issue(code_index, row_number))
-            skipped_rows.append(row_number)
-            continue
-        empty_required = [index for index in required_columns if index >= len(raw) or raw[index] in (None, "")]
-        if empty_required:
-            # A row missing a required reference or a work date cannot be
-            # resolved and is not loaded; the rest of the file still can be.
-            # The operator sees the exact cells and the row numbers.
-            missing_required_values.extend(_empty_cell_issue(index, row_number) for index in empty_required)
-            skipped_rows.append(row_number)
-            continue
         asset_cell = raw[asset_index] if asset_index < len(raw) else None
         asset_key = _asset_name_key(asset_cell)
+        if not asset_key:
+            # The asset is the row's foreign key: without it the row cannot be
+            # attributed to the plan. This is the ONLY skip criterion, and the
+            # skip is not an error unless every data row lacks the asset.
+            skipped_rows.append(row_number)
+            continue
+        code = str(raw[code_index]).strip() if code_index < len(raw) and raw[code_index] is not None else ""
+        empty_required = [index for index in required_columns if index >= len(raw) or _is_blank(raw[index])]
+        if not code:
+            empty_required.insert(0, code_index)
+        if empty_required:
+            # A blank cell in a present required column is an error: the row is
+            # not written and the file must be fixed before it can be loaded.
+            missing_required_values.extend(_empty_cell_issue(index, row_number) for index in empty_required)
+            continue
         codes.append(code)
         row_numbers.append(row_number)
         # In «Предприятие» mode the cell holds the legal-entity NAME; the repair
@@ -687,7 +691,15 @@ def _inspect_rows(
     all_rows_skipped = bool(data_row_count) and len(skipped_rows) == data_row_count
     status = (
         "has_errors"
-        if duplicates or invalid_codes or type_errors or missing or unknown_assets or all_rows_skipped
+        if (
+            duplicates
+            or invalid_codes
+            or type_errors
+            or missing
+            or missing_required_values
+            or unknown_assets
+            or all_rows_skipped
+        )
         else "ready"
     )
     return RenovationPlanImportResult(

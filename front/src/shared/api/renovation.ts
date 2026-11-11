@@ -132,13 +132,13 @@ export type RenovationPlanImportResult = {
     duplicate_codes: string[];
     invalid_calculated_codes: string[];
     invalid_data_types: RenovationPlanImportCellIssue[];
-    /** Required cells left empty in a row; the row is skipped. */
+    /** Required cells left empty in a row — an error of the file. */
     missing_required_values: RenovationPlanImportCellIssue[];
     missing_dictionary_values: RenovationPlanImportCellIssue[];
     unknown_assets: RenovationPlanImportCellIssue[];
-    /** Sheet rows the load will not write: a required cell is empty. */
+    /** Rows the load will not write: the asset cell is empty. */
     skipped_rows: number[];
-    /** Every data row was skipped — there is nothing to load. */
+    /** Every data row lacked the asset — there is nothing to load. */
     all_rows_skipped: boolean;
     assets: string[];
     new_rows: number;

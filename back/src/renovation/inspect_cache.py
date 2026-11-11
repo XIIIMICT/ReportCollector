@@ -24,7 +24,7 @@ INSPECT_CACHE_TTL_SECONDS = 3600
 # written by a buggy preflight (the numbering row read as data, twice) kept
 # being served after the fix — the operator re-uploaded the same file and saw
 # the old analysis. Bump it whenever the report's content changes.
-INSPECT_CACHE_VERSION = "3"
+INSPECT_CACHE_VERSION = "4"
 
 
 def inspect_cache_key(payload: bytes, *, scope: str = "") -> str:

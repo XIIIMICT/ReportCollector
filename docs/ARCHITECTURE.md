@@ -539,9 +539,9 @@ Rows are matched by «Код работы» (`col_003`): a code already in the p
 that row in place, a code the plan does not have **appends** a row at the end
 (picking up the positional sequence after the current last row). A cell the file
 leaves empty keeps the plan's current value — a blank cell is never an
-instruction to clear a value. A row whose work code or required reference column
-is empty is skipped by the loader with the same rule the preflight applies, so
-the written counts match the report. The write boundary is thin but not free:
+instruction to clear a value. A row without the asset value is skipped by the
+loader with the same rule the preflight applies; every other blank required cell
+is an error and refuses the whole file, so the written counts match the report. The write boundary is thin but not free:
 the parser hands dates over as ISO text (the same value feeds the renovation-ID
 rule) while `col_024/025/191/199/203` are real `DATE` columns, so `_flush_batch`
 converts them; and because the parser **drops blank cells**, the rows of one
@@ -568,20 +568,18 @@ the load fails the job with a Russian error and rolls back the whole
 transaction.
 The same strictness covers blank required cells — «Код работы», «Группа
 критичности», «Категория работ», «Вид работ», «Отнесение затрат», «Способ
-выполнения» and both work dates — but a row missing one is **skipped**, not a
-file-wide error: it is not loaded (so it does not count in
-`new_rows`/`rows_to_update`), its exact cells are listed under «Не заполнены
-обязательные значения» (`missing_required_values`, column letter and sheet row),
-and its sheet number is listed under «Пропущенные строки» (`skipped_rows`) at
-the end of the report, in both a successful and a failing analysis. The apply
-pass skips exactly the same rows (a required heading absent from the workbook
-makes it refuse the whole file before writing). When every data row is skipped
-the preflight is a failure (`has_errors`, `all_rows_skipped`) and the report says
-«Во всех строках не заполнены обязательные столбцы. Нечего загружать.». The
-**asset** is held to the same rule: a code missing from the project's
-`rm_assets` (`unknown_assets` in the report) refuses the whole file instead of
-silently skipping its rows — an unknown asset is a file error, never a
-`skipped_rows` entry.
+выполнения» and both work dates — and every blank one is an **error**: the
+preflight lists the exact cells under «Не заполнены обязательные значения»
+(`missing_required_values`, column letter and sheet row) and refuses the file
+(`has_errors`). The apply pass refuses the file too, so a direct call cannot
+write a partial plan. The **asset** is the only row-level skip: a row without
+«Наименование ДО»/«Предприятие» cannot be attributed to the plan, so it is not
+written and its sheet number is listed under «Пропущенные строки»
+(`skipped_rows`). That skip is not an error unless every data row lacks the
+asset — then the preflight fails (`has_errors`, `all_rows_skipped`) and says «Во
+всех строках не заполнено «Наименование ДО» или «Предприятие». Нечего
+загружать.». An asset cell that is filled but unknown to the dictionary is a
+file error like any catalog label (`unknown_assets`), never a skip.
 
 The load is **not** journaled into undo/redo: it rewrites many rows at once, so
 a single «Отменить» cannot meaningfully revert it.

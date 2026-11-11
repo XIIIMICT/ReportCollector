@@ -815,7 +815,7 @@ body {
     margin-top: 0.5rem;
 }
 
-/* Rows the load will not write because a required cell is empty: the report
+/* Rows the load will not write because the asset cell is empty: the report
    closes with them in both outcomes — after the valid-file summary and after
    the error sections. */
 .plan-excel-import-modal__skipped {

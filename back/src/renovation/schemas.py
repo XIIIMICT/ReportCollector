@@ -513,17 +513,18 @@ class RenovationPlanImportResult(BaseModel):
     duplicate_codes: list[str] = Field(default_factory=list)
     invalid_calculated_codes: list[str] = Field(default_factory=list)
     invalid_data_types: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
-    # Required cells (a reference choice or a work date) left empty in a row:
-    # the row is skipped and the exact cells are listed for the operator.
+    # Required cells (the work code, a reference choice or a work date) left
+    # empty in a row: an error of the file — the row is not written and the
+    # load is refused until the cells are filled.
     missing_required_values: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
     missing_dictionary_values: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
     unknown_assets: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
-    # Sheet rows the load will not write because a required cell is empty (the
-    # work code or a required reference column). Reported for both a successful
-    # and a failing file, under «Пропущенные строки».
+    # Sheet rows the load will not write because the ASSET cell is empty. That
+    # is the only skip criterion and it is not an error: the rest of the file
+    # still loads. Reported under «Пропущенные строки».
     skipped_rows: list[int] = Field(default_factory=list)
-    # Every non-empty data row was skipped: the file has nothing to load, and
-    # the preflight is a failure even though no cell itself is malformed.
+    # Every non-empty data row lacked the asset: the file has nothing to load,
+    # and that is the one case where skipping alone fails the preflight.
     all_rows_skipped: bool = False
     assets: list[str] = Field(default_factory=list)
     new_rows: int = 0

@@ -122,30 +122,26 @@ test("only an unreadable file reports an incorrect format", () => {
     expect(view.queryByText("Файл содержит ошибки")).toBeNull();
 });
 
-test("blank required values are listed by column and row", () => {
+test("blank required values are errors, listed by column and row", () => {
     const view = render(
         <PlanExcelImportModal
             isOpen
             onFileSelected={() => {}}
             onOpenChange={() => {}}
             result={{
-                status: "ready",
-                assets: ["АЭС-1"],
-                newRows: 1,
-                rowsToUpdate: 0,
+                status: "has-errors",
                 missingRequiredValues: [
                     { location: "O, строка 3", value: "" },
                     { location: "O, строка 5", value: "" },
                 ],
-                skippedRows: [3, 5],
             }}
         />,
     );
 
+    expect(view.getByText("Файл содержит ошибки")).toBeTruthy();
     expect(view.getByText("Не заполнены обязательные значения (2):")).toBeTruthy();
     expect(view.getByText("Столбец O:")).toBeTruthy();
     expect(view.getByText("пусто (строки: 3, 5)")).toBeTruthy();
-    expect(view.getByText("Пропущенные строки (2):")).toBeTruthy();
 });
 
 test("drops a dragged file into the same picker and shows the analysis state", async () => {
@@ -356,7 +352,9 @@ test("a file with every row skipped says there is nothing to load", () => {
         />,
     );
     expect(
-        view.getByText("Во всех строках не заполнены обязательные столбцы. Нечего загружать."),
+        view.getByText(
+            "Во всех строках не заполнено «Наименование ДО» или «Предприятие». Нечего загружать.",
+        ),
     ).toBeTruthy();
     expect(view.queryByText("3, 4")).toBeNull();
 });

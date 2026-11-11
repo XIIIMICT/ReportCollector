@@ -114,28 +114,25 @@ def test_a_numbering_row_stored_as_text_is_still_skipped(sheet) -> None:
     assert [row.code for row in parsed] == ["Р-001"]
 
 
-def test_a_row_missing_a_required_column_is_not_loaded(sheet) -> None:
-    """The preflight skips such a row; the loader must skip exactly the same one."""
+def test_a_row_with_a_blank_required_cell_is_refused(sheet) -> None:
+    """Only a missing asset skips a row; a blank required reference is an error."""
     blank = _row("Р-002", "SNHZ")
     blank[4] = None
     sheet["rows"] = _sheet(blank, _row("Р-003", "SNHZ"))
 
-    parsed = parse_plan_rows(Path("ignored.xlsb"))
+    with pytest.raises(ValueError, match="Строка 3:"):
+        parse_plan_rows(Path("ignored.xlsb"))
 
-    assert [row.code for row in parsed] == ["Р-003"]
 
-
-def test_rows_without_a_work_code_are_skipped(sheet) -> None:
+def test_rows_without_a_work_code_are_refused(sheet) -> None:
+    """A blank code is an error of the file, not a row to skip."""
     sheet["rows"] = _sheet(
         _row(None, "SNHZ", workshop="без кода"),
-        _row("", "SNHZ", workshop="пустой код"),
-        _row("  ", "SNHZ", workshop="пробелы"),
         _row("Р-002", "SNHZ"),
     )
 
-    parsed = parse_plan_rows(Path("ignored.xlsb"))
-
-    assert [row.code for row in parsed] == ["Р-002"]
+    with pytest.raises(ValueError, match="Код работы"):
+        parse_plan_rows(Path("ignored.xlsb"))
 
 
 def test_a_fully_blank_row_is_skipped(sheet) -> None:
@@ -146,13 +143,17 @@ def test_a_fully_blank_row_is_skipped(sheet) -> None:
     assert [row.code for row in parsed] == ["Р-003"]
 
 
-def test_a_missing_asset_leaves_an_empty_code(sheet) -> None:
-    """The asset is optional here — the writer rejects an unknown one later."""
-    sheet["rows"] = _sheet(_row("Р-004", None))
+def test_a_row_without_an_asset_is_skipped(sheet) -> None:
+    """The asset is the only skip criterion; the row is not written."""
+    sheet["rows"] = _sheet(
+        _row("Р-004", None),
+        _row("Р-005", ""),
+        _row("Р-006", "SNHZ"),
+    )
 
     parsed = parse_plan_rows(Path("ignored.xlsb"))
 
-    assert parsed[0].asset_key == ""
+    assert [row.code for row in parsed] == ["Р-006"]
 
 
 def test_a_numeric_reference_is_normalized_to_its_catalog_label(sheet) -> None:

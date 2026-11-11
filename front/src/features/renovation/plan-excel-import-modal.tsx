@@ -22,13 +22,13 @@ export type PlanExcelImportResult =
           duplicateCodes?: string[];
           invalidCalculatedCodes?: string[];
           invalidDataTypes?: ExcelCellIssue[];
-          /** Required cells left empty in a row; the row is skipped. */
+          /** Required cells left empty in a row — an error of the file. */
           missingRequiredValues?: ExcelCellIssue[];
           missingDictionaryValues?: ExcelCellIssue[];
           unknownAssets?: ExcelCellIssue[];
-          /** Sheet rows the load will not write: a required cell is empty. */
+          /** Rows the load will not write: the asset cell is empty. */
           skippedRows?: number[];
-          /** Every data row was skipped — there is nothing to load. */
+          /** Every data row lacked the asset — there is nothing to load. */
           allRowsSkipped?: boolean;
       }
     | {
@@ -38,9 +38,7 @@ export type PlanExcelImportResult =
           rowsToUpdate: number;
           /** Form labels of the columns the load writes, in workbook order. */
           columns?: string[];
-          /** Required cells left empty in a row; the row is skipped. */
-          missingRequiredValues?: ExcelCellIssue[];
-          /** Rows the load will skip because a required cell is empty. */
+          /** Rows the load will skip because the asset cell is empty. */
           skippedRows?: number[];
       };
 
@@ -249,10 +247,6 @@ export function PlanExcelImportModal({
                                         </ul>
                                     </div>
                                 ) : null}
-                                <CellErrorList
-                                    title="Не заполнены обязательные значения"
-                                    values={result.missingRequiredValues}
-                                />
                                 <SkippedRows rows={result.skippedRows} />
                             </div>
                         ) : null}
@@ -377,9 +371,10 @@ function ImportErrors({
 }
 
 /**
- * Rows the load will not write, at the end of the analysis — after the summary
- * when the file is valid and after the errors when it is not. A file whose every
- * row was skipped has nothing to load, which is a failure of its own.
+ * Rows the load will not write because the asset cell is empty, at the end of
+ * the analysis — after the summary when the file is valid and after the errors
+ * when it is not. A file whose every row lacks the asset has nothing to load,
+ * which is a failure of its own.
  */
 function SkippedRows({
     rows,
@@ -393,7 +388,10 @@ function SkippedRows({
         <section className="plan-excel-import-modal__skipped">
             <strong>Пропущенные строки ({rows.length}):</strong>
             {allRowsSkipped ? (
-                <p>Во всех строках не заполнены обязательные столбцы. Нечего загружать.</p>
+                <p>
+                    Во всех строках не заполнено «Наименование ДО» или «Предприятие». Нечего
+                    загружать.
+                </p>
             ) : (
                 <p>{rows.join(", ")}</p>
             )}
