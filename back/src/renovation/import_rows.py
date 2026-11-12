@@ -22,6 +22,7 @@ from src.renovation.import_plan import (
     _locate_header,
     _missing_required_columns,
     _norm,
+    _number_value,
     _read_rows,
     normalized_option,
 )
@@ -154,7 +155,15 @@ def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
                 if label is not None:
                     values[field] = label
                 continue
-            value = _coerce(raw[index], meta.cell_type)
+            if meta.cell_type == "number":
+                value, problem = _number_value(raw[index], meta)
+                if problem is not None:
+                    msg = (
+                        f"Строка {row_number}: недопустимое значение в столбце {_column_name(index)} («{meta.label}»)."
+                    )
+                    raise ValueError(msg)
+            else:
+                value = _coerce(raw[index], meta.cell_type)
             if value is not None:
                 values[field] = value
         yield ParsedPlanRow(code=code, asset_key=asset_key, values=values, asset_is_name=assets_are_names)

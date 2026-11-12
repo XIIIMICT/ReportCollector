@@ -2013,6 +2013,7 @@ export function RenovationWorkspace({
                         duplicateCodes: result.duplicate_codes,
                         invalidCalculatedCodes: result.invalid_calculated_codes,
                         invalidDataTypes: result.invalid_data_types,
+                        invalidValues: result.invalid_values,
                         formulaReferenceErrors: result.formula_reference_errors,
                         missingRequiredValues: result.missing_required_values,
                         missingDictionaryValues: result.missing_dictionary_values,

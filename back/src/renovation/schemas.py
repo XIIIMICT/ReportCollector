@@ -501,6 +501,10 @@ class RenovationPlanExportRequest(BaseModel):
 class RenovationPlanImportCellIssue(BaseModel):
     location: str
     value: str
+    # Human-readable field label (without the header hierarchy). The dialog
+    # shows it before the Excel column letter, so «Столбец H» becomes
+    # «Наименование производства (столбец H)».
+    column_label: str | None = None
 
 
 class RenovationPlanImportResult(BaseModel):
@@ -513,6 +517,11 @@ class RenovationPlanImportResult(BaseModel):
     duplicate_codes: list[str] = Field(default_factory=list)
     invalid_calculated_codes: list[str] = Field(default_factory=list)
     invalid_data_types: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
+    # Numeric cells that parse but violate the field's own rules: a fractional
+    # value in an integer column, or a value outside its min/max/percentage
+    # bounds. Shown separately so the operator sees the restriction, not a
+    # generic «wrong type».
+    invalid_values: list[RenovationPlanImportCellIssue] = Field(default_factory=list)
     # Excel cached «#REF!» values: a formula whose referenced cell/range is
     # gone. Its own category — in a text field it is not a type error, so it
     # would otherwise be stored as ordinary text.

@@ -11,6 +11,8 @@ import { FileInput } from "@/shared/ui/file-input";
 type ExcelCellIssue = {
     location: string;
     value: string;
+    /** Human-readable field label (no header hierarchy). */
+    column_label?: string | null;
 };
 
 export type PlanExcelImportResult =
@@ -22,6 +24,8 @@ export type PlanExcelImportResult =
           duplicateCodes?: string[];
           invalidCalculatedCodes?: string[];
           invalidDataTypes?: ExcelCellIssue[];
+          /** Numeric cells breaking the field's integer/min/max rules. */
+          invalidValues?: ExcelCellIssue[];
           /** Excel «#REF!» cached values — a broken formula reference. */
           formulaReferenceErrors?: ExcelCellIssue[];
           /** Required cells left empty in a row — an error of the file. */
@@ -346,6 +350,9 @@ function ImportErrors({
             {result.invalidDataTypes?.length ? (
                 <CellErrorList title="Неверный тип данных" values={result.invalidDataTypes} />
             ) : null}
+            {result.invalidValues?.length ? (
+                <CellErrorList title="Недопустимые значения" values={result.invalidValues} />
+            ) : null}
             {result.formulaReferenceErrors?.length ? (
                 <CellErrorList
                     title="Ошибки ссылок в формулах"
@@ -432,7 +439,9 @@ function CellErrorList({ title, values }: { title: string; values: ExcelCellIssu
             <ul>
                 {groupCellIssues(values).map((group) => (
                     <li key={group.column}>
-                        Столбец {group.column}:
+                        {group.label
+                            ? `${group.label} (столбец ${group.column}):`
+                            : `Столбец ${group.column}:`}
                         <ul>
                             {group.values.map((grouped) => (
                                 <li key={`${group.column}-${grouped.value}`}>
@@ -453,20 +462,29 @@ function CellErrorList({ title, values }: { title: string; values: ExcelCellIssu
  */
 function groupCellIssues(values: ExcelCellIssue[]): Array<{
     column: string;
+    label: string | null;
     values: Array<{ value: string; rows: number[] }>;
 }> {
-    const byColumn = new Map<string, Map<string, number[]>>();
+    const byColumn = new Map<
+        string,
+        { label: string | null; rowsByValue: Map<string, number[]> }
+    >();
     for (const issue of values) {
         const [column, row] = splitCellLocation(issue.location);
-        const rowsByValue = byColumn.get(column) ?? new Map<string, number[]>();
-        byColumn.set(column, rowsByValue);
-        const rows = rowsByValue.get(issue.value) ?? [];
+        const group = byColumn.get(column) ?? {
+            label: issue.column_label ?? null,
+            rowsByValue: new Map<string, number[]>(),
+        };
+        if (group.label === null && issue.column_label) group.label = issue.column_label;
+        byColumn.set(column, group);
+        const rows = group.rowsByValue.get(issue.value) ?? [];
         rows.push(row);
-        rowsByValue.set(issue.value, rows);
+        group.rowsByValue.set(issue.value, rows);
     }
-    return [...byColumn.entries()].map(([column, rowsByValue]) => ({
+    return [...byColumn.entries()].map(([column, group]) => ({
         column,
-        values: [...rowsByValue.entries()].map(([value, rows]) => ({
+        label: group.label,
+        values: [...group.rowsByValue.entries()].map(([value, rows]) => ({
             value,
             rows: [...rows].sort((left, right) => left - right),
         })),

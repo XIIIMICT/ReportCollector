@@ -124,7 +124,12 @@ export type RenovationPlan = {
     baselineBoundary: number | null;
 };
 
-export type RenovationPlanImportCellIssue = { location: string; value: string };
+export type RenovationPlanImportCellIssue = {
+    location: string;
+    value: string;
+    /** Human-readable field label (no header hierarchy). */
+    column_label?: string | null;
+};
 export type RenovationPlanImportResult = {
     status: "invalid_format" | "has_errors" | "ready";
     /** Required headings absent from a readable file (a content error). */
@@ -132,6 +137,8 @@ export type RenovationPlanImportResult = {
     duplicate_codes: string[];
     invalid_calculated_codes: string[];
     invalid_data_types: RenovationPlanImportCellIssue[];
+    /** Numeric cells breaking the field's integer/min/max/percentage rules. */
+    invalid_values: RenovationPlanImportCellIssue[];
     /** Excel «#REF!» cached values — a broken formula reference. */
     formula_reference_errors: RenovationPlanImportCellIssue[];
     /** Required cells left empty in a row — an error of the file. */

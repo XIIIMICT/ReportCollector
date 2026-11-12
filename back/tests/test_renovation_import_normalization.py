@@ -2,7 +2,8 @@
 
 from datetime import date
 
-from src.renovation.import_plan import _coerce, _trimmed_text
+from src.renovation.form_schema import field_meta
+from src.renovation.import_plan import _coerce, _number_value, _trimmed_text
 from src.renovation.renovation_id import normalize_direction_code
 
 
@@ -48,3 +49,31 @@ def test_a_text_that_is_not_a_real_date_stays_a_type_error() -> None:
     assert _coerce("2003-13-05", "date") is None
     assert _coerce("не дата", "date") is None
     assert _coerce("", "date") is None
+
+
+def test_text_numbers_accept_a_comma_and_thousands_spaces() -> None:
+    meta = field_meta("col_028")
+    assert meta is not None
+    assert _number_value("1 234,50", meta) == (1234.5, None)
+    assert _number_value("1.234,50", meta) == (1234.5, None)
+    assert _number_value("1234.50", meta) == (1234.5, None)
+    assert _number_value("1 234", meta) == ("1234", None)
+
+
+def test_an_integer_column_accepts_only_zero_fraction() -> None:
+    meta = field_meta("col_083")
+    assert meta is not None
+    assert _number_value("123.00", meta) == ("123", None)
+    assert _number_value("123,00", meta) == ("123", None)
+    assert _number_value("123,40", meta) == (None, "integer")
+
+
+def test_numeric_minimum_and_percentage_bounds_are_enforced() -> None:
+    money = field_meta("col_028")
+    percent = field_meta("col_208")
+    assert money is not None
+    assert percent is not None
+    assert _number_value("-5", money) == (None, "range")
+    assert _number_value("100", percent) == ("100", None)
+    assert _number_value("100,01", percent) == (None, "range")
+    assert _number_value("150", percent) == (None, "range")

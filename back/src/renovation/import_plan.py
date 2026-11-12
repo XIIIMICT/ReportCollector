@@ -4,6 +4,7 @@ from collections import Counter
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from itertools import chain, islice
 from pathlib import Path
 from typing import BinaryIO
@@ -14,7 +15,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 from pyxlsb import open_workbook
 
 from src.renovation.constants import R_ASSETS
-from src.renovation.form_schema import field_metas, normalize_label
+from src.renovation.form_schema import RenovationFieldMeta, field_metas, normalize_label
 from src.renovation.plan import RReferenceCatalog
 from src.renovation.reference_data import REFERENCE_OPTIONS
 from src.renovation.renovation_id import (
@@ -571,6 +572,7 @@ def _inspect_rows(
     repair_code_by_name = {_asset_name_key(name): code for code, name in asset_names_by_code.items()}
 
     type_errors: list[RenovationPlanImportCellIssue] = []
+    invalid_values: list[RenovationPlanImportCellIssue] = []
     formula_reference_errors: list[RenovationPlanImportCellIssue] = []
     missing: list[RenovationPlanImportCellIssue] = []
     missing_required_values: list[RenovationPlanImportCellIssue] = []
@@ -584,6 +586,19 @@ def _inspect_rows(
     asset_repair_codes: list[str | None] = []
     row_numbers: list[int] = []
     field_by_name = {field.db_name: field for field in field_metas()}
+    label_by_index = {
+        index: meta.label for field, index in columns.items() if (meta := field_by_name.get(field)) is not None
+    }
+    label_by_index[code_index] = _CODE_HEADER
+    label_by_index[asset_index] = _ASSET_NAME_HEADER if assets_are_names else _ASSET_HEADER
+
+    def cell_issue(index: int, row_number: int, value: str) -> RenovationPlanImportCellIssue:
+        return RenovationPlanImportCellIssue(
+            location=f"{_column_name(index)}, строка {row_number}",
+            value=value,
+            column_label=label_by_index.get(index),
+        )
+
     for row_number, raw in _data_rows(data_rows, data_start, code_index):
         data_row_count += 1
         asset_cell = raw[asset_index] if asset_index < len(raw) else None
@@ -601,7 +616,7 @@ def _inspect_rows(
         if empty_required:
             # A blank cell in a present required column is an error: the row is
             # not written and the file must be fixed before it can be loaded.
-            missing_required_values.extend(_empty_cell_issue(index, row_number) for index in empty_required)
+            missing_required_values.extend(cell_issue(index, row_number, "") for index in empty_required)
             continue
         codes.append(code)
         row_numbers.append(row_number)
@@ -622,11 +637,7 @@ def _inspect_rows(
             # The asset is a reference value like any catalog label: a code the
             # project's dictionary does not have makes the file invalid — it is
             # never silently dropped from the load.
-            unknown_assets.append(
-                RenovationPlanImportCellIssue(
-                    location=f"{_column_name(asset_index)}, строка {row_number}", value=str(asset_cell)
-                )
-            )
+            unknown_assets.append(cell_issue(asset_index, row_number, str(asset_cell)))
             if not assets_are_names and (default_name := _TEMPLATE_ASSETS.get(asset_key.upper())) is not None:
                 # Still counted among the file's assets: the cache scope must
                 # cover the rows a fixed file would touch.
@@ -648,12 +659,7 @@ def _inspect_rows(
             # still a broken formula the operator must see — check BEFORE the
             # calculated-field skip.
             if _is_reference_error(raw[index]):
-                formula_reference_errors.append(
-                    RenovationPlanImportCellIssue(
-                        location=f"{_column_name(index)}, строка {row_number}",
-                        value=str(raw[index]).strip(),
-                    )
-                )
+                formula_reference_errors.append(cell_issue(index, row_number, str(raw[index]).strip()))
                 continue
             if meta.is_calculated:
                 continue
@@ -673,14 +679,20 @@ def _inspect_rows(
                 values[field] = True
                 label = trimmed
             else:
-                value = _coerce(raw[index], meta.cell_type)
-                if value is None:
-                    type_errors.append(
-                        RenovationPlanImportCellIssue(
-                            location=f"{_column_name(index)}, строка {row_number}", value=str(raw[index])
-                        )
-                    )
-                    continue
+                if meta.cell_type == "number":
+                    value, problem = _number_value(raw[index], meta)
+                    if value is None:
+                        issue = cell_issue(index, row_number, str(raw[index]))
+                        if problem is None:
+                            type_errors.append(issue)
+                        else:
+                            invalid_values.append(issue)
+                        continue
+                else:
+                    value = _coerce(raw[index], meta.cell_type)
+                    if value is None:
+                        type_errors.append(cell_issue(index, row_number, str(raw[index])))
+                        continue
                 values[field] = value
                 label = raw[index]
             if meta.catalog:
@@ -690,11 +702,7 @@ def _inspect_rows(
                 if known is None:
                     unknown_catalogs.add(meta.catalog)
                 elif not _value_in_catalog(known, label):
-                    missing.append(
-                        RenovationPlanImportCellIssue(
-                            location=f"{_column_name(index)}, строка {row_number}", value=str(label)
-                        )
-                    )
+                    missing.append(cell_issue(index, row_number, str(label)))
         if RENOVATION_ID_FORMULA_ENABLED:
             valid_rows.append(values)
     duplicates = sorted(code for code, count in Counter(codes).items() if count > 1)
@@ -724,6 +732,7 @@ def _inspect_rows(
             duplicates
             or invalid_codes
             or type_errors
+            or invalid_values
             or formula_reference_errors
             or missing
             or missing_required_values
@@ -737,6 +746,7 @@ def _inspect_rows(
         duplicate_codes=_duplicates_with_rows(codes, row_numbers),
         invalid_calculated_codes=_sorted_without_duplicates(invalid_codes),
         invalid_data_types=type_errors,
+        invalid_values=invalid_values,
         formula_reference_errors=formula_reference_errors,
         missing_required_values=missing_required_values,
         skipped_rows=sorted(skipped_rows),
@@ -748,11 +758,6 @@ def _inspect_rows(
         rows_to_update=sum(code in existing_codes for code in codes),
         columns=_loaded_column_labels(columns),
     )
-
-
-def _empty_cell_issue(index: int, row_number: int) -> RenovationPlanImportCellIssue:
-    """Build the report entry for a required cell left empty in a data row."""
-    return RenovationPlanImportCellIssue(location=f"{_column_name(index)}, строка {row_number}", value="")
 
 
 def _loaded_column_labels(columns: dict[str, int]) -> list[str]:
@@ -854,6 +859,82 @@ def _text_date(value: str) -> str | None:
             continue
         return parsed.date().isoformat()
     return None
+
+
+def _parse_number(value: object) -> Decimal | None:
+    """
+    Parse a numeric cell, including the text shapes Excel leaves behind.
+
+    Russian files write decimals with a comma and thousands with spaces
+    («1 234,50»); a text-formatted number must not become «неверный тип».
+    When both separators are present, the LAST one is the decimal mark and the
+    other is a thousands separator.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, Decimal):
+        return value if value.is_finite() else None
+    if isinstance(value, int | float):
+        number = Decimal(str(value))
+        return number if number.is_finite() else None
+    if not isinstance(value, str):
+        return None
+    text = value.replace("\u00a0", " ").replace("\u202f", " ").strip()
+    if not text:
+        return None
+    text = text.replace(" ", "")
+    last_comma = text.rfind(",")
+    last_dot = text.rfind(".")
+    if last_comma >= 0 and last_dot >= 0:
+        text = text.replace(".", "").replace(",", ".") if last_comma > last_dot else text.replace(",", "")
+    elif last_comma >= 0:
+        text = text.replace(",", ".")
+    try:
+        number = Decimal(text)
+    except InvalidOperation:
+        return None
+    return number if number.is_finite() else None
+
+
+def _number_rule_problem(number: Decimal, meta: RenovationFieldMeta) -> str | None:
+    """Return the broken numeric rule («integer»/«range») or None."""
+    if (
+        meta.decimals == 0 or any(rule.get("kind") == "integer" for rule in meta.rules)
+    ) and number != number.to_integral_value():
+        return "integer"
+    for rule in meta.rules:
+        kind = rule.get("kind")
+        if kind in {"minimum", "maximum"}:
+            bound = rule.get("value")
+            if bound is None:
+                continue
+            limit = Decimal(str(bound))
+            if (kind == "minimum" and number < limit) or (kind == "maximum" and number > limit):
+                return "range"
+        elif kind == "percentage":
+            minimum = Decimal(str(rule.get("minimum", 0)))
+            maximum = Decimal(str(rule.get("maximum", 100)))
+            if not minimum <= number <= maximum:
+                return "range"
+    return None
+
+
+def _number_value(value: object, meta: RenovationFieldMeta) -> tuple[object | None, str | None]:
+    """
+    Coerce a numeric cell and enforce the field's own numeric rules.
+
+    `(None, None)` is a type error (not a number); `(None, reason)` is a value
+    error (fraction in an integer column, out of bounds).
+    """
+    number = _parse_number(value)
+    if number is None:
+        return None, None
+    problem = _number_rule_problem(number, meta)
+    if problem is not None:
+        return None, problem
+    if number == number.to_integral_value() and abs(number) < Decimal("1e15"):
+        return str(int(number)), None
+    return float(number), None
 
 
 def _coerce(value: object, cell_type: str) -> object | None:

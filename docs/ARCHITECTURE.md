@@ -415,7 +415,13 @@ pad short values to seven.
 Text cells are stored trimmed (a non-breaking space included) and an empty
 string — or a cell holding only whitespace — counts as an empty cell: it is
 skipped, never reported as «Неверный тип данных», even for an optional field
-such as «Влияние на производство». The «Лот» code gets its mandatory trailing dot
+such as «Влияние на производство». Numeric cells accept the text shapes Excel
+leaves behind: `1 234,50`, `1.234,50` and `1234.5` all parse; the last decimal
+separator wins when both are present. In an integer field (`decimals = 0` or an
+`integer` rule) a fractional tail is accepted only when it is zero (`123,00` →
+123); a non-zero tail is a «Недопустимые значения» error so the operator decides
+what to do with the fraction. The same category carries numeric rule violations:
+`minimum`, `maximum` and the 0–100 bounds of `percentage`. The «Лот» code gets its mandatory trailing dot
 added silently when the file has `1.1.1` instead of `1.1.1.`
 (`renovation_id.normalize_direction_code` — the same rule the grid applies on
 edit).
@@ -449,11 +455,15 @@ Excel's cached `#REF!` values (`formula_reference_errors` — a formula whose
 referenced cell/range is gone; it is its own category, because in a text field
 it would otherwise be stored as ordinary text and in a numeric one it would
 masquerade as a type error; calculated template columns are checked too, even
-though their values are recomputed after the load); and reference labels
+though their values are recomputed after the load); numeric cells that violate
+their field rules (`invalid_values` — a fraction in an integer column or a
+value outside `minimum`/`maximum`/`percentage`); and reference labels
 absent from the form's own
 catalogs, compared strictly (whitespace/case only — no typo tolerance, no «@»
-options). Without errors the response carries the assets (by name), the new
-rows and the rows to update (existing `col_003`).
+options). Every cell issue carries the form field's own label, so the dialog
+names the column as «Цех (столбец H)» instead of only the Excel letter. Without
+errors the response carries the assets (by name), the new rows and the rows to
+update (existing `col_003`).
 
 The preflight dialog (`plan-excel-import-modal.tsx`) closes only by its close
 button, Escape, or the «Загрузить» hand-off: the backdrop is

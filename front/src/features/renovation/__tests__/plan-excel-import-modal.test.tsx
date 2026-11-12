@@ -381,6 +381,49 @@ test("an asset outside the project dictionary is an error of the file", () => {
     expect(view.getByText("ZZZR (строки: 12, 40)")).toBeTruthy();
 });
 
+test("cell errors name the field and keep the Excel column letter", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{
+                status: "has-errors",
+                unknownAssets: [
+                    {
+                        location: "C, строка 12",
+                        value: "ZZZR",
+                        column_label: "Наименование ДО",
+                    },
+                ],
+            }}
+        />,
+    );
+    expect(view.getByText("Наименование ДО (столбец C):")).toBeTruthy();
+});
+
+test("numeric rule violations are their own category with the field label", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{
+                status: "has-errors",
+                invalidValues: [
+                    {
+                        location: "Q, строка 3",
+                        value: "150",
+                        column_label: "Централизованная поставка",
+                    },
+                ],
+            }}
+        />,
+    );
+    expect(view.getByText("Недопустимые значения (1):")).toBeTruthy();
+    expect(view.getByText("Централизованная поставка (столбец Q):")).toBeTruthy();
+});
+
 test("broken formula references are reported as their own error category", () => {
     const view = render(
         <PlanExcelImportModal

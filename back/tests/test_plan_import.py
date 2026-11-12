@@ -116,6 +116,7 @@ def test_every_reported_problem_points_at_a_row() -> None:
     # A cell-level issue carries «<column>, строка <n>».
     for issue in (
         *result.invalid_data_types,
+        *result.invalid_values,
         *result.formula_reference_errors,
         *result.missing_dictionary_values,
         *result.missing_required_values,
@@ -132,6 +133,7 @@ def test_every_reported_problem_points_at_a_row() -> None:
         result.duplicate_codes
         or result.invalid_calculated_codes
         or result.invalid_data_types
+        or result.invalid_values
         or result.formula_reference_errors
         or result.missing_required_values
         or result.missing_dictionary_values
@@ -755,6 +757,56 @@ def test_a_broken_formula_reference_is_its_own_error_category() -> None:
     ]
     assert result.invalid_data_types == []
     assert result.new_rows == 1
+
+
+def test_text_numbers_are_parsed_with_comma_and_spaces() -> None:
+    """A text-formatted decimal must load, not become a type error."""
+    header = [*_PREFLIGHT_HEADER, "Работа, руб. без ндс"]
+    result = _inspect(
+        [
+            header,
+            list(range(1, len(header) + 1)),
+            [*_preflight_row(), "1 234,50"],
+        ]
+    )
+
+    assert result.status == "ready", result.invalid_data_types
+    assert result.invalid_values == []
+
+
+def test_numeric_rules_are_reported_with_the_field_label() -> None:
+    """Integer/minimum/percentage violations are values, not generic type errors."""
+    header = [*_PREFLIGHT_HEADER, "Ед. изм.", "Работа, руб. без ндс"]
+    result = _inspect(
+        [
+            header,
+            list(range(1, len(header) + 1)),
+            [*_preflight_row(), "12,5", "-5"],
+        ]
+    )
+
+    assert result.status == "has_errors"
+    assert [(issue.location, issue.value, issue.column_label) for issue in result.invalid_values] == [
+        ("Q, строка 3", "12,5", "Ед. изм."),
+        ("R, строка 3", "-5", "Работа, руб. без ндс"),
+    ]
+    assert result.invalid_data_types == []
+
+
+def test_a_percentage_above_its_maximum_is_rejected() -> None:
+    header = [*_PREFLIGHT_HEADER, "Централизованная поставка"]
+    result = _inspect(
+        [
+            header,
+            list(range(1, len(header) + 1)),
+            [*_preflight_row(), "150"],
+        ]
+    )
+
+    assert result.status == "has_errors"
+    assert [(issue.location, issue.value) for issue in result.invalid_values] == [
+        ("Q, строка 3", "150"),
+    ]
 
 
 def test_a_broken_reference_in_a_calculated_column_is_still_reported() -> None:

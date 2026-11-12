@@ -32,7 +32,7 @@ INSPECT_SCOPE_TTL_SECONDS = 7 * 24 * 3600
 # written by a buggy preflight (the numbering row read as data, twice) kept
 # being served after the fix — the operator re-uploaded the same file and saw
 # the old analysis. Bump it whenever the report's content changes.
-INSPECT_CACHE_VERSION = "6"
+INSPECT_CACHE_VERSION = "7"
 
 
 def inspect_cache_key(payload: bytes, *, scope: str = "") -> str:
