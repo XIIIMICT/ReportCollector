@@ -3580,7 +3580,11 @@ revogr-data .rgCell.report-cell--number {
    and height from the live header cells. */
 .report-header-unhide {
     position: absolute;
-    z-index: 7;
+    /* Same layer as the pinned viewport (z-index 2) but earlier in the DOM:
+       the pinned columns paint over the buttons, so a hidden-block button
+       slides UNDER them when the grid scrolls sideways. Still above the
+       regular header viewport (z-index 1). */
+    z-index: 2;
     top: 0;
     right: 0;
     left: 0;
@@ -3596,6 +3600,14 @@ revogr-data .rgCell.report-cell--number {
     /* Centred ON the hidden block's left boundary, not started at it. */
     transform: translateX(-50%);
     pointer-events: auto;
+}
+
+/* The plan draws its own header overlay: the pinned cells (z-index 2) and the
+   opaque pinned backdrop (z-index 1) must paint OVER a hidden-block button that
+   scrolls into the pinned area. z-index 0 keeps the button above the plain
+   header cells (painted in tree order) while staying under both. */
+.renovation-grid__header .grid-unhide-anchor {
+    z-index: 0;
 }
 
 .grid-unhide-button {
@@ -3940,7 +3952,9 @@ body > div:has(> .date-time-picker__popover) {
    buttons themselves. */
 .report-header-funnels {
     position: absolute;
-    z-index: 6;
+    /* Below the pinned viewport (same z-index, earlier in the DOM): the
+       funnels of unpinned columns go under the pinned columns, not over. */
+    z-index: 2;
     right: 0;
     left: 0;
     overflow: hidden;

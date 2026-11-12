@@ -81,6 +81,15 @@ index-based cell merges are suppressed while any column is hidden (the same
 guard filters/sorting already use). Hidden columns are removed from the grid
 columns, so copy and range operations see only the visible order.
 
+A block's `anchor` is the HIGHEST header level among its hidden columns: hiding
+a leaf (`level = descriptor.path.length` — a standalone column with no group is
+level 0, not 1) and then an adjacent higher group lifts the button to the group
+row. The service-column «+» at the far right is centred ON the table's right
+boundary, exactly like a block button is centred on its left boundary. With
+pinned columns, the button/funnel layers share the pinned viewport's z-index but
+come earlier in the DOM, so buttons of unpinned columns slide UNDER the pinned
+columns when the table scrolls sideways.
+
 ## Pinned columns and rows
 
 **Columns.** «Закрепить» in the header (and number-strip) menu sets RevoGrid's

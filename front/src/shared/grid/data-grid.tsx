@@ -2514,9 +2514,12 @@ function DataGridInner(
             } else {
                 left -= scrollLeft;
             }
-            // The data grid's scrollbar can leave the very last pixels off the
-            // right edge; keep the service reveal button on screen regardless.
-            left = Math.min(left, Math.max(0, shell.clientWidth - 22));
+            // Centre the service reveal button ON the TABLE's right boundary —
+            // the right edge of the last column — like every hidden-block
+            // button is centred on its left edge. It is deliberately NOT
+            // attached to the viewport/scrollbar: the anchor scrolls with the
+            // table and can move off-screen when the last column does.
+            // The anchor itself applies translateX(-50%).
             next.push({
                 key: "__service__",
                 props: [],
@@ -2524,10 +2527,11 @@ function DataGridInner(
                     number: dataDescriptors.length + index + 1,
                     path: [descriptor.label],
                 })),
-                // The button is centred on the boundary by CSS; at the very
-                // end of the content that would put half of it outside, so it
-                // is nudged left to sit fully inside.
-                left: Math.round(left - 11),
+                // Centred ON the table's right boundary by CSS
+                // (`translateX(-50%)`): the button's midpoint sits exactly on
+                // the last column's right edge, matching the hidden-block
+                // buttons that centre on a block's left edge.
+                left: Math.round(left),
                 top: 0,
                 label: "Показать служебные столбцы",
                 service: true,
@@ -2601,7 +2605,7 @@ function DataGridInner(
             if (!cell) return;
             const leaf = cell.querySelector("[data-prop]")?.getAttribute("data-prop") ?? null;
             let targets: string[] = [];
-            let level = headerRowCount > 1 ? 1 : 0;
+            let level = 0;
             let service = false;
             if (leaf !== null) {
                 if (serviceKeys.has(leaf)) {
@@ -2609,7 +2613,13 @@ function DataGridInner(
                     targets = [leaf];
                     service = true;
                 } else {
+                    // The leaf starts at the BOTTOM of its group path, but a
+                    // standalone column (no groups) takes the whole header
+                    // height and starts at level 0. Hard-coding 1 kept a
+                    // standalone neighbour from lifting a hidden block's
+                    // button to its real header level.
                     targets = [leaf];
+                    level = descriptorByKey.get(leaf)?.path?.length ?? 0;
                 }
             } else {
                 const groupNames = [
@@ -2667,7 +2677,6 @@ function DataGridInner(
             dataDescriptors,
             descriptors,
             effectiveHidden,
-            headerRowCount,
             hide,
             onServiceColumnsChange,
             pinnedKeys,

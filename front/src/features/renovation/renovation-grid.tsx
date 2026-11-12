@@ -1539,9 +1539,9 @@ function RenovationGridInner(
                 key: "__service__",
                 props: [],
                 entries: hiddenServiceEntries,
-                // Centred by CSS; at the content edge that would clip half of
-                // the button, so it is nudged left to stay fully visible.
-                left: geometry.totalWidth - 11,
+                // Centred ON the table's right boundary, like every hidden
+                // block's button is centred on its left edge.
+                left: geometry.totalWidth,
                 top: 0,
                 label: "Показать служебные столбцы",
                 service: true,
