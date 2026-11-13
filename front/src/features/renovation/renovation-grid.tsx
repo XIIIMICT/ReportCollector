@@ -544,8 +544,8 @@ function RenovationGridInner(
     const effectiveHiddenFields = useMemo<HiddenColumnAnchors>(() => {
         const allowed = new Set(hideableFields.map((field) => field.dbName));
         const result: HiddenColumnAnchors = {};
-        for (const [dbName, level] of Object.entries(hiddenFields)) {
-            if (allowed.has(dbName)) result[dbName] = level;
+        for (const [dbName, anchor] of Object.entries(hiddenFields)) {
+            if (allowed.has(dbName)) result[dbName] = anchor;
         }
         return result;
     }, [hiddenFields, hideableFields]);
@@ -1523,7 +1523,7 @@ function RenovationGridInner(
                 break;
             }
             return {
-                key: block.props.join("|"),
+                key: `${block.priority}:${block.props.join("|")}`,
                 props: block.props,
                 entries: block.props
                     .map((prop) => hiddenEntryByDbName.get(prop))
@@ -1532,6 +1532,7 @@ function RenovationGridInner(
                 top: levelOffsets[Math.min(block.anchor, HEADER_LEVEL_COUNT - 1)] ?? 0,
                 label: `Показать скрытые столбцы (${block.props.length})`,
                 service: false,
+                priority: block.priority + 1,
             };
         });
         if (!showServiceColumns && onShowServiceColumnsChange) {
@@ -1545,6 +1546,7 @@ function RenovationGridInner(
                 top: 0,
                 label: "Показать служебные столбцы",
                 service: true,
+                priority: 0,
             });
         }
         return buttons;
@@ -3757,6 +3759,7 @@ function RenovationGridInner(
                         label={button.label}
                         entries={button.entries}
                         style={{ left: button.left, top: button.top }}
+                        priority={button.priority}
                         onPress={() =>
                             button.service
                                 ? onShowServiceColumnsChange?.(true)

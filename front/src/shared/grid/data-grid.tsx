@@ -877,8 +877,8 @@ function DataGridInner(
     );
     const effectiveHidden = useMemo<HiddenColumnAnchors>(() => {
         const result: HiddenColumnAnchors = {};
-        for (const [prop, level] of Object.entries(hidden)) {
-            if (hideableKeys.has(prop)) result[prop] = level;
+        for (const [prop, anchor] of Object.entries(hidden)) {
+            if (hideableKeys.has(prop)) result[prop] = anchor;
         }
         return result;
     }, [hidden, hideableKeys]);
@@ -962,6 +962,7 @@ function DataGridInner(
             top: number;
             label: string;
             service: boolean;
+            priority: number;
         }>
     >([]);
     const unhideLayerRef = useRef<HTMLDivElement>(null);
@@ -2484,7 +2485,7 @@ function DataGridInner(
             }
             const anchor = Math.max(0, Math.min(block.anchor, headerRowCount - 1));
             next.push({
-                key: block.props.join("|"),
+                key: `${block.priority}:${block.props.join("|")}`,
                 props: block.props,
                 entries: block.props
                     .map(entryFor)
@@ -2493,6 +2494,9 @@ function DataGridInner(
                 top: anchor * rowHeight,
                 label: `Показать скрытые столбцы (${block.props.length})`,
                 service: false,
+                // A column hidden LATER wins the pointer over a neighbouring
+                // button at the same boundary; the service «+» stays lowest.
+                priority: block.priority + 1,
             });
         }
         if (!showServiceColumns && onServiceColumnsChange) {
@@ -2535,6 +2539,7 @@ function DataGridInner(
                 top: 0,
                 label: "Показать служебные столбцы",
                 service: true,
+                priority: 0,
             });
         }
         setUnhideButtons((previous) =>
@@ -2547,7 +2552,8 @@ function DataGridInner(
                     entry.left === candidate.left &&
                     entry.top === candidate.top &&
                     entry.label === candidate.label &&
-                    entry.service === candidate.service
+                    entry.service === candidate.service &&
+                    entry.priority === candidate.priority
                 );
             })
                 ? previous
@@ -3693,6 +3699,7 @@ function DataGridInner(
                         label={button.label}
                         entries={button.entries}
                         style={{ left: button.left, top: button.top }}
+                        priority={button.priority}
                         onPress={() => handleUnhide(button)}
                     />
                 ))}

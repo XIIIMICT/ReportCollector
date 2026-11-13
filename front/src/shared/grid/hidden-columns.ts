@@ -5,23 +5,46 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /**
  * Hidden data columns of one table.
  *
- * The value of a prop is the HEADER LEVEL the column was hidden from: the
- * expand button sits at the top edge of that level, exactly where the clicked
- * header cell starts. `0` is the top level, `1` the next one down, and so on.
- * Storing the level rather than pixels keeps the button in place when the
- * header heights are dragged.
+ * The value of a prop is the HEADER LEVEL the column was hidden from and the
+ * HIDE ACTION it belongs to. The level is where the expand button sits (the
+ * clicked header cell's top edge), `0` being the top level; storing the level
+ * rather than pixels keeps the button in place when header heights are dragged.
+ * The action id keeps neighbouring columns hidden by DIFFERENT right-clicks as
+ * separate buttons, with the later action drawn above the earlier one.
  */
-export type HiddenColumnAnchors = Record<string, number>;
+export type HiddenColumnAnchor = {
+    level: number;
+    /** Monotonic hide-action id; a bigger id was hidden later. */
+    group: number;
+};
+
+export type HiddenColumnAnchors = Record<string, HiddenColumnAnchor>;
 
 export type HiddenColumnBlock = {
-    /** The contiguous hidden props, in table order. */
+    /** The hidden props of ONE hide action, in table order. */
     props: string[];
-    /** Header level of the leftmost hidden column (its expand button's top). */
+    /** The HIGHEST header level in the block (its expand button's top). */
     anchor: number;
+    /** Hide-action id: the later the action, the higher the button's z-index. */
+    priority: number;
 };
 
 const STORAGE_PREFIX = "rc:hiddenColumns:";
 const EMPTY: HiddenColumnAnchors = {};
+
+/** `number` values are the legacy `{prop: level}` entries, read as separate actions. */
+export function anchorOf(value: HiddenColumnAnchor | number | undefined): HiddenColumnAnchor {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return { level: Math.max(0, Math.floor(value)), group: -1 };
+    }
+    if (value && typeof value === "object" && typeof value.level === "number") {
+        return {
+            level: Math.max(0, Math.floor(value.level)),
+            group: typeof value.group === "number" ? value.group : -1,
+        };
+    }
+    return { level: 0, group: -1 };
+}
 
 /** The `localStorage` key of one table's hidden columns. */
 export function hiddenColumnsStorageKey(project: string, section: string): string {
@@ -37,13 +60,18 @@ export function readStoredHiddenColumns(project: string, section: string): Hidde
         const parsed: unknown = JSON.parse(raw);
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return EMPTY;
         const result: HiddenColumnAnchors = {};
+        let group = 0;
         for (const [prop, value] of Object.entries(parsed)) {
             if (prop === "") continue;
-            const level =
-                typeof value === "number" && Number.isFinite(value) && value >= 0
-                    ? Math.floor(value)
-                    : 0;
-            result[prop] = level;
+            const parsedAnchor = value as HiddenColumnAnchor | number | undefined;
+            const anchor = anchorOf(parsedAnchor);
+            // A legacy number carries no action id: give each entry its own, so
+            // columns hidden before the upgrade do not all merge into one button.
+            result[prop] = {
+                level: anchor.level,
+                group: anchor.group >= 0 ? anchor.group : group,
+            };
+            group += 1;
         }
         return result;
     } catch {
@@ -67,42 +95,57 @@ export function writeStoredHiddenColumns(
     }
 }
 
-/** Maximal runs of hidden props in the table's own order. */
+/**
+ * Maximal runs of hidden props hidden by the SAME action, in table order.
+ *
+ * Two adjacent columns hidden by two separate right-clicks stay TWO buttons —
+ * the later one is stacked above the earlier one so it wins the pointer.
+ */
 export function hiddenColumnBlocks(
     orderedProps: readonly string[],
     hidden: HiddenColumnAnchors,
 ): HiddenColumnBlock[] {
     const blocks: HiddenColumnBlock[] = [];
     let current: string[] = [];
+    let group: number | null = null;
+    let level = 0;
     const flush = () => {
         if (current.length === 0) return;
-        // The button sits at the HIGHEST header level in the block: merging a
-        // leaf-hidden column with a whole group to its left must not drag the
-        // button down to the leaf row.
-        const anchor = Math.min(...current.map((prop) => hidden[prop] ?? 0));
-        blocks.push({ props: current, anchor });
+        blocks.push({ props: current, anchor: level, priority: group ?? 0 });
         current = [];
     };
     for (const prop of orderedProps) {
-        if (hidden[prop] !== undefined) {
-            current.push(prop);
+        const value = hidden[prop];
+        if (value === undefined) {
+            flush();
+            group = null;
             continue;
         }
-        flush();
+        const anchor = anchorOf(value);
+        if (current.length > 0 && anchor.group !== group) flush();
+        if (current.length === 0) {
+            group = anchor.group;
+            level = anchor.level;
+        } else {
+            level = Math.min(level, anchor.level);
+        }
+        current.push(prop);
     }
     flush();
     return blocks;
 }
 
-/** Hide `props` from `level`; already-hidden neighbours join the same block. */
+/** Hide `props` as ONE action from `level`; the new action gets the top priority. */
 export function hideColumns(
     hidden: HiddenColumnAnchors,
     props: readonly string[],
     level: number,
 ): HiddenColumnAnchors {
     if (props.length === 0) return hidden;
+    let group = 0;
+    for (const anchor of Object.values(hidden)) group = Math.max(group, anchor.group + 1);
     const next = { ...hidden };
-    for (const prop of props) next[prop] = Math.max(0, Math.floor(level));
+    for (const prop of props) next[prop] = { level: Math.max(0, Math.floor(level)), group };
     return next;
 }
 

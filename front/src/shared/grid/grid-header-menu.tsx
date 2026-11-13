@@ -146,14 +146,24 @@ export function GridUnhideButton({
     entries,
     onPress,
     style,
+    priority = 0,
 }: {
     label: string;
     entries: readonly HiddenColumnEntry[];
     onPress: () => void;
     style?: CSSProperties;
+    /** Later hide actions sit above earlier ones at an overlapping boundary. */
+    priority?: number;
 }) {
     return (
-        <span className="grid-unhide-anchor" {...(style !== undefined && { style })}>
+        <span
+            className="grid-unhide-anchor"
+            data-unhide-priority={priority}
+            {...(style !== undefined && {
+                style: { ...style, zIndex: 10 + priority },
+            })}
+            {...(style === undefined && { style: { zIndex: 10 + priority } })}
+        >
             <Tooltip delay={200}>
                 <Button
                     isIconOnly

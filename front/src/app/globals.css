@@ -3580,11 +3580,10 @@ revogr-data .rgCell.report-cell--number {
    and height from the live header cells. */
 .report-header-unhide {
     position: absolute;
-    /* Same layer as the pinned viewport (z-index 2) but earlier in the DOM:
-       the pinned columns paint over the buttons, so a hidden-block button
-       slides UNDER them when the grid scrolls sideways. Still above the
-       regular header viewport (z-index 1). */
-    z-index: 2;
+    /* The reveal buttons must stay ABOVE the pinned viewport (z-index 2) and
+       the resize handles (z-index 1/3): a button under a pinned column or a
+       hovered column boundary could not be clicked. */
+    z-index: 4;
     top: 0;
     right: 0;
     left: 0;
@@ -3602,12 +3601,25 @@ revogr-data .rgCell.report-cell--number {
     pointer-events: auto;
 }
 
-/* The plan draws its own header overlay: the pinned cells (z-index 2) and the
-   opaque pinned backdrop (z-index 1) must paint OVER a hidden-block button that
-   scrolls into the pinned area. z-index 0 keeps the button above the plain
-   header cells (painted in tree order) while staying under both. */
+/* In the plan the header overlay owns the layer: the buttons paint above the
+   pinned cells (z-index 2), the opaque backdrop (z-index 1) and the resize
+   handles (z-index 1/3). Each button additionally raises its own z-index by
+   its hide priority (set inline), so the most recently hidden block wins. */
 .renovation-grid__header .grid-unhide-anchor {
-    z-index: 0;
+    z-index: 10;
+}
+
+/* While the pointer is on an expand button, the column boundary underneath
+   must not light up or be draggable: the button owns that hit area. */
+.renovation-grid__header:has(.grid-unhide-anchor:hover) .renovation-grid__resize-handle,
+.renovation-grid__header:has(.grid-unhide-anchor:hover) .renovation-grid__level-resize-handle {
+    pointer-events: none;
+}
+
+.renovation-grid__header:has(.grid-unhide-anchor:hover) .renovation-grid__resize-handle:hover,
+.renovation-grid__header:has(.grid-unhide-anchor:hover)
+    .renovation-grid__level-resize-handle:hover {
+    background: transparent;
 }
 
 .grid-unhide-button {
@@ -3952,9 +3964,9 @@ body > div:has(> .date-time-picker__popover) {
    buttons themselves. */
 .report-header-funnels {
     position: absolute;
-    /* Below the pinned viewport (same z-index, earlier in the DOM): the
-       funnels of unpinned columns go under the pinned columns, not over. */
-    z-index: 2;
+    /* Above the pinned viewport (z-index 2): KPPK's «Продукция»/«Рынок
+       сбыта» are pinned identity columns and their funnel must stay visible. */
+    z-index: 3;
     right: 0;
     left: 0;
     overflow: hidden;

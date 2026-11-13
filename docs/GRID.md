@@ -59,36 +59,45 @@ cell to act on every leaf under it. Pinned columns are never hideable: their
 menu offers only «Открепить», so a mixed group shows «Закрепить» for its
 unpinned part and «Открепить» for its pinned one. The menu animates in/out from
 the pointer, and the hidden set is remembered per table in `localStorage` under
-`rc:hiddenColumns:<project>:<section>` as `{prop: headerLevel}` — the level the
-clicked cell started at, not pixels, so the expand button follows the header
-heights when they are dragged. `fixed`/calculated columns are read-only but
-still hideable.
+`rc:hiddenColumns:<project>:<section>` as `{prop: {level, group}}` — `level` is
+the header level the clicked cell started at (not pixels, so the button follows
+dragged header heights); `group` is the monotonic id of the hide action.
+Legacy numeric values are read back as separate one-column actions.
+`fixed`/calculated columns are read-only but still hideable.
 
-Adjacent hidden columns collapse into ONE block. Its HeroUI `Button` («+»,
-icon-only) is centred on the block's left boundary at the block's anchor level —
-the HIGHEST level among the merged columns; clicking it reveals the whole block.
-A block that is hidden from a group header anchors at that cell's top. The
-button's HeroUI Tooltip lists the block's columns by their number in the table
-(not the list index) and their header chain («3. Техническая дирекция → … →
-Цех»); the status tooltip repeats the full list (all blocks, service columns
-included while hidden) under «Скрытые столбцы:». The header menu is `Dropdown`
-+ `Dropdown.Menu` / `Dropdown.Item`; the expand button is `Button isIconOnly`.
-The popover's `data-entering`/`data-exiting` states are animated in
-`globals.css`.
+One right-click is ONE block and ONE «+» button (a group click hides all its
+leaves together). Adjacent columns hidden by DIFFERENT right-clicks stay TWO
+buttons: the later action gets a higher `group`, hence a higher inline
+`z-index` (`10 + priority`) and wins the pointer where their 22px boxes overlap.
+The service-column «+» has priority 0 and always sits below a just-hidden
+block's button. Each button's HeroUI `Button` («+», icon-only) is centred on its
+block's left boundary at the block's anchor level — the HIGHEST level among its
+columns; clicking it reveals that block only. A block hidden from a group
+header anchors at that cell's top. The button's HeroUI Tooltip lists the
+block's columns by their number in the table (not the list index) and their
+header chain («3. Техническая дирекция → … → Цех»); the status tooltip repeats
+the full list (all blocks, service columns included while hidden) under
+«Скрытые столбцы:». The header menu is `Dropdown` + `Dropdown.Menu` /
+`Dropdown.Item`; the expand button is `Button isIconOnly`. The popover's
+`data-entering`/`data-exiting` states are animated in `globals.css`.
 
 Filters and sorting on a hidden column stay active (hiding is visual), and
 index-based cell merges are suppressed while any column is hidden (the same
 guard filters/sorting already use). Hidden columns are removed from the grid
 columns, so copy and range operations see only the visible order.
 
-A block's `anchor` is the HIGHEST header level among its hidden columns: hiding
-a leaf (`level = descriptor.path.length` — a standalone column with no group is
-level 0, not 1) and then an adjacent higher group lifts the button to the group
-row. The service-column «+» at the far right is centred ON the table's right
-boundary, exactly like a block button is centred on its left boundary. With
-pinned columns, the button/funnel layers share the pinned viewport's z-index but
-come earlier in the DOM, so buttons of unpinned columns slide UNDER the pinned
-columns when the table scrolls sideways.
+A block's `anchor` is the HIGHEST header level among its hidden columns
+(`level = descriptor.path.length` — a standalone column with no group is
+level 0, not 1). The service-column «+» at the far right is centred ON the
+table's right boundary, exactly like a block button is centred on its left
+boundary. Both overlay layers sit ABOVE the pinned viewport
+(`.report-header-unhide` z-index 4, `.report-header-funnels` 3, `colPinStart`
+2): KPPK's «Продукция»/«Рынок сбыта» are pinned identity columns, and hiding
+their funnels (or a «+» behind a pinned column) makes the control unreachable.
+In the plan the buttons also outrank the resize handles (z-index 1/3): while a
+button is hovered, `:has(.grid-unhide-anchor:hover)` disables the handles'
+`pointer-events` and clears their hover highlight, so the boundary cannot
+light up over the button or steal its drag.
 
 ## Pinned columns and rows
 

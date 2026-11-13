@@ -89,6 +89,21 @@ test("the expand control is an icon-only HeroUI button", async () => {
     await waitFor(() => expect(pressed).toEqual([1]));
 });
 
+test("a later hide action's button sits above an earlier one", () => {
+    const { container } = render(
+        <GridUnhideButton
+            label="Показать скрытые столбцы (1)"
+            entries={[{ number: 3, path: ["План, т"] }]}
+            onPress={() => {}}
+            priority={2}
+            style={{ left: 40, top: 0 }}
+        />,
+    );
+    const anchor = container.querySelector(".grid-unhide-anchor") as HTMLElement;
+    expect(anchor.style.zIndex).toBe("12");
+    expect(anchor.dataset.unhidePriority).toBe("2");
+});
+
 test("the expand control's tooltip lists the hidden columns by table number", async () => {
     render(
         <GridUnhideButton
