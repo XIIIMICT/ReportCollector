@@ -1794,6 +1794,8 @@ function RenovationGridInner(
      * resolves cannot freeze the remembered position forever.
      */
     const restoreDeadlineRef = useRef(0);
+    /** One queued row-number re-sync per frame — see `syncRowHeaderScroll`. */
+    const rowHeaderSyncFrameRef = useRef(0);
     const totalRowsRef = useRef(totalRows);
     totalRowsRef.current = totalRows;
     const summaryHeightRef = useRef(summaryHeight);
@@ -1962,6 +1964,56 @@ function RenovationGridInner(
         },
         [rowHeight],
     );
+
+    /**
+     * Keep the row-number strip at the viewport's scroll position.
+     *
+     * The strip is its OWN `revogr-viewport-scroll`; it follows the rows only
+     * through RevoGrid's scroll proxy. During startup the grid replaces its
+     * viewports more than once, and the restore's `scrollToRow` retries can land
+     * AFTER the last `aftergridrender` — the new strip mounts at 0 while the
+     * main viewport is already at the saved row, and nothing re-sends the
+     * coordinate, so the numbers paint a screen below the rows until the user
+     * scrolls (which is what re-syncs everything).
+     *
+     * The scroller is assigned directly: dispatching `scroll-coordinate` runs
+     * through the strip's own LocalScrollService, whose params are empty until
+     * its first render has laid it out — it clamps the coordinate to 0 in
+     * exactly the state this heal exists for. The browser can scroll the real
+     * element whenever its content wrapper has height.
+     *
+     * Only the «stuck at 0 while the grid is scrolled» case is healed: a
+     * nonzero mismatch can be a scroll that started ON the strip (its wheel
+     * drives the grid too), and dragging that back would fight the user.
+     */
+    const syncRowHeaderScroll = useCallback(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        const strip = grid.querySelector<HTMLElement>(".rowHeaders .vertical-inner");
+        if (!strip || strip.scrollTop > 0) return;
+        let coordinate = 0;
+        for (const viewport of grid.querySelectorAll<HTMLElement>(
+            ".main-viewport > .viewports > revogr-viewport-scroll .vertical-inner",
+        )) {
+            coordinate = Math.max(coordinate, viewport.scrollTop);
+        }
+        if (coordinate <= 0) return;
+        strip.scrollTop = coordinate;
+    }, []);
+
+    /**
+     * Also heal on scroll: the restore can land after the last render, and
+     * those later scrolls must bring the strip along.
+     */
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        const onScroll = () => syncRowHeaderScroll();
+        // Capture: `scroll` does not bubble, but it does travel the capture
+        // path, and the strip has its own scroller.
+        grid.addEventListener("scroll", onScroll, true);
+        return () => grid.removeEventListener("scroll", onScroll, true);
+    }, [syncRowHeaderScroll]);
 
     /**
      * Scroll horizontally to the column carrying the given strip number.
@@ -4017,6 +4069,16 @@ function RenovationGridInner(
                     accessible
                     onAftersourceset={() => {
                         void refreshHorizontalScrollbar();
+                    }}
+                    // The row-number strip is re-synced on the frame after a
+                    // render, so a strip remounted by that render has painted
+                    // (see `syncRowHeaderScroll`). One frame is queued at most.
+                    onAftergridrender={() => {
+                        if (rowHeaderSyncFrameRef.current !== 0) return;
+                        rowHeaderSyncFrameRef.current = window.requestAnimationFrame(() => {
+                            rowHeaderSyncFrameRef.current = 0;
+                            syncRowHeaderScroll();
+                        });
                     }}
                     onContentsizechanged={() => void refreshHorizontalScrollbar()}
                     onViewportscroll={(event) => {

@@ -2179,71 +2179,105 @@ function DataGridInner(
     useEffect(() => {
         const shell = shellRef.current;
         if (!shell) return;
-        let drag: {
+        type ResizeTarget = {
             prop: string;
-            startX: number;
             startWidth: number;
             minWidth: number;
             maxWidth: number;
-        } | null = null;
-        // getColumns() returns the grouping shape too (a group has children), so
-        // narrow it the way the flatColumns memo above does.
-        const leavesOf = (columns: unknown[]) =>
-            (columns as (ColumnRegular | ColumnGrouping)[]).flatMap((column) =>
+        };
+        let drag: { targets: ResizeTarget[]; startX: number } | null = null;
+        // `grid.columns` carries the grouping shape too (a group has children),
+        // so narrow it the way the flatColumns memo above does.
+        const leavesOf = (columns: (ColumnRegular | ColumnGrouping)[]) =>
+            columns.flatMap((column) =>
                 (column as ColumnGrouping).children?.length
                     ? ((column as ColumnGrouping).children as ColumnRegular[])
                     : [column as ColumnRegular],
             );
-        const resolveColumn = async (handle: Element) => {
+        const toTarget = (leaf: ColumnRegular, startWidth?: number): ResizeTarget => ({
+            prop: String(leaf.prop),
+            startWidth:
+                typeof startWidth === "number" && startWidth > 0
+                    ? startWidth
+                    : typeof leaf.size === "number"
+                      ? leaf.size
+                      : 150,
+            minWidth: typeof leaf.minSize === "number" ? leaf.minSize : 40,
+            maxWidth: typeof leaf.maxSize === "number" ? leaf.maxSize : Number.POSITIVE_INFINITY,
+        });
+        /**
+         * Resolve the dragged boundary to the columns it resizes.
+         *
+         * Geometry is not a reliable lookup here: header cells are positioned
+         * per viewport (`translateX` is relative to the pinned or main strip),
+         * while a flat column list starts at the first grid column. The first
+         * column of the main viewport therefore translates to 0 — the same
+         * offset as the first pinned column — so a cumulative-width match sent
+         * every main-viewport boundary to the leftmost pinned column (dragging
+         * «Потребление»'s edge resized «Сырьевая позиция»). The DOM already
+         * names the column (`data-prop` on the title span) and the group
+         * (`data-group` on a grouping cell); resolve from those instead.
+         *
+         * A leaf resizes itself. A grouping cell distributes the delta over
+         * its children, matching RevoGrid's own group-boundary behaviour.
+         */
+        const resolveTargets = (handle: Element): ResizeTarget[] | null => {
             const grid = gridRef.current;
             const cell = handle.closest(".rgHeaderCell") as HTMLElement | null;
             if (!grid || !cell) return null;
-            const match = /translateX\((-?[\d.]+)px\)/.exec(cell.style.transform);
-            const cellLeft = match ? Number(match[1]) : 0;
-            const width = cell.offsetWidth;
-            const leaves = leavesOf(await gridAdapter.getColumns());
-            let offset = 0;
-            for (const leaf of leaves) {
-                const leafWidth = typeof leaf.size === "number" ? leaf.size : 150;
-                if (
-                    Math.abs(offset + leafWidth - (cellLeft + width)) < 2 ||
-                    Math.abs(offset - cellLeft) < 2
-                ) {
-                    return {
-                        prop: String(leaf.prop),
-                        startWidth: leafWidth,
-                        minWidth: typeof leaf.minSize === "number" ? leaf.minSize : 40,
-                        maxWidth:
-                            typeof leaf.maxSize === "number"
-                                ? leaf.maxSize
-                                : Number.POSITIVE_INFINITY,
-                    };
-                }
-                offset += leafWidth;
+            const columnTree = (grid.columns ?? []) as (ColumnRegular | ColumnGrouping)[];
+            const prop = cell.querySelector("[data-prop]")?.getAttribute("data-prop") ?? null;
+            if (prop !== null) {
+                const leaf = leavesOf(columnTree).find((column) => String(column.prop) === prop);
+                // The rendered cell width is the live width: `leaf.size` can be
+                // a render behind while the previous drag is settling.
+                return leaf ? [toTarget(leaf, cell.offsetWidth)] : null;
             }
-            return null;
+            const group = cell.getAttribute("data-group");
+            if (!group) return null;
+            const grouping = columnTree.find(
+                (column): column is ColumnGrouping =>
+                    ((column as ColumnGrouping).children?.length ?? 0) > 0 &&
+                    (column as ColumnGrouping).name === group,
+            );
+            const targets = (grouping?.children ?? []).flatMap((child) =>
+                ((child as ColumnGrouping).children?.length ?? 0) > 0
+                    ? ((child as ColumnGrouping).children as ColumnRegular[]).map((leaf) =>
+                          toTarget(leaf),
+                      )
+                    : [toTarget(child as ColumnRegular)],
+            );
+            return targets.length > 0 ? targets : null;
         };
         const onPointerDown = (event: PointerEvent) => {
             const target = event.target as Element | null;
             if (!target || !target.classList.contains("resizable-r")) return;
-            if (!gridRef.current) return;
+            const targets = resolveTargets(target);
+            if (!targets) return;
             event.preventDefault();
             event.stopPropagation();
-            void resolveColumn(target).then((resolved) => {
-                if (!resolved) return;
-                drag = { ...resolved, startX: event.clientX };
-                document.body.style.cursor = "ew-resize";
-            });
+            drag = { targets, startX: event.clientX };
+            document.body.style.cursor = "ew-resize";
         };
         const onPointerMove = (event: MouseEvent) => {
             if (!drag) return;
-            const next = Math.round(
-                Math.min(
-                    drag.maxWidth,
-                    Math.max(drag.minWidth, drag.startWidth + (event.clientX - drag.startX)),
-                ),
-            );
-            resizedWidthsRef.current.set(columnWidthKey(widthKeySection, drag.prop), next);
+            const delta = event.clientX - drag.startX;
+            const count = drag.targets.length;
+            for (const [index, target] of drag.targets.entries()) {
+                // A group moves its right edge by the pointer distance: the
+                // per-column shares must add up to `delta` exactly, or the
+                // boundary drifts away from the cursor (rounding each share
+                // independently loses up to half a pixel per column).
+                const share =
+                    count === 1
+                        ? delta
+                        : Math.round(((index + 1) * delta) / count) -
+                          Math.round((index * delta) / count);
+                const next = Math.round(
+                    Math.min(target.maxWidth, Math.max(target.minWidth, target.startWidth + share)),
+                );
+                resizedWidthsRef.current.set(columnWidthKey(widthKeySection, target.prop), next);
+            }
             setWidthsVersion((version) => version + 1);
         };
         const onPointerUp = () => {
@@ -2827,9 +2861,9 @@ function DataGridInner(
     // the hover that would open it.
     const [hoveredHeaderProp, setHoveredHeaderProp] = useState<string | null>(null);
     // The columns whose funnel is VISIBLE right now (hovered, or pinned by an
-    // applied filter). Published to the DOM as `data-funnel-"<prop>"` on the
-    // grid: the button lives in the overlay, so a header label cannot see it, and
-    // CSS cannot correlate the two otherwise.
+    // applied filter). Written onto each matching label as
+    // `data-funnel-open="true"`: the button lives in the overlay, so a header
+    // label cannot see it, and CSS cannot correlate the two otherwise.
     useEffect(() => {
         const grid = gridRef.current;
         if (!grid) return;
@@ -2848,6 +2882,14 @@ function DataGridInner(
         if (!grid || !filteringEnabled) return;
         const onPointerMove = (event: MouseEvent) => {
             const target = event.target as Element | null;
+            // The column boundary is RevoGrid's resize handle: the funnel must
+            // not open there. Even offset 7px away it sits next to the strip
+            // the pointer is aiming for, and a moving control beside a 6px
+            // target is exactly what made resizing feel impossible.
+            if (target?.closest?.(".resizable")) {
+                setHoveredHeaderProp(null);
+                return;
+            }
             // Moving onto OUR overlay button must not close it: the button is
             // the thing the user is aiming at, so its own column stays hovered.
             const funnel = target?.closest?.(".report-header-funnels [data-prop]");

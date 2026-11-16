@@ -3385,7 +3385,13 @@ revogr-data .rgCell.report-cell--number {
     position: absolute;
     z-index: 3;
     top: 0;
-    right: 1px;
+    /* The last 6px of every header cell are the column BOUNDARY: RevoGrid's
+       `.resizable-r` handle in the client grids, the plan's own
+       `.renovation-grid__resize-handle` (6px, straddling the line — 3px on each
+       side). A funnel flush with the edge covered that strip (it is above the
+       header), so the pointer hit the button and resizing became impossible.
+       7px clears the strip on both sides; the overlay funnels use the same gap. */
+    right: 7px;
     bottom: 1px;
     display: flex;
     align-items: center;
@@ -3398,6 +3404,12 @@ revogr-data .rgCell.report-cell--number {
     color: var(--muted);
     cursor: pointer;
     opacity: 0;
+    /* A collapsed funnel is invisible but its 11px icon still overflows the
+       zero-width box — with pointer events it silently swallowed the first
+       pixels of the resize strip beside it (in the plan the handle starts 6px
+       before the cell edge). Clicks at a collapsed funnel belong to the header
+       (sort) and to the boundary (resize); the open state re-enables them. */
+    pointer-events: none;
     transition:
         opacity 267ms cubic-bezier(0.4, 0, 0.2, 1),
         width 267ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -3465,34 +3477,10 @@ revogr-data .rgCell.report-cell--number {
     margin-right: 12px;
 }
 
-/* In a RevoGrid header the funnel is pinned to the COLUMN's right edge, exactly
-   like the plan's: it is absolutely positioned against the header cell (not
-   against `.header-content`, which is only the label's box) and grows leftwards
-   from that edge. */
-.report-header__title .header-filter-button {
-    position: absolute;
-    /* Above `.header-content`: that box is positioned too, so a lower z-index
-       put the funnel UNDER the text and the click sorted the column instead. */
-    z-index: 3;
-    top: 0;
-    /* The label row is the positioning box and it is already inset from the
-       cell's edge (RevoGrid's own content padding). A NEGATIVE offset puts the
-       funnel back on the column's edge with the small gap the grids want —
-       half of the plan's. */
-    right: -4px;
-    bottom: 0;
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    height: auto;
-    margin-left: 0;
-}
-
-/* The label row hosts the funnel, so it is the positioning context AND a
-   stacking context that sits above RevoGrid's own `.header-content` — that box
-   is `position: relative` and would otherwise swallow the click, which is what
-   made the header sort instead of opening the filter. */
+/* The label row is a stacking context above RevoGrid's own `.header-content` —
+   that box is `position: relative` and would otherwise swallow the header click,
+   which RevoGrid reads as a sort. The funnel is NOT a child of it: in a client
+   grid the button lives in the `.report-header-funnels` overlay (see below). */
 .report-header__title {
     position: relative;
     z-index: 2;
@@ -3506,22 +3494,17 @@ revogr-data .rgCell.report-cell--number {
 }
 
 /* The label steps aside exactly while its funnel TAKES SPACE — that is, while the
-   button is rendered. The button lives in the OVERLAY (a sibling of the grid), so
-   the label cannot see it and CSS cannot correlate the two; the grid publishes
-   the visible columns as `data-funnel-<prop>` on itself, and the label matches
-   its own `data-prop` in that attribute.
-   One rule per column: an attribute selector cannot test «my `data-prop` value
-   appears in the grid's list», so the pairs are enumerated where the columns are
-   declared (`SELECTOR` below) and mirrored by `syncFunnelShiftMarkers`, which
-   applies the match at runtime.
+   button is open (hovered, or pinned by an applied filter). The button lives in
+   the OVERLAY (a sibling of the grid), so the label cannot see it and CSS cannot
+   correlate the two; `DataGrid` writes `data-funnel-open="true"` onto each
+   matching label and the shift keys on that marker.
    A column with an APPLIED filter keeps its funnel open at all times, so the
    shift follows the BUTTON, not the pointer: it used to key on hover alone, and
    the text slid back under a funnel that was still there.
    NOT `:focus-within`: the filter popover keeps focus in the cell after it
    closes, and the text stayed shifted with an invisible funnel beside it. */
 .report-header__title[data-funnel-open="true"],
-.report-header__title[data-hovered="true"],
-.report-header__title:has(.header-filter-button.is-active) {
+.report-header__title[data-hovered="true"] {
     padding-right: 12px;
 }
 
@@ -3543,6 +3526,7 @@ revogr-data .rgCell.report-cell--number {
 .header-filter-button.is-active {
     width: 24px;
     opacity: 1;
+    pointer-events: auto;
 }
 
 .header-filter-button.is-active {
@@ -3976,10 +3960,11 @@ body > div:has(> .date-time-picker__popover) {
 .report-header-funnels .header-filter-button {
     position: absolute;
     /* Anchored by its RIGHT edge: `left` is the cell's right edge, and the
-       button grows leftwards from it — the plan's geometry. */
+       button grows leftwards from it — the plan's geometry, including the 7px
+       gap that keeps the column boundary's resize strip uncovered. */
     right: auto;
     bottom: auto;
-    transform: translateX(-100%);
+    transform: translateX(calc(-100% - 7px));
     /* A collapsed funnel keeps its box (zero width) but must not swallow clicks
        aimed at the header; it becomes clickable only once it is open. */
     pointer-events: none;
