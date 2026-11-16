@@ -1,10 +1,10 @@
 """Renovation assets, working-plan aggregates and deletion replay."""
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
-from sqlalchemy import func
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -13,11 +13,11 @@ from src.collab.locking import project_write
 from src.raw_materials.errors import CellValidationError
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.models import RAsset, RUserAsset
-from src.renovation.plan import RenovationPlanRow, RPlanState
+from src.renovation.plan import RenovationPlanRow
 from src.renovation.schemas import RenovationAssetRowRead
 
 from .errors import RenovationDictionaryError
-from .plan_queries import _plan_id_by_state
+from .plan_queries import read_working_plan_aggregates
 
 if TYPE_CHECKING:
     from src.auth.models import User
@@ -43,24 +43,11 @@ async def read_renovation_asset_rows(
     rows = (await session.exec(query)).all()
     # Computed columns of the working plan's rows per asset: the total
     # «Стоимость итого» (col_031) and the number of repair works (rows).
-    working_plan_id = await _plan_id_by_state(session, RPlanState.WORKING)
-    totals: dict[UUID, float] = {}
-    counts: dict[UUID, int] = {}
-    if working_plan_id is not None:
-        sums = (
-            await session.exec(
-                select(
-                    col(RenovationPlanRow.asset_id),
-                    func.coalesce(func.sum(col(RenovationPlanRow.col_031)), 0),
-                    func.count(),
-                )
-                .where(col(RenovationPlanRow.plan_id) == working_plan_id)
-                .where(col(RenovationPlanRow.asset_id).in_([row.id for row in rows]))
-                .group_by(col(RenovationPlanRow.asset_id))
-            )
-        ).all()
-        totals = {asset_id: float(total or 0) for asset_id, total, _count in sums if asset_id is not None}
-        counts = {asset_id: int(count) for asset_id, _total, count in sums if asset_id is not None}
+    aggregates = await read_working_plan_aggregates(
+        session,
+        group_by=cast("InstrumentedAttribute[object]", RenovationPlanRow.asset_id),
+        ids=[asset.id for asset in rows],
+    )
     return [
         RenovationAssetRowRead(
             id=asset.id,
@@ -69,8 +56,8 @@ async def read_renovation_asset_rows(
             createdAt=asset.created_at,
             updatedAt=asset.updated_at,
             updatedBy=asset.updated_by,
-            totalCost=totals.get(asset.id, 0.0),
-            repairCount=counts.get(asset.id, 0),
+            totalCost=aggregates[asset.id].total_cost,
+            repairCount=aggregates[asset.id].repair_count,
         )
         for asset in rows
     ]

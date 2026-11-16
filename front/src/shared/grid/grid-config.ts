@@ -178,6 +178,34 @@ export const SECTION_LABELS: Record<StaticSectionId, string> & Partial<Record<Se
 export const MAIN_SECTIONS = new Set<SectionId>(["materialMovement", "rawMaterialPrices"]);
 export const ADMIN_SECTIONS: SectionId[] = ["rawMaterials", "assets", "deliveryBases", "users"];
 
+/**
+ * The two computed renovation-dictionary columns, shared by every dictionary.
+ *
+ * The server aggregates the working plan per dictionary value — «Число
+ * ремонтных работ» is its row count, «Стоимость итого» the sum of `col_031` —
+ * so «Предприятия» and every reference catalog render (and export) the same
+ * columns from one definition instead of per-dictionary copies.
+ */
+export const RENOVATION_AGGREGATE_DESCRIPTORS: ColumnDescriptor[] = [
+    calculated("repairCount", "Число ремонтных работ", 170),
+    calculated("totalCost", "Стоимость итого, руб. без НДС", 220),
+];
+
+/**
+ * Descriptors of a reference-catalog dictionary grid.
+ *
+ * The catalogs are dynamic sections (`renovationCatalog:{catalog_id}`), so the
+ * workspace passes these through the grid's `columnDescriptors` prop. The
+ * computed columns are the same ones «Предприятия» renders — the server
+ * aggregates the working plan per dictionary value.
+ */
+export function renovationCatalogDescriptors(): ColumnDescriptor[] {
+    return [
+        { key: "label", label: "Значение", width: 380, kind: "text" },
+        ...RENOVATION_AGGREGATE_DESCRIPTORS,
+    ];
+}
+
 const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     materialMovement: [
         { ...fixed("rawMaterialName", "Сырьевая позиция", 270), pinned: true },
@@ -255,12 +283,8 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     renovationAssets: [
         text("name", "Наименование", 380),
         text("repairCode", "Ремонтный код", 170),
-        // Computed on the server: the number of repair works — the working
-        // plan's rows for this asset.
-        calculated("repairCount", "Число ремонтных работ", 170),
-        // Computed on the server: the sum of «Стоимость итого» (col_031) over
-        // the working plan's rows for this asset.
-        calculated("totalCost", "Стоимость итого, руб. без НДС", 220),
+        // Computed on the server per dictionary value (the working plan's rows).
+        ...RENOVATION_AGGREGATE_DESCRIPTORS,
     ],
     // «КППК» dictionaries of the source-copy phase: the normalized copies of
     // the source tables. Editing is admin-only (enforced server-side); the

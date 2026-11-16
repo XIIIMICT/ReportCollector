@@ -97,14 +97,13 @@ from src.renovation.schemas import (
 from .assets import (
     _DICT_ASSET_NOT_FOUND,
     _apply_renovation_asset_deleted,
-    _plan_id_by_state,
 )
 from .catalogs import (
     _DICT_OPTION_NOT_FOUND,
     _apply_renovation_option_deleted,
 )
 from .errors import PlanExportRequiresJobError, RenovationDictionaryError, RenovationPlanNotFoundError
-from .plan_queries import _plan_by_state, _renovation_project_id
+from .plan_queries import _plan_by_state, _plan_id_by_state, _renovation_project_id
 from .users import _apply_renovation_user_cell, restore_renovation_user
 
 

@@ -1,10 +1,12 @@
 """Dictionary exports with bounded domain projections and SQL summary totals."""
 
 from collections.abc import Sequence
+from typing import cast
 from uuid import UUID
 
 from pydantic import BaseModel
 from sqlalchemy import func
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -13,11 +15,12 @@ from src.common.export import safe_sheet_name
 from src.common.query_exports import QueryExportSpec, TableSource
 
 from .assets import read_renovation_asset_rows
-from .catalogs import read_renovation_catalog_rows
+from .catalogs import plan_field_for_catalog, read_renovation_catalog_rows
 from .constants import RENOVATION_PROJECT_KEY
-from .export import REFERENCE_LISTS, section_sheet_name, validate_export_request
+from .export import CATALOG_SECTION_PREFIX, REFERENCE_LISTS, section_sheet_name, validate_export_request
 from .models import RAsset, RUserRole
-from .plan import RenovationPlan, RenovationPlanRow, RenovationReferenceValue, RPlanState
+from .plan import RenovationPlanRow, RenovationReferenceValue
+from .plan_queries import read_working_plan_aggregates
 from .schemas import RenovationExportViewRequest
 from .users import read_renovation_user_rows
 
@@ -64,19 +67,21 @@ async def resolve_export_source(session: AsyncSession, spec: QueryExportSpec) ->
         column_lists=REFERENCE_LISTS,
     )
     source.select_rows(request.rowIds)
+    # The summary row of the computed columns, exactly like the grid's pinned
+    # row: the sum of the values the exported rows carry. The dictionary ids are
+    # a handful, so they are materialized instead of a correlated subquery.
     keys = {column.key for column in request.columns} & {"repairCount", "totalCost"}
-    if request.section == "renovationAssets" and keys:
-        count, cost = (
-            await session.exec(
-                select(func.count(), func.coalesce(func.sum(RenovationPlanRow.col_031), 0))
-                .select_from(RenovationPlanRow)
-                .join(RenovationPlan, col(RenovationPlan.id) == col(RenovationPlanRow.plan_id))
-                .where(
-                    col(RenovationPlan.state) == RPlanState.WORKING,
-                    col(RenovationPlanRow.asset_id).in_(source.ids.order_by(None)),
-                )
-            )
-        ).one()
-        totals = {"repairCount": float(count or 0), "totalCost": float(cost or 0)}
-        source.totals = {key: totals[key] for key in keys}
+    if keys:
+        if request.section == "renovationAssets":
+            field = cast("InstrumentedAttribute[object]", RenovationPlanRow.asset_id)
+        else:
+            field = plan_field_for_catalog(request.section.removeprefix(CATALOG_SECTION_PREFIX))
+        if field is not None:
+            ids = list((await session.exec(source.ids.order_by(None))).all())
+            aggregates = await read_working_plan_aggregates(session, group_by=field, ids=ids)
+            totals = {
+                "repairCount": float(sum(item.repair_count for item in aggregates.values())),
+                "totalCost": float(sum(item.total_cost for item in aggregates.values())),
+            }
+            source.totals = {key: totals[key] for key in keys}
     return source

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { exportColumnsFromGrid, exportFileName } from "@/shared/grid/grid-config";
+import {
+    exportColumnsFromGrid,
+    exportFileName,
+    getEditableKeys,
+    RENOVATION_AGGREGATE_DESCRIPTORS,
+    renovationCatalogDescriptors,
+} from "@/shared/grid/grid-config";
 
 describe("exportFileName", () => {
     const now = new Date(2026, 7, 13, 1, 12, 5);
@@ -69,5 +75,40 @@ describe("exportColumnsFromGrid", () => {
         const keys = columns.map((column) => column.key);
         expect(keys).toContain("repairCount");
         expect(keys.indexOf("repairCount")).toBeLessThan(keys.indexOf("totalCost"));
+    });
+
+    test("справочники экспортируют те же вычисляемые столбцы, что «Предприятия»", () => {
+        // One shared definition: the assets grid and every reference catalog
+        // render the same two computed columns, aggregated per dictionary value.
+        expect(RENOVATION_AGGREGATE_DESCRIPTORS.map((column) => column.key)).toEqual([
+            "repairCount",
+            "totalCost",
+        ]);
+        const catalog = exportColumnsFromGrid(
+            "renovationCatalog:work_category",
+            true,
+            false,
+            [],
+            false,
+            renovationCatalogDescriptors(),
+        );
+        expect(catalog.map(({ key, horizontalAlignment }) => [key, horizontalAlignment])).toEqual([
+            ["label", "left"],
+            ["repairCount", "right"],
+            ["totalCost", "right"],
+        ]);
+    });
+
+    test("вычисляемые столбцы справочников только для чтения", () => {
+        const keys = getEditableKeys(
+            "renovationCatalog:work_category",
+            true,
+            true,
+            false,
+            renovationCatalogDescriptors(),
+        );
+        expect(keys.has("label")).toBe(true);
+        expect(keys.has("repairCount")).toBe(false);
+        expect(keys.has("totalCost")).toBe(false);
     });
 });

@@ -37,7 +37,11 @@ import {
     type GridViewStats,
     type DataGridHandle,
 } from "@/shared/grid/data-grid";
-import { getEditableKeys, type ColumnDescriptor, type GridRow } from "@/shared/grid/grid-config";
+import {
+    getEditableKeys,
+    renovationCatalogDescriptors,
+    type GridRow,
+} from "@/shared/grid/grid-config";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { DeleteRecordDialog } from "@/shared/ui/action-items";
@@ -322,7 +326,7 @@ export function RenovationDictionarySection({
                 true,
                 showAssetColumn,
                 false,
-                catalogDescriptors(catalogId),
+                catalogId === null ? undefined : renovationCatalogDescriptors(),
             ),
         [dictSection, catalogId],
     );
@@ -723,32 +727,29 @@ export function RenovationDictionarySection({
     // fresh references each render rebuilds columns → RevoGrid re-emits cell
     // focus → fresh row-selection → grid's selection effect calls this setter →
     // re-render → fresh references again → infinite update-depth loop.
-    // The «Предприятия» tab gets a pinned totals row — the total number of
-    // repair works and the sum of every asset's «Стоимость итого» (the same
-    // aggregates as the plan's summary row).
-    const pinnedTopSource = useMemo<
-        | {
-              id: string;
-              name: string;
-              repairCode: string;
-              repairCount: number;
-              totalCost: number;
-          }[]
-        | undefined
-    >(() => {
-        if (dictSection !== RENOVATION_ASSETS_SECTION) return undefined;
+    // Every dictionary but «Пользователи» pins a totals row over the computed
+    // columns: «Предприятия» sums its assets, a reference catalog its options.
+    // Both read the same server aggregates, so one builder serves both.
+    const pinnedTopSource = useMemo<Record<string, unknown>[] | undefined>(() => {
+        if (dictSection === RENOVATION_USERS_SECTION) return undefined;
         let repairCount = 0;
         let totalCost = 0;
         for (const row of rows ?? []) {
-            const asset = row as RenovationAssetRow;
-            repairCount += asset.repairCount ?? 0;
-            totalCost += asset.totalCost ?? 0;
+            const aggregate = row as { repairCount?: number; totalCost?: number };
+            repairCount += aggregate.repairCount ?? 0;
+            totalCost += aggregate.totalCost ?? 0;
         }
-        return [{ id: SUMMARY_ROW_ID, name: "", repairCode: "", repairCount, totalCost }];
+        if (dictSection === RENOVATION_ASSETS_SECTION) {
+            return [{ id: SUMMARY_ROW_ID, name: "", repairCode: "", repairCount, totalCost }];
+        }
+        return [{ id: SUMMARY_ROW_ID, label: "", repairCount, totalCost }];
     }, [dictSection, rows]);
     const assetOptions = useMemo(() => toAssetOptions(assets), [assets]);
     const deliveryBasisOptions = useMemo(() => [] as { id: string; name: string }[], []);
-    const descriptorOptions = useMemo(() => catalogDescriptors(catalogId), [catalogId]);
+    const descriptorOptions = useMemo(
+        () => (catalogId === null ? undefined : renovationCatalogDescriptors()),
+        [catalogId],
+    );
     const lastRowSelectionRef = useRef("");
     const handleSelectedRowsChange = useCallback(
         (selection: { ids: string[]; wholeRows: boolean }) => {
@@ -840,11 +841,6 @@ export function RenovationDictionarySection({
             ) : null}
         </>
     );
-}
-
-function catalogDescriptors(catalogId: string | null): ColumnDescriptor[] | undefined {
-    if (catalogId === null) return undefined;
-    return [{ key: "label", label: "Значение", width: 380, kind: "text" }];
 }
 
 function renovationUserFields(assets: Array<{ id: string; name: string }>): AddRecordField[] {

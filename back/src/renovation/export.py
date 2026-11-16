@@ -683,7 +683,8 @@ ALLOWED_KEYS: dict[str, frozenset[str]] = {
 
 # Catalog sections are dynamic: "renovationCatalog:{catalog_id}".
 CATALOG_SECTION_PREFIX = "renovationCatalog:"
-CATALOG_ALLOWED_KEYS = frozenset({"label", "createdAt", "updatedAt", "updatedBy"})
+# The computed columns mirror «Предприятия»: the same aggregates per option.
+CATALOG_ALLOWED_KEYS = frozenset({"label", "totalCost", "repairCount", "createdAt", "updatedAt", "updatedBy"})
 
 # Dictionary columns: column key -> list name on the hidden sheet.
 REFERENCE_LISTS: dict[str, str] = {

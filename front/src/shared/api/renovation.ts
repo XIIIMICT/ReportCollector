@@ -691,6 +691,10 @@ export type RenovationCatalogOptionRow = {
     createdAt: string;
     updatedAt: string;
     updatedBy: string;
+    /** Computed: the working plan's row count for this option. */
+    repairCount: number;
+    /** Computed: sum of «Стоимость итого» (col_031) over the plan rows. */
+    totalCost: number;
 };
 
 export type RenovationUserRow = {

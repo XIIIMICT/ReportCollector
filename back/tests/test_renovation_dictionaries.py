@@ -270,6 +270,21 @@ async def test_catalog_options_are_ordered_by_label(
     assert [option["label"] for option in work_types["options"]] == sorted(labels)
 
 
+async def test_catalog_rows_carry_the_plan_aggregates(client: AsyncClient) -> None:
+    """Every reference catalog row carries the same aggregates as «Предприятия»."""
+    response = await client.get("/api/renovation/dictionary/catalogs/work_category", headers=ADMIN_HEADERS)
+    assert response.status_code == 200
+    by_label = {row["label"]: row for row in response.json()}
+    # The fixture: both plan rows carry «Остановочный капитальный ремонт»,
+    # col_031 = 30 + 12 → two repair works, 42 «Стоимость итого».
+    used = by_label["Остановочный капитальный ремонт"]
+    assert used["repairCount"] == 2
+    assert used["totalCost"] == 42.0
+    # An option no plan row uses aggregates to zero.
+    assert by_label["ТОиР"]["repairCount"] == 0
+    assert by_label["ТОиР"]["totalCost"] == 0.0
+
+
 async def test_catalog_options_create_read_patch_delete(
     client: AsyncClient,
     db_session: AsyncSession,
@@ -288,6 +303,9 @@ async def test_catalog_options_create_read_patch_delete(
     assert response.status_code == 201
     created = response.json()
     assert created["label"] == "5"
+    # A fresh option is unused by the working plan → zero aggregates.
+    assert created["repairCount"] == 0
+    assert created["totalCost"] == 0.0
 
     response = await client.patch(
         f"/api/renovation/dictionary/catalogs/criticality/options/{created['valueId']}",
@@ -596,7 +614,7 @@ async def test_dictionary_export_assets_carries_summary_row(client: AsyncClient)
 
 
 async def test_dictionary_export_other_sections_have_no_summary_row(client: AsyncClient) -> None:
-    """Only «Предприятия» pins a summary; the users table stays flat."""
+    """Only the object-plan dictionaries pin a summary; the users table stays flat."""
     response = await client.post(
         "/api/renovation/dictionary/export",
         headers=ADMIN_HEADERS,
@@ -678,6 +696,39 @@ async def test_dictionary_export_catalog(client: AsyncClient) -> None:
     assert sheet.max_row >= 5
     labels = {sheet.cell(row=index, column=1).value for index in range(2, sheet.max_row + 1)}
     assert {"1", "2", "3", "4"} <= labels
+
+
+async def test_dictionary_export_catalog_carries_summary_row(client: AsyncClient) -> None:
+    """A reference catalog export mirrors its pinned summary row too."""
+    response = await client.post(
+        "/api/renovation/dictionary/export",
+        headers=ADMIN_HEADERS,
+        json={
+            "section": "renovationCatalog:work_category",
+            "headerPinned": True,
+            "fileName": "категории.xlsx",
+            "columns": [
+                {"key": "label", "headerPath": ["Значение"], "width": 20},
+                {"key": "totalCost", "headerPath": ["Стоимость итого, руб. без НДС"], "width": 24},
+                {"key": "repairCount", "headerPath": ["Число ремонтных работ"], "width": 18},
+            ],
+            "rowIds": None,
+        },
+    )
+    assert response.status_code == 200, response.text
+    workbook = load_workbook(BytesIO(response.content))
+    sheet = workbook["Категория работ"]
+    # The summary row sits directly under the flat header; the data start below.
+    assert sheet.cell(row=2, column=2).value.startswith("=SUM(B3:B")
+    assert sheet.cell(row=2, column=3).value.startswith("=SUM(C3:C")
+    # The non-aggregating «Значение» header merges down over the summary row.
+    merges = [str(ref) for ref in sheet.merged_cells.ranges]
+    assert "A1:A2" in merges
+    assert sheet.freeze_panes == "A3"
+    # Cached values: both fixture rows carry this category (col_031 = 30 + 12).
+    cached = load_workbook(BytesIO(response.content), data_only=True)["Категория работ"]
+    assert cached.cell(row=2, column=2).value == 42.0
+    assert cached.cell(row=2, column=3).value == 2
 
 
 async def test_dictionary_export_validation(

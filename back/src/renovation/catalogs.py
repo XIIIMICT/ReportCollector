@@ -1,10 +1,11 @@
 """Reference catalog reads, mutations and deletion replay for renovation."""
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from sqlalchemy import func
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlmodel import col, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -17,6 +18,7 @@ from src.renovation.plan import RenovationPlanRow, RenovationReferenceValue, RRe
 from src.renovation.schemas import RenovationCatalogOptionRowRead
 
 from .errors import RenovationDictionaryError
+from .plan_queries import read_working_plan_aggregates
 
 if TYPE_CHECKING:
     from src.auth.models import User
@@ -24,6 +26,14 @@ if TYPE_CHECKING:
 _DICT_OPTION_NOT_FOUND = ValueError("Значение каталога не найдено.")
 _DICT_OPTION_USED = RenovationDictionaryError("Нельзя удалить: значение используется в плане ремонта.")
 _DICT_OPTION_LABEL_EMPTY = RenovationDictionaryError("Название значения не может быть пустым.")
+
+
+def plan_field_for_catalog(catalog: str) -> InstrumentedAttribute[object] | None:
+    """Return the plan column that stores the option id of one reference catalog."""
+    for meta in field_metas():
+        if meta.catalog == catalog:
+            return cast("InstrumentedAttribute[object]", getattr(RenovationPlanRow, meta.db_name))
+    return None
 
 
 async def read_renovation_catalog_rows(
@@ -44,16 +54,29 @@ async def read_renovation_catalog_rows(
     if row_ids is not None:
         query = query.where(col(RenovationReferenceValue.id).in_(row_ids))
     rows = (await session.exec(query)).all()
-    return [
-        RenovationCatalogOptionRowRead(
-            valueId=str(option.id),
-            label=option.label,
-            createdAt=option.created_at,
-            updatedAt=option.updated_at,
-            updatedBy=option.updated_by,
+    # The same computed columns as «Предприятия»: the number of repair works and
+    # «Стоимость итого» per option, aggregated over the working plan's rows.
+    field = plan_field_for_catalog(catalog)
+    aggregates = (
+        await read_working_plan_aggregates(session, group_by=field, ids=[option.id for option in rows])
+        if field is not None
+        else {}
+    )
+    result: list[RenovationCatalogOptionRowRead] = []
+    for option in rows:
+        aggregate = aggregates.get(option.id)
+        result.append(
+            RenovationCatalogOptionRowRead(
+                valueId=str(option.id),
+                label=option.label,
+                createdAt=option.created_at,
+                updatedAt=option.updated_at,
+                updatedBy=option.updated_by,
+                totalCost=aggregate.total_cost if aggregate else 0.0,
+                repairCount=aggregate.repair_count if aggregate else 0,
+            )
         )
-        for option in rows
-    ]
+    return result
 
 
 async def _ensure_option_label_free(

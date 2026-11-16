@@ -381,6 +381,11 @@ class RenovationCatalogOptionRowRead(BaseModel):
     createdAt: datetime
     updatedAt: datetime
     updatedBy: str
+    # Computed, exactly like the asset row: the number of repair works and the
+    # sum of «Стоимость итого» (col_031) over the working plan's rows carrying
+    # this option. Zero for an option no plan row uses yet.
+    totalCost: float = 0.0
+    repairCount: int = 0
 
 
 class RenovationUserRowRead(BaseModel):
