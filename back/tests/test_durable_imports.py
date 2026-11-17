@@ -73,7 +73,7 @@ async def imported_count(repository) -> int:
         )
 
 
-async def test_import_result_survives_restart_and_duplicate_does_not_reapply(setup_import) -> None:
+async def test_import_result_survives_restart_and_active_duplicate_does_not_reapply(setup_import) -> None:
     repository, owner, directory = setup_import
     first = manager(repository)
     job = await accept(first, owner, directory)
@@ -88,7 +88,17 @@ async def test_import_result_survives_restart_and_duplicate_does_not_reapply(set
     assert done.total == done.progress == 1
     assert not input_path(job.input_key).exists()
     assert await imported_count(repository) == 1
-    assert (await accept(first, owner, directory)).id == job.id
+    # A COMPLETED import is history, not a reusable result: uploading the same
+    # bytes again must stage a NEW job and apply them, not return the old run
+    # (which used to show a success toast without loading anything).
+    replay = await accept(first, owner, directory)
+    assert replay.id != job.id
+    assert len(list(directory.glob("*.xlsb"))) == 1
+    await restored.execute(await repository.claim(restored.kind))
+    replay_done = await first.get(replay.id, owner)
+    assert replay_done.status == "done"
+    assert replay_done.result == {"newRows": 0, "updatedRows": 1}
+    assert await imported_count(repository) == 1
     assert not list(directory.glob("*.xlsb"))
     with pytest.raises(KeyError):
         await restored.get(job.id, "another-owner")
@@ -216,9 +226,9 @@ async def test_lost_admission_reply_preserves_accepted_bytes(setup_import, monke
     create = repository.create
     record = None
 
-    async def lost_reply(candidate) -> Never:
+    async def lost_reply(candidate, *, reuse_done: bool = True) -> Never:
         nonlocal record
-        record = await create(candidate)
+        record = await create(candidate, reuse_done=reuse_done)
         msg = "database committed before connection was lost"
         raise ConnectionError(msg)
 

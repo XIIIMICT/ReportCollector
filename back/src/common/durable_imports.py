@@ -175,7 +175,7 @@ class DurableImportManager:
             total=max(expected_rows, 0) * 2,
             request_id=REQUEST_ID.get(),
         )
-        admission = asyncio.create_task(self.repository.create(candidate))
+        admission = asyncio.create_task(self.repository.create(candidate, reuse_done=False))
         cancelled = False
         try:
             try:

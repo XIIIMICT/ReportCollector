@@ -26,10 +26,19 @@ class JobRepository:
     def __init__(self, session_factory: SessionFactory = async_session_factory) -> None:
         self.session_factory = session_factory
 
-    async def create(self, candidate: DataJob) -> DataJob:
+    async def create(self, candidate: DataJob, *, reuse_done: bool = True) -> DataJob:
+        """
+        Admit a job, reusing a matching active one.
+
+        Exports pass ``reuse_done=True``: a completed artifact for the same
+        query is a valid answer. Imports pass ``reuse_done=False``: a completed
+        import is history, not a reusable result — re-uploading the same bytes
+        must apply them again instead of reporting the old run as this one.
+        """
         async with self.session_factory() as session, session.begin():
             await session.exec(QUEUE_LOCK)
             now = await _now(session)
+            reusable = ("pending", "running", "done") if reuse_done else ("pending", "running")
             existing = (
                 await session.exec(
                     select(DataJob)
@@ -37,7 +46,7 @@ class JobRepository:
                         DataJob.kind == candidate.kind,
                         DataJob.user_id == candidate.user_id,
                         DataJob.cache_key == candidate.cache_key,
-                        col(DataJob.status).in_(("pending", "running", "done")),
+                        col(DataJob.status).in_(reusable),
                         (col(DataJob.expires_at).is_(None)) | (col(DataJob.expires_at) > now),
                     )
                     .order_by(col(DataJob.created_at).desc())
