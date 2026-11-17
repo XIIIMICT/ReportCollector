@@ -95,6 +95,18 @@ const PLAN: SectionPolicy = {
     chunked: true,
 };
 
+/**
+ * A table owned by another system: read-only, no room, no journal, no export.
+ * The «Логистика» dictionaries are the only ones today.
+ */
+const READ_ONLY: SectionPolicy = {
+    collab: "none",
+    undo: "none",
+    export: "none",
+    rowOps: "none",
+    chunked: false,
+};
+
 const SECTION_POLICIES: Record<PolicySectionId, SectionPolicy> = {
     // ── «Сырьё» ──────────────────────────────────────────────────────────
     materialMovement: FORM,
@@ -119,6 +131,12 @@ const SECTION_POLICIES: Record<PolicySectionId, SectionPolicy> = {
     kppkRealizationPlan: { ...DICTIONARY, rowOps: "none" },
     kppkRealizationFact: { ...DICTIONARY, rowOps: "none" },
     kppkCost: { ...DICTIONARY, rowOps: "none" },
+    // ── «Логистика» ──────────────────────────────────────────────────────
+    // The dictionaries are read straight from the external `dict` schema:
+    // nothing is authored, journaled, exported or shared there.
+    logisticsCountries: READ_ONLY,
+    logisticsTransportTypes: READ_ONLY,
+    logisticsOrgs: READ_ONLY,
 };
 
 const CATALOG_POLICY: SectionPolicy = DICTIONARY;

@@ -57,6 +57,17 @@ mock.module("@/features/kppk/kppk-workspace", () => ({
         </button>
     ),
 }));
+mock.module("@/features/logistics/logistics-workspace", () => ({
+    LogisticsWorkspace: (props: Record<string, unknown>) => (
+        <button
+            data-testid="logistics"
+            data-project={String(props.activeProjectKey)}
+            data-section={String(props.initialSection)}
+        >
+            logistics
+        </button>
+    ),
+}));
 
 const { ReportWorkspace } = await import("../report-workspace");
 
@@ -101,6 +112,10 @@ describe("report workspace routing", () => {
 
         render(<ReportWorkspace currentUser={user} projectKey="kppk" supportMail="" />);
         expect(await screen.findByTestId("kppk")).toBeTruthy();
+        cleanup();
+
+        render(<ReportWorkspace currentUser={user} projectKey="logistics" supportMail="" />);
+        expect((await screen.findByTestId("logistics")).dataset.project).toBe("logistics");
         cleanup();
 
         render(<ReportWorkspace currentUser={user} projectKey="raw_materials" supportMail="" />);

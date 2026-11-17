@@ -17,6 +17,22 @@ currently have only the administrator assignment; their ДЗО column is empty a
 read-only. Other projects' memberships and asset grants must not change when
 editing a KPPK membership.
 
+The «Логистика» project (`/logistics`) is admin-only and starts with three
+read-only dictionaries read from the corporate **`dict`** schema
+(`back/dicts.sql`): countries (short names), the combined transport-type ×
+vehicle-type matrix, and organization prefixes. Nothing in this application
+writes to `dict` — no migration creates it and no seeder touches it; a missing
+table returns a short built-in demo list with `source="fallback"`, and the grid
+warns about it. Every read filters `deleted_at IS NULL` on every joined table.
+Migration `0032_logistics` creates the project row and the
+`logistics_price_kind` enum (`INDICATIVE`, `PRICE`) for the future main table;
+migrations `0033_logistics_hazard_classes` / `0034_logistics_table_prefix`
+create and seed the application-owned «Класс опасности» dictionary
+(`l_hazard_classes`, values 1..9, no tab yet — the main table will use it).
+Application-owned logistics tables use the `l_` prefix. `just seed-logistics`
+seeds only our side (project, hazard classes, Евтушенко's admin link) and never
+touches the external `dict` schema.
+
 - `front/` — Next.js 16 (App Router, React 19, revo-grid 4.27, HeroUI, Tailwind 4, Zod 4), package manager **Bun 1.4.x**.
 - `back/` — FastAPI + SQLModel + Alembic (Python 3.15, **uv**), asyncpg, Redis/Valkey for collaboration.
 - Ports: front **5000**, back **8000** — from the root `.env` (`FRONT_PORT`/`BACKEND_PORT`), mandatory.
@@ -41,6 +57,7 @@ editing a KPPK membership.
 | Seed | `just seed` — **fully recreates the DB schema**, don't run without asking |
 | КППК seed | `just seed-kppk` — re-copies the `raw.kppk_*` sources (creates them **only when missing**, from `back/src/kppk/data/source_schema.sql` + `demo_source_rows.sql`; the `dict` schema is never touched), rebuilds «Продуктовые позиции» from `back/src/kppk/data/product_matrix.sql` (pairs + «Заполняемый акциз») and **rebuilds the period rows** (see the next line), all in one transaction. The copies resolve the source product/market TEXT into `product_id`/`market_id` uuids and **fail** on an unknown product or market (no silent skip); the market dictionary is topped up to «РФ»/«ДЗ»/«БЗ» if a restored schema left it empty. Text values are normalized on copy and on save (`normalize_text` in `src/kppk/constants.py`): trimmed, single spaces, non-breaking space included — the dictionaries are keyed by NAME, so stray spaces would create a second product. Other projects untouched |
 | КППК periods | No separate command: `just seed-kppk` **rebuilds** the «Реализация» (one row per ДЗО × product × market) and «Себестоимость» (per ДЗО × product) rows for every month from **September 2023 to December of the next year**, all values zero. It TRUNCATES those tables first — the seed owns them, like the renovation plan — so a product dropped from the matrix leaves no stale period. The costs are re-derived from the fresh rows afterwards |
+| Логистика seed | `just seed-logistics` — seeds only the data this application owns: the `logistics` project row (if missing), the «Класс опасности» dictionary (`l_hazard_classes`, values 1..9) and Евтушенко's active admin link. It does **not** read or write the external `dict` schema, and it does not change his identity or his memberships in other projects. Idempotent |
 | КППК source data | The **original** `raw.kppk_*` data is not in the repository: the operator loads the SQL dumps. What the repo does keep (`back/src/kppk/data/`) is the structure, the demo rows for a database without sources, and the product × ДЗО matrix with its excise flags — the only input the dumps never carried |
 
 ## Tooling

@@ -35,6 +35,8 @@ class SectionPolicy:
 _FORM = SectionPolicy(collab="full", undo="member", export="member", row_ops="none")
 _DICTIONARY = SectionPolicy(collab="admin", undo="admin", export="member", row_ops="placeholder")
 _PLAN = SectionPolicy(collab="full", undo="member", export="member", row_ops="plan", chunked=True)
+# A table owned by another system: read-only, no room, no journal, no export.
+_READ_ONLY = SectionPolicy(collab="none", undo="none", export="none", row_ops="none")
 
 SECTION_POLICIES: dict[str, SectionPolicy] = {
     # «Сырьё»
@@ -58,6 +60,11 @@ SECTION_POLICIES: dict[str, SectionPolicy] = {
     # the editing and undo stay admin-only like every «КППК» surface.
     "kppkRealizationPlan": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="none"),
     "kppkRealizationFact": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="none"),
+    # «Логистика»: read straight from the external `dict` schema — nothing is
+    # authored, journaled, exported or shared there.
+    "logisticsCountries": _READ_ONLY,
+    "logisticsTransportTypes": _READ_ONLY,
+    "logisticsOrgs": _READ_ONLY,
 }
 
 #: The renovation catalogs are dynamic ids (`renovationCatalog:<catalog>`).

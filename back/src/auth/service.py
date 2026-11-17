@@ -25,6 +25,7 @@ from src.auth.schemas import AssetAccessRead, CurrentUserRead, ProjectAccessChec
 from src.collab.events import publish_rows_changed
 from src.collab.persistence import JournalStore
 from src.config import get_settings
+from src.logistics.constants import LOGISTICS_PROJECT_KEY
 from src.raw_materials.models import RawMaterialAsset, RawMaterialUserAsset
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.models import RProjectRole, RUserRole
@@ -278,7 +279,7 @@ async def sync_project_memberships(session: AsyncSession, user_id: UUID, *, acti
         r_roles = list((await session.exec(select(RUserRole).where(col(RUserRole.user_id) == user_id))).all())
         has_renovation_role = bool(r_roles)
         if has_renovation_role:
-            skip_keys = {"raw_materials", "kppk"}
+            skip_keys = {"raw_materials", "kppk", LOGISTICS_PROJECT_KEY}
             projects = [p for p in projects if p.key not in skip_keys]
         # Active r_user_roles → the corresponding user_role should be active too.
         r_active_project_ids = {rur.project_id for rur in r_roles if rur.is_active}

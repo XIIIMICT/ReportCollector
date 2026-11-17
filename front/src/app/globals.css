@@ -1729,6 +1729,17 @@ body {
     background: var(--surface);
 }
 
+/* A read-only dictionary backed by an external database table: the table is
+   missing, so the grid shows the built-in demo rows. */
+.grid-source-warning {
+    margin: 0 0.75rem 0.5rem;
+    padding: 0.45rem 0.7rem;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.35rem;
+}
+
 .startup-error-card {
     margin: auto;
     min-width: min(28rem, calc(100vw - 2rem));

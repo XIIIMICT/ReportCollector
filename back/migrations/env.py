@@ -25,6 +25,7 @@ from src.collab import models as collab_models  # noqa: F401
 from src.common import job_models  # noqa: F401
 from src.config import get_settings
 from src.kppk import models as kppk_models  # noqa: F401
+from src.logistics import models as logistics_models  # noqa: F401
 from src.raw_materials import models as raw_materials_models  # noqa: F401
 from src.renovation import models as renovation_models  # noqa: F401
 from src.renovation import plan as renovation_plan  # noqa: F401

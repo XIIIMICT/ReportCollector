@@ -35,6 +35,7 @@ TABLE_COMMENTS: dict[str, str] = {
     "kppk_realization_plan": "КППК → Реализация, бизнес-план и оперплан; копия raw.kppk_f_realization_plan.",
     "kppk_production_plan": "КППК → План производства; копия raw.kppk_f_production_plan.",
     "kppk_cost": "КППК → Себестоимость по ДЗО, месяцу и продукту, без разреза рынков сбыта.",
+    "l_hazard_classes": "Логистика → Справочник классов опасности от 1 до 9.",
     "collab_cell_states": "Совместное редактирование → Ревизии ячеек и последний автор для разрешения конфликтов undo/redo.",
     "collab_edit_stacks": "Совместное редактирование → Транзакционная история undo/redo по пользователю, сессии и форме.",
     "collab_outbox": "Совместное редактирование → Зафиксированные события, ожидающие публикации в WebSocket-комнаты.",
@@ -198,6 +199,10 @@ SPECIFIC_COLUMNS: dict[str, dict[str, str]] = {
     },
     "kppk_cost": {
         "product_id": "Идентификатор продукта → kppk_products.id; заменил текстовое имя из источника.",
+    },
+    "l_hazard_classes": {
+        "value": "Класс опасности от 1 до 9.",
+        "name": "Наименование класса опасности.",
     },
     "kppk_production_plan": {
         "product_id": "Идентификатор продукта → kppk_products.id; заменил текстовое имя из источника.",

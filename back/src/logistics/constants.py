@@ -1,0 +1,52 @@
+"""Static reference data of the «Логистика» project (project key and section ids)."""
+
+# The project row itself is inserted by migration 0032 (production runs
+# `just migrate`); the dev seed also lists it in `PROJECTS`.
+LOGISTICS_PROJECT_KEY = "logistics"
+LOGISTICS_PROJECT_NAME = "Логистика"
+
+# The external schema owned by the corporate logistics database. The
+# dictionaries below READ it and never write to it: no migration creates these
+# tables, no seeder touches them, and the API exposes no mutations. If a table
+# is missing, the read model falls back to a short built-in list so the UI can
+# still be opened (the response says `source="fallback"`).
+LOGISTICS_SOURCE_SCHEMA = "dict"
+
+# Dictionary ids of the workspace tabs (match the frontend). Read-only: the
+# data belongs to the external tables, so these sections have no collaboration
+# room, no undo journal and no export.
+LOGISTICS_SECTION_COUNTRIES = "logisticsCountries"
+LOGISTICS_SECTION_TRANSPORT_TYPES = "logisticsTransportTypes"
+LOGISTICS_SECTION_ORGS = "logisticsOrgs"
+
+LOGISTICS_DICTIONARY_SECTIONS = (
+    LOGISTICS_SECTION_COUNTRIES,
+    LOGISTICS_SECTION_TRANSPORT_TYPES,
+    LOGISTICS_SECTION_ORGS,
+)
+
+# The built-in demo values used ONLY when the external table does not exist.
+# An existing but empty table is a real empty dictionary and returns no rows —
+# the fallback must never hide that state.
+#
+# A country is (shortname, alpha2, ts, sng): the last three feed the computed
+# «Рынок» exactly like the external columns do (RU → РФ, ts/sng → БЗ, else ДЗ).
+FALLBACK_COUNTRIES: tuple[tuple[str, str, bool, bool], ...] = (
+    ("Россия", "RU", False, False),
+    ("Беларусь", "BY", False, True),
+    ("Казахстан", "KZ", True, False),
+    ("Германия", "DE", False, False),
+)
+
+# Transport type → its vehicle types, in the order the dictionary lists them.
+FALLBACK_TRANSPORT_TYPES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Автомобильный", ("Тентованный", "Рефрижератор", "Изотермический")),
+    ("Железнодорожный", ("Полувагон", "Крытый вагон", "Цистерна")),
+    ("Морской", ("Контейнеровоз",)),
+)
+
+FALLBACK_ORG_PREFIXES: tuple[str, ...] = (
+    "БСК",
+    "Сода",
+    "Метафракс",
+)

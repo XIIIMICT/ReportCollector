@@ -19,5 +19,5 @@ export const config = {
     // Everything addressable without an API prefix: the root redirects to the
     // first accessible project, the project URLs deep-link into one project,
     // and /blocked is only meaningful with a session.
-    matcher: ["/", "/blocked", "/raw-materials", "/renovation", "/kppk"],
+    matcher: ["/", "/blocked", "/raw-materials", "/renovation", "/kppk", "/logistics"],
 };

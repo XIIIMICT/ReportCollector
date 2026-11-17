@@ -32,6 +32,10 @@ const RenovationWorkspace = dynamic(
     () => import("@/features/renovation/renovation-workspace").then((m) => m.RenovationWorkspace),
     { ssr: false },
 );
+const LogisticsWorkspace = dynamic(
+    () => import("@/features/logistics/logistics-workspace").then((m) => m.LogisticsWorkspace),
+    { ssr: false },
+);
 
 export type ReportWorkspaceUser = CurrentUser;
 
@@ -100,6 +104,9 @@ export function ReportWorkspace({
     }
     if (activeProjectKey === "kppk") {
         return <KppkWorkspace {...sharedProps} />;
+    }
+    if (activeProjectKey === "logistics") {
+        return <LogisticsWorkspace {...sharedProps} />;
     }
     return <RawMaterialsWorkspace {...sharedProps} />;
 }

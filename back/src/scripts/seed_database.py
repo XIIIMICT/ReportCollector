@@ -35,6 +35,8 @@ from src.auth.passwords import hash_password
 from src.auth.service import sync_project_memberships
 from src.config import get_settings
 from src.database import async_engine, async_session_factory
+from src.logistics.constants import LOGISTICS_PROJECT_KEY, LOGISTICS_PROJECT_NAME
+from src.logistics.models import LOGISTICS_PRICE_KIND
 from src.raw_materials.models import (
     AssetRawMaterial,
     DeliveryBasis,
@@ -53,6 +55,7 @@ from src.renovation.reference_data import REFERENCE_OPTIONS, reference_option_id
 from src.renovation.renovation_id import DIRECTION_CODE_FIELD, normalize_direction_code
 from src.renovation.service import recompute_plan_rows
 from src.scripts.seed_kppk import seed_administrators
+from src.scripts.seed_logistics import seed_logistics
 
 # ─── Seed data (first version) ───────────────────────────────────────────
 
@@ -60,6 +63,7 @@ PROJECTS: list[tuple[str, str]] = [
     (RAW_MATERIALS_PROJECT_KEY, RAW_MATERIALS_PROJECT_NAME),
     (RENOVATION_PROJECT_KEY, RENOVATION_PROJECT_NAME),
     ("kppk", "КППК"),
+    (LOGISTICS_PROJECT_KEY, LOGISTICS_PROJECT_NAME),
 ]
 
 ASSET_NAMES: list[str] = [
@@ -1358,6 +1362,7 @@ async def seed(session: AsyncSession) -> None:
                 session.add(RawMaterialUserAsset(user_id=extra_user.id, asset_id=asset.id))
     await session.flush()
 
+    await seed_logistics(session)
     await session.commit()
 
 
@@ -1400,6 +1405,10 @@ async def run(
         if not data_only:
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{settings.postgres_schema}"'))
             await conn.run_sync(SQLModel.metadata.create_all)
+            # The «Логистика» price-kind enum has no table yet (the main table is
+            # the next phase), so `create_all` cannot see it; create it here so a
+            # dev reset matches what `just migrate` produces.
+            await conn.run_sync(lambda sync_conn: LOGISTICS_PRICE_KIND.create(sync_conn, checkfirst=True))
         if renovation_only and not reset:
             # Re-seed only the renovation data: wipe its tables (not app_users)
             # and let seed_renovation rebuild them.
@@ -1426,6 +1435,7 @@ async def run(
             return
         if renovation_only:
             await seed_renovation(session)
+            await seed_logistics(session)
             await session.commit()
             plan_rows_count = session.info.get("renovation_plan_rows", 0)
             recomputed = session.info.get("renovation_plan_recomputed", 0)

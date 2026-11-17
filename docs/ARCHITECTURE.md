@@ -2,7 +2,7 @@
 
 Raw-material planning system: Excel-like forms with real-time collaborative editing. Monorepo: `front/` (Next.js), `back/` (FastAPI), `infra/` (compose of external services), `docs/`.
 
-Sections: [System diagram](#system-diagram) · [Services and compose profiles](#services-and-compose-profiles) · [Environment variables](#environment-variables-root-env-single-source) · [Data model «Сырьё»](#data-model-project-сырьё-key-raw_materials) · [Dictionary ordering](#dictionary-ordering) · [Data model «КППК»](#data-model-project-кппк-key-kppk) · [Authentication](#authentication) · [API](#api-back-prefix-api) · [Logging](#logging) · [Deployment](#deployment-prod) · [Plan import](#renovation-plan-import-technical-directorate-xlsb--xlsx) · [Export jobs](#renovation-plan-export-jobs) · [Transactional collaboration](#transactional-collaboration)
+Sections: [System diagram](#system-diagram) · [Services and compose profiles](#services-and-compose-profiles) · [Environment variables](#environment-variables-root-env-single-source) · [Data model «Сырьё»](#data-model-project-сырьё-key-raw_materials) · [Dictionary ordering](#dictionary-ordering) · [Data model «КППК»](#data-model-project-кппк-key-kppk) · [Data model «Логистика»](#data-model-project-логистика-key-logistics) · [Authentication](#authentication) · [API](#api-back-prefix-api) · [Logging](#logging) · [Deployment](#deployment-prod) · [Plan import](#renovation-plan-import-technical-directorate-xlsb--xlsx) · [Export jobs](#renovation-plan-export-jobs) · [Transactional collaboration](#transactional-collaboration)
 
 ## Ordered column filters
 
@@ -227,6 +227,45 @@ The `dict` schema belongs to another project and is never created or touched.
   collaboration journal (page `session_id`, history per tab) and Excel export
   of the whole/visible table through the common dictionary renderer.
 
+## Data model (project «Логистика», key `logistics`)
+
+Phase 1 is the dictionaries of the corporate logistics database. Unlike «КППК»,
+nothing is copied: the tables live in the external **`dict`** schema
+(`back/dicts.sql`) and the API only reads them — no migration creates them, no
+seeder writes them, and no endpoint mutates them. The DB role needs SELECT on
+`dict.countries`, `dict.transport_types`, `dict.vehicle_types`,
+`dict.transport_types_vehicle_types` and `dict.orgs`.
+
+- **Rows** (`back/src/logistics/dictionaries.py`): every read filters
+  `deleted_at IS NULL` on every table it touches. «Страны» returns `shortname`
+  and the computed `market` (`alpha2="RU"` → «РФ»; `ts` or `sng` → «БЗ»;
+  otherwise «ДЗ»); «Активы» returns all `prefix_ru` ordered by it; «Типы ТС и
+  перевозки» is one transport-type × vehicle-type matrix ordered by transport
+  type, then vehicle. The transport types and vehicle types are never exposed
+  as separate dictionaries. A type whose mappings are absent (or all point at
+  deleted vehicles) keeps one row with an empty vehicle cell.
+- **Fallback**: when a table does not exist, the reader returns a short built-in
+  demo list and the payload says `source="fallback"`; the grid shows a warning
+  banner. An existing but EMPTY table is a real empty dictionary
+  (`source="external"`, no rows) — the fallback never hides it. The existence
+  check is `to_regclass`, so a missing `dict` schema is safe.
+- **Project/role**: migration `0032_logistics` inserts the `logistics` project
+  row (idempotent) and creates the `logistics_price_kind` enum (`INDICATIVE`,
+  `PRICE`) for the future main table. Migrations `0033_logistics_hazard_classes`
+  / `0034_logistics_table_prefix` create and seed the application-owned
+  «Класс опасности» table (`l_hazard_classes`, values 1..9); it has an API but
+  no tab yet. Application-owned logistics tables use the `l_` prefix.
+  `just seed-logistics` (idempotent) ensures the project, the nine classes and
+  Евтушенко's active admin link — and nothing else; the external `dict` schema
+  is never touched. Only the administrator role exists in this phase; every
+  logistics endpoint requires it.
+- **Workspace** `front/src/features/logistics/logistics-workspace.tsx`: three
+  read-only tabs — «Страны», «Типы ТС и перевозки», «Активы». No collaboration
+  room, no undo, no export and no row authoring; the grids keep header filters,
+  sorting, copy and the remembered position. The transport tab merges the type
+  cell over its vehicle types (`CellMergePlugin`), disabling the merge while a
+  user sorting is active — the same pattern as «Продуктовые позиции» in «КППК».
+
 ## Authentication
 
 Two modes by `KEYCLOAK_ENABLED`:
@@ -236,7 +275,7 @@ Two modes by `KEYCLOAK_ENABLED`:
 
 Session — `rc_session` cookie (JWT-ish, jose; Secure when `https://` is in `AUTH_APP_ORIGIN`). Proxy middleware `front/src/proxy.ts` (matcher `/`, `/blocked` and the project URLs) redirects without the cookie to `/api/auth/login`.
 
-Project URLs — `/raw-materials`, `/renovation`, `/kppk` (root redirects to the first accessible project, preferring renovation). Membership is never created by the root: `GET /api/me` runs with create=False. Opening a project URL calls `POST /api/me/projects/{key}/request-access`, which creates the user record (when missing) and a single inactive project link — the project admin grants access from «Пользователи». Keycloak/callback always return to the app root, so the originally requested path travels in the `rc_auth_return_to` cookie.
+Project URLs — `/raw-materials`, `/renovation`, `/kppk`, `/logistics` (root redirects to the first accessible project, preferring renovation). Membership is never created by the root: `GET /api/me` runs with create=False. Opening a project URL calls `POST /api/me/projects/{key}/request-access`, which creates the user record (when missing) and a single inactive project link — the project admin grants access from «Пользователи». Keycloak/callback always return to the app root, so the originally requested path travels in the `rc_auth_return_to` cookie.
 
 **The active form is URL state.** `?section=<form id>` on a project URL pins the open form, so a reload (and browser back/forward) lands on it instead of the default. The server page `front/src/app/[project]/page.tsx` reads `searchParams.section` and passes it as `initialSection`; each workspace restores it (renovation: `plan` / `assets` / a catalog id / `users`; raw materials: `movement:{period}` / `rawMaterialPrices` / a dictionary; kppk: a dictionary or `kppkRealization`), validates it against its own tabs and falls back to the first one when unknown (notifying the URL so a stale value is corrected). A change is mirrored back with `router.replace(..., { scroll: false })` — `replace`, not `push`, keeps the back button on the previous page. Switching project (`router.push(slug)`) drops the parameter, since form ids are project-specific.
 
@@ -268,6 +307,7 @@ Nothing else is persisted: the selected version, the report month and the grid's
   - Renovation plan **import preflight** (admin): `POST /plan/import/inspect` (multipart `file`, `.xlsb` or `.xlsx`) validates the technical-directorate workbook **without writing** to the database. Readiness and the response contract — see «Renovation plan import» below.
   - Renovation plan **import load** (admin): `POST /plan/import/apply` (multipart `file`, `.xlsb` or `.xlsx`) stages the checked workbook and returns `202` with a durable job. Poll `GET /plan/import/jobs/{id}` (or cancel with `DELETE`) while a worker parses and writes the workbook under the project gate. See «Loading the checked file» below.
 - `kppk` (signed identity; reads for every project member, mutations admin-only): dictionary CRUD — `GET/POST/PATCH/DELETE /product-positions[/{id}]` (PATCH `{field, value}`, `field` = `name` | `orgNames` | `productNum`; create accepts `productNum`; delete removes the product with its links), `/raws` (PATCH `{field, value}` for `name`/`rawNum`), `/orgs` (PATCH `{field, value}` for `code`/`name`), `/periods` (PATCH `{field, value}`; no UI in this phase). The source number («№», `productNum`/`rawNum`) is editable and unique — an occupied number is rejected with a clear `400`; `null` stands for a row added by hand (several NULLs are allowed); positions/raws are returned in the source-number order (unnumbered rows last). The «ДЗО» list is ordered by the full name and exposes no number. Undo/redo join the shared collaboration journal: every mutation carries the page-lifetime `session_id` (query) and is journaled as one action scoped to the tab (`scope = f"{section}/"`, no report month; `collab/undo.py` dispatches `kppk_products`/`kppk_raws`/`kppk_orgs` to `apply_kppk_cell_value`) — `GET /undo-state?section=&session_id=`, `POST /undo`, `POST /redo` (body `{skipActionId, section}`, admin; no WebSocket room and no `cell:changed` — the front refreshes the grid itself after undo/redo). `POST /export` streams the tab as XLSX (whole/visible via `rowIds`, `columns` from the grid). Deletes follow RESTRICT: a ДЗО/period referenced by the fact/plan copies is rejected with a clear `400`.
+- `logistics` (signed identity, admin-only): read-only dictionaries — `GET /dictionaries/countries`, `/dictionaries/transport-types`, `/dictionaries/orgs`, and the application-owned `/dictionaries/hazard-classes` (1..9, no tab yet). The external dictionaries return `{source: "external" | "fallback", rows: [...]}`; there are no write endpoints, because the `dict` schema belongs to another system.
 - `ws`: `WS /ws/raw-materials` — collaboration (see `docs/COLLAB.md`).
 - Service: `GET /health` (process liveness), `GET /ready` (PostgreSQL/Valkey readiness, including the required outbox migration), rate-limit and log middlewares in `back/src/main.py`. HTTP responses carry `X-Request-ID`, also recorded in structured request logs. Granian access/handshake logs redact credential query parameters (`ticket`, `access_token`, `token`); the external reverse proxy must apply its own redaction policy.
 
@@ -541,6 +581,14 @@ Cancellation/lease loss therefore rolls the transaction back; a lost HTTP
 response cannot cause a second apply. The input is removed only after a
 terminal job state or TTL cleanup. The gate still covers the full write and
 recompute phase; staged/versioned finalization is the next scale slice.
+
+**A completed import is history.** Admission deduplicates by
+`plan_id:digest`, but imports reuse only a `pending`/`running` job: a repeated
+upload while the first load is still running attaches to it, while a file whose
+import already finished gets a NEW job and is applied again. Exports keep
+reusing a `done` record — their artifact is a valid answer to the same query;
+for an import the old run's success is not. Reusing the done import record made
+the UI show the previous run's success toast without loading the workbook.
 
 The job reports progress per phase: `parse`, `write`, `recompute`. The client
 sends `expected_rows` (the preflight's `new_rows + rows_to_update`), so the

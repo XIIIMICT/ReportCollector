@@ -11,6 +11,7 @@ const SLUG_TO_KEY: Record<string, string> = {
     "raw-materials": "raw_materials",
     renovation: "renovation",
     kppk: "kppk",
+    logistics: "logistics",
 };
 
 export function projectKeyFromSlug(slug: string): string | null {
@@ -33,6 +34,7 @@ export const PROJECT_NAMES: Record<string, string> = {
     raw_materials: "Сырьё",
     renovation: "Ремонт",
     kppk: "КППК",
+    logistics: "Логистика",
 };
 
 /** The display name of a project key («Сырьё» / «Ремонт» / «КППК»). */

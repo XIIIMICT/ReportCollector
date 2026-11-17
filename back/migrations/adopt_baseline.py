@@ -155,6 +155,7 @@ _LEGACY_MISSING_TABLES: frozenset[str] = frozenset(
         "kppk_cost",
         "kppk_production_plan",
         "kppk_markets",
+        "l_hazard_classes",
     }
 )
 

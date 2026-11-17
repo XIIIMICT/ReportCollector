@@ -118,6 +118,10 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 ## Explicit product deferrals
 
+- «Логистика» phase 1 stops at the read-only dictionaries: the project users
+  dictionary (granting the administrator role from the UI), Excel export and the
+  main table using `logistics_price_kind` are not built yet. The `dict` schema is
+  external and must never be written by this application.
 - Old/new version comparison and change highlighting, including the currently
   unbounded full-plan diff. Use bounded SQL pages or a job before re-enabling it.
 - Import conflict detection/staged version finalization preventing concurrent

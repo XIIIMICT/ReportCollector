@@ -225,6 +225,7 @@ async def _seed_session(session: AsyncSession) -> None:
         )
     await _seed_renovation(session, now=now, admin=admin)
     await _seed_kppk(session, now=now, admin=admin)
+    await _seed_logistics(session, now=now, admin=admin)
     await session.commit()
 
 
@@ -591,6 +592,40 @@ async def isolated_store():
         await instance.close()
         get_collab_store.cache_clear()
         get_room_manager.cache_clear()
+
+
+async def _seed_logistics(session: AsyncSession, *, now: datetime, admin: User) -> None:
+    """«Логистика» seed: the project row (if a real-schema test truncated it) and the admin role."""
+    from sqlmodel import col, select
+
+    from src.auth.models import Project, ProjectRole, UserRole
+    from src.logistics.constants import LOGISTICS_PROJECT_KEY, LOGISTICS_PROJECT_NAME
+    from src.logistics.models import LogisticsHazardClass
+
+    project = (await session.exec(select(Project).where(col(Project.key) == LOGISTICS_PROJECT_KEY))).one_or_none()
+    if project is None:
+        # Migration 0032 creates the project in a fresh schema; a `real_schema`
+        # test truncates every table afterwards, so the shared seed must be able
+        # to restore it as well.
+        project = Project(key=LOGISTICS_PROJECT_KEY, name=LOGISTICS_PROJECT_NAME, created_at=now)
+        session.add(project)
+        await session.flush()
+    session.add(
+        UserRole(
+            user_id=admin.id,
+            project_id=project.id,
+            role=ProjectRole.ADMIN,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    # The «Класс опасности» dictionary is application-owned; migration 0033
+    # seeds it, but a `real_schema` test truncates it too.
+    existing = set((await session.exec(select(LogisticsHazardClass.value))).all())
+    for value in range(1, 10):
+        if value not in existing:
+            session.add(LogisticsHazardClass(value=value, name=f"{value} класс"))
 
 
 async def _seed_kppk(session: AsyncSession, *, now: datetime, admin: User) -> None:

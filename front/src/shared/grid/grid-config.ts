@@ -28,7 +28,11 @@ export type SectionId =
     | "kppkUsers"
     | "kppkRealizationPlan"
     | "kppkRealizationFact"
-    | "kppkCost";
+    | "kppkCost"
+    // «Логистика»: read-only dictionaries of the external `dict` schema.
+    | "logisticsCountries"
+    | "logisticsTransportTypes"
+    | "logisticsOrgs";
 
 export type GridRow = Record<string, unknown> & {
     id: string;
@@ -173,6 +177,9 @@ export const SECTION_LABELS: Record<StaticSectionId, string> & Partial<Record<Se
         kppkRealizationPlan: "Реализация",
         kppkRealizationFact: "Реализация",
         kppkCost: "Себестоимость",
+        logisticsCountries: "Страны",
+        logisticsTransportTypes: "Типы ТС и перевозки",
+        logisticsOrgs: "Активы",
     };
 
 export const MAIN_SECTIONS = new Set<SectionId>(["materialMovement", "rawMaterialPrices"]);
@@ -326,6 +333,15 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
             exportable: false,
         },
     ],
+    // «Логистика»: read-only dictionaries backed by the external `dict` schema.
+    // The values belong to another system, so the grid never edits them; the
+    // transport view merges the type cell over its vehicle types.
+    logisticsCountries: [fixed("shortname", "Страна", 320), fixed("market", "Рынок", 140)],
+    logisticsTransportTypes: [
+        fixed("transportType", "Тип перевозки", 320),
+        fixed("vehicleType", "Тип подвижного состава", 420),
+    ],
+    logisticsOrgs: [fixed("prefixRu", "Актив", 420)],
     // «Реализация» has no static descriptors: the layout follows the template    // (Продукция | Рынок сбыта | Выкуп{Объем, Цена FCA} | Реализация{Объем,
     // Цена FCA}), and the editable columns come from the active slice pasted
     // as `columnDescriptors` by the section component.

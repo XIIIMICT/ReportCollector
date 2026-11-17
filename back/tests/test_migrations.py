@@ -209,7 +209,13 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(
         # (since 0008_kppk_source_tables) do not exist on the legacy schema;
         # the pre-existing tables must keep their data unchanged.
         after = await conn.run_sync(business_snapshot)
+        # 0032 deliberately BOOTSTRAPS one row — the «Логистика» project — so
+        # it is the single addition the comparison tolerates (the downgrade
+        # removed it, the upgrade puts it back).
+        after["projects"] = [row for row in after["projects"] if '"key": "logistics"' not in row]
         assert {table: after[table] for table in all_business_data} == all_business_data
+        assert (await conn.execute(text("SELECT count(*) FROM projects WHERE key = 'logistics'"))).scalar_one() == 1
+        assert (await conn.execute(text("SELECT count(*) FROM l_hazard_classes"))).scalar_one() == 9
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == HEAD_REVISION
         assert (await conn.execute(text("SELECT id, col_011 FROM r_plan_rows ORDER BY id"))).all() == before
         assert (await conn.execute(text("SELECT count(*) FROM collab_outbox"))).scalar_one() == 0
