@@ -37,6 +37,9 @@ from src.kppk.models import (
     KppkRealizationPlan,
 )
 from src.kppk.users import apply_kppk_user_value
+from src.logistics.constants import LOGISTICS_PROJECT_KEY
+from src.logistics.models import LogisticsRate, LogisticsUserAsset
+from src.logistics.rates import apply_logistics_rate_value
 from src.raw_materials.models import (
     AssetRawMaterial,
     MaterialMovement,
@@ -76,6 +79,8 @@ KPPK_TABLES = frozenset(
     }
 )
 
+LOGISTICS_TABLES = frozenset({LogisticsRate.__tablename__})
+
 
 @dataclass
 class UndoConflict:
@@ -101,7 +106,13 @@ class UndoOutcome:
 
 # Form scopes undo in parallel with running edits (shared lock); the «КППК»
 # realization slices behave like the other forms.
-_FORM_SCOPES = frozenset({"renovationPlan", "materialMovement", "rawMaterialPrices"})
+_FORM_SCOPES = frozenset({"renovationPlan", "materialMovement", "rawMaterialPrices", "logisticsRates"})
+
+
+def _default_project(scope: str) -> str:
+    if scope.startswith("logisticsRates"):
+        return LOGISTICS_PROJECT_KEY
+    return "renovation" if scope.startswith("renovation") else "raw_materials"
 
 
 def _is_form_scope(scope: str) -> bool:
@@ -145,7 +156,7 @@ async def undo_last_edit(
     skipped after a conflict (second undo press): it's excluded from the
     search and the next available action below is looked up.
     """
-    project_key = project_key or ("renovation" if scope.startswith("renovation") else "raw_materials")
+    project_key = project_key or _default_project(scope)
     await lock_project(session, project_key, exclusive=not _is_form_scope(scope))
     await lock_rows(session, [f"undo/{user.id}/{session_id}/{scope}"])
     action = await store.next_action(str(user.id), session_id, scope, undone=False, after_action_id=skip_action_id)
@@ -176,7 +187,7 @@ async def redo_last_undo(
     explicitly skipped after a conflict (second redo press): it's excluded
     from the search and the next available action above is looked up.
     """
-    project_key = project_key or ("renovation" if scope.startswith("renovation") else "raw_materials")
+    project_key = project_key or _default_project(scope)
     await lock_project(session, project_key, exclusive=not _is_form_scope(scope))
     await lock_rows(session, [f"undo/{user.id}/{session_id}/{scope}"])
     action = await store.next_action(str(user.id), session_id, scope, undone=True, after_action_id=skip_action_id)
@@ -254,6 +265,8 @@ async def _switch_entry(
                     value=value,
                     user=user,
                 )
+            elif target_table in LOGISTICS_TABLES:
+                await apply_logistics_rate_value(session, row_id=row_id, field=field, value=value, editor=user)
             else:
                 await apply_cell_value(
                     session,
@@ -478,6 +491,34 @@ async def _authorize_action(session: AsyncSession, user: User, action: dict, cel
             }[table]
             if not admin or await session.get(model, row_id, populate_existing=True) is None:
                 return False
+        elif action["project"] == LOGISTICS_PROJECT_KEY and table in LOGISTICS_TABLES:
+            # A create/delete action is replayed in both directions, so the
+            # row's current existence is a gate only for plain cell edits.
+            is_existence = cell["field"] == "__created"
+            row = await session.get(LogisticsRate, row_id, populate_existing=True)
+            if not is_existence and row is None:
+                return False
+            if not admin:
+                # An asset worker may undo what they did on their own assets;
+                # a reviewer never writes, so nothing of theirs is replayed.
+                if getattr(link.role, "value", None) != "asset_worker":
+                    return False
+                asset_id: UUID | None = row.org_id if row is not None else None
+                if asset_id is None:
+                    snapshot = cell["oldValue"] if isinstance(cell["oldValue"], dict) else cell["newValue"]
+                    if not isinstance(snapshot, dict) or snapshot.get("assetId") is None:
+                        return False
+                    asset_id = UUID(str(snapshot["assetId"]))
+                grant = (
+                    await session.exec(
+                        select(LogisticsUserAsset).where(
+                            col(LogisticsUserAsset.user_id) == user.id,
+                            col(LogisticsUserAsset.org_id) == asset_id,
+                        )
+                    )
+                ).first()
+                if grant is None:
+                    return False
         elif not await _dictionary_writable(user=user, link=link, section=action.get("section") or ""):
             # A stale dictionary action of a member is not replayed while the
             # dictionary is admin-only (the rule lives in `section_policy`).

@@ -10,7 +10,7 @@ from .kppk.models import (
     KppkRealization,
     KppkRealizationPlan,
 )
-from .logistics.models import LogisticsHazardClass
+from .logistics.models import LogisticsHazardClass, LogisticsRate, LogisticsUserAsset
 from .raw_materials.models import (
     AssetRawMaterial,
     DeliveryBasis,
@@ -43,6 +43,8 @@ __all__ = [
     "KppkRealization",
     "KppkRealizationPlan",
     "LogisticsHazardClass",
+    "LogisticsRate",
+    "LogisticsUserAsset",
     "MaterialMovement",
     "MovementPeriod",
     "Project",

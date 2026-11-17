@@ -14,12 +14,14 @@ returns no rows — the fallback must not hide that state.
 
 import re
 from typing import Literal
+from uuid import UUID
 
 from sqlalchemy import text
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from .constants import (
+    COUNTRY_MARKET_ORDER,
     FALLBACK_COUNTRIES,
     FALLBACK_ORG_PREFIXES,
     FALLBACK_TRANSPORT_TYPES,
@@ -43,6 +45,11 @@ def _qualified(schema: str, table: str) -> str:
         message = f"Недопустимое имя таблицы: {schema}.{table}"
         raise ValueError(message)
     return f'"{schema}"."{table}"'
+
+
+# Public alias for the other logistics read models (the rates table lives in the
+# app schema but reads the same external dictionaries).
+qualified_table = _qualified
 
 
 async def _relation_exists(session: AsyncSession, table: str) -> bool:
@@ -85,10 +92,17 @@ def country_market(alpha2: str | None, ts: bool | None, sng: bool | None) -> Lit
     return "ДЗ"
 
 
+def _sorted_countries(
+    rows: list[LogisticsCountryRowRead],
+) -> list[LogisticsCountryRowRead]:
+    """Group by market (РФ, БЗ, ДЗ), countries alphabetically inside each group."""
+    return sorted(rows, key=lambda row: (COUNTRY_MARKET_ORDER[row.market], row.shortname))
+
+
 async def read_countries(session: AsyncSession) -> LogisticsDictionaryRead[LogisticsCountryRowRead]:
     """Return country short names and their computed market from ``dict.countries``."""
     if not await _relation_exists(session, "countries"):
-        return _payload(_fallback_countries(), external=False)
+        return _payload(_sorted_countries(_fallback_countries()), external=False)
     rows = (
         await session.exec(  # ty: ignore[no-matching-overload]
             text(
@@ -99,14 +113,16 @@ async def read_countries(session: AsyncSession) -> LogisticsDictionaryRead[Logis
         )
     ).all()
     return _payload(
-        [
-            LogisticsCountryRowRead(
-                id=str(row.id),
-                shortname=row.shortname,
-                market=country_market(row.alpha2, row.ts, row.sng),
-            )
-            for row in rows
-        ],
+        _sorted_countries(
+            [
+                LogisticsCountryRowRead(
+                    id=str(row.id),
+                    shortname=row.shortname,
+                    market=country_market(row.alpha2, row.ts, row.sng),
+                )
+                for row in rows
+            ]
+        ),
         external=True,
     )
 
@@ -124,6 +140,7 @@ def _fallback_transport_rows() -> list[LogisticsTransportRowRead]:
                     id=f"{type_id}:{vehicle_index}",
                     transportTypeId=type_id,
                     transportType=transport,
+                    vehicleTypeId=None,
                     vehicleType=vehicle,
                 )
             )
@@ -173,6 +190,7 @@ async def read_transport_types(
                 id=str(row.vehicle_id) if row.vehicle_id is not None else f"{row.transport_id}:",
                 transportTypeId=str(row.transport_id),
                 transportType=row.transport_type,
+                vehicleTypeId=str(row.vehicle_id) if row.vehicle_id is not None else None,
                 vehicleType=row.vehicle_type or "",
             )
             for row in rows
@@ -207,6 +225,26 @@ async def read_orgs(session: AsyncSession) -> LogisticsDictionaryRead[LogisticsO
         [LogisticsOrgRowRead(id=str(row.id), prefixRu=row.prefix_ru) for row in rows],
         external=True,
     )
+
+
+async def read_org_labels(session: AsyncSession) -> dict[UUID, tuple[str, object]]:
+    """
+    Asset labels INCLUDING soft-deleted rows, for the user's asset grants.
+
+    A grant survives the asset's soft deletion (the rates do the same), so the
+    label of such a row carries the `deleted_at` marker and the caller renders
+    «УДАЛЕНО: …». Missing table → an empty map (the grants then render blank).
+    """
+    if not await _relation_exists(session, "orgs"):
+        return {}
+    rows = (
+        await session.exec(  # ty: ignore[no-matching-overload]
+            text(
+                f"SELECT id, prefix_ru, deleted_at FROM {_qualified(LOGISTICS_SOURCE_SCHEMA, 'orgs')}"  # noqa: S608 — identifier is whitelisted
+            )
+        )
+    ).all()
+    return {row.id: (row.prefix_ru, row.deleted_at) for row in rows}
 
 
 # ─── Hazard classes (application-owned reference data) ─────────────────────

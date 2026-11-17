@@ -37,6 +37,8 @@ def test_every_project_section_declares_a_policy() -> None:
         "logisticsCountries",
         "logisticsTransportTypes",
         "logisticsOrgs",
+        "logisticsUsers",
+        "logisticsRates",
     }
     assert set(SECTION_POLICIES) == expected
 

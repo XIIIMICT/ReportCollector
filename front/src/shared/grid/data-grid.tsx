@@ -1832,7 +1832,7 @@ function DataGridInner(
             descriptor.fixed ||
             descriptor.kind === "calculated" ||
             (keycloakEnabled &&
-                (section === "users" || section === "kppkUsers") &&
+                (section === "users" || section === "kppkUsers" || section === "logisticsUsers") &&
                 !row.isPlaceholder &&
                 (descriptor.key === "email" || descriptor.key === "fullname"))
         );
@@ -3652,7 +3652,14 @@ function DataGridInner(
                 } as CSSProperties
             }
             onPointerMove={(event) => {
-                const target = (event.target as Element).closest?.("[data-remote-lock]") ?? null;
+                // Two kinds of cell hints share one floating HeroUI Tooltip:
+                // a cell leased by another participant (`data-remote-lock`) and
+                // a cell locked by another value of the row (`data-cell-hint`).
+                const element = event.target as Element;
+                const target =
+                    element.closest?.("[data-remote-lock]") ??
+                    element.closest?.("[data-cell-hint]") ??
+                    null;
                 if (target === remoteTooltipTargetRef.current) return;
                 remoteTooltipTargetRef.current = target;
                 if (!target) {
@@ -3663,6 +3670,7 @@ function DataGridInner(
                 setRemoteTooltip({
                     text:
                         target.getAttribute("data-remote-lock") ??
+                        target.getAttribute("data-cell-hint") ??
                         "Ячейка занята другим пользователем",
                     left: rect.left + rect.width / 2,
                     top: rect.top,
@@ -4101,7 +4109,7 @@ function translateUpdates(
     updates: CellUpdate[],
     assets: ReferenceOption[],
 ): CellUpdate[] {
-    if (section === "rawMaterials") {
+    if (section === "rawMaterials" || section === "logisticsUsers") {
         return updates.map((update) =>
             update.field === "assetNames"
                 ? { ...update, field: "assetIds", value: namesToIds(update.value, assets) }
@@ -4116,7 +4124,7 @@ function translatePlaceholderPatch(
     patch: Record<string, unknown>,
     assets: ReferenceOption[],
 ): Record<string, unknown> {
-    if (section === "rawMaterials" && "assetNames" in patch) {
+    if ((section === "rawMaterials" || section === "logisticsUsers") && "assetNames" in patch) {
         return {
             ...patch,
             assetIds: namesToIds(patch.assetNames as CellUpdate["value"], assets),

@@ -48,6 +48,8 @@ from src.config import get_settings
 from src.database import get_session
 from src.kppk.constants import KPPK_PROJECT_KEY
 from src.kppk.service import NoKppkAccessError, resolve_kppk_access
+from src.logistics.constants import LOGISTICS_PROJECT_KEY
+from src.logistics.service import NoLogisticsAccessError, resolve_logistics_access
 from src.metrics import (
     WS_ACCESS_CHECK_DURATION,
     WS_CONNECTIONS_ACTIVE,
@@ -242,7 +244,13 @@ class RoomManager:
                     await websocket.send_json(message)
         except asyncio.CancelledError:
             return
-        except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError, NoKppkAccessError:
+        except (
+            RoomAccessDeniedError,
+            NoRawMaterialsAccessError,
+            NoRenovationAccessError,
+            NoKppkAccessError,
+            NoLogisticsAccessError,
+        ):
             await self.close(websocket, 4403, "access_denied")
         except Exception:
             logger.exception("Collaboration writer failed; closing connection")
@@ -299,6 +307,21 @@ async def kppk_ws(
     )
 
 
+@router.websocket("/ws/logistics")
+async def logistics_ws(
+    websocket: WebSocket,
+    session: SessionDependency,
+) -> None:
+    """Collaboration room for the «Логистика» «Ставки» form (admin-only)."""
+    await _serve_room(
+        websocket,
+        session,
+        resolve_access=_resolve_logistics_access,
+        default_section="logisticsRates",
+        default_project=LOGISTICS_PROJECT_KEY,
+    )
+
+
 async def _resolve_raw_materials_access(
     session: AsyncSession,
     identity: CurrentUserIdentity,
@@ -322,6 +345,15 @@ async def _resolve_kppk_access(
     """КППК access: no per-asset grants, every member reads the dictionaries."""
     user, roles = await resolve_kppk_access(session, identity)
     return user, roles, [], None
+
+
+async def _resolve_logistics_access(
+    session: AsyncSession,
+    identity: CurrentUserIdentity,
+) -> tuple[User, list[Any], list[Any], None]:
+    """«Логистика» access: any working member; a worker brings their asset ids."""
+    membership = await resolve_logistics_access(session, identity)
+    return membership.user, [membership.role], sorted(membership.asset_ids), None
 
 
 async def _serve_room(
@@ -370,7 +402,13 @@ async def _serve_room(
             scope,
         )
         user, roles, assets, block = await access.resolve(session)
-    except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError, NoKppkAccessError:
+    except (
+        RoomAccessDeniedError,
+        NoRawMaterialsAccessError,
+        NoRenovationAccessError,
+        NoKppkAccessError,
+        NoLogisticsAccessError,
+    ):
         log_warning(
             logger,
             "collab.ws_access_rejected",
@@ -526,7 +564,13 @@ async def _serve_room(
                 # lifecycle events and must not bubble into Granian's error
                 # middleware as application failures.
                 break
-            except RoomAccessDeniedError, NoRawMaterialsAccessError, NoRenovationAccessError, NoKppkAccessError:
+            except (
+                RoomAccessDeniedError,
+                NoRawMaterialsAccessError,
+                NoRenovationAccessError,
+                NoKppkAccessError,
+                NoLogisticsAccessError,
+            ):
                 with suppress(RuntimeError, WebSocketDisconnect, WebSocketDisconnected):
                     await manager.close(websocket, 4403, "access_denied")
                 break

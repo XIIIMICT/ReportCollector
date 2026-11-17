@@ -25,7 +25,9 @@ def test_cors_origins_from_env_json_normalize(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_database_limits_are_configurable_and_bounded() -> None:
-    settings = Settings(
+    # The values below ARE applied (the assertions prove it); ty's Pydantic
+    # plugin warns about extra arguments it cannot see through `Settings`.
+    settings = Settings(  # ty: ignore[pydantic-discarded-extra-argument]
         database_pool_size=4,
         database_max_overflow=2,
         database_pool_timeout_seconds=3.5,

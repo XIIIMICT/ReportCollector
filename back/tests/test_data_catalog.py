@@ -24,14 +24,16 @@ from src.renovation.form_schema import (
 def test_catalog_covers_every_application_table_and_column() -> None:
     # 0024 added `kppk_markets` (+6 columns) and swapped the text `product`/
     # `region` of the realization copies for `product_id`/`market_id` (same count).
-    assert len(SQLModel.metadata.tables) == 33
+    assert len(SQLModel.metadata.tables) == 35
     # 494: 0021 dropped `value_key`, 0022 swapped `payload` for `deleted_at`,
     # 0024 added the market dictionary's 6 columns.
     # 0026 adds the durable operation queue; 0028 adds its bounded result;
     # 0029 adds the job's worker lifecycle metadata (phase, worker, start, heartbeat).
     # 0030 drops `r_assets.code` (the internal slug; `repair_code` becomes `code`).
     # 0033 adds the «Класс опасности» dictionary (2 columns).
-    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 526
+    # 0035 adds the «Ставки» main table (21 columns).
+    # 0037 adds the asset grants of a «Работник на активе» (6 columns).
+    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 553
     assert set(TABLE_COMMENTS) == set(SQLModel.metadata.tables)
     for table in SQLModel.metadata.tables.values():
         assert table.comment == TABLE_COMMENTS[table.name].rstrip(".")

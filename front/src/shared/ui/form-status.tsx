@@ -21,8 +21,10 @@ import { HiddenColumnsList } from "@/shared/grid/hidden-columns-list";
  *
  * Inline (the trigger) it reads top-to-bottom «На форме» → «Выделено» with the
  * status badge centered between them; the hover tooltip spells out the
- * member presence list first, then the selection/statistics breakdown. Presence is
- * optional — pass `room={null}` and only the selection summary renders.
+ * member presence list first, then the selection/statistics breakdown.
+ * `room={null}` means collaboration is not available (a fixed/archive version,
+ * a read-only dictionary): the badge shows the same «Совместное редактирование
+ * недоступно» state as an offline room, and only the selection summary follows.
  */
 export function FormStatus({
     room,
@@ -40,7 +42,8 @@ export function FormStatus({
     selectionDetail?: string | null;
     gridStats: GridViewStats | null;
 }) {
-    const hasPresence = room !== null && room.status === "online";
+    const status = room?.status ?? "offline";
+    const hasPresence = status === "online";
     const members = room?.members ?? [];
     const selfId = room?.me?.userId ?? null;
     // The tooltip list: other members first (with what they have selected), then
@@ -52,11 +55,8 @@ export function FormStatus({
     const me: CollabMember | null =
         members.find((member) => member.userId === selfId) ?? room?.me ?? null;
     const hasOthers = others.length > 0;
-    const presenceText = hasPresence
-        ? membershipSummary(members, selfId)
-        : room && room.status !== "online"
-          ? COLLAB_STATUS_LABELS[room.status]
-          : null;
+    const presenceText =
+        status === "online" ? membershipSummary(members, selfId) : COLLAB_STATUS_LABELS[status];
     // The «Выделено» row is collapsed, not unmounted (see below), so it must
     // keep a value to render while it fades OUT — otherwise the closing frame
     // would read a bare «Выделено:» with nothing after it. Written in an effect,
@@ -71,12 +71,10 @@ export function FormStatus({
         <Tooltip delay={250}>
             <Tooltip.Trigger>
                 <div className="form-status" aria-label="Статус таблицы">
-                    {room ? (
-                        <span
-                            className={`form-status__dot form-status__dot--${room.status}`}
-                            aria-hidden="true"
-                        />
-                    ) : null}
+                    <span
+                        className={`form-status__dot form-status__dot--${status}`}
+                        aria-hidden="true"
+                    />
                     <div className="form-status__body">
                         {presenceText !== null ? (
                             <div

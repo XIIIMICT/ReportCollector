@@ -137,6 +137,14 @@ const SECTION_POLICIES: Record<PolicySectionId, SectionPolicy> = {
     logisticsCountries: READ_ONLY,
     logisticsTransportTypes: READ_ONLY,
     logisticsOrgs: READ_ONLY,
+    // The users dictionary is editable through a dialog; it has no room and
+    // no undo (the project is admin-only and the mutations are immediate).
+    logisticsUsers: { ...READ_ONLY, rowOps: "dialog" },
+    // The main form: collaborative admins with undo/redo (like «КППК»), but no
+    // export and no generic placeholder action — the draft row is owned by the
+    // rates section, so `rowOps` is "none". Kept on ONE line: the backend
+    // parity test parses inline entries only.
+    logisticsRates: { ...FORM, export: "none" },
 };
 
 const CATALOG_POLICY: SectionPolicy = DICTIONARY;

@@ -26,6 +26,13 @@ test("collaboration offline: the state stands alone, bold, without «На фор
     expect(bold.closest(".form-status__presence--bold")).toBeTruthy();
 });
 
+test("no room means collaboration is unavailable, exactly like offline", () => {
+    render(<FormStatus room={null} selectionLabel={null} gridStats={stats} />);
+    const bold = screen.getByText(/Совместное редактирование недоступно/);
+    expect(bold.tagName).toBe("B");
+    expect(document.querySelector(".form-status__dot--offline")).toBeTruthy();
+});
+
 test("collaboration connecting: same treatment", () => {
     render(<FormStatus room={room("connecting")} selectionLabel={null} gridStats={stats} />);
     expect(screen.queryByText(/На форме/)).toBeNull();

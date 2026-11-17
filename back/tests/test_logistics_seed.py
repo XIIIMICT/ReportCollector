@@ -20,7 +20,9 @@ async def test_seed_logistics_is_idempotent_and_grants_evtushenko_access(
     assert second == {"classes_created": 0, "admins_created": 0, "admins_activated": 0}
 
     project = (await db_session.exec(select(Project).where(col(Project.key) == LOGISTICS_PROJECT_KEY))).one()
-    classes = (await db_session.exec(select(LogisticsHazardClass.value).order_by(LogisticsHazardClass.value))).all()
+    classes = (
+        await db_session.exec(select(LogisticsHazardClass.value).order_by(col(LogisticsHazardClass.value)))
+    ).all()
     assert classes == list(range(1, 10))
 
     person = (await db_session.exec(select(User).where(col(User.email) == LOGISTICS_ADMIN_EMAILS[0]))).one()

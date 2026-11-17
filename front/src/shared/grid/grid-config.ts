@@ -32,7 +32,9 @@ export type SectionId =
     // «Логистика»: read-only dictionaries of the external `dict` schema.
     | "logisticsCountries"
     | "logisticsTransportTypes"
-    | "logisticsOrgs";
+    | "logisticsOrgs"
+    | "logisticsUsers"
+    | "logisticsRates";
 
 export type GridRow = Record<string, unknown> & {
     id: string;
@@ -97,6 +99,29 @@ export type ColumnDescriptor = {
     exportable?: boolean;
     /** Read-only in every row (e.g. an email that is only set at creation). */
     readOnly?: boolean;
+    /**
+     * Dynamic options of a `select` column, computed from the row being edited
+     * (the vehicle type depends on the row's transport type).
+     */
+    optionsForRow?: (row: GridRow) => SelectOption[];
+    /**
+     * Cell text of an EMPTY `select` value (no option chosen). Without it the
+     * cell renders blank; «Нет» reads better than nothing on a nullable
+     * reference such as «Класс опасности».
+     */
+    emptyLabel?: string;
+    /**
+     * Hover hint rendered as the cell's `title` — used when the cell is locked
+     * by another value in the row («выберите тип транспортного средства…»).
+     * Returning `undefined` leaves the cell without a hint.
+     */
+    cellTitle?: (row: GridRow) => string | undefined;
+    /**
+     * Rendered with the calculated (green) highlight but as PLAIN TEXT — for a
+     * computed string such as the country market. `kind: "calculated"` is for
+     * numbers and would send the value through the numeric formatter.
+     */
+    calculatedText?: boolean;
     /**
      * The table's identifying column(s), pinned left: they cannot be hidden.
      * Distinct from `fixed`, which means "read-only" (a calculated or projected
@@ -180,6 +205,8 @@ export const SECTION_LABELS: Record<StaticSectionId, string> & Partial<Record<Se
         logisticsCountries: "Страны",
         logisticsTransportTypes: "Типы ТС и перевозки",
         logisticsOrgs: "Активы",
+        logisticsUsers: "Пользователи",
+        logisticsRates: "Ставки",
     };
 
 export const MAIN_SECTIONS = new Set<SectionId>(["materialMovement", "rawMaterialPrices"]);
@@ -336,12 +363,62 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     // «Логистика»: read-only dictionaries backed by the external `dict` schema.
     // The values belong to another system, so the grid never edits them; the
     // transport view merges the type cell over its vehicle types.
-    logisticsCountries: [fixed("shortname", "Страна", 320), fixed("market", "Рынок", 140)],
+    logisticsCountries: [
+        {
+            key: "market",
+            label: "Рынок",
+            width: 140,
+            kind: "text",
+            fixed: true,
+            calculatedText: true,
+        },
+        fixed("shortname", "Страна", 320),
+    ],
     logisticsTransportTypes: [
         fixed("transportType", "Тип перевозки", 320),
         fixed("vehicleType", "Тип подвижного состава", 420),
     ],
     logisticsOrgs: [fixed("prefixRu", "Актив", 420)],
+    logisticsUsers: [
+        // The email identifies the user and cannot be changed after creation;
+        // the person is added through the «Добавить пользователя» dialog.
+        { ...text("email", "Email", 220), readOnly: true },
+        text("fullname", "ФИО", 250),
+        {
+            key: "role",
+            label: "Роль",
+            width: 190,
+            kind: "select",
+            options: [
+                { value: "admin", label: "Администратор" },
+                { value: "reviewer", label: "Ревьюер" },
+                { value: "asset_worker", label: "Работник на активе" },
+                { value: "blocked", label: "Заблокирован" },
+            ],
+        },
+        {
+            // The generic multi-asset cell carries asset NAMES; the server
+            // resolves them to `dict.orgs` ids. Only an asset worker keeps them.
+            key: "assetNames",
+            label: "Активы",
+            width: 240,
+            kind: "assetsMulti",
+            cellTitle: (row) =>
+                row.role === "asset_worker"
+                    ? undefined
+                    : "Сначала выберите роль работника на активе, чтобы закрепить актив",
+        },
+        {
+            key: "lastAuthenticatedAt",
+            label: "Время последнего входа",
+            width: 190,
+            kind: "datetime",
+            readOnly: true,
+        },
+    ],
+    // The main form's descriptors are dynamic (reference options and the
+    // vehicle-type dependency) and are supplied by the rates section.
+    logisticsRates: [],
     // «Реализация» has no static descriptors: the layout follows the template    // (Продукция | Рынок сбыта | Выкуп{Объем, Цена FCA} | Реализация{Объем,
     // Цена FCA}), and the editable columns come from the active slice pasted
     // as `columnDescriptors` by the section component.
@@ -719,7 +796,20 @@ function buildLeaf(
     if (descriptor.kind === "select") {
         column.editor = "select";
         column.source = descriptor.options ?? [];
-        column.cellTemplate = (h, props) => selectCellTemplate(h, props, descriptor.options ?? []);
+        column.cellTemplate = descriptor.displayKey
+            ? (h, props) =>
+                  multiValueCellTemplate(h, {
+                      value: renderedDisplayValue(props.model, descriptor.displayKey!),
+                  })
+            : (h, props) =>
+                  selectCellTemplate(h, props, descriptor.options ?? [], descriptor.emptyLabel);
+        if (descriptor.optionsForRow) {
+            (
+                column as ColumnRegular & {
+                    optionsForRow?: (row: GridRow) => SelectOption[];
+                }
+            ).optionsForRow = descriptor.optionsForRow;
+        }
     }
     if (descriptor.kind === "asset" || descriptor.kind === "basis") {
         column.editor = "reference";
@@ -732,6 +822,27 @@ function buildLeaf(
     if (descriptor.kind === "boolean") {
         column.cellTemplate = (h, props) =>
             booleanCellTemplate(h, props, descriptor, context, section);
+    }
+    if (descriptor.cellTitle) {
+        // A hover hint for a cell whose editability depends on another cell
+        // (the vehicle type before a transport type is chosen). The text rides
+        // on a data attribute: the grid shell turns it into a HeroUI Tooltip
+        // (the same channel as the remote-cell lock hint).
+        const baseTemplate = column.cellTemplate;
+        column.cellTemplate = (h, props) => {
+            const node =
+                baseTemplate?.(h, props) ??
+                h(
+                    "span",
+                    {},
+                    props.value === null || props.value === undefined ? "" : String(props.value),
+                );
+            const hint = descriptor.cellTitle?.(props.model as GridRow);
+            if (!hint) return node;
+            return h("span", { class: "report-cell__hint", "data-cell-hint": hint }, [
+                node as VNode,
+            ]);
+        };
     }
     return column;
 }
@@ -814,7 +925,10 @@ function cellProperties(
         value === "" ||
         (Array.isArray(value) && value.length === 0);
     const showDiff = context.hasBaseline && !row.isPlaceholder;
-    const calculated = descriptor.kind === "calculated" && !row.isDeleted && !row.isPlaceholder;
+    const calculated =
+        (descriptor.kind === "calculated" || descriptor.calculatedText === true) &&
+        !row.isDeleted &&
+        !row.isPlaceholder;
     return {
         className: {
             "report-cell": true,
@@ -1125,8 +1239,9 @@ function selectCellTemplate(
     h: HyperFunc<VNode>,
     { value }: { value?: unknown },
     options: SelectOption[],
+    emptyLabel = "",
 ): VNode {
-    if (value === null || value === undefined || value === "") return h("span", {}, "");
+    if (value === null || value === undefined || value === "") return h("span", {}, emptyLabel);
     const option = options.find((candidate) => candidate.value === String(value));
     return h("span", {}, option ? option.label : String(value));
 }

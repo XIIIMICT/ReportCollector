@@ -9,16 +9,13 @@ from conftest import signed_identity_headers
 from httpx2 import AsyncClient
 from sqlalchemy import text
 from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.models import Project
 from src.logistics.constants import (
-    FALLBACK_COUNTRIES,
     FALLBACK_ORG_PREFIXES,
     FALLBACK_TRANSPORT_TYPES,
     LOGISTICS_PROJECT_KEY,
 )
-from src.logistics.dictionaries import country_market
 from src.logistics.models import LogisticsHazardClass, LogisticsPriceKind
 
 ADMIN_HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
@@ -32,6 +29,7 @@ DICTIONARY_PATHS = (
     "/api/logistics/dictionaries/transport-types",
     "/api/logistics/dictionaries/orgs",
     "/api/logistics/dictionaries/hazard-classes",
+    "/api/logistics/users",
 )
 
 
@@ -48,7 +46,7 @@ def _use_absent_schema(monkeypatch) -> str:
     return schema
 
 
-async def _create_schema(session: AsyncSession, schema: str) -> None:
+async def _create_schema(session, schema: str) -> None:
     await session.execute(text(f'CREATE SCHEMA "{schema}"'))
 
 
@@ -62,7 +60,7 @@ async def test_dictionaries_require_the_project_admin(client: AsyncClient) -> No
         assert "Логистика" in response.json()["detail"]
 
 
-async def test_the_logistics_project_and_price_kind_enum_exist(db_session: AsyncSession) -> None:
+async def test_the_logistics_project_and_price_kind_enum_exist(db_session) -> None:
     project = (await db_session.exec(select(Project).where(col(Project.key) == LOGISTICS_PROJECT_KEY))).one()
     assert project.name == "Логистика"
     labels = (
@@ -78,7 +76,7 @@ async def test_the_logistics_project_and_price_kind_enum_exist(db_session: Async
     ).all()
     assert [row.enumlabel for row in labels] == ["INDICATIVE", "PRICE"]
     assert [kind.value for kind in LogisticsPriceKind] == ["INDICATIVE", "PRICE"]
-    hazard = (await db_session.exec(select(LogisticsHazardClass.value).order_by(LogisticsHazardClass.value))).all()
+    hazard = (await db_session.exec(select(LogisticsHazardClass.value).order_by(col(LogisticsHazardClass.value)))).all()
     assert hazard == list(range(1, 10))
 
 
@@ -101,9 +99,11 @@ async def test_countries_fall_back_to_the_demo_list(client: AsyncClient, monkeyp
     body = response.json()
     assert body["source"] == "fallback"
     assert [(row["shortname"], row["market"]) for row in body["rows"]] == [
-        (name, country_market(alpha2, ts, sng)) for name, alpha2, ts, sng in FALLBACK_COUNTRIES
+        ("Россия", "РФ"),
+        ("Беларусь", "БЗ"),
+        ("Казахстан", "БЗ"),
+        ("Германия", "ДЗ"),
     ]
-    assert {row["market"] for row in body["rows"]} == {"РФ", "БЗ", "ДЗ"}
     assert all(row["id"].startswith("fallback-country:") for row in body["rows"])
 
 
@@ -130,7 +130,7 @@ async def test_orgs_fall_back_to_the_demo_list(client: AsyncClient, monkeypatch)
 # ─── External rows ─────────────────────────────────────────────────────────
 
 
-async def test_countries_read_shortnames_and_market(client: AsyncClient, db_session: AsyncSession, monkeypatch) -> None:
+async def test_countries_read_shortnames_and_market(client: AsyncClient, db_session, monkeypatch) -> None:
     schema = _use_absent_schema(monkeypatch)
     await _create_schema(db_session, schema)
     await db_session.execute(
@@ -166,16 +166,16 @@ async def test_countries_read_shortnames_and_market(client: AsyncClient, db_sess
     assert response.status_code == 200
     body = response.json()
     assert body["source"] == "external"
-    assert {row["shortname"]: row["market"] for row in body["rows"]} == {
-        "Россия": "РФ",
-        "Казахстан": "БЗ",
-        "Беларусь": "БЗ",
-        "Германия": "ДЗ",
-    }
+    assert [(row["shortname"], row["market"]) for row in body["rows"]] == [
+        ("Россия", "РФ"),
+        ("Беларусь", "БЗ"),
+        ("Казахстан", "БЗ"),
+        ("Германия", "ДЗ"),
+    ]
 
 
 async def test_an_empty_external_table_is_not_replaced_by_the_fallback(
-    client: AsyncClient, db_session: AsyncSession, monkeypatch
+    client: AsyncClient, db_session, monkeypatch
 ) -> None:
     schema = _use_absent_schema(monkeypatch)
     await _create_schema(db_session, schema)
@@ -191,9 +191,7 @@ async def test_an_empty_external_table_is_not_replaced_by_the_fallback(
     assert response.json() == {"source": "external", "rows": []}
 
 
-async def test_transport_types_are_grouped_and_sorted(
-    client: AsyncClient, db_session: AsyncSession, monkeypatch
-) -> None:
+async def test_transport_types_are_grouped_and_sorted(client: AsyncClient, db_session, monkeypatch) -> None:
     schema = _use_absent_schema(monkeypatch)
     await _create_schema(db_session, schema)
     await db_session.execute(
@@ -285,7 +283,7 @@ async def test_transport_types_are_grouped_and_sorted(
     assert body["rows"][0]["transportTypeId"] != body["rows"][1]["transportTypeId"]
 
 
-async def test_orgs_read_all_prefixes(client: AsyncClient, db_session: AsyncSession, monkeypatch) -> None:
+async def test_orgs_read_all_prefixes(client: AsyncClient, db_session, monkeypatch) -> None:
     schema = _use_absent_schema(monkeypatch)
     await _create_schema(db_session, schema)
     await db_session.execute(

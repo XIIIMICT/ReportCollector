@@ -992,14 +992,14 @@ export function RenovationWorkspace({
         }
     }, [initialSection, sections]);
 
-    // The same strip as «Сырьё»: the plan first, then the dictionaries after
-    // a separator (assets, catalogs, users).
+    // The same strip as «Сырьё»: the plan first, then the dictionaries, then
+    // the users dictionary after its own separator.
     const sectionTabItems = useMemo(
         () =>
             sections.map((section, index) => ({
                 id: section.id,
                 label: section.label,
-                separatorBefore: index === 1,
+                separatorBefore: index === 1 || section.id === "users",
             })),
         [sections],
     );
@@ -1979,16 +1979,12 @@ export function RenovationWorkspace({
     const footer = (
         <div className="table-footer">
             <div className="table-footer__status">
-                {collabEnabled ? (
-                    <FormStatus
-                        room={room}
-                        selectionLabel={
-                            isPlanSection ? (selection?.label ?? null) : dictSelectionLabel
-                        }
-                        selectionDetail={isPlanSection ? (selection?.detail ?? null) : null}
-                        gridStats={isPlanSection ? gridStats : dictGridStats}
-                    />
-                ) : null}
+                <FormStatus
+                    room={collabEnabled ? room : null}
+                    selectionLabel={isPlanSection ? (selection?.label ?? null) : dictSelectionLabel}
+                    selectionDetail={isPlanSection ? (selection?.detail ?? null) : null}
+                    gridStats={isPlanSection ? gridStats : dictGridStats}
+                />
             </div>
             {planImport.progress ? <FooterProgress {...planImport.progress} /> : null}
             <ActionBar

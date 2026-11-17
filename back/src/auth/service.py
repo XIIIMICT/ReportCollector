@@ -295,7 +295,16 @@ async def sync_project_memberships(session: AsyncSession, user_id: UUID, *, acti
             UserRole(
                 user_id=user_id,
                 project_id=project.id,
-                role=ProjectRole.ADMIN if activate_admin else ProjectRole.ASSET_WORKER,
+                # An inactive link is «Заблокирован» — the flag is derived from
+                # the role now. An auto-activated renovation link keeps the
+                # asset-worker role it always had.
+                role=(
+                    ProjectRole.ADMIN
+                    if activate_admin
+                    else ProjectRole.ASSET_WORKER
+                    if should_activate
+                    else ProjectRole.BLOCKED
+                ),
                 is_active=should_activate,
                 created_at=now,
                 updated_at=now,

@@ -19,7 +19,12 @@ class ProjectRole(StrEnum):
     """Fixed set of project roles. Hardcoded; the DB stores an enum."""
 
     ADMIN = "admin"
+    REVIEWER = "reviewer"
     ASSET_WORKER = "asset_worker"
+    # «Заблокирован»: the user sees the project in no list and opens nothing.
+    # It replaces the old "no access" flag at the UI level; `UserRole.is_active`
+    # stays as the derived access bit every resolver already reads.
+    BLOCKED = "blocked"
 
 
 class Theme(StrEnum):

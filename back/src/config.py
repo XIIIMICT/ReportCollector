@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     postgres_host: str | None = None
     postgres_port: int | None = None
     postgres_schema: str | None = None
+    # The external corporate dictionaries of «Логистика». Production uses the
+    # real `dict` schema; the tests point at their own schema so they never
+    # create or modify the external tables.
+    logistics_dict_schema: str = Field(default="dict", validation_alias="LOGISTICS_DICT_SCHEMA")
     database_pool_size: int = Field(default=10, validation_alias="DATABASE_POOL_SIZE", ge=1)
     database_max_overflow: int = Field(default=10, validation_alias="DATABASE_MAX_OVERFLOW", ge=0)
     database_pool_timeout_seconds: float = Field(default=10.0, validation_alias="DATABASE_POOL_TIMEOUT_SECONDS", gt=0)

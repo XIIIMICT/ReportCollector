@@ -165,7 +165,13 @@ const KPPK_TABS: readonly KppkTab[] = [
     },
     { id: "kppkRaws", section: "kppkRaws", label: "Сырьевые позиции", reportMonth: null },
     { id: "kppkOrgs", section: "kppkOrgs", label: "ДЗО", reportMonth: null },
-    { id: "kppkUsers", section: "kppkUsers", label: "Пользователи", reportMonth: null },
+    {
+        id: "kppkUsers",
+        section: "kppkUsers",
+        label: "Пользователи",
+        reportMonth: null,
+        separatorBefore: true,
+    },
 ];
 
 /** Tab captions by section id — the «Заменить» dialog names the dictionary. */

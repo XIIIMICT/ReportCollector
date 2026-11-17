@@ -25,6 +25,10 @@ class LogisticsValidationError(ValueError):
     """The request violates a domain validation rule."""
 
 
+class LogisticsSourceUnavailableError(RuntimeError):
+    """The external `dict` schema the «Ставки» table depends on is not loaded."""
+
+
 async def logistics_project_id(session: AsyncSession) -> UUID:
     project_id = (
         await session.exec(select(col(Project.id)).where(col(Project.key) == LOGISTICS_PROJECT_KEY))

@@ -1564,8 +1564,9 @@ export function RawMaterialsWorkspace({
                       label: SECTION_LABELS[referenceSection] ?? referenceSection,
                       reportMonth: null,
                       // The strip separates the forms from the reference
-                      // dictionaries: a divider before the first one.
-                      separatorBefore: index === 0,
+                      // dictionaries, and the users dictionary from both:
+                      // main tables <splitter> dictionaries <splitter> users.
+                      separatorBefore: index === 0 || referenceSection === "users",
                   }))
                 : []),
         ];

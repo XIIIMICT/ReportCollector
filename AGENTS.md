@@ -17,18 +17,42 @@ currently have only the administrator assignment; their ДЗО column is empty a
 read-only. Other projects' memberships and asset grants must not change when
 editing a KPPK membership.
 
-The «Логистика» project (`/logistics`) is admin-only and starts with three
-read-only dictionaries read from the corporate **`dict`** schema
-(`back/dicts.sql`): countries (short names), the combined transport-type ×
-vehicle-type matrix, and organization prefixes. Nothing in this application
-writes to `dict` — no migration creates it and no seeder touches it; a missing
-table returns a short built-in demo list with `source="fallback"`, and the grid
-warns about it. Every read filters `deleted_at IS NULL` on every joined table.
+The «Логистика» project (`/logistics`) is role-based: **administrator** (every
+tab, every row), **reviewer** (the whole rates table, read-only, no dictionary
+tabs), **asset worker** (only the rates of the assets granted in «Пользователи»,
+with no «Актив» column — the server stamps their asset) and **blocked** (no
+access; the `is_active` flag is derived from the role, and a worker without a
+single grant is treated as blocked). Its main table is
+«Ставки» (`l_rates`): one row per asset × route × transport per month, stamped
+with the first day of the toolbar's month/year selection. The rate rows hold
+FOREIGN KEYs into the corporate **`dict`** schema, so that schema is required —
+migration `0035_logistics_rates` fails loudly without it (`LOGISTICS_DICT_SCHEMA`,
+default `dict`; the tests use their own schema). A physically deleted dictionary
+row is refused, a soft-deleted one (`deleted_at`) stays valid and is shown as
+«УДАЛЕНО: …». Computed and NOT stored: «Направление» (departure РФ → the
+DESTINATION market «РФ»/«БЗ»/«ДЗ»; otherwise destination РФ → «Импорт», else
+«Экспорт»), «Опасный» (hazard class set), the dollar
+equivalents (`rub × 83.90`, a constant until the source provides the rate) and
+the month-over-month deviations (no source yet). Rows are edited in place and
+deleted only by an administrator (confirmed by a dialog; the delete is journaled
+so undo restores the row). `l_rates` collaborates like КППК: room
+`logisticsRates` per period (any working member), undo scope
+`logisticsRates/<period>` (an asset worker undoes only their own assets'
+actions). The trailing empty row is a LOCAL draft —
+it inserts only once every required field is filled, and the insert uses the
+period selected at that moment. The rest of the workspace is three read-only
+dictionaries read from `dict` (`back/dicts.sql`): countries (short names + the
+computed market РФ/БЗ/ДЗ), the combined transport-type × vehicle-type matrix, and
+organization prefixes; its «Пользователи» tab manages the project members (only
+the administrator role). Nothing in this application writes to `dict` — no
+migration creates it and no seeder touches it; a missing table returns a short
+built-in demo list with `source="fallback"`, and the grid warns about it. Every
+read filters `deleted_at IS NULL` on every joined table.
 Migration `0032_logistics` creates the project row and the
-`logistics_price_kind` enum (`INDICATIVE`, `PRICE`) for the future main table;
-migrations `0033_logistics_hazard_classes` / `0034_logistics_table_prefix`
-create and seed the application-owned «Класс опасности» dictionary
-(`l_hazard_classes`, values 1..9, no tab yet — the main table will use it).
+`logistics_price_kind` enum; migrations `0033_logistics_hazard_classes` /
+`0034_logistics_table_prefix` create and seed the application-owned «Класс
+опасности» dictionary (`l_hazard_classes`, values 1..9, no tab yet);
+`0035_logistics_rates` creates `l_rates` and its external FKs.
 Application-owned logistics tables use the `l_` prefix. `just seed-logistics`
 seeds only our side (project, hazard classes, Евтушенко's admin link) and never
 touches the external `dict` schema.
@@ -58,6 +82,7 @@ touches the external `dict` schema.
 | КППК seed | `just seed-kppk` — re-copies the `raw.kppk_*` sources (creates them **only when missing**, from `back/src/kppk/data/source_schema.sql` + `demo_source_rows.sql`; the `dict` schema is never touched), rebuilds «Продуктовые позиции» from `back/src/kppk/data/product_matrix.sql` (pairs + «Заполняемый акциз») and **rebuilds the period rows** (see the next line), all in one transaction. The copies resolve the source product/market TEXT into `product_id`/`market_id` uuids and **fail** on an unknown product or market (no silent skip); the market dictionary is topped up to «РФ»/«ДЗ»/«БЗ» if a restored schema left it empty. Text values are normalized on copy and on save (`normalize_text` in `src/kppk/constants.py`): trimmed, single spaces, non-breaking space included — the dictionaries are keyed by NAME, so stray spaces would create a second product. Other projects untouched |
 | КППК periods | No separate command: `just seed-kppk` **rebuilds** the «Реализация» (one row per ДЗО × product × market) and «Себестоимость» (per ДЗО × product) rows for every month from **September 2023 to December of the next year**, all values zero. It TRUNCATES those tables first — the seed owns them, like the renovation plan — so a product dropped from the matrix leaves no stale period. The costs are re-derived from the fresh rows afterwards |
 | Логистика seed | `just seed-logistics` — seeds only the data this application owns: the `logistics` project row (if missing), the «Класс опасности» dictionary (`l_hazard_classes`, values 1..9) and Евтушенко's active admin link. It does **not** read or write the external `dict` schema, and it does not change his identity or his memberships in other projects. Idempotent |
+| Логистика dev `dict` | `just seed-dev-dict` — **locally only, never in prod.** Creates the five external `dict` tables the «Ставки» table depends on (`countries`, `orgs`, `transport_types`, `vehicle_types`, `transport_types_vehicle_types`) **only if missing**, and inserts a demo set with fixed UUIDs (`ON CONFLICT DO NOTHING`). Nothing is dropped or altered; «Морской» deliberately has no vehicle mappings. Required because migration `0035` and every rates request read `dict` — a database without it fails loudly. Before loading the real dumps, the tables this script created must be dropped manually |
 | КППК source data | The **original** `raw.kppk_*` data is not in the repository: the operator loads the SQL dumps. What the repo does keep (`back/src/kppk/data/`) is the structure, the demo rows for a database without sources, and the product × ДЗО matrix with its excise flags — the only input the dumps never carried |
 
 ## Tooling
@@ -102,6 +127,7 @@ The commands above are the contract — use them as written. **If one of the req
 - **Don't commit debug files:** `back/tests/debug_*.py`, `front/e2e/*-probe*`, `front/e2e/probe/` (the root ignore already silences `*.mjs`/`*.cjs`). Delete them after debugging.
 - **A11y label rule:** a form control without a visible `Label` must have an `aria-label` — react-aria otherwise warns on every mount and floods dev logs (`docker logs`). Details: `docs/WORKFLOW.md`.
 - **Front styling:** semantic, recurring UI — plain CSS classes in `front/src/app/globals.css` on theme vars; one-off layout and HeroUI slot overrides — Tailwind utilities inline; one pattern = one vocabulary. Details: `docs/WORKFLOW.md`.
+- **Tabs:** in every admin workspace the strip is ordered **main tables <splitter> dictionaries <splitter> users** (`WorkspaceTab.separatorBefore`) — «Логистика» starts with «Ставки», then the dictionaries and the users. Details: `docs/GRID.md`, «Misc».
 - **Files: UTF-8, no BOM, LF.** Enforced by `/.gitattributes` (normalizes to LF on add/checkout, overrides `core.autocrlf`) and prek hooks (`mixed-line-ending --fix=lf`, `fix-byte-order-marker`). Details: `docs/WORKFLOW.md`.
 - **Commits:** conventional commits `type(scope): …` + body Why/What/Verified (template and branching rules — `docs/WORKFLOW.md`). The user commits themselves; don't commit without an explicit request.
 - **Before delivery:** typecheck + lint + tests on both sides (see the table). Backend tests recreate a dedicated `rc_test*` PostgreSQL schema through Alembic. CI runs the full suite against both MemoryStore and real Valkey. Real-store local runs require a disposable Valkey DB 15 and explicit reset opt-in; see `docs/WORKFLOW.md`. Never point the reset-enabled fixture at shared services.

@@ -27,10 +27,16 @@ function EditorShell({ children, close }: { children: React.ReactNode; close: ()
 }
 
 export function SelectEditor({ column, save, close }: EditorType) {
-    const options = useMemo(
-        () => (Array.isArray(column.column.source) ? (column.column.source as SelectOption[]) : []),
-        [column.column.source],
-    );
+    const optionsForRow = (
+        column.column as {
+            optionsForRow?: (row: Record<string, unknown>) => SelectOption[];
+        }
+    ).optionsForRow;
+    const options = useMemo(() => {
+        const dynamic = optionsForRow?.(column.model);
+        if (dynamic) return dynamic;
+        return Array.isArray(column.column.source) ? (column.column.source as SelectOption[]) : [];
+    }, [column.column.source, column.model, optionsForRow]);
     const current = String(column.value ?? column.model[String(column.prop)] ?? "");
 
     return (

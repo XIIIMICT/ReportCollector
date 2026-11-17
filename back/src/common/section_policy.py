@@ -65,6 +65,10 @@ SECTION_POLICIES: dict[str, SectionPolicy] = {
     "logisticsCountries": _READ_ONLY,
     "logisticsTransportTypes": _READ_ONLY,
     "logisticsOrgs": _READ_ONLY,
+    # Users are authored through a dialog; no room and no undo (admin-only).
+    "logisticsUsers": SectionPolicy(collab="none", undo="none", export="none", row_ops="dialog"),
+    # The main form: collaborative admins, undo/redo, no export.
+    "logisticsRates": SectionPolicy(collab="full", undo="member", export="none", row_ops="none"),
 }
 
 #: The renovation catalogs are dynamic ids (`renovationCatalog:<catalog>`).

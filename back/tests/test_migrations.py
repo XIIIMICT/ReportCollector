@@ -42,6 +42,23 @@ def config_for(connection) -> Config:
     return config
 
 
+def ignore_external_rate_fks(obj: object, name: str | None, type_: str, reflected: bool, compare_to: object) -> bool:
+    """Ignore the DB-only FKs of the «Логистика» tables into the external `dict` schema.
+
+    `l_rates` (migration 0035) and `l_user_assets` (0037) reference `dict` rows;
+    the models declare plain UUID columns (the metadata must be buildable
+    without the corporate schema), so those constraints exist only in the DB
+    and are intentionally absent from SQLModel.metadata.
+    """
+    table = getattr(obj, "table", None)
+    return not (
+        type_ == "foreign_key_constraint"
+        and reflected
+        and compare_to is None
+        and getattr(table, "name", None) in {"l_rates", "l_user_assets"}
+    )
+
+
 # `''` and NULL are the same "never updated" state for the «Цены» audit
 # timestamps: migration 0006 converts the legacy empty strings to NULL. The
 # snapshot normalizes both to `''` so a downgrade→upgrade round-trip compares
@@ -114,9 +131,15 @@ async def test_baseline_roundtrip(migration_engine) -> None:
         await conn.execute(text(f'DROP SCHEMA IF EXISTS "{MIGRATION_SCHEMA}" CASCADE'))
         await conn.execute(text(f'CREATE SCHEMA "{MIGRATION_SCHEMA}"'))
         config = config_for(conn.sync_connection)
+
         for _ in range(2):
             await conn.run_sync(lambda _: command.upgrade(config, "head"))
-            diffs = await conn.run_sync(lambda c: compare_metadata(MigrationContext.configure(c), SQLModel.metadata))
+            diffs = await conn.run_sync(
+                lambda c: compare_metadata(
+                    MigrationContext.configure(c, opts={"include_object": ignore_external_rate_fks}),
+                    SQLModel.metadata,
+                )
+            )
             assert diffs == []
             await conn.run_sync(lambda _: command.downgrade(config, "base"))
 
@@ -245,7 +268,14 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(
         ).scalar_one() == 0
         diffs = await conn.run_sync(
             lambda c: compare_metadata(
-                MigrationContext.configure(c, opts={"compare_server_default": True}), SQLModel.metadata
+                MigrationContext.configure(
+                    c,
+                    opts={
+                        "compare_server_default": True,
+                        "include_object": ignore_external_rate_fks,
+                    },
+                ),
+                SQLModel.metadata,
             )
         )
         assert diffs == []
@@ -432,7 +462,12 @@ async def test_upgrade_fresh_schema(migration_engine) -> None:
         await conn.execute(text(f'DROP SCHEMA IF EXISTS "{MIGRATION_SCHEMA}" CASCADE'))
         await conn.execute(text(f'CREATE SCHEMA "{MIGRATION_SCHEMA}"'))
         await conn.run_sync(upgrade)
-        diffs = await conn.run_sync(lambda c: compare_metadata(MigrationContext.configure(c), SQLModel.metadata))
+        diffs = await conn.run_sync(
+            lambda c: compare_metadata(
+                MigrationContext.configure(c, opts={"include_object": ignore_external_rate_fks}),
+                SQLModel.metadata,
+            )
+        )
         assert diffs == []
 
 

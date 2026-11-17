@@ -41,6 +41,10 @@ os.environ.setdefault("POSTGRES_SCHEMA", "rc")
 os.environ.setdefault("BACKEND_CORS_ORIGINS", '["http://localhost:5000","http://127.0.0.1:5000"]')
 os.environ.setdefault("TEST_DATABASE_URL", "postgresql+asyncpg://postgres:strong_password@127.0.0.1:5432/dwh")
 os.environ.setdefault("TEST_SCHEMA", "rc_test")
+# The «Логистика» main table has FKs into the corporate dictionaries. Tests use
+# their OWN schema for them (created by `_ensure_test_dict`), never the real
+# `dict` of the developer's database.
+os.environ.setdefault("LOGISTICS_DICT_SCHEMA", os.environ["TEST_SCHEMA"])
 COLLAB_BACKEND = os.environ.get("TEST_COLLAB_BACKEND", "memory")
 if COLLAB_BACKEND not in {"memory", "valkey"}:
     message = "TEST_COLLAB_BACKEND must be memory or valkey"
@@ -347,10 +351,99 @@ async def test_database(test_engine) -> None:
     async with test_engine.begin() as conn:
         await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
         await conn.execute(text(f'CREATE SCHEMA "{TEST_SCHEMA}"'))
+        await _ensure_test_dict(conn)
         config = Config(str(BACKEND_DIR / "alembic.ini"))
         config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
         config.attributes["connection"] = conn.sync_connection
         await conn.run_sync(lambda _: command.upgrade(config, "head"))
+
+
+# The external «Логистика» dictionaries this suite creates in the TEST schema.
+# They are fixtures (never the real `dict`): the `real_schema` teardown keeps
+# them, so a rates test that runs after a committed-transaction test still finds
+# its reference rows.
+_TEST_DICT_TABLES = (
+    "orgs",
+    "countries",
+    "transport_types",
+    "vehicle_types",
+    "transport_types_vehicle_types",
+)
+
+
+async def _ensure_test_dict(conn) -> None:
+    """
+    Create and seed the external dictionaries in the TEST schema.
+
+    `LOGISTICS_DICT_SCHEMA` points at the test schema (see the env setup at the
+    top), so the main table's FKs are enforceable without creating, reading or
+    writing the real corporate `dict` schema. The tables are dropped with the
+    test schema; the fixed UUIDs let the tests reference their rows.
+    """
+    statements = (
+        ("CREATE TABLE IF NOT EXISTS orgs (id uuid PRIMARY KEY, prefix_ru text NOT NULL, deleted_at timestamptz NULL)"),
+        (
+            "CREATE TABLE IF NOT EXISTS countries "
+            "(id uuid PRIMARY KEY, shortname text NOT NULL, alpha2 text NULL, "
+            "ts boolean NULL, sng boolean NULL, deleted_at timestamptz NULL)"
+        ),
+        (
+            "CREATE TABLE IF NOT EXISTS transport_types "
+            "(id uuid PRIMARY KEY, shortname text NOT NULL, deleted_at timestamptz NULL)"
+        ),
+        (
+            "CREATE TABLE IF NOT EXISTS vehicle_types "
+            "(id uuid PRIMARY KEY, name text NOT NULL, deleted_at timestamptz NULL)"
+        ),
+        (
+            "CREATE TABLE IF NOT EXISTS transport_types_vehicle_types "
+            "(transport_type_id uuid NOT NULL, vehicle_type_id uuid NOT NULL, "
+            "deleted_at timestamptz NULL, PRIMARY KEY (transport_type_id, vehicle_type_id))"
+        ),
+        (
+            "INSERT INTO orgs (id, prefix_ru) VALUES "
+            "('00000000-0000-0000-0000-000000000101', 'БСК'), "
+            "('00000000-0000-0000-0000-000000000102', 'Сода'), "
+            "('00000000-0000-0000-0000-000000000103', 'Архивный актив') "
+            "ON CONFLICT (id) DO NOTHING"
+        ),
+        ("UPDATE orgs SET deleted_at = now() WHERE id = '00000000-0000-0000-0000-000000000103'"),
+        (
+            "INSERT INTO countries (id, shortname, alpha2, ts, sng) VALUES "
+            "('00000000-0000-0000-0000-000000000201', 'Россия', 'RU', false, false), "
+            "('00000000-0000-0000-0000-000000000202', 'Беларусь', 'BY', false, true), "
+            "('00000000-0000-0000-0000-000000000203', 'Германия', 'DE', false, false), "
+            "('00000000-0000-0000-0000-000000000204', 'Архивная страна', 'XX', false, false) "
+            "ON CONFLICT (id) DO NOTHING"
+        ),
+        ("UPDATE countries SET deleted_at = now() WHERE id = '00000000-0000-0000-0000-000000000204'"),
+        (
+            "INSERT INTO transport_types (id, shortname) VALUES "
+            "('00000000-0000-0000-0000-000000000301', 'Автомобильный'), "
+            "('00000000-0000-0000-0000-000000000302', 'Железнодорожный'), "
+            "('00000000-0000-0000-0000-000000000303', 'Морской'), "
+            "('00000000-0000-0000-0000-000000000304', 'Архивный') "
+            "ON CONFLICT (id) DO NOTHING"
+        ),
+        ("UPDATE transport_types SET deleted_at = now() WHERE id = '00000000-0000-0000-0000-000000000304'"),
+        (
+            "INSERT INTO vehicle_types (id, name) VALUES "
+            "('00000000-0000-0000-0000-000000000401', 'Тент'), "
+            "('00000000-0000-0000-0000-000000000402', 'Рефрижератор'), "
+            "('00000000-0000-0000-0000-000000000403', 'Полувагон') "
+            "ON CONFLICT (id) DO NOTHING"
+        ),
+        (
+            "INSERT INTO transport_types_vehicle_types "
+            "(transport_type_id, vehicle_type_id) VALUES "
+            "('00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000401'), "
+            "('00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000402'), "
+            "('00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-000000000403') "
+            "ON CONFLICT DO NOTHING"
+        ),
+    )
+    for statement in statements:
+        await conn.execute(text(statement))
 
 
 class _DetachedSession:
@@ -452,6 +545,7 @@ async def db_session(
         async with test_engine.begin() as conn:
             await conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
             await conn.execute(text(f'CREATE SCHEMA "{TEST_SCHEMA}"'))
+            await _ensure_test_dict(conn)
             config = Config(str(BACKEND_DIR / "alembic.ini"))
             config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
             config.attributes["connection"] = conn.sync_connection
@@ -481,10 +575,15 @@ async def db_session(
                         .all()
                     )
                     if tables:
+                        # The external «Логистика» dictionaries are TEST FIXTURES
+                        # (see `_ensure_test_dict`), not application data: wiping
+                        # them here would break every later test that references
+                        # one of their rows.
+                        keep = set(_TEST_DICT_TABLES)
                         await conn.execute(
                             text(
                                 "TRUNCATE TABLE "
-                                + ", ".join(f'"{TEST_SCHEMA}"."{name}"' for name in tables)
+                                + ", ".join(f'"{TEST_SCHEMA}"."{name}"' for name in tables if name not in keep)
                                 + " RESTART IDENTITY CASCADE"
                             )
                         )

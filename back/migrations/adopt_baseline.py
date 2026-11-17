@@ -156,6 +156,8 @@ _LEGACY_MISSING_TABLES: frozenset[str] = frozenset(
         "kppk_production_plan",
         "kppk_markets",
         "l_hazard_classes",
+        "l_rates",
+        "l_user_assets",
     }
 )
 
@@ -394,6 +396,11 @@ def _is_legacy_equivalent(diff: tuple) -> bool:
     if isinstance(diff, tuple) and len(diff) >= 4 and diff[0] == "remove_column":
         _schema, table, column = diff[1], diff[2], diff[3]
         return table in _LEGACY_EXTRA_COLUMNS and column.name in _LEGACY_EXTRA_COLUMNS[table]
+    if isinstance(diff, tuple) and len(diff) >= 2 and diff[0] == "remove_fk":
+        # 0035/0037 add FKs from `l_rates`/`l_user_assets` into the external
+        # `dict` schema; the models keep plain UUID columns, so these
+        # constraints are DB-only.
+        return getattr(diff[1].table, "name", None) in {"l_rates", "l_user_assets"}
     if isinstance(diff, tuple) and len(diff) >= 2 and diff[0] == "add_index":
         # An index the migration chain creates after the baseline; absent on a
         # pre-adoption legacy schema — either by name (0005) or together with
@@ -549,6 +556,15 @@ def adopt(connection: Connection) -> None:
             if not isinstance(column.type, Enum):
                 continue
             if column.type.name != "r_block":
+                live_values = set(enums.get(column.type.name) or ())
+                if column.type.name == "rm_project_role":
+                    # 0036 appends «reviewer»/«blocked» to the shared enum; a
+                    # pre-adoption database legitimately lacks them, and the
+                    # migration chain adds them right after the stamp.
+                    if live_values and not live_values <= set(column.type.enums):
+                        message = "Схема отличается: значения enum rm_project_role."
+                        raise ValueError(message)
+                    continue
                 if enums.get(column.type.name) != column.type.enums:
                     message = f"Схема отличается: значения enum {column.type.name}."
                     raise ValueError(message)

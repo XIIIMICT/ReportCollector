@@ -580,6 +580,19 @@ body {
    inside that pill, so indenting here lines the filter controls up with the tab
    TEXT while the pill keeps its frame — a negative margin on the strip instead
    would clip it against the toolbar's `overflow: hidden`. */
+.toolbar-filters__inline {
+    /* Filters that live in the TABS row (the «Логистика» month/year pair, the
+       «Ремонт» block select): one horizontal line, never wrapped — the row is
+       as tall as one control. `toolbar-collapse` owns the width/opacity
+       animation, so this rule must not change `max-width`. */
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+}
+
 .toolbar-filters__row {
     display: flex;
     min-width: 0;
@@ -2387,6 +2400,18 @@ body {
 
 .report-cell__checkbox input:disabled {
     cursor: default;
+}
+
+/* The hover hint that locks a dependent cell («выберите тип транспортного
+   средства…»): the native `title` lives on this wrapper, so it must cover the
+   whole cell — an inline span around the (empty) text would never be hovered. */
+.report-cell__hint {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    align-items: center;
+    overflow: hidden;
 }
 
 .data-grid revogr-data .rgCell.report-cell--readonly {

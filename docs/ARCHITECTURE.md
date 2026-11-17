@@ -229,12 +229,13 @@ The `dict` schema belongs to another project and is never created or touched.
 
 ## Data model (project «Логистика», key `logistics`)
 
-Phase 1 is the dictionaries of the corporate logistics database. Unlike «КППК»,
-nothing is copied: the tables live in the external **`dict`** schema
-(`back/dicts.sql`) and the API only reads them — no migration creates them, no
-seeder writes them, and no endpoint mutates them. The DB role needs SELECT on
-`dict.countries`, `dict.transport_types`, `dict.vehicle_types`,
-`dict.transport_types_vehicle_types` and `dict.orgs`.
+Phase 1 is the dictionaries of the corporate logistics database plus the main
+«Ставки» table. The dictionaries are not copied: the tables live in the external
+**`dict`** schema (`back/dicts.sql`) and the API only reads them — no migration
+creates them, no seeder writes them, and no endpoint mutates them. The DB role
+needs SELECT on `dict.countries`, `dict.transport_types`, `dict.vehicle_types`,
+`dict.transport_types_vehicle_types` and `dict.orgs`, and REFERENCES on them for
+migration `0035` (the rates table's foreign keys).
 
 - **Rows** (`back/src/logistics/dictionaries.py`): every read filters
   `deleted_at IS NULL` on every table it touches. «Страны» returns `shortname`
@@ -249,22 +250,94 @@ seeder writes them, and no endpoint mutates them. The DB role needs SELECT on
   banner. An existing but EMPTY table is a real empty dictionary
   (`source="external"`, no rows) — the fallback never hides it. The existence
   check is `to_regclass`, so a missing `dict` schema is safe.
+- **«Ставки»** (`l_rates`, model `back/src/logistics/models.py`, read model
+  `back/src/logistics/rates.py`): the project's main table, one row per
+  asset × product/route/transport per month. `period_date` is the FIRST day of
+  the selected month (the toolbar's month/year selects filter the grid by it and
+  stamp a new row). The reference columns (`org_id`, `country_from_id`,
+  `country_to_id`, `transport_type_id`, `vehicle_type_id`) store the source
+  UUIDs and carry FOREIGN KEYs into `dict` (`ondelete="RESTRICT"`), so a
+  physically deleted dictionary row cannot be removed while a rate references
+  it. A soft-deleted one (`deleted_at`) stays valid and the read model prefixes
+  its label with «УДАЛЕНО: ». Migration `0035_logistics_rates` creates the table
+  and the FK constraints; the model itself keeps plain UUID columns, so
+  `SQLModel.metadata` can be built without the external schema (the metadata
+  comparison in `test_migrations.py` ignores those DB-only FKs). The schema name
+  is configurable — `LOGISTICS_DICT_SCHEMA`, default `dict`; the tests point it
+  at their own schema. The migration FAILS with a Russian message when the
+  external tables are absent: the rates table cannot exist without them. The
+  rates endpoints check the same tables at request time and answer `503` with
+  «Справочники «Логистики» недоступны …» instead of a raw SQL error, so a
+  half-provisioned installation is diagnosable from the UI. A developer machine
+  without the corporate dumps can fill the schema with `just seed-dev-dict`
+  (`back/src/scripts/seed_dev_dict.py`, local only: it creates the five tables
+  only when missing and inserts fixed-id demo rows — it never drops or alters
+  anything, and the tables it created must be dropped before the real dumps are
+  loaded).
+- **What is computed, not stored** (`rates.py`): «Направление» (departure country
+  market «РФ» → the DESTINATION market «РФ»/«БЗ»/«ДЗ», so Россия → Беларусь is
+  «БЗ»; any other departure → destination «РФ» is «Импорт», else «Экспорт»),
+  «Опасный» (`hazard_class_value IS NOT NULL`), the dollar
+  equivalents of the four rub rates (`rub × USD_RATE`, the constant `83.90`
+  until the corporate source provides it) and the month-over-month deviations.
+  The deviations have no source yet: the columns render as empty calculated
+  cells. «Продукт», «Пункт отправления (А)» and «Пункт назначения (Б)» are
+  nullable placeholders that stay NULL and read-only.
+- **Validation** (`rates.py`): the four rub fields and «Загрузка в ТС, т» are
+  non-negative decimals with at most two places; the vehicle type must belong to
+  the selected transport type through
+  `dict.transport_types_vehicle_types` and may be NULL only when that transport
+  type has no mappings. The row stores `transport_type_id` + `vehicle_type_id`
+  themselves — never the mapping row's id, so that table can key on the
+  `(transport_type_id, vehicle_type_id)` PAIR. A row may be deleted (no
+  dependents yet): the API journals the delete as an existence action, so undo
+  restores the row (with its original `created_at`, keeping the period order)
+  and redo removes it again.
+- **Roles and access** (`service.py`, `users.py`): the membership role is one of
+  `admin` (everything), `reviewer` (reads every rate, never writes, no
+  dictionary tabs), `asset_worker` (reads and writes only the rates of the
+  assets granted in `l_user_assets`; the «Актив» column is hidden and the
+  server stamps the granted asset on insert) and `blocked` (no access).
+  `user_roles.is_active` is DERIVED from the role (blocked → false), so every
+  existing resolver keeps working; an asset worker without a single grant is
+  denied at access time — equivalent to blocked, but the admin may save the
+  role first and pick the asset afterwards. The users dictionary stays
+  admin-only; the reference reads (countries/transport types/orgs/hazard
+  classes) are open to every member because the rates form needs their labels.
+  A worker's undo replays only actions on their own assets (the journal is
+  already per user).
 - **Project/role**: migration `0032_logistics` inserts the `logistics` project
   row (idempotent) and creates the `logistics_price_kind` enum (`INDICATIVE`,
-  `PRICE`) for the future main table. Migrations `0033_logistics_hazard_classes`
+  `PRICE`) the rates table uses. Migrations `0033_logistics_hazard_classes`
   / `0034_logistics_table_prefix` create and seed the application-owned
   «Класс опасности» table (`l_hazard_classes`, values 1..9); it has an API but
-  no tab yet. Application-owned logistics tables use the `l_` prefix.
+  no tab yet. `0035_logistics_rates` creates `l_rates`; `0036_project_roles`
+  appends the shared `reviewer`/`blocked` roles to `rm_project_role`;
+  `0037_logistics_user_assets` creates `l_user_assets` (the asset grants, with
+  an external FK into `dict.orgs`). Application-owned
+  logistics tables use the `l_` prefix.
   `just seed-logistics` (idempotent) ensures the project, the nine classes and
   Евтушенко's active admin link — and nothing else; the external `dict` schema
-  is never touched. Only the administrator role exists in this phase; every
-  logistics endpoint requires it.
-- **Workspace** `front/src/features/logistics/logistics-workspace.tsx`: three
-  read-only tabs — «Страны», «Типы ТС и перевозки», «Активы». No collaboration
-  room, no undo, no export and no row authoring; the grids keep header filters,
-  sorting, copy and the remembered position. The transport tab merges the type
-  cell over its vehicle types (`CellMergePlugin`), disabling the merge while a
-  user sorting is active — the same pattern as «Продуктовые позиции» in «КППК».
+  is never touched. Every logistics endpoint requires a membership; the users
+  dictionary and the rate delete require the administrator.
+- **Workspace** `front/src/features/logistics/logistics-workspace.tsx`: the main
+  «Ставки» tab first, then the read-only dictionaries — «Страны», «Типы ТС и
+  перевозки», «Активы» — and the admin-only «Пользователи» tab (add a member with
+  a role — blocked by default — and, for an asset worker, the asset grants; edit
+  the full name and the role; delete after blocking; email is immutable and the
+  full name follows Keycloak when it is enabled). The tab strip is admin-only:
+  a reviewer or an asset worker sees the «Ставки» tab alone (the month/year
+  filter and the view strip stay). «Ставки» has month/year selects in the toolbar
+  (2025–2028, no visible labels), a collaboration room, undo/redo scoped to the
+  selected period, and a trailing draft row owned by the section (the generic
+  placeholder action is off; the row delete is an explicit action with a
+  confirmation dialog). The dictionaries have no collaboration room, no
+  undo and no export; their grids keep header filters, sorting, copy and the
+  remembered position. The transport tab merges the type cell over its vehicle
+  types and the countries tab merges the market cell over its alphabetically
+  sorted countries (`CellMergePlugin`); a user sorting or any active column
+  filter disables the merge. The computed country market is highlighted like a
+  calculated column but rendered as text.
 
 ## Authentication
 
@@ -307,7 +380,7 @@ Nothing else is persisted: the selected version, the report month and the grid's
   - Renovation plan **import preflight** (admin): `POST /plan/import/inspect` (multipart `file`, `.xlsb` or `.xlsx`) validates the technical-directorate workbook **without writing** to the database. Readiness and the response contract — see «Renovation plan import» below.
   - Renovation plan **import load** (admin): `POST /plan/import/apply` (multipart `file`, `.xlsb` or `.xlsx`) stages the checked workbook and returns `202` with a durable job. Poll `GET /plan/import/jobs/{id}` (or cancel with `DELETE`) while a worker parses and writes the workbook under the project gate. See «Loading the checked file» below.
 - `kppk` (signed identity; reads for every project member, mutations admin-only): dictionary CRUD — `GET/POST/PATCH/DELETE /product-positions[/{id}]` (PATCH `{field, value}`, `field` = `name` | `orgNames` | `productNum`; create accepts `productNum`; delete removes the product with its links), `/raws` (PATCH `{field, value}` for `name`/`rawNum`), `/orgs` (PATCH `{field, value}` for `code`/`name`), `/periods` (PATCH `{field, value}`; no UI in this phase). The source number («№», `productNum`/`rawNum`) is editable and unique — an occupied number is rejected with a clear `400`; `null` stands for a row added by hand (several NULLs are allowed); positions/raws are returned in the source-number order (unnumbered rows last). The «ДЗО» list is ordered by the full name and exposes no number. Undo/redo join the shared collaboration journal: every mutation carries the page-lifetime `session_id` (query) and is journaled as one action scoped to the tab (`scope = f"{section}/"`, no report month; `collab/undo.py` dispatches `kppk_products`/`kppk_raws`/`kppk_orgs` to `apply_kppk_cell_value`) — `GET /undo-state?section=&session_id=`, `POST /undo`, `POST /redo` (body `{skipActionId, section}`, admin; no WebSocket room and no `cell:changed` — the front refreshes the grid itself after undo/redo). `POST /export` streams the tab as XLSX (whole/visible via `rowIds`, `columns` from the grid). Deletes follow RESTRICT: a ДЗО/period referenced by the fact/plan copies is rejected with a clear `400`.
-- `logistics` (signed identity, admin-only): read-only dictionaries — `GET /dictionaries/countries`, `/dictionaries/transport-types`, `/dictionaries/orgs`, and the application-owned `/dictionaries/hazard-classes` (1..9, no tab yet). The external dictionaries return `{source: "external" | "fallback", rows: [...]}`; there are no write endpoints, because the `dict` schema belongs to another system.
+- `logistics` (signed identity, role-based): read-only dictionaries — `GET /dictionaries/countries`, `/dictionaries/transport-types`, `/dictionaries/orgs`, and the application-owned `/dictionaries/hazard-classes` (1..9, no tab yet) — open to every member (the rates form resolves its labels there). The external dictionaries return `{source: "external" | "fallback", rows: [...]}`; there are no write endpoints for them, because the `dict` schema belongs to another system. The project members dictionary is editable and admin-only: `GET/POST /users`, `PATCH/DELETE /users/{id}` — a membership is a `role` (`admin` | `reviewer` | `asset_worker` | `blocked`) plus, for a worker, `assetIds`/`assetNames`; a blocked member can be deleted, and nobody can edit/delete themselves. The main «Ставки» table: `GET /rates?month=&year=` (the period view: `{periodDate, usdRate, rows}` with the computed direction/dangerous/dollar columns; an asset worker gets only their assets' rows), `POST /rates?session_id=` (a complete row; an omitted `assetId` is stamped with the worker's granted asset), `PATCH /rates/{id}?session_id=` (`{field, value}`; a worker is limited to their assets and gets `404` elsewhere), `DELETE /rates/{id}?session_id=` (administrator only; journaled so undo restores the row), `GET /rates/undo-state?session_id=&period_date=`, `POST /rates/undo|/redo` (body `{skipActionId, section, reportMonth}`, scope `logisticsRates/<period>`; a worker replays only their own assets' actions). A reviewer can read the table and never writes (`403`). Collaboration room `WS /ws/logistics` (any working member).
 - `ws`: `WS /ws/raw-materials` — collaboration (see `docs/COLLAB.md`).
 - Service: `GET /health` (process liveness), `GET /ready` (PostgreSQL/Valkey readiness, including the required outbox migration), rate-limit and log middlewares in `back/src/main.py`. HTTP responses carry `X-Request-ID`, also recorded in structured request logs. Granian access/handshake logs redact credential query parameters (`ticket`, `access_token`, `token`); the external reverse proxy must apply its own redaction policy.
 

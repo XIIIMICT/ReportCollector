@@ -118,10 +118,25 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 ## Explicit product deferrals
 
-- «Логистика» phase 1 stops at the read-only dictionaries: the project users
-  dictionary (granting the administrator role from the UI), Excel export and the
-  main table using `logistics_price_kind` are not built yet. The `dict` schema is
-  external and must never be written by this application.
+- «Логистика»: the main «Ставки» table is in place, but its month-over-month
+  deviations have no source yet (the columns render empty), «Продукт» and both
+  route points are read-only placeholders that stay NULL, and the dollar rate is
+  the constant `83.90` until the corporate source provides it. Undoing a
+  transport-type change restores the transport but not the vehicle type the
+  change had cleared (the dependent clear is not journaled). Excel export of the
+  read-only dictionaries is not built. The `dict`
+  schema is external and must never be written by this application.
+- The «Заблокирован» ROLE exists and «Логистика» uses it, but the OTHER projects
+  still show the «Доступ к проекту» flag in their users dictionaries: switching
+  them to the role (and treating an asset worker without assets as blocked at
+  access time) is the next slice. `sync_project_memberships` already creates
+  blocked links for new members.
+- Caching the «Логистика» dictionaries: they are read on every rates request and
+  every cell validation, but the tables are tiny (tens of rows) and the five
+  reads are cheap; a Valkey cache would add TTL staleness for a few
+  milliseconds, and the corporate `dict` is written by another system (no
+  invalidation hook). Revisit only if the dictionaries grow or a profile shows
+  them in the hot path.
 - Old/new version comparison and change highlighting, including the currently
   unbounded full-plan diff. Use bounded SQL pages or a job before re-enabling it.
 - Import conflict detection/staged version finalization preventing concurrent

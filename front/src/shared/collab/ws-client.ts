@@ -119,6 +119,7 @@ const COLLAB_WS_PATHS: Record<string, string> = {
     raw_materials: "/api/ws/raw-materials",
     renovation: "/api/ws/renovation",
     kppk: "/api/ws/kppk",
+    logistics: "/api/ws/logistics",
 };
 const DEFAULT_COLLAB_WS_PATH = "/api/ws/raw-materials";
 

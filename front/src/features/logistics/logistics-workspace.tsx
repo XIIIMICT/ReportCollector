@@ -4,7 +4,9 @@ import { CellMergePlugin } from "@revolist/rv-pro-trial";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { transportTypeMerges } from "@/features/logistics/logistics-merge";
+import { transportTypeMerges, countryMarketMerges } from "@/features/logistics/logistics-merge";
+import { LogisticsRatesSection } from "@/features/logistics/logistics-rates-section";
+import { LogisticsUsersSection } from "@/features/logistics/logistics-users-section";
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
 import {
     getLogisticsCountries,
@@ -13,28 +15,41 @@ import {
     type LogisticsCountryRow,
     type LogisticsDictionary,
     type LogisticsOrgRow,
+    type LogisticsRole,
     type LogisticsSectionId,
     type LogisticsTransportRow,
 } from "@/shared/api/logistics";
 import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector";
+import type { CollabRoom } from "@/shared/collab/use-collab-room";
 import { DataGrid, type DataGridHandle, type GridViewStats } from "@/shared/grid/data-grid";
 import type { ReferenceOption } from "@/shared/grid/grid-config";
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
+import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useScopedAsyncData } from "@/shared/hooks/use-scoped-async-data";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
-import { buildClipboardActions } from "@/shared/ui/action-items";
+import {
+    NO_ROW_SELECTED_REASON,
+    buildAddRowAction,
+    buildClipboardActions,
+    buildDeleteAction,
+    buildHistoryActions,
+} from "@/shared/ui/action-items";
 import { AppHeader } from "@/shared/ui/app-header";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
+import { SmartSelect } from "@/shared/ui/smart-select";
 import { toGridRow, type ClipboardActions } from "@/shared/ui/text-helpers";
+import { ToolbarFilters } from "@/shared/ui/toolbar-filters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { readToolbarFilters, useToolbarFilters } from "@/shared/ui/use-toolbar-filters";
 import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
 import { GridLoadError } from "@/shared/ui/workspace-feedback";
 import { WorkspaceContent, WorkspaceFullscreenPanels } from "@/shared/ui/workspace-layout";
+import { useDeleteShortcut } from "@/shared/ui/workspace-shortcuts";
 
 /**
  * The «Логистика» workspace.
@@ -55,17 +70,34 @@ const LOGISTICS_PROJECT_KEY = "logistics";
 
 type LogisticsRow = LogisticsCountryRow | LogisticsTransportRow | LogisticsOrgRow;
 
-type LogisticsTab = WorkspaceTab & {
+type LogisticsDictionaryTab = WorkspaceTab & {
     section: LogisticsSectionId;
     load: () => Promise<LogisticsDictionary<LogisticsRow>>;
 };
 
+type LogisticsUsersTab = WorkspaceTab & {
+    section: "logisticsUsers";
+};
+
+type LogisticsRatesTab = WorkspaceTab & {
+    section: "logisticsRates";
+};
+
+type LogisticsTab = LogisticsDictionaryTab | LogisticsUsersTab | LogisticsRatesTab;
+
 const LOGISTICS_TABS: readonly LogisticsTab[] = [
+    {
+        id: "logisticsRates",
+        section: "logisticsRates",
+        label: "Ставки",
+        reportMonth: null,
+    },
     {
         id: "logisticsCountries",
         section: "logisticsCountries",
         label: "Страны",
         reportMonth: null,
+        separatorBefore: true,
         load: getLogisticsCountries,
     },
     {
@@ -82,10 +114,53 @@ const LOGISTICS_TABS: readonly LogisticsTab[] = [
         reportMonth: null,
         load: getLogisticsOrgs,
     },
+    {
+        id: "logisticsUsers",
+        section: "logisticsUsers",
+        label: "Пользователи",
+        reportMonth: null,
+        separatorBefore: true,
+    },
 ];
 
 /** One stable empty list: a fresh `[]` would rebuild the grid columns. */
 const NO_REFERENCES: ReferenceOption[] = [];
+
+const RATE_MONTH_OPTIONS = [
+    "январь",
+    "февраль",
+    "март",
+    "апрель",
+    "май",
+    "июнь",
+    "июль",
+    "август",
+    "сентябрь",
+    "октябрь",
+    "ноябрь",
+    "декабрь",
+].map((name, index) => ({ id: String(index + 1), name }));
+
+const RATE_YEAR_OPTIONS = ["2025", "2026", "2027", "2028"].map((year) => ({
+    id: year,
+    name: year,
+}));
+
+const EMPTY_UNDO_ACTIONS = {
+    canUndo: false,
+    canRedo: false,
+    onUndo: () => {},
+    onRedo: () => {},
+};
+
+function defaultRatePeriod(): { month: string; year: string } {
+    const now = new Date();
+    const year = now.getFullYear();
+    if (year >= 2025 && year <= 2028) {
+        return { month: String(now.getMonth() + 1), year: String(year) };
+    }
+    return { month: "1", year: "2025" };
+}
 
 const EMPTY_RESET_STATE = {
     resetColumnWidths: () => {},
@@ -130,13 +205,59 @@ export function LogisticsWorkspace({
         onPaste: () => {},
     });
     const [gridResetState, setGridResetState] = useState(EMPTY_RESET_STATE);
-    const { headerPinned, rowHeight, setHeaderPinned, setRowHeight, resetRowHeight } =
-        useViewState(activeProjectKey);
-
+    const [initialRatePeriod] = useState(defaultRatePeriod);
+    const [rateMonth, setRateMonth] = useState<string>(() => {
+        const stored = readToolbarFilters("logisticsRates")["month"];
+        return typeof stored === "string" ? stored : initialRatePeriod.month;
+    });
+    const [rateYear, setRateYear] = useState<string>(() => {
+        const stored = readToolbarFilters("logisticsRates")["year"];
+        return typeof stored === "string" ? stored : initialRatePeriod.year;
+    });
+    const [undoActions, setUndoActions] = useState(EMPTY_UNDO_ACTIONS);
+    const [sectionRoom, setSectionRoom] = useState<CollabRoom | null>(null);
+    const { setFilter: setPanelFilter } = useToolbarFilters("logisticsRates");
+    const [deleteState, setDeleteState] = useState<{
+        canDelete: boolean;
+        blockedReason: string | null;
+        onDelete: () => void;
+    }>({ canDelete: false, blockedReason: null, onDelete: () => {} });
+    const [userCreateState, setUserCreateState] = useState<{
+        canCreate: boolean;
+        onCreate: () => void;
+    }>({ canCreate: false, onCreate: () => {} });
+    const { data: authConfig } = useAsyncData<{ keycloakEnabled: boolean } | null>(
+        () =>
+            fetch("/api/auth/config")
+                .then((response) => (response.ok ? response.json() : null))
+                .catch(() => null),
+        [],
+    );
+    const keycloakEnabled = authConfig?.keycloakEnabled === true;
+    const {
+        headerPinned,
+        rowHeight,
+        setHeaderPinned,
+        setRowHeight,
+        resetRowHeight,
+        showServiceColumns,
+        setShowServiceColumns,
+    } = useViewState(activeProjectKey);
     const projects = user.access ?? [];
     const activeProject = projects.find((project) => project.key === LOGISTICS_PROJECT_KEY);
     const isAdmin = isProjectAdmin(activeProject);
-    const visibleTabs = LOGISTICS_TABS;
+    // The membership role decides the surface: an administrator gets every tab;
+    // a reviewer and an asset worker get the rates form only (no dictionaries).
+    const logisticsRole: LogisticsRole = isAdmin
+        ? "admin"
+        : activeProject?.roles.includes("reviewer")
+          ? "reviewer"
+          : activeProject?.roles.includes("asset_worker")
+            ? "asset_worker"
+            : "blocked";
+    const visibleTabs = isAdmin
+        ? LOGISTICS_TABS
+        : LOGISTICS_TABS.filter((tab) => tab.section === "logisticsRates");
 
     const handleProjectChange = useCallback(
         (key: string) => {
@@ -207,6 +328,9 @@ export function LogisticsWorkspace({
 
     const selectedTab =
         visibleTabs.find((tab) => tab.id === selectedTabId) ?? visibleTabs[0] ?? null;
+    const isUsersTab = selectedTab?.section === "logisticsUsers";
+    const isRatesTab = selectedTab?.section === "logisticsRates";
+    useDeleteShortcut((isRatesTab || isUsersTab) && deleteState.canDelete, deleteState.onDelete);
 
     const header = (
         <AppHeader
@@ -227,37 +351,99 @@ export function LogisticsWorkspace({
             onCopy: clipboardState.onCopy,
             onPaste: clipboardState.onPaste,
         }),
+        ...buildHistoryActions({
+            show: isRatesTab,
+            offline: false,
+            canUndo: undoActions.canUndo,
+            canRedo: undoActions.canRedo,
+            onUndo: undoActions.onUndo,
+            onRedo: undoActions.onRedo,
+        }),
+        ...(isUsersTab
+            ? buildAddRowAction({
+                  show: userCreateState.canCreate,
+                  label: "Добавить пользователя",
+                  disabled: isFullscreenPending,
+                  onAdd: userCreateState.onCreate,
+              })
+            : []),
+        ...(isUsersTab || isRatesTab
+            ? buildDeleteAction({
+                  show: true,
+                  label: isRatesTab ? "Удалить ставку" : "Удалить запись",
+                  disabled: !deleteState.canDelete || isFullscreenPending,
+                  blockedReason: deleteState.canDelete
+                      ? null
+                      : (deleteState.blockedReason ?? NO_ROW_SELECTED_REASON),
+                  onDelete: deleteState.onDelete,
+                  shortcut: { key: "Del", aria: "Control+Delete" },
+              })
+            : []),
     ];
 
     const toolbar = (
         <div className="table-toolbar">
-            <div className="table-toolbar__row">
-                <div className="table-toolbar__controls">
-                    <SectionTabs
-                        tabs={visibleTabs}
-                        value={selectedTab?.id ?? ""}
-                        onChange={(tab) => {
-                            if (tab.id === selectedTabId) return;
-                            setSelectedTabId(tab.id);
-                            onSectionChange?.(tab.id);
-                            setGridResetState(EMPTY_RESET_STATE);
-                        }}
-                    />
-                </div>
-                <ViewStrip
-                    headerPinned={headerPinned}
-                    onHeaderPinnedChange={setHeaderPinned}
-                    rowHeight={rowHeight}
-                    onRowHeightChange={setRowHeight}
-                    onResetRowHeight={resetRowHeight}
-                    onReset={handleStripReset}
-                    columnResetLabel="Сбросить ширину столбцов"
-                    isFullscreen={isFullscreen}
-                    isFullscreenPending={isFullscreenPending}
-                    onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
-                    onDropdownOpenChange={setToolbarControlOpen}
+            {/* The period filter sits on the TABS row (like the «Сырьё» version
+                picker / «Ремонт» block filter), before the strip: `inline`
+                collapses the width when the tab has no period. */}
+            <ToolbarFilters placement="inline" visible={isRatesTab}>
+                <SmartSelect
+                    options={RATE_MONTH_OPTIONS}
+                    value={rateMonth}
+                    placeholder="месяц"
+                    compactLabel="мес."
+                    compactBelow="sm"
+                    ariaLabel="Месяц периода"
+                    fullWidth={false}
+                    onOpenChange={setToolbarControlOpen}
+                    onChange={(value) => {
+                        if (typeof value !== "string") return;
+                        setRateMonth(value);
+                        setPanelFilter("logisticsRates", "month", value);
+                    }}
+                />
+                <SmartSelect
+                    options={RATE_YEAR_OPTIONS}
+                    value={rateYear}
+                    placeholder="год"
+                    compactLabel="год"
+                    compactBelow="sm"
+                    ariaLabel="Год периода"
+                    fullWidth={false}
+                    onOpenChange={setToolbarControlOpen}
+                    onChange={(value) => {
+                        if (typeof value !== "string") return;
+                        setRateYear(value);
+                        setPanelFilter("logisticsRates", "year", value);
+                    }}
+                />
+            </ToolbarFilters>
+            <div className="table-toolbar__controls">
+                <SectionTabs
+                    tabs={visibleTabs}
+                    value={selectedTab?.id ?? ""}
+                    onChange={(tab) => {
+                        if (tab.id === selectedTabId) return;
+                        setSelectedTabId(tab.id);
+                        onSectionChange?.(tab.id);
+                        setGridResetState(EMPTY_RESET_STATE);
+                        setUndoActions(EMPTY_UNDO_ACTIONS);
+                    }}
                 />
             </div>
+            <ViewStrip
+                headerPinned={headerPinned}
+                onHeaderPinnedChange={setHeaderPinned}
+                rowHeight={rowHeight}
+                onRowHeightChange={setRowHeight}
+                onResetRowHeight={resetRowHeight}
+                onReset={handleStripReset}
+                columnResetLabel="Сбросить ширину столбцов"
+                isFullscreen={isFullscreen}
+                isFullscreenPending={isFullscreenPending}
+                onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
+                onDropdownOpenChange={setToolbarControlOpen}
+            />
         </div>
     );
 
@@ -265,7 +451,7 @@ export function LogisticsWorkspace({
         <div className="table-footer">
             <div className="table-footer__status">
                 <FormStatus
-                    room={null}
+                    room={sectionRoom}
                     selectionLabel={selectionLabel}
                     selectionDetail={selectionDetail}
                     gridStats={gridStats}
@@ -303,18 +489,52 @@ export function LogisticsWorkspace({
             {header}
             <WorkspaceContent toolbar={toolbar} footer={footer}>
                 {selectedTab ? (
-                    <LogisticsDictionarySection
-                        key={selectedTab.id}
-                        section={selectedTab.section}
-                        load={selectedTab.load}
-                        headerPinned={headerPinned}
-                        rowHeight={rowHeight}
-                        onGridStatsChange={handleGridStats}
-                        onSelectionLabelChange={setSelectionLabel}
-                        onSelectionDetailChange={setSelectionDetail}
-                        onClipboardStateChange={handleClipboardState}
-                        onResetState={setGridResetState}
-                    />
+                    selectedTab.section === "logisticsRates" ? (
+                        <LogisticsRatesSection
+                            month={Number(rateMonth)}
+                            year={Number(rateYear)}
+                            role={logisticsRole}
+                            headerPinned={headerPinned}
+                            rowHeight={rowHeight}
+                            showServiceColumns={showServiceColumns}
+                            onServiceColumnsChange={setShowServiceColumns}
+                            onGridStatsChange={handleGridStats}
+                            onSelectionLabelChange={setSelectionLabel}
+                            onSelectionDetailChange={setSelectionDetail}
+                            onClipboardStateChange={handleClipboardState}
+                            onResetState={setGridResetState}
+                            onUndoStateChange={setUndoActions}
+                            onDeleteState={setDeleteState}
+                            onRoomChange={setSectionRoom}
+                        />
+                    ) : selectedTab.section === "logisticsUsers" ? (
+                        <LogisticsUsersSection
+                            key={selectedTab.id}
+                            keycloakEnabled={keycloakEnabled}
+                            headerPinned={headerPinned}
+                            rowHeight={rowHeight}
+                            onGridStatsChange={handleGridStats}
+                            onSelectionLabelChange={setSelectionLabel}
+                            onSelectionDetailChange={setSelectionDetail}
+                            onClipboardStateChange={handleClipboardState}
+                            onResetState={setGridResetState}
+                            onDeleteState={setDeleteState}
+                            onUserCreateState={setUserCreateState}
+                        />
+                    ) : (
+                        <LogisticsDictionarySection
+                            key={selectedTab.id}
+                            section={selectedTab.section}
+                            load={selectedTab.load}
+                            headerPinned={headerPinned}
+                            rowHeight={rowHeight}
+                            onGridStatsChange={handleGridStats}
+                            onSelectionLabelChange={setSelectionLabel}
+                            onSelectionDetailChange={setSelectionDetail}
+                            onClipboardStateChange={handleClipboardState}
+                            onResetState={setGridResetState}
+                        />
+                    )
                 ) : null}
             </WorkspaceContent>
             <WorkspaceFullscreenPanels
@@ -377,17 +597,23 @@ function LogisticsDictionarySection({
     const source = data?.source ?? "external";
     const scopeStale = loading || loadedScope !== section;
 
-    // The transport view merges the type cell over its vehicle types. The
-    // backend returns the rows already grouped (type, then vehicle); a user
-    // sorting reorders them, so the merge is switched off while it is active —
-    // exactly like the «Продуктовые позиции» matrix.
-    const cellMerge = useMemo(
-        () =>
-            section === "logisticsTransportTypes"
-                ? transportTypeMerges(rows as LogisticsTransportRow[], sorted)
-                : [],
-        [rows, section, sorted],
-    );
+    // The countries and transport views merge the FIRST column over its run:
+    // market → countries, transport type → vehicle types. The backend returns
+    // the rows already grouped (key, then the sorted label). A user sorting or
+    // any active column filter makes the merge impossible (the ranges are
+    // computed over the data array, while the grid may hide/reorder rows), so
+    // it is switched off in both cases.
+    const mergeDisabled = sorted || Object.keys(filters).length > 0;
+    const cellMerge = useMemo(() => {
+        if (mergeDisabled) return [];
+        if (section === "logisticsCountries") {
+            return countryMarketMerges(rows as LogisticsCountryRow[], false);
+        }
+        if (section === "logisticsTransportTypes") {
+            return transportTypeMerges(rows as LogisticsTransportRow[], false);
+        }
+        return [];
+    }, [mergeDisabled, rows, section]);
 
     useEffect(() => {
         onResetState({

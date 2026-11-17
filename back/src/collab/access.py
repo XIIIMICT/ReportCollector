@@ -18,6 +18,9 @@ from src.kppk.constants import (
     KPPK_REALIZATION_PLAN_FIELDS,
 )
 from src.kppk.models import KppkCost, KppkOrg, KppkProduct, KppkRaw, KppkRealization, KppkRealizationPlan
+from src.logistics.constants import LOGISTICS_PROJECT_KEY
+from src.logistics.models import LogisticsRate
+from src.logistics.rates import RATE_EDITABLE_FIELDS
 from src.raw_materials.models import (
     AssetRawMaterial,
     DeliveryBasis,
@@ -78,12 +81,18 @@ KPPK_SECTIONS = {
     "kppkRealizationFact": (KppkRealization, frozenset(KPPK_REALIZATION_FACT_FIELDS)),
     "kppkCost": (KppkCost, frozenset(COST_FIELDS)),
 }
+# The «Логистика» main form: one room per selected period.
+LOGISTICS_SECTIONS = {
+    "logisticsRates": (LogisticsRate, frozenset(RATE_EDITABLE_FIELDS)),
+}
 
 
 def _sections_for_project(project: str) -> dict[str, Any]:
     """Return the section table map of a project (КППК has its own copies)."""
     if project == KPPK_PROJECT_KEY:
         return KPPK_SECTIONS
+    if project == LOGISTICS_PROJECT_KEY:
+        return LOGISTICS_SECTIONS
     return RAW_SECTIONS if project == "raw_materials" else RENOVATION_SECTIONS
 
 
@@ -133,6 +142,15 @@ class RoomAccess:
                 self.org_id = UUID(scope)
             except ValueError as error:
                 raise RoomAccessDeniedError from error
+        elif project == LOGISTICS_PROJECT_KEY and section == "logisticsRates":
+            if report_month is None:
+                raise RoomAccessDeniedError
+            try:
+                month = date.fromisoformat(report_month)
+            except ValueError as error:
+                raise RoomAccessDeniedError from error
+            if month.day != 1:
+                raise RoomAccessDeniedError
         elif report_month is not None or scope is not None:
             raise RoomAccessDeniedError
 
@@ -217,6 +235,11 @@ class RoomAccess:
                 col(model.org_id) == self.org_id,
                 col(model.period_date) == date.fromisoformat(self.report_month or ""),
             )
+        elif self.project == LOGISTICS_PROJECT_KEY and model is LogisticsRate:
+            query = query.where(col(LogisticsRate.period_date) == date.fromisoformat(self.report_month or ""))
+            if not admin:
+                # A worker may only lease/presence their own assets' cells.
+                query = query.where(col(LogisticsRate.org_id).in_([asset for asset in assets]))
         elif model is RenovationReferenceValue:
             query = query.where(col(RenovationReferenceValue.catalog) == self.section.split(":", 1)[1])
         elif model is User and self.project == KPPK_PROJECT_KEY:
