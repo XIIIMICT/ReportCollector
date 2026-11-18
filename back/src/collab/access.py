@@ -18,9 +18,11 @@ from src.kppk.constants import (
     KPPK_REALIZATION_PLAN_FIELDS,
 )
 from src.kppk.models import KppkCost, KppkOrg, KppkProduct, KppkRaw, KppkRealization, KppkRealizationPlan
+from src.kppk.service import NoKppkAccessError
 from src.logistics.constants import LOGISTICS_PROJECT_KEY
 from src.logistics.models import LogisticsRate
 from src.logistics.rates import RATE_EDITABLE_FIELDS
+from src.logistics.service import NoLogisticsAccessError
 from src.raw_materials.models import (
     AssetRawMaterial,
     DeliveryBasis,
@@ -31,7 +33,7 @@ from src.raw_materials.models import (
     RawMaterialPrice,
     ReportSnapshot,
 )
-from src.raw_materials.service import MOVEMENT_CELL_FIELDS, PRICE_CELL_FIELDS
+from src.raw_materials.service import MOVEMENT_CELL_FIELDS, PRICE_CELL_FIELDS, NoRawMaterialsAccessError
 from src.renovation.form_schema import field_meta
 from src.renovation.models import RAsset
 from src.renovation.plan import (
@@ -41,6 +43,7 @@ from src.renovation.plan import (
     RPlanState,
     RReferenceCatalog,
 )
+from src.renovation.service import NoRenovationAccessError
 
 if TYPE_CHECKING:
     from src.auth.service import CurrentUserIdentity
@@ -266,7 +269,19 @@ class RoomAccess:
                 for member in message.get("members", {}).values():
                     keys.extend((member.get("selection") or {}).get("cellKeys", []))
         async with self.session_factory() as session:
-            access = await self.resolve(session)
+            try:
+                access = await self.resolve(session)
+            except (
+                RoomAccessDeniedError,
+                NoRawMaterialsAccessError,
+                NoRenovationAccessError,
+                NoKppkAccessError,
+                NoLogisticsAccessError,
+            ):
+                # The membership was revoked or blocked mid-session (an asset
+                # worker may have lost their last grant): deliver nothing
+                # instead of breaking the broadcast for the whole room.
+                return []
             allowed = await self.cells(session, access, keys, write=False)
             revisions = (
                 {

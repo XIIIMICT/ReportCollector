@@ -15,6 +15,7 @@ from test_collab import FakeWebSocket, _wait_until
 from src.auth.models import ProjectRole
 from src.auth.service import verify_signed_identity
 from src.collab.access import RoomAccess, RoomAccessDeniedError
+from src.raw_materials.service import NoRawMaterialsAccessError
 
 if TYPE_CHECKING:
     from src.collab.store import CollabStore
@@ -43,20 +44,18 @@ async def restrict_admin_to_asset(db_session, asset_id=None):
     await db_session.commit()
 
 
-async def test_worker_empty_assets_cannot_receive_or_lease_any_row(db_session):
-    row = (await db_session.exec(select(MaterialMovement))).first()
+async def test_worker_without_assets_is_denied_the_project(db_session):
+    """
+    An asset worker with zero grants is EQUIVALENT to blocked.
+
+    The rule is enforced at access resolution, so the room never filters an
+    empty asset list — the worker's access itself is refused.
+    """
     policy = access_for(db_session)
-    key = f"rm_material_movements/{row.id}/demandPlanTons"
     await restrict_admin_to_asset(db_session)
     async with policy.session_factory() as session:
-        permissions = await policy.resolve(session)
-        assert await policy.cells(session, permissions, [key], write=True) == set()
-    assert (
-        await policy.filter_messages(
-            [{"type": "cell:changed", "rowId": str(row.id), "field": "demandPlanTons", "value": 42}]
-        )
-        == []
-    )
+        with pytest.raises(NoRawMaterialsAccessError):
+            await policy.resolve(session)
 
 
 async def test_worker_only_receives_own_asset_cells_and_selection(db_session):

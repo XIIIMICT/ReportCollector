@@ -203,7 +203,7 @@ function toAssetOptions(assets: RawMaterialsMeta["assets"]): ReferenceOption[] {
 const RAW_USER_DEFAULTS: AddRecordValues = {
     email: "",
     fullname: "",
-    isAdmin: false,
+    role: "blocked",
     assetNames: [],
 };
 
@@ -217,9 +217,14 @@ function rawUserFields(assets: ReferenceOption[]): AddRecordField[] {
         },
         { kind: "text", key: "fullname", label: "ФИО" },
         {
-            kind: "boolean",
-            key: "isAdmin",
-            label: "Администратор проекта",
+            kind: "select",
+            key: "role",
+            label: "Роль",
+            options: [
+                { id: "blocked", name: "Заблокирован" },
+                { id: "asset_worker", name: "Работник на активе" },
+                { id: "admin", name: "Администратор" },
+            ],
         },
         {
             kind: "multi",
@@ -580,8 +585,8 @@ function SectionContent({
                               currentUserEmail.toLowerCase(),
                   )
                 ? "Нельзя удалить себя из проекта."
-                : selectedRows.some((row) => (row as { isActive?: boolean }).isActive === true)
-                  ? "Сначала снимите доступ пользователя к проекту (колонка «Доступ»), затем удаляйте."
+                : selectedRows.some((row) => (row as { role?: string }).role !== "blocked")
+                  ? "Сначала заблокируйте пользователя (роль «Заблокирован»), затем удаляйте."
                   : null;
     const deleteAllowed = canDelete && deleteBlockedReason === null;
     // «Заменить» is a dictionary operation on exactly one value: it re-points
@@ -680,6 +685,10 @@ function SectionContent({
                 section === "users" &&
                 "email" in row &&
                 String(row.email).toLowerCase() === currentUserEmail?.toLowerCase();
+            if (section === "users" && (row as { role?: string }).role !== "asset_worker") {
+                // The asset grants belong to the asset-worker role only.
+                gridRow.lockedCells = ["assetNames"];
+            }
             if (!collabEnabled || typeof row.id !== "string") return gridRow;
             gridRow.canonicalCells = {};
             for (const field of editableFieldKeys) {
@@ -816,7 +825,7 @@ function SectionContent({
     }
 
     async function createUserFromModal(values: AddRecordValues) {
-        const isAdminUser = values.isAdmin === true;
+        const role = String(values.role ?? "blocked");
         const assetNames = Array.isArray(values.assetNames)
             ? (values.assetNames as unknown[]).map(String)
             : [];
@@ -825,31 +834,32 @@ function SectionContent({
                 .trim()
                 .toLowerCase(),
             fullname: String(values.fullname ?? "").trim(),
-            isAdmin: isAdminUser,
+            role,
             // An admin implicitly covers every asset — no explicit grant.
-            assetNames: isAdminUser ? [] : assetNames,
+            assetNames: role === "asset_worker" ? assetNames : [],
         });
         setUserCreateOpen(false);
     }
 
     // Validation mirroring the server rules: email format, full name, and for
-    // a non-admin at least one asset (an admin implicitly covers every asset).
+    // an asset worker at least one asset (an admin implicitly covers every one).
     function validateUser(values: AddRecordValues): string | null {
         if (!isValidEmail(String(values.email ?? ""))) {
             return "Проверьте формат адреса электронной почты.";
         }
         if (!String(values.fullname ?? "").trim()) return "Укажите ФИО.";
-        if (values.isAdmin !== true) {
+        if (values.role === "asset_worker") {
             const assetNames = Array.isArray(values.assetNames) ? values.assetNames : [];
-            if (assetNames.length === 0) return "Выберите хотя бы один актив или дайте админа.";
+            if (assetNames.length === 0)
+                return "Выберите хотя бы один актив для работника на активе.";
         }
         return null;
     }
 
     // An admin covers every asset implicitly, so the asset picker is hidden —
-    // the same rule the server applies (an admin's creation drops the grants).
+    // the same rule the server applies (a non-worker's creation drops grants).
     function rawUserFieldVisible(field: AddRecordField, values: AddRecordValues): boolean {
-        if (field.key === "assetNames") return values.isAdmin !== true;
+        if (field.key === "assetNames") return values.role === "asset_worker";
         return true;
     }
 

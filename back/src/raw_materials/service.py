@@ -115,6 +115,10 @@ async def resolve_raw_materials_access(
                 .order_by(RawMaterialAsset.name)
             )
         ).all()
+        if not assets:
+            # An asset worker without a single grant is EQUIVALENT to blocked:
+            # the project opens nothing, so it is a denial, not an empty view.
+            raise NoRawMaterialsAccessError
     return user, roles, list(assets)
 
 
@@ -587,6 +591,17 @@ async def check_edit_leases(
             raise CellValidationError(message)
 
 
+def _snapshot_role(snapshot: dict) -> ProjectRole:
+    """Return the role recorded in a user snapshot (new format) or from the legacy flag pair."""
+    raw = snapshot.get("role")
+    if isinstance(raw, str):
+        try:
+            return ProjectRole(raw)
+        except ValueError:
+            pass
+    return ProjectRole.ADMIN if snapshot.get("isAdmin") else ProjectRole.ASSET_WORKER
+
+
 async def apply_cell_value(
     session: AsyncSession,
     *,
@@ -705,6 +720,22 @@ async def apply_cell_value(
             if link is None:
                 raise _DICT_REF_USER_NOT_FOUND
             link.is_active = bool(value)
+        elif field == "role":
+            if link is None:
+                raise _DICT_REF_USER_NOT_FOUND
+            try:
+                parsed_role = ProjectRole(str(value))
+            except ValueError as error:
+                message = "Неизвестная роль пользователя."
+                raise CellValidationError(message) from error
+            if parsed_role not in {ProjectRole.ADMIN, ProjectRole.ASSET_WORKER, ProjectRole.BLOCKED}:
+                message = "Недопустимая роль для проекта «Сырьё»."
+                raise CellValidationError(message)
+            link.role = parsed_role
+            link.is_active = parsed_role != ProjectRole.BLOCKED
+            if parsed_role != ProjectRole.ASSET_WORKER:
+                # Grants belong to the asset-worker role only.
+                await replace_user_assets(session, user_row.id, None)
         elif field == "assetNames":
             await replace_user_assets(session, user_row.id, value if isinstance(value, list) else None)
         else:
@@ -756,6 +787,8 @@ async def _apply_created_record(
         if snapshot is None:
             if link is None:
                 return
+            # A revoked membership is «Заблокирован»: the flag is derived.
+            link.role = ProjectRole.BLOCKED
             link.is_active = False
             link.updated_at = datetime.now(UTC)
             link.updater_user_id = user.id
@@ -773,14 +806,14 @@ async def _apply_created_record(
             link = UserRole(
                 user_id=row_id,
                 project_id=project_id,
-                role=ProjectRole.ADMIN if snapshot.get("isAdmin") else ProjectRole.ASSET_WORKER,
+                role=_snapshot_role(snapshot),
                 is_active=bool(snapshot.get("isActive", True)),
                 created_at=now,
                 updated_at=now,
                 updater_user_id=user.id,
             )
         else:
-            link.role = ProjectRole.ADMIN if snapshot.get("isAdmin") else ProjectRole.ASSET_WORKER
+            link.role = _snapshot_role(snapshot)
             link.is_active = bool(snapshot.get("isActive", True))
             link.updated_at = datetime.now(UTC)
             link.updater_user_id = user.id

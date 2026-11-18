@@ -11,7 +11,7 @@ Real prod: **realm `h2-group`**, client **`ReportCollector`**, Keycloak at `http
 
 1. `GET /api/auth/login` builds the authorize URL on `AUTH_KEYCLOAK_PUBLIC_ISSUER`: `client_id`, `code_challenge` (S256), `nonce`, `state`, `redirect_uri = ${AUTH_APP_ORIGIN}/api/auth/callback`, scope `openid profile email`. Transient cookies `rc_auth_state/rc_auth_verifier/rc_auth_nonce` (10 min).
 2. `GET /api/auth/callback` — checks `state`, exchanges the `code` for tokens at `AUTH_KEYCLOAK_INTERNAL_ISSUER/protocol/openid-connect/token` (client auth `client_secret_basic` by default, `client_secret_post` — an option); verifies the ID token via JWKS (`.../protocol/openid-connect/certs`, algorithms from `AUTH_KEYCLOAK_SIGNING_ALGORITHMS`, audience = client id, issuer = `AUTH_KEYCLOAK_TOKEN_ISSUER`), checks `nonce` and `sub` against UserInfo.
-3. Session — the **`rc_session`** cookie (payload + HMAC-SHA256 over `AUTH_SECRET`). Lifetime is its own, `AUTH_SESSION_MAX_AGE_SECONDS` (default **12 h**), and is **independent of the short Keycloak ID-token TTL** (minutes). Shorten it only deliberately: otherwise the user gets "not authorized" mid-work.
+3. Session — the **`rc_session`** cookie (payload + HMAC-SHA256 over `AUTH_SECRET`). Lifetime is its own, `AUTH_SESSION_MAX_AGE_SECONDS` (default **400 days**, the practical browser maximum), and is **independent of the short Keycloak ID-token TTL** (minutes) and of the Keycloak SSO session: the cookie is never re-validated against Keycloak, so a stand restart or an expired corporate SSO does not sign the user out. Shorten it only deliberately.
 4. Identity for back: signed headers `X-ReportCollector-*` (`front/src/shared/auth/identity-headers.ts` → `back/src/auth/service.py::verify_signed_identity`), for WebSocket — a signed ticket in the query (`verify_identity_ticket`).
 
 ## Prod configuration
@@ -29,7 +29,7 @@ AUTH_KEYCLOAK_CLIENT_ID=ReportCollector
 AUTH_KEYCLOAK_CLIENT_SECRET=<confidential client secret>   # NEVER in git
 ```
 
-Optional: `AUTH_KEYCLOAK_SCOPES` (default `openid profile email`), `AUTH_KEYCLOAK_SIGNING_ALGORITHMS` (default `RS256`), `AUTH_KEYCLOAK_TOKEN_ENDPOINT_AUTH_METHOD` (default `client_secret_basic`), `AUTH_SESSION_MAX_AGE_SECONDS` (default `43200`).
+Optional: `AUTH_KEYCLOAK_SCOPES` (default `openid profile email`), `AUTH_KEYCLOAK_SIGNING_ALGORITHMS` (default `RS256`), `AUTH_KEYCLOAK_TOKEN_ENDPOINT_AUTH_METHOD` (default `client_secret_basic`), `AUTH_SESSION_MAX_AGE_SECONDS` (default `34560000`).
 
 The three issuer variables: **PUBLIC** — the browser (redirect), **INTERNAL** — token endpoint/JWKS when the front runs on the host, **DOCKER_INTERNAL** — from the front container. compose uses `AUTH_KEYCLOAK_INTERNAL_ISSUER=${AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER:-${AUTH_KEYCLOAK_PUBLIC_ISSUER}}` (`compose.yaml`). For an external Keycloak all three coincide.
 

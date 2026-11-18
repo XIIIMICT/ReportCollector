@@ -957,6 +957,7 @@ async def post_user(
     deleted; redo restores the access.
     """
     project_id = await _raw_materials_project_id(session)
+    effective_role = request.role or (ProjectRole.ADMIN if request.isAdmin else ProjectRole.ASSET_WORKER)
     try:
         created = await create_project_user(
             session,
@@ -965,6 +966,7 @@ async def post_user(
             fullname=request.fullname,
             is_admin=request.isAdmin,
             asset_names=request.assetNames,
+            role=effective_role,
             updater_user_id=user.id,
         )
     except DictionaryReferenceError as error:
@@ -987,9 +989,10 @@ async def post_user(
                     new_value={
                         "email": request.email,
                         "fullname": request.fullname,
-                        "isAdmin": request.isAdmin,
+                        "role": effective_role.value,
+                        "isAdmin": effective_role == ProjectRole.ADMIN,
                         "assetNames": request.assetNames,
-                        "isActive": True,
+                        "isActive": effective_role != ProjectRole.BLOCKED,
                     },
                 )
             ],
@@ -1023,6 +1026,7 @@ async def patch_user(
             asset_names=request.assetNames,
             is_active=request.isActive,
             reset_password=request.resetPassword,
+            role=request.role,
             updater_user_id=user.id,
         )
     except DictionaryReferenceError as error:

@@ -287,13 +287,29 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     users: [
         text("email", "Email", 220),
         text("fullname", "ФИО", 250),
-        { key: "isAdmin", label: "Админ", width: 90, kind: "boolean" },
-        { key: "assetNames", label: "Активы", width: 200, kind: "assetsMulti" },
         {
-            key: "isActive",
-            label: "Доступ к проекту",
-            width: 120,
-            kind: "boolean",
+            // One role instead of the «Админ» + «Доступ к проекту» pair: the
+            // access bit is derived from it (blocked → no access).
+            key: "role",
+            label: "Роль",
+            width: 190,
+            kind: "select",
+            options: [
+                { value: "admin", label: "Администратор" },
+                { value: "asset_worker", label: "Работник на активе" },
+                { value: "blocked", label: "Заблокирован" },
+            ],
+        },
+        {
+            key: "assetNames",
+            label: "Активы",
+            width: 200,
+            kind: "assetsMulti",
+            // The grants belong to the asset-worker role only.
+            cellTitle: (row) =>
+                row.role === "asset_worker"
+                    ? undefined
+                    : "Сначала выберите роль работника на активе, чтобы закрепить актив",
         },
         {
             key: "lastAuthenticatedAt",
@@ -342,9 +358,18 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
     kppkUsers: [
         text("email", "Email", 220),
         text("fullname", "ФИО", 250),
-        { key: "isAdmin", label: "Администратор", width: 150, kind: "boolean" },
+        {
+            // One role instead of «Администратор» + «Доступ к проекту».
+            key: "role",
+            label: "Роль",
+            width: 190,
+            kind: "select",
+            options: [
+                { value: "admin", label: "Администратор" },
+                { value: "blocked", label: "Заблокирован" },
+            ],
+        },
         { key: "orgNames", label: "ДЗО", width: 200, kind: "assetsMulti", readOnly: true },
-        { key: "isActive", label: "Доступ к проекту", width: 120, kind: "boolean" },
         {
             key: "lastAuthenticatedAt",
             label: "Время последнего входа",

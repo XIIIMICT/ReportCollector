@@ -66,7 +66,9 @@ describe("signed sessions", () => {
     });
     test.each(["", "0", "-1", "NaN", "Infinity"])("invalid TTL %s uses the default", (ttl) => {
         process.env.AUTH_SESSION_MAX_AGE_SECONDS = ttl;
-        expect(sessionMaxAgeSeconds()).toBe(43200);
+        // The default is the practical maximum a browser keeps a cookie: the
+        // session outlives stand restarts and the Keycloak SSO session.
+        expect(sessionMaxAgeSeconds()).toBe(400 * 24 * 60 * 60);
     });
 });
 

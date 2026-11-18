@@ -58,10 +58,21 @@ export function getSupportMail(): string {
     return (process.env.SUPPORT_MAIL ?? "").trim();
 }
 
-/** Session lifetime (seconds). Independent of the Keycloak token TTL (5–10 min). */
+/**
+ * Session lifetime (seconds).
+ *
+ * The app's own `rc_session` cookie is independent of the Keycloak token TTL
+ * (5–10 minutes) and of the Keycloak SSO session: nothing re-validates it, so a
+ * restart of the stand, an expired corporate SSO session or a Keycloak outage
+ * does not sign the user out. The default is the practical maximum a browser
+ * keeps a persistent cookie (400 days); set `AUTH_SESSION_MAX_AGE_SECONDS` to
+ * a positive number to shorten it.
+ */
+export const DEFAULT_SESSION_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
+
 export function sessionMaxAgeSeconds(): number {
     const raw = Number(process.env.AUTH_SESSION_MAX_AGE_SECONDS ?? "");
-    return Number.isFinite(raw) && raw > 0 ? raw : 12 * 60 * 60;
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_SESSION_MAX_AGE_SECONDS;
 }
 
 export async function getSession(): Promise<AuthSession | null> {

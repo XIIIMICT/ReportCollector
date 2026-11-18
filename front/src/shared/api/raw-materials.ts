@@ -129,6 +129,8 @@ export type UserRow = {
     id: string;
     email: string | null;
     fullname: string;
+    /** admin | asset_worker | blocked (the access flag is derived from it). */
+    role: "admin" | "asset_worker" | "blocked";
     isAdmin: boolean;
     assetNames: string[];
     isActive: boolean;
@@ -300,6 +302,7 @@ export type CreateDictionaryPayload = {
     assetIds?: string[];
     email?: string;
     fullname?: string;
+    role?: string;
     isAdmin?: boolean;
     assetNames?: string[];
     isActive?: boolean;
@@ -325,7 +328,7 @@ export async function createDictionaryRecord(
               ? {
                     email: payload.email,
                     fullname: payload.fullname,
-                    isAdmin: payload.isAdmin ?? false,
+                    role: payload.role ?? "blocked",
                     assetNames: payload.assetNames ?? [],
                 }
               : { name: payload.name };

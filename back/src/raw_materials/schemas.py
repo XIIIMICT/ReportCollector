@@ -12,6 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from src.auth.emails import normalize_email
+from src.auth.models import ProjectRole  # noqa: TC001 — Pydantic needs the runtime enum
 
 SectionId = Literal[
     "materialMovement",
@@ -148,6 +149,8 @@ class UserRowRead(BaseModel):
     id: UUID
     email: str | None
     fullname: str
+    # admin | asset_worker | blocked (the access flag is derived from it).
+    role: ProjectRole
     isAdmin: bool
     assetNames: list[str]
     isActive: bool
@@ -289,6 +292,9 @@ class UserCreateRequest(BaseModel):
 
     email: EmailStr = Field(min_length=3, max_length=255)
     fullname: str = Field(min_length=1, max_length=255)
+    # Omitted → the legacy behaviour (admin/asset worker from `isAdmin`); the
+    # UI always sends an explicit role and defaults a new member to blocked.
+    role: ProjectRole | None = None
     isAdmin: bool = False
     assetNames: list[str] = []
 
@@ -304,6 +310,7 @@ class UserUpdateRequest(BaseModel):
 
     email: EmailStr | None = Field(default=None, min_length=3, max_length=255)
     fullname: str | None = Field(default=None, min_length=1, max_length=255)
+    role: ProjectRole | None = None
     isAdmin: bool | None = None
     assetNames: list[str] | None = None
     isActive: bool | None = None

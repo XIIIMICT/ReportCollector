@@ -273,6 +273,11 @@ async def resolve_renovation_access(
                 .order_by(RAsset.name)
             )
         ).all()
+        if not assets:
+            # An asset worker without a single grant is EQUIVALENT to blocked:
+            # nothing is visible, so the project is denied rather than opened
+            # empty.
+            raise NoRenovationAccessError
     return user, roles, list(assets), block
 
 

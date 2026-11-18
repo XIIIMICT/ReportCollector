@@ -35,6 +35,7 @@ async def read_kppk_user_rows(session: AsyncSession, *, row_ids: list[UUID] | No
             id=user.id,
             email=str(user.email or ""),
             fullname=user.name or "",
+            role=link.role,
             isAdmin=link.role == ProjectRole.ADMIN,
             isActive=link.is_active,
             lastAuthenticatedAt=user.last_authenticated_at,
@@ -53,9 +54,10 @@ async def create_kppk_user(
     request: KppkUserCreateRequest,
     editor: User,
 ) -> tuple[User, list[AppliedCell]]:
-    """Provision a project administrator without touching raw-material asset grants."""
-    if not request.isAdmin:
-        msg = "В КППК пока доступна только роль администратора."
+    """Provision a project member (administrator or blocked) without touching raw-material asset grants."""
+    role = request.role or (ProjectRole.ADMIN if request.isAdmin else ProjectRole.ASSET_WORKER)
+    if role not in {ProjectRole.ADMIN, ProjectRole.BLOCKED}:
+        msg = "В КППК доступны роли «Администратор» и «Заблокирован»."
         raise KppkValidationError(msg)
     project_id = await kppk_project_id(session)
     person = (await session.exec(select(User).where(func.lower(col(User.email)) == str(request.email)))).one_or_none()
@@ -69,7 +71,11 @@ async def create_kppk_user(
     person.is_deleted = False
     session.add(person)
     link = UserRole(
-        user_id=person.id, project_id=project_id, role=ProjectRole.ADMIN, is_active=True, updater_user_id=editor.id
+        user_id=person.id,
+        project_id=project_id,
+        role=role,
+        is_active=role != ProjectRole.BLOCKED,
+        updater_user_id=editor.id,
     )
     session.add(link)
     await sync_project_memberships(session, person.id)
@@ -120,6 +126,24 @@ async def update_kppk_user(
             msg = "Пользователь с таким email уже существует."
             raise KppkValidationError(msg)
     applied: list[AppliedCell] = []
+    if request.role is not None:
+        if request.role not in {ProjectRole.ADMIN, ProjectRole.BLOCKED}:
+            msg = "В КППК доступны роли «Администратор» и «Заблокирован»."
+            raise KppkValidationError(msg)
+        if link.role != request.role:
+            applied.append(
+                AppliedCell(
+                    target_table=User.__tablename__,
+                    row_id=user_id,
+                    field="role",
+                    old_value=link.role.value,
+                    new_value=request.role.value,
+                )
+            )
+        # The role supersedes the legacy flag pair and derives the access bit.
+        link.role = request.role
+        link.is_active = request.role != ProjectRole.BLOCKED
+        request = request.model_copy(update={"isAdmin": None, "isActive": None})
     for field, model, attribute, value in (
         ("email", person, "email", request.email),
         ("fullname", person, "name", request.fullname.strip() if request.fullname is not None else None),

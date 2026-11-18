@@ -226,7 +226,10 @@ const USER_FIELDS: AddRecordField[] = [
         key: "role",
         label: "Роль",
         kind: "select",
-        options: [{ id: "admin", name: "Администратор" }],
+        options: [
+            { id: "admin", name: "Администратор" },
+            { id: "blocked", name: "Заблокирован" },
+        ],
     },
 ];
 const USER_DEFAULTS: AddRecordValues = { email: "", fullname: "", role: "admin" };
@@ -278,7 +281,7 @@ const KPPK_EDITABLE_FIELDS: Record<KppkSectionId, readonly string[]> = {
     kppkPositions: ["productNum", "name", "orgNames", "hasExcise"],
     kppkRaws: ["rawNum", "name"],
     kppkOrgs: ["code", "name"],
-    kppkUsers: ["email", "fullname", "isAdmin", "isActive"],
+    kppkUsers: ["email", "fullname", "role"],
 };
 
 /** The empty draft behind the trailing placeholder row of each dictionary. */
@@ -715,7 +718,7 @@ function KppkSection({
         selectedRows.length > 0 &&
         (section !== "kppkUsers" ||
             selectedRows.every(
-                (row) => "isActive" in row && !row.isActive && row.email !== currentUserEmail,
+                (row) => "role" in row && row.role === "blocked" && row.email !== currentUserEmail,
             ));
 
     // «Заменить»: raw items and ДЗО merge into another value; on «Продуктовые
@@ -1057,7 +1060,7 @@ function KppkSection({
                     isOpen={userCreateOpen}
                     onOpenChange={setUserCreateOpen}
                     title="Добавить пользователя"
-                    description="Роль — администратор. Связка с ДЗО пока не задаётся."
+                    description="Связка с ДЗО пока не задаётся; заблокированный участник не открывает проект."
                     fields={USER_FIELDS}
                     defaults={USER_DEFAULTS}
                     isPending={isMutationPending}
@@ -1074,7 +1077,7 @@ function KppkSection({
                                 createKppkUser({
                                     email: draftText(values.email).toLowerCase(),
                                     fullname: draftText(values.fullname),
-                                    isAdmin: true,
+                                    role: String(values.role ?? "admin"),
                                 }),
                             );
                             setUserCreateOpen(false);

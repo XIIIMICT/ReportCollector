@@ -19,6 +19,8 @@ export type KppkUserRow = {
     id: string;
     email: string;
     fullname: string;
+    /** admin | blocked (the access flag is derived from the role). */
+    role: "admin" | "blocked";
     isAdmin: boolean;
     isActive: boolean;
     orgNames: string[];
@@ -35,7 +37,7 @@ export async function getKppkUsers(): Promise<KppkUserRow[]> {
 export async function createKppkUser(payload: {
     email: string;
     fullname: string;
-    isAdmin: boolean;
+    role: string;
 }): Promise<KppkUserRow> {
     return requestWrite(`/api/kppk/users?session_id=${getCollabSessionId()}`, "POST", payload);
 }

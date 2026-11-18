@@ -126,11 +126,11 @@ different milestones. Do not reopen the explicit product deferrals below.
   change had cleared (the dependent clear is not journaled). Excel export of the
   read-only dictionaries is not built. The `dict`
   schema is external and must never be written by this application.
-- The «Заблокирован» ROLE exists and «Логистика» uses it, but the OTHER projects
-  still show the «Доступ к проекту» flag in their users dictionaries: switching
-  them to the role (and treating an asset worker without assets as blocked at
-  access time) is the next slice. `sync_project_memberships` already creates
-  blocked links for new members.
+- The «Заблокирован» ROLE drives «Логистика», «Сырьё» and «КППК»; the
+  RENOVATION users dictionary still shows its own role picker plus the
+  «Доступ» flag — switching it to a `blocked` value of `r_project_role` (a new
+  enum value + migration) is the remaining piece. Its access rule already
+  treats an asset worker without grants as blocked.
 - Caching the «Логистика» dictionaries: they are read on every rates request and
   every cell validation, but the tables are tiny (tens of rows) and the five
   reads are cheap; a Valkey cache would add TTL staleness for a few

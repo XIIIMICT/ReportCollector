@@ -50,7 +50,8 @@ async def patch(client, row_id, value=17):
     )
 
 
-async def test_worker_without_assets_reads_nothing_and_cannot_patch(client, db_session):
+async def test_worker_without_assets_is_denied_the_project(client, db_session):
+    """An asset worker with no grants is blocked: the project refuses, not empties."""
     _, rows, _ = await admin_and_rows(db_session)
     row_id = rows[0].id
     role = await raw_materials_role(db_session)
@@ -58,12 +59,11 @@ async def test_worker_without_assets_reads_nothing_and_cannot_patch(client, db_s
     await db_session.commit()
     for path in ["movement?report_month=2026-08-01", "prices"]:
         response = await client.get(f"/api/raw-materials/{path}", headers=HEADERS)
-        assert response.status_code == 200
-        assert response.json() == []
-    assert (await patch(client, row_id)).status_code in {403, 404, 422}
+        assert response.status_code == 403
+    assert (await patch(client, row_id)).status_code == 403
 
 
-async def test_renovation_worker_without_assets_cannot_read_even_unassigned_drafts(client, db_session):
+async def test_renovation_worker_without_assets_is_denied_the_project(client, db_session):
     row = (await db_session.exec(select(RenovationPlanRow))).first()
     row.asset_id = None
     link = (await db_session.exec(select(RUserRole))).one()
@@ -72,8 +72,7 @@ async def test_renovation_worker_without_assets_cannot_read_even_unassigned_draf
     await db_session.commit()
     for path in ["/api/renovation/plan", "/api/renovation/plan/rows"]:
         response = await client.get(path, headers=HEADERS)
-        assert response.status_code == 200
-        assert response.json()["rows"] == []
+        assert response.status_code == 403
 
 
 @pytest.mark.parametrize("role", [RProjectRole.ADMIN, RProjectRole.APPROVER, RProjectRole.BLOCK_OWNER])
@@ -282,14 +281,15 @@ async def test_undo_rechecks_revoked_asset_access(client, db_session):
     role = await raw_materials_role(db_session)
     role.role = ProjectRole.ASSET_WORKER
     await db_session.commit()
+    # The membership is now «работник без активов» — blocked, so even undo is
+    # refused at the access gate.
     response = await client.post(
         "/api/raw-materials/undo",
         headers=HEADERS,
         params={"session_id": "guarantee"},
         json={"section": "materialMovement", "reportMonth": str(MONTH)},
     )
-    assert response.status_code == 200
-    assert response.json()["applied"] is False
+    assert response.status_code == 403
     assert (await db_session.get(MaterialMovement, row_id, populate_existing=True)).balance_on_site_tons == 81
 
 

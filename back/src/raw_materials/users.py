@@ -80,6 +80,9 @@ async def read_user_rows(
             id=user.id,
             email=user.email,
             fullname=user.name or "",
+            # The role is the single source of truth; the two booleans stay for
+            # the older call sites and are derived from it.
+            role=link.role,
             isAdmin=link.role == ProjectRole.ADMIN,
             assetNames=names_by_user.get(user.id, []),
             isActive=link.is_active,
@@ -242,6 +245,7 @@ async def create_project_user(
     fullname: str,
     is_admin: bool,
     asset_names: list[str],
+    role: ProjectRole | None = None,
     updater_user_id: UUID | None = None,
 ) -> User:
     """
@@ -282,20 +286,22 @@ async def create_project_user(
         )
         session.add(user)
         await session.flush()
-    role = ProjectRole.ADMIN if is_admin else ProjectRole.ASSET_WORKER
+    role = role or (ProjectRole.ADMIN if is_admin else ProjectRole.ASSET_WORKER)
     now = datetime.now(UTC)
     session.add(
         UserRole(
             user_id=user.id,
             project_id=project_id,
             role=role,
-            is_active=True,
+            # The access flag is derived from the role: only «Заблокирован»
+            # keeps the member out.
+            is_active=role != ProjectRole.BLOCKED,
             created_at=now,
             updated_at=now,
             updater_user_id=updater_user_id,
         )
     )
-    await replace_user_assets(session, user.id, asset_names)
+    await replace_user_assets(session, user.id, asset_names if role == ProjectRole.ASSET_WORKER else None)
     # Provisioning into all other projects: new links are inactive with the
     # asset-worker role; existing links are left untouched.
     await sync_project_memberships(session, user.id)
@@ -315,6 +321,7 @@ async def update_project_user(
     asset_names: list[str] | None,
     is_active: bool | None,
     reset_password: bool,
+    role: ProjectRole | None = None,
     updater_user_id: UUID | None = None,
 ) -> tuple[User, list[AppliedCell]]:
     user = await session.get(User, user_id)
@@ -334,6 +341,7 @@ async def update_project_user(
             raise _DICT_REF_USER_MANAGED_BY_KEYCLOAK
     old_email = user.email
     old_fullname = user.name
+    old_role = link.role
     old_is_admin = link.role == ProjectRole.ADMIN
     old_is_active = link.is_active
     old_asset_names = await _user_asset_names(session, user.id)
@@ -342,6 +350,14 @@ async def update_project_user(
     new_is_admin = is_admin if is_admin is not None else old_is_admin
     new_is_active = is_active if is_active is not None else old_is_active
     new_asset_names = asset_names if asset_names is not None else ([] if is_admin is not None else old_asset_names)
+    new_role = role if role is not None else old_role
+    if role is not None:
+        # The role supersedes the legacy pair of flags: it decides both the
+        # permission and the access bit.
+        new_is_admin = role == ProjectRole.ADMIN
+        new_is_active = role != ProjectRole.BLOCKED
+        if role != ProjectRole.ASSET_WORKER:
+            new_asset_names = []
     if email is not None:
         candidate = normalize_email(email)
         if not is_valid_email(candidate):
@@ -360,6 +376,11 @@ async def update_project_user(
     role_changed = is_admin is not None and (link.role == ProjectRole.ADMIN) != is_admin
     if is_admin is not None:
         link.role = ProjectRole.ADMIN if is_admin else ProjectRole.ASSET_WORKER
+    if role is not None:
+        link.role = role
+        link.is_active = role != ProjectRole.BLOCKED
+        if role != ProjectRole.ASSET_WORKER:
+            await replace_user_assets(session, user.id, None)
     if asset_names is not None or role_changed:
         await replace_user_assets(
             session,
@@ -421,6 +442,16 @@ async def update_project_user(
                 field="assetNames",
                 old_value=old_asset_names,
                 new_value=new_asset_names,
+            )
+        )
+    if new_role != old_role:
+        applied.append(
+            AppliedCell(
+                target_table=User.__tablename__,
+                row_id=user.id,
+                field="role",
+                old_value=old_role.value,
+                new_value=new_role.value,
             )
         )
     return user, applied

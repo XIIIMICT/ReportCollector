@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from src.auth.emails import normalize_email
+from src.auth.models import ProjectRole  # noqa: TC001 — Pydantic needs the runtime enum
 from src.raw_materials.schemas import ExportColumnRequest  # noqa: TC001
 
 
@@ -136,6 +137,8 @@ class KppkUserRowRead(BaseModel):
     id: UUID
     email: str
     fullname: str
+    # admin | blocked; the access flag is derived from it.
+    role: ProjectRole
     isAdmin: bool
     isActive: bool
     orgNames: list[str] = Field(default_factory=list)
@@ -152,6 +155,8 @@ class KppkUserCreateRequest(BaseModel):
 
     email: EmailStr
     fullname: str = Field(min_length=1, max_length=255)
+    # Omitted → the legacy `isAdmin` behaviour; the UI sends an explicit role.
+    role: ProjectRole | None = None
     isAdmin: bool = True
 
     @field_validator("email")
@@ -167,6 +172,7 @@ class KppkUserUpdateRequest(BaseModel):
 
     email: EmailStr | None = None
     fullname: str | None = Field(default=None, min_length=1, max_length=255)
+    role: ProjectRole | None = None
     isAdmin: bool | None = None
     isActive: bool | None = None
     resetPassword: bool = False
