@@ -35,8 +35,8 @@ class SectionPolicy:
 _FORM = SectionPolicy(collab="full", undo="member", export="member", row_ops="none")
 _DICTIONARY = SectionPolicy(collab="admin", undo="admin", export="member", row_ops="placeholder")
 _PLAN = SectionPolicy(collab="full", undo="member", export="member", row_ops="plan", chunked=True)
-# A table owned by another system: read-only, no room, no journal, no export.
-_READ_ONLY = SectionPolicy(collab="none", undo="none", export="none", row_ops="none")
+# A table owned by another system: read-only, no room, no journal — still exportable.
+_READ_ONLY = SectionPolicy(collab="none", undo="none", export="member", row_ops="none")
 
 SECTION_POLICIES: dict[str, SectionPolicy] = {
     # «Сырьё»
@@ -61,14 +61,15 @@ SECTION_POLICIES: dict[str, SectionPolicy] = {
     "kppkRealizationPlan": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="none"),
     "kppkRealizationFact": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="none"),
     # «Логистика»: read straight from the external `dict` schema — nothing is
-    # authored, journaled, exported or shared there.
+    # authored, journaled or shared there — but every grid is EXPORTABLE (like
+    # every other dictionary).
     "logisticsCountries": _READ_ONLY,
     "logisticsTransportTypes": _READ_ONLY,
     "logisticsOrgs": _READ_ONLY,
     # Users are authored through a dialog; no room and no undo (admin-only).
-    "logisticsUsers": SectionPolicy(collab="none", undo="none", export="none", row_ops="dialog"),
-    # The main form: collaborative admins, undo/redo, no export.
-    "logisticsRates": SectionPolicy(collab="full", undo="member", export="none", row_ops="none"),
+    "logisticsUsers": SectionPolicy(collab="none", undo="none", export="member", row_ops="dialog"),
+    # The main form: collaborative members, undo/redo, export scoped by role.
+    "logisticsRates": SectionPolicy(collab="full", undo="member", export="member", row_ops="none"),
 }
 
 #: The renovation catalogs are dynamic ids (`renovationCatalog:<catalog>`).

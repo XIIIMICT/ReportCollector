@@ -58,6 +58,8 @@ export type SmartSelectOption = {
     name: string;
     /** A muted second line inside the option and the trigger. */
     description?: string;
+    /** Rendered in the danger color (the «Заблокирован» role). */
+    danger?: boolean;
 };
 
 /** Stable empty default: an inline `[]` would be a new array on every render. */
@@ -517,6 +519,7 @@ export function SmartSelect({
                     key={option.id}
                     id={option.id}
                     textValue={[option.name, option.description].filter(Boolean).join(" ")}
+                    {...(option.danger && { className: "text-danger" })}
                 >
                     {option.description ? (
                         <div className="flex min-w-0 flex-1 flex-col">

@@ -96,13 +96,14 @@ const PLAN: SectionPolicy = {
 };
 
 /**
- * A table owned by another system: read-only, no room, no journal, no export.
- * The «Логистика» dictionaries are the only ones today.
+ * A table owned by another system: read-only, no room, no journal — but the
+ * grid is still EXPORTABLE, like every other dictionary. The «Логистика»
+ * dictionaries are the only ones today.
  */
 const READ_ONLY: SectionPolicy = {
     collab: "none",
     undo: "none",
-    export: "none",
+    export: "member",
     rowOps: "none",
     chunked: false,
 };
@@ -144,7 +145,7 @@ const SECTION_POLICIES: Record<PolicySectionId, SectionPolicy> = {
     // export and no generic placeholder action — the draft row is owned by the
     // rates section, so `rowOps` is "none". Kept on ONE line: the backend
     // parity test parses inline entries only.
-    logisticsRates: { ...FORM, export: "none" },
+    logisticsRates: { ...FORM, export: "member" },
 };
 
 const CATALOG_POLICY: SectionPolicy = DICTIONARY;

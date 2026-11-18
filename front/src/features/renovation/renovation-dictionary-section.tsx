@@ -114,7 +114,7 @@ const RENOVATION_ROLE_OPTIONS = [
     { id: "approver", name: "Утверждающий" },
     { id: "block_owner", name: "Ответственный за блок" },
     { id: "asset_worker", name: "Работник по активу" },
-    { id: "blocked", name: "Заблокирован" },
+    { id: "blocked", name: "Заблокирован", danger: true },
 ];
 
 const RENOVATION_BLOCK_OPTIONS = [

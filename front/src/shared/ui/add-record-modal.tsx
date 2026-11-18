@@ -11,6 +11,8 @@ export type AddRecordFieldOption = {
     id: string;
     name: string;
     description?: string;
+    /** Rendered in the danger color in the dropdown (the «Заблокирован» role). */
+    danger?: boolean;
 };
 
 export type AddRecordField =
@@ -208,6 +210,7 @@ function FieldControl({
                     id: option.id,
                     name: option.name,
                     ...(option.description && { description: option.description }),
+                    ...(option.danger && { danger: true }),
                 }))}
                 value={typeof value === "string" && value ? value : null}
                 isDisabled={isDisabled}

@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from src.auth.emails import normalize_email
 from src.auth.models import ProjectRole  # noqa: TC001 — Pydantic needs the runtime enum
-from src.raw_materials.schemas import ExportColumnRequest  # noqa: TC001
+from src.common.export import ExportColumnRequest  # noqa: TC001 — Pydantic needs the runtime model
 
 
 class KppkProductPositionRowRead(BaseModel):

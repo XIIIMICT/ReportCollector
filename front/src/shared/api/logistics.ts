@@ -1,5 +1,8 @@
 import { requestJson, requestWrite } from "@/shared/api/api-error";
+import { ReportCollectorApiError } from "@/shared/api/report-collector";
+import { downloadTableExport } from "@/shared/api/table-export";
 import { getCollabSessionId } from "@/shared/collab/ws-client";
+import type { ExportColumn } from "@/shared/grid/grid-config";
 
 /**
  * The «Логистика» dictionaries. They are read straight from the corporate
@@ -216,6 +219,32 @@ export async function updateLogisticsRateCell(
 
 export async function deleteLogisticsRate(id: string): Promise<void> {
     await requestWrite(`/api/logistics/rates/${id}?session_id=${getCollabSessionId()}`, "DELETE");
+}
+
+export type LogisticsExportSection =
+    | "logisticsRates"
+    | "logisticsCountries"
+    | "logisticsTransportTypes"
+    | "logisticsOrgs"
+    | "logisticsUsers";
+
+export type LogisticsExportRequest = {
+    section: LogisticsExportSection;
+    headerPinned: boolean;
+    columns: ExportColumn[];
+    /** `null` — «вся таблица»; the visible rows' ids — «видимая». */
+    rowIds: string[] | null;
+    fileName: string;
+    /** Required for «Ставки»: the grid shows one month/year. */
+    month?: number | null;
+    year?: number | null;
+};
+
+/** Download a «Логистика» grid as XLSX (inline: the tables are small). */
+export async function exportLogisticsTable(request: LogisticsExportRequest): Promise<Blob> {
+    return downloadTableExport("/api/logistics/export", request, () => {
+        throw new ReportCollectorApiError("Выгрузка недоступна.", 500);
+    });
 }
 
 export async function getLogisticsRatesUndoState(periodDate: string): Promise<LogisticsUndoState> {

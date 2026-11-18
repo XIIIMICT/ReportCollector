@@ -9,6 +9,7 @@ import { LogisticsRatesSection } from "@/features/logistics/logistics-rates-sect
 import { LogisticsUsersSection } from "@/features/logistics/logistics-users-section";
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
 import {
+    exportLogisticsTable,
     getLogisticsCountries,
     getLogisticsOrgs,
     getLogisticsTransportTypes,
@@ -22,7 +23,7 @@ import {
 import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector";
 import type { CollabRoom } from "@/shared/collab/use-collab-room";
 import { DataGrid, type DataGridHandle, type GridViewStats } from "@/shared/grid/data-grid";
-import type { ReferenceOption } from "@/shared/grid/grid-config";
+import { exportFileName, type ReferenceOption } from "@/shared/grid/grid-config";
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
@@ -33,6 +34,7 @@ import {
     buildAddRowAction,
     buildClipboardActions,
     buildDeleteAction,
+    buildExportAction,
     buildHistoryActions,
 } from "@/shared/ui/action-items";
 import { AppHeader } from "@/shared/ui/app-header";
@@ -44,12 +46,26 @@ import { toGridRow, type ClipboardActions } from "@/shared/ui/text-helpers";
 import { ToolbarFilters } from "@/shared/ui/toolbar-filters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useTableExport, type ExportMode } from "@/shared/ui/use-table-export";
 import { readToolbarFilters, useToolbarFilters } from "@/shared/ui/use-toolbar-filters";
 import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
 import { GridLoadError } from "@/shared/ui/workspace-feedback";
 import { WorkspaceContent, WorkspaceFullscreenPanels } from "@/shared/ui/workspace-layout";
 import { useDeleteShortcut } from "@/shared/ui/workspace-shortcuts";
+
+/** What a section reports so the workspace can render the export action. */
+type LogisticsExportState = {
+    pending: boolean;
+    rowCount: number;
+    onExport: (mode: ExportMode) => void;
+};
+
+const EMPTY_EXPORT_STATE: LogisticsExportState = {
+    pending: false,
+    rowCount: 0,
+    onExport: () => {},
+};
 
 /**
  * The «Логистика» workspace.
@@ -215,6 +231,7 @@ export function LogisticsWorkspace({
         return typeof stored === "string" ? stored : initialRatePeriod.year;
     });
     const [undoActions, setUndoActions] = useState(EMPTY_UNDO_ACTIONS);
+    const [exportState, setExportState] = useState<LogisticsExportState>(EMPTY_EXPORT_STATE);
     const [sectionRoom, setSectionRoom] = useState<CollabRoom | null>(null);
     const { setFilter: setPanelFilter } = useToolbarFilters("logisticsRates");
     const [deleteState, setDeleteState] = useState<{
@@ -379,6 +396,12 @@ export function LogisticsWorkspace({
                   shortcut: { key: "Del", aria: "Control+Delete" },
               })
             : []),
+        buildExportAction({
+            pending: exportState.pending,
+            disabled: exportState.pending || isFullscreenPending,
+            rowCount: exportState.rowCount,
+            onExport: exportState.onExport,
+        }),
     ];
 
     const toolbar = (
@@ -505,6 +528,7 @@ export function LogisticsWorkspace({
                             onResetState={setGridResetState}
                             onUndoStateChange={setUndoActions}
                             onDeleteState={setDeleteState}
+                            onExportState={setExportState}
                             onRoomChange={setSectionRoom}
                         />
                     ) : selectedTab.section === "logisticsUsers" ? (
@@ -520,6 +544,7 @@ export function LogisticsWorkspace({
                             onResetState={setGridResetState}
                             onDeleteState={setDeleteState}
                             onUserCreateState={setUserCreateState}
+                            onExportState={setExportState}
                         />
                     ) : (
                         <LogisticsDictionarySection
@@ -533,6 +558,7 @@ export function LogisticsWorkspace({
                             onSelectionDetailChange={setSelectionDetail}
                             onClipboardStateChange={handleClipboardState}
                             onResetState={setGridResetState}
+                            onExportState={setExportState}
                         />
                     )
                 ) : null}
@@ -566,6 +592,7 @@ function LogisticsDictionarySection({
     onSelectionDetailChange,
     onClipboardStateChange,
     onResetState,
+    onExportState,
 }: {
     section: LogisticsSectionId;
     load: () => Promise<LogisticsDictionary<LogisticsRow>>;
@@ -579,6 +606,7 @@ function LogisticsDictionarySection({
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
     }) => void;
+    onExportState: (state: LogisticsExportState) => void;
 }) {
     const gridRef = useRef<DataGridHandle>(null);
     const [sorted, setSorted] = useState(false);
@@ -591,6 +619,18 @@ function LogisticsDictionarySection({
         section,
     ]);
     const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
+    const { pending: exportPending, exportTable } = useTableExport({
+        gridRef,
+        fileName: () => exportFileName(section, null),
+        request: (view, fileName) =>
+            exportLogisticsTable({
+                section,
+                headerPinned,
+                columns: view.columns,
+                rowIds: view.rowIds,
+                fileName,
+            }),
+    });
 
     const rows = useMemo(() => data?.rows ?? [], [data]);
     const gridRows = useMemo(() => rows.map((row) => toGridRow(row)), [rows]);
@@ -614,6 +654,10 @@ function LogisticsDictionarySection({
         }
         return [];
     }, [mergeDisabled, rows, section]);
+
+    useEffect(() => {
+        onExportState({ pending: exportPending, rowCount: rows.length, onExport: exportTable });
+    }, [exportPending, exportTable, onExportState, rows.length]);
 
     useEffect(() => {
         onResetState({

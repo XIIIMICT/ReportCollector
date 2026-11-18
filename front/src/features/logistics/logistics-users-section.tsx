@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
     createLogisticsUser,
     deleteLogisticsUser,
+    exportLogisticsTable,
     getLogisticsOrgs,
     getLogisticsUsers,
     updateLogisticsUserCell,
@@ -15,7 +16,7 @@ import {
 } from "@/shared/api/logistics";
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import { DataGrid, type DataGridHandle, type GridViewStats } from "@/shared/grid/data-grid";
-import type { GridRow, ReferenceOption } from "@/shared/grid/grid-config";
+import { exportFileName, type GridRow, type ReferenceOption } from "@/shared/grid/grid-config";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { NO_ROW_SELECTED_REASON, DeleteRecordDialog } from "@/shared/ui/action-items";
@@ -35,6 +36,7 @@ import {
     type ClipboardActions,
 } from "@/shared/ui/text-helpers";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useTableExport, type ExportMode } from "@/shared/ui/use-table-export";
 import { GridLoadError } from "@/shared/ui/workspace-feedback";
 
 const gridWarnings = gridWarningHandlers({ lockedVerb: "редактирует" });
@@ -56,7 +58,7 @@ function userFields(assetOptions: AddRecordFieldOption[]): AddRecordField[] {
             label: "Роль",
             kind: "select",
             options: [
-                { id: "blocked", name: "Заблокирован" },
+                { id: "blocked", name: "Заблокирован", danger: true },
                 { id: "reviewer", name: "Ревьюер" },
                 { id: "asset_worker", name: "Работник на активе" },
                 { id: "admin", name: "Администратор" },
@@ -93,6 +95,7 @@ export function LogisticsUsersSection({
     onResetState,
     onDeleteState,
     onUserCreateState,
+    onExportState,
 }: {
     keycloakEnabled: boolean;
     headerPinned: boolean;
@@ -111,6 +114,11 @@ export function LogisticsUsersSection({
         onDelete: () => void;
     }) => void;
     onUserCreateState: (state: { canCreate: boolean; onCreate: () => void }) => void;
+    onExportState: (state: {
+        pending: boolean;
+        rowCount: number;
+        onExport: (mode: ExportMode) => void;
+    }) => void;
 }) {
     const gridRef = useRef<DataGridHandle>(null);
     const [reloadKey, setReloadKey] = useState(0);
@@ -129,6 +137,25 @@ export function LogisticsUsersSection({
     );
     const { data: orgs } = useAsyncData(() => getLogisticsOrgs(), []);
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
+    const { pending: exportPending, exportTable } = useTableExport({
+        gridRef,
+        fileName: () => exportFileName("logisticsUsers", null),
+        request: (view, fileName) =>
+            exportLogisticsTable({
+                section: "logisticsUsers",
+                headerPinned,
+                columns: view.columns,
+                rowIds: view.rowIds,
+                fileName,
+            }),
+    });
+    useEffect(() => {
+        onExportState({
+            pending: exportPending,
+            rowCount: rows?.length ?? 0,
+            onExport: exportTable,
+        });
+    }, [exportPending, exportTable, onExportState, rows]);
     const assetReference = useMemo<ReferenceOption[]>(
         () => (orgs?.rows ?? []).map((row) => ({ id: row.id, name: row.prefixRu })),
         [orgs],

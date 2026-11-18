@@ -8,6 +8,8 @@ import { SmartSelect } from "@/shared/ui/smart-select";
 type SelectOption = {
     value: string;
     label: string;
+    /** Rendered in the danger color (the «Заблокирован» role). */
+    danger?: boolean;
 }; /** Wrap an in-cell editor: stops the grid's pointer/keyboard handling and closes on Escape. */
 function EditorShell({ children, close }: { children: React.ReactNode; close: () => void }) {
     const rootRef = useRef<HTMLDivElement>(null);
@@ -44,7 +46,11 @@ export function SelectEditor({ column, save, close }: EditorType) {
             <SmartSelect
                 ariaLabel={String(column.column.name)}
                 placeholder="Выберите значение"
-                options={options.map((option) => ({ id: option.value, name: option.label }))}
+                options={options.map((option) => ({
+                    id: option.value,
+                    name: option.label,
+                    ...(option.danger && { danger: true }),
+                }))}
                 value={current || null}
                 onChange={(value) => save(typeof value === "string" ? value : "")}
                 embedded

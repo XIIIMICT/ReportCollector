@@ -17,7 +17,9 @@ User-facing strings (error messages) are Russian by the project standard.
 """
 
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Literal, Protocol
+
+from pydantic import BaseModel, Field
 
 MAX_EXPORT_ROWS = 100_000
 MAX_EXPORT_COLUMNS = 64
@@ -60,6 +62,23 @@ ERROR_EXPORT_TOO_LARGE = (
     "Выгрузка превышает 4 ГБ — Excel не сможет открыть такой файл. "
     "Сузьте область выгрузки (блок, предприятие или набор строк)."
 )
+
+
+class ExportColumnRequest(BaseModel):
+    """
+    One exported table column — the shared request shape of every project.
+
+    It lives here, next to the plumbing that validates it, so a project's
+    schemas never have to import another project's module (КППК and
+    «Логистика» used to take it from «Сырьё»).
+    """
+
+    key: str = Field(min_length=1, max_length=64)
+    headerPath: list[str] = Field(min_length=1, max_length=3)
+    width: float = Field(default=12.0, ge=1.0, le=100.0)
+    numberFormat: str | None = None
+    horizontalAlignment: Literal["left", "center", "right"] | None = None
+    verticalAlignment: Literal["top", "center", "bottom"] | None = None
 
 
 class ExportColumnLike(Protocol):

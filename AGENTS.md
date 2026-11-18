@@ -47,7 +47,9 @@ organization prefixes; its «Пользователи» tab manages the project 
 the administrator role). Nothing in this application writes to `dict` — no
 migration creates it and no seeder touches it; a missing table returns a short
 built-in demo list with `source="fallback"`, and the grid warns about it. Every
-read filters `deleted_at IS NULL` on every joined table.
+read filters `deleted_at IS NULL` on every joined table. Every logistics grid
+exports to Excel through `POST /api/logistics/export` (inline XLSX; the rates
+require the period and are scoped by role, «Пользователи» is admin-only).
 Migration `0032_logistics` creates the project row and the
 `logistics_price_kind` enum; migrations `0033_logistics_hazard_classes` /
 `0034_logistics_table_prefix` create and seed the application-owned «Класс

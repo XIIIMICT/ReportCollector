@@ -123,8 +123,7 @@ different milestones. Do not reopen the explicit product deferrals below.
   route points are read-only placeholders that stay NULL, and the dollar rate is
   the constant `83.90` until the corporate source provides it. Undoing a
   transport-type change restores the transport but not the vehicle type the
-  change had cleared (the dependent clear is not journaled). Excel export of the
-  read-only dictionaries is not built. The `dict`
+  change had cleared (the dependent clear is not journaled). The `dict`
   schema is external and must never be written by this application.
 - The «Заблокирован» ROLE drives every project: «Логистика», «Сырьё», «КППК»
   and «Ремонт» edit a membership role and the access bit is derived from it

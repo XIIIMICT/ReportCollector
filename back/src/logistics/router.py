@@ -1,10 +1,13 @@
 """«Логистика» API: read-only dictionaries backed by the external `dict` schema."""
 
+from collections.abc import Sequence
 from datetime import date
 from typing import Annotated
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.models import ProjectRole
@@ -15,23 +18,28 @@ from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.persistence import JournalStore
 from src.collab.schemas import UndoConflictRead, UndoRequest, UndoResponse, UndoStateRead
 from src.collab.undo import UndoOutcome, redo_last_undo, undo_last_edit
+from src.common.export import ExportValidationError
 from src.database import get_session
+from src.downloads import XLSX_MEDIA_TYPE
 
 from .constants import LOGISTICS_PROJECT_KEY, LOGISTICS_SECTION_RATES
 from .core import LogisticsNotFoundError, LogisticsSourceUnavailableError, LogisticsValidationError
 from .dictionaries import read_countries, read_hazard_classes, read_orgs, read_transport_types
+from .export import render_workbook, validate_request
 from .models import LogisticsRate
 from .rates import (
     create_rate,
     delete_rate,
     rate_snapshot,
     read_rate_row,
+    read_rate_rows,
     read_rate_view,
     update_rate_cell,
 )
 from .schemas import (
     LogisticsCountryRowRead,
     LogisticsDictionaryRead,
+    LogisticsExportViewRequest,
     LogisticsHazardClassRowRead,
     LogisticsOrgRowRead,
     LogisticsRateCellUpdate,
@@ -168,6 +176,71 @@ async def get_logistics_users(
 ) -> list[LogisticsUserRowRead]:
     """«Пользователи» of the «Логистика» project (admin only)."""
     return await read_logistics_user_rows(session)
+
+
+# ─── Excel export ─────────────────────────────────────────────────────────
+
+
+async def _export_rows(
+    session: AsyncSession, request: LogisticsExportViewRequest, access: LogisticsAccess
+) -> Sequence[BaseModel]:
+    """Load the rows of the exported section (the rates are role-scoped)."""
+    rows: Sequence[BaseModel]
+    if request.section == "logisticsRates":
+        month = request.month
+        year = request.year
+        if month is None or year is None:
+            message = "Для выгрузки ставок выберите месяц и год."
+            raise ExportValidationError(message)
+        scope = access.asset_ids if access.role == ProjectRole.ASSET_WORKER else None
+        rows = list(
+            await read_rate_rows(
+                session,
+                period_date=date(year, month, 1),
+                asset_ids=scope,
+            )
+        )
+    elif request.section == "logisticsCountries":
+        rows = list((await read_countries(session)).rows)
+    elif request.section == "logisticsTransportTypes":
+        rows = list((await read_transport_types(session)).rows)
+    elif request.section == "logisticsOrgs":
+        rows = list((await read_orgs(session)).rows)
+    else:
+        rows = list(await read_logistics_user_rows(session))
+    if request.rowIds is not None:
+        wanted = set(request.rowIds)
+        rows = [row for row in rows if str(getattr(row, "id", "")) in wanted]
+    return rows
+
+
+@router.post("/export")
+async def export_section(
+    request: LogisticsExportViewRequest,
+    session: SessionDependency,
+    access: AccessDependency,
+) -> Response:
+    """Render one «Логистика» grid as XLSX («вся» / «видимая», like every table)."""
+    try:
+        validate_request(request)
+    except ExportValidationError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+    if request.section == "logisticsUsers" and not access.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Выгружать пользователей может только администратор проекта.",
+        )
+    try:
+        rows = await _export_rows(session, request, access)
+    except LogisticsSourceUnavailableError as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+    payload = render_workbook(request, rows)
+    quoted = quote(request.fileName)
+    return Response(
+        content=payload,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"},
+    )
 
 
 # ─── «Ставки» (the main table) ────────────────────────────────────────────

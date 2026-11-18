@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, model_validator
 _EMPTY_ASSET_UPDATE = "Задайте хотя бы одно поле: name или repairCode"
 _EMPTY_OPTION_UPDATE = "Задайте поле label"
 
-from src.raw_materials.schemas import ExportColumnRequest  # noqa: TC001
+from src.common.export import ExportColumnRequest  # noqa: TC001 — Pydantic needs the runtime model
 from src.renovation.models import RBlock, RProjectRole
 
 SectionId = Literal["renovationPlan"]

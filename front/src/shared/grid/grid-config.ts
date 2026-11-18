@@ -79,6 +79,8 @@ export type ColumnKind =
 export type SelectOption = {
     value: string;
     label: string;
+    /** Rendered in the danger color in the dropdown (the «Заблокирован» role). */
+    danger?: boolean;
 };
 
 export type ColumnDescriptor = {
@@ -297,7 +299,7 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
             options: [
                 { value: "admin", label: "Администратор" },
                 { value: "asset_worker", label: "Работник на активе" },
-                { value: "blocked", label: "Заблокирован" },
+                { value: "blocked", label: "Заблокирован", danger: true },
             ],
         },
         {
@@ -366,7 +368,7 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
             kind: "select",
             options: [
                 { value: "admin", label: "Администратор" },
-                { value: "blocked", label: "Заблокирован" },
+                { value: "blocked", label: "Заблокирован", danger: true },
             ],
         },
         { key: "orgNames", label: "ДЗО", width: 200, kind: "assetsMulti", readOnly: true },
@@ -418,7 +420,7 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
                 { value: "admin", label: "Администратор" },
                 { value: "reviewer", label: "Ревьюер" },
                 { value: "asset_worker", label: "Работник на активе" },
-                { value: "blocked", label: "Заблокирован" },
+                { value: "blocked", label: "Заблокирован", danger: true },
             ],
         },
         {
@@ -458,7 +460,7 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
             { value: "approver", label: "Утверждающий" },
             { value: "block_owner", label: "Ответственный за блок" },
             { value: "asset_worker", label: "Работник по активу" },
-            { value: "blocked", label: "Заблокирован" },
+            { value: "blocked", label: "Заблокирован", danger: true },
         ]),
         {
             ...optionSelect("block", "Дирекция", 200, [

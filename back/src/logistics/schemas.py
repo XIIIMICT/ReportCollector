@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field
 
 from src.auth.models import ProjectRole
+from src.common.export import ExportColumnRequest  # noqa: TC001 — Pydantic needs the runtime model
 
 from .models import LogisticsPriceKind  # noqa: TC001 — Pydantic needs the runtime enum
 
@@ -169,6 +170,27 @@ class LogisticsRateViewRead(BaseModel):
     periodDate: date
     usdRate: float
     rows: list[LogisticsRateRowRead]
+
+
+class LogisticsExportViewRequest(BaseModel):
+    """Excel export of a «Логистика» grid («вся» / «видимая»)."""
+
+    section: Literal[
+        "logisticsRates",
+        "logisticsCountries",
+        "logisticsTransportTypes",
+        "logisticsOrgs",
+        "logisticsUsers",
+    ]
+    headerPinned: bool = True
+    columns: list[ExportColumnRequest] = Field(min_length=1, max_length=64)
+    # Rates rows are UUIDs, the dictionary rows are string ids (including the
+    # built-in fallback ids) — the export accepts either as text.
+    rowIds: list[str] | None = None
+    fileName: str = Field(min_length=1, max_length=255)
+    # «Ставки» are period-scoped: the grid shows one month/year.
+    month: int | None = Field(default=None, ge=1, le=12)
+    year: int | None = Field(default=None, ge=2025, le=2028)
 
 
 class LogisticsDictionaryRead[T](BaseModel):

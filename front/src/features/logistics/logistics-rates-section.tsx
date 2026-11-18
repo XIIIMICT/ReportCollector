@@ -8,6 +8,7 @@ import { rateDirection, rateUsd } from "@/features/logistics/logistics-rates-rul
 import {
     createLogisticsRate,
     deleteLogisticsRate,
+    exportLogisticsTable,
     getLogisticsCountries,
     getLogisticsHazardClasses,
     getLogisticsOrgs,
@@ -35,7 +36,12 @@ import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room"
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import { DataGrid, type DataGridHandle, type GridViewStats } from "@/shared/grid/data-grid";
-import type { GridRow, ReferenceOption, SelectOption } from "@/shared/grid/grid-config";
+import {
+    exportFileName,
+    type GridRow,
+    type ReferenceOption,
+    type SelectOption,
+} from "@/shared/grid/grid-config";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useScopedAsyncData } from "@/shared/hooks/use-scoped-async-data";
@@ -50,6 +56,7 @@ import {
     type ClipboardActions,
 } from "@/shared/ui/text-helpers";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
+import { useTableExport, type ExportMode } from "@/shared/ui/use-table-export";
 import { GridLoadError } from "@/shared/ui/workspace-feedback";
 
 const gridWarnings = gridWarningHandlers({ lockedVerb: "редактирует" });
@@ -251,6 +258,7 @@ export function LogisticsRatesSection({
     onResetState,
     onUndoStateChange,
     onDeleteState,
+    onExportState,
     onRoomChange,
 }: {
     month: number;
@@ -279,6 +287,11 @@ export function LogisticsRatesSection({
         canDelete: boolean;
         blockedReason: string | null;
         onDelete: () => void;
+    }) => void;
+    onExportState: (state: {
+        pending: boolean;
+        rowCount: number;
+        onExport: (mode: ExportMode) => void;
     }) => void;
     onRoomChange: (room: CollabRoom | null) => void;
 }) {
@@ -779,6 +792,28 @@ export function LogisticsRatesSection({
     }, [isAdminRole, isMutationPending, onDeleteState, selectedRowIds.length]);
 
     const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
+
+    const { pending: exportPending, exportTable } = useTableExport({
+        gridRef,
+        fileName: () => exportFileName("logisticsRates", periodDate),
+        request: (view, fileName) =>
+            exportLogisticsTable({
+                section: "logisticsRates",
+                headerPinned,
+                columns: view.columns,
+                rowIds: view.rowIds,
+                fileName,
+                month,
+                year,
+            }),
+    });
+    useEffect(() => {
+        onExportState({
+            pending: exportPending,
+            rowCount: data?.rows.length ?? 0,
+            onExport: exportTable,
+        });
+    }, [data, exportPending, exportTable, onExportState]);
 
     if (error) {
         return <GridLoadError error={error} />;

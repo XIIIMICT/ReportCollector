@@ -13,6 +13,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from src.auth.emails import normalize_email
 from src.auth.models import ProjectRole  # noqa: TC001 — Pydantic needs the runtime enum
+from src.common.export import ExportColumnRequest  # noqa: TC001 — Pydantic needs the runtime model
 
 SectionId = Literal[
     "materialMovement",
@@ -23,17 +24,6 @@ SectionId = Literal[
     "users",
 ]
 """Workspace section ids (match the frontend)."""
-
-
-class ExportColumnRequest(BaseModel):
-    """Exported table column: key, header path, width, number format."""
-
-    key: str = Field(min_length=1, max_length=64)
-    headerPath: list[str] = Field(min_length=1, max_length=3)
-    width: float = Field(default=12.0, ge=1.0, le=100.0)
-    numberFormat: str | None = None
-    horizontalAlignment: Literal["left", "center", "right"] | None = None
-    verticalAlignment: Literal["top", "center", "bottom"] | None = None
 
 
 class ExportViewRequest(BaseModel):

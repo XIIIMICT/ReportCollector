@@ -221,7 +221,7 @@ function rawUserFields(assets: ReferenceOption[]): AddRecordField[] {
             key: "role",
             label: "Роль",
             options: [
-                { id: "blocked", name: "Заблокирован" },
+                { id: "blocked", name: "Заблокирован", danger: true },
                 { id: "asset_worker", name: "Работник на активе" },
                 { id: "admin", name: "Администратор" },
             ],

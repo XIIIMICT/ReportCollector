@@ -228,7 +228,7 @@ const USER_FIELDS: AddRecordField[] = [
         kind: "select",
         options: [
             { id: "admin", name: "Администратор" },
-            { id: "blocked", name: "Заблокирован" },
+            { id: "blocked", name: "Заблокирован", danger: true },
         ],
     },
 ];
