@@ -1,5 +1,6 @@
 "use client";
 
+import { Input } from "@heroui/react";
 import { CellMergePlugin } from "@revolist/rv-pro-trial";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -447,9 +448,16 @@ export function LogisticsWorkspace({
                 }}
             />
             {usdRate !== null ? (
-                <span className="toolbar-filters__caption">
-                    Курс валюты: {USD_RATE_FORMAT.format(usdRate)}
-                </span>
+                <>
+                    <span className="toolbar-filters__caption">Курс валюты:</span>
+                    <Input
+                        aria-label="Курс валюты"
+                        value={USD_RATE_FORMAT.format(usdRate)}
+                        readOnly
+                        variant="secondary"
+                        className="toolbar-filters__rate-input"
+                    />
+                </>
             ) : null}
         </>
     );
@@ -574,6 +582,8 @@ export function LogisticsWorkspace({
                             onExportState={setExportState}
                             onUndoStateChange={setUndoActions}
                             onRoomChange={setSectionRoom}
+                            showServiceColumns={showServiceColumns}
+                            onServiceColumnsChange={setShowServiceColumns}
                         />
                     ) : (
                         <LogisticsDictionarySection

@@ -2167,9 +2167,18 @@ function DataGridInner(
         // scrolled fully into view (live DOM: header 3770, row header 52).
         const header = grid.querySelector(".rgCol revogr-header") as HTMLElement | null;
         const dataWidth = header && header.offsetWidth > 0 ? header.offsetWidth : size.x;
-        const width = dataWidth + ROW_HEADER_WIDTH + scrollbarGutter;
-        setHorizontalContentWidth(width);
+        // The grid keeps a small right gutter inside the shell so the service
+        // reveal button (centred on the table's right boundary) never reaches
+        // the shell edge / vertical scrollbar. The viewport is that much
+        // narrower, so the strip's spacer must GROW by the same gutter —
+        // otherwise its scroll range stops short of the last column.
         const shell = shellRef.current;
+        const rightGutter = shell
+            ? Number.parseFloat(getComputedStyle(shell).getPropertyValue("--grid-right-gutter")) ||
+              0
+            : 0;
+        const width = dataWidth + ROW_HEADER_WIDTH + scrollbarGutter + rightGutter;
+        setHorizontalContentWidth(width);
         setHasHorizontalOverflow(width > (shell?.clientWidth ?? 0));
     }, [measureVerticalScrollbarLane]);
 

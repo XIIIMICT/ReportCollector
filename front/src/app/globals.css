@@ -602,13 +602,21 @@ body {
     max-width: 40rem;
 }
 
-/* A read-only caption beside the inline filters («Период:», the «Логистика»
-   currency rate). Normal text colour, single line, vertically centred. */
+/* A read-only caption beside the inline filters («Период:», «Курс валюты:»).
+   Normal text colour, single line, vertically centred. */
 .toolbar-filters__caption {
     flex: 0 0 auto;
     font-size: 0.875rem;
     line-height: 1.2;
     white-space: nowrap;
+}
+
+/* The read-only currency value: a compact HeroUI Input that matches the
+   pickers' height, never grows with the row. */
+.toolbar-filters__rate-input {
+    width: 5.5rem;
+    flex: 0 0 auto;
+    text-align: center;
 }
 
 .toolbar-filters__row {
@@ -1825,6 +1833,18 @@ body {
     height: 100%;
     background: var(--surface);
     overflow: hidden;
+    /* The grid keeps this gutter on its right: the service reveal button is
+       centred on the table's right boundary, so without the gutter its right
+       half would sit on the shell edge / vertical scrollbar. Read by
+       `refreshHorizontalScrollbar` — keep the two in sync. */
+    --grid-right-gutter: 12px;
+}
+
+.revo-grid-shell .data-grid {
+    /* `width: 100%` plus a margin would overflow the shell: the grid must be
+       narrowed by the gutter so the margin lands INSIDE the shell. */
+    width: calc(100% - var(--grid-right-gutter));
+    margin-right: var(--grid-right-gutter);
 }
 
 .revo-grid-vertical-scroller {

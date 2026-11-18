@@ -112,6 +112,8 @@ function assetNamesOf(value: unknown): string[] {
 export function LogisticsUsersSection({
     keycloakEnabled,
     headerPinned,
+    showServiceColumns,
+    onServiceColumnsChange,
     rowHeight,
     onGridStatsChange,
     onSelectionLabelChange,
@@ -126,6 +128,8 @@ export function LogisticsUsersSection({
 }: {
     keycloakEnabled: boolean;
     headerPinned: boolean;
+    showServiceColumns: boolean;
+    onServiceColumnsChange: (visible: boolean) => void;
     rowHeight: number;
     onGridStatsChange: (stats: GridViewStats) => void;
     onSelectionLabelChange: (label: string | null) => void;
@@ -410,7 +414,8 @@ export function LogisticsUsersSection({
                         readOnly={isMutationPending}
                         hasBaseline={false}
                         headerPinned={headerPinned}
-                        showServiceColumns={false}
+                        showServiceColumns={showServiceColumns}
+                        onServiceColumnsChange={onServiceColumnsChange}
                         rowHeight={rowHeight}
                         scrollPosition={{ form: "logistics:logisticsUsers" }}
                         assets={assetReference}
