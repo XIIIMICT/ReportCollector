@@ -469,6 +469,22 @@ async def test_upgrade_fresh_schema(migration_engine) -> None:
             )
         )
         assert diffs == []
+        # compare_metadata does not diff ENUM VALUES, so the roles the UI offers
+        # are asserted explicitly: 0036/0038 append them to the shared enums.
+        labels = (
+            await conn.execute(
+                text(
+                    "SELECT t.typname, e.enumlabel FROM pg_enum e "
+                    "JOIN pg_type t ON t.oid = e.enumtypid "
+                    "WHERE t.typname IN ('rm_project_role', 'r_project_role')"
+                )
+            )
+        ).all()
+        by_type: dict[str, set[str]] = {}
+        for type_name, label in labels:
+            by_type.setdefault(type_name, set()).add(label)
+        assert {"admin", "asset_worker", "reviewer", "blocked"} <= by_type["rm_project_role"]
+        assert {"admin", "approver", "block_owner", "asset_worker", "blocked"} <= by_type["r_project_role"]
 
 
 _KPPK_COPY_TABLES = (

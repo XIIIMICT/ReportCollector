@@ -458,14 +458,30 @@ const DESCRIPTORS: Partial<Record<SectionId, ColumnDescriptor[]>> = {
             { value: "approver", label: "Утверждающий" },
             { value: "block_owner", label: "Ответственный за блок" },
             { value: "asset_worker", label: "Работник по активу" },
+            { value: "blocked", label: "Заблокирован" },
         ]),
-        optionSelect("block", "Дирекция", 200, [
-            { value: "tech", label: "Техническая дирекция" },
-            { value: "ksir", label: "Дирекция КСиР" },
-            { value: "mto", label: "Дирекция МТО" },
-        ]),
-        { key: "assetNames", label: "Активы", width: 200, kind: "assetsMulti" },
-        { key: "isActive", label: "Доступ к проекту", width: 120, kind: "boolean" },
+        {
+            ...optionSelect("block", "Дирекция", 200, [
+                { value: "tech", label: "Техническая дирекция" },
+                { value: "ksir", label: "Дирекция КСиР" },
+                { value: "mto", label: "Дирекция МТО" },
+            ]),
+            // The directorate belongs to the roles that work inside a block.
+            cellTitle: (row) =>
+                row.role === "block_owner" || row.role === "asset_worker"
+                    ? undefined
+                    : "Выберите роль ответственного за блок или работника по активу, чтобы указать дирекцию",
+        },
+        {
+            key: "assetNames",
+            label: "Активы",
+            width: 200,
+            kind: "assetsMulti",
+            cellTitle: (row) =>
+                row.role === "asset_worker"
+                    ? undefined
+                    : "Сначала выберите роль работника по активу, чтобы закрепить актив",
+        },
         {
             key: "lastAuthenticatedAt",
             label: "Время последнего входа",

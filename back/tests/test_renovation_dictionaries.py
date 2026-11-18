@@ -440,16 +440,29 @@ async def test_users_create_read_patch(
         f"/api/renovation/dictionary/users/{created['id']}",
         headers=ADMIN_HEADERS,
         params={"session_id": TEST_SESSION_ID},
-        json={"isActive": False, "role": "admin"},
+        json={"role": "blocked"},
     )
     assert response.status_code == 200
     updated = response.json()
+    # The role is the source of truth: «Заблокирован» means no access and no
+    # directorate/asset grants.
     assert updated["isActive"] is False
-    assert updated["role"] == "admin"
+    assert updated["role"] == "blocked"
     assert updated["block"] is None
-    # Admin implicitly sees all assets — the grid shows an empty list.
     assert updated["assetNames"] == []
     assert updated["lastAuthenticatedAt"] is None
+
+    # A working role restores access; the directorate comes back with it.
+    promoted = await client.patch(
+        f"/api/renovation/dictionary/users/{created['id']}",
+        headers=ADMIN_HEADERS,
+        params={"session_id": TEST_SESSION_ID},
+        json={"role": "admin"},
+    )
+    assert promoted.status_code == 200
+    assert promoted.json()["isActive"] is True
+    assert promoted.json()["block"] is None
+    assert promoted.json()["assetNames"] == []
 
     rows = await client.get("/api/renovation/dictionary/users", headers=ADMIN_HEADERS)
     emails = [row["email"] for row in rows.json()]

@@ -114,6 +114,7 @@ const RENOVATION_ROLE_OPTIONS = [
     { id: "approver", name: "Утверждающий" },
     { id: "block_owner", name: "Ответственный за блок" },
     { id: "asset_worker", name: "Работник по активу" },
+    { id: "blocked", name: "Заблокирован" },
 ];
 
 const RENOVATION_BLOCK_OPTIONS = [
@@ -125,7 +126,8 @@ const RENOVATION_BLOCK_OPTIONS = [
 const RENOVATION_USER_DEFAULTS: Record<string, unknown> = {
     email: "",
     fullname: "",
-    role: "asset_worker",
+    // A new member opens nothing until an admin grants a working role.
+    role: "blocked",
     block: "",
     assetNames: [],
 };
@@ -134,6 +136,22 @@ const RENOVATION_USER_DEFAULTS: Record<string, unknown> = {
 function roleNeedsBlock(values: AddRecordValues): boolean {
     const role = String(values.role ?? "");
     return role === "block_owner" || role === "asset_worker";
+}
+
+/**
+ * Lock the cells the current role cannot fill.
+ *
+ * «Дирекция» belongs to the block roles, «Активы» to the asset worker; the
+ * locked cell explains itself with a HeroUI tooltip (see `cellTitle` on the
+ * descriptors). Recomputed after a remote role change too.
+ */
+function applyRenovationUserLocks(row: GridRow): GridRow {
+    const role = String(row.role ?? "");
+    const locked: string[] = [];
+    if (role !== "block_owner" && role !== "asset_worker") locked.push("block");
+    if (role !== "asset_worker") locked.push("assetNames");
+    row.lockedCells = locked;
+    return row;
 }
 
 /** Only an asset worker gets an explicit asset grant — everyone else covers all. */
@@ -374,6 +392,7 @@ export function RenovationDictionarySection({
             gridRow.readOnlyRow =
                 dictSection === RENOVATION_USERS_SECTION &&
                 String(source.email ?? "").toLowerCase() === currentUserEmail?.toLowerCase();
+            if (dictSection === RENOVATION_USERS_SECTION) applyRenovationUserLocks(gridRow);
             if (!collabEnabled) return gridRow;
             gridRow.canonicalCells = {};
             for (const field of editableFieldKeys) {
@@ -399,19 +418,23 @@ export function RenovationDictionarySection({
                 if (!merged) merged = { ...row };
                 merged[field] = value;
             }
-            return merged ?? row;
+            return merged
+                ? dictSection === RENOVATION_USERS_SECTION
+                    ? applyRenovationUserLocks(merged)
+                    : merged
+                : row;
         });
-    }, [editableFieldKeys, gridRows, remoteCellValues]);
+    }, [dictSection, editableFieldKeys, gridRows, remoteCellValues]);
 
     const selectedRows = useMemo(
         () => gridRows.filter((row) => selectedRowIds.includes(row.id)),
         [gridRows, selectedRowIds],
     );
     // Users are deletable too, but only once their access to the project is
-    // revoked (the «Активен» flag off) — the same protective rule as in the
+    // revoked (the role is «Заблокирован») — the same protective rule as in the
     // other projects, enforced by the backend (409).
     const rowsDeletable = selectedRows.filter(
-        (row) => dictSection !== RENOVATION_USERS_SECTION || row.isActive !== true,
+        (row) => dictSection !== RENOVATION_USERS_SECTION || row.role === "blocked",
     );
     const canDelete = rowsDeletable.length > 0;
     const deleteBlockedReason =
@@ -419,7 +442,7 @@ export function RenovationDictionarySection({
             ? "Выберите строку для удаления."
             : canDelete
               ? null
-              : "Сначала снимите доступ пользователя к проекту, затем удаляйте.";
+              : "Сначала заблокируйте пользователя (роль «Заблокирован»), затем удаляйте.";
 
     // Ctrl+Delete — the shortcut advertised on the action-bar delete button:
     // opens the same confirmation dialog as the button press.

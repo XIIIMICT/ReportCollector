@@ -9,6 +9,7 @@ RENOVATION_ROLE_NAMES: dict[RProjectRole, str] = {
     RProjectRole.APPROVER: "Утверждающий",
     RProjectRole.BLOCK_OWNER: "Владелец блока",
     RProjectRole.ASSET_WORKER: "Сотрудник актива",
+    RProjectRole.BLOCKED: "Заблокирован",
 }
 
 # Renovation assets (legal entities) from the legacy renovation-form.json:

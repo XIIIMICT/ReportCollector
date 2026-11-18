@@ -683,6 +683,7 @@ async def set_project_role_active(
     user_id: UUID,
     project_id: UUID,
     active: bool,
+    role: ProjectRole | None = None,
 ) -> None:
     """
     Align a user's project access with the desired state without committing.
@@ -690,9 +691,11 @@ async def set_project_role_active(
     Unlike activate_project_user this covers the negative side too (deactivating
     an existing but empty project link) and leaves transaction ownership to the
     caller, so it can be called inside a larger edit. A missing link (a project
-    the user was never routed through) is created with the asset_worker role and
-    the requested active state — otherwise the user would have a renovation
-    membership nowhere visible to cross-project provisioning.
+    the user was never routed through) is created blocked (or with the given
+    role) — otherwise the user would have a renovation membership nowhere
+    visible to cross-project provisioning. `role` also rewrites an existing
+    link: the renovation membership mirrors «Заблокирован» onto the shared
+    project list.
     """
     existing = (
         await session.exec(
@@ -707,13 +710,19 @@ async def set_project_role_active(
             UserRole(
                 user_id=user_id,
                 project_id=project_id,
-                role=ProjectRole.ASSET_WORKER,
+                role=role or (ProjectRole.ASSET_WORKER if active else ProjectRole.BLOCKED),
                 is_active=active,
             )
         )
         return
+    changed = False
     if existing.is_active != active:
         existing.is_active = active
+        changed = True
+    if role is not None and existing.role != role:
+        existing.role = role
+        changed = True
+    if changed:
         session.add(existing)
 
 

@@ -18,6 +18,10 @@ class RProjectRole(StrEnum):
     APPROVER = "approver"
     BLOCK_OWNER = "block_owner"
     ASSET_WORKER = "asset_worker"
+    # «Заблокирован»: the renovation membership is off. It replaces the
+    # «Доступ» flag at the UI level; `r_user_roles.is_active` stays as the
+    # derived access bit every resolver already reads.
+    BLOCKED = "blocked"
 
 
 class RBlock(StrEnum):

@@ -8,7 +8,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.auth.emails import is_valid_email, normalize_email
-from src.auth.models import Project, User, UserRole
+from src.auth.models import Project, ProjectRole, User, UserRole
 from src.auth.service import set_project_role_active, sync_project_memberships
 from src.collab.journal import AppliedCell
 from src.collab.locking import project_write
@@ -68,10 +68,13 @@ async def _apply_renovation_user_cell(
             message = f"Неизвестная роль «{value}»."
             raise CellValidationError(message) from error
         link.role = new_role
-        if new_role in (RProjectRole.ADMIN, RProjectRole.APPROVER):
+        # The role decides the access bit: «Заблокирован» is the off state.
+        link.is_active = new_role != RProjectRole.BLOCKED
+        if new_role in (RProjectRole.ADMIN, RProjectRole.APPROVER, RProjectRole.BLOCKED):
             link.block = None
         if new_role != RProjectRole.ASSET_WORKER:
-            # Central roles and block owners implicitly see all assets — clear grants.
+            # Central roles and block owners implicitly see all assets, blocked
+            # sees none — clear the grants either way.
             await replace_renovation_user_assets(session, project_id, user_row.id, [])
     elif field == "block":
         if link is None:
@@ -84,7 +87,16 @@ async def _apply_renovation_user_cell(
     elif field == "isActive":
         if link is None:
             raise _DICT_USER_NOT_FOUND
-        link.is_active = bool(value)
+        if bool(value):
+            # Legacy «доступ включён»: a blocked member returns as a worker.
+            if link.role == RProjectRole.BLOCKED:
+                link.role = RProjectRole.ASSET_WORKER
+            link.is_active = True
+        else:
+            link.role = RProjectRole.BLOCKED
+            link.is_active = False
+            link.block = None
+            await replace_renovation_user_assets(session, project_id, user_row.id, [])
     elif field == "assetNames":
         await replace_renovation_user_assets(
             session, project_id, user_row.id, value if isinstance(value, list) else None
@@ -106,6 +118,7 @@ async def _apply_renovation_user_cell(
             user_id=row_id,
             project_id=project_id,
             active=link.is_active,
+            role=ProjectRole.BLOCKED if not link.is_active else None,
         )
 
 
@@ -230,7 +243,9 @@ async def create_renovation_user(
             project_id=project_id,
             role=role,
             block=None if not needs_block else block,
-            is_active=True,
+            # The access flag is derived from the role: only «Заблокирован»
+            # keeps the member out.
+            is_active=role != RProjectRole.BLOCKED,
             created_at=now,
             updated_at=now,
             updater_user_id=updater_user_id,
@@ -274,7 +289,14 @@ async def update_renovation_user(
     old_is_active = link.is_active
     old_asset_names = await _renovation_user_asset_names(session, project_id, user.id)
     new_fullname = fullname.strip() if fullname is not None else old_fullname
-    new_role = role if role is not None else old_role
+    # The role decides the access bit. The legacy `isActive=false` is the same
+    # statement as «Заблокирован», so both inputs converge on the role.
+    if role is not None:
+        new_role = role
+    elif is_active is not None and not is_active:
+        new_role = RProjectRole.BLOCKED
+    else:
+        new_role = old_role
     block_provided = block is not _UNSET
     new_block = block if isinstance(block, RBlock) else (old_block if not block_provided else None)
     if (
@@ -283,22 +305,25 @@ async def update_renovation_user(
         and (role is not None or block_provided)
     ):
         raise _DICT_BLOCK_REQUIRED
-    new_is_active = is_active if is_active is not None else old_is_active
+    new_is_active = new_role != RProjectRole.BLOCKED if (role is not None or is_active is not None) else old_is_active
     if fullname is not None:
         user.name = new_fullname
-    if is_active is not None:
-        link.is_active = is_active
+    link.is_active = new_is_active
     role_changed = new_role != old_role
-    if role is not None:
+    if role_changed:
         link.role = new_role
     if block_provided:
         link.block = new_block
-    # Central admins/approvers drop their block; a block owner keeps theirs
-    # (block_owner is a block role too). Only an asset worker carries per-asset
-    # grants — admin/approver/block_owner implicitly see all assets, so stored
-    # r_user_assets links are cleared for them.
-    central_no_block = new_role in (RProjectRole.ADMIN, RProjectRole.APPROVER)
-    implicit_all_assets = new_role in (RProjectRole.ADMIN, RProjectRole.APPROVER, RProjectRole.BLOCK_OWNER)
+    # Central admins/approvers drop their block; blocked has none either. Only
+    # an asset worker carries per-asset grants — every other role clears them
+    # (admin/approver/block_owner see all assets implicitly, blocked sees none).
+    central_no_block = new_role in (RProjectRole.ADMIN, RProjectRole.APPROVER, RProjectRole.BLOCKED)
+    implicit_all_assets = new_role in (
+        RProjectRole.ADMIN,
+        RProjectRole.APPROVER,
+        RProjectRole.BLOCK_OWNER,
+        RProjectRole.BLOCKED,
+    )
     if role_changed and central_no_block:
         link.block = None
     if implicit_all_assets:
@@ -325,6 +350,7 @@ async def update_renovation_user(
         user_id=user.id,
         project_id=project_id,
         active=link.is_active,
+        role=ProjectRole.BLOCKED if not link.is_active else None,
     )
     await session.flush()
     applied: list[AppliedCell] = []
@@ -473,13 +499,16 @@ async def restore_renovation_user(
         user.name = fullname
         session.add(user)
     link = await session.get(RUserRole, (row_id, project_id))
+    # The access bit follows the role (a snapshot from an older build carries
+    # `isActive`; a new one only the role).
+    restored_active = role != RProjectRole.BLOCKED and bool(snapshot.get("isActive", True))
     if link is None:
         link = RUserRole(
             user_id=row_id,
             project_id=project_id,
             role=role,
             block=block,
-            is_active=bool(snapshot.get("isActive", True)),
+            is_active=restored_active,
             created_at=now,
             updated_at=now,
             updater_user_id=updater_user_id,
@@ -487,7 +516,7 @@ async def restore_renovation_user(
     else:
         link.role = role
         link.block = block
-        link.is_active = bool(snapshot.get("isActive", True))
+        link.is_active = restored_active
         link.updated_at = now
         link.updater_user_id = updater_user_id
     session.add(link)
