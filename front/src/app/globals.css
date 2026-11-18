@@ -612,11 +612,30 @@ body {
 }
 
 /* The read-only currency value: a compact HeroUI Input that matches the
-   pickers' height, never grows with the row. */
+   pickers' height, never grows with the row. The year picker is 70px wide —
+   stay at or below it. */
 .toolbar-filters__rate-input {
-    width: 5.5rem;
+    width: 4.25rem;
     flex: 0 0 auto;
     text-align: center;
+}
+
+/* The toolbar and the footer clip their content (`overflow: hidden` +
+   `contain: paint` drive the collapse animations), which also shaved the outer
+   HeroUI focus ring off the top and bottom. Draw those rings INSIDE the
+   control instead: the outline then follows the border box and is never cut. */
+.toolbar-filters__rate-input:focus,
+.toolbar-filters__rate-input[data-focused="true"] {
+    box-shadow: none;
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+}
+
+.table-footer .action-bar .button:focus-visible,
+.table-footer .action-bar .button[data-focus-visible="true"] {
+    box-shadow: none;
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
 }
 
 .toolbar-filters__row {
