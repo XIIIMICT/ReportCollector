@@ -150,6 +150,33 @@ async def test_dictionary_export_renders_countries(client: AsyncClient) -> None:
     assert ("РФ", "Россия") in values
 
 
+async def test_transport_type_export_merges_the_grouping_column(client: AsyncClient) -> None:
+    response = await _export(
+        client,
+        {
+            "section": "logisticsTransportTypes",
+            "columns": [
+                {"key": "transportType", "headerPath": ["Тип перевозки"], "width": 20},
+                {"key": "vehicleType", "headerPath": ["Тип ТС"], "width": 20},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    sheet = load_workbook(BytesIO(response.content)).active
+    # «Автомобильный» covers two vehicle rows; the left cell is one tall cell.
+    assert "A2:A3" in {str(cell_range) for cell_range in sheet.merged_cells.ranges}
+
+    without_grouping = await _export(
+        client,
+        {
+            "section": "logisticsTransportTypes",
+            "columns": [{"key": "vehicleType", "headerPath": ["Тип ТС"], "width": 20}],
+        },
+    )
+    plain = load_workbook(BytesIO(without_grouping.content)).active
+    assert not list(plain.merged_cells.ranges)
+
+
 async def test_users_export_is_admin_only(client: AsyncClient) -> None:
     await _add_user(client, "reviewer@example.ru", "reviewer")
     response = await _export(

@@ -66,8 +66,9 @@ SECTION_POLICIES: dict[str, SectionPolicy] = {
     "logisticsCountries": _READ_ONLY,
     "logisticsTransportTypes": _READ_ONLY,
     "logisticsOrgs": _READ_ONLY,
-    # Users are authored through a dialog; no room and no undo (admin-only).
-    "logisticsUsers": SectionPolicy(collab="none", undo="none", export="member", row_ops="dialog"),
+    # Users are authored through a dialog but collaborate like every other
+    # users dictionary (admins only) — journaled, undoable, shared live.
+    "logisticsUsers": SectionPolicy(collab="admin", undo="admin", export="member", row_ops="dialog"),
     # The main form: collaborative members, undo/redo, export scoped by role.
     "logisticsRates": SectionPolicy(collab="full", undo="member", export="member", row_ops="none"),
 }

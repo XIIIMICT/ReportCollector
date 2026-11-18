@@ -593,6 +593,24 @@ body {
     overflow: hidden;
 }
 
+/* The «Логистика» period row carries a caption, two pickers and the rate —
+   wider than the generic 22rem collapse cap (which would clip the caption and
+   let the tabs start over it). The hidden state still collapses to zero: the
+   `:not` keeps this cap from outranking `.toolbar-collapse--hidden`, which
+   would leave the invisible row occupying 40rem and push the tabs right. */
+.toolbar-filters__inline.toolbar-collapse:not(.toolbar-collapse--hidden) {
+    max-width: 40rem;
+}
+
+/* A read-only caption beside the inline filters («Период:», the «Логистика»
+   currency rate). Normal text colour, single line, vertically centred. */
+.toolbar-filters__caption {
+    flex: 0 0 auto;
+    font-size: 0.875rem;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
 .toolbar-filters__row {
     display: flex;
     min-width: 0;
@@ -2427,6 +2445,17 @@ body {
     width: 0;
     height: 0;
     pointer-events: none;
+}
+
+/* The floating cell hint is a sentence, not a token. HeroUI's tooltip defaults
+   to `word-break: break-all`, which split «заполнить» into «за»/«полнить» at
+   the capped width — break between words only; a genuinely long token still
+   wraps through `overflow-wrap: break-word`. */
+.grid-cell-tooltip {
+    max-width: 24rem;
+    word-break: normal;
+    overflow-wrap: break-word;
+    text-wrap: pretty;
 }
 
 .lock-tooltip {

@@ -14,6 +14,7 @@ from io import BytesIO
 from typing import TYPE_CHECKING
 
 from src.common.export import (
+    ExportColumnLike,
     ExportValidationError,
     safe_sheet_name,
     validate_columns_allowed,
@@ -74,6 +75,21 @@ ALLOWED_KEYS: dict[str, frozenset[str]] = {
 }
 
 
+# The grid merges the grouping column over its run: «Страны» group by market,
+# «Типы ТС» by the transport type (CellMergePlugin). The export mirrors it —
+# only when that column is actually exported.
+DATA_MERGE_KEYS: dict[str, tuple[str, ...]] = {
+    "logisticsCountries": ("market",),
+    "logisticsTransportTypes": ("transportType",),
+}
+
+
+def merge_rows_by(section: str, columns: Sequence[ExportColumnLike]) -> tuple[str, ...]:
+    """Return the exported grouping columns whose runs the sheet merges."""
+    exported = {column.key for column in columns}
+    return tuple(key for key in DATA_MERGE_KEYS.get(section, ()) if key in exported)
+
+
 def validate_request(request: LogisticsExportViewRequest) -> None:
     """Validate the shared shape, the section allowlist and the rates period."""
     validate_export_shape(request)
@@ -96,6 +112,7 @@ def render_workbook(request: LogisticsExportViewRequest, rows: Sequence[BaseMode
         request.columns,
         header_pinned=request.headerPinned,
         row_total=len(rows),
+        merge_rows_by=merge_rows_by(request.section, request.columns),
     )
     writer.write_rows(rows)
     writer.close()

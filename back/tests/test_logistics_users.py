@@ -28,10 +28,17 @@ async def _project_id(session: AsyncSession) -> UUID:
     return (await session.exec(select(Project.id).where(col(Project.key) == LOGISTICS_PROJECT_KEY))).one()
 
 
-async def _add_user(client: AsyncClient, email: str, role: str, assets: list[str] | None = None) -> dict:
+async def _add_user(
+    client: AsyncClient,
+    email: str,
+    role: str,
+    assets: list[str] | None = None,
+    session_id: str = "",
+) -> dict:
     response = await client.post(
         "/api/logistics/users",
         headers=ADMIN_HEADERS,
+        params={"session_id": session_id} if session_id else None,
         json={"email": email, "fullname": email, "role": role, "assetIds": assets or []},
     )
     assert response.status_code == 201, response.text
@@ -291,3 +298,116 @@ async def test_a_blocked_member_has_no_access(client: AsyncClient) -> None:
         await client.get("/api/logistics/rates", headers=headers, params={"month": 11, "year": 2026})
     ).status_code == 403
     assert (await client.get("/api/logistics/dictionaries/orgs", headers=headers)).status_code == 403
+
+
+async def test_users_collaborate_in_a_room_reserved_for_admins() -> None:
+    """The section policy admits the users room to admins only, with undo."""
+    from src.collab.access import LOGISTICS_SECTIONS
+    from src.common.section_policy import admin_room_section, section_policy
+
+    policy = section_policy("logisticsUsers")
+    assert policy.collab == "admin"
+    assert policy.undo == "admin"
+    assert admin_room_section("logisticsUsers") is True
+    model, fields = LOGISTICS_SECTIONS["logisticsUsers"]
+    assert model.__tablename__ == "app_users"
+    assert fields == frozenset({"fullname", "role", "assetNames"})
+
+
+async def test_user_creation_undo_and_redo(client: AsyncClient) -> None:
+    created = await _add_user(client, "journal@example.ru", "asset_worker", [ORG_BSK], session_id="users-undo")
+    state = await client.get(
+        "/api/logistics/users/undo-state", headers=ADMIN_HEADERS, params={"session_id": "users-undo"}
+    )
+    assert state.json() == {"canUndo": True, "canRedo": False}
+
+    undone = await client.post("/api/logistics/users/undo", headers=ADMIN_HEADERS, params={"session_id": "users-undo"})
+    assert undone.status_code == 200, undone.text
+    assert undone.json()["applied"] is True
+    listed = (await client.get("/api/logistics/users", headers=ADMIN_HEADERS)).json()
+    assert all(row["id"] != created["id"] for row in listed)
+    # The account is soft-deleted only when no project link is left.
+    assert (
+        await client.get("/api/logistics/users/undo-state", headers=ADMIN_HEADERS, params={"session_id": "users-undo"})
+    ).json() == {"canUndo": False, "canRedo": True}
+
+    redone = await client.post("/api/logistics/users/redo", headers=ADMIN_HEADERS, params={"session_id": "users-undo"})
+    assert redone.status_code == 200, redone.text
+    assert redone.json()["applied"] is True
+    restored = next(
+        row
+        for row in (await client.get("/api/logistics/users", headers=ADMIN_HEADERS)).json()
+        if row["id"] == created["id"]
+    )
+    assert restored["role"] == "asset_worker"
+    assert restored["assetIds"] == [ORG_BSK]
+    assert restored["assetNames"] == ["БСК"]
+
+
+async def test_a_role_change_undo_restores_the_asset_grants(client: AsyncClient) -> None:
+    created = await _add_user(
+        client, "role.journal@example.ru", "asset_worker", [ORG_BSK, ORG_SODA], session_id="role-undo"
+    )
+    patched = await client.patch(
+        f"/api/logistics/users/{created['id']}",
+        headers=ADMIN_HEADERS,
+        params={"session_id": "role-undo"},
+        json={"role": "reviewer"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["assetIds"] == []
+
+    undone = await client.post("/api/logistics/users/undo", headers=ADMIN_HEADERS, params={"session_id": "role-undo"})
+    assert undone.status_code == 200, undone.text
+    restored = next(
+        row
+        for row in (await client.get("/api/logistics/users", headers=ADMIN_HEADERS)).json()
+        if row["id"] == created["id"]
+    )
+    assert restored["role"] == "asset_worker"
+    assert restored["assetIds"] == [ORG_BSK, ORG_SODA]
+
+    redone = await client.post("/api/logistics/users/redo", headers=ADMIN_HEADERS, params={"session_id": "role-undo"})
+    assert redone.status_code == 200, redone.text
+    again = next(
+        row
+        for row in (await client.get("/api/logistics/users", headers=ADMIN_HEADERS)).json()
+        if row["id"] == created["id"]
+    )
+    assert again["role"] == "reviewer"
+    assert again["assetIds"] == []
+
+
+async def test_deleting_a_user_is_undoable(client: AsyncClient) -> None:
+    created = await _add_user(client, "delete.journal@example.ru", "blocked", [], session_id="delete-undo")
+    deleted = await client.delete(
+        f"/api/logistics/users/{created['id']}", headers=ADMIN_HEADERS, params={"session_id": "delete-undo"}
+    )
+    assert deleted.status_code == 204
+    assert all(
+        row["id"] != created["id"] for row in (await client.get("/api/logistics/users", headers=ADMIN_HEADERS)).json()
+    )
+
+    undone = await client.post("/api/logistics/users/undo", headers=ADMIN_HEADERS, params={"session_id": "delete-undo"})
+    assert undone.status_code == 200, undone.text
+    restored = next(
+        row
+        for row in (await client.get("/api/logistics/users", headers=ADMIN_HEADERS)).json()
+        if row["id"] == created["id"]
+    )
+    assert restored["role"] == "blocked"
+    assert restored["isActive"] is False
+
+    redone = await client.post("/api/logistics/users/redo", headers=ADMIN_HEADERS, params={"session_id": "delete-undo"})
+    assert redone.status_code == 200, redone.text
+    assert all(
+        row["id"] != created["id"] for row in (await client.get("/api/logistics/users", headers=ADMIN_HEADERS)).json()
+    )
+
+
+async def test_only_admins_see_the_users_undo_state(client: AsyncClient) -> None:
+    await _add_user(client, "reviewer@example.ru", "reviewer")
+    response = await client.get(
+        "/api/logistics/users/undo-state", headers=REVIEWER_HEADERS, params={"session_id": "reviewer"}
+    )
+    assert response.status_code == 403

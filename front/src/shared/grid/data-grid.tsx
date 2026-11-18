@@ -292,6 +292,8 @@ type ClientColumnFilterOptions =
 
 /** Debounce for sending a completed selection to presence (after release). */
 const PRESENCE_DEBOUNCE_MS = 400;
+/** The row-header («№») column width — also part of the table's full width. */
+const ROW_HEADER_WIDTH = 52;
 
 type GridSortingOrder = "asc" | "desc";
 
@@ -1687,7 +1689,7 @@ function DataGridInner(
     const rowHeaders = useMemo<RowHeaders>(
         () => ({
             prop: "__rowNumber",
-            size: 52,
+            size: ROW_HEADER_WIDTH,
             columnTemplate: (h: HyperFunc<VNode>) =>
                 // The corner draws two nodes (the «№» and its funnel); the
                 // row-header template type only declares single-node overloads.
@@ -2158,10 +2160,14 @@ function DataGridInner(
         const scrollbarGutter = verticalScroller
             ? verticalScroller.offsetWidth - verticalScroller.clientWidth
             : 0;
-        // `size.x` already includes the row-header column («№») — adding its
-        // width again produced a phantom horizontal scrollbar on tables that
-        // fit the viewport, and that bar overlapped the last visible row.
-        const width = size.x + scrollbarGutter;
+        // `getContentSize().x` measures the DATA columns only — the row-header
+        // column («№», `rowHeaders.size`) is rendered beside them. The external
+        // strip must span both, or its scroll range stops one row-header width
+        // short of the table's right edge and the last column can never be
+        // scrolled fully into view (live DOM: header 3770, row header 52).
+        const header = grid.querySelector(".rgCol revogr-header") as HTMLElement | null;
+        const dataWidth = header && header.offsetWidth > 0 ? header.offsetWidth : size.x;
+        const width = dataWidth + ROW_HEADER_WIDTH + scrollbarGutter;
         setHorizontalContentWidth(width);
         const shell = shellRef.current;
         setHasHorizontalOverflow(width > (shell?.clientWidth ?? 0));
@@ -2534,7 +2540,7 @@ function DataGridInner(
             });
         }
         if (!showServiceColumns && onServiceColumnsChange) {
-            let left = 52;
+            let left = ROW_HEADER_WIDTH;
             for (const key of orderedKeys) {
                 if (effectiveHidden[key] === undefined) left += widthByKey.get(key) ?? 0;
             }
@@ -2554,9 +2560,10 @@ function DataGridInner(
             }
             // Centre the service reveal button ON the TABLE's right boundary —
             // the right edge of the last column — like every hidden-block
-            // button is centred on its left edge. It is deliberately NOT
-            // attached to the viewport/scrollbar: the anchor scrolls with the
-            // table and can move off-screen when the last column does.
+            // button is centred on its left edge and like the «Ремонт» plan.
+            // It is deliberately NOT attached to the viewport/scrollbar: the
+            // anchor scrolls with the table and can move off-screen when the
+            // last column does.
             // The anchor itself applies translateX(-50%).
             next.push({
                 key: "__service__",
@@ -3692,7 +3699,9 @@ function DataGridInner(
                 >
                     <span aria-hidden="true" />
                 </Tooltip.Trigger>
-                <Tooltip.Content placement="top">{remoteTooltip?.text}</Tooltip.Content>
+                <Tooltip.Content placement="top" className="grid-cell-tooltip">
+                    {remoteTooltip?.text}
+                </Tooltip.Content>
             </Tooltip>
             {/* The funnels: OUR buttons, positioned over the header cells. See
                 `measureFunnels` for why they cannot live in the header template. */}

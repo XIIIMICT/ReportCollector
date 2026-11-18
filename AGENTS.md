@@ -44,7 +44,8 @@ period selected at that moment. The rest of the workspace is three read-only
 dictionaries read from `dict` (`back/dicts.sql`): countries (short names + the
 computed market РФ/БЗ/ДЗ), the combined transport-type × vehicle-type matrix, and
 organization prefixes; its «Пользователи» tab manages the project members (only
-the administrator role). Nothing in this application writes to `dict` — no
+the administrator role) and collaborates/undoes like the other projects' users
+dictionaries. Nothing in this application writes to `dict` — no
 migration creates it and no seeder touches it; a missing table returns a short
 built-in demo list with `source="fallback"`, and the grid warns about it. Every
 read filters `deleted_at IS NULL` on every joined table. Every logistics grid

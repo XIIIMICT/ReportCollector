@@ -133,18 +133,18 @@ const SECTION_POLICIES: Record<PolicySectionId, SectionPolicy> = {
     kppkRealizationFact: { ...DICTIONARY, rowOps: "none" },
     kppkCost: { ...DICTIONARY, rowOps: "none" },
     // ── «Логистика» ──────────────────────────────────────────────────────
-    // The dictionaries are read straight from the external `dict` schema:
-    // nothing is authored, journaled, exported or shared there.
+    // The external dictionaries are read straight from the `dict` schema:
+    // nothing is authored, journaled or shared there (they still export).
     logisticsCountries: READ_ONLY,
     logisticsTransportTypes: READ_ONLY,
     logisticsOrgs: READ_ONLY,
-    // The users dictionary is editable through a dialog; it has no room and
-    // no undo (the project is admin-only and the mutations are immediate).
-    logisticsUsers: { ...READ_ONLY, rowOps: "dialog" },
-    // The main form: collaborative admins with undo/redo (like «КППК»), but no
-    // export and no generic placeholder action — the draft row is owned by the
-    // rates section, so `rowOps` is "none". Kept on ONE line: the backend
-    // parity test parses inline entries only.
+    // Ours, though: the users dictionary collaborates and journals like every
+    // other project's one, with the dialog-owned create action.
+    logisticsUsers: { ...DICTIONARY, rowOps: "dialog" },
+    // The main form: collaborative members with undo/redo, and export; no
+    // generic placeholder action — the draft row is owned by the rates
+    // section, so `rowOps` is "none". Kept on ONE line: the backend parity
+    // test parses inline entries only.
     logisticsRates: { ...FORM, export: "member" },
 };
 

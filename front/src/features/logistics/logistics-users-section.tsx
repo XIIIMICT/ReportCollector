@@ -10,11 +10,21 @@ import {
     exportLogisticsTable,
     getLogisticsOrgs,
     getLogisticsUsers,
+    getLogisticsUsersUndoState,
+    redoLogisticsUsers,
+    undoLogisticsUsers,
     updateLogisticsUserCell,
     type LogisticsRole,
     type LogisticsUserRow,
 } from "@/shared/api/logistics";
 import type { CellUpdate } from "@/shared/api/raw-materials";
+import {
+    applyRevisionedRemoteCell,
+    type RevisionedRemoteCell,
+} from "@/shared/collab/revisioned-remote-cells";
+import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room";
+import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
+import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import { DataGrid, type DataGridHandle, type GridViewStats } from "@/shared/grid/data-grid";
 import { exportFileName, type GridRow, type ReferenceOption } from "@/shared/grid/grid-config";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
@@ -31,6 +41,7 @@ import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import {
     errorMessage,
+    publishSelection,
     toGridRow,
     trimmedText,
     type ClipboardActions,
@@ -41,6 +52,10 @@ import { GridLoadError } from "@/shared/ui/workspace-feedback";
 
 const gridWarnings = gridWarningHandlers({ lockedVerb: "редактирует" });
 const NO_REFERENCES: ReferenceOption[] = [];
+const USER_TABLE = "app_users";
+/** The cells the grid edits; the server keeps the same closed list for leases/undo. */
+const USER_EDITABLE_FIELDS = ["fullname", "role", "assetNames"] as const;
+const EMPTY_UNDO_STATE = { canUndo: false, canRedo: false };
 const USER_DEFAULTS: AddRecordValues = {
     email: "",
     fullname: "",
@@ -74,6 +89,16 @@ function userFields(assetOptions: AddRecordFieldOption[]): AddRecordField[] {
     ];
 }
 
+/** The grants travel as a journal value (`{ids, names}`); the cell shows names. */
+function assetNamesOf(value: unknown): string[] {
+    if (Array.isArray(value)) return value.map(String);
+    if (value !== null && typeof value === "object") {
+        const names = (value as { names?: unknown }).names;
+        if (Array.isArray(names)) return names.map(String);
+    }
+    return [];
+}
+
 /**
  * The «Пользователи» dictionary of «Логистика».
  *
@@ -81,8 +106,8 @@ function userFields(assetOptions: AddRecordFieldOption[]): AddRecordField[] {
  * and an asset-worker role additionally carries `dict.orgs` grants. The access
  * flag is derived from the role server-side, so the grid edits the role only;
  * the asset cell stays locked (and explains itself on hover) for every other
- * role. There is no collaboration room and no undo: the mutations are immediate
- * and the grid is refreshed from the server.
+ * role. The dictionary collaborates like every other users grid (admin-only
+ * room, leases, presence) and every edit is journaled for undo/redo.
  */
 export function LogisticsUsersSection({
     keycloakEnabled,
@@ -96,6 +121,8 @@ export function LogisticsUsersSection({
     onDeleteState,
     onUserCreateState,
     onExportState,
+    onUndoStateChange,
+    onRoomChange,
 }: {
     keycloakEnabled: boolean;
     headerPinned: boolean;
@@ -119,6 +146,13 @@ export function LogisticsUsersSection({
         rowCount: number;
         onExport: (mode: ExportMode) => void;
     }) => void;
+    onUndoStateChange: (state: {
+        canUndo: boolean;
+        canRedo: boolean;
+        onUndo: () => void;
+        onRedo: () => void;
+    }) => void;
+    onRoomChange: (room: CollabRoom | null) => void;
 }) {
     const gridRef = useRef<DataGridHandle>(null);
     const [reloadKey, setReloadKey] = useState(0);
@@ -137,6 +171,54 @@ export function LogisticsUsersSection({
     );
     const { data: orgs } = useAsyncData(() => getLogisticsOrgs(), []);
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
+    const readStartedAtRef = useRef<number | null>(null);
+    const [remoteCellValues, setRemoteCellValues] = useState<Map<string, RevisionedRemoteCell>>(
+        new Map(),
+    );
+    const [undoState, setUndoState] = useState(EMPTY_UNDO_STATE);
+    const selfCellHandlerRef = useRef<(event: CollabCellChanged) => void>(() => {});
+    const room = useCollabRoom({
+        projectKey: "logistics",
+        section: "logisticsUsers",
+        reportMonth: null,
+        enabled: true, // the whole tab is admin-only
+        onCellChanged: (event) => selfCellHandlerRef.current(event),
+        onRowsChanged: refresh,
+        onReconnect: () => {
+            setRemoteCellValues(new Map());
+            refresh();
+        },
+    });
+    selfCellHandlerRef.current = (event) => {
+        if (event.section !== "logisticsUsers") return;
+        const key = `${USER_TABLE}/${event.rowId}/${event.field}`;
+        setRemoteCellValues((current) =>
+            applyRevisionedRemoteCell(current, key, event, readStartedAtRef.current),
+        );
+    };
+    const { remoteLocks, remotePresence, remoteCellInfo } = useRemoteCellMaps(room);
+
+    useEffect(() => {
+        onRoomChange(room);
+        return () => onRoomChange(null);
+    }, [onRoomChange, room]);
+
+    useEffect(() => {
+        if (rows !== null) readStartedAtRef.current = Date.now();
+    }, [rows]);
+
+    const refreshUndoState = useCallback(async () => {
+        try {
+            setUndoState(await getLogisticsUsersUndoState());
+        } catch {
+            setUndoState(EMPTY_UNDO_STATE);
+        }
+    }, []);
+
+    useEffect(() => {
+        void refreshUndoState();
+    }, [refreshUndoState]);
+
     const { pending: exportPending, exportTable } = useTableExport({
         gridRef,
         fileName: () => exportFileName("logisticsUsers", null),
@@ -169,11 +251,23 @@ export function LogisticsUsersSection({
         () =>
             (rows ?? []).map((row) => {
                 const gridRow = toGridRow(row);
-                // The asset grants belong to the asset-worker role only.
-                if (row.role !== "asset_worker") gridRow.lockedCells = ["assetNames"];
+                if (room) {
+                    gridRow.canonicalCells = {};
+                    for (const field of USER_EDITABLE_FIELDS) {
+                        const key = `${USER_TABLE}/${row.id}/${field}`;
+                        gridRow.canonicalCells[field] = key;
+                        const remote = remoteCellValues.get(key);
+                        if (remote === undefined) continue;
+                        gridRow[field] =
+                            field === "assetNames" ? assetNamesOf(remote.value) : remote.value;
+                    }
+                }
+                // The asset grants belong to the asset-worker role only — also
+                // after a REMOTE role change re-derives the lock.
+                gridRow.lockedCells = String(gridRow.role) === "asset_worker" ? [] : ["assetNames"];
                 return gridRow;
             }),
-        [rows],
+        [remoteCellValues, room, rows],
     );
     const selectedRows = useMemo(
         () => gridRows.filter((row) => selectedRowIds.includes(row.id)),
@@ -199,12 +293,70 @@ export function LogisticsUsersSection({
             } finally {
                 setIsMutationPending(false);
                 refresh();
+                void refreshUndoState();
                 pendingCommitRef.current = null;
             }
         })();
         pendingCommitRef.current = run;
         return run;
     }
+
+    const runUndo = useCallback(async () => {
+        try {
+            // An edit that has not landed yet must reach the server first: undo
+            // walks the journal, and a late PATCH would re-add the action behind it.
+            if (pendingCommitRef.current) await pendingCommitRef.current;
+            const result = await undoLogisticsUsers();
+            if (!result.applied) {
+                toast.danger("Не удалось отменить", {
+                    description: result.conflicts?.[0]?.user || "Действие недоступно.",
+                });
+            }
+            refresh();
+        } catch (reason) {
+            toast.danger("Не удалось отменить", { description: errorMessage(reason) });
+        } finally {
+            void refreshUndoState();
+        }
+    }, [refresh, refreshUndoState]);
+
+    const runRedo = useCallback(async () => {
+        try {
+            if (pendingCommitRef.current) await pendingCommitRef.current;
+            const result = await redoLogisticsUsers();
+            if (!result.applied) {
+                toast.danger("Не удалось повторить", {
+                    description: result.conflicts?.[0]?.user || "Действие недоступно.",
+                });
+            }
+            refresh();
+        } catch (reason) {
+            toast.danger("Не удалось повторить", { description: errorMessage(reason) });
+        } finally {
+            void refreshUndoState();
+        }
+    }, [refresh, refreshUndoState]);
+
+    useEffect(() => {
+        onUndoStateChange({
+            canUndo: undoState.canUndo,
+            canRedo: undoState.canRedo,
+            onUndo: () => void runUndo(),
+            onRedo: () => void runRedo(),
+        });
+    }, [onUndoStateChange, runRedo, runUndo, undoState.canRedo, undoState.canUndo]);
+
+    const handleSelectionChange = useCallback(
+        (selection: { label: string | null; cellKeys: string[]; detail?: string | null }) => {
+            publishSelection({
+                selection,
+                room,
+                onLabel: onSelectionLabelChange,
+                onDetail: onSelectionDetailChange,
+            });
+        },
+        [onSelectionDetailChange, onSelectionLabelChange, room],
+    );
 
     const openDelete = useCallback(() => setDeleteOpen(true), []);
     const openUserCreate = useCallback(() => setUserCreateOpen(true), []);
@@ -268,14 +420,19 @@ export function LogisticsUsersSection({
                         onCommitFailed={refresh}
                         onSelectedRowsChange={(selection) => setSelectedRowIds(selection.ids)}
                         onValidationError={gridWarnings.onValidationError}
+                        onLockedCellEdit={gridWarnings.onLockedCellEdit}
+                        onPasteSkipped={gridWarnings.onPasteSkipped}
+                        onPasteTruncated={gridWarnings.onPasteTruncated}
                         onViewStatsChange={onGridStatsChange}
                         onClipboardStateChange={handleClipboardState}
-                        onSelectionChange={(selection) => {
-                            onSelectionLabelChange(selection.label ?? null);
-                            onSelectionDetailChange(selection.detail ?? null);
-                        }}
+                        onSelectionChange={handleSelectionChange}
                         filters={filters}
                         onFiltersChange={setFilters}
+                        remoteLocks={remoteLocks}
+                        remotePresence={remotePresence}
+                        remoteCellInfo={remoteCellInfo}
+                        onAcquireLease={(keys) => room.acquireLeases(keys)}
+                        onReleaseLease={(keys) => room.releaseLeases(keys)}
                     />
                 </GridErrorBoundary>
                 {gridRows.length === 0 ? (
@@ -305,6 +462,7 @@ export function LogisticsUsersSection({
                         } finally {
                             setIsMutationPending(false);
                             refresh();
+                            void refreshUndoState();
                         }
                     })();
                 }}
@@ -342,6 +500,7 @@ export function LogisticsUsersSection({
                         });
                         setUserCreateOpen(false);
                         refresh();
+                        void refreshUndoState();
                         toast.success("Пользователь добавлен");
                     } catch (reason) {
                         toast.danger("Не удалось добавить пользователя", {

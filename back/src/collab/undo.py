@@ -40,6 +40,7 @@ from src.kppk.users import apply_kppk_user_value
 from src.logistics.constants import LOGISTICS_PROJECT_KEY
 from src.logistics.models import LogisticsRate, LogisticsUserAsset
 from src.logistics.rates import apply_logistics_rate_value
+from src.logistics.users import apply_logistics_user_value
 from src.raw_materials.models import (
     AssetRawMaterial,
     MaterialMovement,
@@ -256,6 +257,8 @@ async def _switch_entry(
                 )
             elif target_table == "app_users" and project_key == "kppk":
                 await apply_kppk_user_value(session, row_id=row_id, field=field, value=value, editor=user)
+            elif target_table == "app_users" and project_key == LOGISTICS_PROJECT_KEY:
+                await apply_logistics_user_value(session, row_id=row_id, field=field, value=value, editor=user)
             elif target_table in KPPK_TABLES:
                 await apply_kppk_cell_value(
                     session,

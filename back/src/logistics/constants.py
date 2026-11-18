@@ -17,9 +17,10 @@ LOGISTICS_PROJECT_NAME = "Логистика"
 # real `dict`. Production keeps the default.
 LOGISTICS_SOURCE_SCHEMA = get_settings().logistics_dict_schema
 
-# Dictionary ids of the workspace tabs (match the frontend). Read-only: the
-# data belongs to the external tables, so these sections have no collaboration
-# room, no undo journal and no export.
+# Dictionary ids of the workspace tabs (match the frontend). The external
+# dictionaries are read-only: the data belongs to the external tables, so they
+# have no collaboration room and no undo journal (but every grid exports).
+# «Пользователи» are ours and collaborate like the other projects' ones.
 LOGISTICS_SECTION_COUNTRIES = "logisticsCountries"
 LOGISTICS_SECTION_TRANSPORT_TYPES = "logisticsTransportTypes"
 LOGISTICS_SECTION_ORGS = "logisticsOrgs"

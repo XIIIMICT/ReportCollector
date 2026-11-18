@@ -22,7 +22,7 @@ from src.common.export import ExportValidationError
 from src.database import get_session
 from src.downloads import XLSX_MEDIA_TYPE
 
-from .constants import LOGISTICS_PROJECT_KEY, LOGISTICS_SECTION_RATES
+from .constants import LOGISTICS_PROJECT_KEY, LOGISTICS_SECTION_RATES, LOGISTICS_SECTION_USERS
 from .core import LogisticsNotFoundError, LogisticsSourceUnavailableError, LogisticsValidationError
 from .dictionaries import read_countries, read_hazard_classes, read_orgs, read_transport_types
 from .export import render_workbook, validate_request
@@ -547,16 +547,176 @@ async def _rates_undo_response(
     )
 
 
+async def _record_logistics_user_updates(
+    session: AsyncSession,
+    *,
+    access: LogisticsAccess,
+    applied: list[AppliedCell],
+    session_id: str,
+) -> None:
+    """Journal one users-dictionary action and fan it out to the section room."""
+    if not applied:
+        return
+    if session_id:
+        await record_cell_updates(
+            JournalStore(session),
+            user_id=access.user.id,
+            user_name=access.user.name or "",
+            project_key=LOGISTICS_PROJECT_KEY,
+            section=LOGISTICS_SECTION_USERS,
+            report_month=None,
+            session_id=session_id,
+            applied=applied,
+        )
+    await publish_cell_changed(
+        JournalStore(session),
+        project_key=LOGISTICS_PROJECT_KEY,
+        section=LOGISTICS_SECTION_USERS,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+        cells=applied,
+    )
+
+
+async def _users_undo_response(
+    session: AsyncSession,
+    outcome: UndoOutcome,
+    *,
+    access: LogisticsAccess,
+) -> UndoResponse:
+    """Undo/redo outcome in the shared shape, published to the users room."""
+    if outcome.applied and outcome.applied_cells:
+        await publish_cell_changed(
+            JournalStore(session),
+            project_key=LOGISTICS_PROJECT_KEY,
+            section=LOGISTICS_SECTION_USERS,
+            report_month=None,
+            user_id=access.user.id,
+            user_name=access.user.name or "",
+            user_email=access.user.email or "",
+            cells=outcome.applied_cells,
+        )
+        if any(cell.field in {"__created", "__deleted"} for cell in outcome.applied_cells):
+            await publish_rows_changed(
+                JournalStore(session),
+                project_key=LOGISTICS_PROJECT_KEY,
+                section=LOGISTICS_SECTION_USERS,
+                report_month=None,
+                user_id=access.user.id,
+                user_name=access.user.name or "",
+                user_email=access.user.email or "",
+            )
+    if not outcome.applied:
+        conflict = outcome.conflict
+        return UndoResponse(
+            applied=False,
+            reason=outcome.reason,
+            conflicts=(
+                [
+                    UndoConflictRead(
+                        rowId=conflict.row_id,
+                        field=conflict.field,
+                        user=conflict.user_name,
+                        actionId=conflict.action_id,
+                        reason=conflict.reason,
+                    )
+                ]
+                if conflict is not None
+                else []
+            ),
+        )
+    cells = outcome.applied_cells
+    if not cells:
+        return UndoResponse(applied=True, reason="applied", section=outcome.section)
+    return UndoResponse(
+        applied=True,
+        reason="applied",
+        section=outcome.section,
+        reportMonth=None,
+        rowId=cells[0].row_id,
+        field=cells[0].field,
+        value=cells[0].new_value,
+        revision=cells[0].revision,
+    )
+
+
+@router.get("/users/undo-state", response_model=UndoStateRead)
+async def logistics_users_undo_state(
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str = "",
+) -> UndoStateRead:
+    """Undo/redo availability of the users dictionary in this browser session."""
+    can_undo, can_redo = await JournalStore(session).undo_state(
+        str(access.user.id), session_id, f"{LOGISTICS_SECTION_USERS}/"
+    )
+    return UndoStateRead(canUndo=can_undo > 0, canRedo=can_redo > 0)
+
+
+@router.post("/users/undo", response_model=UndoResponse)
+async def logistics_users_undo(
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+    request: UndoRequest | None = None,
+) -> UndoResponse:
+    """Undo the current admin's last users-dictionary action."""
+    outcome = await undo_last_edit(
+        session,
+        user=access.user,
+        store=JournalStore(session),
+        scope=f"{LOGISTICS_SECTION_USERS}/",
+        session_id=session_id,
+        skip_action_id=request.skipActionId if request is not None else None,
+        project_key=LOGISTICS_PROJECT_KEY,
+    )
+    return await _users_undo_response(session, outcome, access=access)
+
+
+@router.post("/users/redo", response_model=UndoResponse)
+async def logistics_users_redo(
+    session: SessionDependency,
+    access: AdminDependency,
+    session_id: str,
+    request: UndoRequest | None = None,
+) -> UndoResponse:
+    """Redo the current admin's oldest undone users-dictionary action."""
+    outcome = await redo_last_undo(
+        session,
+        user=access.user,
+        store=JournalStore(session),
+        scope=f"{LOGISTICS_SECTION_USERS}/",
+        session_id=session_id,
+        skip_action_id=request.skipActionId if request is not None else None,
+        project_key=LOGISTICS_PROJECT_KEY,
+    )
+    return await _users_undo_response(session, outcome, access=access)
+
+
 @router.post("/users", response_model=LogisticsUserRowRead, status_code=status.HTTP_201_CREATED)
 async def post_logistics_user(
     request: LogisticsUserCreateRequest,
     session: SessionDependency,
     access: AdminDependency,
+    session_id: str = "",
 ) -> LogisticsUserRowRead:
     try:
-        return await create_logistics_user(session, request=request, editor=access.user)
+        row, applied = await create_logistics_user(session, request=request, editor=access.user)
     except LogisticsValidationError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    await _record_logistics_user_updates(session, access=access, applied=applied, session_id=session_id)
+    await publish_rows_changed(
+        JournalStore(session),
+        project_key=LOGISTICS_PROJECT_KEY,
+        section=LOGISTICS_SECTION_USERS,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+    )
+    return row
 
 
 @router.patch("/users/{user_id}", response_model=LogisticsUserRowRead)
@@ -565,13 +725,16 @@ async def patch_logistics_user(
     request: LogisticsUserUpdateRequest,
     session: SessionDependency,
     access: AdminDependency,
+    session_id: str = "",
 ) -> LogisticsUserRowRead:
     try:
-        return await update_logistics_user(session, user_id=user_id, request=request, editor=access.user)
+        row, applied = await update_logistics_user(session, user_id=user_id, request=request, editor=access.user)
     except LogisticsValidationError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except LogisticsNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await _record_logistics_user_updates(session, access=access, applied=applied, session_id=session_id)
+    return row
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -579,10 +742,21 @@ async def remove_logistics_user(
     user_id: UUID,
     session: SessionDependency,
     access: AdminDependency,
+    session_id: str = "",
 ) -> None:
     try:
-        await delete_logistics_user(session, user_id=user_id, editor=access.user)
+        applied = await delete_logistics_user(session, user_id=user_id, editor=access.user)
     except LogisticsValidationError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     except LogisticsNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    await _record_logistics_user_updates(session, access=access, applied=applied, session_id=session_id)
+    await publish_rows_changed(
+        JournalStore(session),
+        project_key=LOGISTICS_PROJECT_KEY,
+        section=LOGISTICS_SECTION_USERS,
+        report_month=None,
+        user_id=access.user.id,
+        user_name=access.user.name or "",
+        user_email=access.user.email or "",
+    )

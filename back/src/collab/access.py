@@ -84,8 +84,10 @@ KPPK_SECTIONS = {
     "kppkRealizationFact": (KppkRealization, frozenset(KPPK_REALIZATION_FACT_FIELDS)),
     "kppkCost": (KppkCost, frozenset(COST_FIELDS)),
 }
-# The «Логистика» main form: one room per selected period.
+# The «Логистика» rooms: the rates are period-scoped, the users dictionary is
+# admin-only (policy `collab: "admin"`) and journals role/asset changes.
 LOGISTICS_SECTIONS = {
+    "logisticsUsers": (User, frozenset({"fullname", "role", "assetNames"})),
     "logisticsRates": (LogisticsRate, frozenset(RATE_EDITABLE_FIELDS)),
 }
 
@@ -253,6 +255,15 @@ class RoomAccess:
                     col(Project.id) == col(UserRole.project_id),
                 )
                 .where(col(Project.key) == KPPK_PROJECT_KEY, col(User.is_deleted).is_(False))
+            )
+        elif model is User and self.project == LOGISTICS_PROJECT_KEY:
+            query = (
+                query.join(UserRole, col(UserRole.user_id) == col(User.id))
+                .join(
+                    Project,
+                    col(Project.id) == col(UserRole.project_id),
+                )
+                .where(col(Project.key) == LOGISTICS_PROJECT_KEY, col(User.is_deleted).is_(False))
             )
         allowed_ids = set((await session.exec(query)).all())
         return {key for key, (row_id, _) in parsed.items() if row_id in allowed_ids}

@@ -4,7 +4,7 @@ import { toast } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { logisticsRateDescriptors } from "@/features/logistics/logistics-rates-descriptors";
-import { rateDirection, rateUsd } from "@/features/logistics/logistics-rates-rules";
+import { rateDirectionPreview, rateUsd } from "@/features/logistics/logistics-rates-rules";
 import {
     createLogisticsRate,
     deleteLogisticsRate,
@@ -178,12 +178,13 @@ function derivedRatePatch(row: GridRow, ctx: RateDeriveContext): Partial<GridRow
     const countryTo = ctx.countryOptions.find((option) => option.value === toId);
     if (countryFrom) patch.countryFromName = countryFrom.label;
     if (countryTo) patch.countryToName = countryTo.label;
-    if (countryFrom || countryTo) {
-        patch.direction = rateDirection(
-            ctx.countryById.get(fromId)?.market,
-            ctx.countryById.get(toId)?.market,
-        );
-    }
+    // Clearing both references clears the computed direction too — otherwise
+    // the cell keeps the value derived from the countries that are gone.
+    patch.direction = rateDirectionPreview(
+        fromId,
+        toId,
+        (countryId) => ctx.countryById.get(countryId)?.market,
+    );
     const transportId = String(row.transportTypeId ?? "");
     const transport = ctx.transportLabelById.get(transportId);
     if (transport !== undefined) patch.transportTypeName = transport;
@@ -259,6 +260,7 @@ export function LogisticsRatesSection({
     onUndoStateChange,
     onDeleteState,
     onExportState,
+    onUsdRateChange,
     onRoomChange,
 }: {
     month: number;
@@ -293,6 +295,7 @@ export function LogisticsRatesSection({
         rowCount: number;
         onExport: (mode: ExportMode) => void;
     }) => void;
+    onUsdRateChange: (rate: number | null) => void;
     onRoomChange: (room: CollabRoom | null) => void;
 }) {
     const periodDate = `${year}-${String(month).padStart(2, "0")}-01`;
@@ -327,6 +330,12 @@ export function LogisticsRatesSection({
         reloadKey,
     ]);
     const refresh = useCallback(() => setReloadKey((key) => key + 1), []);
+    useEffect(() => {
+        // The toolbar prints the rate the SERVER returned; nothing is shown
+        // while the period loads (the constant default would be a guess).
+        onUsdRateChange(data?.usdRate ?? null);
+        return () => onUsdRateChange(null);
+    }, [data, onUsdRateChange]);
     const { data: orgs } = useAsyncData(() => getLogisticsOrgs(), []);
     const { data: countries } = useAsyncData(() => getLogisticsCountries(), []);
     const { data: transport } = useAsyncData(() => getLogisticsTransportTypes(), []);
@@ -564,9 +573,12 @@ export function LogisticsRatesSection({
                             ?.label ?? "";
                 }
                 if ("countryFromId" in patch || "countryToId" in patch) {
-                    next.direction = rateDirection(
-                        countryById.get(next.countryFromId)?.market,
-                        countryById.get(next.countryToId)?.market,
+                    // Both references cleared → no direction at all (a saved row
+                    // always has both; the draft must not keep a stale preview).
+                    next.direction = rateDirectionPreview(
+                        String(next.countryFromId ?? ""),
+                        String(next.countryToId ?? ""),
+                        (countryId) => countryById.get(countryId)?.market,
                     );
                 }
                 if ("transportTypeId" in patch) {

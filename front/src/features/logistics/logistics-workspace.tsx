@@ -27,6 +27,7 @@ import { exportFileName, type ReferenceOption } from "@/shared/grid/grid-config"
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
+import { useMediaQuery } from "@/shared/hooks/use-media-query";
 import { useScopedAsyncData } from "@/shared/hooks/use-scoped-async-data";
 import { ActionBar, type ActionItem } from "@/shared/ui/action-bar";
 import {
@@ -142,6 +143,12 @@ const LOGISTICS_TABS: readonly LogisticsTab[] = [
 /** One stable empty list: a fresh `[]` would rebuild the grid columns. */
 const NO_REFERENCES: ReferenceOption[] = [];
 
+/** The toolbar prints the rate as a Russian decimal («83,90»). */
+const USD_RATE_FORMAT = new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+
 const RATE_MONTH_OPTIONS = [
     "январь",
     "февраль",
@@ -232,6 +239,7 @@ export function LogisticsWorkspace({
     });
     const [undoActions, setUndoActions] = useState(EMPTY_UNDO_ACTIONS);
     const [exportState, setExportState] = useState<LogisticsExportState>(EMPTY_EXPORT_STATE);
+    const [usdRate, setUsdRate] = useState<number | null>(null);
     const [sectionRoom, setSectionRoom] = useState<CollabRoom | null>(null);
     const { setFilter: setPanelFilter } = useToolbarFilters("logisticsRates");
     const [deleteState, setDeleteState] = useState<{
@@ -369,7 +377,7 @@ export function LogisticsWorkspace({
             onPaste: clipboardState.onPaste,
         }),
         ...buildHistoryActions({
-            show: isRatesTab,
+            show: isRatesTab || isUsersTab,
             offline: false,
             canUndo: undoActions.canUndo,
             canRedo: undoActions.canRedo,
@@ -404,69 +412,87 @@ export function LogisticsWorkspace({
         }),
     ];
 
+    const compactToolbar = useMediaQuery("(max-width: 40rem)");
+    const periodFilters = (
+        <>
+            <span className="toolbar-filters__caption">Период:</span>
+            <SmartSelect
+                options={RATE_MONTH_OPTIONS}
+                value={rateMonth}
+                placeholder="месяц"
+                compactLabel="мес."
+                compactBelow="sm"
+                ariaLabel="Месяц периода"
+                fullWidth={false}
+                onOpenChange={setToolbarControlOpen}
+                onChange={(value) => {
+                    if (typeof value !== "string") return;
+                    setRateMonth(value);
+                    setPanelFilter("logisticsRates", "month", value);
+                }}
+            />
+            <SmartSelect
+                options={RATE_YEAR_OPTIONS}
+                value={rateYear}
+                placeholder="год"
+                compactLabel="год"
+                compactBelow="sm"
+                ariaLabel="Год периода"
+                fullWidth={false}
+                onOpenChange={setToolbarControlOpen}
+                onChange={(value) => {
+                    if (typeof value !== "string") return;
+                    setRateYear(value);
+                    setPanelFilter("logisticsRates", "year", value);
+                }}
+            />
+            {usdRate !== null ? (
+                <span className="toolbar-filters__caption">
+                    Курс валюты: {USD_RATE_FORMAT.format(usdRate)}
+                </span>
+            ) : null}
+        </>
+    );
+
     const toolbar = (
-        <div className="table-toolbar">
-            {/* The period filter sits on the TABS row (like the «Сырьё» version
-                picker / «Ремонт» block filter), before the strip: `inline`
-                collapses the width when the tab has no period. */}
-            <ToolbarFilters placement="inline" visible={isRatesTab}>
-                <SmartSelect
-                    options={RATE_MONTH_OPTIONS}
-                    value={rateMonth}
-                    placeholder="месяц"
-                    compactLabel="мес."
-                    compactBelow="sm"
-                    ariaLabel="Месяц периода"
-                    fullWidth={false}
-                    onOpenChange={setToolbarControlOpen}
-                    onChange={(value) => {
-                        if (typeof value !== "string") return;
-                        setRateMonth(value);
-                        setPanelFilter("logisticsRates", "month", value);
-                    }}
-                />
-                <SmartSelect
-                    options={RATE_YEAR_OPTIONS}
-                    value={rateYear}
-                    placeholder="год"
-                    compactLabel="год"
-                    compactBelow="sm"
-                    ariaLabel="Год периода"
-                    fullWidth={false}
-                    onOpenChange={setToolbarControlOpen}
-                    onChange={(value) => {
-                        if (typeof value !== "string") return;
-                        setRateYear(value);
-                        setPanelFilter("logisticsRates", "year", value);
-                    }}
-                />
-            </ToolbarFilters>
-            <div className="table-toolbar__controls">
-                <SectionTabs
-                    tabs={visibleTabs}
-                    value={selectedTab?.id ?? ""}
-                    onChange={(tab) => {
-                        if (tab.id === selectedTabId) return;
-                        setSelectedTabId(tab.id);
-                        onSectionChange?.(tab.id);
-                        setGridResetState(EMPTY_RESET_STATE);
-                        setUndoActions(EMPTY_UNDO_ACTIONS);
-                    }}
+        // Stacked from the start: the period filters live in the tabs row on a
+        // wide screen and move to their own row below it once the app header
+        // hides «РепортКоллектор» and the view strip turns icon-only (≤ 40rem).
+        <div className="table-toolbar table-toolbar--stacked">
+            <div className="table-toolbar__row">
+                <ToolbarFilters placement="inline" visible={isRatesTab && !compactToolbar}>
+                    {periodFilters}
+                </ToolbarFilters>
+                <div className="table-toolbar__controls">
+                    <SectionTabs
+                        tabs={visibleTabs}
+                        value={selectedTab?.id ?? ""}
+                        onChange={(tab) => {
+                            if (tab.id === selectedTabId) return;
+                            setSelectedTabId(tab.id);
+                            onSectionChange?.(tab.id);
+                            setGridResetState(EMPTY_RESET_STATE);
+                            setUndoActions(EMPTY_UNDO_ACTIONS);
+                        }}
+                    />
+                </div>
+                <ViewStrip
+                    headerPinned={headerPinned}
+                    onHeaderPinnedChange={setHeaderPinned}
+                    rowHeight={rowHeight}
+                    onRowHeightChange={setRowHeight}
+                    onResetRowHeight={resetRowHeight}
+                    onReset={handleStripReset}
+                    columnResetLabel="Сбросить ширину столбцов"
+                    isFullscreen={isFullscreen}
+                    isFullscreenPending={isFullscreenPending}
+                    onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
+                    onDropdownOpenChange={setToolbarControlOpen}
                 />
             </div>
-            <ViewStrip
-                headerPinned={headerPinned}
-                onHeaderPinnedChange={setHeaderPinned}
-                rowHeight={rowHeight}
-                onRowHeightChange={setRowHeight}
-                onResetRowHeight={resetRowHeight}
-                onReset={handleStripReset}
-                columnResetLabel="Сбросить ширину столбцов"
-                isFullscreen={isFullscreen}
-                isFullscreenPending={isFullscreenPending}
-                onToggleFullscreen={() => void setFullscreenMode(!isFullscreen)}
-                onDropdownOpenChange={setToolbarControlOpen}
-            />
+            <ToolbarFilters placement="below" visible={isRatesTab && compactToolbar}>
+                {periodFilters}
+            </ToolbarFilters>
         </div>
     );
 
@@ -527,6 +553,7 @@ export function LogisticsWorkspace({
                             onClipboardStateChange={handleClipboardState}
                             onResetState={setGridResetState}
                             onUndoStateChange={setUndoActions}
+                            onUsdRateChange={setUsdRate}
                             onDeleteState={setDeleteState}
                             onExportState={setExportState}
                             onRoomChange={setSectionRoom}
@@ -545,6 +572,8 @@ export function LogisticsWorkspace({
                             onDeleteState={setDeleteState}
                             onUserCreateState={setUserCreateState}
                             onExportState={setExportState}
+                            onUndoStateChange={setUndoActions}
+                            onRoomChange={setSectionRoom}
                         />
                     ) : (
                         <LogisticsDictionarySection

@@ -181,7 +181,7 @@ export async function getLogisticsUsers(): Promise<LogisticsUserRow[]> {
 export async function createLogisticsUser(
     payload: LogisticsUserCreatePayload,
 ): Promise<LogisticsUserRow> {
-    return requestWrite("/api/logistics/users", "POST", payload);
+    return requestWrite(`/api/logistics/users?session_id=${getCollabSessionId()}`, "POST", payload);
 }
 
 export async function updateLogisticsUserCell(
@@ -189,11 +189,31 @@ export async function updateLogisticsUserCell(
     field: string,
     value: unknown,
 ): Promise<LogisticsUserRow> {
-    return requestWrite(`/api/logistics/users/${id}`, "PATCH", { [field]: value });
+    return requestWrite(`/api/logistics/users/${id}?session_id=${getCollabSessionId()}`, "PATCH", {
+        [field]: value,
+    });
 }
 
 export async function deleteLogisticsUser(id: string): Promise<void> {
-    await requestWrite(`/api/logistics/users/${id}`, "DELETE");
+    await requestWrite(`/api/logistics/users/${id}?session_id=${getCollabSessionId()}`, "DELETE");
+}
+
+export async function getLogisticsUsersUndoState(): Promise<LogisticsUndoState> {
+    return requestJson(`/api/logistics/users/undo-state?session_id=${getCollabSessionId()}`);
+}
+
+export async function undoLogisticsUsers(skipActionId?: number): Promise<LogisticsUndoResult> {
+    return requestWrite(`/api/logistics/users/undo?session_id=${getCollabSessionId()}`, "POST", {
+        section: "logisticsUsers",
+        skipActionId,
+    });
+}
+
+export async function redoLogisticsUsers(skipActionId?: number): Promise<LogisticsUndoResult> {
+    return requestWrite(`/api/logistics/users/redo?session_id=${getCollabSessionId()}`, "POST", {
+        section: "logisticsUsers",
+        skipActionId,
+    });
 }
 
 export async function getLogisticsRates(month: number, year: number): Promise<LogisticsRateView> {

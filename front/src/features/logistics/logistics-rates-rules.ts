@@ -30,3 +30,20 @@ export function rateDirection(
 export function rateUsd(rub: number, usdRate: number): number {
     return Math.round(rub * usdRate * 100) / 100;
 }
+
+/**
+ * «Направление» for the DRAFT row and the live re-derivation.
+ *
+ * A saved rate always carries both countries; the editable row may have
+ * neither, and then the computed cell must be EMPTY rather than keep a stale
+ * preview (the reported bug: fill both countries, clear them — the old value
+ * stayed).
+ */
+export function rateDirectionPreview(
+    fromId: string,
+    toId: string,
+    marketOf: (countryId: string) => string | undefined,
+): RateDirection | "" {
+    if (!fromId && !toId) return "";
+    return rateDirection(marketOf(fromId), marketOf(toId));
+}
