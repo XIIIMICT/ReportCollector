@@ -69,6 +69,7 @@ export function logisticsRateDescriptors(
         : [];
     return [
         ...assetColumn,
+        { key: "product", label: "Продукт", width: 170, kind: "text", readOnly: true },
         {
             key: "dangerous",
             label: "Опасный",
@@ -87,7 +88,6 @@ export function logisticsRateDescriptors(
             // No hazard class is a real state («Опасный» = нет), not an empty cell.
             emptyLabel: "Нет",
         },
-        { key: "product", label: "Продукт", width: 170, kind: "text", readOnly: true },
         {
             key: "direction",
             label: "Направление",
