@@ -66,6 +66,13 @@ dragged header heights); `group` is the monotonic id of the hide action.
 Legacy numeric values are read back as separate one-column actions.
 `fixed`/calculated columns are read-only but still hideable.
 
+Hiding any column — a data leaf, a grouped block, or the service trio — first
+clears the current user's cell range (`clearGridSelection`) and only then
+rebuilds the columns; pin/unpin and the «+» reveal follow the same order. The
+columns rebuild caches the live focus for `restoreColumnFocusAfterRender`, so a
+clear performed AFTER it resurrected the range; on a service column the range
+then painted «in emptiness» because its cells no longer existed.
+
 One right-click is ONE block and ONE «+» button (a group click hides all its
 leaves together). Adjacent columns hidden by DIFFERENT right-clicks stay TWO
 buttons: the later action gets a higher `group`, hence a higher inline

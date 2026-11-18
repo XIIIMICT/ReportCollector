@@ -2710,19 +2710,26 @@ function DataGridInner(
                 pinnedKeys,
                 service,
                 onHide: (props, targetLevel) => {
-                    hide(props, targetLevel);
+                    // Clear the range BEFORE the columns rebuild: the rebuild
+                    // captures the live focus, and `clearFocus` afterwards only
+                    // removes what the overlay is about to restore. A selection
+                    // left in a hidden column has no cell to paint on.
                     clearGridSelection();
+                    hide(props, targetLevel);
                 },
                 onPin: (props) => {
+                    clearGridSelection();
                     setPinnedMany(props, true);
                     show(props);
-                    clearGridSelection();
                 },
                 onUnpin: (props) => {
-                    setPinnedMany(props, false);
                     clearGridSelection();
+                    setPinnedMany(props, false);
                 },
-                onHideService: () => onServiceColumnsChange?.(false),
+                onHideService: () => {
+                    clearGridSelection();
+                    onServiceColumnsChange?.(false);
+                },
             });
             if (items.length === 0) return;
             setGridMenuOpen(true);
@@ -2842,8 +2849,8 @@ function DataGridInner(
                 onServiceColumnsChange?.(true);
                 return;
             }
-            show(button.props);
             clearGridSelection();
+            show(button.props);
         },
         [clearGridSelection, onServiceColumnsChange, show],
     );
