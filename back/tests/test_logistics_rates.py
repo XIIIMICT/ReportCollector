@@ -66,17 +66,70 @@ async def test_create_reads_computed_columns(client: AsyncClient) -> None:
     assert row["direction"] == "ДЗ"
     assert row["dangerous"] is False
     assert row["freightRateRub"] == 100.0
-    # The dollar cells are rub × 83.90 and are never stored.
-    assert row["freightRateUsd"] == 8390.0
-    assert row["pprRateUsd"] == 16780.0
-    assert row["deliveryRateUsd"] == 25170.0
-    assert row["netRateUsd"] == 33560.0
+    # The dollar cells are rub / 83.90 and are never stored.
+    assert row["freightRateUsd"] == 1.19
+    assert row["pprRateUsd"] == 2.38
+    assert row["deliveryRateUsd"] == 3.58
+    assert row["netRateRub"] == 600.0
+    assert row["netRateUsd"] == 7.15
 
     view = await client.get("/api/logistics/rates", headers=ADMIN_HEADERS, params={"month": 11, "year": 2026})
     assert view.status_code == 200
     body = view.json()
     assert body["usdRate"] == 83.9
     assert [item["id"] for item in body["rows"]] == [row["id"]]
+
+
+async def test_net_rate_is_derived_from_the_three_rub_rates(client: AsyncClient) -> None:
+    # A contradictory net in the create payload is ignored: the server sums
+    # the three editable rates.
+    row = await create(client, netRateRub=999.0)
+    assert row["netRateRub"] == 600.0
+    patched = await client.patch(
+        f"/api/logistics/rates/{row['id']}",
+        headers=ADMIN_HEADERS,
+        params={"session_id": "rates-test"},
+        json={"field": "freightRateRub", "value": 150.0},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["netRateRub"] == 650.0
+    assert patched.json()["netRateUsd"] == 7.75
+    # The calculated cell is not editable.
+    refused = await client.patch(
+        f"/api/logistics/rates/{row['id']}",
+        headers=ADMIN_HEADERS,
+        json={"field": "netRateRub", "value": 1.0},
+    )
+    assert refused.status_code == 400
+
+
+async def test_deviations_compare_the_previous_month(client: AsyncClient) -> None:
+    # October is the previous month of the default period; an identical
+    # identity (asset × route × transport × vehicle) links the two rows.
+    prev = await create(client, periodDate="2026-10-01", freightRateRub=100.0)
+    assert prev["deviationRub"] is None  # September is empty
+    assert prev["prevNetRateRub"] is None
+
+    row = await create(client, freightRateRub=150.0)
+    # November's net (650) minus October's net (600).
+    assert row["prevNetRateRub"] == 600.0
+    assert row["prevNetRateUsd"] == 7.15
+    assert row["deviationRub"] == 50.0
+    assert row["deviationUsd"] == round(row["netRateUsd"] - row["prevNetRateUsd"], 2)
+    # «%» is temporarily the same rub difference (no division yet).
+    assert row["deviationPercent"] == row["deviationRub"]
+
+    # A different identity has no previous month to compare against.
+    other = await create(client, countryFromId=COUNTRY_DE)
+    assert other["deviationRub"] is None
+
+    # A PATCH response carries the deviation too (the single-row read).
+    patched = await client.patch(
+        f"/api/logistics/rates/{row['id']}",
+        headers=ADMIN_HEADERS,
+        json={"field": "pprRateRub", "value": 250.0},
+    )
+    assert patched.json()["deviationRub"] == 100.0
 
 
 async def test_direction_uses_the_destination_market_for_russian_departures(client: AsyncClient) -> None:

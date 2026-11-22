@@ -104,6 +104,13 @@ export type LogisticsRateRow = {
     deliveryRateUsd: number;
     netRateRub: number;
     netRateUsd: number;
+    /** The previous month's net rates for the same identity (null: none). */
+    prevNetRateRub: number | null;
+    prevNetRateUsd: number | null;
+    /** Computed: net − previous net; «%» is the rub difference for now. */
+    deviationRub: number | null;
+    deviationUsd: number | null;
+    deviationPercent: number | null;
     priceKind: LogisticsPriceKind;
     note: string | null;
     createdAt: string;
@@ -131,7 +138,6 @@ export type LogisticsRateCreatePayload = {
     freightRateRub: number;
     pprRateRub: number;
     deliveryRateRub: number;
-    netRateRub: number;
     priceKind: LogisticsPriceKind;
     note: string | null;
 };

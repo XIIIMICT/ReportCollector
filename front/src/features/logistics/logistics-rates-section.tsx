@@ -4,7 +4,12 @@ import { toast } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { logisticsRateDescriptors } from "@/features/logistics/logistics-rates-descriptors";
-import { rateDirectionPreview, rateUsd } from "@/features/logistics/logistics-rates-rules";
+import {
+    rateDirectionPreview,
+    rateNetRub,
+    rateNetUsd,
+    rateUsd,
+} from "@/features/logistics/logistics-rates-rules";
 import {
     createLogisticsRate,
     deleteLogisticsRate,
@@ -76,7 +81,6 @@ const RATE_EDITABLE_FIELDS = [
     "freightRateRub",
     "pprRateRub",
     "deliveryRateRub",
-    "netRateRub",
     "priceKind",
     "note",
 ] as const;
@@ -109,6 +113,7 @@ type RateDraft = {
     priceKind: LogisticsPriceKind;
     note: string;
     dangerous: boolean;
+    // The draft has no history, so the deviations stay empty.
     deviationRub: null;
     deviationUsd: null;
     deviationPercent: null;
@@ -208,7 +213,28 @@ function derivedRatePatch(row: GridRow, ctx: RateDeriveContext): Partial<GridRow
     patch.freightRateUsd = rateUsd(Number(row.freightRateRub ?? 0), ctx.usdRate);
     patch.pprRateUsd = rateUsd(Number(row.pprRateRub ?? 0), ctx.usdRate);
     patch.deliveryRateUsd = rateUsd(Number(row.deliveryRateRub ?? 0), ctx.usdRate);
-    patch.netRateUsd = rateUsd(Number(row.netRateRub ?? 0), ctx.usdRate);
+    patch.netRateRub = rateNetRub(
+        Number(row.freightRateRub ?? 0),
+        Number(row.pprRateRub ?? 0),
+        Number(row.deliveryRateRub ?? 0),
+    );
+    patch.netRateUsd = rateNetUsd(
+        Number(patch.freightRateUsd),
+        Number(patch.pprRateUsd),
+        Number(patch.deliveryRateUsd),
+    );
+    // The deviations ride on the previous month's net rates, which the row
+    // read carries; without a previous row the server sent null and the
+    // cells keep their (empty) server values.
+    if (row.prevNetRateRub !== null && row.prevNetRateRub !== undefined) {
+        patch.deviationRub =
+            Math.round((Number(patch.netRateRub) - Number(row.prevNetRateRub)) * 100) / 100;
+        patch.deviationUsd =
+            Math.round((Number(patch.netRateUsd) - Number(row.prevNetRateUsd)) * 100) / 100;
+        // «%» is temporarily the same rub difference (the division arrives
+        // with the real percentage formula).
+        patch.deviationPercent = patch.deviationRub;
+    }
     return patch;
 }
 
@@ -599,12 +625,7 @@ export function LogisticsRatesSection({
                 if ("hazardClassValue" in patch) {
                     next.dangerous = String(patch.hazardClassValue ?? "") !== "";
                 }
-                for (const field of [
-                    "freightRateRub",
-                    "pprRateRub",
-                    "deliveryRateRub",
-                    "netRateRub",
-                ] as const) {
+                for (const field of ["freightRateRub", "pprRateRub", "deliveryRateRub"] as const) {
                     if (field in patch) {
                         const rub = Number(patch[field]);
                         next[field] = Number.isFinite(rub) ? rub : 0;
@@ -613,7 +634,19 @@ export function LogisticsRatesSection({
                 next.freightRateUsd = rateUsd(next.freightRateRub, usdRate);
                 next.pprRateUsd = rateUsd(next.pprRateRub, usdRate);
                 next.deliveryRateUsd = rateUsd(next.deliveryRateRub, usdRate);
-                next.netRateUsd = rateUsd(next.netRateRub, usdRate);
+                // «Ставка за 1 тонну» is calculated: the rub sum and the sum of
+                // the three already-computed dollar cells (not a fresh
+                // conversion of the rub sum — rounding would disagree by cents).
+                next.netRateRub = rateNetRub(
+                    next.freightRateRub,
+                    next.pprRateRub,
+                    next.deliveryRateRub,
+                );
+                next.netRateUsd = rateNetUsd(
+                    next.freightRateUsd,
+                    next.pprRateUsd,
+                    next.deliveryRateUsd,
+                );
                 return next;
             });
         },
@@ -666,7 +699,6 @@ export function LogisticsRatesSection({
                     freightRateRub: current.freightRateRub,
                     pprRateRub: current.pprRateRub,
                     deliveryRateRub: current.deliveryRateRub,
-                    netRateRub: current.netRateRub,
                     priceKind: current.priceKind,
                     note: current.note.trim() || null,
                 };

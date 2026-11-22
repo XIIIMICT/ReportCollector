@@ -118,10 +118,11 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 ## Explicit product deferrals
 
-- «Логистика»: the main «Ставки» table is in place, but its month-over-month
-  deviations have no source yet (the columns render empty), «Продукт» and both
+- «Логистика»: the main «Ставки» table is in place, but «Продукт» and both
   route points are read-only placeholders that stay NULL, and the dollar rate is
-  the constant `83.90` until the corporate source provides it. Undoing a
+  the constant `83.90` until the corporate source provides it. The «%» deviation
+  is temporarily the same rub difference as «руб. без НДС» (the division arrives
+  with the real formula). Undoing a
   transport-type change restores the transport but not the vehicle type the
   change had cleared (the dependent clear is not journaled). The `dict`
   schema is external and must never be written by this application.

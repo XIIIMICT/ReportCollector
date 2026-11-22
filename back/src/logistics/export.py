@@ -61,8 +61,8 @@ ALLOWED_KEYS: dict[str, frozenset[str]] = {
             "netRateUsd",
             "priceKind",
             "note",
-            # The deviation columns have no source yet; they are part of the
-            # grid, so the export accepts them and writes empty cells.
+            # The deviation columns are computed from the previous month's net
+            # rates; they are part of the grid, so the export accepts them.
             "deviationRub",
             "deviationUsd",
             "deviationPercent",

@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Literal, NoReturn
 from uuid import UUID, uuid4
 
@@ -44,7 +44,6 @@ _RUB_FIELDS: dict[str, str] = {
     "freightRateRub": "freight_rate_rub",
     "pprRateRub": "ppr_rate_rub",
     "deliveryRateRub": "delivery_rate_rub",
-    "netRateRub": "net_rate_rub",
 }
 _REFERENCE_FIELDS: dict[str, str] = {
     "assetId": "org_id",
@@ -92,8 +91,71 @@ def _deleted_label(label: str, deleted_at: object) -> str:
     return f"УДАЛЕНО: {label}" if deleted_at is not None else label
 
 
+def _usd_dec(value: Decimal) -> Decimal:
+    """Convert a rub amount to dollars: RUB / rate, two places, half up."""
+    return (value / USD_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def _usd(value: Decimal) -> float:
-    return float((value * USD_RATE).quantize(Decimal("0.01")))
+    return float(_usd_dec(value))
+
+
+def _net_rub(freight: Decimal, ppr: Decimal, delivery: Decimal) -> Decimal:
+    """«Ставка за 1 тонну» in rubles: the sum of the three editable rates."""
+    return (freight + ppr + delivery).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _net_usd(freight: Decimal, ppr: Decimal, delivery: Decimal) -> float:
+    """Sum the three already-computed dollar cells into the net dollar rate."""
+    return float((_usd_dec(freight) + _usd_dec(ppr) + _usd_dec(delivery)).quantize(Decimal("0.01")))
+
+
+def _prev_period(period: date) -> date:
+    """Return the first day of the previous month (December wraps a year)."""
+    return date(period.year - 1, 12, 1) if period.month == 1 else date(period.year, period.month - 1, 1)
+
+
+def _rate_nets(row: LogisticsRate) -> tuple[float, float]:
+    """Compute the net rates of one row: (rub, dollar)."""
+    return (
+        float(_net_rub(row.freight_rate_rub, row.ppr_rate_rub, row.delivery_rate_rub)),
+        _net_usd(row.freight_rate_rub, row.ppr_rate_rub, row.delivery_rate_rub),
+    )
+
+
+def _rate_key(row: LogisticsRate) -> tuple[UUID, UUID, UUID, UUID, UUID | None]:
+    """Return the natural identity of a rate: asset × route × transport × vehicle."""
+    return (
+        row.org_id,
+        row.country_from_id,
+        row.country_to_id,
+        row.transport_type_id,
+        row.vehicle_type_id,
+    )
+
+
+async def _prev_month_nets(
+    session: AsyncSession,
+    *,
+    period: date,
+    org_ids: set[UUID],
+) -> dict[tuple[UUID, UUID, UUID, UUID, UUID | None], tuple[float, float]]:
+    """
+    Return the previous month's net rates keyed by the rate's identity.
+
+    A duplicated key (a data anomaly) keeps the LATEST row: the newest entry
+    wins as the map is built in `created_at` order.
+    """
+    prev = _prev_period(period)
+    rows = (
+        await session.exec(
+            select(LogisticsRate)
+            .where(col(LogisticsRate.period_date) == prev)
+            .where(col(LogisticsRate.org_id).in_(org_ids))
+            .order_by(col(LogisticsRate.created_at), col(LogisticsRate.id))
+        )
+    ).all()
+    return {_rate_key(row): _rate_nets(row) for row in rows}
 
 
 def _decimal(value: object, *, field: str) -> Decimal:
@@ -196,12 +258,23 @@ def _rate_row_read(
     countries: CountryMap,
     transports: TypeMap,
     vehicles: VehicleMap,
+    prev_net: tuple[float, float] | None = None,
 ) -> LogisticsRateRowRead:
     org = orgs.get(row.org_id)
     country_from = countries.get(row.country_from_id)
     country_to = countries.get(row.country_to_id)
     transport = transports.get(row.transport_type_id)
     vehicle = vehicles.get(row.vehicle_type_id) if row.vehicle_type_id is not None else None
+    net_rub = float(_net_rub(row.freight_rate_rub, row.ppr_rate_rub, row.delivery_rate_rub))
+    net_usd = _net_usd(row.freight_rate_rub, row.ppr_rate_rub, row.delivery_rate_rub)
+    if prev_net is None:
+        prev_rub = prev_usd = deviation = deviation_usd = None
+    else:
+        prev_rub, prev_usd = prev_net
+        deviation = round(net_rub - prev_rub, 2)
+        deviation_usd = round(net_usd - prev_usd, 2)
+    # «%» is temporarily the same rub difference; the real percentage
+    # formula arrives with the customer's source.
     return LogisticsRateRowRead(
         id=row.id,
         periodDate=row.period_date,
@@ -231,8 +304,13 @@ def _rate_row_read(
         pprRateUsd=_usd(row.ppr_rate_rub),
         deliveryRateRub=float(row.delivery_rate_rub),
         deliveryRateUsd=_usd(row.delivery_rate_rub),
-        netRateRub=float(row.net_rate_rub),
-        netRateUsd=_usd(row.net_rate_rub),
+        netRateRub=net_rub,
+        netRateUsd=net_usd,
+        prevNetRateRub=prev_rub,
+        prevNetRateUsd=prev_usd,
+        deviationRub=deviation,
+        deviationUsd=deviation_usd,
+        deviationPercent=deviation,
         priceKind=row.price_kind,
         note=row.note,
         createdAt=row.created_at,
@@ -261,7 +339,12 @@ async def read_rate_rows(
         query = query.where(col(LogisticsRate.org_id).in_(asset_ids))
     rows = (await session.exec(query)).all()
     orgs, countries, transports, vehicles, _mappings = await _external_maps(session)
-    return [_rate_row_read(row, orgs, countries, transports, vehicles) for row in rows]
+    # The month-over-month deviations need the previous month of the SAME
+    # natural identity (asset × route × transport × vehicle), scoped to the
+    # assets this read is allowed to see (None = the visible set itself).
+    scope = asset_ids if asset_ids is not None else {row.org_id for row in rows}
+    prev = await _prev_month_nets(session, period=period_date, org_ids=scope)
+    return [_rate_row_read(row, orgs, countries, transports, vehicles, prev.get(_rate_key(row))) for row in rows]
 
 
 async def read_rate_row(session: AsyncSession, rate_id: UUID) -> LogisticsRateRowRead:
@@ -269,7 +352,8 @@ async def read_rate_row(session: AsyncSession, rate_id: UUID) -> LogisticsRateRo
     if row is None:
         _missing("Строка ставки не найдена.")
     orgs, countries, transports, vehicles, _mappings = await _external_maps(session)
-    return _rate_row_read(row, orgs, countries, transports, vehicles)
+    prev = await _prev_month_nets(session, period=row.period_date, org_ids={row.org_id})
+    return _rate_row_read(row, orgs, countries, transports, vehicles, prev.get(_rate_key(row)))
 
 
 async def read_rate_view(
@@ -303,7 +387,9 @@ def rate_snapshot(row: LogisticsRate) -> dict[str, object]:
         "freightRateRub": float(row.freight_rate_rub),
         "pprRateRub": float(row.ppr_rate_rub),
         "deliveryRateRub": float(row.delivery_rate_rub),
-        "netRateRub": float(row.net_rate_rub),
+        # Computed server-side from the three editable rub rates; kept in the
+        # snapshot for the journal's readability, never trusted on replay.
+        "netRateRub": float(_net_rub(row.freight_rate_rub, row.ppr_rate_rub, row.delivery_rate_rub)),
         "priceKind": row.price_kind.value,
         "note": row.note,
     }
@@ -393,7 +479,7 @@ async def create_rate(
         freight_rate_rub=request.freightRateRub,
         ppr_rate_rub=request.pprRateRub,
         delivery_rate_rub=request.deliveryRateRub,
-        net_rate_rub=request.netRateRub,
+        net_rate_rub=_net_rub(request.freightRateRub, request.pprRateRub, request.deliveryRateRub),
         price_kind=request.priceKind,
         product=None,
         origin_point=None,
@@ -503,11 +589,13 @@ async def _update_rate_cell(
         old = getattr(rate, attr)
         label = {
             "freightRateRub": "Ставка фрахта, руб./т",
-            "pprRateRub": "Ставка ППР, руб.",
-            "deliveryRateRub": "Отправка из А до Б, руб.",
-            "netRateRub": "Ставка за 1 тонну нетто без НДС, руб.",
+            "pprRateRub": "Ставка ППР, руб./т",
+            "deliveryRateRub": "Отправка из А до Б, руб./т",
         }[field]
         setattr(rate, attr, _decimal(value, field=label))
+        # «Ставка за 1 тонну» is derived, never edited: keep it in step with
+        # whichever of the three editable rates just changed.
+        rate.net_rate_rub = _net_rub(rate.freight_rate_rub, rate.ppr_rate_rub, rate.delivery_rate_rub)
         new = getattr(rate, attr)
     elif field == "priceKind":
         old = rate.price_kind
@@ -581,6 +669,9 @@ async def apply_logistics_rate_value(
         if await session.get(LogisticsRate, row_id) is not None:
             return
         created_at = value.get("createdAt")
+        freight = Decimal(str(value["freightRateRub"]))
+        ppr = Decimal(str(value["pprRateRub"]))
+        delivery = Decimal(str(value["deliveryRateRub"]))
         session.add(
             LogisticsRate(
                 id=row_id,
@@ -595,10 +686,10 @@ async def apply_logistics_rate_value(
                 transport_type_id=UUID(str(value["transportTypeId"])),
                 vehicle_type_id=(UUID(str(value["vehicleTypeId"])) if value.get("vehicleTypeId") is not None else None),
                 loading_tons=Decimal(str(value["loadingTons"])),
-                freight_rate_rub=Decimal(str(value["freightRateRub"])),
-                ppr_rate_rub=Decimal(str(value["pprRateRub"])),
-                delivery_rate_rub=Decimal(str(value["deliveryRateRub"])),
-                net_rate_rub=Decimal(str(value["netRateRub"])),
+                freight_rate_rub=freight,
+                ppr_rate_rub=ppr,
+                delivery_rate_rub=delivery,
+                net_rate_rub=_net_rub(freight, ppr, delivery),
                 price_kind=LogisticsPriceKind(str(value["priceKind"])),
                 product=None,
                 origin_point=None,

@@ -26,9 +26,20 @@ export function rateDirection(
     return toMarket === "РФ" ? "Импорт" : "Экспорт";
 }
 
-/** The dollar equivalent of a rub rate (the constant rate until the source lands). */
+/** The dollar equivalent of a rub rate: RUB / the rate, two decimals. */
 export function rateUsd(rub: number, usdRate: number): number {
-    return Math.round(rub * usdRate * 100) / 100;
+    if (!usdRate) return 0;
+    return Math.round((rub / usdRate) * 100) / 100;
+}
+
+/** «Ставка за 1 тонну», rub: the sum of the three editable rates. */
+export function rateNetRub(freightRub: number, pprRub: number, deliveryRub: number): number {
+    return Math.round((freightRub + pprRub + deliveryRub) * 100) / 100;
+}
+
+/** «Ставка за 1 тонну», dollars: the sum of the three computed dollars. */
+export function rateNetUsd(freightUsd: number, pprUsd: number, deliveryUsd: number): number {
+    return Math.round((freightUsd + pprUsd + deliveryUsd) * 100) / 100;
 }
 
 /**

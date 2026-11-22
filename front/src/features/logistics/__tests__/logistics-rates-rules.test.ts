@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
-import { rateDirection, rateDirectionPreview, rateUsd } from "../logistics-rates-rules";
+import {
+    rateDirection,
+    rateDirectionPreview,
+    rateNetRub,
+    rateNetUsd,
+    rateUsd,
+} from "../logistics-rates-rules";
 
 describe("rateDirection", () => {
     it("classifies a shipment from Russia by the destination market", () => {
@@ -22,10 +28,20 @@ describe("rateDirection", () => {
 });
 
 describe("rateUsd", () => {
-    it("converts a rub rate at the configured rate with two decimals", () => {
-        expect(rateUsd(1000, 83.9)).toBe(83900);
-        expect(rateUsd(1750, 83.9)).toBe(146825);
-        expect(rateUsd(0.01, 83.9)).toBe(0.84);
+    it("converts a rub rate by DIVIDING by the rate, two decimals", () => {
+        expect(rateUsd(83900, 83.9)).toBe(1000);
+        expect(rateUsd(1000, 83.9)).toBe(11.92);
+        expect(rateUsd(0.84, 83.9)).toBe(0.01);
+    });
+});
+
+describe("rateNet", () => {
+    it("sums the three rub rates and their computed dollars", () => {
+        const freight = rateUsd(100, 83.9);
+        const ppr = rateUsd(200, 83.9);
+        const delivery = rateUsd(300, 83.9);
+        expect(rateNetRub(100, 200, 300)).toBe(600);
+        expect(rateNetUsd(freight, ppr, delivery)).toBe(7.15);
     });
 });
 

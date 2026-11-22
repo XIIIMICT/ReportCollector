@@ -122,14 +122,25 @@ class LogisticsRateRowRead(BaseModel):
     vehicleTypeName: str
     loadingTons: float
     freightRateRub: float
-    # Computed: the rub value × the USD rate; never stored.
+    # Computed: the rub value / the USD rate; never stored.
     freightRateUsd: float
     pprRateRub: float
     pprRateUsd: float
     deliveryRateRub: float
     deliveryRateUsd: float
+    # «Ставка за 1 тонну» is derived: the sum of the three rub rates and the
+    # sum of their dollar equivalents.
     netRateRub: float
     netRateUsd: float
+    # The previous month's net rates for the SAME asset × route × transport —
+    # the base of the month-over-month deviations (null: no previous row).
+    prevNetRateRub: float | None
+    prevNetRateUsd: float | None
+    # Computed: net − the previous month's net. «%» is temporarily the rub
+    # difference too (the division arrives with the real percentage formula).
+    deviationRub: float | None
+    deviationUsd: float | None
+    deviationPercent: float | None
     priceKind: LogisticsPriceKind
     note: str | None
     createdAt: datetime
@@ -152,7 +163,6 @@ class LogisticsRateCreateRequest(BaseModel):
     freightRateRub: RateDecimal
     pprRateRub: RateDecimal
     deliveryRateRub: RateDecimal
-    netRateRub: RateDecimal
     priceKind: LogisticsPriceKind
     note: str | None = None
 

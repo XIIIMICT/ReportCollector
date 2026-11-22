@@ -32,8 +32,10 @@ row is refused, a soft-deleted one (`deleted_at`) stays valid and is shown as
 «УДАЛЕНО: …». Computed and NOT stored: «Направление» (departure РФ → the
 DESTINATION market «РФ»/«БЗ»/«ДЗ»; otherwise destination РФ → «Импорт», else
 «Экспорт»), «Опасный» (hazard class set), the dollar
-equivalents (`rub × 83.90`, a constant until the source provides the rate) and
-the month-over-month deviations (no source yet). Rows are edited in place and
+equivalents (`rub / 83.90`, a constant until the source provides the rate) and
+the month-over-month deviations (net − the previous month's net of the SAME
+asset × route × transport × vehicle; «%» is temporarily the same rub
+difference, the division arrives with the real formula). Rows are edited in place and
 deleted only by an administrator (confirmed by a dialog; the delete is journaled
 so undo restores the row). `l_rates` collaborates like КППК: room
 `logisticsRates` per period (any working member), undo scope
