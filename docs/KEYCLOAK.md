@@ -76,6 +76,14 @@ AUTH_KEYCLOAK_INTERNAL_ISSUER=http://127.0.0.1:8080/realms/reportcollector
 AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER=http://keycloak:8080/realms/reportcollector
 ```
 
+**Test application account (fixed, never guess or probe credentials):** login
+`evtushenko`, password `evtushenko`. This is the seeded administrator with
+access to EVERY project (Сырьё, Ремонт, КППК, Логистика); use it for browser /
+live-stack checks on both the local Keycloak stand and the password-form mode.
+Do not try other usernames, do not look for a password in `.env`, and do not
+treat `admin/admin` as an application login — that pair is the Keycloak admin
+**console** only. The account is a local/test fixture, never a production secret.
+
 ## Diagnostics
 
 - Logs (Loki, `{app="reportcollector"}`): `keycloak_identity_received` (identity data on login), `oidc_authentication_succeeded` / `oidc_authentication_failed` (front, callback), `user_created`, `blocked_user_attempt`.

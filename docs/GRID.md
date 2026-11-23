@@ -125,8 +125,18 @@ fields pinned-first; its custom 11-level overlay splits every header band into a
 pinned and a scrolling run, draws an opaque pinned backdrop and counter-
 translates the pinned header cells, number cells and resize handles by
 `--renovation-scroll-x` (set from `onViewportscroll`), so the overlay stays
-aligned while the rest of the header slides. This applies to every table and
-every project (raw materials, КППК, the renovation dictionaries and the plan).
+aligned while the rest of the header slides. The right-hand boundary of the
+pinned columns has TWO halves: the header half is the backdrop's inset line
+(always header-tall), the data half is `renovation-grid__pinned-boundary` inside
+`.revo-grid-vertical-scroller`. The library's own `colPinStart` inset shadow is
+suppressed (it is always full-viewport-tall and used to draw a ruler over an
+empty table before any row had loaded). The data half starts at height 0 and
+grows on the first `onAftergridrender` to `min(totalRows × rowHeight +
+summaryHeight, 100% − horizontal-strip height)` — i.e. down to the bottom of the
+data viewport, or only to the last row when the table is shorter. A version /
+filter switch (`scopeKey`) resets it so a reload starts header-tall again. This
+applies to every table and every project (raw materials, КППК, the renovation
+dictionaries and the plan).
 
 **Rows.** Right-click a row number (any grid) to get «Закрепить»/«Открепить».
 Pinning does NOT remove or reorder the row: the original stays in the source

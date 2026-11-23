@@ -1789,6 +1789,17 @@ function RenovationGridInner(
         () => scrollToPosition !== null && scrollToPosition !== undefined,
     );
     /**
+     * The right-hand boundary of the pinned columns is drawn only as tall as the
+     * header until the grid has actually rendered its content rows. Extending it
+     * to the full data viewport before that showed a ruler hanging over an empty
+     * table. `onAftergridrender` is the trigger (the maintainer's choice); a
+     * version/filter switch (scopeKey) resets it so a reload starts small again.
+     */
+    const [hasRenderedRows, setHasRenderedRows] = useState(false);
+    useEffect(() => {
+        setHasRenderedRows(false);
+    }, [scopeKey]);
+    /**
      * Hard stop for the "jump in flight" block. A jump normally clears it in a
      * few hundred milliseconds; the deadline guarantees that a jump which never
      * resolves cannot freeze the remembered position forever.
@@ -3897,6 +3908,13 @@ function RenovationGridInner(
                     // The native vertical strip starts below the pinned summary
                     // row instead of covering it.
                     "--renovation-summary-height": `${summaryHeight}px`,
+                    // The pinned columns' right boundary: header-tall until the
+                    // content rows render, then down to the bottom of the data
+                    // zone — or only to the last row when the table is shorter
+                    // than that zone (min(..., 100%) caps it at the scroller).
+                    "--renovation-pinned-boundary-height": hasRenderedRows
+                        ? `min(${totalRows * rowHeight + summaryHeight}px, calc(100% - ${hasHorizontalOverflow ? 17 : 0}px))`
+                        : "0px",
                 } as CSSProperties
             }
             onPointerMove={(event) => {
@@ -4048,6 +4066,13 @@ function RenovationGridInner(
                 </Tooltip.Content>
             </Tooltip>
             <div className="revo-grid-vertical-scroller" onContextMenu={openRowMenu}>
+                {/* Right edge of the pinned data columns. The header draws its
+                    own half of the line (the backdrop); this half grows from
+                    zero to the data zone once rows have rendered. */}
+                <div
+                    className="renovation-grid__pinned-boundary"
+                    style={{ left: ROW_HEADER_WIDTH + pinnedHeaderWidth - 1 }}
+                />
                 <RevoGrid
                     ref={gridRef}
                     className="renovation-grid"
@@ -4074,6 +4099,8 @@ function RenovationGridInner(
                     // render, so a strip remounted by that render has painted
                     // (see `syncRowHeaderScroll`). One frame is queued at most.
                     onAftergridrender={() => {
+                        // The pinned boundary may grow to the data zone now.
+                        setHasRenderedRows(true);
                         if (rowHeaderSyncFrameRef.current !== 0) return;
                         rowHeaderSyncFrameRef.current = window.requestAnimationFrame(() => {
                             rowHeaderSyncFrameRef.current = 0;
