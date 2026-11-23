@@ -153,6 +153,29 @@ different milestones. Do not reopen the explicit product deferrals below.
   edit overwrites: accepted temporary testing compromise. No conflict UI now.
 - Further local Argon2/password-fallback work; Keycloak is the normal login path.
 
+## Process (hard rules)
+
+Short recap — the canonical text is `docs/WORKFLOW.md`; this list is the living
+reminder, not a second copy:
+
+- Every meaningful task = its own `feat/`/`fix/`/`docs/` branch from current
+  `dev`, created before the first edit. Start the next task only after the
+  previous one is merged. Split into semantic parts: one logical change per
+  commit, each with Why/What/Verified.
+- `feature → dev`: `git merge --no-ff` (keeps granular history) after green
+  checks + user confirmation; squash is ONLY for `dev → main` (release approval).
+  Delete the local branch after the merge; never delete a remote branch without
+  permission.
+- When in doubt, ask the maintainer — do not guess. Ambiguous product/config/
+  process decisions stop and wait for an answer; safe reversible technical
+  choices may proceed with documentation. Record maintainer decisions here or
+  in the commit body so the next agent does not re-ask.
+- Before reporting done: Definition of done (`docs/WORKFLOW.md`) — checks + CI
+  green, behavior verified by hand where tests can't see it, docs updated in the
+  same change, no debug artifacts/secrets, every ambiguity asked.
+- Keep `AGENTS.md` a thin index; one fact = one home. Update it and the matching
+  `docs/` file in the same change; record landmines immediately.
+
 ## Closed in the current slice
 
 - Renovation plan column sorting is now enabled for every leaf (server-side

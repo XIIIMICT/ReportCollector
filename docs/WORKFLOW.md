@@ -355,12 +355,12 @@ Language is chosen by audience: docs are written for their main reader. This is 
 
 ```
 main        ← prod. squash-merge from dev + release tag vX.Y.Z; human documentation is updated here
-dev         ← integration. squash-merge from feature/*; agent documentation is updated here
+dev         ← integration. --no-ff merge from feature/*; agent documentation is updated here
 feature/*   ← from dev: granular conventional commits (Why/What/Verified)
 ```
 
-1. **Branches** — short-lived, from `dev`: `fix/<short>`, `feat/<short>` (ascii, lowercase).
-2. **Commits** — conventional commits: `type(scope): short English summary`. Type: `feat`/`fix`/`refactor`/`docs`/`test`/`chore`; scope — module (`raw-materials`, `collab`, `auth`, `grid`, `docs`, …). Body — three sections, enough context for an agent without token bloat (header ≤ ~72 chars, body 3–10 lines):
+1. **Branches — mandatory, one logical task per branch.** Every meaningful task gets its own short-lived branch from the current `dev`: `fix/<short>`, `feat/<short>`, `docs/<short>` (ASCII, lowercase). Create it BEFORE the first edit; do the whole task on it. **Start the next task only after the previous one is merged into `dev`** — do not pile unrelated work into one branch or work directly on `dev`. Before creating it, check `git status` and the current branch; never discard foreign or untracked work. A single task that touches backend + frontend + docs is still ONE branch, but split into **semantic parts**: one logical change per commit, each with its own Why/What/Verified, so the branch history reads as the reasoning, not as a dump of files.
+2. **Commits** — conventional commits: `type(scope): short English summary`. Type: `feat`/`fix`/`refactor`/`docs`/`test`/`chore`; scope — module (`raw-materials`, `collab`, `auth`, `grid`, `docs`, …). Body — three sections, enough context for an agent without token bloat (header ≤ ~72 chars, body 3–10 lines). One commit = one logical change; do not mix a refactor, a feature and a doc fix in a single commit.
 
 ```
 fix(raw-materials): paste no longer overwrites foreign rows when sorted
@@ -372,23 +372,40 @@ canPasteRange).
 Verified: typecheck, oxlint, 16 unit tests; e2e not run (no stack).
 ```
 
-3. **feature → dev:** only after green checks and user confirmation; merge with `git merge --squash feature/<branch>` — the merge message is a single conventional commit `merge(scope): short summary` + the Why/What/Verified body that distills the branch's commits (they're squashed away, so the message must carry the essentials). The feature branch itself is left in place with its granular history for bisect/revert.
-4. **Agent documentation** (`AGENTS.md` + `docs/*`) is updated at this step — not earlier. Exception: landmines in `AGENTS.md` are written down immediately when discovered (one line; easy to lose them by merge time).
-5. **dev → main:** squash-merge (release boundary, clean changelog), message — branch summary per the template; tag `vX.Y.Z`; here human documentation is updated (none yet — it's separate from the agent docs and updated only for prod versions).
+3. **feature → dev:** only after green checks and user confirmation; merge with **`git merge --no-ff <branch>`** — a regular merge commit that keeps the branch's granular history (no squash; squash is reserved for the release boundary into `main`). After the merge, re-run the integration checks affected by the change on `dev`, then delete the LOCAL branch; **never delete a remote branch without permission**. Keep the granular commits for bisect/revert — that is the point of `--no-ff`.
+4. **Agent documentation** (`AGENTS.md` + `docs/*`) is updated at this step — not earlier. Exception: landmines are written down immediately when discovered (one line; easy to lose them by merge time).
+5. **dev → main:** squash-merge (release boundary, clean changelog), message — branch summary per the template; tag `vX.Y.Z`; here human documentation is updated (none yet — it's separate from the agent docs and updated only for prod versions). Release promotion requires explicit release approval.
 
 ### Merge checklist (into dev)
 
-- [ ] all checks green (typecheck + lint + tests on both sides);
+- [ ] the work was done on its own `feat/`/`fix/`/`docs/` branch, split into logical commits;
+- [ ] all checks green (CI + local quality table: typecheck + lint + tests on both sides);
 - [ ] user confirmed the behavior works (for WS/collab — live check; tests don't replace it);
-- [ ] `AGENTS.md` and `docs/*` updated for the new behavior;
-- [ ] debug files removed (probe scripts, `debug_*.py`);
-- [ ] merge message per template `type(scope) + Why/What/Verified`.
+- [ ] `AGENTS.md` and the matching `docs/*` file updated for the new behavior, in the same change;
+- [ ] debug files removed (probe scripts, `debug_*.py`, stray `.mjs`/`.cjs`);
+- [ ] no secrets, no foreign/untracked work discarded;
+- [ ] merged with `git merge --no-ff`, integration checks re-run on `dev`, local branch deleted (remote branch untouched).
+
+## Definition of done
+
+A task is done only when every box holds. This is the gate the agent applies before reporting completion — not a wish list:
+
+- [ ] quality checks green: back — typecheck + lint + tests; front — typecheck + lint + tests (table above);
+- [ ] CI green for the pushed branch/PR (`.github/workflows/ci.yaml`);
+- [ ] behavior verified **by hand** where tests can't see it (WS/collab leases and presence, the revo-grid selection/paste, the exported XLSX opening in Excel); tests do not replace this;
+- [ ] `AGENTS.md` and the matching `docs/*` file updated for the new behavior, in the same change;
+- [ ] no debug artifacts or secrets left behind (`debug_*`, `*-probe*`, stray `.mjs`/`.cjs`);
+- [ ] each commit is a conventional commit + Why/What/Verified, one logical change per commit;
+- [ ] every ambiguous product/config/process decision was asked, not guessed (see "Working principles").
 
 ## Working principles
 
+- **When in doubt, ask the maintainer — do not guess.** If a product, config or process decision is ambiguous (semantics, versions, naming, what to commit, how to interpret a requirement), **stop and ask**; a wrong silent guess costs more than a short question. Safe, reversible technical choices may proceed and be documented, but anything with product or convention weight needs an answer first. Record the answer as a maintainer decision in the commit body or `docs/TODO.md` so the next agent does not re-ask. **Maintainer decision (2026-11-23):** branch/commit rules stay documentation-only — no commitlint, no `commit-msg` hook, no branch-name CI check; prek/CI keep enforcing code quality and coverage only (matches the DocMasker reference).
+- **Stop conditions:** if a required tool is missing, ask the user to install it and stop — never substitute an equivalent; if checks are red, do not report the task as done; if the working tree holds foreign/untracked changes, do not reset, checkout or discard them. Ask instead.
 - **Minimal changes:** edit existing files, don't create new ones needlessly; follow the file's style.
 - **Read the code before the doc when the two could disagree:** a doc line whose code changed is worse than no line. If a behaviour you touch has a doc bullet, update it in the same change; if you find a stale bullet, fix or delete it rather than adding another.
-- **Prefer a pointer to a repetition:** when the same fact is already in a `docs/*` section, `AGENTS.md` keeps one line plus the file name (e.g. «details — `docs/COLLAB.md`, "Lease, presence, idle"»). Two full copies drift apart and both get read.
+- **One home per fact:** a fact lives either in the root `AGENTS.md` (hot path, thin index) or in `docs/` (detail) — never duplicated, so the two cannot drift. When the same fact is already in a `docs/*` section, `AGENTS.md` keeps one line plus the file name (e.g. «details — `docs/COLLAB.md`, "Lease, presence, idle"»). Two full copies drift apart and both get read. The root `AGENTS.md` is a **thin index**; it must not accumulate landmines — record those immediately in the relevant section below, or in the matching `docs/` file.
+- **Docs are durable, not a changelog:** state how things are now; dates and «removed on …» belong in commit messages.
 - **Check before delivery:** typecheck + lint + tests on both sides (table above). After collab changes — `test_collab.py`; after dictionaries/paste — `test_raw_materials.py` + `grid-clipboard.test.ts`.
 - **Remove debug artifacts:** probe scripts (`back/tests/debug_*.py`, `front/e2e/*-probe*`) are not committed; the root `.gitignore` silences `*.mjs`/`*.cjs`.
 - **Documentation is part of the change:** behavior/timings/protocol changed — update `AGENTS.md` and the corresponding file in `docs/`.
