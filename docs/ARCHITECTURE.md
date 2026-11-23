@@ -772,7 +772,7 @@ specification (`data_jobs`) and bounded cursor batches in the isolated worker;
 the worker reopens the authorized query instead of receiving materialized rows.
 Small exports remain inline under the configured row limit.
 
-A full plan export is ~306k rows × 216 columns: minutes of CPU and ~500 MB of
+A full plan export is ~306k rows × 217 columns: minutes of CPU and ~500 MB of
 XLSX (the sheet XML exceeds 4 GB uncompressed → ZIP64). Doing that in the
 request handler froze the whole event loop for every user and several parallel
 requests OOM'ed the container. The export is therefore a background job

@@ -371,6 +371,10 @@ class RenovationPlanRow(UpdaterDisplay, table=True):
     col_215: bool | None = Field(default=None, sa_column=Column(Boolean(), nullable=True))
     col_216: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
     col_217: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    # «Номер сметы»: the new first column of the «Дирекция КСиР» block. The
+    # db name is reused from the retired «Корректировка» (dropped by 0007); its
+    # column comment comes from field_header_paths() like every other col_*.
+    col_218: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
 
 
 for _model in (RenovationReferenceValue, RenovationPlan, RenovationPlanRow):

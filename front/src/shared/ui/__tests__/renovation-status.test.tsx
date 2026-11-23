@@ -29,10 +29,10 @@ test.each([
             gridStats={{
                 ...rows,
                 sortedColumns: [],
-                totalCols: 216,
+                totalCols: 217,
                 immutableCols: 0,
                 calculatedCols: 0,
-                editableCols: 216,
+                editableCols: 217,
             }}
         />,
     );

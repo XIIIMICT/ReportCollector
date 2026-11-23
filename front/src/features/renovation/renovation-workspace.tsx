@@ -1084,7 +1084,7 @@ export function RenovationWorkspace({
 
     // Leased / selected cells and the combined highlight marker, stabilized by
     // content so a presence heartbeat with unchanged state does not rebuild the
-    // 216-column grid (see the hook). Shared with the «Сырьё» workspace.
+    // wide column grid (see the hook). Shared with the «Сырьё» workspace.
     const { remoteLocks, remotePresence, remoteCellInfo } = useRemoteCellMaps(room);
 
     const readOnly = isMutationPending || isArchive || (collabEnabled && room.status === "offline");

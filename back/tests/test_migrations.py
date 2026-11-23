@@ -69,13 +69,14 @@ _EMPTY_AS_NULL_COLUMNS: dict[str, tuple[str, ...]] = {
 
 # Columns the migration chain legitimately drops (0007_drop_plan_correction):
 # they exist on the pre-adoption snapshot but not after the upgrade, so the data
-# comparison excludes them.
+# comparison excludes them. col_218 was the retired «Корректировка»; 0040 adds
+# it back as the empty «Номер сметы» column, so it is still excluded from BOTH
+# snapshots (the legacy value is not a business value we must preserve).
+# repair_code: 0030 renames it to `code` (unchanged value, and its type and
+# comment differ, so the JSON comparison cannot line the two up).
+# col_023: 0030 makes the defect number TEXT, re-rendering `706179` as
+# `0706179` — the same value, restored to its real seven digits.
 _DROPPED_COLUMNS: dict[str, tuple[str, ...]] = {
-    # col_218: 0007 drops the obsolete «Корректировка» column.
-    # repair_code: 0030 renames it to `code` (unchanged value, and its type and
-    # comment differ, so the JSON comparison cannot line the two up).
-    # col_023: 0030 makes the defect number TEXT, re-rendering `706179` as
-    # `0706179` — the same value, restored to its real seven digits.
     "r_plan_rows": ("col_218", "col_023"),
     "r_assets": ("repair_code",),
 }

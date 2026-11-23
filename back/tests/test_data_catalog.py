@@ -33,7 +33,8 @@ def test_catalog_covers_every_application_table_and_column() -> None:
     # 0033 adds the «Класс опасности» dictionary (2 columns).
     # 0035 adds the «Ставки» main table (21 columns).
     # 0037 adds the asset grants of a «Работник на активе» (6 columns).
-    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 553
+    # 0040 re-adds r_plan_rows.col_218 as «Номер сметы» (1 column).
+    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 554
     assert set(TABLE_COMMENTS) == set(SQLModel.metadata.tables)
     for table in SQLModel.metadata.tables.values():
         assert table.comment == TABLE_COMMENTS[table.name].rstrip(".")
@@ -118,8 +119,9 @@ def test_form_normalizes_labels_without_changing_values_or_layout() -> None:
 def test_renovation_comments_keep_full_display_hierarchy() -> None:
     paths = field_header_paths()
     assert set(paths) == {field.db_name for field in field_metas()}
-    assert len(paths) == 216
+    assert len(paths) == 217
     assert paths["col_002"] == "Предприятие"
+    assert paths["col_218"] == "2) Дирекция КСиР → Номер сметы"
     assert paths["col_003"] == "Идентификационный код работы/ремонта"
     assert paths["col_015"] == "1) Техническая дирекция → Группа критичности оборудования"
     assert paths["col_046"] == (

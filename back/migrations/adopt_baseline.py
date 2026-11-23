@@ -76,18 +76,16 @@ def prune_legacy_revision_files(directory: Path) -> list[str]:
     return pruned
 
 
-# Legacy-only column the models dropped: the old `renovation_reference_values.metadata`.
+# Legacy-only columns the models dropped: the old `renovation_reference_values.metadata`.
 # It is nullable and unused; the guard tolerates it so old installations adopt.
-# `renovation_plan_rows.col_218` (the retired «Корректировка») is dropped by
-# 0007_drop_plan_correction, which runs after the baseline during adoption, so
-# its presence on the pre-adoption schema is expected too. `sort_order` and
-# `value_key` are the renovation catalog columns dropped by
-# 0019_drop_reference_sort_order / 0020_drop_reference_value_key / 0022.
+# `col_218` used to be listed here too (the retired «Корректировка»), but it is
+# back as a real model column — «Номер сметы» — so both sides now declare it and
+# there is no longer a diff to tolerate. `sort_order` and `value_key` are the
+# renovation catalog columns dropped by 0019_drop_reference_sort_order /
+# 0020_drop_reference_value_key / 0022.
 _LEGACY_EXTRA_COLUMNS: dict[str, set[str]] = {
     "renovation_reference_values": {"metadata", "sort_order", "value_key", "payload"},
     "r_reference_values": {"metadata", "sort_order", "value_key", "payload"},
-    "renovation_plan_rows": {"col_218"},
-    "r_plan_rows": {"col_218"},
 }
 
 # 0025_plan_row_facet_indexes (after the baseline) rebuilds the plan-row facet

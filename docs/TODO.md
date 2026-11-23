@@ -115,6 +115,17 @@ different milestones. Do not reopen the explicit product deferrals below.
 - [ ] Revisit domain router/journal boilerplate only when stable contracts expose
   a shared seam. Preserve project-local memberships, grants and undo scopes;
   do not replace differing project policies with generic CRUD.
+- [ ] **Rename the «Ремонт» plan columns away from `col_NNN`.** The db names are
+  positional leftovers from the legacy workbook (`col_002`…`col_218`), NOT stable
+  identifiers: inserting «Номер сметы» reused the retired `col_218` name for a
+  completely different field and re-based every `position`/`ordinal`/Excel range
+  after it. Today the field's `dbName`, its workbook ordinal, its form position
+  and its Excel letter are four different numbers held in sync only by a JSON
+  transform and a data-catalog comment guard. This is unmaintainable — a rename
+  to semantic names (e.g. `estimate_number`, `total_cost_rub`) needs one mapped
+  migration per project, a versioned import alias table for the customer's XLSB
+  headers, and an update of the frozen formula/excelFormula references. Do this
+  before adding any further plan column.
 
 ## Explicit product deferrals
 

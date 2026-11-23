@@ -17,7 +17,7 @@ async function openMenu() {
             <RowGoToFilter
                 anchor={{ left: 0, top: 0, width: 100 } as DOMRect}
                 total={100}
-                maxColumn={216}
+                maxColumn={217}
                 onGoTo={(position) => rows.push(position)}
                 onGoToColumn={(column) => columns.push(column)}
                 onClose={() => {

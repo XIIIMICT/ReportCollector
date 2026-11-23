@@ -2899,7 +2899,7 @@ function RenovationGridInner(
             // Only clear the row selection if there actually is one: assigning
             // a fresh [] on every focuscell (which revo-grid fires continuously
             // during a drag) changed the selectedRowIds reference, rebuilt the
-            // 216-column memo and re-rendered the whole grid each tick — the
+            // column memo and re-rendered the whole grid each tick — the
             // drag stopped tracking the cursor and scrolling janked.
             setSelectedRowIds((prev) => (prev.length === 0 ? prev : []));
             rowSelectionAnchorRef.current = null;
@@ -3509,7 +3509,7 @@ function RenovationGridInner(
         const width = size.x + ROW_HEADER_WIDTH;
         // revo-grid fires contentsizechanged on every virtualized scroll tick;
         // re-setting the same width re-rendered the grid, which rebuilt the
-        // 216-column memo and re-fired contentsizechanged — an endless loop
+        // column memo and re-fired contentsizechanged — an endless loop
         // that froze the drag cursor and janked horizontal scrolling. Only
         // commit state when the width actually changed.
         if (width === horizontalContentWidthRef.current) return;

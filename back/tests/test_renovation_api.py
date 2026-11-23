@@ -113,8 +113,9 @@ async def test_meta_lists_form_fields_and_catalogs(client: AsyncClient) -> None:
     response = await client.get("/api/renovation/meta", headers=ADMIN_HEADERS)
     assert response.status_code == 200
     body = response.json()
-    # 217 form fields minus the hidden «Корректировка» (col_218).
-    assert len(body["fields"]) == 216
+    # 217 form fields: the retired «Корректировка» is gone and «Номер сметы»
+    # (col_218) is a real field — the first column of the КСиР block.
+    assert len(body["fields"]) == 217
     assert len(body["catalogs"]) == 5
     assert {asset["code"] for asset in body["assets"]} >= {"BSKR", "VOZR"}
     col_003 = next(field for field in body["fields"] if field["dbName"] == "col_003")
@@ -1790,9 +1791,9 @@ async def test_export_working_plan_renders_merged_header(client: AsyncClient) ->
     assert any(str(r) == "A12:A13" for r in worksheet.merged_cells.ranges)
     assert worksheet["A14"].value == "АО «БСК»"
     assert worksheet["B14"].value == "2027_BSKR_1.1.1_1382467"
-    # 216 kept fields (col_218 hidden, no row-number column); the hidden
-    # column leaves a one-column gap on the last level.
-    assert worksheet.max_column == 216
+    # 217 fields (the retired «Корректировка» is gone, «Номер сметы» added,
+    # no row-number column); positions are continuous, so there is no gap.
+    assert worksheet.max_column == 217
     assert worksheet.max_row == 15
 
 

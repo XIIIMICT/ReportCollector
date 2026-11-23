@@ -78,7 +78,7 @@ export default defineConfig({
         // The plan grid's synthetic row fields use the `__` prefix on purpose:
         // `RenovationGridRow` is `& Record<string, unknown>`, so the prefix is
         // what keeps these internal fields from ever colliding with a database
-        // column (`col_002`…`col_217`) — the same convention gives `__id`,
+        // column (`col_002`…`col_218`) — the same convention gives `__id`,
         // `__position`, `__rowState`. The names are part of the row contract
         // between the grid, the workspace and the export, so they are allow-listed
         // rather than renamed.
