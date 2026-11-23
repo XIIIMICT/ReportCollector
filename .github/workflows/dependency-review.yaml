@@ -16,7 +16,7 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/dependency-review-action@v5
         with:
           # Block a PR that introduces a known-vulnerable or badly licensed
           # package. GPL/AGPL in a dependency is a legal problem for this product.
