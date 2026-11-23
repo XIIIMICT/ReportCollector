@@ -2248,6 +2248,24 @@ body {
     box-shadow: none !important;
 }
 
+/* The plan draws the pinned columns' right edge itself: the library's own
+   `colPinStart` inset line is always full-viewport-tall (it appears before any
+   row has loaded), so it is suppressed and replaced by an element whose height
+   we control. */
+.renovation-grid revogr-viewport-scroll.colPinStart {
+    box-shadow: none !important;
+}
+
+.renovation-grid-shell .renovation-grid__pinned-boundary {
+    position: absolute;
+    top: 0;
+    z-index: 3;
+    width: 1px;
+    height: var(--renovation-pinned-boundary-height, 0px);
+    background: var(--cell-border);
+    pointer-events: none;
+}
+
 .data-grid revogr-data .rgRow.focused-rgRow {
     background-color: transparent !important;
 }
