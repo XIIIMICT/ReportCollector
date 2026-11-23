@@ -43,6 +43,13 @@ export type GridRow = Record<string, unknown> & {
     isDeleted: boolean;
     canonicalCells?: Record<string, string>;
     isPlaceholder?: boolean;
+    /**
+     * A placeholder row that PREVIEWS computed values (the «Ставки» draft derives
+     * the direction, dollar rates and deviations while it is being filled). Its
+     * calculated cells keep the green «do not fill me» highlight; a plain
+     * «＋ добавить запись» row has no computed values yet and stays neutral.
+     */
+    highlightCalculatedInPlaceholder?: boolean;
     /** View-only copy of a pinned row, rendered above the data. */
     __pinnedCopy?: boolean;
     /** The original row id a pinned copy mirrors. */
@@ -968,10 +975,14 @@ function cellProperties(
         value === "" ||
         (Array.isArray(value) && value.length === 0);
     const showDiff = context.hasBaseline && !row.isPlaceholder;
+    // A plain «＋» row has no computed values yet, so its calculated cells stay
+    // neutral. The «Ставки» draft is different: it previews the direction, the
+    // dollar rates and the deviations as the user fills the editable cells, and
+    // those cells must read as «calculated — nothing to fill in here» there too.
     const calculated =
         (descriptor.kind === "calculated" || descriptor.calculatedText === true) &&
         !row.isDeleted &&
-        !row.isPlaceholder;
+        (!row.isPlaceholder || row.highlightCalculatedInPlaceholder === true);
     return {
         className: {
             "report-cell": true,

@@ -246,6 +246,9 @@ function draftRow(draft: RateDraft): GridRow {
         changedFields: [],
         isDeleted: false,
         isPlaceholder: true,
+        // The draft previews the computed cells (direction, dollars, deviations)
+        // while it is being filled, so they keep the green «do not fill me» tint.
+        highlightCalculatedInPlaceholder: true,
         // The vehicle type is a dependent field: without a transport type there
         // is nothing to choose from, so the cell stays read-only (and explains
         // itself on hover) instead of opening an empty popover.

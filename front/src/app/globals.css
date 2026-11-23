@@ -2511,7 +2511,8 @@ body {
     background: var(--cell-empty) !important;
 }
 
-.data-grid revogr-data .rgCell.report-cell--calculated {
+.data-grid revogr-data .rgCell.report-cell--calculated,
+.data-grid revogr-data .rgCell.report-cell--placeholder.report-cell--calculated {
     background: var(--cell-calculated) !important;
 }
 
