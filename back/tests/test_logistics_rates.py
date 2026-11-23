@@ -115,7 +115,11 @@ async def test_deviations_compare_the_previous_month(client: AsyncClient) -> Non
     assert row["prevNetRateRub"] == 600.0
     assert row["prevNetRateUsd"] == 7.15
     assert row["deviationRub"] == 50.0
-    assert row["deviationUsd"] == round(row["netRateUsd"] - row["prevNetRateUsd"], 2)
+    net_usd = row["netRateUsd"]
+    prev_usd = row["prevNetRateUsd"]
+    assert isinstance(net_usd, (int, float))
+    assert isinstance(prev_usd, (int, float))
+    assert row["deviationUsd"] == round(net_usd - prev_usd, 2)
     # «%» is temporarily the same rub difference (no division yet).
     assert row["deviationPercent"] == row["deviationRub"]
 
