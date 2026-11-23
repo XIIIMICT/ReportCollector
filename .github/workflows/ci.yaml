@@ -251,6 +251,11 @@ jobs:
         run: |
           docker compose -f infra/compose.ci.yaml up -d --wait --wait-timeout 120 postgres valkey
           uv sync --directory back --locked --no-dev
+          # «Ставки» (migration 0035) has FOREIGN KEYs into the corporate
+          # `dict` schema, which no migration creates. On this isolated CI
+          # database, seed the five demo dictionary tables BEFORE upgrading —
+          # the same fixture `just seed-dev-dict` uses for a developer's DB.
+          uv run --directory back --no-sync python -m src.scripts.seed_dev_dict --yes
           uv run --directory back --no-sync python -m migrations.upgrade
           docker compose -f infra/compose.ci.yaml run --rm --no-deps back python -m src.scripts.seed_database --data-only
           # The КППК merge/export spec needs a non-empty realization grid,

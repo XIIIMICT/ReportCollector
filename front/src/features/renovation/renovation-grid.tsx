@@ -1790,14 +1790,15 @@ function RenovationGridInner(
     );
     /**
      * The right-hand boundary of the pinned columns is drawn only as tall as the
-     * header until the grid has actually rendered its content rows. Extending it
-     * to the full data viewport before that showed a ruler hanging over an empty
-     * table. `onAftergridrender` is the trigger (the maintainer's choice); a
-     * version/filter switch (scopeKey) resets it so a reload starts small again.
+     * header until the grid actually holds CONTENT rows. `onAftergridrender`
+     * fires as soon as the sparse placeholder slots render (before the first
+     * chunk arrives), so it is too early — the reliable signal is
+     * `reportLoadedRows()` returning a non-zero count. A version/filter switch
+     * (scopeKey) resets it so a reload starts header-tall again.
      */
-    const [hasRenderedRows, setHasRenderedRows] = useState(false);
+    const [hasContentRows, setHasContentRows] = useState(false);
     useEffect(() => {
-        setHasRenderedRows(false);
+        setHasContentRows(false);
     }, [scopeKey]);
     /**
      * Hard stop for the "jump in flight" block. A jump normally clears it in a
@@ -2250,8 +2251,13 @@ function RenovationGridInner(
         const reportAndRetry = () => {
             void reportLoadedRows().then((count) => {
                 if (!epoch.isCurrent(token)) return;
-                // Loaded rows are in: nothing more to chase until the next event.
-                if (count > 0) return;
+                // Loaded rows are in: the pinned boundary may grow to the
+                // data zone now. This is the FIRST reliable signal that content
+                // (not sparse placeholder slots) has arrived.
+                if (count > 0) {
+                    setHasContentRows(true);
+                    return;
+                }
                 // Source still empty (the plugin has not landed its first chunk):
                 // try again shortly. The retry is bounded so a genuinely empty
                 // scope does not spin forever.
@@ -3909,10 +3915,10 @@ function RenovationGridInner(
                     // row instead of covering it.
                     "--renovation-summary-height": `${summaryHeight}px`,
                     // The pinned columns' right boundary: header-tall until the
-                    // content rows render, then down to the bottom of the data
-                    // zone — or only to the last row when the table is shorter
-                    // than that zone (min(..., 100%) caps it at the scroller).
-                    "--renovation-pinned-boundary-height": hasRenderedRows
+                    // content rows have loaded, then down to the bottom of the
+                    // data zone — or only to the last row when the table is
+                    // shorter than that zone (min(..., 100%) caps it).
+                    "--renovation-pinned-boundary-height": hasContentRows
                         ? `min(${totalRows * rowHeight + summaryHeight}px, calc(100% - ${hasHorizontalOverflow ? 17 : 0}px))`
                         : "0px",
                 } as CSSProperties
@@ -4099,8 +4105,6 @@ function RenovationGridInner(
                     // render, so a strip remounted by that render has painted
                     // (see `syncRowHeaderScroll`). One frame is queued at most.
                     onAftergridrender={() => {
-                        // The pinned boundary may grow to the data zone now.
-                        setHasRenderedRows(true);
                         if (rowHeaderSyncFrameRef.current !== 0) return;
                         rowHeaderSyncFrameRef.current = window.requestAnimationFrame(() => {
                             rowHeaderSyncFrameRef.current = 0;
