@@ -131,9 +131,11 @@ pinned columns has TWO halves: the header half is the backdrop's inset line
 `.revo-grid-vertical-scroller`. The library's own `colPinStart` inset shadow is
 suppressed (it is always full-viewport-tall and used to draw a ruler over an
 empty table before any row had loaded). The data half starts at height 0 and
-grows on the first `onAftergridrender` to `min(totalRows × rowHeight +
-summaryHeight, 100% − horizontal-strip height)` — i.e. down to the bottom of the
-data viewport, or only to the last row when the table is shorter. A version /
+grows when `reportLoadedRows()` first reports a non-empty chunk (not on
+`onAftergridrender` — that fires while the sparse placeholder slots are still
+empty) to `min(totalRows × rowHeight + summaryHeight, 100% − horizontal-strip
+height)` — i.e. down to the bottom of the data viewport, or only to the last row
+when the table is shorter. A version /
 filter switch (`scopeKey`) resets it so a reload starts header-tall again. This
 applies to every table and every project (raw materials, КППК, the renovation
 dictionaries and the plan).
