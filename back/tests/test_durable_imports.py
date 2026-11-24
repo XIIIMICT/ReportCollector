@@ -262,7 +262,7 @@ async def test_xlsx_upload_keeps_its_suffix_for_the_worker(setup_import, client,
 
     repository, owner, directory = setup_import
     worker = manager(repository)
-    monkeypatch.setattr("src.renovation.router.import_jobs", worker)
+    monkeypatch.setattr("src.renovation.router_import.import_jobs", worker)
     headers = signed_identity_headers(email="admin@example.ru", name="Admin User")
     response = await client.post(
         "/api/renovation/plan/import/apply",
@@ -286,7 +286,7 @@ async def test_http_acceptance_queues_without_parsing_and_enforces_owner(setup_i
 
     repository, owner, directory = setup_import
     worker = manager(repository)
-    monkeypatch.setattr("src.renovation.router.import_jobs", worker)
+    monkeypatch.setattr("src.renovation.router_import.import_jobs", worker)
     headers = signed_identity_headers(email="admin@example.ru", name="Admin User")
     response = await client.post(
         "/api/renovation/plan/import/apply",

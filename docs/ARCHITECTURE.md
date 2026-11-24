@@ -759,6 +759,59 @@ and calls into here (`src/raw_materials/export.py`, `src/kppk/export.py`,
 sheet-layout writer (the 11-level Excel header, the aggregating band, 59 live
 formula columns) built on the same `xlsx_stream`.
 
+### Renovation service module boundaries (Phase 4)
+
+`back/src/renovation/service.py` is now a **façade**: it keeps the historical
+`from src.renovation.service import X` contract (router, collab, scripts and
+tests import ~25 names from it) while the implementations live in flat
+sibling modules, one-way dependency `service → plan_reads → service_common`:
+
+- `service_common.py` — shared primitives with NO dependency on the rest of
+  the service: exceptions, error singletons/factories, audit/ID constants,
+  plan-row read helpers, renovation-ID helpers, reference-label resolution,
+  cell rule/coercion helpers. Both other modules import from here.
+- `plan_reads.py` — the READ surface: access resolution, meta, plan rows,
+  facets, summary, versions, diff and the streaming export queries. No writes.
+- `recompute.py` — formula materialization (`_materialize_row`,
+  `_recalculate_row`) and the `recompute_plan_rows` backfill. Pure computation
+  over rows within the caller's session; no HTTP or authorization.
+- `cell_mutations.py` — the WRITE surface for cells and rows: create/delete/asset
+  assignment, `update_plan_cells`, undo/redo `apply_renovation_cell_value` and
+  reference coercion. `@project_write`, row locks, lease checks, journal writes
+  and revision bumps stayed at their original call sites.
+- `lifecycle.py` — `submit_plan` / `approve_plan` and the next working copy.
+- `service.py` — a thin façade (46 lines) re-exporting the ~25 historical public
+  names so router, collab, scripts and tests keep importing from one place.
+
+Dependency direction is one-way: `service → {plan_reads, recompute,
+cell_mutations, lifecycle} → service_common`; `plan_reads → service_common`.
+No module imports back into `service`; `export.py`'s deferred import of
+`RenovationPlanExportData` is preserved to avoid a cycle. The split is
+extraction-only: transaction ownership, locking boundaries and authorization
+checks stayed at the same call sites; the full backend suite (677 passed /
+13 skipped) is the no-behavior-change gate. `src/common/job_contracts.py`
+similarly owns the generic durable-job limits and `ExportQueueFullError`,
+re-exported by `common/export_jobs.py`.
+
+`router.py` (1935 -> 27 lines) is now just the aggregator: it creates one
+`APIRouter` and `include_router`s six sub-routers with the shared
+`/renovation` prefix — `router_import`, `router_plan`, `router_export`,
+`router_lifecycle`, `router_dictionary`, `router_undo` — plus
+`router_common` holding auth dependencies and upload/scope helpers. Paths,
+methods, dependencies and response models are unchanged (verified by diffing
+`/openapi.json`: 36/36 renovation paths identical); the private helpers that
+tests monkeypatch are re-exported from `router.py` for back-compat, and the
+three import tests now target `router_import`.
+
+`front/src/shared/api/renovation.ts` (1140 -> 11 lines) is now a barrel
+re-exporting six workflow modules: `renovation-shared.ts` (types, constants,
+`decodeLegacyFieldName`/`decodeLegacyFieldKeys`), `renovation-import-api.ts`,
+`renovation-plan-api.ts`, `renovation-export-api.ts`,
+`renovation-dictionary-api.ts` and `renovation-undo-api.ts`. All dependencies
+are leaf modules, so there are no cycles; the 82 historical exports are
+identical (checked), and the runtime request/response shapes are unchanged.
+`bun test` (461 passed) and `bun check` are the no-behavior-change gate.
+
 Every table export is **dual-mode behind one endpoint** (`export_table_or_job`
 in `src/common/export_jobs.py`): up to `INLINE_EXPORT_MAX_ROWS` (5 000) rows
 the workbook renders right in the request and returns as an attachment; past

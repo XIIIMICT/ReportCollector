@@ -19,7 +19,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError
 
 from src.app_logging import log_error, log_event
 from src.common.durable_exports import LeaseLostError
-from src.common.export_jobs import JOB_TTL_SECONDS, ExportQueueFullError
+from src.common.job_contracts import JOB_TTL_SECONDS, ExportQueueFullError
 from src.common.job_models import DataJob
 from src.common.job_repository import LEASE_SECONDS, JobRepository
 from src.config import get_settings

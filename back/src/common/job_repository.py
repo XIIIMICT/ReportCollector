@@ -8,7 +8,7 @@ from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.common.export_jobs import JOB_TTL_SECONDS, MAX_ACTIVE_JOBS, MAX_ACTIVE_JOBS_PER_USER, ExportQueueFullError
+from src.common.job_contracts import JOB_TTL_SECONDS, MAX_ACTIVE_JOBS, MAX_ACTIVE_JOBS_PER_USER, ExportQueueFullError
 from src.common.job_models import ACTIVE_STATES, QUEUE_LOCK, DataJob
 from src.database import async_session_factory
 from src.metrics import EXPORT_JOBS_REJECTED
