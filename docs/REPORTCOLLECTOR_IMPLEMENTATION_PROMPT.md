@@ -421,24 +421,11 @@ Do this only after Phases 1–8 and the owner decisions that affect import behav
 
 ## 6. Deferred TODO register
 
-Keep these items visible in the repository TODO, with short descriptions, dependencies, and the reason they are deferred. Do not implement them in this task.
-
-| Item | Deferred scope / reason |
-|---|---|
-| S3-compatible object storage | Replace local import/export artifact storage with a durable shared object store; design migration, lifecycle, credentials, and recovery separately. |
-| Export artifact lifecycle | Define retention, cleanup, quota/disk-growth handling, and behavior for exports exceeding the XLSX format ceiling; requires an owner-approved retention/product policy. |
-| Multi-process worker topology | Separate API, import/export/query workers, and outbox dispatch from API lifespan; requires coordinated deployment/infrastructure changes. |
-| Infrastructure and deployment review | NGINX limits/timeouts, Compose networks/ports, health/readiness wiring, Docker TLS trust, deployment topology, and storage mounts. |
-| Monitoring and alerting | Metrics exposure, per-process scraping, queue-age/worker/DB metrics, alert design, and operational dashboards. |
-| Production runbooks and disaster recovery | Backup/restore validation, RPO/RTO, failure procedures, disk-full/object-store/Valkey/DB outage response. |
-| Security/logging review | Review PII in authentication and application logs, retention, redaction, and access policy with the organization before making policy-dependent changes. |
-| Load/stress certification | Representative large files and dataset, concurrent users, multiple replicas, worker crashes, dependency failures, performance percentiles, and capacity/SLO definition. |
-| Full archive-to-archive plan diff | Currently not connected to a user-facing workflow; revisit when product scope requires it. |
-| Import/edit conflict policy | Waiting for the owner to choose the behavior described in Gate A. |
-| Code uniqueness scope and duplicate workbook policy | Waiting for owner answers to Gates B and C. |
-| Final document/API limit policy | Last priority; choose generous, evidence-based ceilings after functional work and owner review. |
-| Deep sorted-row pagination, if contract-changing | Revisit only if measurements show OFFSET is material and a cursor would alter the current grid/API contract. |
-| Count/aggregate cache versioning, if needed | Revisit after query measurement; any data-revision protocol must cover every mutation path transactionally. |
+The deferred items (object storage, load/stress certification, infrastructure,
+Gate A/B/C policies, final limits, etc.) live in **`docs/TODO.md`**, section
+«Deferred — implementation brief», with their descriptions, dependencies and
+reasons. They were moved there so this brief stays an actionable implementation
+sequence. Do not implement them in this task and do not duplicate them here.
 
 ## 7. Test and verification expectations
 
