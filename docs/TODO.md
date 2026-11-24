@@ -189,6 +189,12 @@ infrastructure work, or owner gate.
 - [ ] **Infrastructure and deployment review** — NGINX limits/timeouts, Compose
   networks/ports, health/readiness wiring, Docker TLS trust, deployment topology
   and storage mounts (§3.9).
+- [ ] **Stream the Next upload proxy** (brief §5.4) — the route handler buffers
+  multipart into one `Buffer`; re-streaming `request.body` into undici lost the
+  parts in the Next dev runtime, and Next 16.4.5 documents only response
+  streaming. Options: direct-to-backend upload with signed identity headers,
+  proxy termination in the central nginx stack, or a chunked upload API. Do not
+  add a fragile forward without verifying the full payload on the real runtime.
 - [ ] **Monitoring and alerting** — metrics exposure, per-process scraping,
   queue-age/worker/DB metrics, alert design, operational dashboards (§3.9).
 - [ ] **Production runbooks and disaster recovery** — backup/restore validation,

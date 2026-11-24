@@ -88,6 +88,34 @@ def test_key_carries_the_asset_and_plan_state_scope() -> None:
     assert first == f"{plain}:a1@2026-10-23T10:00:00+00:00"
 
 
+def test_key_carries_the_container_suffix() -> None:
+    """The same bytes named .xlsb and .xlsx go through different readers."""
+    xlsb = inspect_cache_key(b"file", suffix=".xlsb")
+    xlsx = inspect_cache_key(b"file", suffix=".xlsx")
+    assert xlsb == inspect_cache_key(b"file", suffix=".xlsb")
+    assert xlsb != xlsx
+    assert xlsb != inspect_cache_key(b"file")
+    assert inspect_scope_key_from_digest("digest", suffix=".xlsb") != inspect_scope_key_from_digest(
+        "digest", suffix=".xlsx"
+    )
+
+
+async def test_suffix_separates_cached_reports_and_scopes() -> None:
+    cache = InspectResultCache(_FakeRedis())
+    report = _report()
+    other = RenovationPlanImportResult(status="ready", new_rows=0)
+    await cache.set(b"file", report, scope="a1@t1", suffix=".xlsb")
+    assert (await cache.get(b"file", scope="a1@t1", suffix=".xlsb")) == report
+    assert (await cache.get(b"file", scope="a1@t1", suffix=".xlsx")) is None
+    await cache.set(b"file", other, scope="a1@t1", suffix=".xlsx")
+    assert (await cache.get(b"file", scope="a1@t1", suffix=".xlsx")) == other
+
+    scope = PlanFileScope(assets=frozenset({"BSZR"}), catalogs=frozenset())
+    await cache.set_scope_digest("digest", scope, suffix=".xlsb")
+    assert (await cache.get_scope_digest("digest", suffix=".xlsb")) == scope
+    assert (await cache.get_scope_digest("digest", suffix=".xlsx")) is None
+
+
 async def test_scope_separates_entries_for_the_same_file() -> None:
     cache = InspectResultCache(_FakeRedis())
     await cache.set(b"file", _report(), scope="a1@t1")

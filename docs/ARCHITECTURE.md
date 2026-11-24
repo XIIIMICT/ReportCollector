@@ -483,6 +483,25 @@ Left uncompressed, the first load pays ~1.7 MB of avoidable transfer per visitor
 
 **API JSON is not compressed by the Next proxy.** Its former manual gzip broke on Next 16.4.5: `sendResponse` drops `Content-Encoding` from route-handler responses (it assumes a fetch-decompressed body), so the browser received gzip bytes labelled `application/json` and every workspace stayed on its loading skeleton. Compression belongs entirely to nginx: `location /` sends `Accept-Encoding: ""` upstream, the proxy returns the backend's plain JSON, and nginx gzips `application/json` (already in `gzip_types`). In dev, where the browser talks to Next directly, API JSON arrives uncompressed — a few MB over localhost traded for a response the browser can parse.
 
+### Upload proxying: bounded buffering is deliberate
+
+`front/src/shared/api/backend-proxy.ts` still reads a multipart upload into a
+single Node `Buffer` before forwarding it (`request.arrayBuffer()`). The
+original `Content-Type`, including the boundary, is preserved byte-for-byte and
+the **response** body is streamed. Re-streaming `request.body` into undici with
+`duplex: "half"` was tried and dropped: in the Next dev route handler the parts
+were lost, so the backend received an incomplete multipart body. The installed
+Next 16.4.5 documents streaming **responses** but offers no supported contract
+for streaming an incoming route-handler body into `fetch`; the request is
+already bounded to 256 MiB by `ImportUploadLimitsMiddleware` and the spooled
+`UploadFile`, so the buffered hop is a known, bounded cost rather than an
+unbounded one. Owner options if this hop becomes the bottleneck: (a) upload
+straight to the backend with CORS and signed identity headers, bypassing Next;
+(b) terminate the proxy in the central nginx stack (deferred with infra work);
+(c) add a chunked/direct-to-object-storage upload API. Do not switch to a
+fragile stream forward without verifying the full multipart payload on the real
+Next runtime — Phase 5.4 of the implementation brief explicitly requires that.
+
 ### Bundle shape (why the first load is heavy)
 
 `ReportWorkspace` used to import all three project workspaces statically, so opening «Движение» also downloaded the КППК and renovation grids — and a grid is `@revolist/react-datagrid`, the bulk of the largest chunk. They are now `next/dynamic`, one per URL: the largest chunk went **2 179 KB → 1 459 KB**, and the grid split into its own 746 KB chunk that only the project that needs it loads. Adding a new project to `report-workspace.tsx` means adding another `dynamic(...)` entry, not a static import.
@@ -590,7 +609,12 @@ parsing, then Starlette's `UploadFile` keeps it in its spooled temporary file.
 The inspect endpoint hashes and parses it through bounded row iterators; its
 scope-discovery pass (asset codes plus the reference catalogs the template
 header uses) remains intentionally separate until a future one-pass preflight.
-Apply stages the bytes and does not parse them in the HTTP request.
+Both parse passes run in `asyncio.to_thread` with the DB connection released
+(Phase 5.2): the endpoint reads its consistent reference snapshot first, calls
+`session.close()` before the CPU work, and lets the session lazily reacquire a
+connection for any later reads. The snapshot is taken once, so no dictionary can
+change midway through a parse. Apply stages the bytes and does not parse them in
+the HTTP request.
 
 `RENOVATION_IMPORT_MAX_BYTES` defaults to 256 MiB for each file. The HTTP body
 limit adds a 1 MiB allowance for multipart boundaries/fields and also covers
@@ -610,8 +634,11 @@ dispatcher, so the failure appeared only in production. The same dispatcher
 keeps long export bodies from being cut.
 
 Reports are cached in Valkey (`src/renovation/inspect_cache.py`): the key is
-`rc:planimport:v<INSPECT_CACHE_VERSION>:<sha256 of the bytes>:<scope>`, where
-the scope has two parts. The version is the analyzer's: bump
+`rc:planimport:v<INSPECT_CACHE_VERSION>:<sha256 of the bytes>:<suffix>:<scope>`,
+where the version includes both the analyzer version and the renovation-ID
+generator flag, and the suffix is the upload's own `.xlsb`/`.xlsx` (identical
+bytes in different containers go through different readers and must never share
+a report). The scope has two parts. The version is the analyzer's: bump
 `INSPECT_CACHE_VERSION` whenever a deploy changes what a report contains, so a
 report written by the previous analyzer is not served for up to the TTL. The
 plan part is the file's assets («Наименование ДО» repair codes → asset
@@ -686,21 +713,33 @@ leaving and returning to the project: the job id is kept per project in
 remount resumes polling until the job settles. The analysis wait before it
 keeps its indeterminate bar inside the dialog.
 
-Rows are matched by «Код работы» (`work_or_repair_code`): a code already in the plan updates
-that row in place, a code the plan does not have **appends** a row at the end
-(picking up the positional sequence after the current last row). A cell the file
-leaves empty keeps the plan's current value — a blank cell is never an
-instruction to clear a value. A row without the asset value is skipped by the
+Rows are matched by «Код работы» (`work_or_repair_code`): a code already in the
+plan **overwrites every row with that code** in one set-based statement, a code
+the plan does not have **appends** a row at the end (picking up the positional
+sequence after the current last row). Duplicate codes in the plan are not yet a
+business error (P0/Gate B/C): all matching rows are overwritten, not just the
+last one; a load file with duplicate codes is still refused by the preflight
+before it can reach the worker. A row without the asset value is skipped by the
 loader with the same rule the preflight applies; every other blank required cell
-is an error and refuses the whole file, so the written counts match the report. The write boundary is thin but not free:
-the parser hands dates over as ISO text (the same value feeds the renovation-ID
-rule) while `work_start_date/025/191/199/203` are real `DATE` columns, so `_flush_batch`
-converts them; and because the parser **drops blank cells**, the rows of one
-batch carry different key sets — a multi-row `INSERT` demands identical keys per
-row
-(`CompileError: … explicitly rendered as a boundparameter`), so every row is
-padded to the batch's key union and the cell it omitted becomes `NULL` on a
-created row (on an existing row it still means «keep the current value»).
+is an error and refuses the whole file, so the written counts match the report.
+
+**Owner-approved overwrite semantics (Phase 5):** the file does not patch the
+plan — it replaces values. An empty or whitespace-only cell is an explicit
+`NULL`, so on an update it CLEARS the old value; only a column absent from the
+FILE HEADER keeps its current value. Applied equally to duplicates: every match
+gets the same new values. This is a deliberate change from the earlier «blank
+means keep» rule and is covered by `test_a_blank_cell_clears_an_existing_value_on_update`.
+
+Existing rows are staged in a transaction-local `TEMP TABLE` generated from the
+ORM column types with no constraints and `ON COMMIT DROP` (no migration and no
+cleanup policy; commit or rollback removes it). Batches insert into staging;
+after the last batch ONE `UPDATE r_plan_rows ... FROM plan_import_stage` applies
+all updates — there is no per-row UPDATE round trip. New rows keep the batched
+multi-row `INSERT`. A multi-row `INSERT` demands identical keys per row, so every
+row is padded to the batch's key union; a key the file did not supply becomes
+`NULL` on a created row. The write boundary converts ISO date text to real
+`DATE` columns (`work_start_date/025/191/199/203`) and resolves reference labels
+to catalog ids before staging.
 
 Reference cells are resolved to the ids of the **live** `r_reference_values`
 dictionary — the same rows the preflight (and the «Справочники» editor) sees.

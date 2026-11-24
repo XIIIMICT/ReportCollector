@@ -172,19 +172,19 @@ def test_a_numeric_reference_is_normalized_to_its_catalog_label(sheet) -> None:
     assert values["work_category_id"] == "3"
 
 
-def test_blank_cells_are_left_out_instead_of_stored_empty(sheet) -> None:
-    """A blank cell means "no value" — never an empty string in the row."""
+def test_blank_cells_are_explicit_nulls_for_overwrite(sheet) -> None:
+    """A blank cell is an explicit NULL so an UPDATE overwrites the old value."""
     sheet["rows"] = _sheet(_row("Р-006", "SNHZ", workshop=None, equipment="ЕО-1"))
 
     parsed = parse_plan_rows(Path("ignored.xlsb"))
 
     values = parsed[0].values
-    assert "workshop_name" not in values
+    assert values["workshop_name"] is None
     assert values["equipment_unit_name"] == "ЕО-1"
 
 
-def test_text_cells_are_trimmed_and_whitespace_becomes_absent(sheet) -> None:
-    """Loaded strings are trimmed; a whitespace-only cell is the same as empty."""
+def test_text_cells_are_trimmed_and_whitespace_becomes_null(sheet) -> None:
+    """Loaded strings are trimmed; a whitespace-only cell is an explicit NULL."""
     sheet["rows"] = _sheet(_row("Р-006", "  snhz  ", workshop="  Цех 1  ", equipment="   "))
 
     parsed = parse_plan_rows(Path("ignored.xlsb"))
@@ -192,7 +192,7 @@ def test_text_cells_are_trimmed_and_whitespace_becomes_absent(sheet) -> None:
     row = parsed[0]
     assert row.asset_key == "SNHZ"
     assert row.values["workshop_name"] == "Цех 1"
-    assert "equipment_unit_name" not in row.values
+    assert row.values["equipment_unit_name"] is None
 
 
 def test_a_broken_formula_reference_is_refused_instead_of_stored(sheet) -> None:

@@ -143,9 +143,11 @@ def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
                 raise ValueError(msg)
             if meta.is_calculated:
                 continue
-            # Whitespace-only text is empty, exactly as in the preflight: it
-            # must not become an empty reference label or a coerced value.
+            # A blank cell is an explicit empty value: the owner-approved
+            # import semantics overwrite the old plan value with NULL (Phase 5).
+            # Only columns absent from the FILE header are left untouched.
             if index >= len(raw) or _is_blank(raw[index]):
+                values[field] = None
                 continue
             if meta.catalog:
                 # Excel hands a numeric option over as 3.0 while the catalog
@@ -154,6 +156,8 @@ def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
                 label = normalized_option(raw[index])
                 if label is not None:
                     values[field] = label
+                else:
+                    values[field] = None
                 continue
             if meta.cell_type == "number":
                 value, problem = _number_value(raw[index], meta)
@@ -164,6 +168,6 @@ def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
                     raise ValueError(msg)
             else:
                 value = _coerce(raw[index], meta.cell_type)
-            if value is not None:
-                values[field] = value
+            # Keep explicit None: an empty cell must overwrite the old value.
+            values[field] = value
         yield ParsedPlanRow(code=code, asset_key=asset_key, values=values, asset_is_name=assets_are_names)
