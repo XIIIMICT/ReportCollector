@@ -189,6 +189,12 @@ infrastructure work, or owner gate.
 - [ ] **Infrastructure and deployment review** — NGINX limits/timeouts, Compose
   networks/ports, health/readiness wiring, Docker TLS trust, deployment topology
   and storage mounts (§3.9).
+- [ ] **Deep sorted pagination** (brief §6.4) — sorted windows still use SQL
+  `OFFSET`: 3.2–3.8 s at a 150k offset on the 261k-row live plan. A covering
+  index `(plan_id, lower(col), col, position, id)` measured 0.8–1.4 s and a
+  0.11 s head without changing the API/UI; the owner chose to keep current write
+  cost. Cursor navigation would change the grid's infinite-scroll + go-to-№
+  contract. Measurements in docs/ARCHITECTURE.md.
 - [ ] **Stream the Next upload proxy** (brief §5.4) — the route handler buffers
   multipart into one `Buffer`; re-streaming `request.body` into undici lost the
   parts in the Next dev runtime, and Next 16.4.5 documents only response

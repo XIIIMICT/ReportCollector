@@ -878,6 +878,22 @@ that. No exact-count or ordering behavior changed (all facet tests pass).
 A bulk cell PATCH prefetches reference ids once (Phase 6.2) instead of one
 catalog SELECT per cell; see the import/export section above.
 
+Page reads still issue ONE count query (filtered total, whole-plan total,
+position spread and the anchor offset) and keep exact totals: 89 ms at the head
+and 41 ms at a 150k offset on the live plan. No time-only count cache and no
+`data_revision` was introduced — both would need an inventory of every mutation
+path (imports, edits, Undo, recompute, lifecycle, scripts) and an owner-approved
+consistency design.
+
+Sorted windows still use SQL `OFFSET` (the grid has infinite scroll plus a
+"go to №" jump, so a cursor would change the API/UI contract). Measured on the
+live plan: default deep 41 ms, `work_description` sorted head 827 ms / deep
+3 812 ms, `work_cost_rub_ex_vat` deep 3 169 ms. A covering index including ALL
+sort keys `(plan_id, lower(col), col, position, id)` brought these to 110 ms /
+1 368 ms and 830 ms, but the owner chose to keep the current write cost and
+record the option instead of adding indexes or switching to a cursor. The
+measurement helper is `back/src/scripts/explain_backend.py`.
+
 Every table export is **dual-mode behind one endpoint** (`export_table_or_job`
 in `src/common/export_jobs.py`): up to `INLINE_EXPORT_MAX_ROWS` (5 000) rows
 the workbook renders right in the request and returns as an attachment; past
