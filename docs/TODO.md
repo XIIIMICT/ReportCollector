@@ -7,6 +7,23 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 ## P0 — release acceptance and deployment
 
+- [ ] **P0 FIRST — make the renovation work/repair code (`col_003` →
+  `work_or_repair_code`) unique WITHIN ONE PLAN.** Owner decision (2026-11-24):
+  uniqueness scope is one plan/version, NOT the whole database. **The current DB
+  still contains incorrect rows with duplicate codes**, so do NOT add a
+  constraint or narrow the preflight until the data is clean. Ordered steps:
+  1. audit and clean the existing duplicate `col_003` rows in `r_plan_rows`
+     (backup first; the cleanup is a data change, not a schema change);
+  2. narrow the import preflight (`back/src/renovation/router.py:419`) from a
+     global `SELECT col_003` to `WHERE plan_id = :plan` — `import_apply.py:102`
+     and `service.py:931` are already scoped correctly;
+  3. keep rejecting duplicate codes inside one uploaded workbook (preflight
+     `import_plan.py:708`) and add an explicit guard in the apply path, which
+     currently would INSERT both duplicates if preflight were bypassed;
+  4. then add a unique index on `(plan_id, col_003)`.
+  Gate C duplicates are part of the same problem: today the whole import is
+  rejected, and that behavior stays until this P0 is done. Historical rows from
+  older plan versions must NOT block a new import of a newer version.
 - [ ] Establish a repeatable production-like workload matrix: 306k-row plan
   windows/counts/facets with combined filters, KPPK slices, full/filtered exports,
   representative XLSB/XLSX inspect/apply, concurrent collaboration, and worker restart
@@ -184,12 +201,27 @@ infrastructure work, or owner gate.
   performance percentiles, capacity/SLO definition (§3.5).
 - [ ] **Full archive-to-archive plan diff** — currently not connected to a
   user-facing workflow; revisit when product scope requires it (§3.4).
-- [ ] **Gate A — import/edit conflict policy** — waiting for the owner to choose
-  between deferring imports on active leases, optimistic conflict detection,
-  explicit serialization, or another option (§3.6).
-- [ ] **Gates B/C — code uniqueness scope and duplicate-workbook policy** —
-  waiting for owner answers before changing the preflight query or adding a
-  unique constraint.
+- [ ] **Gate A — import/edit conflict policy — DECIDED (2026-11-24).** While an
+  import runs, **block the whole «Пообъектный план» form**. Users currently on it
+  see a RED chip in the form status reading
+  «\<ФИО обновляющего\> обновляет базу (\<прогресс\> %): подождите немного,
+  прежде чем вернуться к редактированию» (the importer's FIO and live job
+  progress). Collaborative editing is restored when the job finishes; any
+  in-progress cell input is discarded (saves are instantaneous). Implement in
+  Phase 5/7: backend job state → WS/status broadcast → frontend form lock +
+  status chip; also fix the inaccurate `import_apply.py:56-59` docstring and
+  `docs/COLLAB.md`.
+- [ ] **Gates B/C — DECIDED (2026-11-24).** Uniqueness scope = one plan; the DB
+  still has duplicate codes, so this is the **P0 FIRST** task above. Duplicate
+  codes inside one workbook keep rejecting the whole import until then; no
+  constraint or preflight narrowing before the data is clean.
+- [ ] **Gate D — DECIDED (2026-11-24): PHYSICAL column order is required.**
+  The owner explicitly accepted the table rebuild (ACCESS EXCLUSIVE for the
+  whole copy of ~261k rows / 824 MB, ~1.6–2 GB peak disk + WAL, recreate 8 FKs
+  / 14 indexes / comments, maintenance window with workers stopped, rollback =
+  another rebuild). Implement as a forward-only migration in Phase 3; do NOT
+  rebuild the table merely for logical order. A migration test from the
+  previous schema must prove data and schema objects survive.
 - [ ] **Final document/API limit policy** — last priority; generous,
   evidence-based ceilings after functional work and owner review (§3.10).
 - [ ] **Deep sorted-row pagination (if contract-changing)** — only if
