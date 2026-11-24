@@ -20,7 +20,7 @@ export type RenovationPlanExportParams = {
     rowIds?: string[] | null | undefined;
     asset?: string | null | undefined;
     block?: string | null | undefined;
-    /** Active header filters тАФ the server-side ┬л╨▓╨╕╨┤╨╕╨╝╨░╤П ╤В╨░╨▒╨╗╨╕╤Ж╨░┬╗ scope. */
+    /** Active header filters — the server-side «видимая таблица» scope. */
     filters?: RenovationColumnFilter[] | null | undefined;
     /** Active server-side row ordering, in priority order. */
     sorting?: RenovationSortColumn[] | null | undefined;
@@ -43,7 +43,7 @@ export async function exportRenovationPlan(
         cache: "no-store",
     });
     if (!response.ok) {
-        let detail = `╨Ч╨░╨┐╤А╨╛╤Б ╨╖╨░╨▓╨╡╤А╤И╨╕╨╗╤Б╤П ╨╛╤И╨╕╨▒╨║╨╛╨╣ ${response.status}.`;
+        let detail = `Запрос завершился ошибкой ${response.status}.`;
         try {
             const payload = (await response.json()) as { detail?: string };
             if (typeof payload.detail === "string") {
@@ -55,7 +55,7 @@ export async function exportRenovationPlan(
         throw new ReportCollectorApiError(detail, response.status);
     }
     const disposition = response.headers.get("Content-Disposition") ?? "";
-    // Prefer the RFC 5987 UTF-8 form тАФ the plan name is Cyrillic and the bare
+    // Prefer the RFC 5987 UTF-8 form — the plan name is Cyrillic and the bare
     // `filename` carries only a percent-encoded copy the browser would save raw.
     const star = /filename\*\s*=UTF-8''([^;]+)/i.exec(disposition);
     const plain = /filename="?([^";]+)"?/.exec(disposition);
@@ -71,8 +71,7 @@ export async function exportRenovationPlan(
     }
     return {
         blob: await response.blob(),
-        fileName:
-            fileName || "╨Я╨╛╨╛╨▒╤К╨╡╨║╤В╨╜╤Л╨╣ ╨┐╨╗╨░╨╜ тАФ ╤А╨░╨▒╨╛╤З╨░╤П ╨▓╨╡╤А╤Б╨╕╤П.xlsx",
+        fileName: fileName || "Пообъектный план — рабочая версия.xlsx",
     };
 }
 
@@ -128,7 +127,7 @@ export async function downloadRenovationExportJob(jobId: string): Promise<Renova
         { cache: "no-store" },
     );
     if (!response.ok) {
-        let detail = `╨Ч╨░╨┐╤А╨╛╤Б ╨╖╨░╨▓╨╡╤А╤И╨╕╨╗╤Б╤П ╨╛╤И╨╕╨▒╨║╨╛╨╣ ${response.status}.`;
+        let detail = `Запрос завершился ошибкой ${response.status}.`;
         try {
             const payload = (await response.json()) as { detail?: string };
             if (typeof payload.detail === "string") {
@@ -154,6 +153,6 @@ export async function downloadRenovationExportJob(jobId: string): Promise<Renova
     }
     return {
         blob: await response.blob(),
-        fileName: fileName || "╨Я╨╛╨╛╨▒╤К╨╡╨║╤В╨╜╤Л╨╣ ╨┐╨╗╨░╨╜.xlsx",
+        fileName: fileName || "Пообъектный план.xlsx",
     };
 }

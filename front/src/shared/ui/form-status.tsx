@@ -3,6 +3,7 @@
 import { Tooltip } from "@heroui/react";
 import { Fragment, useEffect, useRef } from "react";
 
+import type { PlanImportLock } from "@/features/renovation/use-plan-import-lock";
 import {
     COLLAB_STATUS_LABELS,
     memberDetail,
@@ -31,6 +32,7 @@ export function FormStatus({
     selectionLabel,
     selectionDetail,
     gridStats,
+    importBlock,
 }: {
     room: CollabRoom | null;
     selectionLabel: string | null;
@@ -41,6 +43,8 @@ export function FormStatus({
      */
     selectionDetail?: string | null;
     gridStats: GridViewStats | null;
+    /** Gate A: a running workbook load blocks the whole form. */
+    importBlock?: PlanImportLock | null;
 }) {
     const status = room?.status ?? "offline";
     const hasPresence = status === "online";
@@ -72,10 +76,16 @@ export function FormStatus({
             <Tooltip.Trigger>
                 <div className="form-status" aria-label="Статус таблицы">
                     <span
-                        className={`form-status__dot form-status__dot--${status}`}
+                        className={`form-status__dot form-status__dot--${importBlock ? "import" : status}`}
                         aria-hidden="true"
                     />
                     <div className="form-status__body">
+                        {importBlock ? (
+                            <div className="form-status__import" role="status">
+                                {importBlock.userName} обновляет базу ({importBlock.progressPercent}{" "}
+                                %): подождите немного, прежде чем вернуться к редактированию
+                            </div>
+                        ) : null}
                         {presenceText !== null ? (
                             <div
                                 className={

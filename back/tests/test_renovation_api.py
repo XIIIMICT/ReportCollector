@@ -24,6 +24,8 @@ from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.export import RenovationWorkbookWriter, build_plan_sheet_layout
 from src.renovation.export_jobs import ExportJobSpec
 from src.renovation.export_jobs import export_jobs as export_jobs_manager
+from src.renovation.import_apply import apply_plan_file
+from src.renovation.import_rows import ParsedPlanRow
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
 from src.renovation.service import read_plan_export_meta, read_plan_facets, recompute_plan_rows
@@ -1341,6 +1343,74 @@ async def test_undo_restores_previous_value(
     plan = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
     row_read = next(r for r in plan.json()["rows"] if r["assetCode"] == "BSKR")
     assert row_read["values"]["work_cost_rub_ex_vat"] == 10.0
+
+
+async def test_import_clears_plan_undo_history(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, store
+) -> None:
+    """Gate A follow-up: imported rows must not be overwritten by a stale undo."""
+    row = await _row_by_asset_code(db_session, "BSKR")
+    await _patch(client, [{"rowId": str(row.id), "field": "workshop_name", "value": "До загрузки"}])
+    admin = (await db_session.exec(select(User).where(col(User.email) == "admin@example.ru"))).one()
+    can_undo, _ = await store.undo_state(str(admin.id), TEST_SESSION_ID, RENOVATION_SCOPE)
+    assert can_undo == 1
+
+    rows = [
+        ParsedPlanRow(
+            code=row.work_or_repair_code or "UNDO_IMPORT",
+            asset_key="BSZR",
+            values={"workshop_name": "Из файла"},
+        )
+    ]
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _src, _suffix=None: rows)
+    await apply_plan_file(db_session, source=None, user_id=admin.id)  # ty: ignore[invalid-argument-type]
+
+    can_undo, _ = await store.undo_state(str(admin.id), TEST_SESSION_ID, RENOVATION_SCOPE)
+    assert can_undo == 0
+
+
+async def test_undo_restores_source_and_recalculates_formula(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§3.7: Undo restores the source cell AND the formula that depends on it."""
+    from src.renovation import router_undo
+
+    published: list[int] = []
+    real_publish = router_undo._publish_rows_changed
+
+    async def spy(session: AsyncSession, access: Any) -> None:  # noqa: ANN401
+        published.append(1)
+        await real_publish(session, access)
+
+    monkeypatch.setattr(router_undo, "_publish_rows_changed", spy)
+
+    row = await _row_by_asset_code(db_session, "BSKR")
+    before = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
+    original = next(r for r in before.json()["rows"] if r["assetCode"] == "BSKR")["values"]
+    source_before = original["work_cost_rub_ex_vat"]
+    derived_before = original["total_cost_rub_ex_vat"]
+
+    status, body = await _patch(client, [{"rowId": str(row.id), "field": "work_cost_rub_ex_vat", "value": 15}])
+    assert status == 200
+    changed = {cell["field"]: cell["value"] for cell in body["calculated"]}
+    assert changed["total_cost_rub_ex_vat"] != derived_before
+
+    undone = await client.post(
+        "/api/renovation/undo",
+        headers=ADMIN_HEADERS,
+        params={"session_id": TEST_SESSION_ID},
+        json={"section": "renovationPlan"},
+    )
+    assert undone.status_code == 200, undone.text
+    assert undone.json()["applied"] is True
+    assert undone.json()["value"] == source_before
+
+    after = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
+    restored = next(r for r in after.json()["rows"] if r["assetCode"] == "BSKR")["values"]
+    assert restored["work_cost_rub_ex_vat"] == source_before
+    assert restored["total_cost_rub_ex_vat"] == derived_before
+    # Other clients learn the recalculated value via rows:changed -> refetch.
+    assert published == [1]
 
 
 async def test_redo_reapplies_undone_value(

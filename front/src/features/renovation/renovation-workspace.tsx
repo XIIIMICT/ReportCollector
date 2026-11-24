@@ -136,6 +136,7 @@ import {
 } from "./renovation-grid";
 import { ASSET_COLUMN_PROP, ASSET_FIELD_DB_NAME, AUDIT_COLUMNS } from "./renovation-grid-constants";
 import { usePlanImportJob } from "./use-plan-import-job";
+import { usePlanImportLock } from "./use-plan-import-lock";
 
 /** Standard grid toasts: see `gridWarningHandlers`. */
 const gridWarnings = gridWarningHandlers({});
@@ -1060,6 +1061,15 @@ export function RenovationWorkspace({
         projectKey: activeProjectKey,
         onApplied: refresh,
     });
+    // Gate A: somebody else's import blocks the whole plan form. Poll the
+    // durable job status; the server still owns write authorization.
+    const importLock = usePlanImportLock(isPlanSection);
+    const importLockedRef = useRef(false);
+    useEffect(() => {
+        const locked = importLock !== null;
+        if (locked && !importLockedRef.current) refresh();
+        importLockedRef.current = locked;
+    }, [importLock, refresh]);
 
     const handleCellChanged = useCallback((event: CollabCellChanged) => {
         const key = canonicalCellKey(
@@ -1099,7 +1109,11 @@ export function RenovationWorkspace({
     // wide column grid (see the hook). Shared with the «Сырьё» workspace.
     const { remoteLocks, remotePresence, remoteCellInfo } = useRemoteCellMaps(room);
 
-    const readOnly = isMutationPending || isArchive || (collabEnabled && room.status === "offline");
+    const readOnly =
+        isMutationPending ||
+        importLock !== null ||
+        isArchive ||
+        (collabEnabled && room.status === "offline");
 
     useEffect(() => {
         setRemoteCellValues(new Map());
@@ -1996,6 +2010,7 @@ export function RenovationWorkspace({
                     selectionLabel={isPlanSection ? (selection?.label ?? null) : dictSelectionLabel}
                     selectionDetail={isPlanSection ? (selection?.detail ?? null) : null}
                     gridStats={isPlanSection ? gridStats : dictGridStats}
+                    importBlock={isPlanSection ? importLock : null}
                 />
             </div>
             {planImport.progress ? <FooterProgress {...planImport.progress} /> : null}

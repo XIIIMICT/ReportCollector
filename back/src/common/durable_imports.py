@@ -72,6 +72,7 @@ class ImportJob:
     progress: int
     total: int
     file_name: str
+    user_name: str
     error: str | None
     result: dict[str, Any] | None
     input_key: str
@@ -121,6 +122,7 @@ class DurableImportManager:
             progress=record.progress,
             total=record.total,
             file_name=str(payload.get("file_name", "import.xlsb")),
+            user_name=str(payload.get("user_name", "")),
             error=record.error,
             result=record.result,
             input_key=str(payload["input_key"]),
@@ -144,6 +146,7 @@ class DurableImportManager:
         user_id: str,
         plan_id: UUID,
         expected_rows: int = 0,
+        user_name: str = "",
     ) -> ImportJob:
         input_suffix = Path(file_name).suffix.casefold()
         if input_suffix not in INPUT_SUFFIXES:
@@ -165,6 +168,7 @@ class DurableImportManager:
             cache_key=f"v1:{plan_id}:{digest}",
             payload={
                 "file_name": file_name,
+                "user_name": user_name,
                 "digest": digest,
                 "size": size,
                 "input_key": input_key,

@@ -32,10 +32,10 @@ export type RenovationPlanRows = {
     rows: RenovationPlanRow[];
     total: number;
     baselineBoundary: number | null;
-    /** Whole-plan row count (ignoring the asset filter) for the ┬л╨▓╤Б╨╡╨│╨╛┬╗ counter. */
+    /** Whole-plan row count (ignoring the asset filter) for the «всего» counter. */
     totalAll: number | null;
     /**
-     * Rows before the requested `anchorPosition` within the filtered scope тАФ
+     * Rows before the requested `anchorPosition` within the filtered scope —
      * the anchor row's 0-based index (`total` when it is past the last row).
      */
     anchorOffset: number | null;
@@ -50,7 +50,7 @@ export async function getRenovationPlan(planId?: string): Promise<RenovationPlan
     return requestJson(`/api/renovation/plan${query}`);
 }
 
-/** One active header filter: kept display values + the ┬л╨Я╤Г╤Б╤В╤Л╨╡┬╗ bucket. */
+/** One active header filter: kept display values + the «Пустые» bucket. */
 export function browserTimeZone(): string | null {
     if (typeof Intl === "undefined") return null;
     try {
@@ -72,8 +72,8 @@ export async function getRenovationPlanRows(
     anchorPosition?: number | null,
 ): Promise<RenovationPlanRows> {
     const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
-    // A `timestamptz` window is typed as LOCAL date and time (┬л15.10.2026
-    // 00:00┬╗), exactly what the cells print. Without the zone the server has to
+    // A `timestamptz` window is typed as LOCAL date and time («15.10.2026
+    // 00:00»), exactly what the cells print. Without the zone the server has to
     // read those bounds as UTC, and a filter the user typed would match nothing.
     const zone = browserTimeZone();
     if (planId) params.set("plan_id", planId);
@@ -125,7 +125,7 @@ export type RenovationFacets = {
     totalWithoutSearch?: number | null;
     /** Distinct non-empty values across the whole filtered plan. */
     total: number;
-    /** Whether the column has a NULL/empty bucket (the ┬л╨Я╤Г╤Б╤В╤Л╨╡┬╗ option). */
+    /** Whether the column has a NULL/empty bucket (the «Пустые» option). */
     hasNulls: boolean;
     /** Total rows represented by all buckets. */
     rowCount?: number;

@@ -677,12 +677,19 @@ digest, plan id and internal input key. `GET /plan/import/jobs/{id}` polls the
 bounded result and `DELETE` cancels it. A supervisor claims the PostgreSQL
 lease and starts `src.scripts.import_worker` in a separate Python process, so
 XLSB/XLSX parsing and plan recomputation do not share the ASGI interpreter or its
-log handler. The child takes the project gate, streams batches of 200 and
-commits the plan writes **and** the terminal job result in one transaction.
-Cancellation/lease loss therefore rolls the transaction back; a lost HTTP
-response cannot cause a second apply. The input is removed only after a
-terminal job state or TTL cleanup. The gate still covers the full write and
-recompute phase; staged/versioned finalization is the next scale slice.
+log handler. The child takes the **shared** project advisory gate, streams
+batches of 200 and commits the plan writes **and** the terminal job result in
+one transaction. A shared lock is compatible with other shared locks: this gate
+does NOT serialize the import against normal cell edits. Cancellation/lease loss
+therefore rolls the transaction back; a lost HTTP response cannot cause a
+second apply. The input is removed only after a terminal job state or TTL
+cleanup. Gate A's approved form-blocking policy handles the
+import/edit interaction instead of this advisory lock: `GET /plan/import/active`
+exposes the active job (FIO + progress) to every member, `usePlanImportLock`
+polls it and blocks the form with a red chip, and `update_plan_cells` refuses
+writes with 409 while a job is active. A successful import clears the
+`renovationPlan/` undo stack in the same transaction: old cell actions would
+otherwise replay obsolete values over the imported rows.
 
 **A completed import is history.** Admission deduplicates by
 `plan_id:digest`, but imports reuse only a `pending`/`running` job: a repeated

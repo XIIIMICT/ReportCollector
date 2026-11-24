@@ -281,6 +281,44 @@ async def test_xlsx_upload_keeps_its_suffix_for_the_worker(setup_import, client,
     assert await imported_count(repository) == 1
 
 
+async def test_active_import_is_visible_to_every_member(setup_import, client, db_session, monkeypatch) -> None:
+    from conftest import signed_identity_headers
+
+    repository, _owner, _directory = setup_import
+    worker = manager(repository)
+    monkeypatch.setattr("src.renovation.router_import.import_jobs", worker)
+    monkeypatch.setattr("src.renovation.router_import.async_session_factory", repository.session_factory)
+    headers = signed_identity_headers(email="admin@example.ru", name="Admin User")
+    assert (await client.get("/api/renovation/plan/import/active", headers=headers)).json() is None
+
+    accepted = await client.post(
+        "/api/renovation/plan/import/apply",
+        files={"file": ("plan.xlsb", b"bytes")},
+        headers=headers,
+    )
+    assert accepted.status_code == 202
+    active = await client.get("/api/renovation/plan/import/active", headers=headers)
+    assert active.status_code == 200, active.text
+    body = active.json()
+    assert body["id"] == accepted.json()["id"]
+    assert body["status"] == "pending"
+    assert body["user_name"] == "Admin User"
+
+    # Gate A is enforced server-side too: a stale client cannot edit behind it.
+    row = (await db_session.exec(select(RenovationPlanRow).limit(1))).first()
+    denied = await client.patch(
+        "/api/renovation/plan",
+        headers=headers,
+        params={"session_id": "gate-a"},
+        json={"updates": [{"rowId": str(row.id), "field": "workshop_name", "value": "x"}]},
+    )
+    assert denied.status_code == 409, denied.text
+
+    cancelled = await client.delete(f"/api/renovation/plan/import/jobs/{body['id']}", headers=headers)
+    assert cancelled.status_code == 200
+    assert (await client.get("/api/renovation/plan/import/active", headers=headers)).json() is None
+
+
 async def test_http_acceptance_queues_without_parsing_and_enforces_owner(setup_import, client, monkeypatch) -> None:
     from conftest import signed_identity_headers
 

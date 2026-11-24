@@ -23,15 +23,15 @@ export type RenovationPlanImportResult = {
     invalid_data_types: RenovationPlanImportCellIssue[];
     /** Numeric cells breaking the field's integer/min/max/percentage rules. */
     invalid_values: RenovationPlanImportCellIssue[];
-    /** Excel ┬л#REF!┬╗ cached values тАФ a broken formula reference. */
+    /** Excel «#REF!» cached values — a broken formula reference. */
     formula_reference_errors: RenovationPlanImportCellIssue[];
-    /** Required cells left empty in a row тАФ an error of the file. */
+    /** Required cells left empty in a row — an error of the file. */
     missing_required_values: RenovationPlanImportCellIssue[];
     missing_dictionary_values: RenovationPlanImportCellIssue[];
     unknown_assets: RenovationPlanImportCellIssue[];
     /** Rows the load will not write: the asset cell is empty. */
     skipped_rows: number[];
-    /** Every data row lacked the asset тАФ there is nothing to load. */
+    /** Every data row lacked the asset — there is nothing to load. */
     all_rows_skipped: boolean;
     assets: string[];
     new_rows: number;
@@ -75,15 +75,14 @@ export function inspectRenovationPlanImport(
                     detail = null;
                 }
                 // 413 comes from the proxy in front of the API (nginx's
-                // `client_max_body_size`) and carries no JSON body of its own тАФ
+                // `client_max_body_size`) and carries no JSON body of its own —
                 // falling through to the generic message made a too-large file
                 // read as a broken one.
                 reject(
                     new ReportCollectorApiError(
                         request.status === 413
-                            ? "╨д╨░╨╣╨╗ ╨╕╨╝╨╡╨╡╤В ╤Б╨╗╨╕╤И╨║╨╛╨╝ ╨▒╨╛╨╗╤М╤И╨╛╨╣ ╤А╨░╨╖╨╝╨╡╤А"
-                            : (detail ??
-                                  `╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨┐╤А╨╛╨▓╨╡╤А╨╕╤В╤М ╤Д╨░╨╣╨╗ (${request.status}).`),
+                            ? "Файл имеет слишком большой размер"
+                            : (detail ?? `Не удалось проверить файл (${request.status}).`),
                         request.status,
                     ),
                 );
@@ -95,9 +94,8 @@ export function inspectRenovationPlanImport(
                 reject(reason instanceof Error ? reason : new Error(String(reason)));
             }
         };
-        request.onerror = () =>
-            reject(new Error("╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨╖╨░╨│╤А╤Г╨╖╨╕╤В╤М ╤Д╨░╨╣╨╗."));
-        request.onabort = () => reject(new Error("╨Ч╨░╨│╤А╤Г╨╖╨║╨░ ╤Д╨░╨╣╨╗╨░ ╨┐╤А╨╡╤А╨▓╨░╨╜╨░."));
+        request.onerror = () => reject(new Error("Не удалось загрузить файл."));
+        request.onabort = () => reject(new Error("Загрузка файла прервана."));
         progress?.uploading();
         request.send(body);
     });
@@ -109,10 +107,11 @@ export type RenovationPlanImportApplyResult = {
     progress: number;
     total: number;
     file_name: string;
+    user_name?: string;
     error: string | null;
     new_rows: number;
     updated_rows: number;
-    /** `parse` | `write` | `recompute` | `done` тАФ the server's current stage. */
+    /** `parse` | `write` | `recompute` | `done` — the server's current stage. */
     phase: string | null;
 };
 
@@ -145,8 +144,7 @@ export async function applyRenovationPlanImport(
     if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as unknown;
         throw new ReportCollectorApiError(
-            readApiDetail(payload) ??
-                `╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨╖╨░╨│╤А╤Г╨╖╨╕╤В╤М ╤Д╨░╨╣╨╗ (${response.status}).`,
+            readApiDetail(payload) ?? `Не удалось загрузить файл (${response.status}).`,
             response.status,
         );
     }
@@ -163,9 +161,26 @@ export async function getRenovationPlanImportJob(
         const payload = (await response.json().catch(() => null)) as unknown;
         throw new ReportCollectorApiError(
             readApiDetail(payload) ??
-                `╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨┐╨╛╨╗╤Г╤З╨╕╤В╤М ╤Б╨╛╤Б╤В╨╛╤П╨╜╨╕╨╡ ╨╖╨░╨│╤А╤Г╨╖╨║╨╕ (${response.status}).`,
+                `Не удалось получить состояние загрузки (${response.status}).`,
             response.status,
         );
     }
     return (await response.json()) as RenovationPlanImportApplyResult;
+}
+
+/**
+ * The active import that blocks the plan form (Gate A). Every member may read
+ * it: the importer's FIO and live progress come from the durable job row.
+ */
+export async function getRenovationActivePlanImport(): Promise<RenovationPlanImportApplyResult | null> {
+    const response = await fetch("/api/renovation/plan/import/active", { cache: "no-store" });
+    if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as unknown;
+        throw new ReportCollectorApiError(
+            readApiDetail(payload) ??
+                `Не удалось получить состояние загрузки (${response.status}).`,
+            response.status,
+        );
+    }
+    return (await response.json()) as RenovationPlanImportApplyResult | null;
 }

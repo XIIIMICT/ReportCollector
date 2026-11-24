@@ -12,7 +12,13 @@ from src.observability import observe_phase
 
 
 async def lock_project(session: AsyncSession, project: str, *, exclusive: bool = False) -> None:
-    """Edits/leases share a gate; lifecycle operations exclude all of them."""
+    """
+    Shared gate: edits, form-scoped undo, lease acquisition and imports coexist.
+
+    A shared advisory lock is compatible with other shared locks; only an
+    exclusive lock (dictionary writes, lifecycle transitions, row-add/delete)
+    conflicts with it. Row-level locks carry edit exclusivity.
+    """
     key = int.from_bytes(blake2b(project.encode(), digest_size=8).digest(), signed=True)
     function = "pg_advisory_xact_lock" if exclusive else "pg_advisory_xact_lock_shared"
     with observe_phase("database_lock", "project_exclusive" if exclusive else "project_shared"):

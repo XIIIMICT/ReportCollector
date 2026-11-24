@@ -58,7 +58,16 @@ Server → client:
 
 REST edits publish `cell:changed` into the room via `publish_cell_changed` (`back/src/collab/events.py`) — so edits reach all workers through pub/sub.
 
-For the renovation plan the published cells include **derived** fields: the formula results (`calculated`). The renovation ID `col_003` is a plain editable cell while the generator is off, so it is published like any typed value (on change, from the normal edit journal). The editor refreshes its window from the PATCH response; every other client only receives `cell:changed`.
+For the renovation plan the PATCH response and its `cell:changed` publish include
+**derived** fields (the formula results). The renovation ID is the semantic
+column `work_or_repair_code` (the old `col_003` name no longer exists after
+migration 0041); with the generator off it is an editable value published like
+any typed value. On Undo/redo the source cell is published as `cell:changed`, but
+the recalculated derived cells are not: a `rows:changed` event tells other
+clients to refetch the authoritative row set (`front/src/shared/collab/ws-client.ts`
+→ `renovation-workspace.tsx` `onRowsChanged`). The invariant is that the restored
+source AND the recalculated formula are both visible through API/WS state; the
+test is `test_undo_restores_source_and_recalculates_formula`.
 
 ## Lease, presence, idle (timings)
 
@@ -97,7 +106,11 @@ The client maintains `ownedLeases` (Set) and **must remove keys on release** —
 - **Counter re-sync:** `GET /undo-state` reports only presence (`canUndo`/`canRedo`), so after an applied action — and after `reason=empty` (drift) — the client re-reads it instead of local ±1 arithmetic; a locally decremented counter used to kill the undo/redo buttons after a single press even when the server stack still had actions.
 - New edits **clear the redo branch** in the same PostgreSQL transaction.
 - **Redo order:** undo removes the freshest action first (4, 3, 2, 1); redo replays undone actions in their **original order** (oldest undone first — 1, 2, 3, 4, the reverse of the undo sequence). `next_action` scans the stack front-first for undo and back-first for redo; the `skipActionId` rule flips accordingly (undo skips `id >= after`, redo skips `id <= after`).
-- Applying undo/redo goes through the same `apply_cell_value` + `bump_cell_state` (revisions, `lastActionId`) and publishes `cell:changed`.
+- Applying undo/redo goes through the project's `apply_*_cell_value` (renovation:
+  `apply_renovation_cell_value`) + `bump_cell_state` (collab revisions,
+  `lastActionId`) and publishes `cell:changed` for the journaled source cells.
+  Renovation additionally publishes `rows:changed` so clients refetch derived
+  formula cells; see the WS section above.
 - Conflicts: if a cell was changed by someone else after the action (`lastActionId` mismatch **and** `lastUserId` is not the undo author — one's own consecutive edits don't block undoing them) or is leased by another — the action is rejected with `reason=conflict/locked`; a second undo press passes `skipActionId` to skip the blocked one. A batch action is atomic: if any cell conflicts, nothing is applied.
 - Final month fixing clears history for the fixed movement scope. Renovation approval clears `renovationPlan/` history. Undo independently rechecks current roles/assets/blocks and version state, so a retained stale action cannot modify an archive.
 - **КППК** dictionaries and realization use the same journal. Dictionary mutations are scoped to the tab; realization/cost rooms additionally scope live events and cell authorization to the selected ДЗО. Every mutation carries the page `session_id`. `GET /api/kppk/undo-state?section=&session_id=` (any project member) plus admin-only `POST /api/kppk/undo|/redo` (body `{skipActionId, section}`) walk the stack. The tab component is remounted per section, so switching tabs never shows another tab's history.
@@ -130,7 +143,15 @@ is recorded by the collaboration logs/metrics for investigation.
 
 - Business writes, undo/redo, cell revisions and outgoing notifications share a PostgreSQL transaction. Services flush, while the function-scoped HTTP dependency commits before sending the response; direct service callers must commit explicitly.
 - Valkey remains responsible for expiring leases, presence and pub/sub. Its old journal API is retained only for transport compatibility tests, not used as application history.
-- PostgreSQL advisory locks coordinate workers: edits and lease acquisition take a shared project gate and ordered row locks; dictionary mutations and lifecycle transitions take an exclusive project gate. Lease ownership includes browser session. A closed movement period rejects direct PATCH.
+- PostgreSQL advisory locks coordinate workers. A **shared** project gate is
+  taken by normal cell edits, form-scoped Undo/redo, lease acquisition and the
+  renovation/import writer; shared locks are compatible with each other, so the
+  import gate does **not** serialize against edits. Edits additionally take
+  ordered exclusive row locks; dictionary mutations and lifecycle transitions
+  take an exclusive project gate. Lease ownership includes browser session.
+  A closed movement period rejects direct PATCH. Import-vs-edit conflicts are
+  handled by the approved Gate A policy (form blocking), not by this gate —
+  see docs/TODO.md and docs/ARCHITECTURE.md.
 - `collab_outbox` delivers committed notifications at least once, in id order among committed records, with retry after Valkey failures. A publish failure does not turn an already saved edit into an HTTP failure. Duplicate notifications are possible. Per-recipient filtering suppresses older cell revisions and rechecks current row access before delivery.
 - A room must match the endpoint project and a known section. Dictionary rooms require admin rights; КППК realization/cost rooms require a valid first-day calendar month and a ДЗО UUID scope. An asset worker with zero grants sees zero rows. Central renovation roles see all assets; write permissions still depend on role/block/state.
 - Access checks use short-lived SQL sessions, never one connection for the WebSocket lifetime. The subscription is ready before hello. Subscription failure, writer failure or queue overflow closes the socket; reconnect refetches authoritative rows/meta on both forms. No silent dropping of an individual client's queued edits.
