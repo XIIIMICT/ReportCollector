@@ -803,6 +803,15 @@ methods, dependencies and response models are unchanged (verified by diffing
 tests monkeypatch are re-exported from `router.py` for back-compat, and the
 three import tests now target `router_import`.
 
+`front/src/shared/api/renovation.ts` (1140 -> 11 lines) is now a barrel
+re-exporting six workflow modules: `renovation-shared.ts` (types, constants,
+`decodeLegacyFieldName`/`decodeLegacyFieldKeys`), `renovation-import-api.ts`,
+`renovation-plan-api.ts`, `renovation-export-api.ts`,
+`renovation-dictionary-api.ts` and `renovation-undo-api.ts`. All dependencies
+are leaf modules, so there are no cycles; the 82 historical exports are
+identical (checked), and the runtime request/response shapes are unchanged.
+`bun test` (461 passed) and `bun check` are the no-behavior-change gate.
+
 Every table export is **dual-mode behind one endpoint** (`export_table_or_job`
 in `src/common/export_jobs.py`): up to `INLINE_EXPORT_MAX_ROWS` (5 000) rows
 the workbook renders right in the request and returns as an attachment; past
