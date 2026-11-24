@@ -12,11 +12,12 @@ from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
 from datetime import UTC, date, datetime, tzinfo
 from decimal import Decimal, InvalidOperation
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import Column, String, and_, func, literal, or_
+from sqlalchemy import BigInteger, Column, Numeric, String, Text, and_, case, func, literal, or_
+from sqlalchemy import cast as sa_cast
 from sqlalchemy import false as sa_false
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select as sa_select
@@ -1646,121 +1647,169 @@ async def read_plan_facets(
             hasNulls=bool(null_count),
             nullCount=int(null_count),
         )
+    # Phase 6.1: every generic facet is grouped, searched, sorted, counted and
+    # paginated in PostgreSQL. The display bucket is computed once as a SQL
+    # expression, so a high-cardinality column never materializes its distinct
+    # values in Python. The code column above keeps its specialized path.
+    display_expr, needs_reference_join = _facet_display_sql(column, meta, is_asset_column)
+    base = sa_select(display_expr.label("display"), func.count().label("rows")).select_from(RenovationPlanRow)
     if is_asset_column:
-        group_column = col(RAsset.name)
-        base = (
-            sa_select(group_column, func.count())
-            .select_from(RenovationPlanRow)
-            .outerjoin(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
+        base = base.outerjoin(RAsset, col(RAsset.id) == col(RenovationPlanRow.asset_id))
+    elif needs_reference_join:
+        base = base.outerjoin(
+            RenovationReferenceValue, col(RenovationReferenceValue.id) == col(getattr(RenovationPlanRow, column))
         )
-    elif column == "updatedBy":
-        # The editor's DISPLAY NAME, exactly as the cells show it: the name is
-        # loaded into `_updater_name` by `configure_updater` (a column property
-        # over `app_users`: name, then email, then ""), and `updated_by` is the
-        # Python-side property over it.
-        # `_updater_name` is `configure_updater`'s own contract (see `audit.py`):
-        # there is no public accessor for the column property, and reading it off
-        # the mapper is the only way to group by it in SQL.
-        group_column = sa_inspect(RenovationPlanRow).attrs._updater_name  # noqa: SLF001
-        base = sa_select(group_column, func.count()).select_from(RenovationPlanRow)
-    else:
-        group_column = getattr(RenovationPlanRow, column)
-        base = sa_select(group_column, func.count()).select_from(RenovationPlanRow)
+    base = base.where(row_condition).group_by(display_expr).subquery()
 
-    grouped = (await session.exec(base.where(row_condition).group_by(group_column))).all()  # ty: ignore[no-matching-overload]
+    folded = _facet_casefold_sql(base.c.display)
+    search_condition = _facet_search_condition(
+        folded, base.c.display, search_kind, search_query, search_min, search_max, search_timezone
+    )
 
-    counts: dict[str, int] = {}
-    has_nulls = False
-    null_count = 0
-    for raw_value, count in grouped:
-        display = _facet_display(raw_value, meta, label_map, column)
-        if display is None:
-            has_nulls = True
-            null_count += int(count)
-        else:
-            counts[display] = counts.get(display, 0) + int(count)
-
-    if search_kind is not None:
-        ordered = [
-            item
-            for item in counts.items()
-            if _facet_matches_search(
-                item[0],
-                kind=search_kind,
-                query=search_query,
-                minimum=search_min,
-                maximum=search_max,
-                time_zone=search_timezone,
+    def keep(display_column: Any) -> Any:  # noqa: ANN401
+        condition = display_column.is_not(None)
+        if search_condition is not None:
+            # Rebuild the search against the outer alias when needed.
+            if display_column is base.c.display:
+                return and_(condition, search_condition)
+            folded_outer = _facet_casefold_sql(display_column)
+            outer_search = _facet_search_condition(
+                folded_outer, display_column, search_kind, search_query, search_min, search_max, search_timezone
             )
-        ]
-    else:
-        ordered = list(counts.items())
+            return and_(condition, outer_search) if outer_search is not None else condition
+        return condition
 
-    # A NUMERIC column orders numerically, the client's rule too: a plain string
-    # sort put "9" after "10", and over raw digits it would put "1000010" before
-    # "900". Everything else stays casefold-then-value, so windows concatenate.
+    # ONE grouped scan. Window functions compute the three totals over ALL
+    # buckets (including the empty one) before the outer WHERE picks the page.
+    totals = sa_select(
+        base.c.display.label("display"),
+        base.c.rows.label("rows"),
+        func.count().filter(keep(base.c.display)).over().label("total"),
+        func.coalesce(func.sum(base.c.rows).filter(keep(base.c.display)).over(), 0).label("matching"),
+        func.coalesce(func.sum(base.c.rows).filter(base.c.display.is_(None)).over(), 0).label("null_count"),
+    ).subquery("facet_totals")
     if meta is not None and meta.cell_type == "number":
-        ordered = sorted(ordered, key=lambda item: (_number_or_zero(item[0]), item[0]))
+        sort_keys = (
+            _facet_numeric_sql(_facet_casefold_sql(totals.c.display)),
+            _facet_casefold_sql(totals.c.display).collate("C"),
+        )
     else:
-        ordered = sorted(ordered, key=lambda item: (item[0].casefold(), item[0]))
-    matching_row_count = sum(count for _, count in ordered) + null_count
-    window = ordered[offset : offset + limit]
+        sort_keys = (
+            _facet_casefold_sql(totals.c.display).collate("C"),
+            totals.c.display.collate("C"),
+        )
+    page_query = (
+        sa_select(totals.c.display, totals.c.rows, totals.c.total, totals.c.matching, totals.c.null_count)
+        .where(keep(totals.c.display))
+        .order_by(*sort_keys)
+        .offset(offset)
+        .limit(limit)
+    )
+    window = (await session.exec(page_query)).all()
+    if window:
+        total, matching_rows, null_count = window[0][2], window[0][3], window[0][4]
+    else:
+        # An empty page still needs exact counts: one extra grouped scan only in
+        # this rare case, never on a normal request.
+        total, matching_rows, null_count = (
+            await session.exec(  # ty: ignore[no-matching-overload]
+                sa_select(
+                    func.count().filter(keep(base.c.display)),
+                    func.coalesce(func.sum(base.c.rows).filter(keep(base.c.display)), 0),
+                    func.coalesce(func.sum(base.c.rows).filter(base.c.display.is_(None)), 0),
+                )
+            )
+        ).one()
     return RenovationFacetsRead(
         column=column,
-        values=[RenovationFacetValueRead(value=value, count=count) for value, count in window],
-        total=len(ordered),
-        rowCount=matching_row_count,
-        hasNulls=has_nulls,
+        values=[RenovationFacetValueRead(value=value, count=int(count)) for value, count, *_ in window],
+        total=int(total),
+        rowCount=int(matching_rows) + null_count,
+        hasNulls=bool(null_count),
         nullCount=null_count,
     )
 
 
-def _facet_display(
-    raw_value: object,
-    meta: RenovationFieldMeta | None,
-    label_map: dict[UUID, str],
-    column: str | None = None,
-) -> str | None:
-    """
-    Render the display string of a grouped facet value (None for «Пустые»).
+_FACET_NUMERIC_RE = r"^-?[0-9]+(\.[0-9]+)?([Ee][+-]?[0-9]+)?$"
 
-    A NUMBER column answers with its RAW digits: formatting server-side would
-    split one number into several buckets whenever two stored Decimals differ in
-    scale (18.0 and 18.0000 are the same value to the user, and str() gives two
-    different strings). The client prints them with the cells' own formatter.
-    """
-    if raw_value is None:
+
+def _facet_text_sql(value: Any) -> Any:  # noqa: ANN401
+    """Empty strings belong to the same «Пустые» bucket as NULL."""
+    text = sa_cast(value, Text)
+    return case((text == "", None), else_=text)
+
+
+def _facet_casefold_sql(value: ColumnElement[str]) -> ColumnElement[str]:
+    """Casefold equivalent: `lower` covers Cyrillic/Latin, ß/ẞ expand to ss."""
+    lowered = func.lower(value)
+    return func.replace(func.replace(lowered, "ẞ", "ss"), "ß", "ss")
+
+
+def _facet_numeric_sql(value: ColumnElement[str]) -> ColumnElement[Decimal | None]:
+    """Parse a facet display string as a number, NULL for non-numeric text."""
+    text = func.replace(func.replace(func.replace(value, "\u00a0", ""), "\u202f", ""), " ", "")
+    text = func.replace(text, ",", ".")
+    return case((text.op("~")(_FACET_NUMERIC_RE), sa_cast(text, Numeric)), else_=None)
+
+
+def _facet_milliseconds_sql(value: ColumnElement[str], time_zone: str | None) -> ColumnElement[float | None]:
+    """Epoch milliseconds of a facet display date/minute (UTC for minute values)."""
+    minute = sa_cast(
+        func.extract("epoch", func.to_timestamp(value, 'YYYY-MM-DD"T"HH24:MI').op("AT TIME ZONE")("UTC")), Numeric
+    )
+    day = sa_cast(
+        func.extract("epoch", func.to_timestamp(value, "YYYY-MM-DD").op("AT TIME ZONE")(time_zone or "UTC")),
+        Numeric,
+    )
+    return case((value.contains("T"), minute * 1000), else_=day * 1000)
+
+
+def _facet_search_condition(
+    folded: ColumnElement[str],
+    display: ColumnElement[str],
+    kind: str | None,
+    query: str | None,
+    minimum: float | None,
+    maximum: float | None,
+    time_zone: str | None,
+) -> ColumnElement[bool] | None:
+    """Apply the same search semantics as `_facet_matches_search` in SQL."""
+    if kind is None:
         return None
-    if column in _PLAN_AUDIT_COLUMNS and isinstance(raw_value, datetime):
-        # The MINUTE the rows of this instant fall into, as the ISO text a
-        # `datetime` cell renders — the filter parses it back to the same minute.
-        return raw_value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M")
+    if kind == "text":
+        return folded.contains((query or "").casefold(), autoescape=True)
+    comparable = _facet_numeric_sql(folded) if kind == "range" else _facet_milliseconds_sql(display, time_zone)
+    conditions = []
+    if minimum is not None:
+        conditions.append(comparable >= minimum)
+    if maximum is not None:
+        conditions.append(comparable <= maximum)
+    return and_(comparable.is_not(None), *conditions) if conditions else comparable.is_not(None)
+
+
+def _facet_display_sql(column: str, meta: RenovationFieldMeta | None, is_asset_column: bool) -> tuple[Any, bool]:
+    """Build the display-bucket expression and whether a reference join is needed."""
+    if is_asset_column:
+        raw = col(RAsset.name)
+    elif column == "updatedBy":
+        raw = sa_inspect(RenovationPlanRow).attrs._updater_name  # noqa: SLF001
+    else:
+        raw = col(getattr(RenovationPlanRow, column))
     if meta is None:
-        # The synthetic asset column: the grouped value is already the name.
-        text = str(raw_value)
-        return text or None
+        return _facet_text_sql(raw), False
+    if column in _PLAN_AUDIT_COLUMNS:
+        return func.to_char(raw.op("AT TIME ZONE")("UTC"), 'YYYY-MM-DD"T"HH24:MI'), False
     if meta.cell_type == "reference":
-        label = label_map.get(cast("UUID", raw_value))
-        return label or None
+        return col(RenovationReferenceValue.label), True
     if meta.cell_type == "boolean":
-        return "Да" if raw_value else "Нет"
+        return case((raw.is_(None), None), (raw.is_(True), "Да"), else_="Нет"), False
     if meta.cell_type == "number":
-        # A NUMBER column's facets are the raw digits, formatted on the client —
-        # whose own rule is `Intl.NumberFormat("ru-RU")` ("1 000 005"), the same
-        # text the cells and the selected values carry. `f"{float(...):g}"` used
-        # to turn every seven-digit value into "1.00001e+06": the filter list
-        # showed exponents instead of numbers, the selected values stopped
-        # matching the cells, and the order was alphabetical over exponents.
-        if raw_value is None or raw_value == "":
-            return None
-        if isinstance(raw_value, Decimal):
-            return format(raw_value.normalize(), "f")
-        return str(raw_value)
+        whole = sa_cast(sa_cast(raw, BigInteger), Text)
+        fraction = func.rtrim(func.rtrim(sa_cast(raw, Text), "0"), ".")
+        return case((raw.is_(None), None), (raw == func.trunc(raw), whole), else_=fraction), False
     if meta.cell_type == "date":
-        rendered = raw_value.isoformat() if isinstance(raw_value, date) else str(raw_value)
-        return rendered or None
-    text = str(raw_value)
-    return text or None
+        return sa_cast(raw, Text), False
+    return _facet_text_sql(raw), False
 
 
 async def read_plan_versions(session: AsyncSession) -> list[RenovationPlanVersionRead]:

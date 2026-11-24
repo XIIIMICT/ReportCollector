@@ -855,6 +855,29 @@ are leaf modules, so there are no cycles; the 82 historical exports are
 identical (checked), and the runtime request/response shapes are unchanged.
 `bun test` (461 passed) and `bun check` are the no-behavior-change gate.
 
+### Facet and query cost (Phase 6 measurements)
+
+`read_plan_facets` used to materialize **every distinct value** of a column in
+Python and then filter, casefold-sort, count and slice there. All generic
+columns now do that in ONE grouped SQL scan: the display bucket is a SQL
+expression (number formatting, date ISO, boolean, reference label via a LEFT
+JOIN, asset name, audit minute in UTC), casefolding is `lower` + ß/ẞ expansion,
+and window functions return the total/matching/empty-bucket counts alongside
+the page — so a returning page never pays a second grouped scan. An empty page
+falls back to one aggregate. The specialized `work_or_repair_code` path is
+unchanged.
+
+Measured on the live dev plan (261 419 rows) before → after:
+`defect_list...` 436 → 168 ms, `work_description` 540 → 268 ms,
+`equipment_unit_name` 260 → 160 ms; the last two with a text search 582 → 447
+ms and 192 → 206 ms. Low-cardinality fields stayed within noise. The earlier
+attempt with a 100-character `translate()` and three grouped scans was slower
+than the Python path and was replaced; `lower` + ß handling and one scan fixed
+that. No exact-count or ordering behavior changed (all facet tests pass).
+
+A bulk cell PATCH prefetches reference ids once (Phase 6.2) instead of one
+catalog SELECT per cell; see the import/export section above.
+
 Every table export is **dual-mode behind one endpoint** (`export_table_or_job`
 in `src/common/export_jobs.py`): up to `INLINE_EXPORT_MAX_ROWS` (5 000) rows
 the workbook renders right in the request and returns as an attachment; past

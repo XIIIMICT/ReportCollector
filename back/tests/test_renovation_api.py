@@ -26,7 +26,7 @@ from src.renovation.export_jobs import ExportJobSpec
 from src.renovation.export_jobs import export_jobs as export_jobs_manager
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
-from src.renovation.service import read_plan_export_meta, recompute_plan_rows
+from src.renovation.service import read_plan_export_meta, read_plan_facets, recompute_plan_rows
 
 ADMIN_HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
 VIEWER_HEADERS = signed_identity_headers(email="viewer@example.ru", name="Viewer User")
@@ -154,6 +154,30 @@ async def test_read_plan_returns_rows_with_labels_and_ids(
     assert bsk["renovationId"] == "2027_BSKR_1.1.1_1382467"
     assert bsk["missingComponents"] == []
     assert by_asset["VOZR"]["renovationId"] == "2027_VOZR_1.1.1_2247000"
+
+
+async def test_generic_facets_group_and_page_in_sql(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A facet window never materializes every distinct value in Python."""
+    from src.renovation.models import RAsset
+
+    plan = (await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()
+    assets = list((await db_session.exec(select(RAsset))).all())
+    statements: list[str] = []
+    real_exec = db_session.exec
+
+    def spy(statement: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        statements.append(str(statement))
+        return real_exec(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "exec", spy)
+    result = await read_plan_facets(
+        db_session, assets, plan_id=plan.id, column="work_description", offset=100, limit=25
+    )
+    sql = "\n".join(statements)
+    assert "GROUP BY" in sql
+    assert "LIMIT" in sql
+    assert "OFFSET" in sql
+    assert len(result.values) <= 25
 
 
 async def test_read_plan_facets_sorted_distinct(client: AsyncClient) -> None:
