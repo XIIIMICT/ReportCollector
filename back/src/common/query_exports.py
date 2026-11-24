@@ -20,8 +20,9 @@ from sqlmodel.sql.expression import SelectOfScalar
 
 from src.common import export as export_config
 from src.common.durable_exports import DurableExportManager
-from src.common.export_jobs import ExportJob, ExportJobRead, ExportQueueFullError, ExportSpec, final_path, part_path
+from src.common.export_jobs import ExportJob, ExportJobRead, ExportSpec, final_path, part_path
 from src.common.export_process import generate_in_process
+from src.common.job_contracts import ExportQueueFullError
 from src.common.xlsx_table import TableWorkbookWriter
 from src.config import get_settings
 from src.database import async_session_factory

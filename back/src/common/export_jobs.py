@@ -70,18 +70,14 @@ from src.observability import REQUEST_ID, observe_phase
 if TYPE_CHECKING:
     from src.common.export import ExportColumnLike
 
+from src.common.job_contracts import (  # re-exported for back-compat
+    JOB_TTL_SECONDS,
+    MAX_ACTIVE_JOBS,
+    MAX_ACTIVE_JOBS_PER_USER,
+    ExportQueueFullError,
+)
+
 LOGGER = logging.getLogger("reportcollector.application")
-
-# Готовые файлы живут час: этого хватает, чтобы скачать повторно, и не даёт
-# диску расти. Переопределяется EXPORT_DIR (например, на volume в prod).
-JOB_TTL_SECONDS = 3600.0
-# Сколько заданий может стоять в очереди/выполняться одновременно.
-MAX_ACTIVE_JOBS = 8
-MAX_ACTIVE_JOBS_PER_USER = 2
-
-
-class ExportQueueFullError(RuntimeError):
-    """Очередь выгрузок переполнена (HTTP 429)."""
 
 
 def export_dir() -> Path:
