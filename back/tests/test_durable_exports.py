@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import timedelta
+from typing import Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -103,6 +104,44 @@ async def test_admission_and_claim_are_atomic_across_connections(repository) -> 
     second = await repository.claim("test_export", concurrency=2)
     assert second is not None
     assert await repository.claim("test_export", concurrency=2) is None
+
+
+async def test_per_kind_concurrency_ignores_other_running_kinds(repository) -> None:
+    """One kind's running jobs must not consume another kind's worker slots.
+
+    Regression for the claim() count: it used to count ALL running jobs, so a
+    single running export blocked an import (and vice versa) even though each
+    manager declares its own per-kind concurrency. The global cap is separate
+    and lives in create() via MAX_ACTIVE_JOBS.
+    """
+
+    async def insert(kind: str, status: Literal["pending", "running"], key: str) -> None:
+        async with repository.session_factory() as session, session.begin():
+            session.add(
+                DataJob(
+                    kind=kind,
+                    user_id="owner",
+                    cache_key=key,
+                    payload={},
+                    status=status,
+                    lease_until=utc_now() + timedelta(seconds=60),
+                    lease_token=uuid4(),
+                )
+            )
+
+    # A running export of another kind must not block an import claim.
+    await insert("test_export", "running", "export-1")
+    await insert("renovation_import", "pending", "import-1")
+    claimed = await repository.claim("renovation_import", concurrency=1)
+    assert claimed is not None
+    assert claimed.kind == "renovation_import"
+
+    # ...and once the import is running, the export kind still obeys ONLY its
+    # own slots: a second export claim with concurrency=2 succeeds, with 1 fails.
+    await insert("test_export", "pending", "export-2")
+    assert await repository.claim("test_export", concurrency=2) is not None
+    assert await repository.claim("test_export", concurrency=2) is None
+    assert await repository.claim("renovation_import", concurrency=1) is None
 
 
 async def test_stale_attempt_cannot_publish_or_renew(repository) -> None:

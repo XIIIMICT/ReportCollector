@@ -792,6 +792,13 @@ requests OOM'ed the container. The export is therefore a background job
   Concurrency defaults to 1 (allowed 1–8); set the same value on every replica
   and raise it only after measuring RAM/CPU/DB headroom. Extra slots use separate
   Python processes and can therefore execute CPU work in parallel.
+   `JobRepository.claim(kind, concurrency=…)` counts **only running jobs of that
+   kind**, so an import worker's slots cannot be consumed by a plan export (or a
+   table query export) and vice versa. The `MAX_ACTIVE_JOBS` global cap and the
+   per-user `MAX_ACTIVE_JOBS_PER_USER` cap are separate explicit admission limits
+   enforced in `JobRepository.create()`, not an accidental side effect of one
+   manager's per-kind limit. Lease expiry/retry, fencing tokens and stale-worker
+   completion protection are unchanged.
 - **Throughput.** The row read selects the `col_*` value columns directly; the
   earlier `jsonb_strip_nulls(to_jsonb(row) - keys)` sparse-values build measured
   ~2 ms/row on the 306k-row plan (~10 of the 13 minutes), the direct read
