@@ -11,7 +11,7 @@ afterEach(cleanup);
 test.each([
     { found: 12, total: 100, asset: true, columns: new Set<string>(), filtered: true },
     { found: 0, total: 100, asset: true, columns: new Set<string>(), filtered: true },
-    { found: 7, total: 100, asset: false, columns: new Set(["col_011"]), filtered: true },
+    { found: 7, total: 100, asset: false, columns: new Set(["process_position"]), filtered: true },
     { found: 100, total: 100, asset: true, columns: new Set<string>(), filtered: true },
     { found: 100, total: 100, asset: false, columns: undefined, filtered: false },
 ])("plan status separates found from total (%j)", ({ found, total, asset, columns, filtered }) => {

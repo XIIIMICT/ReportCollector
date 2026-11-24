@@ -52,7 +52,7 @@ def test_a_text_that_is_not_a_real_date_stays_a_type_error() -> None:
 
 
 def test_text_numbers_accept_a_comma_and_thousands_spaces() -> None:
-    meta = field_meta("col_028")
+    meta = field_meta("work_cost_rub_ex_vat")
     assert meta is not None
     assert _number_value("1 234,50", meta) == (1234.5, None)
     assert _number_value("1.234,50", meta) == (1234.5, None)
@@ -61,7 +61,7 @@ def test_text_numbers_accept_a_comma_and_thousands_spaces() -> None:
 
 
 def test_an_integer_column_accepts_only_zero_fraction() -> None:
-    meta = field_meta("col_083")
+    meta = field_meta("adjustment_work_volume_unit")
     assert meta is not None
     assert _number_value("123.00", meta) == ("123", None)
     assert _number_value("123,00", meta) == ("123", None)
@@ -69,8 +69,8 @@ def test_an_integer_column_accepts_only_zero_fraction() -> None:
 
 
 def test_numeric_minimum_and_percentage_bounds_are_enforced() -> None:
-    money = field_meta("col_028")
-    percent = field_meta("col_208")
+    money = field_meta("work_cost_rub_ex_vat")
+    percent = field_meta("em_contracting_cs_pct")
     assert money is not None
     assert percent is not None
     assert _number_value("-5", money) == (None, "range")

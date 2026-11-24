@@ -336,7 +336,7 @@ function ImportErrors({
             {/*
                 ARCHIVED: the «incorrectly calculated codes» section. The
                 renovation-ID formula is off (`RENOVATION_ID_FORMULA_ENABLED` in
-                back/src/renovation/renovation_id.py), col_003 is loaded from the
+                back/src/renovation/renovation_id.py), work_or_repair_code is loaded from the
                 template as-is, so nothing computes a code to compare against.
                 The markup stays for the day the formula returns; the field is
                 still typed, so the render below never fires today.

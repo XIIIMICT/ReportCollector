@@ -12,14 +12,14 @@ afterEach(() => {
 });
 
 test("column pin overrides survive a reload and stay per table", () => {
-    writeStoredPinnedColumns("renovation", "plan", { col_004: true, col_005: false });
+    writeStoredPinnedColumns("renovation", "plan", { production_name: true, workshop_name: false });
     expect(readStoredPinnedColumns("renovation", "plan")).toEqual({
-        col_004: true,
-        col_005: false,
+        production_name: true,
+        workshop_name: false,
     });
     expect(readStoredPinnedColumns("renovation", "assets")).toEqual({});
     expect(window.localStorage.getItem(pinnedColumnsStorageKey("renovation", "plan"))).toBe(
-        JSON.stringify({ col_004: true, col_005: false }),
+        JSON.stringify({ production_name: true, workshop_name: false }),
     );
 });
 

@@ -92,7 +92,7 @@ def test_a_data_row_becomes_a_code_asset_and_values(sheet) -> None:
     # The asset code is upper-cased: template codes are case-insensitive.
     assert row.asset_key == "SNHZ"
     assert row.asset_is_name is False
-    assert row.values["col_005"] == "Цех 1"
+    assert row.values["workshop_name"] == "Цех 1"
 
 
 def test_the_numbering_helper_row_is_not_a_data_row(sheet) -> None:
@@ -169,7 +169,7 @@ def test_a_numeric_reference_is_normalized_to_its_catalog_label(sheet) -> None:
     parsed = parse_plan_rows(Path("ignored.xlsb"))
 
     values = parsed[0].values
-    assert values["col_017"] == "3"
+    assert values["work_category_id"] == "3"
 
 
 def test_blank_cells_are_left_out_instead_of_stored_empty(sheet) -> None:
@@ -179,8 +179,8 @@ def test_blank_cells_are_left_out_instead_of_stored_empty(sheet) -> None:
     parsed = parse_plan_rows(Path("ignored.xlsb"))
 
     values = parsed[0].values
-    assert "col_005" not in values
-    assert values["col_009"] == "ЕО-1"
+    assert "workshop_name" not in values
+    assert values["equipment_unit_name"] == "ЕО-1"
 
 
 def test_text_cells_are_trimmed_and_whitespace_becomes_absent(sheet) -> None:
@@ -191,8 +191,8 @@ def test_text_cells_are_trimmed_and_whitespace_becomes_absent(sheet) -> None:
 
     row = parsed[0]
     assert row.asset_key == "SNHZ"
-    assert row.values["col_005"] == "Цех 1"
-    assert "col_009" not in row.values
+    assert row.values["workshop_name"] == "Цех 1"
+    assert "equipment_unit_name" not in row.values
 
 
 def test_a_broken_formula_reference_is_refused_instead_of_stored(sheet) -> None:
@@ -257,7 +257,7 @@ def test_an_asset_named_in_predpriyatie_is_parsed_by_name(sheet) -> None:
     # The name is kept as the file spells it; the writer folds quotes/case.
     assert row.asset_key == 'АО "БСЗ"'
     assert row.asset_is_name is True
-    assert row.values["col_005"] == "Цех 3"
+    assert row.values["workshop_name"] == "Цех 3"
 
 
 def test_a_sheet_without_a_recognisable_header_is_refused(sheet) -> None:
@@ -327,4 +327,4 @@ def test_an_ooxml_workbook_is_read_by_the_real_reader(tmp_path: Path) -> None:
 
     assert [row.code for row in parsed] == ["Р-010"]
     assert parsed[0].asset_key == "SNHZ"
-    assert parsed[0].values["col_005"] == "Цех 2"
+    assert parsed[0].values["workshop_name"] == "Цех 2"

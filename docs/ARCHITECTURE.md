@@ -508,7 +508,7 @@ shows «Файл содержит ошибки» under the input plus «Не н�
 оборудования», «Категория работ», «Вид работ», «Отнесение затрат», «Способ
 выполнения работ», «Дата начала работ», «Дата окончания работ». Any other
 missing column is simply not loaded; an unknown one is ignored. Only two
-headings need an alias: «Лот» → direction code (`col_189`) and the
+headings need an alias: «Лот» → direction code (`lotting_activity_direction_code`) and the
 suffix-free «Отнесение затрат (OPEX/CAPEX)» / «Способ выполнения работ».
 Asset identification uses «Наименование ДО» — the official repair code
 (`BSZR`) that is also an input of the work ID; the UI shows the asset name.
@@ -523,7 +523,7 @@ and the loader look up the right map. A name the dictionary does not have is a
 file error, exactly like an unknown code — never a silently dropped row.
 The dictionary's key is `r_assets.code`, which IS the repair code (migration
 0030 dropped the old internal slug). «Дефектная ведомость/ВОР №»
-(`r_plan_rows.col_023`) is TEXT for the same reason: a seven-digit number with a
+(`r_plan_rows.defect_list_or_bill_of_quantities_number`) is TEXT for the same reason: a seven-digit number with a
 meaningful leading zero (`0706179`) cannot be stored as a number — the grid, the
 importer and the legacy ID path all normalise it to digits and, when needed,
 pad short values to seven.
@@ -578,7 +578,7 @@ catalogs, compared strictly (whitespace/case only — no typo tolerance, no «@�
 options). Every cell issue carries the form field's own label, so the dialog
 names the column as «Цех (столбец H)» instead of only the Excel letter. Without
 errors the response carries the assets (by name), the new rows and the rows to
-update (existing `col_003`).
+update (existing `work_or_repair_code`).
 
 The preflight dialog (`plan-excel-import-modal.tsx`) closes only by its close
 button, Escape, or the «Загрузить» hand-off: the backdrop is
@@ -686,7 +686,7 @@ leaving and returning to the project: the job id is kept per project in
 remount resumes polling until the job settles. The analysis wait before it
 keeps its indeterminate bar inside the dialog.
 
-Rows are matched by «Код работы» (`col_003`): a code already in the plan updates
+Rows are matched by «Код работы» (`work_or_repair_code`): a code already in the plan updates
 that row in place, a code the plan does not have **appends** a row at the end
 (picking up the positional sequence after the current last row). A cell the file
 leaves empty keeps the plan's current value — a blank cell is never an
@@ -694,7 +694,7 @@ instruction to clear a value. A row without the asset value is skipped by the
 loader with the same rule the preflight applies; every other blank required cell
 is an error and refuses the whole file, so the written counts match the report. The write boundary is thin but not free:
 the parser hands dates over as ISO text (the same value feeds the renovation-ID
-rule) while `col_024/025/191/199/203` are real `DATE` columns, so `_flush_batch`
+rule) while `work_start_date/025/191/199/203` are real `DATE` columns, so `_flush_batch`
 converts them; and because the parser **drops blank cells**, the rows of one
 batch carry different key sets — a multi-row `INSERT` demands identical keys per
 row
@@ -809,7 +809,7 @@ requests OOM'ed the container. The export is therefore a background job
   workbook sets `fullCalcOnLoad`, so Excel recalculates on open.
 - **Source values.** The formula engine compiles from normalized `field_metas`,
   including application overrides, never directly from legacy JSON. Recomputing
-  missing derived values must preserve editable `col_003` work codes; its old
+  missing derived values must preserve editable `work_or_repair_code` work codes; its old
   calculated flag used to erase codes in otherwise valid exported rows.
 - Limits: 8 durable active jobs globally, 2 per user → `429`. Admission and
   deduplication are transactional. Same-user scope+stamp requests share one job;
@@ -909,4 +909,4 @@ Renovation approval copies the plan with PostgreSQL INSERT SELECT rather than co
 
 The renovation plan's 59 formula fields are **stored columns**, recomputed on every edit and read back verbatim by `GET /plan/rows` — recomputing them per read is infeasible (~90 s for the 306k-row plan) and SQL filters/facets need them as columns. The importer skips calculated fields, so imported/adopted rows are filled by `recompute_plan_rows` (`just recompute-renovation-plan`, also run at the end of `just seed`/`just seed-renovation` for their demo rows); see `docs/WORKFLOW.md`. The importer passes the ids of the rows it just wrote, and the recompute writes only rows whose derived values changed: rewriting all 306k rows/133 calculated columns (≈0.95 ms each, ~290 s) was the dominant cost of a ~20k-row load. The full sweep remains the backfill; the import job additionally exposes `parse`/`write`/`recompute` phases and a progress total of twice the preflight row count.
 
-**The renovation ID (`col_003`) is NOT one of them** — the generator is currently off (`RENOVATION_ID_FORMULA_ENABLED = False` in `back/src/renovation/renovation_id.py`): the field is a plain editable text cell, loaded from the template as-is and typed by hand, because the agreement processes and the state of the data made a derived value impractical. `form_schema.CALCULATED_OVERRIDES` / `READ_ONLY_OVERRIDES` drop its legacy «calculated + read-only» flags without touching the legacy JSON entry, so the whole generator (`calculate_renovation_id`, its component validation, the import's correctness check) stays in the codebase and can be switched back on from that one flag. While it is off the import keeps **only the duplicate check** as a blocker («Некорректно рассчитанные коды» is archived in the UI), the «Некорректные» filter means *empty or duplicated*, and submit refuses an empty or repeated code. The «Лот» (`col_189`) code, by contrast, always ends with a dot: a correct code typed or imported without it gets it added silently (`renovation_id.normalize_direction_code`).
+**The renovation ID (`work_or_repair_code`) is NOT one of them** — the generator is currently off (`RENOVATION_ID_FORMULA_ENABLED = False` in `back/src/renovation/renovation_id.py`): the field is a plain editable text cell, loaded from the template as-is and typed by hand, because the agreement processes and the state of the data made a derived value impractical. `form_schema.CALCULATED_OVERRIDES` / `READ_ONLY_OVERRIDES` drop its legacy «calculated + read-only» flags without touching the legacy JSON entry, so the whole generator (`calculate_renovation_id`, its component validation, the import's correctness check) stays in the codebase and can be switched back on from that one flag. While it is off the import keeps **only the duplicate check** as a blocker («Некорректно рассчитанные коды» is archived in the UI), the «Некорректные» filter means *empty or duplicated*, and submit refuses an empty or repeated code. The «Лот» (`lotting_activity_direction_code`) code, by contrast, always ends with a dot: a correct code typed or imported without it gets it added silently (`renovation_id.normalize_direction_code`).

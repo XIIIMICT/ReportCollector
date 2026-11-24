@@ -13,7 +13,7 @@ import { facetTextOf, renderDateText } from "../grid-config";
  */
 
 const descriptor = {
-    key: "col_019",
+    key: "cost_allocation_type_id",
     label: "Дата начала работ",
     width: 120,
     kind: "date" as const,
@@ -35,17 +35,17 @@ test("the day never shifts with the timezone", () => {
     // Built from the parts, so the answer cannot depend on where it runs.
     const iso = "2026-01-01T00:00:00Z";
     expect(renderDateText(iso)).toBe("01.01.2026");
-    expect(facetTextOf(descriptor, { col_019: iso })).toBe("01.01.2026");
+    expect(facetTextOf(descriptor, { cost_allocation_type_id: iso })).toBe("01.01.2026");
 });
 
 test("the filter offers exactly what the cell prints", () => {
     const iso = "2026-10-26";
-    expect(facetTextOf(descriptor, { col_019: iso })).toBe(renderDateText(iso));
+    expect(facetTextOf(descriptor, { cost_allocation_type_id: iso })).toBe(renderDateText(iso));
 });
 
 test("an empty or unparsable date is not a value", () => {
-    expect(facetTextOf(descriptor, { col_019: null })).toBeNull();
-    expect(facetTextOf(descriptor, { col_019: "" })).toBeNull();
+    expect(facetTextOf(descriptor, { cost_allocation_type_id: null })).toBeNull();
+    expect(facetTextOf(descriptor, { cost_allocation_type_id: "" })).toBeNull();
     expect(renderDateText("")).toBe("");
     // A value the browser cannot parse is shown as-is, like the cell does.
     expect(renderDateText("не дата")).toBe("не дата");
@@ -54,6 +54,6 @@ test("an empty or unparsable date is not a value", () => {
 test("a date column sorts as a date, not as text", () => {
     // «01.02.2026» before «31.01.2026» is what a string sort would produce; the
     // kind must route the column through the numeric/date ordering instead.
-    const order = facetTextOf(descriptor, { col_019: "2026-02-01" });
+    const order = facetTextOf(descriptor, { cost_allocation_type_id: "2026-02-01" });
     expect(order).toBe("01.02.2026");
 });

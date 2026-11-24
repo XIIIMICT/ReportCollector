@@ -1,12 +1,12 @@
 """
-Порт легаси-генератора идентификатора ремонта (col_003).
+Порт легаси-генератора идентификатора ремонта (work_or_repair_code).
 
 Эталон: ReportCollector-Renovation/src-tauri/src/renovation_id.rs.
 
 Отличия от эталона (решено 2026-08-18, docs/RENOVATION_MIGRATION_CONTEXT.md):
 плейсхолдер `<УГАДАЙТЕ>` не используется; отсутствующий обязательный
 компонент подставляется в составной идентификатор как литерал `<NULL>`
-(не в недостающее поле, а в поле col_003). Список отсутствующих
+(не в недостающее поле, а в поле work_or_repair_code). Список отсутствующих
 компонентов возвращается в `missing_components` для UI.
 """
 
@@ -17,13 +17,13 @@ from datetime import date
 MISSING_COMPONENT = "<NULL>"
 
 # «Направление деятельности» («Лот») — the loT code always ends with a dot.
-DIRECTION_CODE_FIELD = "col_189"
+DIRECTION_CODE_FIELD = "lotting_activity_direction_code"
 # «Дефектная ведомость/ВОР №» — a seven-digit number whose leading zero matters.
-DEFECT_NUMBER_FIELD = "col_023"
+DEFECT_NUMBER_FIELD = "defect_list_or_bill_of_quantities_number"
 
 # Whether the renovation-ID generator is ON.
 #
-# It is OFF: col_003 is a plain typed value now (imported from the template
+# It is OFF: work_or_repair_code is a plain typed value now (imported from the template
 # as-is, edited by hand), because the agreement processes and the state of the
 # data made the derived value impractical. The whole generator below — the
 # component validation, `calculate_renovation_id`, the legacy formula metadata
@@ -36,8 +36,8 @@ IMPROVEMENT_CATEGORY_LABEL = "проект улучшения"
 IMPROVEMENT_CATEGORY_VALUE_ID = "work_category_007"
 
 PROJECT_CODE_FIELD = "код проекта"
-TECHNOLOGY_POSITION_FIELD = "технологическая позиция (col_011)"
-WORK_TYPE_FIELD = "отображаемое значение вида работ (col_018)"
+TECHNOLOGY_POSITION_FIELD = "технологическая позиция (process_position)"
+WORK_TYPE_FIELD = "отображаемое значение вида работ (work_type_id)"
 # No-DV object code: «Технологическая позиция*Вид работ*Месяц начала» (spec 5.2).
 NO_DV_FIELD = "технологическая позиция*вид работ*месяц (без ДВ)"
 
@@ -108,7 +108,9 @@ def _invalid_typical_defect_suffix(value: str) -> RenovationIdError:
 
 
 def _suffix_without_defect_number() -> RenovationIdError:
-    return RenovationIdError("дополнительная нумерация типовой ДВ указана без семизначного номера ДВ (col_023)")
+    return RenovationIdError(
+        "дополнительная нумерация типовой ДВ указана без семизначного номера ДВ (defect_list_or_bill_of_quantities_number)"
+    )
 
 
 def _invalid_project_code(value: str) -> RenovationIdError:
@@ -122,34 +124,34 @@ def _control_character(field: str) -> RenovationIdError:
 @dataclass(frozen=True)
 class RenovationIdInput:
     """
-    Строковые входы, необходимые для материализации col_003.
+    Строковые входы, необходимые для материализации work_or_repair_code.
 
-    Вызывающий код обязан разрешить reference-поле col_018 в отображаемую
+    Вызывающий код обязан разрешить reference-поле work_type_id в отображаемую
     метку до построения этого значения. `work_category` может содержать
     либо сохранённый `value_id`, либо его отображаемую метку.
     """
 
-    # Текущий col_003. Каждое непустое значение неизменяемо и возвращается байт-в-байт.
+    # Текущий work_or_repair_code. Каждое непустое значение неизменяемо и возвращается байт-в-байт.
     existing_id: str | None = None
-    # col_024, строго в форме YYYY-MM-DD при наличии.
+    # work_start_date, строго в форме YYYY-MM-DD при наличии.
     start_date: str | None = None
     # Код из записи актива (от двух до тридцати двух букв), например BSKR.
     asset_repair_code: str | None = None
-    # col_189, например 1.1.1.
+    # lotting_activity_direction_code, например 1.1.1.
     direction_code: str | None = None
-    # Отображаемое значение col_016.
+    # Отображаемое значение bpof_section.
     bpof_section: str | None = None
-    # col_017: идентификатор reference-значения или отображаемая метка.
+    # work_category_id: идентификатор reference-значения или отображаемая метка.
     work_category: str | None = None
-    # Код проекта (col_136), используемый для проектов улучшения.
+    # Код проекта (plan_adjustment_type), используемый для проектов улучшения.
     project_code: str | None = None
-    # col_023, представленный текстом, чтобы ведущие нули не терялись.
+    # defect_list_or_bill_of_quantities_number, представленный текстом, чтобы ведущие нули не терялись.
     defect_number: str | None = None
     # Необязательный двухзначный номер повторной типовой ДВ.
     typical_defect_suffix: str | None = None
-    # col_011.
+    # process_position.
     technology_position: str | None = None
-    # Отображаемая метка, разрешённая из col_018.
+    # Отображаемая метка, разрешённая из work_type_id.
     work_type_label: str | None = None
 
 
@@ -160,7 +162,7 @@ class RenovationIdResult:
 
     `value` — всегда строка: отсутствующий обязательный компонент
     подставляется как литерал `MISSING_COMPONENT` на своё место в
-    составном идентификаторе (в поле col_003, не в недостающее поле).
+    составном идентификаторе (в поле work_or_repair_code, не в недостающее поле).
     `missing_components` перечисляет отсутствующие компоненты в
     детерминированном порядке для подсветки ячеек в UI.
     """
@@ -171,14 +173,14 @@ class RenovationIdResult:
 
 def calculate_renovation_id(input_: RenovationIdInput) -> RenovationIdResult:
     """
-    Рассчитывает неизменяемый идентификатор работ/ремонта для col_003.
+    Рассчитывает неизменяемый идентификатор работ/ремонта для work_or_repair_code.
 
     Уже присвоенный непустой идентификатор всегда побеждает, даже если
     остальные входы отсутствуют или невалидны. Формат нового идентификатора
     (спецификация, п. 5): `Год_ДО_КодНаправления_КодОбъекта[_ДопНумерация]`.
-    Приоритет кода объекта: проект улучшения (col_136), семизначный номер ДВ
-    (col_023), затем — при отсутствии ДВ — составной код по п. 5.2
-    «Технологическая позиция*Вид работ*Месяц начала» (col_011*col_018*col_024).
+    Приоритет кода объекта: проект улучшения (plan_adjustment_type), семизначный номер ДВ
+    (defect_list_or_bill_of_quantities_number), затем — при отсутствии ДВ — составной код по п. 5.2
+    «Технологическая позиция*Вид работ*Месяц начала» (process_position*work_type_id*work_start_date).
     Дополнительная нумерация типовой ДВ добавляется только когда задана.
     Отсутствующий обязательный компонент подставляется как `<NULL>`.
     """
@@ -255,7 +257,7 @@ def is_improvement_project(bpof_section: str | None, work_category: str | None) 
     """
     Возвращает, идентифицирует ли хотя бы одно поле проект улучшения.
 
-    Принимает и сохранённые value_id из col_017, и отображаемые метки.
+    Принимает и сохранённые value_id из work_category_id, и отображаемые метки.
     """
     if bpof_section is not None and bpof_section.strip().lower() == IMPROVEMENT_SECTION_LABEL:
         return True

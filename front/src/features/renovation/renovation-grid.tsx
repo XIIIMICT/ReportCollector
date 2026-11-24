@@ -505,10 +505,10 @@ function RenovationGridInner(
     const blockFields = useMemo(() => {
         // col_002 (the form's «Предприятие» field) is replaced by the
         // synthetic asset column (ASSET_COLUMN_PROP) — keep it out of the
-        // field columns to avoid a duplicated column. col_003 (the renovation
-        // id) and col_217 (the note) are always visible regardless of the
+        // field columns to avoid a duplicated column. work_or_repair_code (the renovation
+        // id) and note (the note) are always visible regardless of the
         // block filter, like the synthetic asset column.
-        const ALWAYS_VISIBLE = new Set(["col_003", "col_217"]);
+        const ALWAYS_VISIBLE = new Set(["work_or_repair_code", "note"]);
         return [...fields]
             .filter(
                 (field) =>
@@ -662,7 +662,7 @@ function RenovationGridInner(
 
     // The column-number strip of the overlay: every visible column shows its
     // number in the form (the workbook ordinal shifted so «Предприятие» = 1 —
-    // see `columnNumber`), so hiding a field (e.g. the dropped col_218) never
+    // see `columnNumber`), so hiding a field (e.g. the dropped estimate_number) never
     // leaves a gap in the numbering. The service columns stay empty.
     const assetPosition = useMemo(
         () => fields.find((field) => field.dbName === ASSET_FIELD_DB_NAME)?.position ?? null,
@@ -1094,11 +1094,11 @@ function RenovationGridInner(
                             field.isCalculated &&
                             row.__rowState !== "deleted" &&
                             !row.isPlaceholder;
-                        // The «Идентификационный код ремонта» (col_003) is red when it's
+                        // The «Идентификационный код ремонта» (work_or_repair_code) is red when it's
                         // incomplete — a component is missing (replaced with
                         // <NULL>) or the code was never computed. Any other
                         // field whose current value breaks a form rule (e.g. a
-                        // negative «Продолжительность, дни» = col_025 − col_024)
+                        // negative «Продолжительность, дни» = work_end_date − work_start_date)
                         // is red too. The rule is re-evaluated against the value
                         // being rendered NOW, so a recalculated cell turns red in
                         // the same render as its new number instead of waiting
@@ -1106,9 +1106,9 @@ function RenovationGridInner(
                         // this side cannot tell on its own.
                         const invalid =
                             calculated &&
-                            (field.dbName === "col_003"
+                            (field.dbName === "work_or_repair_code"
                                 ? (row.__missingComponents?.length ?? 0) > 0 ||
-                                  String(row.col_003 ?? "").includes(MISSING_COMPONENT)
+                                  String(row.work_or_repair_code ?? "").includes(MISSING_COMPONENT)
                                 : breaksValueRules(field, value) ||
                                   (row.__invalidFields?.includes(field.dbName) ?? false));
                         return {

@@ -3975,7 +3975,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_003",
+   "dbName": "work_or_repair_code",
    "excelColumn": "C",
    "ordinal": 3,
    "position": 2,
@@ -3999,7 +3999,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_004",
+   "dbName": "production_name",
    "excelColumn": "D",
    "ordinal": 4,
    "position": 3,
@@ -4024,7 +4024,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_005",
+   "dbName": "workshop_name",
    "excelColumn": "E",
    "ordinal": 5,
    "position": 4,
@@ -4049,7 +4049,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_006",
+   "dbName": "department_or_installation_name",
    "excelColumn": "F",
    "ordinal": 6,
    "position": 5,
@@ -4074,7 +4074,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_007",
+   "dbName": "equipment_class",
    "excelColumn": "G",
    "ordinal": 7,
    "position": 6,
@@ -4099,7 +4099,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_008",
+   "dbName": "equipment_category",
    "excelColumn": "H",
    "ordinal": 8,
    "position": 7,
@@ -4124,7 +4124,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_009",
+   "dbName": "equipment_unit_name",
    "excelColumn": "I",
    "ordinal": 9,
    "position": 8,
@@ -4149,7 +4149,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_010",
+   "dbName": "technical_location_name",
    "excelColumn": "J",
    "ordinal": 10,
    "position": 9,
@@ -4174,7 +4174,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_011",
+   "dbName": "process_position",
    "excelColumn": "K",
    "ordinal": 11,
    "position": 10,
@@ -4199,7 +4199,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_012",
+   "dbName": "inventory_number",
    "excelColumn": "L",
    "ordinal": 12,
    "position": 11,
@@ -4224,7 +4224,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_013",
+   "dbName": "functional_area",
    "excelColumn": "M",
    "ordinal": 13,
    "position": 12,
@@ -4249,7 +4249,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_014",
+   "dbName": "production_impact",
    "excelColumn": "N",
    "ordinal": 14,
    "position": 13,
@@ -4274,7 +4274,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_015",
+   "dbName": "equipment_criticality_group_id",
    "excelColumn": "O",
    "ordinal": 15,
    "position": 14,
@@ -4304,7 +4304,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_016",
+   "dbName": "bpof_section",
    "excelColumn": "P",
    "ordinal": 16,
    "position": 15,
@@ -4337,7 +4337,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_017",
+   "dbName": "work_category_id",
    "excelColumn": "Q",
    "ordinal": 17,
    "position": 16,
@@ -4367,7 +4367,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_018",
+   "dbName": "work_type_id",
    "excelColumn": "R",
    "ordinal": 18,
    "position": 17,
@@ -4397,7 +4397,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_019",
+   "dbName": "cost_allocation_type_id",
    "excelColumn": "S",
    "ordinal": 19,
    "position": 18,
@@ -4427,7 +4427,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_020",
+   "dbName": "execution_method_id",
    "excelColumn": "T",
    "ordinal": 20,
    "position": 19,
@@ -4457,7 +4457,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_021",
+   "dbName": "work_executor_name",
    "excelColumn": "U",
    "ordinal": 21,
    "position": 20,
@@ -4482,7 +4482,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_022",
+   "dbName": "work_description",
    "excelColumn": "V",
    "ordinal": 22,
    "position": 21,
@@ -4507,7 +4507,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_023",
+   "dbName": "defect_list_or_bill_of_quantities_number",
    "excelColumn": "W",
    "ordinal": 23,
    "position": 22,
@@ -4532,7 +4532,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_024",
+   "dbName": "work_start_date",
    "excelColumn": "X",
    "ordinal": 24,
    "position": 23,
@@ -4561,7 +4561,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_025",
+   "dbName": "work_end_date",
    "excelColumn": "Y",
    "ordinal": 25,
    "position": 24,
@@ -4584,7 +4584,7 @@
      {
       "kind": "field_compare",
       "operator": "gte",
-      "field": "col_024"
+      "field": "work_start_date"
      }
     ]
    },
@@ -4592,7 +4592,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_026",
+   "dbName": "work_duration_days",
    "excelColumn": "Z",
    "ordinal": 26,
    "position": 25,
@@ -4603,7 +4603,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_025 - col_024",
+   "formula": "work_end_date - work_start_date",
    "excelFormula": "=Y18-X18",
    "decimals": 0,
    "catalog": null,
@@ -4625,7 +4625,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_027",
+   "dbName": "labor_hours",
    "excelColumn": "AA",
    "ordinal": 27,
    "position": 26,
@@ -4659,7 +4659,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_028",
+   "dbName": "work_cost_rub_ex_vat",
    "excelColumn": "AB",
    "ordinal": 28,
    "position": 27,
@@ -4693,7 +4693,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_029",
+   "dbName": "customer_materials_cost_rub_ex_vat",
    "excelColumn": "AC",
    "ordinal": 29,
    "position": 28,
@@ -4727,7 +4727,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_030",
+   "dbName": "contractor_supplied_materials_cost_rub_ex_vat",
    "excelColumn": "AD",
    "ordinal": 30,
    "position": 29,
@@ -4761,7 +4761,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_031",
+   "dbName": "total_cost_rub_ex_vat",
    "excelColumn": "AE",
    "ordinal": 31,
    "position": 30,
@@ -4772,7 +4772,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_028 + col_029 + col_030",
+   "formula": "work_cost_rub_ex_vat + customer_materials_cost_rub_ex_vat + contractor_supplied_materials_cost_rub_ex_vat",
    "excelFormula": "=AB18+AC18+AD18",
    "decimals": 2,
    "catalog": null,
@@ -4786,7 +4786,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_218",
+   "dbName": "estimate_number",
    "excelColumn": "AF",
    "ordinal": 32,
    "position": 31,
@@ -4811,7 +4811,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_032",
+   "dbName": "plan_after_proposed_adjustment_total_cost_thousand_rub_ex_vat",
    "excelColumn": "AG",
    "ordinal": 33,
    "position": 32,
@@ -4824,7 +4824,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_138 + col_085",
+   "formula": "original_plan_total_cost_thousand_rub_ex_vat + plan_adjustment_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=EH18+CG18",
    "decimals": 2,
    "catalog": null,
@@ -4838,7 +4838,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_033",
+   "dbName": "adj_cw_cost_k_rub",
    "excelColumn": "AH",
    "ordinal": 34,
    "position": 33,
@@ -4852,7 +4852,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_139 + col_086",
+   "formula": "original_plan_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_construction_works_cost_thousand_rub_ex_vat",
    "excelFormula": "=EI18+CH18",
    "decimals": 2,
    "catalog": null,
@@ -4866,7 +4866,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_034",
+   "dbName": "adj_cm_cost_k_rub",
    "excelColumn": "AI",
    "ordinal": 35,
    "position": 34,
@@ -4880,7 +4880,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_140 + col_087",
+   "formula": "original_plan_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -4894,7 +4894,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_035",
+   "dbName": "adj_q1_total_cost_k_rub",
    "excelColumn": "AJ",
    "ordinal": 36,
    "position": 35,
@@ -4909,7 +4909,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_141 + col_088",
+   "formula": "original_plan_q1_total_cost_thousand_rub_ex_vat + plan_adjustment_q1_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -4923,7 +4923,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_036",
+   "dbName": "adj_q1_cw_cost_k_rub",
    "excelColumn": "AK",
    "ordinal": 37,
    "position": 36,
@@ -4939,7 +4939,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_142 + col_089",
+   "formula": "original_plan_q1_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_q1_construction_works_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -4953,7 +4953,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_037",
+   "dbName": "adj_q1_cm_cost_k_rub",
    "excelColumn": "AL",
    "ordinal": 38,
    "position": 37,
@@ -4969,7 +4969,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_143 + col_090",
+   "formula": "original_plan_q1_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_q1_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -4983,7 +4983,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_038",
+   "dbName": "adj_january_total_cost_k_rub",
    "excelColumn": "AM",
    "ordinal": 39,
    "position": 38,
@@ -5000,7 +5000,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_144 + col_091",
+   "formula": "original_plan_january_total_cost_thousand_rub_ex_vat + plan_adjustment_january_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=EN18+CM18",
    "decimals": 2,
    "catalog": null,
@@ -5014,7 +5014,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_039",
+   "dbName": "adj_january_cw_cost_k_rub",
    "excelColumn": "AN",
    "ordinal": 40,
    "position": 39,
@@ -5032,7 +5032,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_145 + col_092",
+   "formula": "original_plan_january_cw_cost_k_rub + plan_adjustment_january_cw_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5046,7 +5046,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_040",
+   "dbName": "adj_january_cm_cost_k_rub",
    "excelColumn": "AO",
    "ordinal": 41,
    "position": 40,
@@ -5064,7 +5064,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_146 + col_093",
+   "formula": "original_plan_january_cm_cost_k_rub + plan_adjustment_january_cm_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5078,7 +5078,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_041",
+   "dbName": "adj_february_total_cost_k_rub",
    "excelColumn": "AP",
    "ordinal": 42,
    "position": 41,
@@ -5095,7 +5095,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_147 + col_094",
+   "formula": "original_plan_february_total_cost_thousand_rub_ex_vat + plan_adjustment_february_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5109,7 +5109,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_042",
+   "dbName": "adj_february_cw_cost_k_rub",
    "excelColumn": "AQ",
    "ordinal": 43,
    "position": 42,
@@ -5127,7 +5127,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_148 + col_095",
+   "formula": "original_plan_february_cw_cost_k_rub + plan_adjustment_february_cw_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5141,7 +5141,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_043",
+   "dbName": "adj_february_cm_cost_k_rub",
    "excelColumn": "AR",
    "ordinal": 44,
    "position": 43,
@@ -5159,7 +5159,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_149 + col_096",
+   "formula": "original_plan_february_cm_cost_k_rub + plan_adjustment_february_cm_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5173,7 +5173,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_044",
+   "dbName": "adj_march_total_cost_k_rub",
    "excelColumn": "AS",
    "ordinal": 45,
    "position": 44,
@@ -5190,7 +5190,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_150 + col_097",
+   "formula": "original_plan_march_total_cost_thousand_rub_ex_vat + plan_adjustment_march_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5204,7 +5204,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_045",
+   "dbName": "adj_march_cw_cost_k_rub",
    "excelColumn": "AT",
    "ordinal": 46,
    "position": 45,
@@ -5222,7 +5222,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_151 + col_098",
+   "formula": "original_plan_march_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_march_cw_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5236,7 +5236,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_046",
+   "dbName": "adj_march_cm_cost_k_rub",
    "excelColumn": "AU",
    "ordinal": 47,
    "position": 46,
@@ -5254,7 +5254,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_152 + col_099",
+   "formula": "original_plan_march_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_march_cm_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5268,7 +5268,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_047",
+   "dbName": "adj_q2_total_cost_k_rub",
    "excelColumn": "AV",
    "ordinal": 48,
    "position": 47,
@@ -5283,7 +5283,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_153 + col_100",
+   "formula": "original_plan_q2_total_cost_thousand_rub_ex_vat + plan_adjustment_q2_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5297,7 +5297,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_048",
+   "dbName": "adj_q2_cw_cost_k_rub",
    "excelColumn": "AW",
    "ordinal": 49,
    "position": 48,
@@ -5313,7 +5313,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_154 + col_101",
+   "formula": "original_plan_q2_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_q2_construction_works_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5327,7 +5327,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_049",
+   "dbName": "adj_q2_cm_cost_k_rub",
    "excelColumn": "AX",
    "ordinal": 50,
    "position": 49,
@@ -5343,7 +5343,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_155 + col_102",
+   "formula": "original_plan_q2_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_q2_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5357,7 +5357,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_050",
+   "dbName": "adj_april_total_cost_k_rub",
    "excelColumn": "AY",
    "ordinal": 51,
    "position": 50,
@@ -5374,7 +5374,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_156 + col_103",
+   "formula": "original_plan_april_total_cost_thousand_rub_ex_vat + plan_adjustment_april_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5388,7 +5388,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_051",
+   "dbName": "adj_april_cw_cost_k_rub",
    "excelColumn": "AZ",
    "ordinal": 52,
    "position": 51,
@@ -5406,7 +5406,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_157 + col_104",
+   "formula": "original_plan_april_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_april_cw_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5420,7 +5420,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_052",
+   "dbName": "adj_april_cm_cost_k_rub",
    "excelColumn": "BA",
    "ordinal": 53,
    "position": 52,
@@ -5438,7 +5438,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_158 + col_105",
+   "formula": "original_plan_april_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_april_cm_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5452,7 +5452,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_053",
+   "dbName": "adj_may_total_cost_k_rub",
    "excelColumn": "BB",
    "ordinal": 54,
    "position": 53,
@@ -5469,7 +5469,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_159 + col_106",
+   "formula": "original_plan_may_total_cost_thousand_rub_ex_vat + plan_adjustment_may_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5483,7 +5483,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_054",
+   "dbName": "adj_may_cw_cost_k_rub",
    "excelColumn": "BC",
    "ordinal": 55,
    "position": 54,
@@ -5501,7 +5501,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_160 + col_107",
+   "formula": "original_plan_may_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_may_construction_works_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5515,7 +5515,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_055",
+   "dbName": "adj_may_cm_cost_k_rub",
    "excelColumn": "BD",
    "ordinal": 56,
    "position": 55,
@@ -5533,7 +5533,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_161 + col_108",
+   "formula": "original_plan_may_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_may_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5547,7 +5547,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_056",
+   "dbName": "adj_june_total_cost_k_rub",
    "excelColumn": "BE",
    "ordinal": 57,
    "position": 56,
@@ -5564,7 +5564,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_162 + col_109",
+   "formula": "original_plan_june_total_cost_thousand_rub_ex_vat + plan_adjustment_june_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5578,7 +5578,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_057",
+   "dbName": "adj_june_cw_cost_k_rub",
    "excelColumn": "BF",
    "ordinal": 58,
    "position": 57,
@@ -5596,7 +5596,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_163 + col_110",
+   "formula": "original_plan_june_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_june_cw_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5610,7 +5610,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_058",
+   "dbName": "adj_june_cm_cost_k_rub",
    "excelColumn": "BG",
    "ordinal": 59,
    "position": 58,
@@ -5628,7 +5628,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_164 + col_111",
+   "formula": "original_plan_june_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_june_cm_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5642,7 +5642,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_059",
+   "dbName": "adj_q3_total_cost_k_rub",
    "excelColumn": "BH",
    "ordinal": 60,
    "position": 59,
@@ -5657,7 +5657,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_165 + col_112",
+   "formula": "original_plan_q3_total_cost_thousand_rub_ex_vat + plan_adjustment_q3_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5671,7 +5671,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_060",
+   "dbName": "adj_q3_cw_cost_k_rub",
    "excelColumn": "BI",
    "ordinal": 61,
    "position": 60,
@@ -5687,7 +5687,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_166 + col_113",
+   "formula": "original_plan_q3_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_q3_construction_works_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5701,7 +5701,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_061",
+   "dbName": "adj_q3_cm_cost_k_rub",
    "excelColumn": "BJ",
    "ordinal": 62,
    "position": 61,
@@ -5717,7 +5717,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_167 + col_114",
+   "formula": "original_plan_q3_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_q3_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5731,7 +5731,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_062",
+   "dbName": "adj_july_total_cost_k_rub",
    "excelColumn": "BK",
    "ordinal": 63,
    "position": 62,
@@ -5748,7 +5748,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_168 + col_115",
+   "formula": "original_plan_july_total_cost_thousand_rub_ex_vat + plan_adjustment_july_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5762,7 +5762,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_063",
+   "dbName": "adj_july_cw_cost_k_rub",
    "excelColumn": "BL",
    "ordinal": 64,
    "position": 63,
@@ -5780,7 +5780,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_169 + col_116",
+   "formula": "original_plan_july_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_july_cw_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5794,7 +5794,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_064",
+   "dbName": "adj_july_cm_cost_k_rub",
    "excelColumn": "BM",
    "ordinal": 65,
    "position": 64,
@@ -5812,7 +5812,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_170 + col_117",
+   "formula": "original_plan_july_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_july_cm_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5826,7 +5826,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_065",
+   "dbName": "adj_august_total_cost_k_rub",
    "excelColumn": "BN",
    "ordinal": 66,
    "position": 65,
@@ -5843,7 +5843,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_171 + col_118",
+   "formula": "original_plan_august_total_cost_thousand_rub_ex_vat + plan_adjustment_august_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5857,7 +5857,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_066",
+   "dbName": "adj_august_cw_cost_k_rub",
    "excelColumn": "BO",
    "ordinal": 67,
    "position": 66,
@@ -5875,7 +5875,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_172 + col_119",
+   "formula": "original_plan_august_cw_cost_k_rub + plan_adjustment_august_cw_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5889,7 +5889,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_067",
+   "dbName": "adj_august_cm_cost_k_rub",
    "excelColumn": "BP",
    "ordinal": 68,
    "position": 67,
@@ -5907,7 +5907,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_173 + col_120",
+   "formula": "original_plan_august_cm_cost_k_rub + plan_adjustment_august_cm_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5921,7 +5921,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_068",
+   "dbName": "adj_september_total_cost_k_rub",
    "excelColumn": "BQ",
    "ordinal": 69,
    "position": 68,
@@ -5938,7 +5938,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_174 + col_121",
+   "formula": "original_plan_september_total_cost_thousand_rub_ex_vat + plan_adjustment_september_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5952,7 +5952,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_069",
+   "dbName": "adj_september_cw_cost_k_rub",
    "excelColumn": "BR",
    "ordinal": 70,
    "position": 69,
@@ -5970,7 +5970,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_175 + col_122",
+   "formula": "original_plan_september_cw_cost_k_rub + plan_adjustment_september_cw_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -5984,7 +5984,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_070",
+   "dbName": "adj_september_cm_cost_k_rub",
    "excelColumn": "BS",
    "ordinal": 71,
    "position": 70,
@@ -6002,7 +6002,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_176 + col_123",
+   "formula": "original_plan_september_cm_cost_k_rub + plan_adjustment_september_cm_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6016,7 +6016,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_071",
+   "dbName": "adj_q4_total_cost_k_rub",
    "excelColumn": "BT",
    "ordinal": 72,
    "position": 71,
@@ -6031,7 +6031,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_177 + col_124",
+   "formula": "original_plan_q4_total_cost_thousand_rub_ex_vat + plan_adjustment_q4_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6045,7 +6045,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_072",
+   "dbName": "adj_q4_cw_cost_k_rub",
    "excelColumn": "BU",
    "ordinal": 73,
    "position": 72,
@@ -6061,7 +6061,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_178 + col_125",
+   "formula": "original_plan_q4_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_q4_construction_works_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6075,7 +6075,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_073",
+   "dbName": "adj_q4_cm_cost_k_rub",
    "excelColumn": "BV",
    "ordinal": 74,
    "position": 73,
@@ -6091,7 +6091,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_179 + col_126",
+   "formula": "original_plan_q4_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_q4_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6105,7 +6105,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_074",
+   "dbName": "adj_october_total_cost_k_rub",
    "excelColumn": "BW",
    "ordinal": 75,
    "position": 74,
@@ -6122,7 +6122,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_180 + col_127",
+   "formula": "original_plan_october_total_cost_thousand_rub_ex_vat + plan_adjustment_october_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6136,7 +6136,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_075",
+   "dbName": "adj_october_cw_cost_k_rub",
    "excelColumn": "BX",
    "ordinal": 76,
    "position": 75,
@@ -6154,7 +6154,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_181 + col_128",
+   "formula": "original_plan_october_cw_cost_k_rub + plan_adjustment_october_cw_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6168,7 +6168,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_076",
+   "dbName": "adj_october_cm_cost_k_rub",
    "excelColumn": "BY",
    "ordinal": 77,
    "position": 76,
@@ -6186,7 +6186,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_182 + col_129",
+   "formula": "original_plan_october_cm_cost_k_rub + plan_adjustment_october_cm_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6200,7 +6200,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_077",
+   "dbName": "adj_november_total_cost_k_rub",
    "excelColumn": "BZ",
    "ordinal": 78,
    "position": 77,
@@ -6217,7 +6217,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_183 + col_130",
+   "formula": "original_plan_november_total_cost_thousand_rub_ex_vat + plan_adjustment_november_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6231,7 +6231,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_078",
+   "dbName": "adj_november_cw_cost_k_rub",
    "excelColumn": "CA",
    "ordinal": 79,
    "position": 78,
@@ -6249,7 +6249,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_184 + col_131",
+   "formula": "original_plan_november_cw_cost_k_rub + plan_adjustment_november_cw_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6263,7 +6263,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_079",
+   "dbName": "adj_november_cm_cost_k_rub",
    "excelColumn": "CB",
    "ordinal": 80,
    "position": 79,
@@ -6281,7 +6281,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_185 + col_132",
+   "formula": "original_plan_november_cm_cost_k_rub + plan_adjustment_november_cm_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6295,7 +6295,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_080",
+   "dbName": "adj_december_total_cost_k_rub",
    "excelColumn": "CC",
    "ordinal": 81,
    "position": 80,
@@ -6312,7 +6312,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_186 + col_133",
+   "formula": "original_plan_december_total_cost_thousand_rub_ex_vat + plan_adjustment_december_total_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6326,7 +6326,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_081",
+   "dbName": "adj_december_cw_cost_k_rub",
    "excelColumn": "CD",
    "ordinal": 82,
    "position": 81,
@@ -6344,7 +6344,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_187 + col_134",
+   "formula": "original_plan_december_cw_cost_k_rub + plan_adjustment_december_cw_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6358,7 +6358,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_082",
+   "dbName": "adj_december_cm_cost_k_rub",
    "excelColumn": "CE",
    "ordinal": 83,
    "position": 82,
@@ -6376,7 +6376,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_188 + col_135",
+   "formula": "original_plan_december_cm_cost_k_rub + plan_adjustment_december_cm_cost_k_rub",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -6390,7 +6390,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_083",
+   "dbName": "adjustment_work_volume_unit",
    "excelColumn": "CF",
    "ordinal": 84,
    "position": 83,
@@ -6417,7 +6417,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_084",
+   "dbName": "adjustment_work_volume_quantity",
    "excelColumn": "CG",
    "ordinal": 85,
    "position": 84,
@@ -6444,7 +6444,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_085",
+   "dbName": "plan_adjustment_total_cost_thousand_rub_ex_vat",
    "excelColumn": "CH",
    "ordinal": 86,
    "position": 85,
@@ -6457,7 +6457,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_088 + col_100 + col_112 + col_124",
+   "formula": "plan_adjustment_q1_total_cost_thousand_rub_ex_vat + plan_adjustment_q2_total_cost_thousand_rub_ex_vat + plan_adjustment_q3_total_cost_thousand_rub_ex_vat + plan_adjustment_q4_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=CJ18+CV18+DH18+DT18",
    "decimals": 2,
    "catalog": null,
@@ -6471,7 +6471,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_086",
+   "dbName": "plan_adjustment_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "CI",
    "ordinal": 87,
    "position": 86,
@@ -6485,7 +6485,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_089 + col_101 + col_113 + col_125",
+   "formula": "plan_adjustment_q1_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_q2_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_q3_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_q4_construction_works_cost_thousand_rub_ex_vat",
    "excelFormula": "=CK18+CW18+DI18+DU18",
    "decimals": 2,
    "catalog": null,
@@ -6499,7 +6499,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_087",
+   "dbName": "plan_adjustment_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "CJ",
    "ordinal": 88,
    "position": 87,
@@ -6513,7 +6513,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_090 + col_102 + col_114 + col_126",
+   "formula": "plan_adjustment_q1_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_q2_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_q3_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_q4_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": "=CL18+CX18+DJ18+DV18",
    "decimals": 2,
    "catalog": null,
@@ -6527,7 +6527,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_088",
+   "dbName": "plan_adjustment_q1_total_cost_thousand_rub_ex_vat",
    "excelColumn": "CK",
    "ordinal": 89,
    "position": 88,
@@ -6542,7 +6542,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_091 + col_094 + col_097",
+   "formula": "plan_adjustment_january_total_cost_thousand_rub_ex_vat + plan_adjustment_february_total_cost_thousand_rub_ex_vat + plan_adjustment_march_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=CM18+CP18+CS18",
    "decimals": 2,
    "catalog": null,
@@ -6556,7 +6556,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_089",
+   "dbName": "plan_adjustment_q1_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "CL",
    "ordinal": 90,
    "position": 89,
@@ -6572,7 +6572,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_092 + col_095 + col_098",
+   "formula": "plan_adjustment_january_cw_cost_k_rub + plan_adjustment_february_cw_cost_k_rub + plan_adjustment_march_cw_cost_k_rub",
    "excelFormula": "=CN18+CQ18+CT18",
    "decimals": 2,
    "catalog": null,
@@ -6586,7 +6586,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_090",
+   "dbName": "plan_adjustment_q1_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "CM",
    "ordinal": 91,
    "position": 90,
@@ -6602,7 +6602,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_093 + col_096 + col_099",
+   "formula": "plan_adjustment_january_cm_cost_k_rub + plan_adjustment_february_cm_cost_k_rub + plan_adjustment_march_cm_cost_k_rub",
    "excelFormula": "=CO18+CR18+CU18",
    "decimals": 2,
    "catalog": null,
@@ -6616,7 +6616,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_091",
+   "dbName": "plan_adjustment_january_total_cost_thousand_rub_ex_vat",
    "excelColumn": "CN",
    "ordinal": 92,
    "position": 91,
@@ -6633,7 +6633,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_092 + col_093",
+   "formula": "plan_adjustment_january_cw_cost_k_rub + plan_adjustment_january_cm_cost_k_rub",
    "excelFormula": "=CN18+CO18",
    "decimals": 2,
    "catalog": null,
@@ -6647,7 +6647,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_092",
+   "dbName": "plan_adjustment_january_cw_cost_k_rub",
    "excelColumn": "CO",
    "ordinal": 93,
    "position": 92,
@@ -6684,7 +6684,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_093",
+   "dbName": "plan_adjustment_january_cm_cost_k_rub",
    "excelColumn": "CP",
    "ordinal": 94,
    "position": 93,
@@ -6721,7 +6721,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_094",
+   "dbName": "plan_adjustment_february_total_cost_thousand_rub_ex_vat",
    "excelColumn": "CQ",
    "ordinal": 95,
    "position": 94,
@@ -6738,7 +6738,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_095 + col_096",
+   "formula": "plan_adjustment_february_cw_cost_k_rub + plan_adjustment_february_cm_cost_k_rub",
    "excelFormula": "=CQ18+CR18",
    "decimals": 2,
    "catalog": null,
@@ -6752,7 +6752,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_095",
+   "dbName": "plan_adjustment_february_cw_cost_k_rub",
    "excelColumn": "CR",
    "ordinal": 96,
    "position": 95,
@@ -6789,7 +6789,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_096",
+   "dbName": "plan_adjustment_february_cm_cost_k_rub",
    "excelColumn": "CS",
    "ordinal": 97,
    "position": 96,
@@ -6826,7 +6826,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_097",
+   "dbName": "plan_adjustment_march_total_cost_thousand_rub_ex_vat",
    "excelColumn": "CT",
    "ordinal": 98,
    "position": 97,
@@ -6843,7 +6843,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_098 + col_099",
+   "formula": "plan_adjustment_march_cw_cost_k_rub + plan_adjustment_march_cm_cost_k_rub",
    "excelFormula": "=CT18+CU18",
    "decimals": 2,
    "catalog": null,
@@ -6857,7 +6857,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_098",
+   "dbName": "plan_adjustment_march_cw_cost_k_rub",
    "excelColumn": "CU",
    "ordinal": 99,
    "position": 98,
@@ -6894,7 +6894,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_099",
+   "dbName": "plan_adjustment_march_cm_cost_k_rub",
    "excelColumn": "CV",
    "ordinal": 100,
    "position": 99,
@@ -6931,7 +6931,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_100",
+   "dbName": "plan_adjustment_q2_total_cost_thousand_rub_ex_vat",
    "excelColumn": "CW",
    "ordinal": 101,
    "position": 100,
@@ -6946,7 +6946,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_103 + col_106 + col_109",
+   "formula": "plan_adjustment_april_total_cost_thousand_rub_ex_vat + plan_adjustment_may_total_cost_thousand_rub_ex_vat + plan_adjustment_june_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=CY18+DB18+DE18",
    "decimals": 2,
    "catalog": null,
@@ -6960,7 +6960,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_101",
+   "dbName": "plan_adjustment_q2_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "CX",
    "ordinal": 102,
    "position": 101,
@@ -6976,7 +6976,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_104 + col_107 + col_110",
+   "formula": "plan_adjustment_april_cw_cost_k_rub + plan_adjustment_may_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_june_cw_cost_k_rub",
    "excelFormula": "=CZ18+DC18+DF18",
    "decimals": 2,
    "catalog": null,
@@ -6990,7 +6990,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_102",
+   "dbName": "plan_adjustment_q2_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "CY",
    "ordinal": 103,
    "position": 102,
@@ -7006,7 +7006,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_105 + col_108 + col_111",
+   "formula": "plan_adjustment_april_cm_cost_k_rub + plan_adjustment_may_customer_materials_cost_thousand_rub_ex_vat + plan_adjustment_june_cm_cost_k_rub",
    "excelFormula": "=DA18+DD18+DG18",
    "decimals": 2,
    "catalog": null,
@@ -7020,7 +7020,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_103",
+   "dbName": "plan_adjustment_april_total_cost_thousand_rub_ex_vat",
    "excelColumn": "CZ",
    "ordinal": 104,
    "position": 103,
@@ -7037,7 +7037,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_104 + col_105",
+   "formula": "plan_adjustment_april_cw_cost_k_rub + plan_adjustment_april_cm_cost_k_rub",
    "excelFormula": "=CZ18+DA18",
    "decimals": 2,
    "catalog": null,
@@ -7051,7 +7051,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_104",
+   "dbName": "plan_adjustment_april_cw_cost_k_rub",
    "excelColumn": "DA",
    "ordinal": 105,
    "position": 104,
@@ -7088,7 +7088,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_105",
+   "dbName": "plan_adjustment_april_cm_cost_k_rub",
    "excelColumn": "DB",
    "ordinal": 106,
    "position": 105,
@@ -7125,7 +7125,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_106",
+   "dbName": "plan_adjustment_may_total_cost_thousand_rub_ex_vat",
    "excelColumn": "DC",
    "ordinal": 107,
    "position": 106,
@@ -7142,7 +7142,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_107 + col_108",
+   "formula": "plan_adjustment_may_construction_works_cost_thousand_rub_ex_vat + plan_adjustment_may_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": "=DC18+DD18",
    "decimals": 2,
    "catalog": null,
@@ -7156,7 +7156,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_107",
+   "dbName": "plan_adjustment_may_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "DD",
    "ordinal": 108,
    "position": 107,
@@ -7193,7 +7193,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_108",
+   "dbName": "plan_adjustment_may_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "DE",
    "ordinal": 109,
    "position": 108,
@@ -7230,7 +7230,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_109",
+   "dbName": "plan_adjustment_june_total_cost_thousand_rub_ex_vat",
    "excelColumn": "DF",
    "ordinal": 110,
    "position": 109,
@@ -7247,7 +7247,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_110 + col_111",
+   "formula": "plan_adjustment_june_cw_cost_k_rub + plan_adjustment_june_cm_cost_k_rub",
    "excelFormula": "=DF18+DG18",
    "decimals": 2,
    "catalog": null,
@@ -7261,7 +7261,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_110",
+   "dbName": "plan_adjustment_june_cw_cost_k_rub",
    "excelColumn": "DG",
    "ordinal": 111,
    "position": 110,
@@ -7298,7 +7298,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_111",
+   "dbName": "plan_adjustment_june_cm_cost_k_rub",
    "excelColumn": "DH",
    "ordinal": 112,
    "position": 111,
@@ -7335,7 +7335,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_112",
+   "dbName": "plan_adjustment_q3_total_cost_thousand_rub_ex_vat",
    "excelColumn": "DI",
    "ordinal": 113,
    "position": 112,
@@ -7350,7 +7350,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_115 + col_118 + col_121",
+   "formula": "plan_adjustment_july_total_cost_thousand_rub_ex_vat + plan_adjustment_august_total_cost_thousand_rub_ex_vat + plan_adjustment_september_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=DK18+DN18+DQ18",
    "decimals": 2,
    "catalog": null,
@@ -7364,7 +7364,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_113",
+   "dbName": "plan_adjustment_q3_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "DJ",
    "ordinal": 114,
    "position": 113,
@@ -7380,7 +7380,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_116 + col_119 + col_122",
+   "formula": "plan_adjustment_july_cw_cost_k_rub + plan_adjustment_august_cw_cost_k_rub + plan_adjustment_september_cw_cost_k_rub",
    "excelFormula": "=DL18+DO18+DR18",
    "decimals": 2,
    "catalog": null,
@@ -7394,7 +7394,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_114",
+   "dbName": "plan_adjustment_q3_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "DK",
    "ordinal": 115,
    "position": 114,
@@ -7410,7 +7410,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_117 + col_120 + col_123",
+   "formula": "plan_adjustment_july_cm_cost_k_rub + plan_adjustment_august_cm_cost_k_rub + plan_adjustment_september_cm_cost_k_rub",
    "excelFormula": "=DM18+DP18+DS18",
    "decimals": 2,
    "catalog": null,
@@ -7424,7 +7424,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_115",
+   "dbName": "plan_adjustment_july_total_cost_thousand_rub_ex_vat",
    "excelColumn": "DL",
    "ordinal": 116,
    "position": 115,
@@ -7441,7 +7441,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_116 + col_117",
+   "formula": "plan_adjustment_july_cw_cost_k_rub + plan_adjustment_july_cm_cost_k_rub",
    "excelFormula": "=DL18+DM18",
    "decimals": 2,
    "catalog": null,
@@ -7455,7 +7455,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_116",
+   "dbName": "plan_adjustment_july_cw_cost_k_rub",
    "excelColumn": "DM",
    "ordinal": 117,
    "position": 116,
@@ -7492,7 +7492,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_117",
+   "dbName": "plan_adjustment_july_cm_cost_k_rub",
    "excelColumn": "DN",
    "ordinal": 118,
    "position": 117,
@@ -7529,7 +7529,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_118",
+   "dbName": "plan_adjustment_august_total_cost_thousand_rub_ex_vat",
    "excelColumn": "DO",
    "ordinal": 119,
    "position": 118,
@@ -7546,7 +7546,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_119 + col_120",
+   "formula": "plan_adjustment_august_cw_cost_k_rub + plan_adjustment_august_cm_cost_k_rub",
    "excelFormula": "=DO18+DP18",
    "decimals": 2,
    "catalog": null,
@@ -7560,7 +7560,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_119",
+   "dbName": "plan_adjustment_august_cw_cost_k_rub",
    "excelColumn": "DP",
    "ordinal": 120,
    "position": 119,
@@ -7597,7 +7597,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_120",
+   "dbName": "plan_adjustment_august_cm_cost_k_rub",
    "excelColumn": "DQ",
    "ordinal": 121,
    "position": 120,
@@ -7634,7 +7634,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_121",
+   "dbName": "plan_adjustment_september_total_cost_thousand_rub_ex_vat",
    "excelColumn": "DR",
    "ordinal": 122,
    "position": 121,
@@ -7651,7 +7651,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_122 + col_123",
+   "formula": "plan_adjustment_september_cw_cost_k_rub + plan_adjustment_september_cm_cost_k_rub",
    "excelFormula": "=DR18+DS18",
    "decimals": 2,
    "catalog": null,
@@ -7665,7 +7665,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_122",
+   "dbName": "plan_adjustment_september_cw_cost_k_rub",
    "excelColumn": "DS",
    "ordinal": 123,
    "position": 122,
@@ -7702,7 +7702,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_123",
+   "dbName": "plan_adjustment_september_cm_cost_k_rub",
    "excelColumn": "DT",
    "ordinal": 124,
    "position": 123,
@@ -7739,7 +7739,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_124",
+   "dbName": "plan_adjustment_q4_total_cost_thousand_rub_ex_vat",
    "excelColumn": "DU",
    "ordinal": 125,
    "position": 124,
@@ -7754,7 +7754,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_127 + col_130 + col_133",
+   "formula": "plan_adjustment_october_total_cost_thousand_rub_ex_vat + plan_adjustment_november_total_cost_thousand_rub_ex_vat + plan_adjustment_december_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=DW18+DZ18+EC18",
    "decimals": 2,
    "catalog": null,
@@ -7768,7 +7768,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_125",
+   "dbName": "plan_adjustment_q4_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "DV",
    "ordinal": 126,
    "position": 125,
@@ -7784,7 +7784,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_128 + col_131 + col_134",
+   "formula": "plan_adjustment_october_cw_cost_k_rub + plan_adjustment_november_cw_cost_k_rub + plan_adjustment_december_cw_cost_k_rub",
    "excelFormula": "=DX18+EA18+ED18",
    "decimals": 2,
    "catalog": null,
@@ -7798,7 +7798,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_126",
+   "dbName": "plan_adjustment_q4_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "DW",
    "ordinal": 127,
    "position": 126,
@@ -7814,7 +7814,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_129 + col_132 + col_135",
+   "formula": "plan_adjustment_october_cm_cost_k_rub + plan_adjustment_november_cm_cost_k_rub + plan_adjustment_december_cm_cost_k_rub",
    "excelFormula": "=DY18+EB18+EE18",
    "decimals": 2,
    "catalog": null,
@@ -7828,7 +7828,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_127",
+   "dbName": "plan_adjustment_october_total_cost_thousand_rub_ex_vat",
    "excelColumn": "DX",
    "ordinal": 128,
    "position": 127,
@@ -7845,7 +7845,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_128 + col_129",
+   "formula": "plan_adjustment_october_cw_cost_k_rub + plan_adjustment_october_cm_cost_k_rub",
    "excelFormula": "=DX18+DY18",
    "decimals": 2,
    "catalog": null,
@@ -7859,7 +7859,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_128",
+   "dbName": "plan_adjustment_october_cw_cost_k_rub",
    "excelColumn": "DY",
    "ordinal": 129,
    "position": 128,
@@ -7896,7 +7896,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_129",
+   "dbName": "plan_adjustment_october_cm_cost_k_rub",
    "excelColumn": "DZ",
    "ordinal": 130,
    "position": 129,
@@ -7933,7 +7933,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_130",
+   "dbName": "plan_adjustment_november_total_cost_thousand_rub_ex_vat",
    "excelColumn": "EA",
    "ordinal": 131,
    "position": 130,
@@ -7950,7 +7950,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_131 + col_132",
+   "formula": "plan_adjustment_november_cw_cost_k_rub + plan_adjustment_november_cm_cost_k_rub",
    "excelFormula": "=EA18+EB18",
    "decimals": 2,
    "catalog": null,
@@ -7964,7 +7964,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_131",
+   "dbName": "plan_adjustment_november_cw_cost_k_rub",
    "excelColumn": "EB",
    "ordinal": 132,
    "position": 131,
@@ -8001,7 +8001,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_132",
+   "dbName": "plan_adjustment_november_cm_cost_k_rub",
    "excelColumn": "EC",
    "ordinal": 133,
    "position": 132,
@@ -8038,7 +8038,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_133",
+   "dbName": "plan_adjustment_december_total_cost_thousand_rub_ex_vat",
    "excelColumn": "ED",
    "ordinal": 134,
    "position": 133,
@@ -8055,7 +8055,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_134 + col_135",
+   "formula": "plan_adjustment_december_cw_cost_k_rub + plan_adjustment_december_cm_cost_k_rub",
    "excelFormula": "=ED18+EE18",
    "decimals": 2,
    "catalog": null,
@@ -8069,7 +8069,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_134",
+   "dbName": "plan_adjustment_december_cw_cost_k_rub",
    "excelColumn": "EE",
    "ordinal": 135,
    "position": 134,
@@ -8106,7 +8106,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_135",
+   "dbName": "plan_adjustment_december_cm_cost_k_rub",
    "excelColumn": "EF",
    "ordinal": 136,
    "position": 135,
@@ -8143,7 +8143,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_136",
+   "dbName": "plan_adjustment_type",
    "excelColumn": "EG",
    "ordinal": 137,
    "position": 136,
@@ -8169,7 +8169,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_137",
+   "dbName": "plan_adjustment_justification_document",
    "excelColumn": "EH",
    "ordinal": 138,
    "position": 137,
@@ -8195,7 +8195,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_138",
+   "dbName": "original_plan_total_cost_thousand_rub_ex_vat",
    "excelColumn": "EI",
    "ordinal": 139,
    "position": 138,
@@ -8208,7 +8208,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_141 + col_153 + col_165 + col_177",
+   "formula": "original_plan_q1_total_cost_thousand_rub_ex_vat + original_plan_q2_total_cost_thousand_rub_ex_vat + original_plan_q3_total_cost_thousand_rub_ex_vat + original_plan_q4_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=EK18+EW18+FI18+FU18",
    "decimals": 2,
    "catalog": null,
@@ -8222,7 +8222,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_139",
+   "dbName": "original_plan_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "EJ",
    "ordinal": 140,
    "position": 139,
@@ -8236,7 +8236,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_142 + col_154 + col_166 + col_178",
+   "formula": "original_plan_q1_construction_works_cost_thousand_rub_ex_vat + original_plan_q2_construction_works_cost_thousand_rub_ex_vat + original_plan_q3_construction_works_cost_thousand_rub_ex_vat + original_plan_q4_construction_works_cost_thousand_rub_ex_vat",
    "excelFormula": "=EL18+EX18+FJ18+FV18",
    "decimals": 2,
    "catalog": null,
@@ -8250,7 +8250,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_140",
+   "dbName": "original_plan_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "EK",
    "ordinal": 141,
    "position": 140,
@@ -8264,7 +8264,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_143 + col_155 + col_167 + col_179",
+   "formula": "original_plan_q1_customer_materials_cost_thousand_rub_ex_vat + original_plan_q2_customer_materials_cost_thousand_rub_ex_vat + original_plan_q3_customer_materials_cost_thousand_rub_ex_vat + original_plan_q4_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -8278,7 +8278,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_141",
+   "dbName": "original_plan_q1_total_cost_thousand_rub_ex_vat",
    "excelColumn": "EL",
    "ordinal": 142,
    "position": 141,
@@ -8293,7 +8293,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_144 + col_147 + col_150",
+   "formula": "original_plan_january_total_cost_thousand_rub_ex_vat + original_plan_february_total_cost_thousand_rub_ex_vat + original_plan_march_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=EN18+EQ18+ET18",
    "decimals": 2,
    "catalog": null,
@@ -8307,7 +8307,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_142",
+   "dbName": "original_plan_q1_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "EM",
    "ordinal": 143,
    "position": 142,
@@ -8323,7 +8323,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_145 + col_148 + col_151",
+   "formula": "original_plan_january_cw_cost_k_rub + original_plan_february_cw_cost_k_rub + original_plan_march_construction_works_cost_thousand_rub_ex_vat",
    "excelFormula": "=EO18+ER18+EU18",
    "decimals": 2,
    "catalog": null,
@@ -8337,7 +8337,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_143",
+   "dbName": "original_plan_q1_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "EN",
    "ordinal": 144,
    "position": 143,
@@ -8353,7 +8353,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_146 + col_149 + col_152",
+   "formula": "original_plan_january_cm_cost_k_rub + original_plan_february_cm_cost_k_rub + original_plan_march_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -8367,7 +8367,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_144",
+   "dbName": "original_plan_january_total_cost_thousand_rub_ex_vat",
    "excelColumn": "EO",
    "ordinal": 145,
    "position": 144,
@@ -8384,7 +8384,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_145 + col_146",
+   "formula": "original_plan_january_cw_cost_k_rub + original_plan_january_cm_cost_k_rub",
    "excelFormula": "=EO18+EP18",
    "decimals": 2,
    "catalog": null,
@@ -8398,7 +8398,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_145",
+   "dbName": "original_plan_january_cw_cost_k_rub",
    "excelColumn": "EP",
    "ordinal": 146,
    "position": 145,
@@ -8416,7 +8416,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=1),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=1),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -8439,7 +8439,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_146",
+   "dbName": "original_plan_january_cm_cost_k_rub",
    "excelColumn": "EQ",
    "ordinal": 147,
    "position": 146,
@@ -8457,7 +8457,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=1),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=1),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -8480,7 +8480,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_147",
+   "dbName": "original_plan_february_total_cost_thousand_rub_ex_vat",
    "excelColumn": "ER",
    "ordinal": 148,
    "position": 147,
@@ -8497,7 +8497,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_148 + col_149",
+   "formula": "original_plan_february_cw_cost_k_rub + original_plan_february_cm_cost_k_rub",
    "excelFormula": "=ER18+ES18",
    "decimals": 2,
    "catalog": null,
@@ -8511,7 +8511,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_148",
+   "dbName": "original_plan_february_cw_cost_k_rub",
    "excelColumn": "ES",
    "ordinal": 149,
    "position": 148,
@@ -8529,7 +8529,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=2),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=2),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -8552,7 +8552,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_149",
+   "dbName": "original_plan_february_cm_cost_k_rub",
    "excelColumn": "ET",
    "ordinal": 150,
    "position": 149,
@@ -8570,7 +8570,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=2),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=2),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -8593,7 +8593,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_150",
+   "dbName": "original_plan_march_total_cost_thousand_rub_ex_vat",
    "excelColumn": "EU",
    "ordinal": 151,
    "position": 150,
@@ -8610,7 +8610,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_151 + col_152",
+   "formula": "original_plan_march_construction_works_cost_thousand_rub_ex_vat + original_plan_march_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": "=EU18+EV18",
    "decimals": 2,
    "catalog": null,
@@ -8624,7 +8624,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_151",
+   "dbName": "original_plan_march_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "EV",
    "ordinal": 152,
    "position": 151,
@@ -8642,7 +8642,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=3),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=3),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -8665,7 +8665,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_152",
+   "dbName": "original_plan_march_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "EW",
    "ordinal": 153,
    "position": 152,
@@ -8683,7 +8683,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=3),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=3),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -8706,7 +8706,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_153",
+   "dbName": "original_plan_q2_total_cost_thousand_rub_ex_vat",
    "excelColumn": "EX",
    "ordinal": 154,
    "position": 153,
@@ -8721,7 +8721,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_156 + col_159 + col_162",
+   "formula": "original_plan_april_total_cost_thousand_rub_ex_vat + original_plan_may_total_cost_thousand_rub_ex_vat + original_plan_june_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=EZ18+FC18+FF18",
    "decimals": 2,
    "catalog": null,
@@ -8735,7 +8735,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_154",
+   "dbName": "original_plan_q2_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "EY",
    "ordinal": 155,
    "position": 154,
@@ -8751,7 +8751,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_157 + col_160 + col_163",
+   "formula": "original_plan_april_construction_works_cost_thousand_rub_ex_vat + original_plan_may_construction_works_cost_thousand_rub_ex_vat + original_plan_june_construction_works_cost_thousand_rub_ex_vat",
    "excelFormula": "=FA18+FD18+FG18",
    "decimals": 2,
    "catalog": null,
@@ -8765,7 +8765,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_155",
+   "dbName": "original_plan_q2_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "EZ",
    "ordinal": 156,
    "position": 155,
@@ -8781,7 +8781,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_158 + col_161 + col_164",
+   "formula": "original_plan_april_customer_materials_cost_thousand_rub_ex_vat + original_plan_may_customer_materials_cost_thousand_rub_ex_vat + original_plan_june_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": "=FB18+FE18+FH18",
    "decimals": 2,
    "catalog": null,
@@ -8795,7 +8795,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_156",
+   "dbName": "original_plan_april_total_cost_thousand_rub_ex_vat",
    "excelColumn": "FA",
    "ordinal": 157,
    "position": 156,
@@ -8812,7 +8812,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_157 + col_158",
+   "formula": "original_plan_april_construction_works_cost_thousand_rub_ex_vat + original_plan_april_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": "=FA18+FB18",
    "decimals": 2,
    "catalog": null,
@@ -8826,7 +8826,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_157",
+   "dbName": "original_plan_april_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "FB",
    "ordinal": 158,
    "position": 157,
@@ -8844,7 +8844,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=4),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=4),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -8867,7 +8867,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_158",
+   "dbName": "original_plan_april_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "FC",
    "ordinal": 159,
    "position": 158,
@@ -8885,7 +8885,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=4),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=4),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -8908,7 +8908,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_159",
+   "dbName": "original_plan_may_total_cost_thousand_rub_ex_vat",
    "excelColumn": "FD",
    "ordinal": 160,
    "position": 159,
@@ -8925,7 +8925,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_160 + col_161",
+   "formula": "original_plan_may_construction_works_cost_thousand_rub_ex_vat + original_plan_may_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": "=FD18+FE18",
    "decimals": 2,
    "catalog": null,
@@ -8939,7 +8939,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_160",
+   "dbName": "original_plan_may_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "FE",
    "ordinal": 161,
    "position": 160,
@@ -8957,7 +8957,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=5),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=5),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -8980,7 +8980,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_161",
+   "dbName": "original_plan_may_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "FF",
    "ordinal": 162,
    "position": 161,
@@ -8998,7 +8998,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=5),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=5),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9021,7 +9021,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_162",
+   "dbName": "original_plan_june_total_cost_thousand_rub_ex_vat",
    "excelColumn": "FG",
    "ordinal": 163,
    "position": 162,
@@ -9038,7 +9038,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_163 + col_164",
+   "formula": "original_plan_june_construction_works_cost_thousand_rub_ex_vat + original_plan_june_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": "=FG18+FH18",
    "decimals": 2,
    "catalog": null,
@@ -9052,7 +9052,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_163",
+   "dbName": "original_plan_june_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "FH",
    "ordinal": 164,
    "position": 163,
@@ -9070,7 +9070,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=6),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=6),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9093,7 +9093,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_164",
+   "dbName": "original_plan_june_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "FI",
    "ordinal": 165,
    "position": 164,
@@ -9111,7 +9111,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=6),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=6),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9134,7 +9134,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_165",
+   "dbName": "original_plan_q3_total_cost_thousand_rub_ex_vat",
    "excelColumn": "FJ",
    "ordinal": 166,
    "position": 165,
@@ -9149,7 +9149,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_168 + col_171 + col_174",
+   "formula": "original_plan_july_total_cost_thousand_rub_ex_vat + original_plan_august_total_cost_thousand_rub_ex_vat + original_plan_september_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=FL18+FO18+FR18",
    "decimals": 2,
    "catalog": null,
@@ -9163,7 +9163,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_166",
+   "dbName": "original_plan_q3_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "FK",
    "ordinal": 167,
    "position": 166,
@@ -9179,7 +9179,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_169 + col_172 + col_175",
+   "formula": "original_plan_july_construction_works_cost_thousand_rub_ex_vat + original_plan_august_cw_cost_k_rub + original_plan_september_cw_cost_k_rub",
    "excelFormula": "=FM18+FP18+FS18",
    "decimals": 2,
    "catalog": null,
@@ -9193,7 +9193,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_167",
+   "dbName": "original_plan_q3_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "FL",
    "ordinal": 168,
    "position": 167,
@@ -9209,7 +9209,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_170 + col_173 + col_176",
+   "formula": "original_plan_july_customer_materials_cost_thousand_rub_ex_vat + original_plan_august_cm_cost_k_rub + original_plan_september_cm_cost_k_rub",
    "excelFormula": "=FN18+FQ18+FT18",
    "decimals": 2,
    "catalog": null,
@@ -9223,7 +9223,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_168",
+   "dbName": "original_plan_july_total_cost_thousand_rub_ex_vat",
    "excelColumn": "FM",
    "ordinal": 169,
    "position": 168,
@@ -9240,7 +9240,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_169 + col_170",
+   "formula": "original_plan_july_construction_works_cost_thousand_rub_ex_vat + original_plan_july_customer_materials_cost_thousand_rub_ex_vat",
    "excelFormula": "=FM18+FN18",
    "decimals": 2,
    "catalog": null,
@@ -9254,7 +9254,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_169",
+   "dbName": "original_plan_july_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "FN",
    "ordinal": 170,
    "position": 169,
@@ -9272,7 +9272,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=7),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=7),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9295,7 +9295,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_170",
+   "dbName": "original_plan_july_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "FO",
    "ordinal": 171,
    "position": 170,
@@ -9313,7 +9313,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=7),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=7),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9336,7 +9336,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_171",
+   "dbName": "original_plan_august_total_cost_thousand_rub_ex_vat",
    "excelColumn": "FP",
    "ordinal": 172,
    "position": 171,
@@ -9353,7 +9353,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_172 + col_173",
+   "formula": "original_plan_august_cw_cost_k_rub + original_plan_august_cm_cost_k_rub",
    "excelFormula": "=FP18+FQ18",
    "decimals": 2,
    "catalog": null,
@@ -9367,7 +9367,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_172",
+   "dbName": "original_plan_august_cw_cost_k_rub",
    "excelColumn": "FQ",
    "ordinal": 173,
    "position": 172,
@@ -9385,7 +9385,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=8),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=8),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9408,7 +9408,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_173",
+   "dbName": "original_plan_august_cm_cost_k_rub",
    "excelColumn": "FR",
    "ordinal": 174,
    "position": 173,
@@ -9426,7 +9426,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=8),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=8),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9449,7 +9449,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_174",
+   "dbName": "original_plan_september_total_cost_thousand_rub_ex_vat",
    "excelColumn": "FS",
    "ordinal": 175,
    "position": 174,
@@ -9466,7 +9466,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_175 + col_176",
+   "formula": "original_plan_september_cw_cost_k_rub + original_plan_september_cm_cost_k_rub",
    "excelFormula": "=FS18+FT18",
    "decimals": 2,
    "catalog": null,
@@ -9480,7 +9480,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_175",
+   "dbName": "original_plan_september_cw_cost_k_rub",
    "excelColumn": "FT",
    "ordinal": 176,
    "position": 175,
@@ -9498,7 +9498,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=9),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=9),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9521,7 +9521,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_176",
+   "dbName": "original_plan_september_cm_cost_k_rub",
    "excelColumn": "FU",
    "ordinal": 177,
    "position": 176,
@@ -9539,7 +9539,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=9),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=9),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9562,7 +9562,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_177",
+   "dbName": "original_plan_q4_total_cost_thousand_rub_ex_vat",
    "excelColumn": "FV",
    "ordinal": 178,
    "position": 177,
@@ -9577,7 +9577,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_180 + col_183 + col_186",
+   "formula": "original_plan_october_total_cost_thousand_rub_ex_vat + original_plan_november_total_cost_thousand_rub_ex_vat + original_plan_december_total_cost_thousand_rub_ex_vat",
    "excelFormula": "=FX18+GA18+GD18",
    "decimals": 2,
    "catalog": null,
@@ -9591,7 +9591,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_178",
+   "dbName": "original_plan_q4_construction_works_cost_thousand_rub_ex_vat",
    "excelColumn": "FW",
    "ordinal": 179,
    "position": 178,
@@ -9607,7 +9607,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_181 + col_184 + col_187",
+   "formula": "original_plan_october_cw_cost_k_rub + original_plan_november_cw_cost_k_rub + original_plan_december_cw_cost_k_rub",
    "excelFormula": "=FY18+GB18+GE18",
    "decimals": 2,
    "catalog": null,
@@ -9621,7 +9621,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_179",
+   "dbName": "original_plan_q4_customer_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "FX",
    "ordinal": 180,
    "position": 179,
@@ -9637,7 +9637,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_182 + col_185 + col_188",
+   "formula": "original_plan_october_cm_cost_k_rub + original_plan_november_cm_cost_k_rub + original_plan_december_cm_cost_k_rub",
    "excelFormula": "=FZ18+GC18+GF18",
    "decimals": 2,
    "catalog": null,
@@ -9651,7 +9651,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_180",
+   "dbName": "original_plan_october_total_cost_thousand_rub_ex_vat",
    "excelColumn": "FY",
    "ordinal": 181,
    "position": 180,
@@ -9668,7 +9668,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_181 + col_182",
+   "formula": "original_plan_october_cw_cost_k_rub + original_plan_october_cm_cost_k_rub",
    "excelFormula": "=FY18+FZ18",
    "decimals": 2,
    "catalog": null,
@@ -9682,7 +9682,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_181",
+   "dbName": "original_plan_october_cw_cost_k_rub",
    "excelColumn": "FZ",
    "ordinal": 182,
    "position": 181,
@@ -9700,7 +9700,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=10),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=10),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9723,7 +9723,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_182",
+   "dbName": "original_plan_october_cm_cost_k_rub",
    "excelColumn": "GA",
    "ordinal": 183,
    "position": 182,
@@ -9741,7 +9741,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=10),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=10),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9764,7 +9764,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_183",
+   "dbName": "original_plan_november_total_cost_thousand_rub_ex_vat",
    "excelColumn": "GB",
    "ordinal": 184,
    "position": 183,
@@ -9781,7 +9781,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_184 + col_185",
+   "formula": "original_plan_november_cw_cost_k_rub + original_plan_november_cm_cost_k_rub",
    "excelFormula": "=GB18+GC18",
    "decimals": 2,
    "catalog": null,
@@ -9795,7 +9795,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_184",
+   "dbName": "original_plan_november_cw_cost_k_rub",
    "excelColumn": "GC",
    "ordinal": 185,
    "position": 184,
@@ -9813,7 +9813,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=11),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=11),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9836,7 +9836,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_185",
+   "dbName": "original_plan_november_cm_cost_k_rub",
    "excelColumn": "GD",
    "ordinal": 186,
    "position": 185,
@@ -9854,7 +9854,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=11),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=11),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9877,7 +9877,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_186",
+   "dbName": "original_plan_december_total_cost_thousand_rub_ex_vat",
    "excelColumn": "GE",
    "ordinal": 187,
    "position": 186,
@@ -9894,7 +9894,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_187 + col_188",
+   "formula": "original_plan_december_cw_cost_k_rub + original_plan_december_cm_cost_k_rub",
    "excelFormula": "=GE18+GF18",
    "decimals": 2,
    "catalog": null,
@@ -9908,7 +9908,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_187",
+   "dbName": "original_plan_december_cw_cost_k_rub",
    "excelColumn": "GF",
    "ordinal": 188,
    "position": 187,
@@ -9926,7 +9926,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=12),col_028+col_030,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=12),work_cost_rub_ex_vat+contractor_supplied_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9949,7 +9949,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_188",
+   "dbName": "original_plan_december_cm_cost_k_rub",
    "excelColumn": "GG",
    "ordinal": 189,
    "position": 188,
@@ -9967,7 +9967,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "IF(AND(YEAR(col_025)=2027,MONTH(col_025)=12),col_029,0)",
+   "formula": "IF(AND(YEAR(work_end_date)=2027,MONTH(work_end_date)=12),customer_materials_cost_rub_ex_vat,0)",
    "excelFormula": null,
    "decimals": 2,
    "catalog": null,
@@ -9990,7 +9990,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_189",
+   "dbName": "lotting_activity_direction_code",
    "excelColumn": "GH",
    "ordinal": 190,
    "position": 189,
@@ -10015,7 +10015,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_190",
+   "dbName": "general_contractor_procurement_code",
    "excelColumn": "GI",
    "ordinal": 191,
    "position": 190,
@@ -10041,7 +10041,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_191",
+   "dbName": "general_contractor_contract_date",
    "excelColumn": "GJ",
    "ordinal": 192,
    "position": 191,
@@ -10067,7 +10067,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_192",
+   "dbName": "general_contractor_contract_number",
    "excelColumn": "GK",
    "ordinal": 193,
    "position": 192,
@@ -10093,7 +10093,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_193",
+   "dbName": "general_contractor_contract_price_thousand_rub_ex_vat",
    "excelColumn": "GL",
    "ordinal": 194,
    "position": 193,
@@ -10128,7 +10128,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_194",
+   "dbName": "general_contractor_counterparty_name",
    "excelColumn": "GM",
    "ordinal": 195,
    "position": 194,
@@ -10154,7 +10154,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_195",
+   "dbName": "general_contractor_counterparty_prequalification_status",
    "excelColumn": "GN",
    "ordinal": 196,
    "position": 195,
@@ -10180,7 +10180,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_196",
+   "dbName": "subcontractor_engagement_requirement",
    "excelColumn": "GO",
    "ordinal": 197,
    "position": 196,
@@ -10206,7 +10206,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_197",
+   "dbName": "general_contractor_contract_issue_description",
    "excelColumn": "GP",
    "ordinal": 198,
    "position": 197,
@@ -10232,7 +10232,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_198",
+   "dbName": "subcontract_contract_date",
    "excelColumn": "GQ",
    "ordinal": 199,
    "position": 198,
@@ -10258,7 +10258,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_199",
+   "dbName": "subcontract_contract_number",
    "excelColumn": "GR",
    "ordinal": 200,
    "position": 199,
@@ -10284,7 +10284,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_200",
+   "dbName": "subcontractor_name",
    "excelColumn": "GS",
    "ordinal": 201,
    "position": 200,
@@ -10310,7 +10310,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_201",
+   "dbName": "subcontractor_prequalification_status",
    "excelColumn": "GT",
    "ordinal": 202,
    "position": 201,
@@ -10336,7 +10336,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_202",
+   "dbName": "has_materials_in_work_or_repair",
    "excelColumn": "GU",
    "ordinal": 203,
    "position": 202,
@@ -10369,7 +10369,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_203",
+   "dbName": "required_materials_delivery_date",
    "excelColumn": "GV",
    "ordinal": 204,
    "position": 203,
@@ -10380,7 +10380,7 @@
    ],
    "cellType": "date",
    "isCalculated": true,
-   "formula": "col_024 - 30",
+   "formula": "work_start_date - 30",
    "excelFormula": "=X18-30",
    "decimals": null,
    "catalog": null,
@@ -10394,7 +10394,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_204",
+   "dbName": "total_materials_cost",
    "excelColumn": "GW",
    "ordinal": 205,
    "position": 204,
@@ -10405,7 +10405,7 @@
    ],
    "cellType": "number",
    "isCalculated": true,
-   "formula": "col_205 + col_206 + col_207",
+   "formula": "centralized_supply_materials_cost_thousand_rub_ex_vat + direct_supply_materials_cost_thousand_rub_ex_vat + contractor_supply_materials_cost_thousand_rub_ex_vat",
    "excelFormula": "=GW18+GX18+GY18",
    "decimals": 2,
    "catalog": null,
@@ -10428,7 +10428,7 @@
    "isReadOnly": true
   },
   {
-   "dbName": "col_205",
+   "dbName": "centralized_supply_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "GX",
    "ordinal": 206,
    "position": 205,
@@ -10463,7 +10463,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_206",
+   "dbName": "direct_supply_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "GY",
    "ordinal": 207,
    "position": 206,
@@ -10498,7 +10498,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_207",
+   "dbName": "contractor_supply_materials_cost_thousand_rub_ex_vat",
    "excelColumn": "GZ",
    "ordinal": 208,
    "position": 207,
@@ -10533,7 +10533,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_208",
+   "dbName": "em_contracting_cs_pct",
    "excelColumn": "HA",
    "ordinal": 209,
    "position": 208,
@@ -10568,7 +10568,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_209",
+   "dbName": "equipment_materials_contracting_direct_supply_readiness_percent",
    "excelColumn": "HB",
    "ordinal": 210,
    "position": 209,
@@ -10603,7 +10603,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_210",
+   "dbName": "em_delivery_cs_pct",
    "excelColumn": "HC",
    "ordinal": 211,
    "position": 210,
@@ -10638,7 +10638,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_211",
+   "dbName": "equipment_materials_delivery_direct_supply_readiness_percent",
    "excelColumn": "HD",
    "ordinal": 212,
    "position": 211,
@@ -10673,7 +10673,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_212",
+   "dbName": "materials_are_critical",
    "excelColumn": "HE",
    "ordinal": 213,
    "position": 212,
@@ -10707,7 +10707,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_213",
+   "dbName": "materials_readiness_issue_description",
    "excelColumn": "HF",
    "ordinal": 214,
    "position": 213,
@@ -10733,7 +10733,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_214",
+   "dbName": "contractor_equipment_materials_supply_readiness_percent",
    "excelColumn": "HG",
    "ordinal": 215,
    "position": 214,
@@ -10767,7 +10767,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_215",
+   "dbName": "contractor_supplied_materials_are_critical",
    "excelColumn": "HH",
    "ordinal": 216,
    "position": 215,
@@ -10801,7 +10801,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_216",
+   "dbName": "contractor_equipment_materials_supply_issue_description",
    "excelColumn": "HI",
    "ordinal": 217,
    "position": 216,
@@ -10827,7 +10827,7 @@
    "isReadOnly": false
   },
   {
-   "dbName": "col_217",
+   "dbName": "note",
    "excelColumn": "HJ",
    "ordinal": 218,
    "position": 217,
@@ -10853,220 +10853,220 @@
  ],
  "sampleRowValues": {
   "col_002": null,
-  "col_003": null,
-  "col_004": "Сода",
-  "col_005": "00105",
-  "col_006": "Мягких контейнеров",
-  "col_007": "КИП",
-  "col_008": "КИПиА и РЗА",
-  "col_009": "Шкаф ПЛК терморезательной машины",
-  "col_010": "АСУТП",
-  "col_011": "АСУТП АСУТП цеха",
-  "col_012": 4491900053,
-  "col_013": "ОГМетр - Отдел Главного метролога",
-  "col_014": "Не влияет на пр-во и V выпуска прод-ии/нет риска здоровью персонала/возд. ОС",
-  "col_015": "4",
-  "col_016": "Ремонтный бюджет",
-  "col_017": "ТОиР",
-  "col_018": "ТО",
-  "col_019": "OPEX",
-  "col_020": "Собственные силы",
-  "col_021": null,
-  "col_022": "Техническое обслуживание СПА терморезательной машины Т3\r\n",
-  "col_023": 2836598,
-  "col_024": "2027-01-01",
-  "col_025": "2027-01-31",
-  "col_026": 30,
-  "col_027": 21.33,
-  "col_028": 22470,
-  "col_029": 22470,
-  "col_030": 0,
-  "col_031": 44940,
-  "col_032": 0,
-  "col_033": 0,
-  "col_034": 0,
-  "col_035": 0,
-  "col_036": 0,
-  "col_037": 0,
-  "col_038": 0,
-  "col_039": 0,
-  "col_040": 0,
-  "col_041": 0,
-  "col_042": 0,
-  "col_043": 0,
-  "col_044": 0,
-  "col_045": 0,
-  "col_046": 0,
-  "col_047": 0,
-  "col_048": 0,
-  "col_049": 0,
-  "col_050": 0,
-  "col_051": 0,
-  "col_052": 0,
-  "col_053": 0,
-  "col_054": 0,
-  "col_055": 0,
-  "col_056": 0,
-  "col_057": 0,
-  "col_058": 0,
-  "col_059": 0,
-  "col_060": 0,
-  "col_061": 0,
-  "col_062": 0,
-  "col_063": 0,
-  "col_064": 0,
-  "col_065": 0,
-  "col_066": 0,
-  "col_067": 0,
-  "col_068": 0,
-  "col_069": 0,
-  "col_070": 0,
-  "col_071": 0,
-  "col_072": 0,
-  "col_073": 0,
-  "col_074": 0,
-  "col_075": 0,
-  "col_076": 0,
-  "col_077": 0,
-  "col_078": 0,
-  "col_079": 0,
-  "col_080": 0,
-  "col_081": 0,
-  "col_082": 0,
-  "col_083": null,
-  "col_084": null,
-  "col_085": 0,
-  "col_086": 0,
-  "col_087": 0,
-  "col_088": 0,
-  "col_089": 0,
-  "col_090": 0,
-  "col_091": 0,
-  "col_092": null,
-  "col_093": null,
-  "col_094": 0,
-  "col_095": null,
-  "col_096": null,
-  "col_097": 0,
-  "col_098": null,
-  "col_099": null,
-  "col_100": 0,
-  "col_101": 0,
-  "col_102": 0,
-  "col_103": 0,
-  "col_104": null,
-  "col_105": null,
-  "col_106": 0,
-  "col_107": null,
-  "col_108": null,
-  "col_109": 0,
-  "col_110": null,
-  "col_111": null,
-  "col_112": 0,
-  "col_113": 0,
-  "col_114": 0,
-  "col_115": 0,
-  "col_116": null,
-  "col_117": null,
-  "col_118": 0,
-  "col_119": null,
-  "col_120": null,
-  "col_121": 0,
-  "col_122": null,
-  "col_123": null,
-  "col_124": 0,
-  "col_125": 0,
-  "col_126": 0,
-  "col_127": 0,
-  "col_128": null,
-  "col_129": null,
-  "col_130": 0,
-  "col_131": null,
-  "col_132": null,
-  "col_133": 0,
-  "col_134": null,
-  "col_135": null,
-  "col_136": null,
-  "col_137": null,
-  "col_138": 0,
-  "col_139": 0,
-  "col_140": 0,
-  "col_141": 0,
-  "col_142": 0,
-  "col_143": 0,
-  "col_144": 0,
-  "col_145": null,
-  "col_146": null,
-  "col_147": 0,
-  "col_148": null,
-  "col_149": null,
-  "col_150": 0,
-  "col_151": null,
-  "col_152": null,
-  "col_153": 0,
-  "col_154": 0,
-  "col_155": 0,
-  "col_156": 0,
-  "col_157": null,
-  "col_158": null,
-  "col_159": 0,
-  "col_160": null,
-  "col_161": null,
-  "col_162": 0,
-  "col_163": null,
-  "col_164": null,
-  "col_165": 0,
-  "col_166": 0,
-  "col_167": 0,
-  "col_168": 0,
-  "col_169": null,
-  "col_170": null,
-  "col_171": 0,
-  "col_172": null,
-  "col_173": null,
-  "col_174": 0,
-  "col_175": null,
-  "col_176": null,
-  "col_177": 0,
-  "col_178": 0,
-  "col_179": 0,
-  "col_180": 0,
-  "col_181": null,
-  "col_182": null,
-  "col_183": 0,
-  "col_184": null,
-  "col_185": null,
-  "col_186": 0,
-  "col_187": null,
-  "col_188": null,
-  "col_189": null,
-  "col_190": null,
-  "col_191": null,
-  "col_192": null,
-  "col_193": null,
-  "col_194": null,
-  "col_195": null,
-  "col_196": null,
-  "col_197": null,
-  "col_198": null,
-  "col_199": null,
-  "col_200": null,
-  "col_201": null,
-  "col_202": null,
-  "col_203": "2026-12-02",
-  "col_204": 0,
-  "col_205": null,
-  "col_206": null,
-  "col_207": null,
-  "col_208": null,
-  "col_209": null,
-  "col_210": null,
-  "col_211": null,
-  "col_212": null,
-  "col_213": null,
-  "col_214": null,
-  "col_215": null,
-  "col_216": null,
-  "col_217": null
+  "work_or_repair_code": null,
+  "production_name": "Сода",
+  "workshop_name": "00105",
+  "department_or_installation_name": "Мягких контейнеров",
+  "equipment_class": "КИП",
+  "equipment_category": "КИПиА и РЗА",
+  "equipment_unit_name": "Шкаф ПЛК терморезательной машины",
+  "technical_location_name": "АСУТП",
+  "process_position": "АСУТП АСУТП цеха",
+  "inventory_number": 4491900053,
+  "functional_area": "ОГМетр - Отдел Главного метролога",
+  "production_impact": "Не влияет на пр-во и V выпуска прод-ии/нет риска здоровью персонала/возд. ОС",
+  "equipment_criticality_group_id": "4",
+  "bpof_section": "Ремонтный бюджет",
+  "work_category_id": "ТОиР",
+  "work_type_id": "ТО",
+  "cost_allocation_type_id": "OPEX",
+  "execution_method_id": "Собственные силы",
+  "work_executor_name": null,
+  "work_description": "Техническое обслуживание СПА терморезательной машины Т3\r\n",
+  "defect_list_or_bill_of_quantities_number": 2836598,
+  "work_start_date": "2027-01-01",
+  "work_end_date": "2027-01-31",
+  "work_duration_days": 30,
+  "labor_hours": 21.33,
+  "work_cost_rub_ex_vat": 22470,
+  "customer_materials_cost_rub_ex_vat": 22470,
+  "contractor_supplied_materials_cost_rub_ex_vat": 0,
+  "total_cost_rub_ex_vat": 44940,
+  "plan_after_proposed_adjustment_total_cost_thousand_rub_ex_vat": 0,
+  "adj_cw_cost_k_rub": 0,
+  "adj_cm_cost_k_rub": 0,
+  "adj_q1_total_cost_k_rub": 0,
+  "adj_q1_cw_cost_k_rub": 0,
+  "adj_q1_cm_cost_k_rub": 0,
+  "adj_january_total_cost_k_rub": 0,
+  "adj_january_cw_cost_k_rub": 0,
+  "adj_january_cm_cost_k_rub": 0,
+  "adj_february_total_cost_k_rub": 0,
+  "adj_february_cw_cost_k_rub": 0,
+  "adj_february_cm_cost_k_rub": 0,
+  "adj_march_total_cost_k_rub": 0,
+  "adj_march_cw_cost_k_rub": 0,
+  "adj_march_cm_cost_k_rub": 0,
+  "adj_q2_total_cost_k_rub": 0,
+  "adj_q2_cw_cost_k_rub": 0,
+  "adj_q2_cm_cost_k_rub": 0,
+  "adj_april_total_cost_k_rub": 0,
+  "adj_april_cw_cost_k_rub": 0,
+  "adj_april_cm_cost_k_rub": 0,
+  "adj_may_total_cost_k_rub": 0,
+  "adj_may_cw_cost_k_rub": 0,
+  "adj_may_cm_cost_k_rub": 0,
+  "adj_june_total_cost_k_rub": 0,
+  "adj_june_cw_cost_k_rub": 0,
+  "adj_june_cm_cost_k_rub": 0,
+  "adj_q3_total_cost_k_rub": 0,
+  "adj_q3_cw_cost_k_rub": 0,
+  "adj_q3_cm_cost_k_rub": 0,
+  "adj_july_total_cost_k_rub": 0,
+  "adj_july_cw_cost_k_rub": 0,
+  "adj_july_cm_cost_k_rub": 0,
+  "adj_august_total_cost_k_rub": 0,
+  "adj_august_cw_cost_k_rub": 0,
+  "adj_august_cm_cost_k_rub": 0,
+  "adj_september_total_cost_k_rub": 0,
+  "adj_september_cw_cost_k_rub": 0,
+  "adj_september_cm_cost_k_rub": 0,
+  "adj_q4_total_cost_k_rub": 0,
+  "adj_q4_cw_cost_k_rub": 0,
+  "adj_q4_cm_cost_k_rub": 0,
+  "adj_october_total_cost_k_rub": 0,
+  "adj_october_cw_cost_k_rub": 0,
+  "adj_october_cm_cost_k_rub": 0,
+  "adj_november_total_cost_k_rub": 0,
+  "adj_november_cw_cost_k_rub": 0,
+  "adj_november_cm_cost_k_rub": 0,
+  "adj_december_total_cost_k_rub": 0,
+  "adj_december_cw_cost_k_rub": 0,
+  "adj_december_cm_cost_k_rub": 0,
+  "adjustment_work_volume_unit": null,
+  "adjustment_work_volume_quantity": null,
+  "plan_adjustment_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_construction_works_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_customer_materials_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_q1_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_q1_construction_works_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_q1_customer_materials_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_january_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_january_cw_cost_k_rub": null,
+  "plan_adjustment_january_cm_cost_k_rub": null,
+  "plan_adjustment_february_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_february_cw_cost_k_rub": null,
+  "plan_adjustment_february_cm_cost_k_rub": null,
+  "plan_adjustment_march_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_march_cw_cost_k_rub": null,
+  "plan_adjustment_march_cm_cost_k_rub": null,
+  "plan_adjustment_q2_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_q2_construction_works_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_q2_customer_materials_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_april_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_april_cw_cost_k_rub": null,
+  "plan_adjustment_april_cm_cost_k_rub": null,
+  "plan_adjustment_may_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_may_construction_works_cost_thousand_rub_ex_vat": null,
+  "plan_adjustment_may_customer_materials_cost_thousand_rub_ex_vat": null,
+  "plan_adjustment_june_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_june_cw_cost_k_rub": null,
+  "plan_adjustment_june_cm_cost_k_rub": null,
+  "plan_adjustment_q3_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_q3_construction_works_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_q3_customer_materials_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_july_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_july_cw_cost_k_rub": null,
+  "plan_adjustment_july_cm_cost_k_rub": null,
+  "plan_adjustment_august_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_august_cw_cost_k_rub": null,
+  "plan_adjustment_august_cm_cost_k_rub": null,
+  "plan_adjustment_september_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_september_cw_cost_k_rub": null,
+  "plan_adjustment_september_cm_cost_k_rub": null,
+  "plan_adjustment_q4_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_q4_construction_works_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_q4_customer_materials_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_october_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_october_cw_cost_k_rub": null,
+  "plan_adjustment_october_cm_cost_k_rub": null,
+  "plan_adjustment_november_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_november_cw_cost_k_rub": null,
+  "plan_adjustment_november_cm_cost_k_rub": null,
+  "plan_adjustment_december_total_cost_thousand_rub_ex_vat": 0,
+  "plan_adjustment_december_cw_cost_k_rub": null,
+  "plan_adjustment_december_cm_cost_k_rub": null,
+  "plan_adjustment_type": null,
+  "plan_adjustment_justification_document": null,
+  "original_plan_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_construction_works_cost_thousand_rub_ex_vat": 0,
+  "original_plan_customer_materials_cost_thousand_rub_ex_vat": 0,
+  "original_plan_q1_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_q1_construction_works_cost_thousand_rub_ex_vat": 0,
+  "original_plan_q1_customer_materials_cost_thousand_rub_ex_vat": 0,
+  "original_plan_january_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_january_cw_cost_k_rub": null,
+  "original_plan_january_cm_cost_k_rub": null,
+  "original_plan_february_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_february_cw_cost_k_rub": null,
+  "original_plan_february_cm_cost_k_rub": null,
+  "original_plan_march_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_march_construction_works_cost_thousand_rub_ex_vat": null,
+  "original_plan_march_customer_materials_cost_thousand_rub_ex_vat": null,
+  "original_plan_q2_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_q2_construction_works_cost_thousand_rub_ex_vat": 0,
+  "original_plan_q2_customer_materials_cost_thousand_rub_ex_vat": 0,
+  "original_plan_april_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_april_construction_works_cost_thousand_rub_ex_vat": null,
+  "original_plan_april_customer_materials_cost_thousand_rub_ex_vat": null,
+  "original_plan_may_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_may_construction_works_cost_thousand_rub_ex_vat": null,
+  "original_plan_may_customer_materials_cost_thousand_rub_ex_vat": null,
+  "original_plan_june_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_june_construction_works_cost_thousand_rub_ex_vat": null,
+  "original_plan_june_customer_materials_cost_thousand_rub_ex_vat": null,
+  "original_plan_q3_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_q3_construction_works_cost_thousand_rub_ex_vat": 0,
+  "original_plan_q3_customer_materials_cost_thousand_rub_ex_vat": 0,
+  "original_plan_july_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_july_construction_works_cost_thousand_rub_ex_vat": null,
+  "original_plan_july_customer_materials_cost_thousand_rub_ex_vat": null,
+  "original_plan_august_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_august_cw_cost_k_rub": null,
+  "original_plan_august_cm_cost_k_rub": null,
+  "original_plan_september_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_september_cw_cost_k_rub": null,
+  "original_plan_september_cm_cost_k_rub": null,
+  "original_plan_q4_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_q4_construction_works_cost_thousand_rub_ex_vat": 0,
+  "original_plan_q4_customer_materials_cost_thousand_rub_ex_vat": 0,
+  "original_plan_october_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_october_cw_cost_k_rub": null,
+  "original_plan_october_cm_cost_k_rub": null,
+  "original_plan_november_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_november_cw_cost_k_rub": null,
+  "original_plan_november_cm_cost_k_rub": null,
+  "original_plan_december_total_cost_thousand_rub_ex_vat": 0,
+  "original_plan_december_cw_cost_k_rub": null,
+  "original_plan_december_cm_cost_k_rub": null,
+  "lotting_activity_direction_code": null,
+  "general_contractor_procurement_code": null,
+  "general_contractor_contract_date": null,
+  "general_contractor_contract_number": null,
+  "general_contractor_contract_price_thousand_rub_ex_vat": null,
+  "general_contractor_counterparty_name": null,
+  "general_contractor_counterparty_prequalification_status": null,
+  "subcontractor_engagement_requirement": null,
+  "general_contractor_contract_issue_description": null,
+  "subcontract_contract_date": null,
+  "subcontract_contract_number": null,
+  "subcontractor_name": null,
+  "subcontractor_prequalification_status": null,
+  "has_materials_in_work_or_repair": null,
+  "required_materials_delivery_date": "2026-12-02",
+  "total_materials_cost": 0,
+  "centralized_supply_materials_cost_thousand_rub_ex_vat": null,
+  "direct_supply_materials_cost_thousand_rub_ex_vat": null,
+  "contractor_supply_materials_cost_thousand_rub_ex_vat": null,
+  "em_contracting_cs_pct": null,
+  "equipment_materials_contracting_direct_supply_readiness_percent": null,
+  "em_delivery_cs_pct": null,
+  "equipment_materials_delivery_direct_supply_readiness_percent": null,
+  "materials_are_critical": null,
+  "materials_readiness_issue_description": null,
+  "contractor_equipment_materials_supply_readiness_percent": null,
+  "contractor_supplied_materials_are_critical": null,
+  "contractor_equipment_materials_supply_issue_description": null,
+  "note": null
  }
 }

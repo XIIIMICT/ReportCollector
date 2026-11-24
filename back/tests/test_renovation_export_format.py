@@ -30,7 +30,7 @@ _SHEET_NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 _REPAIR_CODE = "2027_BSKR"
 _ROWS_TEMPLATE: list[tuple[int, str, str, dict[str, object]]] = [
-    (1, "АО «БСК»", _REPAIR_CODE, {"col_005": 1.0}),
+    (1, "АО «БСК»", _REPAIR_CODE, {"workshop_name": 1.0}),
     (2, "АО «БСК»", _REPAIR_CODE, {}),
 ]
 
@@ -113,7 +113,7 @@ def test_merge_cell_refs_are_unique():
     assert len(refs) == len(set(refs))
     # The sheet starts with the «Предприятие» column (A) — there is NO
     # row-number column, so no corner block and no «№»/«Итог» labels. The
-    # first form column (col_003) is B; a column whose totals cell is empty
+    # first form column (work_or_repair_code) is B; a column whose totals cell is empty
     # merges its number over the totals row.
     assert refs.count("B12:B13") == 1
     assert not any(ref.startswith("A1:") for ref in refs), "no corner block: the asset header owns column A"

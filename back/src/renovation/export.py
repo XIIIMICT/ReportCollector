@@ -4,7 +4,8 @@ Excel export of the «Ремонт» renovation plan (plain workbook, no custome
 The export mirrors the legacy sheet layout: a merged 11-row header built
 from the form's headerCells (levels 0..10, Excel ranges B6:HI16 in the
 template, shifted up so the header starts at row 1), column A as the row
-number, then the 216 form fields (col_002..col_217) in columns B..HI.
+number, then the 217 form fields (from the synthetic asset column through the
+last leaf) in columns B..HI.
 Reference fields are written as display labels, numbers keep their
 decimal count, dates as DD.MM.YYYY, booleans as Да/Нет.
 
@@ -103,7 +104,7 @@ class _QueueWriter:
         pass
 
 
-_ALWAYS_VISIBLE_FIELDS = frozenset({"col_003", "col_217"})
+_ALWAYS_VISIBLE_FIELDS = frozenset({"work_or_repair_code", "note"})
 _ASSET_FIELD = "col_002"
 
 # May surface to the user through the export job's status - hence Russian.
@@ -153,7 +154,7 @@ def _export_fields(block: object) -> tuple[RenovationFieldMeta, ...]:
     Form fields the export keeps for a block filter (mirrors the grid).
 
     `col_002` stays as the asset column (its header labels the asset, its data
-    comes from the joined asset name); `col_003` and `col_217` also stay visible
+    comes from the joined asset name); `work_or_repair_code` and `note` also stay visible
     for every block. A block keeps only its own fields plus those.
     """
     fields = list(field_metas())
@@ -495,7 +496,7 @@ def _clip_columns(
     """
     Map an original column span onto the exported layout, or None if dropped.
 
-    `position_by_column` maps the original 1-based field column (col_003 → 3) to
+    `position_by_column` maps the original 1-based field column (work_or_repair_code → 3) to
     the exported 1-based column; a span survives only while it covers a kept
     column, and is clipped to the first and last kept column it contains.
     """
@@ -587,7 +588,7 @@ def _data_cell_xml(ref: str, value: object, meta: RenovationFieldMeta) -> str:
     return xlsx_stream.text_cell_xml(ref, str(value))
 
 
-_FIELD_REFERENCE = re.compile(r"col_\d+")
+_FIELD_REFERENCE = re.compile(r"\b[a-z][a-z0-9_]*\b")
 
 
 def _compile_formula_template(
@@ -598,9 +599,9 @@ def _compile_formula_template(
     """
     Render an engine formula onto the sheet's Excel cell references ONCE.
 
-    `col_XXX` becomes the field's exported column letter + the row placeholder;
-    the row number is substituted per data row. Returns None when a referenced
-    field was dropped (a block-filtered export) — the caller then falls back to
+    A field name (the §9.1 semantic `snake_case` identifier) becomes the field's
+    exported column letter + the row placeholder; the row number is substituted
+    per data row. Returns None when a referenced field was dropped (a block-filtered export) — the caller then falls back to
     the stored value.
     """
     missing = False

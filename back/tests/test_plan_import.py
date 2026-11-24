@@ -412,9 +412,9 @@ def test_headers_are_matched_by_name_not_position() -> None:
     from src.renovation import import_plan
 
     mapping = import_plan._header_map()
-    assert mapping[_norm("Отнесение затрат")] == "col_019"
-    assert mapping[_norm("Способ выполнения работ")] == "col_020"
-    assert mapping[_norm("Наименование производства")] == "col_004"
+    assert mapping[_norm("Отнесение затрат")] == "cost_allocation_type_id"
+    assert mapping[_norm("Способ выполнения работ")] == "execution_method_id"
+    assert mapping[_norm("Наименование производства")] == "production_name"
     assert mapping[_norm("Предприятие")] == "col_002"
     # Ignored headings never resolve to a field: they are skipped by name.
     assert all(_norm(name) not in mapping for name in ("Год", "№ п/п", "Код работы"))
@@ -510,7 +510,7 @@ def test_a_date_typed_as_text_is_accepted(xlsx_sample: Path, tmp_path: Path) -> 
 
     from src.renovation.form_schema import field_meta, normalize_label
 
-    date_meta = field_meta("col_024")
+    date_meta = field_meta("work_start_date")
     assert date_meta is not None
     date_label = normalize_label(date_meta.label)
     book = load_workbook(xlsx_sample)

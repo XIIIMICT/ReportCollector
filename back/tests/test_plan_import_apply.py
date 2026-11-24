@@ -18,15 +18,16 @@ _SAMPLE = next(Path(__file__).resolve().parents[2].joinpath("docs").glob("*.xlsb
 async def test_a_numeric_option_resolves_to_its_catalog_id(db_session: AsyncSession) -> None:
     """Excel sends criticality as «3.0»; the catalog label is «3»."""
     reference_ids = await _reference_ids(db_session)
-    resolved = _resolve_reference("col_015", "3.0", reference_ids)
+    resolved = _resolve_reference("equipment_criticality_group_id", "3.0", reference_ids)
     assert resolved != "3.0"
-    assert resolved == _resolve_reference("col_015", "3", reference_ids)
+    assert resolved == _resolve_reference("equipment_criticality_group_id", "3", reference_ids)
 
 
 async def test_a_label_the_catalog_does_not_know_stays_as_text(db_session: AsyncSession) -> None:
     """Strict lookup: «Собственными силами» is not «Собственные силы»."""
     assert (
-        _resolve_reference("col_020", "Собственными силами", await _reference_ids(db_session)) == "Собственными силами"
+        _resolve_reference("execution_method_id", "Собственными силами", await _reference_ids(db_session))
+        == "Собственными силами"
     )
 
 
@@ -54,12 +55,12 @@ async def test_an_option_added_to_the_dictionary_after_the_seed_is_loadable(
             code="TEST_LIVE_DICTIONARY",
             asset_key="BSZR",
             values={
-                "col_015": "3",
-                "col_017": "ТОиР",
-                "col_018": "КР",
-                "col_019": "OPEX",
-                "col_020": "Собственными силами",
-                "col_005": "Загруженная работа",
+                "equipment_criticality_group_id": "3",
+                "work_category_id": "ТОиР",
+                "work_type_id": "КР",
+                "cost_allocation_type_id": "OPEX",
+                "execution_method_id": "Собственными силами",
+                "workshop_name": "Загруженная работа",
             },
         )
     ]
@@ -69,9 +70,11 @@ async def test_an_option_added_to_the_dictionary_after_the_seed_is_loadable(
     assert (result.new_rows, result.updated_rows) == (1, 0)
 
     loaded = (
-        await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.col_003) == "TEST_LIVE_DICTIONARY"))
+        await db_session.exec(
+            select(RenovationPlanRow).where(col(RenovationPlanRow.work_or_repair_code) == "TEST_LIVE_DICTIONARY")
+        )
     ).one()
-    assert loaded.col_020 == option.id
+    assert loaded.execution_method_id == option.id
 
 
 async def test_the_sample_file_is_refused_while_it_carries_unknown_catalog_values(
@@ -129,8 +132,8 @@ async def test_an_asset_outside_the_dictionary_refuses_the_whole_file(
     )
     rows = [
         # A known asset first: the refusal must undo what the batch would write.
-        ParsedPlanRow(code="TEST_ASSET_KNOWN", asset_key="BSZR", values={"col_005": "известный актив"}),
-        ParsedPlanRow(code="TEST_ASSET_UNKNOWN", asset_key="ZZZR", values={"col_005": "неизвестный актив"}),
+        ParsedPlanRow(code="TEST_ASSET_KNOWN", asset_key="BSZR", values={"workshop_name": "известный актив"}),
+        ParsedPlanRow(code="TEST_ASSET_UNKNOWN", asset_key="ZZZR", values={"workshop_name": "неизвестный актив"}),
     ]
     monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
 
@@ -138,7 +141,9 @@ async def test_an_asset_outside_the_dictionary_refuses_the_whole_file(
         await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
 
     after = (
-        await db_session.exec(select(col(RenovationPlanRow.col_003)).where(col(RenovationPlanRow.plan_id) == plan.id))
+        await db_session.exec(
+            select(col(RenovationPlanRow.work_or_repair_code)).where(col(RenovationPlanRow.plan_id) == plan.id)
+        )
     ).all()
     assert len(after) == before
     assert "TEST_ASSET_KNOWN" not in after
@@ -161,7 +166,7 @@ async def test_an_asset_named_in_the_file_resolves_through_the_dictionary(
         ParsedPlanRow(
             code="TEST_ASSET_BY_NAME",
             asset_key='  ао "бсз" ',
-            values={"col_005": "Работа по наименованию"},
+            values={"workshop_name": "Работа по наименованию"},
             asset_is_name=True,
         )
     ]
@@ -171,7 +176,9 @@ async def test_an_asset_named_in_the_file_resolves_through_the_dictionary(
     assert (result.new_rows, result.updated_rows) == (1, 0)
 
     loaded = (
-        await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.col_003) == "TEST_ASSET_BY_NAME"))
+        await db_session.exec(
+            select(RenovationPlanRow).where(col(RenovationPlanRow.work_or_repair_code) == "TEST_ASSET_BY_NAME")
+        )
     ).one()
     assert loaded.asset_id == bsz.id
 
@@ -184,7 +191,7 @@ async def test_an_unknown_asset_name_refuses_the_whole_file(
         ParsedPlanRow(
             code="TEST_ASSET_UNKNOWN_NAME",
             asset_key="АО «Нет такого завода»",
-            values={"col_005": "неизвестный актив"},
+            values={"workshop_name": "неизвестный актив"},
             asset_is_name=True,
         )
     ]
@@ -219,12 +226,12 @@ async def test_a_clean_file_creates_rows_once_and_updates_them_next_time(
             code=f"TEST_IMPORT_{index}",
             asset_key="BSZR",
             values={
-                "col_015": "3",
-                "col_017": "ТОиР",
-                "col_018": "КР",
-                "col_019": "OPEX",
-                "col_020": "Собственные силы",
-                "col_005": f"Загруженная работа {index}",
+                "equipment_criticality_group_id": "3",
+                "work_category_id": "ТОиР",
+                "work_type_id": "КР",
+                "cost_allocation_type_id": "OPEX",
+                "execution_method_id": "Собственные силы",
+                "workshop_name": f"Загруженная работа {index}",
             },
         )
         for index in range(1, 4)
@@ -239,9 +246,13 @@ async def test_a_clean_file_creates_rows_once_and_updates_them_next_time(
     assert after_first == before + 3
 
     loaded = (
-        await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.col_003) == "TEST_IMPORT_2"))
+        await db_session.exec(
+            select(RenovationPlanRow).where(col(RenovationPlanRow.work_or_repair_code) == "TEST_IMPORT_2")
+        )
     ).one()
-    assert str(loaded.col_015) == _resolve_reference("col_015", "3", await _reference_ids(db_session))
+    assert str(loaded.equipment_criticality_group_id) == _resolve_reference(
+        "equipment_criticality_group_id", "3", await _reference_ids(db_session)
+    )
     assert loaded.position > 0
 
     second = await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
@@ -260,7 +271,7 @@ async def test_the_load_reports_write_and_recompute_progress(
     if bsz is None:
         pytest.skip("the seed carries no BSZR asset")
     rows = [
-        ParsedPlanRow(code=f"TEST_PROGRESS_{index}", asset_key="BSZR", values={"col_005": f"Работа {index}"})
+        ParsedPlanRow(code=f"TEST_PROGRESS_{index}", asset_key="BSZR", values={"workshop_name": f"Работа {index}"})
         for index in range(1, 4)
     ]
     monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
@@ -290,7 +301,7 @@ async def test_a_ragged_batch_loads_and_its_dates_are_stored_as_dates(
 
     A multi-row INSERT renders ONE `VALUES` clause, which demands identical
     keys per row — a batch where one row lacks a cell raised «INSERT value for
-    column r_plan_rows.col_011 is explicitly rendered as a boundparameter» and
+    column r_plan_rows.process_position is explicitly rendered as a boundparameter» and
     the whole file was discarded. The write pads every row to the batch's key
     union, so a cell the file omitted becomes NULL.
 
@@ -305,26 +316,26 @@ async def test_a_ragged_batch_loads_and_its_dates_are_stored_as_dates(
             code="TEST_RAGGED_1",
             asset_key="BSZR",
             values={
-                "col_015": "3",
-                "col_017": "ТОиР",
-                "col_018": "КР",
-                "col_019": "OPEX",
-                "col_020": "Собственные силы",
-                "col_005": "Работа с датой",
-                "col_024": "2027-10-01",
+                "equipment_criticality_group_id": "3",
+                "work_category_id": "ТОиР",
+                "work_type_id": "КР",
+                "cost_allocation_type_id": "OPEX",
+                "execution_method_id": "Собственные силы",
+                "workshop_name": "Работа с датой",
+                "work_start_date": "2027-10-01",
             },
         ),
         ParsedPlanRow(
             code="TEST_RAGGED_2",
             asset_key="BSZR",
             values={
-                "col_015": "3",
-                "col_017": "ТОиР",
-                "col_018": "КР",
-                "col_019": "OPEX",
-                "col_020": "Собственные силы",
-                "col_005": "Работа без даты",
-                # col_024 deliberately absent: the parser skips a blank cell,
+                "equipment_criticality_group_id": "3",
+                "work_category_id": "ТОиР",
+                "work_type_id": "КР",
+                "cost_allocation_type_id": "OPEX",
+                "execution_method_id": "Собственные силы",
+                "workshop_name": "Работа без даты",
+                # work_start_date deliberately absent: the parser skips a blank cell,
                 # so these two rows of one batch have different key sets.
             },
         ),
@@ -335,16 +346,18 @@ async def test_a_ragged_batch_loads_and_its_dates_are_stored_as_dates(
     assert (result.new_rows, result.updated_rows) == (2, 0)
 
     loaded = {
-        row.col_003: row
+        row.work_or_repair_code: row
         for row in (
             await db_session.exec(
-                select(RenovationPlanRow).where(col(RenovationPlanRow.col_003).in_(["TEST_RAGGED_1", "TEST_RAGGED_2"]))
+                select(RenovationPlanRow).where(
+                    col(RenovationPlanRow.work_or_repair_code).in_(["TEST_RAGGED_1", "TEST_RAGGED_2"])
+                )
             )
         ).all()
     }
     assert set(loaded) == {"TEST_RAGGED_1", "TEST_RAGGED_2"}
-    assert loaded["TEST_RAGGED_1"].col_024 == date(2027, 10, 1)
+    assert loaded["TEST_RAGGED_1"].work_start_date == date(2027, 10, 1)
     # The omitted cell is NULL, not a neighbour's value.
-    assert loaded["TEST_RAGGED_2"].col_024 is None
-    assert loaded["TEST_RAGGED_1"].col_005 == "Работа с датой"
-    assert loaded["TEST_RAGGED_2"].col_005 == "Работа без даты"
+    assert loaded["TEST_RAGGED_2"].work_start_date is None
+    assert loaded["TEST_RAGGED_1"].workshop_name == "Работа с датой"
+    assert loaded["TEST_RAGGED_2"].workshop_name == "Работа без даты"

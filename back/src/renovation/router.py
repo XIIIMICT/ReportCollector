@@ -416,7 +416,9 @@ async def inspect_renovation_plan_import(
     cached = await cache.get_digest(digest, scope=scope) if file_scope.assets else None
     if cached is not None:
         return cached
-    existing_codes = {value for value in (await session.exec(select(col(RenovationPlanRow.col_003)))).all() if value}
+    existing_codes = {
+        value for value in (await session.exec(select(col(RenovationPlanRow.work_or_repair_code)))).all() if value
+    }
     references: dict[str, set[str]] = {}
     for value in (await session.exec(select(RenovationReferenceValue))).all():
         references.setdefault(value.catalog.value, set()).add(value.label.casefold())
@@ -730,7 +732,7 @@ async def patch_renovation_plan(
         )
         for cell in calculated
     )
-    # The renovation ID (col_003) is derived too, but it is NOT part of
+    # The renovation ID (work_or_repair_code) is derived too, but it is NOT part of
     # `calculated` (the formula engine doesn't own it) — publish it explicitly
     # so other clients update the code live. The editor refreshes its window
     # from the PATCH response; everyone else only gets cell:changed.
@@ -738,7 +740,7 @@ async def patch_renovation_plan(
         AppliedCell(
             target_table=RENOVATION_PLAN_ROWS_TABLE,
             row_id=renovation_id.rowId,
-            field="col_003",
+            field="work_or_repair_code",
             old_value=None,
             new_value=renovation_id.value,
             revision=0,

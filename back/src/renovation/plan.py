@@ -111,22 +111,22 @@ class RenovationPlanRow(UpdaterDisplay, table=True):
         # with it. Migration 0025 rebuilt the five that used to be single-column
         # and added the text ones; the metadata has to match, because
         # `create_all` and the migration tests compare it with the real schema.
-        Index("ix_r_plan_rows_plan_col_003", "plan_id", "col_003"),
-        Index("ix_r_plan_rows_plan_col_005", "plan_id", "col_005"),
-        Index("ix_r_plan_rows_plan_col_006", "plan_id", "col_006"),
-        Index("ix_r_plan_rows_plan_col_007", "plan_id", "col_007"),
-        Index("ix_r_plan_rows_plan_col_008", "plan_id", "col_008"),
-        Index("ix_r_plan_rows_plan_col_015", "plan_id", "col_015"),
-        Index("ix_r_plan_rows_plan_col_017", "plan_id", "col_017"),
-        Index("ix_r_plan_rows_plan_col_018", "plan_id", "col_018"),
-        Index("ix_r_plan_rows_plan_col_019", "plan_id", "col_019"),
-        Index("ix_r_plan_rows_plan_col_020", "plan_id", "col_020"),
+        Index("ix_r_plan_rows_plan_work_or_repair_code", "plan_id", "work_or_repair_code"),
+        Index("ix_r_plan_rows_plan_workshop_name", "plan_id", "workshop_name"),
+        Index("ix_r_plan_rows_plan_department_or_installation_name", "plan_id", "department_or_installation_name"),
+        Index("ix_r_plan_rows_plan_equipment_class", "plan_id", "equipment_class"),
+        Index("ix_r_plan_rows_plan_equipment_category", "plan_id", "equipment_category"),
+        Index("ix_r_plan_rows_plan_equipment_criticality_group_id", "plan_id", "equipment_criticality_group_id"),
+        Index("ix_r_plan_rows_plan_work_category_id", "plan_id", "work_category_id"),
+        Index("ix_r_plan_rows_plan_work_type_id", "plan_id", "work_type_id"),
+        Index("ix_r_plan_rows_plan_cost_allocation_type_id", "plan_id", "cost_allocation_type_id"),
+        Index("ix_r_plan_rows_plan_execution_method_id", "plan_id", "execution_method_id"),
         # «Дефектная ведомость/ВОР №». It is TEXT (0030) and every row carries its
         # own number, so the facet list has ~90k distinct values per plan: without
         # this index the facet query seq-scanned the whole plan (~1.4 s on 261k
         # rows, and it is asked TWICE per popover — the list and the column size).
         # An index-only scan answers both in ~60 ms.
-        Index("ix_r_plan_rows_plan_col_023", "plan_id", "col_023"),
+        Index("ix_r_plan_rows_plan_defect_number", "plan_id", "defect_list_or_bill_of_quantities_number"),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
@@ -141,240 +141,476 @@ class RenovationPlanRow(UpdaterDisplay, table=True):
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     updater_user_id: UUID | None = Field(default=None, foreign_key="app_users.id", ondelete="SET NULL")
-    col_003: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_004: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_005: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_006: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_007: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_008: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_009: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_010: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_011: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_012: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_013: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_014: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_015: UUID | None = Field(
+    work_or_repair_code: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    production_name: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    workshop_name: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    department_or_installation_name: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    equipment_class: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    equipment_category: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    equipment_unit_name: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    technical_location_name: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    process_position: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    inventory_number: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    functional_area: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    production_impact: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    equipment_criticality_group_id: UUID | None = Field(
         default=None,
         sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("r_reference_values.id"), nullable=True),
     )
-    col_016: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_017: UUID | None = Field(
+    bpof_section: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    work_category_id: UUID | None = Field(
         default=None,
         sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("r_reference_values.id"), nullable=True),
     )
-    col_018: UUID | None = Field(
+    work_type_id: UUID | None = Field(
         default=None,
         sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("r_reference_values.id"), nullable=True),
     )
-    col_019: UUID | None = Field(
+    cost_allocation_type_id: UUID | None = Field(
         default=None,
         sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("r_reference_values.id"), nullable=True),
     )
-    col_020: UUID | None = Field(
+    execution_method_id: UUID | None = Field(
         default=None,
         sa_column=Column(postgresql.UUID(as_uuid=True), ForeignKey("r_reference_values.id"), nullable=True),
     )
-    col_021: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_022: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_023: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
-    col_024: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
-    col_025: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
-    col_026: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_027: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_028: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_029: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_030: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_031: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_032: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_033: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_034: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_035: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_036: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_037: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_038: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_039: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_040: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_041: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_042: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_043: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_044: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_045: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_046: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_047: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_048: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_049: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_050: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_051: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_052: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_053: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_054: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_055: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_056: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_057: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_058: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_059: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_060: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_061: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_062: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_063: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_064: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_065: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_066: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_067: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_068: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_069: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_070: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_071: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_072: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_073: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_074: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_075: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_076: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_077: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_078: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_079: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_080: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_081: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_082: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_083: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_084: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_085: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_086: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_087: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_088: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_089: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_090: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_091: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_092: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_093: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_094: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_095: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_096: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_097: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_098: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_099: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_100: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_101: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_102: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_103: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_104: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_105: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_106: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_107: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_108: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_109: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_110: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_111: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_112: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_113: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_114: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_115: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_116: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_117: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_118: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_119: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_120: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_121: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_122: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_123: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_124: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_125: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_126: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_127: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_128: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_129: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_130: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_131: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_132: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_133: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_134: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_135: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_136: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_137: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_138: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_139: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_140: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_141: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_142: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_143: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_144: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_145: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_146: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_147: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_148: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_149: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_150: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_151: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_152: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_153: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_154: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_155: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_156: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_157: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_158: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_159: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_160: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_161: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_162: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_163: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_164: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_165: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_166: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_167: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_168: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_169: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_170: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_171: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_172: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_173: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_174: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_175: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_176: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_177: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_178: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_179: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_180: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_181: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_182: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_183: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_184: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_185: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_186: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_187: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_188: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_189: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_190: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_191: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
-    col_192: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_193: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_194: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_195: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_196: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_197: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_198: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_199: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
-    col_200: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_201: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_202: bool | None = Field(default=None, sa_column=Column(Boolean(), nullable=True))
-    col_203: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
-    col_204: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_205: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_206: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_207: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_208: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_209: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_210: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_211: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_212: bool | None = Field(default=None, sa_column=Column(Boolean(), nullable=True))
-    col_213: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_214: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
-    col_215: bool | None = Field(default=None, sa_column=Column(Boolean(), nullable=True))
-    col_216: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
-    col_217: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    work_executor_name: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    work_description: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    defect_list_or_bill_of_quantities_number: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
+    work_start_date: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
+    work_end_date: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
+    work_duration_days: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    labor_hours: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    work_cost_rub_ex_vat: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    customer_materials_cost_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    contractor_supplied_materials_cost_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    total_cost_rub_ex_vat: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    plan_after_proposed_adjustment_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    adj_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q1_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q1_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q1_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_january_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_january_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_january_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_february_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_february_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_february_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_march_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_march_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_march_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q2_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q2_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q2_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_april_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_april_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_april_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_may_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_may_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_may_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_june_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_june_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_june_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q3_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q3_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q3_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_july_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_july_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_july_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_august_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_august_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_august_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_september_total_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    adj_september_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_september_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q4_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q4_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_q4_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_october_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_october_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_october_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_november_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_november_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_november_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_december_total_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_december_cw_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adj_december_cm_cost_k_rub: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adjustment_work_volume_unit: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    adjustment_work_volume_quantity: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q1_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q1_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q1_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_january_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_january_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_january_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_february_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_february_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_february_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_march_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_march_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_march_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q2_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q2_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q2_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_april_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_april_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_april_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_may_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_may_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_may_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_june_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_june_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_june_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q3_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q3_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q3_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_july_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_july_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_july_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_august_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_august_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_august_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_september_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_september_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_september_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q4_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q4_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_q4_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_october_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_october_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_october_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_november_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_november_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_november_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_december_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_december_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_december_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    plan_adjustment_type: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    plan_adjustment_justification_document: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    original_plan_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q1_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q1_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q1_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_january_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_january_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_january_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_february_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_february_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_february_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_march_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_march_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_march_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q2_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q2_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q2_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_april_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_april_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_april_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_may_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_may_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_may_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_june_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_june_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_june_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q3_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q3_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q3_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_july_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_july_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_july_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_august_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_august_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_august_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_september_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_september_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_september_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q4_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q4_construction_works_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_q4_customer_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_october_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_october_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_october_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_november_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_november_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_november_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_december_total_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_december_cw_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    original_plan_december_cm_cost_k_rub: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    lotting_activity_direction_code: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    general_contractor_procurement_code: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    general_contractor_contract_date: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
+    general_contractor_contract_number: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    general_contractor_contract_price_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    general_contractor_counterparty_name: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    general_contractor_counterparty_prequalification_status: str | None = Field(
+        default=None, sa_column=Column(Text(), nullable=True)
+    )
+    subcontractor_engagement_requirement: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    general_contractor_contract_issue_description: str | None = Field(
+        default=None, sa_column=Column(Text(), nullable=True)
+    )
+    subcontract_contract_date: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    subcontract_contract_number: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
+    subcontractor_name: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    subcontractor_prequalification_status: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    has_materials_in_work_or_repair: bool | None = Field(default=None, sa_column=Column(Boolean(), nullable=True))
+    required_materials_delivery_date: date | None = Field(default=None, sa_column=Column(Date(), nullable=True))
+    total_materials_cost: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    centralized_supply_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    direct_supply_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    contractor_supply_materials_cost_thousand_rub_ex_vat: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    em_contracting_cs_pct: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    equipment_materials_contracting_direct_supply_readiness_percent: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    em_delivery_cs_pct: Decimal | None = Field(default=None, sa_column=Column(Numeric(18, 4), nullable=True))
+    equipment_materials_delivery_direct_supply_readiness_percent: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    materials_are_critical: bool | None = Field(default=None, sa_column=Column(Boolean(), nullable=True))
+    materials_readiness_issue_description: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    contractor_equipment_materials_supply_readiness_percent: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(18, 4), nullable=True)
+    )
+    contractor_supplied_materials_are_critical: bool | None = Field(
+        default=None, sa_column=Column(Boolean(), nullable=True)
+    )
+    contractor_equipment_materials_supply_issue_description: str | None = Field(
+        default=None, sa_column=Column(Text(), nullable=True)
+    )
+    note: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
     # «Номер сметы»: the new first column of the «Дирекция КСиР» block. The
     # db name is reused from the retired «Корректировка» (dropped by 0007); its
     # column comment comes from field_header_paths() like every other col_*.
-    col_218: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
+    estimate_number: str | None = Field(default=None, sa_column=Column(Text(), nullable=True))
 
 
 for _model in (RenovationReferenceValue, RenovationPlan, RenovationPlanRow):

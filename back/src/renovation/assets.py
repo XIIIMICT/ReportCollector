@@ -42,7 +42,7 @@ async def read_renovation_asset_rows(
         query = query.where(col(RAsset.id).in_(row_ids))
     rows = (await session.exec(query)).all()
     # Computed columns of the working plan's rows per asset: the total
-    # «Стоимость итого» (col_031) and the number of repair works (rows).
+    # «Стоимость итого» (total_cost_rub_ex_vat) and the number of repair works (rows).
     aggregates = await read_working_plan_aggregates(
         session,
         group_by=cast("InstrumentedAttribute[object]", RenovationPlanRow.asset_id),
@@ -191,12 +191,14 @@ async def replace_renovation_asset(
     target_codes = {
         (code or "").casefold()
         for code in (
-            await session.exec(select(RenovationPlanRow.col_003).where(col(RenovationPlanRow.asset_id) == target_id))
+            await session.exec(
+                select(RenovationPlanRow.work_or_repair_code).where(col(RenovationPlanRow.asset_id) == target_id)
+            )
         ).all()
         if code
     }
     for row in (await session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.asset_id) == asset_id))).all():
-        code = (row.col_003 or "").casefold()
+        code = (row.work_or_repair_code or "").casefold()
         if code and code in target_codes:
             # The same work already exists on the target: keep one row.
             await session.delete(row)

@@ -3,7 +3,7 @@ API schemas of the «Ремонт» (renovation) project.
 
 Field names mirror the legacy Tauri format: the form grid uses the db names
 (col_xxx) as cell keys, reference fields are transported as display labels
-(the server resolves them to value ids), and the renovation ID (col_003)
+(the server resolves them to value ids), and the renovation ID (work_or_repair_code)
 comes with the list of missing components for UI highlighting.
 """
 
@@ -203,7 +203,7 @@ class RenovationColumnFilter(BaseModel):
 class RenovationSortColumn(BaseModel):
     """One server-side plan sort level, in priority order."""
 
-    column: str = Field(min_length=1, max_length=32)
+    column: str = Field(min_length=1, max_length=64)
     order: Literal["asc", "desc"]
 
 
@@ -296,7 +296,7 @@ class CellUpdate(BaseModel):
     """Single form cell edit (rowId — the row id, field — the db name)."""
 
     rowId: UUID
-    field: str = Field(min_length=1, max_length=16)
+    field: str = Field(min_length=1, max_length=64)
     value: str | float | bool | None = None
 
 
@@ -365,7 +365,7 @@ class RenovationAssetRowRead(BaseModel):
     createdAt: datetime
     updatedAt: datetime
     updatedBy: str
-    # Computed: sum of «Стоимость итого, руб. без НДС» (col_031) over the
+    # Computed: sum of «Стоимость итого, руб. без НДС» (total_cost_rub_ex_vat) over the
     # working plan's rows for this asset.
     totalCost: float = 0.0
     # Computed: the number of repair works — the working plan's rows for this
@@ -382,7 +382,7 @@ class RenovationCatalogOptionRowRead(BaseModel):
     updatedAt: datetime
     updatedBy: str
     # Computed, exactly like the asset row: the number of repair works and the
-    # sum of «Стоимость итого» (col_031) over the working plan's rows carrying
+    # sum of «Стоимость итого» (total_cost_rub_ex_vat) over the working plan's rows carrying
     # this option. Zero for an option no plan row uses yet.
     totalCost: float = 0.0
     repairCount: int = 0

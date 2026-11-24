@@ -294,7 +294,7 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
         ],
         start=1,
     ):
-        # col_003 is a plain typed value now (the generator is off): the fixture
+        # work_or_repair_code is a plain typed value now (the generator is off): the fixture
         # stores the codes a real plan carries, like the Excel seed does.
         repair_code = next(rc for asset_code, rc, _ in R_ASSETS if asset_code == code).upper()
         session.add(
@@ -307,19 +307,19 @@ async def _seed_renovation(session: AsyncSession, *, now: datetime, admin: User)
                 created_at=now,
                 updated_at=now,
                 updater_user_id=None,
-                col_003=f"2027_{repair_code}_1.1.1_{defect}",
-                col_011="Шкаф ПЛК" if code == "bsk" else "Насос НК",
-                col_016="Ремонтный бюджет",
-                col_017=reference_option_id("work_category", "Остановочный капитальный ремонт"),
-                col_018=reference_option_id("work_type", "ТР"),
-                col_019=reference_option_id("cost_allocation", "OPEX"),
-                col_020=reference_option_id("execution_method", "Собственные силы"),
-                col_023=defect,
-                col_024=date(2027, 1, 1),
-                col_025=date(2027, 1, 31),
-                col_028=d1,
-                col_029=d2,
-                col_189="1.1.1.",
+                work_or_repair_code=f"2027_{repair_code}_1.1.1_{defect}",
+                process_position="Шкаф ПЛК" if code == "bsk" else "Насос НК",
+                bpof_section="Ремонтный бюджет",
+                work_category_id=reference_option_id("work_category", "Остановочный капитальный ремонт"),
+                work_type_id=reference_option_id("work_type", "ТР"),
+                cost_allocation_type_id=reference_option_id("cost_allocation", "OPEX"),
+                execution_method_id=reference_option_id("execution_method", "Собственные силы"),
+                defect_list_or_bill_of_quantities_number=defect,
+                work_start_date=date(2027, 1, 1),
+                work_end_date=date(2027, 1, 31),
+                work_cost_rub_ex_vat=d1,
+                customer_materials_cost_rub_ex_vat=d2,
+                lotting_activity_direction_code="1.1.1.",
             )
         )
     # The production seed materializes the calculated fields after importing the

@@ -1,9 +1,10 @@
 """
 Renovation plan domain service: access, reading, cell edits, recalculation and lifecycle.
 
-The «Ремонт» form is the legacy renovation plan: 216 fields (col_002..
-col_217), formula-calculated columns and the composite renovation ID
-(col_003, a text column). Reference fields are stored as
+The «Ремонт» form is the legacy renovation plan: 217 fields (from the
+synthetic `col_002` asset column to `note`), formula-calculated columns and the
+composite renovation ID
+(work_or_repair_code, a text column). Reference fields are stored as
 r_reference_values ids and transported over the API as display
 labels (the same pattern as «deliveryBasisName» in the «Цены» form).
 """
@@ -156,7 +157,7 @@ EXPORT_BATCH_SIZE = 5000
 _ASSET_COLUMN_PROP = "__assetName"
 
 # Validation presets accompany the concrete code list.
-_RENOVATION_ID_COLUMN = "col_003"
+_RENOVATION_ID_COLUMN = "work_or_repair_code"
 _RENOVATION_ID_OK_LABEL = "Корректные"
 _RENOVATION_ID_BAD_LABEL = "Некорректные"
 
@@ -686,8 +687,8 @@ async def iter_plan_export_rows(
     def _prepare(values: dict[str, object], repair_code: str) -> dict[str, object]:
         if any(values.get(field) is None for field in calculated_fields):
             engine.materialize(values)
-        if RENOVATION_ID_FORMULA_ENABLED and not values.get("col_003"):
-            values["col_003"] = _sparse_row_renovation_id(values, repair_code, label_map)
+        if RENOVATION_ID_FORMULA_ENABLED and not values.get("work_or_repair_code"):
+            values["work_or_repair_code"] = _sparse_row_renovation_id(values, repair_code, label_map)
         return values
 
     def _prepare_entry(entry: object) -> tuple[int, str, str, dict[str, object]]:
@@ -838,21 +839,21 @@ def _sparse_row_renovation_id(
     label_map: dict[UUID, str],
 ) -> str | None:
     """Compute a missing renovation ID from a sparse export row."""
-    work_category_id = values.get("col_017")
-    work_type_id = values.get("col_018")
-    defect = values.get("col_023")
-    project_code = values.get("col_136")
+    work_category_id = values.get("work_category_id")
+    work_type_id = values.get("work_type_id")
+    defect = values.get("defect_list_or_bill_of_quantities_number")
+    project_code = values.get("plan_adjustment_type")
     result = _safe_renovation_id(
         RenovationIdInput(
             existing_id=None,
-            start_date=str(values.get("col_024") or "") or None,
+            start_date=str(values.get("work_start_date") or "") or None,
             asset_repair_code=asset_repair_code,
-            direction_code=str(values.get("col_189") or "") or None,
-            bpof_section=str(values.get("col_016") or "") or None,
+            direction_code=str(values.get("lotting_activity_direction_code") or "") or None,
+            bpof_section=str(values.get("bpof_section") or "") or None,
             work_category=label_map.get(UUID(str(work_category_id))) if work_category_id else None,
             project_code=str(project_code) if project_code else None,
             defect_number=defect_number_text(defect),
-            technology_position=str(values.get("col_011") or "") or None,
+            technology_position=str(values.get("process_position") or "") or None,
             work_type_label=label_map.get(UUID(str(work_type_id))) if work_type_id else None,
         )
     )
@@ -861,7 +862,7 @@ def _sparse_row_renovation_id(
 
 def _renovation_id_is_correct_condition(plan_id: UUID) -> ColumnElement[bool]:
     """
-    Rows of a plan whose renovation ID (`col_003`) is correct.
+    Rows of a plan whose renovation ID (`work_or_repair_code`) is correct.
 
     With the generator off (`RENOVATION_ID_FORMULA_ENABLED`), a code is judged
     by uniqueness alone: a correct code is non-empty and appears exactly once in
@@ -869,7 +870,7 @@ def _renovation_id_is_correct_condition(plan_id: UUID) -> ColumnElement[bool]:
     two things that still block submit. The «Идентификационный код» header
     filter offers these two groups above the searchable concrete code list.
     """
-    raw = col(RenovationPlanRow.col_003)
+    raw = col(RenovationPlanRow.work_or_repair_code)
     non_empty = raw.is_not(None) & (raw != "")
     duplicates = (
         select(raw)
@@ -919,14 +920,14 @@ async def _plan_id_issues(
     """
     Collect the rows blocking submit: incorrect (empty) and duplicated work IDs.
 
-    A row is «incorrect» when its stored `col_003` is empty; a duplicate is a
+    A row is «incorrect» when its stored `work_or_repair_code` is empty; a duplicate is a
     non-empty ID shared by more than one row — with the generator off
     (`RENOVATION_ID_FORMULA_ENABLED`) both are the user's own text and there is
     nothing else to check. Returns the exact counts plus the first
     `SUBMIT_ID_ISSUE_ROW_LIMIT` row positions («№») of each kind — `submit_plan`
     refuses to freeze the version while either count is non-zero.
     """
-    raw = col(RenovationPlanRow.col_003)
+    raw = col(RenovationPlanRow.work_or_repair_code)
     position = col(RenovationPlanRow.position)
     plan_condition = col(RenovationPlanRow.plan_id) == plan_id
     empty_condition = raw.is_(None) | (raw == "")
@@ -1003,9 +1004,9 @@ def _column_filter_condition(
             else:
                 codes.append(value)
         if codes:
-            conditions.append(col(RenovationPlanRow.col_003).in_(codes))
+            conditions.append(col(RenovationPlanRow.work_or_repair_code).in_(codes))
         if column_filter.includeNulls:
-            raw = col(RenovationPlanRow.col_003)
+            raw = col(RenovationPlanRow.work_or_repair_code)
             conditions.append(raw.is_(None) | (raw == ""))
         return or_(*conditions) if conditions else sa_false()
     value_conditions: list[ColumnElement[bool]] = []
@@ -1565,15 +1566,15 @@ async def read_plan_rows(
 # volumes, and the whole «Статус готовности МТР к проведению ремонта» block).
 _SUMMARY_EXCLUDED_FIELDS = frozenset(
     {
-        "col_023",  # «Дефектная ведомость/ВОР №»
-        "col_026",  # «Продолжительность, дни»
-        "col_083",  # «Физические объемы работ» — «Ед. изм.»
-        "col_084",  # «Физические объемы работ» — «Количество»
-        "col_208",  # «Статус готовности МТР…» — «Централизованная поставка»
-        "col_209",  # «Статус готовности МТР…» — «Прямая поставка»
-        "col_210",  # «Статус готовности МТР…» — «Централизованная поставка»
-        "col_211",  # «Статус готовности МТР…» — «Прямая поставка»
-        "col_214",  # «Статус готовности МТР…» — «Поставка оборудования и МТР Подрядчика»
+        "defect_list_or_bill_of_quantities_number",  # «Дефектная ведомость/ВОР №»
+        "work_duration_days",  # «Продолжительность, дни»
+        "adjustment_work_volume_unit",  # «Физические объемы работ» — «Ед. изм.»
+        "adjustment_work_volume_quantity",  # «Физические объемы работ» — «Количество»
+        "em_contracting_cs_pct",  # «Статус готовности МТР…» — «Централизованная поставка»
+        "equipment_materials_contracting_direct_supply_readiness_percent",  # «Статус готовности МТР…» — «Прямая поставка»
+        "em_delivery_cs_pct",  # «Статус готовности МТР…» — «Централизованная поставка»
+        "equipment_materials_delivery_direct_supply_readiness_percent",  # «Статус готовности МТР…» — «Прямая поставка»
+        "contractor_equipment_materials_supply_readiness_percent",  # «Статус готовности МТР…» — «Поставка оборудования и МТР Подрядчика»
     }
 )
 
@@ -1715,7 +1716,7 @@ async def read_plan_facets(
         # Keep high-cardinality code grouping/search/paging inside PostgreSQL.
         # Presets are independent of the page and search; their rows overlap
         # code values, so they must not inflate the distinct/row counts.
-        raw_code = col(RenovationPlanRow.col_003)
+        raw_code = col(RenovationPlanRow.work_or_repair_code)
         non_empty = raw_code.is_not(None) & (raw_code != "")
         correct = _renovation_id_is_correct_condition(plan.id)
         ok_count, bad_count, distinct_count, null_count = (
@@ -2148,7 +2149,7 @@ async def read_plan_diff(session: AsyncSession, *, plan_id: UUID, assets: list[R
             for meta in field_metas():
                 if meta.db_name in _VIRTUAL_FIELDS:
                     continue
-                if meta.db_name == "col_003":
+                if meta.db_name == "work_or_repair_code":
                     value = _row_renovation_id(row, asset, label_map)[0]
                 else:
                     value = _row_value_label(row, meta, label_map)
@@ -2289,7 +2290,7 @@ def _row_rule_violations(
 
     Rules from the source workbook (minimum/percentage/allowed_values/integer)
     are enforced on input by `_coerce_cell`, but a CALCULATED field is never
-    edited directly: e.g. «Продолжительность, дни» = col_025 − col_024 can go
+    edited directly: e.g. «Продолжительность, дни» = work_end_date − work_start_date can go
     negative when the dates are entered in the wrong order. Reporting the
     offending fields lets the grid tint those cells red, like the incomplete
     renovation ID.
@@ -2342,11 +2343,11 @@ def _row_renovation_id(
     Return the stored renovation ID, previewing the generator when it is empty.
 
     With the generator OFF the preview would show a code the database does not
-    hold — the cell must read as what will be saved, so an empty `col_003` stays
+    hold — the cell must read as what will be saved, so an empty `work_or_repair_code` stays
     empty. The generator stays for the day it is switched back on.
     """
-    if row.col_003:
-        return row.col_003, ()
+    if row.work_or_repair_code:
+        return row.work_or_repair_code, ()
     if asset is None or not RENOVATION_ID_FORMULA_ENABLED:
         return None, ()
     result = _safe_renovation_id(_renovation_id_input(row, asset, label_map))
@@ -2354,10 +2355,19 @@ def _row_renovation_id(
 
 
 # The cells `calculate_renovation_id` reads. Editing any of them must rebuild
-# col_003 from the row's inputs instead of keeping the stored value — but only
+# work_or_repair_code from the row's inputs instead of keeping the stored value — but only
 # while the generator is ON (`RENOVATION_ID_FORMULA_ENABLED`).
 _RENOVATION_ID_INPUT_FIELDS = frozenset(
-    {"col_011", "col_016", "col_017", "col_018", "col_023", "col_024", "col_136", "col_189"}
+    {
+        "process_position",
+        "bpof_section",
+        "work_category_id",
+        "work_type_id",
+        "defect_list_or_bill_of_quantities_number",
+        "work_start_date",
+        "plan_adjustment_type",
+        "lotting_activity_direction_code",
+    }
 )
 
 
@@ -2394,16 +2404,16 @@ def _renovation_id_input(
     the id is rebuilt from them.
     """
     return RenovationIdInput(
-        existing_id=row.col_003 if keep_existing else None,
-        start_date=row.col_024.isoformat() if isinstance(row.col_024, date) else None,
+        existing_id=row.work_or_repair_code if keep_existing else None,
+        start_date=row.work_start_date.isoformat() if isinstance(row.work_start_date, date) else None,
         asset_repair_code=asset.code,
-        direction_code=row.col_189,
-        bpof_section=row.col_016,
-        work_category=label_map.get(row.col_017) if row.col_017 is not None else None,
-        project_code=row.col_136,
-        defect_number=defect_number_text(row.col_023),
-        technology_position=row.col_011,
-        work_type_label=label_map.get(row.col_018) if row.col_018 is not None else None,
+        direction_code=row.lotting_activity_direction_code,
+        bpof_section=row.bpof_section,
+        work_category=label_map.get(row.work_category_id) if row.work_category_id is not None else None,
+        project_code=row.plan_adjustment_type,
+        defect_number=defect_number_text(row.defect_list_or_bill_of_quantities_number),
+        technology_position=row.process_position,
+        work_type_label=label_map.get(row.work_type_id) if row.work_type_id is not None else None,
     )
 
 
@@ -2523,16 +2533,16 @@ async def update_plan_cells(
         # Rebuild the id only when the edit touched one of its inputs (e.g.
         # clearing the defect number and filling the correction); otherwise the
         # stored id stands. With the generator OFF the value is never rebuilt:
-        # col_003 is another editable cell and the user's text is kept verbatim.
+        # work_or_repair_code is another editable cell and the user's text is kept verbatim.
         edited_fields = touched_fields.get(row.id) or set()
         if RENOVATION_ID_FORMULA_ENABLED:
             keep_existing = not (edited_fields & _RENOVATION_ID_INPUT_FIELDS)
             result = _safe_renovation_id(_renovation_id_input(row, asset, label_map, keep_existing=keep_existing))
         else:
-            result = RenovationIdResult(value=row.col_003 or "", missing_components=())
-        id_changed = row.col_003 != result.value
+            result = RenovationIdResult(value=row.work_or_repair_code or "", missing_components=())
+        id_changed = row.work_or_repair_code != result.value
         if id_changed:
-            row.col_003 = result.value
+            row.work_or_repair_code = result.value
             session.add(row)
         renovation_ids.append(
             RenovationIdRead(
@@ -2558,9 +2568,11 @@ async def update_plan_cells(
 
 
 _CALCULATED_METAS: tuple[RenovationFieldMeta, ...] = tuple(meta for meta in field_metas() if meta.is_calculated)
-# col_003 (the renovation ID) is derived by `_renovation_id_input`, not by the
+# work_or_repair_code (the renovation ID) is derived by `_renovation_id_input`, not by the
 # formula engine; `_materialize_row` leaves it to the caller.
-_FORMULA_METAS: tuple[RenovationFieldMeta, ...] = tuple(meta for meta in _CALCULATED_METAS if meta.db_name != "col_003")
+_FORMULA_METAS: tuple[RenovationFieldMeta, ...] = tuple(
+    meta for meta in _CALCULATED_METAS if meta.db_name != "work_or_repair_code"
+)
 _CALCULATED_COLUMNS: tuple[str, ...] = tuple(meta.db_name for meta in _FORMULA_METAS)
 # Every formula input (neither calculated nor virtual) — the full-recompute sweep.
 _INPUT_FIELD_NAMES: tuple[str, ...] = tuple(
@@ -2663,7 +2675,7 @@ async def recompute_plan_rows(
             raise _ERR_NO_WORKING_PLAN
         plan_id = plan.id
     # The renovation-ID generator is off (`RENOVATION_ID_FORMULA_ENABLED`), so
-    # `col_003` keeps its stored value and neither label map nor assets are
+    # `work_or_repair_code` keeps its stored value and neither label map nor assets are
     # needed; skip both reads on the hot import path.
     if RENOVATION_ID_FORMULA_ENABLED:
         label_map = await _reference_labels(session)
@@ -2674,7 +2686,7 @@ async def recompute_plan_rows(
     statement = (
         sa_update(RenovationPlanRow)
         .where(col(RenovationPlanRow.id) == bindparam("row_id"))
-        .values({name: bindparam(name) for name in (*_CALCULATED_COLUMNS, "col_003")})
+        .values({name: bindparam(name) for name in (*_CALCULATED_COLUMNS, "work_or_repair_code")})
         .execution_options(synchronize_session=False)
     )
     connection = await session.connection()
@@ -2687,14 +2699,14 @@ async def recompute_plan_rows(
         for row in rows:
             calculated, row_changed = _materialize_row(row)
             asset = assets_by_id.get(row.asset_id)
-            new_id = row.col_003
+            new_id = row.work_or_repair_code
             if asset is not None and RENOVATION_ID_FORMULA_ENABLED:
                 new_id = _safe_renovation_id(_renovation_id_input(row, asset, label_map)).value
-            row_changed = row_changed or new_id != row.col_003
+            row_changed = row_changed or new_id != row.work_or_repair_code
             changed += row_changed
             scanned += 1
             if row_changed:
-                parameters.append({"row_id": row.id, **calculated, "col_003": new_id})
+                parameters.append({"row_id": row.id, **calculated, "work_or_repair_code": new_id})
         if parameters:
             await connection.execute(statement, parameters)
         for row in rows:
@@ -2804,7 +2816,7 @@ def _check_edit_rules(meta: RenovationFieldMeta, value: object) -> None:
     Only rules checkable from the cell value itself are enforced here (values
     are non-null: `None` is allowed by `allowNull` and clears the cell):
     `minimum`, `integer`, `percentage` and `allowed_values`. The cross-field
-    rules (`field_compare` — col_025 ≥ col_024; `calendar_year` — col_024) are
+    rules (`field_compare` — work_end_date ≥ work_start_date; `calendar_year` — work_start_date) are
     validated in the grid, which has both the field metadata and the row.
     """
     if value is None:
@@ -2957,7 +2969,7 @@ async def apply_renovation_cell_value(
         _recalculate_row(session, row)
         if RENOVATION_ID_FORMULA_ENABLED:
             result = _safe_renovation_id(_renovation_id_input(row, asset, label_map))
-            row.col_003 = result.value
+            row.work_or_repair_code = result.value
     session.add(row)
 
 

@@ -37,6 +37,8 @@ import {
     RENOVATION_ASSETS_SECTION,
     RENOVATION_SECTION,
     RENOVATION_USERS_SECTION,
+    decodeLegacyFieldKeys,
+    decodeLegacyFieldName,
     renovationCatalogSection,
     renovationExportJobFileUrl,
     submitRenovationPlan,
@@ -199,7 +201,7 @@ function toGridRow(
     return {
         ...row.values,
         // The read-only «№ ремонта» column shows the computed value.
-        col_003: row.renovationId,
+        work_or_repair_code: row.renovationId,
         // Service columns (header «+» / project-wide view state).
         id: row.id,
         position: row.position,
@@ -303,18 +305,25 @@ export function RenovationWorkspace({
      * helpers only read it once on mount and write on every change.
      */
     const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilter>>(() =>
-        readStoredFilters("renovation", "plan"),
+        decodeLegacyFieldKeys(readStoredFilters("renovation", "plan")),
     );
     // Hidden plan columns. Remembered like the filters (per project + form) and
     // owned here because the plan grid is not the shared DataGrid.
     const {
-        hidden: hiddenPlanFields,
+        hidden: storedHiddenPlanFields,
         hide: hidePlanFields,
         show: showPlanFields,
     } = useGridHiddenColumns("renovation", "plan");
-    const { overrides: pinnedPlanColumns, setMany: setPlanColumnsPinned } = useGridPinnedColumns(
-        "renovation",
-        "plan",
+    const { overrides: storedPinnedPlanColumns, setMany: setPlanColumnsPinned } =
+        useGridPinnedColumns("renovation", "plan");
+    // Migration 0041 renamed every plan field; decode keys saved by older builds.
+    const hiddenPlanFields = useMemo(
+        () => decodeLegacyFieldKeys(storedHiddenPlanFields),
+        [storedHiddenPlanFields],
+    );
+    const pinnedPlanColumns = useMemo(
+        () => decodeLegacyFieldKeys(storedPinnedPlanColumns),
+        [storedPinnedPlanColumns],
     );
     // Flat filter list for the rows API; a column with nothing kept selects
     // nothing, which the server treats as "no rows" (never "all").
@@ -381,7 +390,10 @@ export function RenovationWorkspace({
         [metaReloadKey],
     );
     const [columnSorting, setColumnSorting] = useState<StoredSortColumn[]>(() =>
-        readStoredSorting("renovation", "plan"),
+        readStoredSorting("renovation", "plan").map((entry) => ({
+            ...entry,
+            prop: decodeLegacyFieldName(entry.prop),
+        })),
     );
     const sortablePlanColumns = useMemo(() => {
         const columns = new Set<string>([ASSET_COLUMN_PROP, ...Object.keys(AUDIT_COLUMNS)]);
@@ -1154,7 +1166,7 @@ export function RenovationWorkspace({
                     rowId: row.id,
                     fields: {
                         ...row.values,
-                        col_003: row.renovationId,
+                        work_or_repair_code: row.renovationId,
                         revision: row.revision,
                         updatedAt: row.updatedAt,
                         updatedBy: row.updatedBy,
@@ -1184,7 +1196,7 @@ export function RenovationWorkspace({
                 const value = remoteCellValues.get(canonicalRenovationKey(row.__id, field));
                 if (value === undefined) continue;
                 fields[field] = value;
-                if (field === "col_003") {
+                if (field === "work_or_repair_code") {
                     // The renovation ID drives the red «incomplete» tint: derive
                     // the missing-components flag from the value itself (<NULL>
                     // placeholder) — the cell:changed payload carries no metadata.
@@ -1478,7 +1490,7 @@ export function RenovationWorkspace({
     );
     // A row may be deleted by anyone except the approver, and only while it
     // holds no data — just the mandatory asset plus the technical columns.
-    // (The asset lives in __assetId; col_003 is the computed renovation ID.)
+    // (The asset lives in __assetId; work_or_repair_code is the computed renovation ID.)
     const rowIsEmpty = useMemo(() => {
         if (!selectedRow) return true;
         const row = selectedRow as unknown as Record<string, unknown>;

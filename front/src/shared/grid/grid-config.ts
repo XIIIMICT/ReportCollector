@@ -225,7 +225,7 @@ export const ADMIN_SECTIONS: SectionId[] = ["rawMaterials", "assets", "deliveryB
  * The two computed renovation-dictionary columns, shared by every dictionary.
  *
  * The server aggregates the working plan per dictionary value — «Число
- * ремонтных работ» is its row count, «Стоимость итого» the sum of `col_031` —
+ * ремонтных работ» is its row count, «Стоимость итого» the sum of `total_cost_rub_ex_vat` —
  * so «Предприятия» and every reference catalog render (and export) the same
  * columns from one definition instead of per-dictionary copies.
  */

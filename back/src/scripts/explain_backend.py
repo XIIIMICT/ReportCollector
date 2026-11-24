@@ -79,9 +79,9 @@ async def capture(*, analyze: bool, output: Path) -> None:
                     operation = "window_deep"
                     await read_plan_rows(session, assets, plan_id=plan.id, offset=max(0, window.total // 2), limit=100)
                     operation = "facet_text"
-                    await read_plan_facets(session, assets, plan_id=plan.id, column="col_004", limit=50)
+                    await read_plan_facets(session, assets, plan_id=plan.id, column="production_name", limit=50)
                     operation = "facet_date"
-                    await read_plan_facets(session, assets, plan_id=plan.id, column="col_024", limit=50)
+                    await read_plan_facets(session, assets, plan_id=plan.id, column="work_start_date", limit=50)
                     operation = "export_metadata"
                     await read_plan_export_meta(session, [asset.id for asset in assets], plan_id=plan.id)
                 finally:

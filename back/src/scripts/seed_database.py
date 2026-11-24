@@ -513,20 +513,22 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
                     created_at=now,
                     updated_at=now,
                     updater_user_id=None,
-                    col_011=object_name,
-                    col_016="Ремонтный бюджет",
-                    col_017=renovation_reference_by_id[
+                    process_position=object_name,
+                    bpof_section="Ремонтный бюджет",
+                    work_category_id=renovation_reference_by_id[
                         reference_option_id("work_category", "Остановочный капитальный ремонт")
                     ],
-                    col_018=renovation_reference_by_id[reference_option_id("work_type", "ТР")],
-                    col_019=renovation_reference_by_id[reference_option_id("cost_allocation", "OPEX")],
-                    col_020=renovation_reference_by_id[reference_option_id("execution_method", "Собственные силы")],
-                    col_023=defect,
-                    col_024=date(2027, 1, 1),
-                    col_025=date(2027, 1, 31),
-                    col_028=plan_amount,
-                    col_029=fact_amount,
-                    col_189="1.1.1.",
+                    work_type_id=renovation_reference_by_id[reference_option_id("work_type", "ТР")],
+                    cost_allocation_type_id=renovation_reference_by_id[reference_option_id("cost_allocation", "OPEX")],
+                    execution_method_id=renovation_reference_by_id[
+                        reference_option_id("execution_method", "Собственные силы")
+                    ],
+                    defect_list_or_bill_of_quantities_number=defect,
+                    work_start_date=date(2027, 1, 1),
+                    work_end_date=date(2027, 1, 31),
+                    work_cost_rub_ex_vat=plan_amount,
+                    customer_materials_cost_rub_ex_vat=fact_amount,
+                    lotting_activity_direction_code="1.1.1.",
                 )
             )
         session.info["renovation_plan_rows"] = 4

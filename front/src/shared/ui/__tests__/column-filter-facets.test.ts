@@ -133,7 +133,7 @@ test("serverFacetSource drops the null-labelled entries of the wire format", asy
             rowCount: 7,
         }),
     );
-    const window = await source("col_010", { offset: 0, limit: 200 });
+    const window = await source("technical_location_name", { offset: 0, limit: 200 });
     expect(window.values).toEqual([{ value: "Насос", count: 2 }]);
     expect(window.hasNulls).toBe(true);
     expect(window.nullCount).toBe(5);

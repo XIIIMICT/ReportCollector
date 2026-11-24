@@ -59,7 +59,7 @@ async def read_working_plan_aggregates(
     Every renovation dictionary groups the working plan's rows by the column
     that stores its value — `asset_id` for «Предприятия», the reference column
     for a catalog option. A plan row carries exactly one value per reference
-    catalog, so a repair work is counted once. The cost is the sum of `col_031`.
+    catalog, so a repair work is counted once. The cost is the sum of `total_cost_rub_ex_vat`.
 
     Values without rows get a zero aggregate, so every requested id is present
     in the result. A project without a working version yields all zeros.
@@ -75,7 +75,7 @@ async def read_working_plan_aggregates(
         await session.exec(
             select(
                 group_by,
-                func.coalesce(func.sum(col(RenovationPlanRow.col_031)), 0),
+                func.coalesce(func.sum(col(RenovationPlanRow.total_cost_rub_ex_vat)), 0),
                 func.count(),
             )
             .where(col(RenovationPlanRow.plan_id) == working_plan_id)
