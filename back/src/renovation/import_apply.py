@@ -91,11 +91,13 @@ async def apply_plan_file(
     Load a validated technical-directorate file into the working plan.
 
     The workbook is parsed in a worker thread (CPU-bound: tens of thousands of
-    rows × 216 columns), then written in short batches inside ONE transaction
-    under the shared project gate, so the plan is never seen half-loaded and a
-    concurrent edit waits instead of racing. Reference labels resolve to the
-    form's catalog ids here; a label the catalog does not know aborts the whole
-    load (the preflight reports them before the button is enabled).
+    rows × 216 columns), then written in short batches inside ONE transaction,
+    so the plan is never seen half-loaded. The shared project advisory gate is
+    compatible with other shared locks: it does NOT serialize this load against
+    normal cell edits (those use row locks/leases/revisions). Gate A's chosen
+    policy blocks the form while the import job runs; see docs/TODO.md.
+    Reference labels resolve to the form's catalog ids here; a label the catalog
+    does not know aborts the whole load (the preflight reports it first).
 
     Rows are matched by the work code: a code already in the plan updates that
     row in place, a new code appends a row to the end of the plan.

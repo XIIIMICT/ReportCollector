@@ -1343,6 +1343,50 @@ async def test_undo_restores_previous_value(
     assert row_read["values"]["work_cost_rub_ex_vat"] == 10.0
 
 
+async def test_undo_restores_source_and_recalculates_formula(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§3.7: Undo restores the source cell AND the formula that depends on it."""
+    from src.renovation import router_undo
+
+    published: list[int] = []
+    real_publish = router_undo._publish_rows_changed
+
+    async def spy(session: AsyncSession, access: Any) -> None:  # noqa: ANN401
+        published.append(1)
+        await real_publish(session, access)
+
+    monkeypatch.setattr(router_undo, "_publish_rows_changed", spy)
+
+    row = await _row_by_asset_code(db_session, "BSKR")
+    before = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
+    original = next(r for r in before.json()["rows"] if r["assetCode"] == "BSKR")["values"]
+    source_before = original["work_cost_rub_ex_vat"]
+    derived_before = original["total_cost_rub_ex_vat"]
+
+    status, body = await _patch(client, [{"rowId": str(row.id), "field": "work_cost_rub_ex_vat", "value": 15}])
+    assert status == 200
+    changed = {cell["field"]: cell["value"] for cell in body["calculated"]}
+    assert changed["total_cost_rub_ex_vat"] != derived_before
+
+    undone = await client.post(
+        "/api/renovation/undo",
+        headers=ADMIN_HEADERS,
+        params={"session_id": TEST_SESSION_ID},
+        json={"section": "renovationPlan"},
+    )
+    assert undone.status_code == 200, undone.text
+    assert undone.json()["applied"] is True
+    assert undone.json()["value"] == source_before
+
+    after = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
+    restored = next(r for r in after.json()["rows"] if r["assetCode"] == "BSKR")["values"]
+    assert restored["work_cost_rub_ex_vat"] == source_before
+    assert restored["total_cost_rub_ex_vat"] == derived_before
+    # Other clients learn the recalculated value via rows:changed -> refetch.
+    assert published == [1]
+
+
 async def test_redo_reapplies_undone_value(
     client: AsyncClient,
     db_session: AsyncSession,
