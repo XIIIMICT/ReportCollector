@@ -483,6 +483,25 @@ Left uncompressed, the first load pays ~1.7 MB of avoidable transfer per visitor
 
 **API JSON is not compressed by the Next proxy.** Its former manual gzip broke on Next 16.4.5: `sendResponse` drops `Content-Encoding` from route-handler responses (it assumes a fetch-decompressed body), so the browser received gzip bytes labelled `application/json` and every workspace stayed on its loading skeleton. Compression belongs entirely to nginx: `location /` sends `Accept-Encoding: ""` upstream, the proxy returns the backend's plain JSON, and nginx gzips `application/json` (already in `gzip_types`). In dev, where the browser talks to Next directly, API JSON arrives uncompressed — a few MB over localhost traded for a response the browser can parse.
 
+### Upload proxying: bounded buffering is deliberate
+
+`front/src/shared/api/backend-proxy.ts` still reads a multipart upload into a
+single Node `Buffer` before forwarding it (`request.arrayBuffer()`). The
+original `Content-Type`, including the boundary, is preserved byte-for-byte and
+the **response** body is streamed. Re-streaming `request.body` into undici with
+`duplex: "half"` was tried and dropped: in the Next dev route handler the parts
+were lost, so the backend received an incomplete multipart body. The installed
+Next 16.4.5 documents streaming **responses** but offers no supported contract
+for streaming an incoming route-handler body into `fetch`; the request is
+already bounded to 256 MiB by `ImportUploadLimitsMiddleware` and the spooled
+`UploadFile`, so the buffered hop is a known, bounded cost rather than an
+unbounded one. Owner options if this hop becomes the bottleneck: (a) upload
+straight to the backend with CORS and signed identity headers, bypassing Next;
+(b) terminate the proxy in the central nginx stack (deferred with infra work);
+(c) add a chunked/direct-to-object-storage upload API. Do not switch to a
+fragile stream forward without verifying the full multipart payload on the real
+Next runtime — Phase 5.4 of the implementation brief explicitly requires that.
+
 ### Bundle shape (why the first load is heavy)
 
 `ReportWorkspace` used to import all three project workspaces statically, so opening «Движение» also downloaded the КППК and renovation grids — and a grid is `@revolist/react-datagrid`, the bulk of the largest chunk. They are now `next/dynamic`, one per URL: the largest chunk went **2 179 KB → 1 459 KB**, and the grid split into its own 746 KB chunk that only the project that needs it loads. Adding a new project to `report-workspace.tsx` means adding another `dynamic(...)` entry, not a static import.
