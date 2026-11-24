@@ -107,11 +107,16 @@ class JobRepository:
                 self._retry(job, now, "worker_lost", retryable=True)
                 session.add(job)
             await session.flush()
+            # A per-kind concurrency limit must count ONLY jobs of this kind:
+            # one kind's running jobs must not consume another kind's worker
+            # slots. The global active-job cap is a separate explicit limit,
+            # enforced in create() via MAX_ACTIVE_JOBS (not here).
             running = (
                 await session.exec(
                     select(func.count())
                     .select_from(DataJob)
                     .where(
+                        DataJob.kind == kind,
                         DataJob.status == "running",
                     )
                 )
