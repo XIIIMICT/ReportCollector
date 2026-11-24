@@ -79,6 +79,8 @@ from src.renovation.service_common import (
     _safe_renovation_id,
     _unknown_field,
     defect_number_text,
+    prefetch_reference_ids,
+    resolve_reference_id_from_map,
 )
 
 from .assets import (
@@ -327,6 +329,14 @@ async def update_plan_cells(
     if plan.state == RPlanState.PENDING_APPROVAL and not is_admin:
         raise _ERR_EDIT_PENDING
     label_map = await _reference_labels(session)
+    # Phase 6.2: one bounded snapshot instead of one catalog SELECT per
+    # reference-valued cell in this batch.
+    reference_ids: dict[str, dict[str, UUID]] | None = None
+    for update in updates:
+        meta = field_meta(update.field)
+        if meta is not None and meta.cell_type == "reference":
+            reference_ids = await prefetch_reference_ids(session)
+            break
     await lock_rows(session, [f"undo/{user.id}/{session_id}/renovationPlan/"])
     await lock_rows(session, [f"{RENOVATION_PLAN_ROWS_TABLE}/{update.rowId}" for update in updates])
     await check_edit_leases(
@@ -366,7 +376,7 @@ async def update_plan_cells(
             if block is None or meta.responsibility_block != block.value:
                 raise _block_access(field, block if block is not None else RBlock.TECH)
         old_value = _row_value_label(row, meta, label_map)
-        new_value, db_value = await _coerce_cell(session, meta, update.value)
+        new_value, db_value = await _coerce_cell(session, meta, update.value, reference_ids)
         if db_value == getattr(row, field):
             continue
         setattr(row, field, db_value)
@@ -449,6 +459,7 @@ async def _coerce_cell(
     session: AsyncSession,
     meta: RenovationFieldMeta,
     value: object,
+    reference_ids: dict[str, dict[str, UUID]] | None = None,
 ) -> tuple[object, object]:
     """Coerce an API cell value to (journal value, DB value) by the field type."""
     if meta.cell_type == "number":
@@ -467,7 +478,10 @@ async def _coerce_cell(
         return value, value
     if meta.cell_type == "reference":
         label = coerce_text(value)
-        value_id = await _resolve_reference_id(session, meta.catalog, label)
+        if reference_ids is not None:
+            value_id = resolve_reference_id_from_map(reference_ids, meta.catalog, label)
+        else:
+            value_id = await _resolve_reference_id(session, meta.catalog, label)
         return label, value_id
     text = coerce_text(value)
     if meta.db_name == DIRECTION_CODE_FIELD:

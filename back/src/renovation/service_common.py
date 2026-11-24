@@ -414,6 +414,33 @@ async def _resolve_reference_id(session: AsyncSession, catalog: str | None, labe
     return value.id
 
 
+async def prefetch_reference_ids(session: AsyncSession) -> dict[str, dict[str, UUID]]:
+    """
+    One bounded snapshot of the reference catalogs for a bulk cell edit.
+
+    The key is the EXACT label (matching `_resolve_reference_id`'s `label ==`),
+    not a casefolded one: the preflight/import maps use casefold deliberately,
+    but a cell PATCH has always been strict. Deleted rows are included too, as
+    in the single-row lookup. One query replaces one query per reference cell.
+    """
+    ids: dict[str, dict[str, UUID]] = {}
+    for value in (await session.exec(select(RenovationReferenceValue))).all():
+        ids.setdefault(str(value.catalog), {})[value.label] = value.id
+    return ids
+
+
+def resolve_reference_id_from_map(
+    ids: dict[str, dict[str, UUID]], catalog: str | None, label: str | None
+) -> UUID | None:
+    """In-memory counterpart of `_resolve_reference_id` with identical errors."""
+    if label is None or catalog is None:
+        return None
+    value_id = ids.get(catalog, {}).get(label)
+    if value_id is None:
+        raise _reference_value(catalog, label)
+    return value_id
+
+
 async def _reference_labels(session: AsyncSession) -> dict[UUID, str]:
     """Labels of the reference catalogue (cached until a catalogue row changes)."""
     return await cached_reference_labels(session)

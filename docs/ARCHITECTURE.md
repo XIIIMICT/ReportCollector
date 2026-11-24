@@ -743,6 +743,10 @@ to catalog ids before staging.
 
 Reference cells are resolved to the ids of the **live** `r_reference_values`
 dictionary — the same rows the preflight (and the «Справочники» editor) sees.
+A bulk cell PATCH takes ONE catalog snapshot (`prefetch_reference_ids`, exact
+label → id, including deleted rows) and resolves every reference cell in memory
+(Phase 6.2); a single-cell undo/redo still uses the one-row lookup. Resolution
+stays strict: an unknown label refuses the batch with the same error as before.
 Both passes therefore agree: an option the operator adds after the seed is
 loadable at once. Reading the seed's static `REFERENCE_OPTIONS` here instead was
 a trap — the preflight said «ready» and the load then refused the whole file

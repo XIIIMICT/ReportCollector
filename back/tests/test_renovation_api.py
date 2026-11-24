@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
-from typing import IO, cast
+from typing import IO, Any, cast
 from urllib.parse import unquote
 from uuid import uuid4
 from zipfile import ZipFile
@@ -1123,6 +1123,41 @@ async def test_patch_accepts_reference_labels(client: AsyncClient, db_session: A
 
 async def test_patch_rejects_unknown_reference_label(client: AsyncClient, db_session: AsyncSession) -> None:
     row = await _row_by_asset_code(db_session, "BSKR")
+    status, body = await _patch(client, [{"rowId": str(row.id), "field": "work_category_id", "value": "Нет такого"}])
+    assert status == 422
+    assert "не найдено" in body["detail"]
+
+
+async def test_patch_prefetches_reference_ids_for_many_cells(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch of reference cells uses one catalog snapshot, not one SELECT per cell."""
+    from src.renovation import cell_mutations
+
+    row = await _row_by_asset_code(db_session, "BSKR")
+    single_lookups: list[object] = []
+    original = cell_mutations._resolve_reference_id
+
+    async def spy(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        single_lookups.append(args)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(cell_mutations, "_resolve_reference_id", spy)
+    cells = [
+        {"rowId": str(row.id), "field": "equipment_criticality_group_id", "value": "3"},
+        {"rowId": str(row.id), "field": "work_category_id", "value": "ТОиР"},
+        {"rowId": str(row.id), "field": "work_type_id", "value": "КР"},
+        {"rowId": str(row.id), "field": "cost_allocation_type_id", "value": "OPEX"},
+        {"rowId": str(row.id), "field": "execution_method_id", "value": "Собственные силы"},
+    ]
+    status, body = await _patch(client, cells)
+    assert status == 200, body
+    # Some seed values may already match, but every reference cell still went
+    # through the prefetched map — no single-row catalog lookup happened.
+    assert body["applied"] >= 3
+    assert single_lookups == []
+
+    # The prefetched map is strict exactly like the single-row lookup.
     status, body = await _patch(client, [{"rowId": str(row.id), "field": "work_category_id", "value": "Нет такого"}])
     assert status == 422
     assert "не найдено" in body["detail"]
