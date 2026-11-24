@@ -785,13 +785,12 @@ file error like any catalog label (`unknown_assets`), never a skip.
 The load is **not** journaled into undo/redo: it rewrites many rows at once, so
 a single «Отменить» cannot meaningfully revert it.
 
-**Known risk (temporary, until the load leaves the testing phase):** the gate
-serialises the load against other *gated* writes (cell edits, row inserts,
-fixing), but a user who is holding a lease on a cell of a row the file rewrites
-keeps their stale value in the open editor and can commit it afterwards — the
-last write wins. Undo history of the affected rows is not reconciled either. No
-special handling yet; the operator should avoid loading while someone edits the
-same rows.
+**Resolved by Gate A (2026-11-25):** the shared advisory gate never serialised
+the load against cell edits. The form is now blocked for every member while a
+job is active (`GET /plan/import/active` + `usePlanImportLock` red chip), the
+server refuses writes with 409, and the import clears the plan's Undo history
+in its own transaction. A stale editor cannot commit over imported values;
+stale cell leases themselves are unchanged and still expire on their TTL.
 
 ## Renovation plan export jobs
 Excel-export plumbing is shared by every project in `back/src/common/`:
@@ -1042,6 +1041,35 @@ descriptor entry without zip64 opens clean, with zip64 fails; the re-zipped
 safely at all, and `close()` raises `ExportTooLargeError` («Выгрузка
 превышает 4 ГБ — Excel не сможет открыть такой файл…») — the job fails with a
 user-facing message instead of producing a workbook Excel would repair.
+
+## Implemented invariants
+
+These are current guarantees, not planned work:
+
+- **PostgreSQL is the source of truth** for business data, edit stacks, cell
+  states and the outbox; a mutation and its history/notifications commit in one
+  transaction (`database.py` request dependency).
+- **Valkey is disposable** — leases, presence and pub/sub only. Losing it delays
+  or repeats a notification; it never loses a business row. A lease is not a
+  commit barrier; the advisory locks and row revisions are.
+- **Job lease/fencing** — a worker owns a job only while its 30-second lease is
+  valid; a stale attempt cannot publish `done` or claim an artifact. Exports
+  publish the file only after a clean `.part` → `.xlsx` rename.
+- **Import atomicity** — the worker commits plan writes, recompute and the
+  terminal job result in one transaction; a cancelled job or a lost lease rolls
+  all of it back. Blank source cells overwrite (NULL), only a column absent
+  from the file keeps its value, and duplicate plan codes all get overwritten
+  (the uniqueness scope is still a Gate B/C cleanup task). The undo stack is
+  cleared in the same transaction.
+- **Export artifact visibility** — a download becomes visible only after
+  successful completion; a partial or stale attempt never replaces it.
+- **Authorization is enforced server-side** on every request: role/block/asset
+  checks in the service layer, not only grid read-only flags.
+- **Conflict policy (Gate A)** — while an import runs, the plan form is blocked
+  and writes are refused with 409; stale cell leases expire on their TTL.
+- **Filtering happens before pagination** — `WHERE` is applied before the
+  window/count; default reads use a keyset seek, sorted reads use OFFSET.
+- **Applied migrations are immutable** — corrections are new revisions only.
 
 ## Transactional collaboration
 
