@@ -153,6 +153,52 @@ different milestones. Do not reopen the explicit product deferrals below.
   edit overwrites: accepted temporary testing compromise. No conflict UI now.
 - Further local Argon2/password-fallback work; Keycloak is the normal login path.
 
+## Deferred — implementation brief (moved from §6)
+
+Moved here verbatim from `docs/REPORTCOLLECTOR_IMPLEMENTATION_PROMPT.md` §6,
+so the brief itself stays an actionable implementation sequence. These items
+are NOT part of the current implementation phases; each needs its own decision,
+infrastructure work, or owner gate.
+
+- [ ] **S3-compatible object storage** — replace local import/export artifact
+  storage with a durable shared object store; design migration, lifecycle,
+  credentials and recovery separately (§3.1 keeps current storage).
+- [ ] **Export artifact lifecycle** — retention, cleanup, quota/disk-growth
+  handling and behavior above the XLSX format ceiling; needs an owner-approved
+  retention/product policy.
+- [ ] **Multi-process worker topology** — separate API, import/export/query
+  workers and outbox dispatch from the API lifespan; needs coordinated
+  deployment/infrastructure changes (§3.9).
+- [ ] **Infrastructure and deployment review** — NGINX limits/timeouts, Compose
+  networks/ports, health/readiness wiring, Docker TLS trust, deployment topology
+  and storage mounts (§3.9).
+- [ ] **Monitoring and alerting** — metrics exposure, per-process scraping,
+  queue-age/worker/DB metrics, alert design, operational dashboards (§3.9).
+- [ ] **Production runbooks and disaster recovery** — backup/restore validation,
+  RPO/RTO, failure procedures, disk-full/object-store/Valkey/DB outage response
+  (§3.9).
+- [ ] **Security/logging review** — PII in authentication/application logs,
+  retention, redaction and access policy with the organization.
+- [ ] **Load/stress certification** — representative large files/dataset,
+  concurrent users, multiple replicas, worker crashes, dependency failures,
+  performance percentiles, capacity/SLO definition (§3.5).
+- [ ] **Full archive-to-archive plan diff** — currently not connected to a
+  user-facing workflow; revisit when product scope requires it (§3.4).
+- [ ] **Gate A — import/edit conflict policy** — waiting for the owner to choose
+  between deferring imports on active leases, optimistic conflict detection,
+  explicit serialization, or another option (§3.6).
+- [ ] **Gates B/C — code uniqueness scope and duplicate-workbook policy** —
+  waiting for owner answers before changing the preflight query or adding a
+  unique constraint.
+- [ ] **Final document/API limit policy** — last priority; generous,
+  evidence-based ceilings after functional work and owner review (§3.10).
+- [ ] **Deep sorted-row pagination (if contract-changing)** — only if
+  measurements show OFFSET is material and a cursor would alter the grid/API
+  contract.
+- [ ] **Count/aggregate cache versioning (if needed)** — after query
+  measurement; any data-revision protocol must cover every mutation path
+  transactionally.
+
 ## Process (hard rules)
 
 Short recap — the canonical text is `docs/WORKFLOW.md`; this list is the living
