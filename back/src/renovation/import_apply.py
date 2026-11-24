@@ -99,7 +99,7 @@ async def apply_plan_file(
         code: row_id
         for row_id, code in (
             await session.exec(
-                select(col(RenovationPlanRow.id), col(RenovationPlanRow.col_003)).where(
+                select(col(RenovationPlanRow.id), col(RenovationPlanRow.work_or_repair_code)).where(
                     col(RenovationPlanRow.plan_id) == plan.id
                 )
             )
@@ -261,7 +261,7 @@ async def _flush_batch(
                     "created_at": now,
                     "updated_at": now,
                     "updater_user_id": user_id,
-                    "col_003": pending.parsed.code,
+                    "work_or_repair_code": pending.parsed.code,
                     **values,
                 }
             )
@@ -351,9 +351,9 @@ def _unknown_asset(code: str, asset_key: str) -> ValueError:
 
 
 _CATALOG_BY_FIELD: dict[str, str] = {
-    "col_015": "criticality",
-    "col_017": "work_category",
-    "col_018": "work_type",
-    "col_019": "cost_allocation",
-    "col_020": "execution_method",
+    "equipment_criticality_group_id": "criticality",
+    "work_category_id": "work_category",
+    "work_type_id": "work_type",
+    "cost_allocation_type_id": "cost_allocation",
+    "execution_method_id": "execution_method",
 }

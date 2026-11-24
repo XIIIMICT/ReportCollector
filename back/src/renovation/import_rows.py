@@ -88,7 +88,7 @@ def _parse_plan_rows(rows: Iterable[list[object]]) -> Iterator[ParsedPlanRow]:
             continue
         field = mapping.get(normalized)
         if field is None and normalized.startswith(_norm("Дефектная ведомость/ВОР")):
-            field = "col_023"
+            field = "defect_list_or_bill_of_quantities_number"
         if field is not None:
             columns.setdefault(field, index)
     code_index = next((i for i, value in enumerate(header_row) if _norm(value) == _norm(_CODE_HEADER)), None)

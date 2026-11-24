@@ -33,7 +33,7 @@ def test_catalog_covers_every_application_table_and_column() -> None:
     # 0033 adds the «Класс опасности» dictionary (2 columns).
     # 0035 adds the «Ставки» main table (21 columns).
     # 0037 adds the asset grants of a «Работник на активе» (6 columns).
-    # 0040 re-adds r_plan_rows.col_218 as «Номер сметы» (1 column).
+    # 0040 re-adds r_plan_rows.estimate_number as «Номер сметы» (1 column).
     assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 554
     assert set(TABLE_COMMENTS) == set(SQLModel.metadata.tables)
     for table in SQLModel.metadata.tables.values():
@@ -63,8 +63,16 @@ def test_frozen_migration_matches_current_catalog() -> None:
     # 0024 replaced the text `product`/`region` of the realization copies with
     # `product_id`/`market_id`, so the snapshot keeps the text descriptions.
     # 0030 renamed the assets' `repair_code` to `code` (the old pair is gone) and
-    # retyped `r_plan_rows.col_023` as text — the snapshot keeps the old wording.
-    _replaced = {"sort_order", "value_key", "payload", "product", "region", "repair_code", "col_023"}
+    # retyped `r_plan_rows.defect_list_or_bill_of_quantities_number` as text — the snapshot keeps the old wording.
+    _replaced = {
+        "sort_order",
+        "value_key",
+        "payload",
+        "product",
+        "region",
+        "repair_code",
+        "defect_list_or_bill_of_quantities_number",
+    }
     migration_tables = {
         name: (
             description,
@@ -88,6 +96,12 @@ def test_frozen_migration_matches_current_catalog() -> None:
     for name, (description, columns) in expected.items():
         if name not in migration_tables:
             migration_tables[name] = (description, dict(columns))
+    # 0041 renamed EVERY r_plan_rows column to the semantic §9.1 names and
+    # rebuilt the table in form order, so the frozen 0015 snapshot (col_XXX)
+    # cannot be compared with the live catalog for this one table. The owner
+    # explicitly waived pre-0041 schema compatibility (2026-11-24).
+    expected.pop("r_plan_rows", None)
+    migration_tables.pop("r_plan_rows", None)
     assert expected == migration_tables
     assert migration.PREVIOUS_COMMENTS == import_module("migrations.versions.0014_data_catalog_comments").COMMENTS
 
@@ -121,16 +135,16 @@ def test_renovation_comments_keep_full_display_hierarchy() -> None:
     assert set(paths) == {field.db_name for field in field_metas()}
     assert len(paths) == 217
     assert paths["col_002"] == "Предприятие"
-    assert paths["col_218"] == "2) Дирекция КСиР → Номер сметы"
-    assert paths["col_003"] == "Идентификационный код работы/ремонта"
-    assert paths["col_015"] == "1) Техническая дирекция → Группа критичности оборудования"
-    assert paths["col_046"] == (
+    assert paths["estimate_number"] == "2) Дирекция КСиР → Номер сметы"
+    assert paths["work_or_repair_code"] == "Идентификационный код работы/ремонта"
+    assert paths["equipment_criticality_group_id"] == "1) Техническая дирекция → Группа критичности оборудования"
+    assert paths["adj_march_cm_cost_k_rub"] == (
         "2) Дирекция КСиР → План с учетом предлагаемой корректировки → "
         "Стоимость всего, тыс. руб. без НДС → в т.ч. по кварталам → I квартал → "
         "в т.ч. по месяцам → Март → в т.ч. → МТР Заказчика"
     )
     assert any(path.startswith("3) Дирекция МТО → ") for path in paths.values())
-    assert paths["col_217"] == "Примечание"
+    assert paths["note"] == "Примечание"
     assert all(
         a != b for path in paths.values() for a, b in zip(path.split(" → "), path.split(" → ")[1:], strict=False)
     )

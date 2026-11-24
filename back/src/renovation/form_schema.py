@@ -1,11 +1,12 @@
 """
 Static form schema of the renovation plan (from renovation-form.json).
 
-The form defines 217 fields (col_002..col_218): cell types, reference
+The form defines 217 fields (from the synthetic `col_002` asset column through
+`estimate_number` at position 31 and `note` at the end): cell types, reference
 catalogs, calculated flags and formulas. The app resource lives in
 form_data/renovation-form.json (a copy of the legacy artifact); the compiled
 FormulaEngine and the editable-field set are built once at import time.
-The retired «Корректировка» (the old col_218 at position 23) is gone; the db
+The retired «Корректировка» (the old estimate_number at position 23) is gone; the db
 name now belongs to «Номер сметы», the first column of the КСиР block.
 """
 
@@ -18,7 +19,7 @@ from src.renovation.calculations import FormulaDefinition, FormulaEngine
 
 FORM_DATA_PATH = Path(__file__).parent / "form_data" / "renovation-form.json"
 
-# No hidden fields anymore. The retired «Корректировка» (the old col_218,
+# No hidden fields anymore. The retired «Корректировка» (the old estimate_number,
 # position 23) is gone from the JSON; its db name now belongs to the new
 # «Номер сметы» field — the first column of the «Дирекция КСиР» block. With the
 # gap removed, positions/ordinals are continuous (1..217 / 2..218), so the
@@ -27,15 +28,15 @@ HIDDEN_FIELDS = frozenset()
 
 # Fields whose legacy «calculated» / «read-only» flags the app overrides.
 #
-# col_003 (the renovation ID) used to be a read-only value the generator derived
+# work_or_repair_code (the renovation ID) used to be a read-only value the generator derived
 # from its components (`renovation_id.calculate_renovation_id`). The formula is
 # OFF for now: the agreement processes and the state of the data need the field
 # to be a plain typed value, loaded from the template as-is. The generator stays
 # in the codebase (`renovation_id.py`, the legacy JSON entry with its formula
 # metadata) so it can be switched back on by removing the entry from this map —
 # nothing is deleted.
-CALCULATED_OVERRIDES: dict[str, bool] = {"col_003": False}
-READ_ONLY_OVERRIDES: dict[str, bool] = {"col_003": False}
+CALCULATED_OVERRIDES: dict[str, bool] = {"work_or_repair_code": False}
+READ_ONLY_OVERRIDES: dict[str, bool] = {"work_or_repair_code": False}
 
 
 @dataclass(frozen=True)

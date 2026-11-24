@@ -49,7 +49,7 @@ async def test_asset_rows_carry_the_plan_total(client: AsyncClient) -> None:
     response = await client.get("/api/renovation/dictionary/assets", headers=ADMIN_HEADERS)
     assert response.status_code == 200
     by_code = {row["repairCode"]: row for row in response.json()}
-    # The fixture: bsk col_031 = 10 + 20 = 30, vos = 5 + 7 = 12.
+    # The fixture: bsk total_cost_rub_ex_vat = 10 + 20 = 30, vos = 5 + 7 = 12.
     assert by_code["BSKR"]["totalCost"] == 30.0
     assert by_code["VOZR"]["totalCost"] == 12.0
     # Each fixture asset has exactly one row in the working version.
@@ -276,7 +276,7 @@ async def test_catalog_rows_carry_the_plan_aggregates(client: AsyncClient) -> No
     assert response.status_code == 200
     by_label = {row["label"]: row for row in response.json()}
     # The fixture: both plan rows carry «Остановочный капитальный ремонт»,
-    # col_031 = 30 + 12 → two repair works, 42 «Стоимость итого».
+    # total_cost_rub_ex_vat = 30 + 12 → two repair works, 42 «Стоимость итого».
     used = by_label["Остановочный капитальный ремонт"]
     assert used["repairCount"] == 2
     assert used["totalCost"] == 42.0
@@ -385,7 +385,7 @@ async def test_catalog_option_delete_blocked_while_used(
         "/api/renovation/plan",
         headers=ADMIN_HEADERS,
         params={"session_id": TEST_SESSION_ID},
-        json={"updates": [{"rowId": str(row.id), "field": "col_015", "value": "1"}]},
+        json={"updates": [{"rowId": str(row.id), "field": "equipment_criticality_group_id", "value": "1"}]},
     )
     assert patched.status_code == 200
     response = await client.delete(
@@ -738,7 +738,7 @@ async def test_dictionary_export_catalog_carries_summary_row(client: AsyncClient
     merges = [str(ref) for ref in sheet.merged_cells.ranges]
     assert "A1:A2" in merges
     assert sheet.freeze_panes == "A3"
-    # Cached values: both fixture rows carry this category (col_031 = 30 + 12).
+    # Cached values: both fixture rows carry this category (total_cost_rub_ex_vat = 30 + 12).
     cached = load_workbook(BytesIO(response.content), data_only=True)["Категория работ"]
     assert cached.cell(row=2, column=2).value == 42.0
     assert cached.cell(row=2, column=3).value == 2

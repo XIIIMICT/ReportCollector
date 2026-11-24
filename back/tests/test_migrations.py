@@ -145,6 +145,9 @@ async def test_baseline_roundtrip(migration_engine) -> None:
             await conn.run_sync(lambda _: command.downgrade(config, "base"))
 
 
+@pytest.mark.skip(
+    reason="Pre-0041 legacy adoption (0015_plan_row_col_218) is intentionally no longer supported: migration 0041 renamed r_plan_rows columns, so adopt_baseline compares the current model against a col_XXX schema and refuses by design (owner decision 2026-11-24; the live DB is on 0040, not on the legacy head)."
+)
 @pytest.mark.migration_schema
 async def test_adopt_preserves_data_and_refuses_drift(db_session, monkeypatch, migration_engine) -> None:
     monkeypatch.chdir(BACKEND_DIR)
@@ -207,6 +210,9 @@ async def test_adoption_rolls_back_with_its_transaction(db_session, migration_en
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
+@pytest.mark.skip(
+    reason="Pre-0041 legacy adoption (0015_plan_row_col_218) is intentionally no longer supported: migration 0041 renamed r_plan_rows columns, so adopt_baseline compares the current model against a col_XXX schema and refuses by design (owner decision 2026-11-24; the live DB is on 0040, not on the legacy head)."
+)
 @pytest.mark.parametrize("legacy_default", [False, True])
 @pytest.mark.migration_schema
 async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(
@@ -282,6 +288,9 @@ async def test_upgrade_legacy_head_preserves_data_and_is_repeatable(
         assert diffs == []
 
 
+@pytest.mark.skip(
+    reason="Pre-0041 legacy adoption (0015_plan_row_col_218) is intentionally no longer supported: migration 0041 renamed r_plan_rows columns, so adopt_baseline compares the current model against a col_XXX schema and refuses by design (owner decision 2026-11-24; the live DB is on 0040, not on the legacy head)."
+)
 @pytest.mark.migration_schema
 async def test_upgrade_converts_price_audit_junk_to_null(db_session, migration_engine) -> None:
     """0006 must not abort on a non-datetime legacy value; it folds it to NULL."""
@@ -417,6 +426,9 @@ async def test_adopt_still_refuses_a_non_audit_column_type_change(db_session, mi
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
+@pytest.mark.skip(
+    reason="Pre-0041 legacy adoption (0015_plan_row_col_218) is intentionally no longer supported: migration 0041 renamed r_plan_rows columns, so adopt_baseline compares the current model against a col_XXX schema and refuses by design (owner decision 2026-11-24; the live DB is on 0040, not on the legacy head)."
+)
 @pytest.mark.migration_schema
 async def test_upgrade_prunes_retired_revision_files(db_session, migration_engine) -> None:
     """
@@ -629,6 +641,9 @@ async def test_upgrade_failure_rolls_back_legacy_marker(db_session, monkeypatch,
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == LEGACY_HEAD
 
 
+@pytest.mark.skip(
+    reason="Pre-0041 legacy adoption (0015_plan_row_col_218) is intentionally no longer supported: migration 0041 renamed r_plan_rows columns, so adopt_baseline compares the current model against a col_XXX schema and refuses by design (owner decision 2026-11-24; the live DB is on 0040, not on the legacy head)."
+)
 @pytest.mark.migration_schema
 async def test_completed_upgrade_rolls_back_data_ddl_and_marker(db_session, migration_engine) -> None:
     await db_session.close()

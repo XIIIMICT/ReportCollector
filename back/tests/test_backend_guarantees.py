@@ -217,7 +217,7 @@ async def test_undo_cannot_mutate_archive(client, db_session):
         "/api/renovation/plan",
         headers=HEADERS,
         params={"session_id": "archive"},
-        json={"updates": [{"rowId": str(row_id), "field": "col_011", "value": "Saved"}]},
+        json={"updates": [{"rowId": str(row_id), "field": "process_position", "value": "Saved"}]},
     )
     assert response.status_code == 200
     stack = (await db_session.exec(select(EditStack))).one()
@@ -240,7 +240,7 @@ async def test_undo_cannot_mutate_archive(client, db_session):
     )
     assert response.status_code == 200
     assert response.json()["applied"] is False
-    assert (await db_session.get(RenovationPlanRow, row_id, populate_existing=True)).col_011 == "Saved"
+    assert (await db_session.get(RenovationPlanRow, row_id, populate_existing=True)).process_position == "Saved"
 
 
 @pytest.mark.real_schema
@@ -266,11 +266,13 @@ async def test_concurrent_renovation_edits_preserve_both_values_and_formula(db_s
             )
             await session.commit()
 
-    await asyncio.gather(edit("col_028", 31), edit("col_029", 41))
+    await asyncio.gather(edit("work_cost_rub_ex_vat", 31), edit("customer_materials_cost_rub_ex_vat", 41))
     actual = await db_session.get(RenovationPlanRow, row_id, populate_existing=True)
-    assert actual.col_028 == Decimal(31)
-    assert actual.col_029 == Decimal(41)
-    assert actual.col_031 == Decimal(72) + (actual.col_030 or Decimal(0))
+    assert actual.work_cost_rub_ex_vat == Decimal(31)
+    assert actual.customer_materials_cost_rub_ex_vat == Decimal(41)
+    assert actual.total_cost_rub_ex_vat == Decimal(72) + (
+        actual.contractor_supplied_materials_cost_rub_ex_vat or Decimal(0)
+    )
     assert actual.revision == 2
 
 

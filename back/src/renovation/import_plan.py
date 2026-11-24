@@ -129,35 +129,35 @@ _REPAIR_CODES_BY_NAME: dict[str, str] = {
 # from the current «РБ ПОФ» drop). A file with an extra column simply maps it to
 # nothing; a missing one is skipped.
 _TEMPLATE_FIELDS: dict[str, str] = {
-    _norm("Наименование производства"): "col_004",
-    _norm("Цех"): "col_005",
-    _norm("Отделение/установка"): "col_006",
-    _norm("Класс оборудования"): "col_007",
-    _norm("Вид (категория) оборудования"): "col_008",
-    _norm("Наименование ЕО"): "col_009",
-    _norm("Название технического места"): "col_010",
-    _norm("Технологическая позиция"): "col_011",
-    _norm("Инвентарный №"): "col_012",
-    _norm("Функциональное направление"): "col_013",
-    _norm("Влияние на производство"): "col_014",
-    _norm("Группа критичности оборудования"): "col_015",
-    _norm("Раздел БПОФ"): "col_016",
-    _norm("Категория работ"): "col_017",
-    _norm("Вид работ"): "col_018",
-    _norm("Отнесение затрат"): "col_019",
-    _norm("Способ выполнения работ"): "col_020",
-    _norm("Содержание работ"): "col_022",
+    _norm("Наименование производства"): "production_name",
+    _norm("Цех"): "workshop_name",
+    _norm("Отделение/установка"): "department_or_installation_name",
+    _norm("Класс оборудования"): "equipment_class",
+    _norm("Вид (категория) оборудования"): "equipment_category",
+    _norm("Наименование ЕО"): "equipment_unit_name",
+    _norm("Название технического места"): "technical_location_name",
+    _norm("Технологическая позиция"): "process_position",
+    _norm("Инвентарный №"): "inventory_number",
+    _norm("Функциональное направление"): "functional_area",
+    _norm("Влияние на производство"): "production_impact",
+    _norm("Группа критичности оборудования"): "equipment_criticality_group_id",
+    _norm("Раздел БПОФ"): "bpof_section",
+    _norm("Категория работ"): "work_category_id",
+    _norm("Вид работ"): "work_type_id",
+    _norm("Отнесение затрат"): "cost_allocation_type_id",
+    _norm("Способ выполнения работ"): "execution_method_id",
+    _norm("Содержание работ"): "work_description",
     _norm(
         "Дефектная ведомость/ВОР № (в случаях когда инв.№ распространяется на отделение "
         "или установку, или блок из нескольких едениц оборудования)"
-    ): "col_023",
-    _norm("Дата начала работ"): "col_024",
-    _norm("Дата окончания работ"): "col_025",
-    _norm("Трудозатраты чел.час"): "col_027",
-    _norm("Работа, руб. без ндс"): "col_028",
-    _norm("МТР Заказчика, руб. без НДС"): "col_029",
-    _norm("МТР Подрядчик, руб. без НДС"): "col_030",
-    _norm("Стоимость итого, руб. без НДС"): "col_031",
+    ): "defect_list_or_bill_of_quantities_number",
+    _norm("Дата начала работ"): "work_start_date",
+    _norm("Дата окончания работ"): "work_end_date",
+    _norm("Трудозатраты чел.час"): "labor_hours",
+    _norm("Работа, руб. без ндс"): "work_cost_rub_ex_vat",
+    _norm("МТР Заказчика, руб. без НДС"): "customer_materials_cost_rub_ex_vat",
+    _norm("МТР Подрядчик, руб. без НДС"): "contractor_supplied_materials_cost_rub_ex_vat",
+    _norm("Стоимость итого, руб. без НДС"): "total_cost_rub_ex_vat",
 }
 
 
@@ -226,7 +226,7 @@ def _catalogs_in_header(header: list[object]) -> frozenset[str]:
             continue
         field = mapping.get(normalized)
         if field is None and normalized.startswith(_norm("Дефектная ведомость/ВОР")):
-            field = "col_023"
+            field = "defect_list_or_bill_of_quantities_number"
         meta = fields.get(field) if field is not None else None
         if meta is not None and meta.catalog in _REFERENCE_CATALOGS:
             catalogs.add(meta.catalog)
@@ -350,9 +350,9 @@ def _header_map() -> dict[str, str]:
     mapping: dict[str, str] = {}
     for field in field_metas():
         mapping.setdefault(_norm(field.label), field.db_name)
-    mapping[_norm("Отнесение затрат")] = "col_019"
-    mapping[_norm("Способ выполнения работ")] = "col_020"
-    mapping[_norm("Лот")] = "col_189"
+    mapping[_norm("Отнесение затрат")] = "cost_allocation_type_id"
+    mapping[_norm("Способ выполнения работ")] = "execution_method_id"
+    mapping[_norm("Лот")] = "lotting_activity_direction_code"
     return mapping
 
 
@@ -371,13 +371,13 @@ def _reference_values() -> dict[str, set[str]]:
 # Required columns and the headings the report names them by — the file's own
 # wording («Способ выполнения работ»), not the form's shorter label.
 _REQUIRED_COLUMN_LABELS: tuple[tuple[str, str], ...] = (
-    ("col_015", "Группа критичности оборудования"),
-    ("col_017", "Категория работ"),
-    ("col_018", "Вид работ"),
-    ("col_019", "Отнесение затрат"),
-    ("col_020", "Способ выполнения работ"),
-    ("col_024", "Дата начала работ"),
-    ("col_025", "Дата окончания работ"),
+    ("equipment_criticality_group_id", "Группа критичности оборудования"),
+    ("work_category_id", "Категория работ"),
+    ("work_type_id", "Вид работ"),
+    ("cost_allocation_type_id", "Отнесение затрат"),
+    ("execution_method_id", "Способ выполнения работ"),
+    ("work_start_date", "Дата начала работ"),
+    ("work_end_date", "Дата окончания работ"),
 )
 # Fields a valid plan row cannot leave empty: the asset, every reference choice
 # the plan is grouped by (a blank one cannot be resolved to an option) and the
@@ -546,7 +546,7 @@ def _inspect_rows(
         # The customer's wording wins over the form label when both exist.
         field = mapping.get(normalized)
         if field is None and normalized.startswith(_norm("Дефектная ведомость/ВОР")):
-            field = "col_023"
+            field = "defect_list_or_bill_of_quantities_number"
         if field is not None:
             columns.setdefault(field, index)
     code_index = next((i for i, value in enumerate(header_row) if _norm(value) == _norm(_CODE_HEADER)), None)
@@ -707,7 +707,7 @@ def _inspect_rows(
             valid_rows.append(values)
     duplicates = sorted(code for code, count in Counter(codes).items() if count > 1)
     # ARCHIVED: the «correctly calculated code» check. The renovation-ID formula
-    # is OFF (`service.RENOVATION_ID_FORMULA_ENABLED`) and col_003 is imported
+    # is OFF (`service.RENOVATION_ID_FORMULA_ENABLED`) and work_or_repair_code is imported
     # from the template as-is, so comparing it with the generator's output would
     # flag every hand-edited code. The check is kept verbatim below, switched
     # off, to be restored together with the formula. Duplicates are the only
@@ -967,16 +967,16 @@ def _coerce(value: object, cell_type: str) -> object | None:
 
 def _calculate_code(values: dict[str, object], asset_repair_code: str | None) -> RenovationIdResult:
     """Build the work code from the row's OWN values (year comes from the date)."""
-    start_date = values.get("col_024")
+    start_date = values.get("work_start_date")
     return calculate_renovation_id(
         RenovationIdInput(
             start_date=start_date if isinstance(start_date, str) else "",
             asset_repair_code=asset_repair_code,
-            direction_code=str(values.get("col_189") or ""),
-            bpof_section=str(values.get("col_016") or ""),
-            work_category=str(values.get("col_017") or ""),
-            defect_number=_defect_text(values.get("col_023")),
-            technology_position=str(values.get("col_011") or ""),
-            work_type_label=str(values.get("col_018") or ""),
+            direction_code=str(values.get("lotting_activity_direction_code") or ""),
+            bpof_section=str(values.get("bpof_section") or ""),
+            work_category=str(values.get("work_category_id") or ""),
+            defect_number=_defect_text(values.get("defect_list_or_bill_of_quantities_number")),
+            technology_position=str(values.get("process_position") or ""),
+            work_type_label=str(values.get("work_type_id") or ""),
         )
     )
