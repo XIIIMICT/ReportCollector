@@ -775,14 +775,23 @@ sibling modules, one-way dependency `service → plan_reads → service_common`:
 - `recompute.py` — formula materialization (`_materialize_row`,
   `_recalculate_row`) and the `recompute_plan_rows` backfill. Pure computation
   over rows within the caller's session; no HTTP or authorization.
-- `service.py` — the WRITE surface (cell mutations, row lifecycle, submit/approve) plus the façade re-exports.
+- `cell_mutations.py` — the WRITE surface for cells and rows: create/delete/asset
+  assignment, `update_plan_cells`, undo/redo `apply_renovation_cell_value` and
+  reference coercion. `@project_write`, row locks, lease checks, journal writes
+  and revision bumps stayed at their original call sites.
+- `lifecycle.py` — `submit_plan` / `approve_plan` and the next working copy.
+- `service.py` — a thin façade (46 lines) re-exporting the ~25 historical public
+  names so router, collab, scripts and tests keep importing from one place.
 
-The split is extraction-only: transaction ownership, locking boundaries and
-authorization checks stayed at the same call sites; `export.py`'s deferred
-import of `RenovationPlanExportData` is preserved to avoid a cycle. The full
-backend suite (677 passed / 13 skipped) is the no-behavior-change gate.
-`src/common/job_contracts.py` similarly owns the generic durable-job limits
-and `ExportQueueFullError`, re-exported by `common/export_jobs.py`.
+Dependency direction is one-way: `service → {plan_reads, recompute,
+cell_mutations, lifecycle} → service_common`; `plan_reads → service_common`.
+No module imports back into `service`; `export.py`'s deferred import of
+`RenovationPlanExportData` is preserved to avoid a cycle. The split is
+extraction-only: transaction ownership, locking boundaries and authorization
+checks stayed at the same call sites; the full backend suite (677 passed /
+13 skipped) is the no-behavior-change gate. `src/common/job_contracts.py`
+similarly owns the generic durable-job limits and `ExportQueueFullError`,
+re-exported by `common/export_jobs.py`.
 
 Every table export is **dual-mode behind one endpoint** (`export_table_or_job`
 in `src/common/export_jobs.py`): up to `INLINE_EXPORT_MAX_ROWS` (5 000) rows

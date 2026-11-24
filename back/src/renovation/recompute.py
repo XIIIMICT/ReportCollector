@@ -7,15 +7,6 @@ session. ``service.py`` re-exports ``recompute_plan_rows`` for its historical
 importers (import_apply, seed, maintenance script, tests).
 """
 
-"""
-Renovation plan WRITE surface and façade.
-
-Cell mutations, row lifecycle, formula recomputation and submit/approve stay
-here (Phase 4 decomposition); the READ surface lives in ``plan_reads`` and the
-shared primitives in ``service_common``. The public names below are re-exported
-from those modules so ``from src.renovation.service import X`` keeps working.
-"""
-
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from uuid import UUID
