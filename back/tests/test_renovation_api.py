@@ -24,6 +24,8 @@ from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.export import RenovationWorkbookWriter, build_plan_sheet_layout
 from src.renovation.export_jobs import ExportJobSpec
 from src.renovation.export_jobs import export_jobs as export_jobs_manager
+from src.renovation.import_apply import apply_plan_file
+from src.renovation.import_rows import ParsedPlanRow
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
 from src.renovation.service import read_plan_export_meta, read_plan_facets, recompute_plan_rows
@@ -1341,6 +1343,30 @@ async def test_undo_restores_previous_value(
     plan = await client.get("/api/renovation/plan", headers=ADMIN_HEADERS)
     row_read = next(r for r in plan.json()["rows"] if r["assetCode"] == "BSKR")
     assert row_read["values"]["work_cost_rub_ex_vat"] == 10.0
+
+
+async def test_import_clears_plan_undo_history(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, store
+) -> None:
+    """Gate A follow-up: imported rows must not be overwritten by a stale undo."""
+    row = await _row_by_asset_code(db_session, "BSKR")
+    await _patch(client, [{"rowId": str(row.id), "field": "workshop_name", "value": "До загрузки"}])
+    admin = (await db_session.exec(select(User).where(col(User.email) == "admin@example.ru"))).one()
+    can_undo, _ = await store.undo_state(str(admin.id), TEST_SESSION_ID, RENOVATION_SCOPE)
+    assert can_undo == 1
+
+    rows = [
+        ParsedPlanRow(
+            code=row.work_or_repair_code or "UNDO_IMPORT",
+            asset_key="BSZR",
+            values={"workshop_name": "Из файла"},
+        )
+    ]
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _src, _suffix=None: rows)
+    await apply_plan_file(db_session, source=None, user_id=admin.id)  # ty: ignore[invalid-argument-type]
+
+    can_undo, _ = await store.undo_state(str(admin.id), TEST_SESSION_ID, RENOVATION_SCOPE)
+    assert can_undo == 0
 
 
 async def test_undo_restores_source_and_recalculates_formula(

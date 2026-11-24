@@ -15,6 +15,7 @@ from sqlmodel import SQLModel, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.collab.locking import lock_project
+from src.collab.persistence import JournalStore
 from src.observability import observe_phase
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.form_schema import field_meta, field_metas
@@ -236,6 +237,10 @@ async def apply_plan_file(
             row_ids=affected,
             progress=lambda scanned: report("recompute", written + scanned if total else scanned),
         )
+    # Gate A follow-up: the import overwrites whole rows, so any edit stack made
+    # before it would replay obsolete values over the imported ones. Clear the
+    # plan's history in the SAME transaction as the write (rolled back with it).
+    await JournalStore(session).clear_undo_state_for_scope("renovationPlan/")
     return RenovationPlanImportApplyResult(new_rows=inserted, updated_rows=updated)
 
 

@@ -687,7 +687,9 @@ cleanup. Gate A's approved form-blocking policy handles the
 import/edit interaction instead of this advisory lock: `GET /plan/import/active`
 exposes the active job (FIO + progress) to every member, `usePlanImportLock`
 polls it and blocks the form with a red chip, and `update_plan_cells` refuses
-writes with 409 while a job is active.
+writes with 409 while a job is active. A successful import clears the
+`renovationPlan/` undo stack in the same transaction: old cell actions would
+otherwise replay obsolete values over the imported rows.
 
 **A completed import is history.** Admission deduplicates by
 `plan_id:digest`, but imports reuse only a `pending`/`running` job: a repeated

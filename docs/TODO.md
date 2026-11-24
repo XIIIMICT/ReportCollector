@@ -219,7 +219,9 @@ infrastructure work, or owner gate.
   «\<ФИО обновляющего\> обновляет базу (\<прогресс\> %): подождите немного,
   прежде чем вернуться к редактированию» (FIO and live progress from the durable
   job). Editing is restored when the job finishes; in-progress input is
-  discarded by refetching the grid (saves are instantaneous). Backend:
+  discarded by refetching the grid (saves are instantaneous). The import also
+  clears the plan's Undo history in the same transaction, so an old action
+  cannot replay over freshly imported values. Backend:
   `GET /plan/import/active` (any member) + server-side 409 guard in
   `update_plan_cells`; frontend: `usePlanImportLock` polling + `FormStatus`
   red chip. The shared advisory gate itself does NOT serialize edits/imports.
