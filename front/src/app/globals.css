@@ -1140,6 +1140,20 @@ body {
     background: var(--danger);
 }
 
+.form-status__dot--import {
+    background: var(--danger);
+    animation: collab-pulse 1.2s ease-in-out infinite;
+}
+
+/* Gate A: a running workbook load blocks the whole plan form. */
+.form-status__import {
+    color: var(--danger);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .form-status-tooltip {
     max-width: none !important;
 }

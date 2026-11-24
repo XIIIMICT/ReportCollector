@@ -568,6 +568,7 @@ class RenovationImportJobRead(BaseModel):
     progress: int = 0
     total: int = 0
     file_name: str
+    user_name: str = ""
     error: str | None = None
     new_rows: int = 0
     updated_rows: int = 0

@@ -107,6 +107,7 @@ export type RenovationPlanImportApplyResult = {
     progress: number;
     total: number;
     file_name: string;
+    user_name?: string;
     error: string | null;
     new_rows: number;
     updated_rows: number;
@@ -165,4 +166,21 @@ export async function getRenovationPlanImportJob(
         );
     }
     return (await response.json()) as RenovationPlanImportApplyResult;
+}
+
+/**
+ * The active import that blocks the plan form (Gate A). Every member may read
+ * it: the importer's FIO and live progress come from the durable job row.
+ */
+export async function getRenovationActivePlanImport(): Promise<RenovationPlanImportApplyResult | null> {
+    const response = await fetch("/api/renovation/plan/import/active", { cache: "no-store" });
+    if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as unknown;
+        throw new ReportCollectorApiError(
+            readApiDetail(payload) ??
+                `Не удалось получить состояние загрузки (${response.status}).`,
+            response.status,
+        );
+    }
+    return (await response.json()) as RenovationPlanImportApplyResult | null;
 }

@@ -15,6 +15,8 @@ from sqlalchemy import func
 from sqlmodel import col, select
 
 from src.common.durable_imports import ImportJob  # noqa: TC001
+from src.common.job_models import ACTIVE_STATES, DataJob
+from src.database import async_session_factory
 from src.observability import observe_phase
 from src.renovation.export_jobs import ExportQueueFullError
 from src.renovation.import_jobs import import_jobs
@@ -178,6 +180,7 @@ async def apply_renovation_plan_import(
             digest=digest,
             size=size,
             user_id=str(_access.user.id),
+            user_name=_access.user.name or _access.user.email or "",
             plan_id=plan.id,
             expected_rows=expected_rows,
         )
@@ -196,6 +199,7 @@ def _import_job_read(job: ImportJob) -> RenovationImportJobRead:
         progress=job.progress,
         total=job.total,
         file_name=job.file_name,
+        user_name=job.user_name,
         error=job.error,
         new_rows=int(result.get("newRows", 0)),
         updated_rows=int(result.get("updatedRows", 0)),
@@ -204,6 +208,27 @@ def _import_job_read(job: ImportJob) -> RenovationImportJobRead:
         startedAt=job.started_at,
         heartbeatAt=job.heartbeat_at,
     )
+
+
+@router.get("/plan/import/active", response_model=RenovationImportJobRead | None)
+async def get_active_plan_import(access: AccessDependency) -> RenovationImportJobRead | None:
+    """
+    Return the current import blocking the plan form, for every member.
+
+    This is a status poll, not a source of truth for the import itself: the job
+    row in PostgreSQL is. A missed poll only delays showing the red chip.
+    """
+    del access  # any working member may see who is loading the plan
+    async with async_session_factory() as session:
+        job = (
+            await session.exec(
+                select(DataJob)
+                .where(DataJob.kind == import_jobs.kind, col(DataJob.status).in_(ACTIVE_STATES))
+                .order_by(col(DataJob.created_at).desc())
+                .limit(1)
+            )
+        ).first()
+    return None if job is None else _import_job_read(import_jobs.job_from_record(job))
 
 
 @router.get("/plan/import/jobs/{job_id}", response_model=RenovationImportJobRead)

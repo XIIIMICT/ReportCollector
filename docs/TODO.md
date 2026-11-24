@@ -213,16 +213,18 @@ infrastructure work, or owner gate.
   performance percentiles, capacity/SLO definition (§3.5).
 - [ ] **Full archive-to-archive plan diff** — currently not connected to a
   user-facing workflow; revisit when product scope requires it (§3.4).
-- [ ] **Gate A — import/edit conflict policy — DECIDED (2026-11-24).** While an
-  import runs, **block the whole «Пообъектный план» form**. Users currently on it
-  see a RED chip in the form status reading
+- [x] **Gate A — import/edit conflict policy — IMPLEMENTED (2026-11-25).** While an
+  import runs, **the whole «Пообъектный план» form is blocked**. Users on it see
+  a RED chip in the form status reading
   «\<ФИО обновляющего\> обновляет базу (\<прогресс\> %): подождите немного,
-  прежде чем вернуться к редактированию» (the importer's FIO and live job
-  progress). Collaborative editing is restored when the job finishes; any
-  in-progress cell input is discarded (saves are instantaneous). Implement in
-  Phase 5/7: backend job state → WS/status broadcast → frontend form lock +
-  status chip; also fix the inaccurate `import_apply.py:56-59` docstring and
-  `docs/COLLAB.md`.
+  прежде чем вернуться к редактированию» (FIO and live progress from the durable
+  job). Editing is restored when the job finishes; in-progress input is
+  discarded by refetching the grid (saves are instantaneous). Backend:
+  `GET /plan/import/active` (any member) + server-side 409 guard in
+  `update_plan_cells`; frontend: `usePlanImportLock` polling + `FormStatus`
+  red chip. The shared advisory gate itself does NOT serialize edits/imports.
+  Remaining follow-up: push terminal job state over WebSocket instead of
+  polling (optional; poll already authoritative).
 - [ ] **Gates B/C — DECIDED (2026-11-24).** Uniqueness scope = one plan; the DB
   still has duplicate codes, so this is the **P0 FIRST** task above. Duplicate
   codes inside one workbook keep rejecting the whole import until then; no

@@ -683,8 +683,11 @@ one transaction. A shared lock is compatible with other shared locks: this gate
 does NOT serialize the import against normal cell edits. Cancellation/lease loss
 therefore rolls the transaction back; a lost HTTP response cannot cause a
 second apply. The input is removed only after a terminal job state or TTL
-cleanup. Gate A's approved form-blocking policy (docs/TODO.md) handles the
-import/edit interaction instead of this advisory lock.
+cleanup. Gate A's approved form-blocking policy handles the
+import/edit interaction instead of this advisory lock: `GET /plan/import/active`
+exposes the active job (FIO + progress) to every member, `usePlanImportLock`
+polls it and blocks the form with a red chip, and `update_plan_cells` refuses
+writes with 409 while a job is active.
 
 **A completed import is history.** Admission deduplicates by
 `plan_id:digest`, but imports reuse only a `pending`/`running` job: a repeated

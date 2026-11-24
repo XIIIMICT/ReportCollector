@@ -20,6 +20,7 @@ from src.collab.journal import AppliedCell, record_cell_updates
 from src.collab.locking import lock_rows, project_write
 from src.collab.models import RENOVATION_PLAN_ROWS_TABLE
 from src.collab.persistence import JournalStore
+from src.common.job_models import ACTIVE_STATES, DataJob
 from src.raw_materials.service import CellValidationError, check_edit_leases, coerce_number, coerce_text
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.form_schema import (
@@ -61,6 +62,7 @@ from src.renovation.service_common import (
     _ERR_ROW_HAS_ASSET,
     _ERR_UNKNOWN_TABLE,
     _RENOVATION_ID_INPUT_FIELDS,
+    RenovationPlanStateError,
     _approver_read_only,
     _asset_access,
     _bad_boolean,
@@ -321,6 +323,18 @@ async def update_plan_cells(
         plan = await _plan_by_state(session, RPlanState.PENDING_APPROVAL)
     if plan is None:
         raise _ERR_NO_WORKING_PLAN
+    # Gate A: an active workbook load owns the plan. The UI blocks the form;
+    # this check keeps a stale/foreign client from writing behind it.
+    active_import = (
+        await session.exec(
+            select(DataJob.id)
+            .where(DataJob.kind == "renovation_import", col(DataJob.status).in_(ACTIVE_STATES))
+            .limit(1)
+        )
+    ).first()
+    if active_import is not None:
+        message = "База обновляется загрузкой файла. Подождите завершения загрузки."
+        raise RenovationPlanStateError(message)
     asset_ids = [asset.id for asset in assets]
     assets_by_id = {asset.id: asset for asset in assets}
     is_admin = RProjectRole.ADMIN in roles
