@@ -87,7 +87,7 @@ export function handleClipPath(
  * The number a column shows in the strip: the workbook ordinal shifted so the
  * first data column («Предприятие») is 1 — the workbook counts the row-number
  * «№» column as 1, the app does not number it. Using the ordinal (not the
- * field's `position`, which the dropped col_218 skips) keeps the numbering
+ * field's `position`, which the dropped estimate_number skips) keeps the numbering
  * continuous whatever is hidden.
  */
 export function columnNumber(field: RenovationField): number {

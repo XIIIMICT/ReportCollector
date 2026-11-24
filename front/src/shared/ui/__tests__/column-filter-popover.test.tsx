@@ -39,7 +39,7 @@ afterEach(() => {
 
 const anchor = { left: 0, top: 0, width: 100 } as DOMRect;
 
-async function openFilter(column = "col_010", firstLabel = "Насос") {
+async function openFilter(column = "technical_location_name", firstLabel = "Насос") {
     const view = render(
         <ColumnFilterPopover
             column={column}
@@ -142,13 +142,13 @@ async function openRecorded(
     let closes = 0;
     render(
         <ColumnFilterPopover
-            column="col_010"
-            columnLabel="col_010"
+            column="technical_location_name"
+            columnLabel="technical_location_name"
             anchor={anchor}
             facets={defaultFacets}
             initial={
                 initial && {
-                    column: "col_010",
+                    column: "technical_location_name",
                     values: initial.values ?? [],
                     includeNulls: initial.includeNulls ?? true,
                 }
@@ -179,7 +179,11 @@ test("«Применить» hands the pending selection to the owner", async ()
     );
     fireEvent.click(screen.getByRole("button", { name: "Применить" }));
     await waitFor(() => expect(closes()).toBe(1));
-    expect(applied[0]).toEqual({ column: "col_010", values: ["Шкаф"], includeNulls: true });
+    expect(applied[0]).toEqual({
+        column: "technical_location_name",
+        values: ["Шкаф"],
+        includeNulls: true,
+    });
 });
 
 test("«Отменить» restores the filter that was in force before opening", async () => {
@@ -188,7 +192,9 @@ test("«Отменить» restores the filter that was in force before opening"
     fireEvent.click(screen.getByRole("option", { name: /^Шкаф/ }));
     fireEvent.click(screen.getByRole("button", { name: "Отменить" }));
     await waitFor(() => expect(closes()).toBe(1));
-    expect(applied).toEqual([{ column: "col_010", values: ["Насос"], includeNulls: false }]);
+    expect(applied).toEqual([
+        { column: "technical_location_name", values: ["Насос"], includeNulls: false },
+    ]);
 });
 
 test("Escape cancels the pending filter", async () => {
@@ -196,7 +202,9 @@ test("Escape cancels the pending filter", async () => {
     fireEvent.click(screen.getByRole("option", { name: /^Шкаф/ }));
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
     await waitFor(() => expect(closes()).toBe(1));
-    expect(applied).toEqual([{ column: "col_010", values: ["Насос"], includeNulls: false }]);
+    expect(applied).toEqual([
+        { column: "technical_location_name", values: ["Насос"], includeNulls: false },
+    ]);
 });
 
 test("a click outside the filter also cancels it", async () => {
@@ -210,7 +218,7 @@ test("a click outside the filter also cancels it", async () => {
 
 test("«По умолчанию» resets the column to the given default, not to the opening value", async () => {
     const { applied, closes } = await openRecorded({ values: ["Насос"], includeNulls: false });
-    fireEvent.click(screen.getByRole("button", { name: "По умолчанию: col_010" }));
+    fireEvent.click(screen.getByRole("button", { name: "По умолчанию: technical_location_name" }));
     await waitFor(() => expect(closes()).toBe(1));
     // The workspace default is "no constraint" — unlike «Отменить», which keeps
     // the filter that was in force before opening.
@@ -221,7 +229,9 @@ test("Enter applies the pending filter", async () => {
     const { applied, closes } = await openRecorded({ values: ["Насос"], includeNulls: false });
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Enter" });
     await waitFor(() => expect(closes()).toBe(1));
-    expect(applied).toEqual([{ column: "col_010", values: ["Насос"], includeNulls: false }]);
+    expect(applied).toEqual([
+        { column: "technical_location_name", values: ["Насос"], includeNulls: false },
+    ]);
 });
 
 test("the commit footer is pinned after the scrolling list", async () => {
@@ -468,7 +478,7 @@ async function openCodes(initial: ColumnFilter | null = null) {
     };
     render(
         <ColumnFilterPopover
-            column="col_003"
+            column="work_or_repair_code"
             columnLabel="Код"
             anchor={anchor}
             facets={source}
@@ -496,7 +506,7 @@ test("code search keeps group presets first and applies exact found codes only",
     fireEvent.click(master());
     fireEvent.click(screen.getByRole("button", { name: "Применить" }));
     expect(applied[0]).toEqual({
-        column: "col_003",
+        column: "work_or_repair_code",
         values: ["2027_B"],
         includeNulls: false,
         valueMode: "exact",
@@ -511,7 +521,7 @@ test("group preset replaces code selection without selecting the visible code pa
     );
     fireEvent.click(screen.getByRole("button", { name: "Применить" }));
     expect(applied[0]).toEqual({
-        column: "col_003",
+        column: "work_or_repair_code",
         values: ["Некорректные"],
         includeNulls: false,
     });
@@ -519,7 +529,7 @@ test("group preset replaces code selection without selecting the visible code pa
 
 test("saved group can switch to a literal code even when its label matches a preset", async () => {
     const applied = await openCodes({
-        column: "col_003",
+        column: "work_or_repair_code",
         values: ["Некорректные"],
         includeNulls: false,
     });
@@ -527,7 +537,7 @@ test("saved group can switch to a literal code even when its label matches a pre
     fireEvent.click(literal);
     fireEvent.click(screen.getByRole("button", { name: "Применить" }));
     expect(applied[0]).toEqual({
-        column: "col_003",
+        column: "work_or_repair_code",
         values: ["Корректные"],
         includeNulls: false,
         valueMode: "exact",
@@ -556,7 +566,7 @@ test("paged column: no «Загрузка…» caption, and new windows arrive c
         });
     };
 
-    await openFilter("col_021", "Значение 000");
+    await openFilter("work_executor_name", "Значение 000");
     // The old implementation printed «Загрузка…» under the list and never
     // cleared it (a missed setLoadingMore(false) in the tail fetch), and the
     // caption is gone for good now.
@@ -608,7 +618,7 @@ test("a late response from an older search cannot append to the current list", a
             hasNulls: false,
         });
     };
-    await openFilter("col_022", "base-0");
+    await openFilter("work_description", "base-0");
     const search = document.querySelector<HTMLInputElement>('input[name="column-filter-search"]')!;
     fireEvent.change(search, { target: { value: "old" } });
     fireEvent.change(search, { target: { value: "new" } });
@@ -633,8 +643,8 @@ test("an initial facet failure is visible and retryable", async () => {
     };
     render(
         <ColumnFilterPopover
-            column="col_023"
-            columnLabel="col_023"
+            column="defect_list_or_bill_of_quantities_number"
+            columnLabel="defect_list_or_bill_of_quantities_number"
             anchor={anchor}
             facets={defaultFacets}
             initial={null}

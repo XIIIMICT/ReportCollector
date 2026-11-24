@@ -10,7 +10,7 @@ import { breaksValueRules } from "../renovation-rules";
  * derives the rule check itself.
  */
 const duration: RenovationField = {
-    dbName: "col_026",
+    dbName: "work_duration_days",
     label: "Продолжительность, дни",
     cellType: "number",
     ordinal: 26,
@@ -42,7 +42,7 @@ describe("breaksValueRules", () => {
     test("a percentage outside its bounds is flagged", () => {
         const share: RenovationField = {
             ...duration,
-            dbName: "col_208",
+            dbName: "em_contracting_cs_pct",
             label: "Централизованная поставка",
             rules: [{ kind: "percentage", minimum: 0, maximum: 100 }],
         };

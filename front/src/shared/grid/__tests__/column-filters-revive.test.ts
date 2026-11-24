@@ -10,8 +10,8 @@ import {
 describe("columnFiltersStorageKey", () => {
     it("keeps exact code selections distinct from group labels after reload", () => {
         const stored = {
-            col_003: {
-                column: "col_003",
+            work_or_repair_code: {
+                column: "work_or_repair_code",
                 values: ["Корректные"],
                 includeNulls: false,
                 valueMode: "exact" as const,
@@ -69,16 +69,20 @@ describe("reviveFilters", () => {
     it("keeps a well-formed filter", () => {
         const revived = reviveFilters(
             JSON.stringify({
-                col_011: { column: "col_011", values: ["a", "b"], includeNulls: false },
+                process_position: {
+                    column: "process_position",
+                    values: ["a", "b"],
+                    includeNulls: false,
+                },
             }),
         );
-        const filter = revived.col_011;
+        const filter = revived.process_position;
         expect(filter).toBeDefined();
         expect(filter?.values).toEqual(["a", "b"]);
         expect(filter?.includeNulls).toBe(false);
         // The column prop comes from the KEY, so a stale inner `column` cannot
         // make the filter apply to the wrong column.
-        expect(filter?.column).toBe("col_011");
+        expect(filter?.column).toBe("process_position");
     });
 
     it("defaults includeNulls to true when the stored entry omits it", () => {
