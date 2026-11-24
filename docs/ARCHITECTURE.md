@@ -759,6 +759,29 @@ and calls into here (`src/raw_materials/export.py`, `src/kppk/export.py`,
 sheet-layout writer (the 11-level Excel header, the aggregating band, 59 live
 formula columns) built on the same `xlsx_stream`.
 
+### Renovation service module boundaries (Phase 4)
+
+`back/src/renovation/service.py` is now a **façade**: it keeps the historical
+`from src.renovation.service import X` contract (router, collab, scripts and
+tests import ~25 names from it) while the implementations live in flat
+sibling modules, one-way dependency `service → plan_reads → service_common`:
+
+- `service_common.py` — shared primitives with NO dependency on the rest of
+  the service: exceptions, error singletons/factories, audit/ID constants,
+  plan-row read helpers, renovation-ID helpers, reference-label resolution,
+  cell rule/coercion helpers. Both other modules import from here.
+- `plan_reads.py` — the READ surface: access resolution, meta, plan rows,
+  facets, summary, versions, diff and the streaming export queries. No writes.
+- `service.py` — the WRITE surface (cell mutations, row lifecycle, formula
+  recomputation, submit/approve) plus the façade re-exports.
+
+The split is extraction-only: transaction ownership, locking boundaries and
+authorization checks stayed at the same call sites; `export.py`'s deferred
+import of `RenovationPlanExportData` is preserved to avoid a cycle. The full
+backend suite (677 passed / 13 skipped) is the no-behavior-change gate.
+`src/common/job_contracts.py` similarly owns the generic durable-job limits
+and `ExportQueueFullError`, re-exported by `common/export_jobs.py`.
+
 Every table export is **dual-mode behind one endpoint** (`export_table_or_job`
 in `src/common/export_jobs.py`): up to `INLINE_EXPORT_MAX_ROWS` (5 000) rows
 the workbook renders right in the request and returns as an attachment; past
