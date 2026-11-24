@@ -48,7 +48,7 @@ export async function deleteRenovationAsset(assetId: string): Promise<void> {
     );
 }
 
-/** Remove a user from ┬л╨а╨╡╨╝╨╛╨╜╤В┬╗ (only possible once their access is revoked). */
+/** Remove a user from «Ремонт» (only possible once their access is revoked). */
 export async function deleteRenovationUser(userId: string): Promise<void> {
     return requestWrite(
         `/api/renovation/dictionary/users/${encodeURIComponent(userId)}?session_id=${getCollabSessionId()}`,
@@ -152,4 +152,4 @@ export async function exportRenovationDictionary(request: {
     }));
 }
 
-// тФАтФАтФА Section-scoped undo/redo (plan and dictionaries) тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+// ─── Section-scoped undo/redo (plan and dictionaries) ─────────────────────

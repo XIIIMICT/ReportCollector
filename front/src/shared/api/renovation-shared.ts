@@ -11,7 +11,7 @@ export const RENOVATION_SECTION = "renovationPlan";
 
 /**
  * Legacy `col_NNN` db names of the renovation plan fields, mapped to the
- * semantic ┬з9.1 names used by the current schema/API (migration 0041).
+ * semantic §9.1 names used by the current schema/API (migration 0041).
  * Saved user state (filters, sorting, pinned/hidden columns) may still
  * carry the old keys; decode them on READ so nothing is silently lost.
  * `col_002` is intentionally absent: it is the synthetic asset column,
@@ -321,7 +321,7 @@ export type RenovationMeta = {
     pendingPlanId: string | null;
     /** The current user's responsibility block (null for central roles). */
     userBlock: string | null;
-    /** The user's renovation roles тАФ source of truth for plan edit rights. */
+    /** The user's renovation roles — source of truth for plan edit rights. */
     userRoles: string[];
 };
 
@@ -422,7 +422,7 @@ export type RenovationUndoState = {
     canRedo: boolean;
 };
 
-// тФАтФАтФА Dictionary grid rows тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+// ─── Dictionary grid rows ───────────────────────────────────────────────────
 
 export type RenovationAssetRow = {
     id: string;
@@ -433,7 +433,7 @@ export type RenovationAssetRow = {
     updatedBy: string;
     /** Computed: the working plan's row count for this asset. */
     repairCount: number;
-    /** Computed: sum of ┬л╨б╤В╨╛╨╕╨╝╨╛╤Б╤В╤М ╨╕╤В╨╛╨│╨╛┬╗ (total_cost_rub_ex_vat) over the plan rows. */
+    /** Computed: sum of «Стоимость итого» (total_cost_rub_ex_vat) over the plan rows. */
     totalCost: number;
 };
 
@@ -445,7 +445,7 @@ export type RenovationCatalogOptionRow = {
     updatedBy: string;
     /** Computed: the working plan's row count for this option. */
     repairCount: number;
-    /** Computed: sum of ┬л╨б╤В╨╛╨╕╨╝╨╛╤Б╤В╤М ╨╕╤В╨╛╨│╨╛┬╗ (total_cost_rub_ex_vat) over the plan rows. */
+    /** Computed: sum of «Стоимость итого» (total_cost_rub_ex_vat) over the plan rows. */
     totalCost: number;
 };
 
@@ -470,7 +470,7 @@ export function renovationCatalogSection(catalogId: string): `renovationCatalog:
     return `renovationCatalog:${catalogId}`;
 }
 
-// тФАтФАтФА Dictionary CRUD тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+// ─── Dictionary CRUD ───────────────────────────────────────────────────────
 
 export type RenovationExportColumn = {
     key: string;
@@ -484,7 +484,7 @@ export type RenovationExportJobDownload = {
     fileUrl: string;
 };
 
-/** Download a renovation dictionary export тАФ inline, or as a background job past the inline row limit. */
+/** Download a renovation dictionary export — inline, or as a background job past the inline row limit. */
 export type RenovationColumnFilter = {
     column: string;
     values: string[];
@@ -500,4 +500,4 @@ export type RenovationSortColumn = {
     order: "asc" | "desc";
 };
 
-/** The browser's IANA zone тАФ the one the cells print their timestamps in. */
+/** The browser's IANA zone — the one the cells print their timestamps in. */
