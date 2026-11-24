@@ -686,21 +686,33 @@ leaving and returning to the project: the job id is kept per project in
 remount resumes polling until the job settles. The analysis wait before it
 keeps its indeterminate bar inside the dialog.
 
-Rows are matched by «Код работы» (`work_or_repair_code`): a code already in the plan updates
-that row in place, a code the plan does not have **appends** a row at the end
-(picking up the positional sequence after the current last row). A cell the file
-leaves empty keeps the plan's current value — a blank cell is never an
-instruction to clear a value. A row without the asset value is skipped by the
+Rows are matched by «Код работы» (`work_or_repair_code`): a code already in the
+plan **overwrites every row with that code** in one set-based statement, a code
+the plan does not have **appends** a row at the end (picking up the positional
+sequence after the current last row). Duplicate codes in the plan are not yet a
+business error (P0/Gate B/C): all matching rows are overwritten, not just the
+last one; a load file with duplicate codes is still refused by the preflight
+before it can reach the worker. A row without the asset value is skipped by the
 loader with the same rule the preflight applies; every other blank required cell
-is an error and refuses the whole file, so the written counts match the report. The write boundary is thin but not free:
-the parser hands dates over as ISO text (the same value feeds the renovation-ID
-rule) while `work_start_date/025/191/199/203` are real `DATE` columns, so `_flush_batch`
-converts them; and because the parser **drops blank cells**, the rows of one
-batch carry different key sets — a multi-row `INSERT` demands identical keys per
-row
-(`CompileError: … explicitly rendered as a boundparameter`), so every row is
-padded to the batch's key union and the cell it omitted becomes `NULL` on a
-created row (on an existing row it still means «keep the current value»).
+is an error and refuses the whole file, so the written counts match the report.
+
+**Owner-approved overwrite semantics (Phase 5):** the file does not patch the
+plan — it replaces values. An empty or whitespace-only cell is an explicit
+`NULL`, so on an update it CLEARS the old value; only a column absent from the
+FILE HEADER keeps its current value. Applied equally to duplicates: every match
+gets the same new values. This is a deliberate change from the earlier «blank
+means keep» rule and is covered by `test_a_blank_cell_clears_an_existing_value_on_update`.
+
+Existing rows are staged in a transaction-local `TEMP TABLE` generated from the
+ORM column types with no constraints and `ON COMMIT DROP` (no migration and no
+cleanup policy; commit or rollback removes it). Batches insert into staging;
+after the last batch ONE `UPDATE r_plan_rows ... FROM plan_import_stage` applies
+all updates — there is no per-row UPDATE round trip. New rows keep the batched
+multi-row `INSERT`. A multi-row `INSERT` demands identical keys per row, so every
+row is padded to the batch's key union; a key the file did not supply becomes
+`NULL` on a created row. The write boundary converts ISO date text to real
+`DATE` columns (`work_start_date/025/191/199/203`) and resolves reference labels
+to catalog ids before staging.
 
 Reference cells are resolved to the ids of the **live** `r_reference_values`
 dictionary — the same rows the preflight (and the «Справочники» editor) sees.

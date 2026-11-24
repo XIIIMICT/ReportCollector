@@ -8,8 +8,10 @@ from datetime import UTC, date, datetime
 from typing import BinaryIO, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import insert, update
-from sqlmodel import col, select
+from sqlalchemy import Column, MetaData, Table, insert, text
+from sqlalchemy.dialects.postgresql import dialect as postgresql_dialect
+from sqlalchemy.schema import CreateTable
+from sqlmodel import SQLModel, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.collab.locking import lock_project
@@ -28,14 +30,49 @@ from src.renovation.service import recompute_plan_rows
 _BATCH_SIZE = 200
 _ERR_NO_WORKING_PLAN = ValueError("Нет рабочего плана для загрузки.")
 
+# Phase 5.1: existing rows are updated set-based from a session-local staging
+# table. Its DDL is generated from the ORM column types with NO constraints and
+# `ON COMMIT DROP`: no migration, no persistent state, no cleanup job; commit OR
+# rollback removes it. The staging INSERT is batched like the target INSERT; the
+# target UPDATE is ONE statement.
+_STAGE_TABLE = "plan_import_stage"
+_WRITE_FIELDS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        ["work_or_repair_code", "asset_id", "updated_at", "updater_user_id"]
+        + [meta.db_name for meta in field_metas() if not meta.is_calculated]
+    )
+)
+_PLAN_TABLE = SQLModel.metadata.tables[RenovationPlanRow.__tablename__]
+_STAGE_COLUMNS: tuple[str, ...] = tuple(name for name in _WRITE_FIELDS if name in _PLAN_TABLE.c)
+_stage_table = Table(
+    _STAGE_TABLE,
+    MetaData(),
+    *(Column(name, _PLAN_TABLE.c[name].type) for name in _STAGE_COLUMNS),
+)
+_STAGE_DDL = (
+    str(CreateTable(_stage_table).compile(dialect=postgresql_dialect())).replace("CREATE TABLE", "CREATE TEMP TABLE", 1)
+    + " ON COMMIT DROP"
+)
+_UPDATE_SQL = (
+    f"UPDATE {_PLAN_TABLE.name} AS t SET "  # noqa: S608  # identifiers are ORM metadata, not user input
+    + ", ".join(f"{name} = s.{name}" for name in _STAGE_COLUMNS if name != "work_or_repair_code")
+    + f" FROM {_STAGE_TABLE} AS s "
+    + "WHERE t.plan_id = :plan_id AND t.work_or_repair_code = s.work_or_repair_code"
+)
+_STAGED_ID_SQL = (
+    f"SELECT t.id FROM {_PLAN_TABLE.name} AS t "  # noqa: S608  # same: only plan_id is bound
+    f"WHERE t.plan_id = :plan_id AND t.work_or_repair_code IN "
+    f"(SELECT work_or_repair_code FROM {_STAGE_TABLE})"
+)
+
 
 @dataclass(slots=True)
 class _PendingRow:
-    """One parsed file row ready for the write: new row or an update of one."""
+    """One parsed file row ready for the write: new row or an update staging record."""
 
     parsed: ParsedPlanRow
     asset_id: UUID
-    row_id: UUID | None
+    is_new: bool
     position: int | None
 
 
@@ -82,6 +119,11 @@ async def apply_plan_file(
         batches = one_batch()
     with observe_phase("import", "project_lock"):
         await lock_project(session, RENOVATION_PROJECT_KEY)
+    # The staging table is session-local + transaction-local (ON COMMIT DROP).
+    # DROP IF EXISTS also handles nested test savepoints where COMMIT does not
+    # happen between two loads on the same pooled connection.
+    await session.execute(text(f"DROP TABLE IF EXISTS {_STAGE_TABLE}"))  # ty: ignore[deprecated]
+    await session.execute(text(_STAGE_DDL))  # ty: ignore[deprecated]
     plan_query = select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING)
     if plan_id is not None:
         plan_query = plan_query.where(col(RenovationPlan.id) == plan_id)
@@ -95,13 +137,15 @@ async def apply_plan_file(
     # same dictionary, matched by name (case/quote/space-insensitive).
     asset_ids_by_name = {_asset_name_key(asset.name): asset.id for asset in assets}
 
-    existing: dict[str, UUID] = {
-        code: row_id
-        for row_id, code in (
+    # Owner-approved semantics (Phase 5): rows are identified by work code;
+    # EVERY plan row with that code is overwritten, and a code absent from the
+    # working plan appends a new row. Duplicate codes in the plan are not
+    # resolved yet (P0/Gate B/C) — UPDATE ... FROM overwrites all matches.
+    existing_codes: set[str] = {
+        code
+        for code in (
             await session.exec(
-                select(col(RenovationPlanRow.id), col(RenovationPlanRow.work_or_repair_code)).where(
-                    col(RenovationPlanRow.plan_id) == plan.id
-                )
+                select(col(RenovationPlanRow.work_or_repair_code)).where(col(RenovationPlanRow.plan_id) == plan.id)
             )
         ).all()
         if code
@@ -143,15 +187,15 @@ async def apply_plan_file(
                     # dictionary does not have refuses the whole file (the preflight
                     # reports it) instead of dropping its rows from the plan.
                     raise _unknown_asset(row.code, row.asset_key)
-                row_id = existing.get(row.code)
+                is_new = row.code not in existing_codes
                 position: int | None = None
-                if row_id is not None:
+                if not is_new:
                     updated += 1
                 else:
                     last_position += 1
                     position = last_position
                     inserted += 1
-                batch.append(_PendingRow(parsed=row, asset_id=asset_id, row_id=row_id, position=position))
+                batch.append(_PendingRow(parsed=row, asset_id=asset_id, is_new=is_new, position=position))
                 if len(batch) >= _BATCH_SIZE:
                     with observe_phase("import", "write_batch"):
                         affected.extend(
@@ -169,6 +213,14 @@ async def apply_plan_file(
             )
         processed = inserted + updated
         report("write", min(processed, expected) if total else processed)
+
+    # ONE set-based UPDATE for all staged rows (all duplicate plan rows with a
+    # matching code are overwritten). No per-row UPDATE round trip remains.
+    with observe_phase("import", "apply_updates"):
+        await session.execute(text(_UPDATE_SQL), {"plan_id": plan.id})  # ty: ignore[deprecated]
+        affected.extend(
+            (await session.execute(text(_STAGED_ID_SQL), {"plan_id": plan.id})).scalars().all()  # ty: ignore[deprecated]
+        )
 
     # Only the rows this load wrote need their derived values: the full sweep
     # (`just recompute-renovation-plan`) is the backfill, and rewriting all
@@ -219,25 +271,27 @@ async def _flush_batch(
     user_id: UUID | None,
 ) -> list[UUID]:
     """
-    Write one batch as bulk INSERT/UPDATE statements (no per-row round trip).
+    Write one batch: new rows in one INSERT, existing rows staged for one UPDATE.
 
-    Returns the ids of every row the batch touched: an INSERT needs its id
-    generated here so the narrowed recompute can name the new rows without a
-    second lookup by work code.
+    The set-based UPDATE runs after the last batch. Returns the ids of the
+    inserted rows; updated rows are collected from the staging table afterwards.
     """
     now = datetime.now(UTC)
     new_rows: list[dict[str, object]] = []
-    updates: list[tuple[UUID, dict[str, object]]] = []
-    affected: list[UUID] = []
+    stage_rows: list[dict[str, object]] = []
+    inserted_ids: list[UUID] = []
     for pending in batch:
         # The parsed values are already coerced to the column types, so they go
         # to `values()` as-is; reference labels become catalog ids here.
         values: dict[str, object] = {}
         for field, value in pending.parsed.values.items():
             # The asset is a foreign key on the row, not a plan column.
-            if field == "col_002" or not hasattr(RenovationPlanRow, field):
+            if field not in _STAGE_COLUMNS:
                 continue
-            if field in _CATALOG_BY_FIELD:
+            if value is None:
+                # Explicit empty cell: overwrite the old value with NULL.
+                values[field] = None
+            elif field in _CATALOG_BY_FIELD:
                 resolved = _resolve_reference(field, value, reference_ids)
                 if resolved is value:
                     raise _unknown_reference(pending.parsed.code, field, value)
@@ -248,7 +302,7 @@ async def _flush_batch(
                 values[field] = date.fromisoformat(str(value)) if value else None
             else:
                 values[field] = value
-        if pending.row_id is None:
+        if pending.is_new:
             row_id = uuid4()
             new_rows.append(
                 {
@@ -265,16 +319,19 @@ async def _flush_batch(
                     **values,
                 }
             )
-            affected.append(row_id)
+            inserted_ids.append(row_id)
             continue
-        # Values absent from the file keep their current plan values.
-        updates.append(
-            (
-                pending.row_id,
-                {"asset_id": pending.asset_id, "updated_at": now, "updater_user_id": user_id, **values},
-            )
+        # Values absent from the FILE HEADER keep their current plan values;
+        # blank cells inside the row are present as None and overwrite.
+        stage_rows.append(
+            {
+                "work_or_repair_code": pending.parsed.code,
+                "asset_id": pending.asset_id,
+                "updated_at": now,
+                "updater_user_id": user_id,
+                **values,
+            }
         )
-        affected.append(pending.row_id)
     if new_rows:
         # One multi-row VALUES clause, so every dict must carry the SAME keys:
         # the parser drops blank cells, which makes real rows ragged (and made
@@ -284,9 +341,11 @@ async def _flush_batch(
         await session.exec(
             insert(RenovationPlanRow).values([{column: row.get(column) for column in columns} for row in new_rows])
         )
-    for row_id, changes in updates:
-        await session.exec(update(RenovationPlanRow).where(col(RenovationPlanRow.id) == row_id).values(**changes))
-    return affected
+    if stage_rows:
+        # One batched INSERT into the transaction-local staging table; the
+        # target rows are updated by ONE UPDATE ... FROM after the last batch.
+        await session.execute(insert(_stage_table), stage_rows)  # ty: ignore[deprecated]
+    return inserted_ids
 
 
 def _label(field: str) -> str:

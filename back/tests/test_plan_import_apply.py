@@ -2,6 +2,7 @@
 
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlmodel import col, select
@@ -297,13 +298,11 @@ async def test_a_ragged_batch_loads_and_its_dates_are_stored_as_dates(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """
-    Blank cells are dropped by the parser, so a real batch is ragged.
+    Blank cells are explicit NULLs, so a real batch is no longer ragged.
 
     A multi-row INSERT renders ONE `VALUES` clause, which demands identical
-    keys per row — a batch where one row lacks a cell raised «INSERT value for
-    column r_plan_rows.process_position is explicitly rendered as a boundparameter» and
-    the whole file was discarded. The write pads every row to the batch's key
-    union, so a cell the file omitted becomes NULL.
+    keys per row. The write still pads every row to the batch's key union, so a
+    cell the FILE HEADER omitted becomes NULL.
 
     Dates are the parser's ISO text (its contract — the same value feeds the
     renovation-ID rule) while the columns are DATE; asyncpg rejects a string
@@ -335,8 +334,8 @@ async def test_a_ragged_batch_loads_and_its_dates_are_stored_as_dates(
                 "cost_allocation_type_id": "OPEX",
                 "execution_method_id": "Собственные силы",
                 "workshop_name": "Работа без даты",
-                # work_start_date deliberately absent: the parser skips a blank cell,
-                # so these two rows of one batch have different key sets.
+                # work_start_date deliberately absent from this row's values:
+                # the batch then has ragged key sets and needs key-union padding.
             },
         ),
     ]
@@ -361,3 +360,142 @@ async def test_a_ragged_batch_loads_and_its_dates_are_stored_as_dates(
     assert loaded["TEST_RAGGED_2"].work_start_date is None
     assert loaded["TEST_RAGGED_1"].workshop_name == "Работа с датой"
     assert loaded["TEST_RAGGED_2"].workshop_name == "Работа без даты"
+
+
+async def test_a_blank_cell_clears_an_existing_value_on_update(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Owner-approved semantics: an empty source cell overwrites the old value."""
+    if (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSZR"))).first() is None:
+        pytest.skip("the seed carries no BSZR asset")
+    rows = [
+        ParsedPlanRow(
+            code="TEST_BLANK_UPDATE",
+            asset_key="BSZR",
+            values={"workshop_name": "Старое значение", "work_start_date": "2027-10-01"},
+        )
+    ]
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
+    await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
+
+    rows = [
+        ParsedPlanRow(
+            code="TEST_BLANK_UPDATE",
+            asset_key="BSZR",
+            values={"workshop_name": None, "work_start_date": None},
+        )
+    ]
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
+    result = await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
+    assert (result.new_rows, result.updated_rows) == (0, 1)
+
+    loaded = (
+        await db_session.exec(
+            select(RenovationPlanRow).where(col(RenovationPlanRow.work_or_repair_code) == "TEST_BLANK_UPDATE")
+        )
+    ).one()
+    assert loaded.workshop_name is None
+    assert loaded.work_start_date is None
+
+
+async def test_all_plan_rows_with_a_duplicate_code_are_overwritten(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Uniqueness is a later Gate B/C decision; until then UPDATE FROM overwrites every match."""
+    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSZR"))).first()
+    if bsz is None:
+        pytest.skip("the seed carries no BSZR asset")
+    plan = (
+        await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))
+    ).first()
+    assert plan is not None
+    last = (
+        await db_session.exec(
+            select(col(RenovationPlanRow.position))
+            .where(col(RenovationPlanRow.plan_id) == plan.id)
+            .order_by(col(RenovationPlanRow.position).desc())
+            .limit(1)
+        )
+    ).first() or 0
+    for offset, label in enumerate(("Первая", "Вторая"), start=1):
+        db_session.add(
+            RenovationPlanRow(
+                plan_id=plan.id,
+                asset_id=bsz.id,
+                position=last + offset,
+                work_or_repair_code="TEST_DUP_CODE",
+                workshop_name=label,
+            )
+        )
+    await db_session.flush()
+
+    rows = [ParsedPlanRow(code="TEST_DUP_CODE", asset_key="BSZR", values={"workshop_name": "Общее новое значение"})]
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
+    result = await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
+    assert (result.new_rows, result.updated_rows) == (0, 1)
+
+    loaded = (
+        await db_session.exec(
+            select(RenovationPlanRow).where(col(RenovationPlanRow.work_or_repair_code) == "TEST_DUP_CODE")
+        )
+    ).all()
+    assert len(loaded) == 2
+    assert {row.workshop_name for row in loaded} == {"Общее новое значение"}
+
+
+async def test_a_multi_batch_mixed_load_issues_one_set_based_update(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """220 rows span two batches, but existing rows are updated by ONE statement."""
+    bsz = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSZR"))).first()
+    if bsz is None:
+        pytest.skip("the seed carries no BSZR asset")
+    plan = (
+        await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))
+    ).first()
+    assert plan is not None
+    last = (
+        await db_session.exec(
+            select(col(RenovationPlanRow.position))
+            .where(col(RenovationPlanRow.plan_id) == plan.id)
+            .order_by(col(RenovationPlanRow.position).desc())
+            .limit(1)
+        )
+    ).first() or 0
+    # 110 rows already in the plan; the file has 220 rows (110 updates + 110 inserts).
+    for index in range(1, 111):
+        db_session.add(
+            RenovationPlanRow(
+                plan_id=plan.id,
+                asset_id=bsz.id,
+                position=last + index,
+                work_or_repair_code=f"TEST_MIXED_{index}",
+                workshop_name="Старое",
+            )
+        )
+    await db_session.flush()
+    rows = [
+        ParsedPlanRow(code=f"TEST_MIXED_{index}", asset_key="BSZR", values={"workshop_name": f"Новое {index}"})
+        for index in range(1, 221)
+    ]
+    monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
+    update_statements: list[str] = []
+    real_execute = db_session.execute  # ty: ignore[deprecated]
+
+    async def counting_execute(statement: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        if "UPDATE r_plan_rows" in getattr(statement, "text", ""):
+            update_statements.append(statement.text)
+        return await real_execute(statement, *args, **kwargs)  # ty: ignore[deprecated]
+
+    monkeypatch.setattr(db_session, "execute", counting_execute)
+    result = await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
+    assert (result.new_rows, result.updated_rows) == (110, 110)
+    assert len(update_statements) == 1
+    assert "workshop_name = s.workshop_name" in update_statements[0]
+
+    updated = (
+        await db_session.exec(
+            select(RenovationPlanRow).where(col(RenovationPlanRow.work_or_repair_code) == "TEST_MIXED_1")
+        )
+    ).one()
+    assert updated.workshop_name == "Новое 1"
