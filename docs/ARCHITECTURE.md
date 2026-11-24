@@ -615,8 +615,11 @@ dispatcher, so the failure appeared only in production. The same dispatcher
 keeps long export bodies from being cut.
 
 Reports are cached in Valkey (`src/renovation/inspect_cache.py`): the key is
-`rc:planimport:v<INSPECT_CACHE_VERSION>:<sha256 of the bytes>:<scope>`, where
-the scope has two parts. The version is the analyzer's: bump
+`rc:planimport:v<INSPECT_CACHE_VERSION>:<sha256 of the bytes>:<suffix>:<scope>`,
+where the version includes both the analyzer version and the renovation-ID
+generator flag, and the suffix is the upload's own `.xlsb`/`.xlsx` (identical
+bytes in different containers go through different readers and must never share
+a report). The scope has two parts. The version is the analyzer's: bump
 `INSPECT_CACHE_VERSION` whenever a deploy changes what a report contains, so a
 report written by the previous analyzer is not served for up to the TTL. The
 plan part is the file's assets («Наименование ДО» repair codes → asset

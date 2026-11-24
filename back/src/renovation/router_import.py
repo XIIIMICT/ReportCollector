@@ -85,11 +85,11 @@ async def inspect_renovation_plan_import(
     # too: otherwise every HIT still paid that read and large files looked just
     # as slow as the first analysis.
     with observe_phase("import", "discover_assets"):
-        file_scope = await cache.get_scope_digest(digest)
+        file_scope = await cache.get_scope_digest(digest, suffix=suffix)
         if file_scope is None:
             file_scope = await asyncio.to_thread(scan_file_scope, file.file, suffix)
             if file_scope.assets:
-                await cache.set_scope_digest(digest, file_scope)
+                await cache.set_scope_digest(digest, file_scope, suffix=suffix)
     await file.seek(0)
     assets = (await session.exec(select(RAsset))).all()
     # The file names its assets either by repair code («Наименование ДО») or,
@@ -118,7 +118,7 @@ async def inspect_renovation_plan_import(
         row_count=plan_row_count,
         dictionaries=dictionaries,
     )
-    cached = await cache.get_digest(digest, scope=scope) if file_scope.assets else None
+    cached = await cache.get_digest(digest, scope=scope, suffix=suffix) if file_scope.assets else None
     if cached is not None:
         return cached
     existing_codes = {
@@ -143,7 +143,7 @@ async def inspect_renovation_plan_import(
             suffix=suffix,
         )
     if file_scope.assets:
-        await cache.set_digest(digest, result, scope=scope)
+        await cache.set_digest(digest, result, scope=scope, suffix=suffix)
     return result
 
 
