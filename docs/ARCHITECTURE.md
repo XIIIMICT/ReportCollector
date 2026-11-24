@@ -772,8 +772,10 @@ sibling modules, one-way dependency `service → plan_reads → service_common`:
   cell rule/coercion helpers. Both other modules import from here.
 - `plan_reads.py` — the READ surface: access resolution, meta, plan rows,
   facets, summary, versions, diff and the streaming export queries. No writes.
-- `service.py` — the WRITE surface (cell mutations, row lifecycle, formula
-  recomputation, submit/approve) plus the façade re-exports.
+- `recompute.py` — formula materialization (`_materialize_row`,
+  `_recalculate_row`) and the `recompute_plan_rows` backfill. Pure computation
+  over rows within the caller's session; no HTTP or authorization.
+- `service.py` — the WRITE surface (cell mutations, row lifecycle, submit/approve) plus the façade re-exports.
 
 The split is extraction-only: transaction ownership, locking boundaries and
 authorization checks stayed at the same call sites; `export.py`'s deferred
