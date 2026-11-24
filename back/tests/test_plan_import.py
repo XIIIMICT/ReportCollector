@@ -234,7 +234,7 @@ async def test_a_repeated_upload_skips_both_the_scan_and_the_analysis(client, mo
     from conftest import signed_identity_headers
     from fastapi import UploadFile
 
-    from src.renovation import router as renovation_router
+    from src.renovation import router_import as renovation_router
     from src.renovation.import_plan import PlanFileScope
     from src.renovation.inspect_cache import InspectResultCache
     from src.renovation.schemas import RenovationPlanImportResult

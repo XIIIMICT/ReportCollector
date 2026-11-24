@@ -793,6 +793,16 @@ checks stayed at the same call sites; the full backend suite (677 passed /
 similarly owns the generic durable-job limits and `ExportQueueFullError`,
 re-exported by `common/export_jobs.py`.
 
+`router.py` (1935 -> 27 lines) is now just the aggregator: it creates one
+`APIRouter` and `include_router`s six sub-routers with the shared
+`/renovation` prefix — `router_import`, `router_plan`, `router_export`,
+`router_lifecycle`, `router_dictionary`, `router_undo` — plus
+`router_common` holding auth dependencies and upload/scope helpers. Paths,
+methods, dependencies and response models are unchanged (verified by diffing
+`/openapi.json`: 36/36 renovation paths identical); the private helpers that
+tests monkeypatch are re-exported from `router.py` for back-compat, and the
+three import tests now target `router_import`.
+
 Every table export is **dual-mode behind one endpoint** (`export_table_or_job`
 in `src/common/export_jobs.py`): up to `INLINE_EXPORT_MAX_ROWS` (5 000) rows
 the workbook renders right in the request and returns as an attachment; past
