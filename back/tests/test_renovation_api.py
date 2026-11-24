@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
-from typing import IO, cast
+from typing import IO, Any, cast
 from urllib.parse import unquote
 from uuid import uuid4
 from zipfile import ZipFile
@@ -26,7 +26,7 @@ from src.renovation.export_jobs import ExportJobSpec
 from src.renovation.export_jobs import export_jobs as export_jobs_manager
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
-from src.renovation.service import read_plan_export_meta, recompute_plan_rows
+from src.renovation.service import read_plan_export_meta, read_plan_facets, recompute_plan_rows
 
 ADMIN_HEADERS = signed_identity_headers(email="admin@example.ru", name="Admin User")
 VIEWER_HEADERS = signed_identity_headers(email="viewer@example.ru", name="Viewer User")
@@ -154,6 +154,30 @@ async def test_read_plan_returns_rows_with_labels_and_ids(
     assert bsk["renovationId"] == "2027_BSKR_1.1.1_1382467"
     assert bsk["missingComponents"] == []
     assert by_asset["VOZR"]["renovationId"] == "2027_VOZR_1.1.1_2247000"
+
+
+async def test_generic_facets_group_and_page_in_sql(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A facet window never materializes every distinct value in Python."""
+    from src.renovation.models import RAsset
+
+    plan = (await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).one()
+    assets = list((await db_session.exec(select(RAsset))).all())
+    statements: list[str] = []
+    real_exec = db_session.exec
+
+    def spy(statement: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        statements.append(str(statement))
+        return real_exec(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "exec", spy)
+    result = await read_plan_facets(
+        db_session, assets, plan_id=plan.id, column="work_description", offset=100, limit=25
+    )
+    sql = "\n".join(statements)
+    assert "GROUP BY" in sql
+    assert "LIMIT" in sql
+    assert "OFFSET" in sql
+    assert len(result.values) <= 25
 
 
 async def test_read_plan_facets_sorted_distinct(client: AsyncClient) -> None:
@@ -1123,6 +1147,41 @@ async def test_patch_accepts_reference_labels(client: AsyncClient, db_session: A
 
 async def test_patch_rejects_unknown_reference_label(client: AsyncClient, db_session: AsyncSession) -> None:
     row = await _row_by_asset_code(db_session, "BSKR")
+    status, body = await _patch(client, [{"rowId": str(row.id), "field": "work_category_id", "value": "Нет такого"}])
+    assert status == 422
+    assert "не найдено" in body["detail"]
+
+
+async def test_patch_prefetches_reference_ids_for_many_cells(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch of reference cells uses one catalog snapshot, not one SELECT per cell."""
+    from src.renovation import cell_mutations
+
+    row = await _row_by_asset_code(db_session, "BSKR")
+    single_lookups: list[object] = []
+    original = cell_mutations._resolve_reference_id
+
+    async def spy(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        single_lookups.append(args)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(cell_mutations, "_resolve_reference_id", spy)
+    cells = [
+        {"rowId": str(row.id), "field": "equipment_criticality_group_id", "value": "3"},
+        {"rowId": str(row.id), "field": "work_category_id", "value": "ТОиР"},
+        {"rowId": str(row.id), "field": "work_type_id", "value": "КР"},
+        {"rowId": str(row.id), "field": "cost_allocation_type_id", "value": "OPEX"},
+        {"rowId": str(row.id), "field": "execution_method_id", "value": "Собственные силы"},
+    ]
+    status, body = await _patch(client, cells)
+    assert status == 200, body
+    # Some seed values may already match, but every reference cell still went
+    # through the prefetched map — no single-row catalog lookup happened.
+    assert body["applied"] >= 3
+    assert single_lookups == []
+
+    # The prefetched map is strict exactly like the single-row lookup.
     status, body = await _patch(client, [{"rowId": str(row.id), "field": "work_category_id", "value": "Нет такого"}])
     assert status == 422
     assert "не найдено" in body["detail"]

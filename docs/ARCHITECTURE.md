@@ -743,6 +743,10 @@ to catalog ids before staging.
 
 Reference cells are resolved to the ids of the **live** `r_reference_values`
 dictionary — the same rows the preflight (and the «Справочники» editor) sees.
+A bulk cell PATCH takes ONE catalog snapshot (`prefetch_reference_ids`, exact
+label → id, including deleted rows) and resolves every reference cell in memory
+(Phase 6.2); a single-cell undo/redo still uses the one-row lookup. Resolution
+stays strict: an unknown label refuses the batch with the same error as before.
 Both passes therefore agree: an option the operator adds after the seed is
 loadable at once. Reading the seed's static `REFERENCE_OPTIONS` here instead was
 a trap — the preflight said «ready» and the load then refused the whole file
@@ -850,6 +854,45 @@ re-exporting six workflow modules: `renovation-shared.ts` (types, constants,
 are leaf modules, so there are no cycles; the 82 historical exports are
 identical (checked), and the runtime request/response shapes are unchanged.
 `bun test` (461 passed) and `bun check` are the no-behavior-change gate.
+
+### Facet and query cost (Phase 6 measurements)
+
+`read_plan_facets` used to materialize **every distinct value** of a column in
+Python and then filter, casefold-sort, count and slice there. All generic
+columns now do that in ONE grouped SQL scan: the display bucket is a SQL
+expression (number formatting, date ISO, boolean, reference label via a LEFT
+JOIN, asset name, audit minute in UTC), casefolding is `lower` + ß/ẞ expansion,
+and window functions return the total/matching/empty-bucket counts alongside
+the page — so a returning page never pays a second grouped scan. An empty page
+falls back to one aggregate. The specialized `work_or_repair_code` path is
+unchanged.
+
+Measured on the live dev plan (261 419 rows) before → after:
+`defect_list...` 436 → 168 ms, `work_description` 540 → 268 ms,
+`equipment_unit_name` 260 → 160 ms; the last two with a text search 582 → 447
+ms and 192 → 206 ms. Low-cardinality fields stayed within noise. The earlier
+attempt with a 100-character `translate()` and three grouped scans was slower
+than the Python path and was replaced; `lower` + ß handling and one scan fixed
+that. No exact-count or ordering behavior changed (all facet tests pass).
+
+A bulk cell PATCH prefetches reference ids once (Phase 6.2) instead of one
+catalog SELECT per cell; see the import/export section above.
+
+Page reads still issue ONE count query (filtered total, whole-plan total,
+position spread and the anchor offset) and keep exact totals: 89 ms at the head
+and 41 ms at a 150k offset on the live plan. No time-only count cache and no
+`data_revision` was introduced — both would need an inventory of every mutation
+path (imports, edits, Undo, recompute, lifecycle, scripts) and an owner-approved
+consistency design.
+
+Sorted windows still use SQL `OFFSET` (the grid has infinite scroll plus a
+"go to №" jump, so a cursor would change the API/UI contract). Measured on the
+live plan: default deep 41 ms, `work_description` sorted head 827 ms / deep
+3 812 ms, `work_cost_rub_ex_vat` deep 3 169 ms. A covering index including ALL
+sort keys `(plan_id, lower(col), col, position, id)` brought these to 110 ms /
+1 368 ms and 830 ms, but the owner chose to keep the current write cost and
+record the option instead of adding indexes or switching to a cursor. The
+measurement helper is `back/src/scripts/explain_backend.py`.
 
 Every table export is **dual-mode behind one endpoint** (`export_table_or_job`
 in `src/common/export_jobs.py`): up to `INLINE_EXPORT_MAX_ROWS` (5 000) rows
