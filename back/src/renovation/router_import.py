@@ -74,6 +74,10 @@ async def inspect_renovation_plan_import(
     with observe_phase("import", "hash_upload"):
         digest = await _rewind_and_hash_upload(file)
     cache = get_inspect_cache()
+    # Phase 5.2: scope discovery parses the whole workbook in a worker thread.
+    # Release the request's pooled DB connection before that CPU phase; the
+    # session transparently acquires a new one for the reads below.
+    await session.close()
     # Which assets and dictionaries the file touches decides the cache scope: a
     # plan edit in an asset the file does not mention, or a catalog edit the
     # file has no column for, must not invalidate this report. The discovery is
@@ -124,6 +128,10 @@ async def inspect_renovation_plan_import(
     for value in (await session.exec(select(RenovationReferenceValue))).all():
         references.setdefault(value.catalog.value, set()).add(value.label.casefold())
     asset_names_by_code = {asset.code: asset.name for asset in assets if asset.code}
+    # Phase 5.2: the reference snapshot above is complete and consistent; the
+    # analysis that follows is pure CPU in a worker thread and must not keep a
+    # DB connection checked out of the pool.
+    await session.close()
     await file.seek(0)
     with observe_phase("import", "inspect"):
         result = await asyncio.to_thread(

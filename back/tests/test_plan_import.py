@@ -1,7 +1,7 @@
 """Preflight of a technical-directorate Excel plan (no database writes)."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from openpyxl import Workbook
@@ -16,6 +16,9 @@ from src.renovation.import_plan import (
 )
 
 if TYPE_CHECKING:
+    from httpx2 import AsyncClient
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
     from src.renovation.schemas import RenovationPlanImportResult
 
 # The checked-in technical-directorate plan sample (`docs/samples/`): the real
@@ -227,6 +230,34 @@ async def test_sample_upload_returns_the_preflight_report(client, xlsx_sample: P
         # The template is recognised: a wrong-format answer would mean the columns
         # were not matched by name. Both containers go through the same reader.
         assert body["status"] != "invalid_format", body
+
+
+async def test_preflight_releases_the_db_session_before_the_cpu_parse(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The analysis runs in a worker thread with no DB connection checked out."""
+    from conftest import signed_identity_headers
+
+    from src.renovation import router_import
+    from src.renovation.import_plan import inspect_plan_file_streaming
+
+    if _SAMPLE is None:
+        pytest.skip("no sample in docs/samples/")
+    in_transaction_during_parse: list[bool] = []
+
+    def spy(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        in_transaction_during_parse.append(db_session.in_transaction())
+        return inspect_plan_file_streaming(*args, **kwargs)
+
+    monkeypatch.setattr(router_import, "inspect_plan_file_streaming", spy)
+    response = await client.post(
+        "/api/renovation/plan/import/inspect",
+        files={"file": (_SAMPLE.name, _SAMPLE.read_bytes(), "application/octet-stream")},
+        headers=signed_identity_headers(email="admin@example.ru", name="Admin User"),
+    )
+    assert response.status_code == 200, response.text
+    assert in_transaction_during_parse
+    assert not in_transaction_during_parse[0]
 
 
 async def test_a_repeated_upload_skips_both_the_scan_and_the_analysis(client, monkeypatch) -> None:

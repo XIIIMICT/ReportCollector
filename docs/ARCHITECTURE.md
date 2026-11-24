@@ -590,7 +590,12 @@ parsing, then Starlette's `UploadFile` keeps it in its spooled temporary file.
 The inspect endpoint hashes and parses it through bounded row iterators; its
 scope-discovery pass (asset codes plus the reference catalogs the template
 header uses) remains intentionally separate until a future one-pass preflight.
-Apply stages the bytes and does not parse them in the HTTP request.
+Both parse passes run in `asyncio.to_thread` with the DB connection released
+(Phase 5.2): the endpoint reads its consistent reference snapshot first, calls
+`session.close()` before the CPU work, and lets the session lazily reacquire a
+connection for any later reads. The snapshot is taken once, so no dictionary can
+change midway through a parse. Apply stages the bytes and does not parse them in
+the HTTP request.
 
 `RENOVATION_IMPORT_MAX_BYTES` defaults to 256 MiB for each file. The HTTP body
 limit adds a 1 MiB allowance for multipart boundaries/fields and also covers
