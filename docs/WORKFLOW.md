@@ -16,20 +16,16 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.15 and Node 26 
 2. Dependencies: `just deps` (`uv sync --directory back` + `bun install --cwd front`).
 3. DB and services: `just db-stand` (postgres+valkey), Keycloak if needed — `just auth-stand`.
 4. Migrations: `just migrate`. The migration connection runs with `lock_timeout=30s` (`back/migrations/env.py`) — if the app holds a lock (classic idle-in-transaction pool connection), the migration aborts with "canceling statement due to lock timeout" after 30s instead of hanging forever. On prod prefer running migrations with the app stopped/idle. Seed: `just seed` (**recreates the schema!** only with consent, never on prod). `alembic_version.version_num` is `TEXT` (migration `0020_alembic_version_text`) — Alembic's default is `VARCHAR(32)`, and a longer revision id used to fail the whole upgrade on the closing bookkeeping `UPDATE` (`value too long for type character varying(32)`) *after* the schema change had already run. Keep revision ids descriptive; there is no length limit now.
-- The renovation plan is seeded from the per-enterprise «РБ ПОФ_2027_*» workbooks in
-  `docs/seed/Планы/` (one «РБ…» sheet each; header on row 1, data from row 3).
-  `just seed-renovation-plan` (`uv run --directory back -m src.scripts.seed_database
-  --renovation-plan`) rebuilds **only** the plan (truncates
-  `renovation_plans`/`renovation_plan_rows`, keeps the asset dictionary, the
-  reference catalogs and the users — the importer resolves each enterprise by its
-  «Наименование ДО» code against the existing `r_assets` ids);
-  `just seed-renovation` (`--renovation`) also rebuilds the catalogs. Columns are
-  matched by header text through a small **closed alias list** (e.g. «Лот» → the
-  direction code `col_189`, the third segment of the work id — the «РБ ПОФ» files
-  name it «Лот» rather than the form's «Код направления деятельности»). A value
-  missing from a catalog is added as a marked «@»-prefixed option for an admin to
-  review and delete afterwards. Run host seeds with `POSTGRES_HOST=127.0.0.1` —
-  the `.env` value `host.docker.internal` only resolves inside containers.
+- Seeding «Ремонт» writes the static master data (assets, users, reference
+  catalogs) and a **small deterministic demo plan of 4 rows** — no workbooks are
+  parsed. `just seed-renovation` (`--renovation`) truncates and rebuilds those
+  tables; `just seed` / `--data-only` (the latter used by CI) keep the same path.
+  Real plan data arrives ONLY through the production Excel import endpoint; the
+  obsolete `just seed-renovation-plan` / `--renovation-plan` workbook re-import
+  has been removed, together with its «@»-invented catalog options and legacy
+  header/value typo exceptions. The real importer is strict and independent of
+  the seeder. Run host seeds with `POSTGRES_HOST=127.0.0.1` — the `.env` value
+  `host.docker.internal` only resolves inside containers.
 - The «КППК» copies come from the corporate source tables (`raw.kppk_*`). That
   **original data is not in the repository** — it ships as SQL dumps the operator
   loads into the database; the seeder only reads the tables. The seeder's own
@@ -280,13 +276,9 @@ The same applies to **runtime SQL**, not just migrations: CI runs PostgreSQL 18,
 
 ### Renovation computed fields (backfill)
 
-The renovation importer skips every calculated field (`_SKIP_FIELDS`) and `read_plan_rows` returns stored values without materializing, so imported/adopted rows have blank formula columns until each row is edited. `recompute_plan_rows` (service) fills them; it is exposed as `just recompute-renovation-plan` (`uv run --directory back -m src.scripts.recompute_renovation_plan`, optional `--plan-id`). It runs once after importing a plan and whenever the formula definitions change; on PostgreSQL 14 it needs no schema change (data only). `just seed-renovation-plan` (and the plan part of `just seed`/`just seed-renovation`) calls it at the end of the import, so a fresh seed is already consistent. The backfill streams rows by primary key and writes one batched `UPDATE` per 1000 rows, only for rows whose derived values actually changed (~4 min for 306k rows when every row changes; a per-row ORM flush is ~12 min). The importer passes `row_ids` — exactly the rows it inserted/updated — so a ~20k-row load recomputes ~20k rows, not the whole plan. `recompute_plan_rows` reports scanned-row progress after every batch; the import job exposes `parse`/`write`/`recompute` phases with a total of twice the preflight's row count (one half for the write, one for the recompute). `revision`/`updated_at` are left untouched (it is a data fix, not an edit), and nothing is broadcast — reload clients after running the full backfill on a live plan.
+The renovation importer skips every calculated field (`_SKIP_FIELDS`) and `read_plan_rows` returns stored values without materializing, so imported/adopted rows have blank formula columns until each row is edited. `recompute_plan_rows` (service) fills them; it is exposed as `just recompute-renovation-plan` (`uv run --directory back -m src.scripts.recompute_renovation_plan`, optional `--plan-id`). It runs once after importing a plan and whenever the formula definitions change; on PostgreSQL 14 it needs no schema change (data only). `just recompute-renovation-plan` is the standalone backfill; `just seed`/`just seed-renovation` also recompute their demo rows, so a fresh seed is already consistent. The backfill streams rows by primary key and writes one batched `UPDATE` per 1000 rows, only for rows whose derived values actually changed (~4 min for 306k rows when every row changes; a per-row ORM flush is ~12 min). The importer passes `row_ids` — exactly the rows it inserted/updated — so a ~20k-row load recomputes ~20k rows, not the whole plan. `recompute_plan_rows` reports scanned-row progress after every batch; the import job exposes `parse`/`write`/`recompute` phases with a total of twice the preflight's row count (one half for the write, one for the recompute). `revision`/`updated_at` are left untouched (it is a data fix, not an edit), and nothing is broadcast — reload clients after running the full backfill on a live plan.
 
-### Renovation plan import is batched (do not materialize the whole plan)
-
-The plan import is a generator (`iter_renovation_plan_rows`) inserted in batches of 5000 with `insert_renovation_plan_rows` (each batch flushed and expunged). It used to build all ~0.3M ORM rows in a list and `add_all` them, which OOM-killed the seed on a small production container (`exit 137`) — if you see 137, that is the kernel OOM killer, not a Python error.
-
-`just seed-renovation` / `--renovation` **truncates the reference catalogs and the plan** (`RENOVATION_TABLES`: plan rows, plans, reference values) before re-importing; the truncate commits in its own transaction, so a failure during the import leaves those tables empty (the enterprise and user dictionaries survive). Take a backup first, and if it does fail, re-run `just seed-renovation` (the catalogs come back from the static `REFERENCE_OPTIONS`, the plan from the «РБ ПОФ» files). User edits to the working plan are **not** recoverable from the sources — restore the backup for those. `just seed-renovation-plan` / `--renovation-plan` only truncates the plan tables and leaves the catalogs alone.
+`just seed-renovation` / `--renovation` **truncates the reference catalogs and the plan** (`RENOVATION_TABLES`: plan rows, plans, reference values) before re-seeding; the truncate commits in its own transaction, so a failure leaves those tables empty (the enterprise and user dictionaries survive). Take a backup first, and if it does fail, re-run `just seed-renovation` (the catalogs come back from the static `REFERENCE_OPTIONS` and the plan from the 4 demo rows). User edits to the working plan are **not** recoverable from the seed — restore the backup for those. Real plan data is loaded through the production Excel import endpoint, which is batched and independent of the seeder.
 
 ## Pre-commit (prek)
 
