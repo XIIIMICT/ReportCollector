@@ -1,7 +1,5 @@
 """Query-owned table exports: bounded inline responses and durable large jobs."""
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field

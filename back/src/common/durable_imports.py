@@ -1,7 +1,5 @@
 """Durable, bounded import jobs backed by the PostgreSQL data-job queue."""
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import logging

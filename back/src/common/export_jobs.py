@@ -29,8 +29,6 @@ The project-defined spec is opaque to the manager (it only reads
 pending jobs are lost and the client simply creates a new one.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import logging

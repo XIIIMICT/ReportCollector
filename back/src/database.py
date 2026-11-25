@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from time import perf_counter
 from typing import TYPE_CHECKING, cast
 

@@ -26,8 +26,6 @@ download streamer while the file is still being written.
 User-facing strings (sheet names, «Да»/«Нет») are Russian by the standard.
 """
 
-from __future__ import annotations
-
 import re
 import zipfile
 from collections.abc import Iterable, Mapping, Sequence
