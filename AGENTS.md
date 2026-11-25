@@ -105,6 +105,7 @@ picks another interpreter (use `uv run pytest`); `npx` picks another resolver.
 - `docs/ARCHITECTURE.md` — diagram, env vars, data model, API, auth, deploy,
   monitoring and implemented invariants (canonical SMTP/mail section).
 - `docs/DATA-JOBS.md` — renovation import/preflight, durable jobs, streaming XLSX.
+- `docs/FRONTEND-REFACTOR.md` — frontend baseline measurements, deduplication progress, Zustand decision.
 - `docs/DOMAINS.md` — КППК and Логистика data models.
 - `docs/RENOVATION-DESIGN.md` — service/router/API boundaries and query cost.
 - `docs/COLLAB.md` — WebSocket protocol, leases, presence, undo/redo, locks.

@@ -107,6 +107,7 @@ import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import {
     errorMessage,
     recordLabel,
+    toGridRow,
     trimmedText,
     publishSelection,
     type ClipboardActions,
@@ -175,16 +176,6 @@ function isDictionarySection(section: SectionId): section is DictionarySection {
         section === "deliveryBases" ||
         section === "users"
     );
-}
-
-function toGridRow<T extends { id: string }>(row: T): GridRow {
-    return {
-        ...row,
-        rowState: "unchanged",
-        changedFields: [],
-        isDeleted: false,
-        isPlaceholder: false,
-    };
 }
 
 function toReferenceOptions(names: string[]): ReferenceOption[] {

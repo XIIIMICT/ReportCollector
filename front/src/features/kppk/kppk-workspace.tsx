@@ -105,7 +105,11 @@ import { ReplaceRecordDialog, type ReplaceTargetOption } from "@/shared/ui/repla
 import { SearchAutocomplete } from "@/shared/ui/search-autocomplete";
 import { SmartSelect } from "@/shared/ui/smart-select";
 import {
+    errorMessage,
     publishSelection,
+    recordLabel,
+    toGridRow as toSharedGridRow,
+    trimmedText,
     type GridSelectionInfo,
     updateClipboardActions,
 } from "@/shared/ui/text-helpers";
@@ -256,19 +260,12 @@ type KppkUndoActions = {
 };
 
 function toGridRow<T extends { id: string }>(row: T): GridRow {
+    const base = toSharedGridRow(row);
     const shortNames = (row as { orgShortNames?: unknown }).orgShortNames;
-    return {
-        ...row,
-        // The cell TEXT of the grouped «ДЗО» column: the assets' short names.
-        // `orgNames` stays the editor's value (the full names it writes back).
-        ...(Array.isArray(shortNames) && shortNames.length > 0
-            ? { orgNamesDisplay: shortNames.join(", ") }
-            : {}),
-        rowState: "unchanged",
-        changedFields: [],
-        isDeleted: false,
-        isPlaceholder: false,
-    };
+    if (!Array.isArray(shortNames) || shortNames.length === 0) return base;
+    // The cell TEXT of the grouped «ДЗО» column: the assets' short names.
+    // `orgNames` stays the editor's value (the full names it writes back).
+    return { ...base, orgNamesDisplay: shortNames.join(", ") };
 }
 
 /**
@@ -331,11 +328,11 @@ function placeholderCreate(
 ): (() => Promise<unknown>) | null {
     switch (section) {
         case "kppkPositions": {
-            const name = draftText(draft.name);
+            const name = trimmedText(draft.name);
             if (!name) return null;
             if (exciseMode) {
                 // One position of the «Настройка акциза» view: exactly one ДЗО.
-                const orgName = draftText(draft.orgName);
+                const orgName = trimmedText(draft.orgName);
                 if (!orgName) return null;
                 return () =>
                     createProductPosition({
@@ -361,12 +358,12 @@ function placeholderCreate(
                 });
         }
         case "kppkRaws": {
-            const name = draftText(draft.name);
+            const name = trimmedText(draft.name);
             return name ? () => createRaw({ name, rawNum: draftNumber(draft.rawNum) }) : null;
         }
         case "kppkOrgs": {
-            const code = draftText(draft.code);
-            const name = draftText(draft.name);
+            const code = trimmedText(draft.code);
+            const name = trimmedText(draft.name);
             if (!code || !name) return null;
             return () => createOrg({ code, name });
         }
@@ -1047,7 +1044,7 @@ function KppkSection({
             <DeleteRecordDialog
                 isOpen={deleteOpen}
                 isPending={isMutationPending}
-                label={recordLabel(selectedRows[0])}
+                label={recordLabel(selectedRows[0], ["name", "code"])}
                 count={selectedRows.length}
                 onOpenChange={setDeleteOpen}
                 onConfirm={() => void deleteRecords()}
@@ -1055,7 +1052,7 @@ function KppkSection({
             <ReplaceRecordDialog
                 isOpen={replaceOpen}
                 isPending={isMutationPending}
-                label={recordLabel(selectedRows[0]) ?? ""}
+                label={recordLabel(selectedRows[0], ["name", "code"]) ?? ""}
                 sectionLabel={KPPK_SECTION_TITLES[section] ?? section}
                 options={replaceTargets}
                 onOpenChange={setReplaceOpen}
@@ -1071,9 +1068,9 @@ function KppkSection({
                     defaults={USER_DEFAULTS}
                     isPending={isMutationPending}
                     validate={(values) =>
-                        !z.email().safeParse(draftText(values.email)).success
+                        !z.email().safeParse(trimmedText(values.email)).success
                             ? "Введите корректный email."
-                            : !draftText(values.fullname)
+                            : !trimmedText(values.fullname)
                               ? "Введите ФИО."
                               : null
                     }
@@ -1081,8 +1078,8 @@ function KppkSection({
                         try {
                             await enqueueMutation(() =>
                                 createKppkUser({
-                                    email: draftText(values.email).toLowerCase(),
-                                    fullname: draftText(values.fullname),
+                                    email: trimmedText(values.email).toLowerCase(),
+                                    fullname: trimmedText(values.fullname),
                                     role: String(values.role ?? "admin"),
                                 }),
                             );
@@ -1096,21 +1093,6 @@ function KppkSection({
             )}
         </>
     );
-}
-
-function draftText(value: unknown): string {
-    return typeof value === "string" ? value.trim() : "";
-}
-
-function recordLabel(row: Record<string, unknown> | undefined): string | null {
-    if (!row) return null;
-    const candidates = [row.name, row.code];
-    const value = candidates.find((candidate) => typeof candidate === "string" && candidate.trim());
-    return typeof value === "string" ? value : null;
-}
-
-function errorMessage(reason: unknown): string {
-    return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
 }
 
 export function KppkWorkspace({

@@ -40,7 +40,7 @@ import { useScopedAsyncData } from "@/shared/hooks/use-scoped-async-data";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action";
-import { publishSelection, type GridSelectionInfo } from "@/shared/ui/text-helpers";
+import { errorMessage, publishSelection, type GridSelectionInfo } from "@/shared/ui/text-helpers";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
 import { useTableExport } from "@/shared/ui/use-table-export";
 import { useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
@@ -235,10 +235,6 @@ const EMPTY_UNDO_ACTIONS: KppkUndoActions = {
     onUndo: () => {},
     onRedo: () => {},
 };
-
-function errorMessage(reason: unknown): string {
-    return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
-}
 
 export { KPPK_REALIZATION_SLICES, realizationRoomSection, type KppkRealizationSectionProps };
 

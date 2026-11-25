@@ -52,7 +52,7 @@ import {
 } from "@/shared/ui/add-record-modal";
 import { gridWarningHandlers } from "@/shared/ui/grid-warnings";
 import { ReplaceRecordDialog, type ReplaceTargetOption } from "@/shared/ui/replace-record-dialog";
-import { errorMessage, recordLabel, trimmedText } from "@/shared/ui/text-helpers";
+import { errorMessage, recordLabel, toGridRow, trimmedText } from "@/shared/ui/text-helpers";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
 import { useTableExport } from "@/shared/ui/use-table-export";
 import { useDeleteShortcut } from "@/shared/ui/workspace-shortcuts";
@@ -86,16 +86,6 @@ export function renovationSectionTable(section: string): string {
 
 function collabTableOf(section: DictionarySection): string {
     return renovationSectionTable(section);
-}
-
-function toGridRow<T extends Record<string, unknown> & { id: string }>(row: T): GridRow {
-    return {
-        ...row,
-        rowState: "unchanged",
-        changedFields: [],
-        isDeleted: false,
-        isPlaceholder: false,
-    };
 }
 
 function toAssetOptions(assets: RenovationAsset[]): Array<{ id: string; name: string }> {
