@@ -21,8 +21,6 @@ Usage (on the box, with the app's own settings):
 # ruff: noqa: S608 — every interpolated identifier is server-owned (schema and
 # table names are constants below); values are bound params.
 
-from __future__ import annotations
-
 import asyncio
 
 from sqlalchemy import text

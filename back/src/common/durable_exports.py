@@ -1,7 +1,5 @@
 """Durable export execution with fenced attempts and bounded downloads."""
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import logging
