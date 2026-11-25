@@ -55,9 +55,9 @@ files = '^(package\.json|bunfig\.toml|tsconfig.*\.json|.*\.(cts|mts|ts|tsx))$'
 [[repos.hooks]]
 id = "bun-typecheck"
 name = "bun check"
-# TypeScript resolves types across module boundaries, so this is project-wide by
-# nature; it is opt-in at commit time and always runs in CI.
+# Shared hook policy (maintainer decision, 2026-11-25): staged files at commit,
+# whole tree in CI. `bun check <files>` still resolves types across imports.
 entry = "bun run typecheck"
 language = "system"
-stages = ["manual"]
-pass_filenames = false
+files = '\.(cjs|cts|js|jsx|mjs|mts|ts|tsx)$'
+require_serial = true
