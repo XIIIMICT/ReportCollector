@@ -333,6 +333,8 @@ class RenovationPlanExportData:
     block: RBlock | None = None
     # Additive numeric sums over the exported scope (the exported totals row).
     totals: dict[str, float] = dataclasses_field(default_factory=dict)
+    # Default: write stored values instead of the plan's live formula columns.
+    values_only: bool = True
 
 
 def _export_columns() -> tuple[Column, ...]:
@@ -629,6 +631,7 @@ async def read_plan_export_data(
     block: RBlock | None = None,
     filters: list[RenovationColumnFilter] | None = None,
     sorting: list[RenovationSortColumn] | None = None,
+    values_only: bool = True,
 ) -> RenovationPlanExportData:
     """
     Read plan rows directly for XLSX export without a 94k-row Pydantic copy.
@@ -679,6 +682,7 @@ async def read_plan_export_data(
         reference_labels=meta.reference_labels,
         block=meta.block,
         totals=meta.totals,
+        values_only=values_only,
     )
 
 

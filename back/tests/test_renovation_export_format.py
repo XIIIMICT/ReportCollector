@@ -49,9 +49,10 @@ def _render(
     rows: list[tuple[int, str, str, dict[str, object]]],
     totals: dict[str, float],
     row_total: int | None,
+    values_only: bool = True,
 ) -> bytes:
     sink = BytesIO()
-    layout = build_plan_sheet_layout(None, totals)
+    layout = build_plan_sheet_layout(None, totals, values_only=values_only)
     writer = RenovationWorkbookWriter(sink, layout, {}, totals=totals, row_total=row_total)
     writer.write_rows(rows)
     writer.close()
@@ -89,7 +90,7 @@ def test_rows_are_ascending_and_totals_precede_data():
 def test_totals_row_sums_the_exact_data_range():
     """The live SUM covers precisely rows 14..15 for two data rows — no off-by-one."""
     totals_field = _numeric_totals_field()
-    data = _render(_ROWS_TEMPLATE, {totals_field.db_name: 3.0}, row_total=2)
+    data = _render(_ROWS_TEMPLATE, {totals_field.db_name: 3.0}, row_total=2, values_only=False)
     totals_row = _sheets(data).findall("m:sheetData/m:row", _SHEET_NS)[12]
     assert totals_row.attrib["r"] == "13"
     column = _totals_column(totals_field)

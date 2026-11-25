@@ -92,6 +92,32 @@ async def test_rates_export_renders_the_grid_columns(client: AsyncClient) -> Non
     assert [cell.value for cell in sheet[2]] == ["БСК", "ДЗ", 20]
 
 
+async def test_rates_export_formula_mode_writes_live_deviation(client: AsyncClient) -> None:
+    """Formula mode embeds the previous month's net as a constant operand."""
+    await _create_rate(client, tons=20)
+    columns = [
+        *RATE_COLUMNS,
+        {"key": "netRateRub", "headerPath": ["Сеть, ₽"], "width": 14},
+        {"key": "deviationRub", "headerPath": ["Отклонение, ₽"], "width": 14},
+    ]
+    response = await _export(
+        client,
+        {
+            "section": "logisticsRates",
+            "month": 11,
+            "year": 2026,
+            "columns": columns,
+            "fileName": "Ставки формулы.xlsx",
+            "valuesOnly": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    sheet = load_workbook(BytesIO(response.content)).active
+    formula = sheet.cell(row=2, column=5).value
+    assert isinstance(formula, str)
+    assert formula.startswith("=D2-(")
+
+
 async def test_rates_export_honours_the_visible_rows(client: AsyncClient) -> None:
     first = await _create_rate(client, tons=11)
     second = await _create_rate(client, tons=22)

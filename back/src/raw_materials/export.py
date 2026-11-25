@@ -131,6 +131,7 @@ def render_workbook(
         column_lists=REFERENCE_LISTS,
         calculated=CALCULATED_OPERANDS,
         row_total=len(rows),
+        values_only=request.valuesOnly,
     )
     writer.write_rows(rows)
     writer.close()

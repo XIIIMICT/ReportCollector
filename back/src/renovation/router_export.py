@@ -90,6 +90,7 @@ async def post_export_renovation_plan(
             block=payload.block,
             filters=payload.filters,
             sorting=payload.sorting,
+            values_only=payload.valuesOnly,
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
@@ -178,6 +179,7 @@ async def post_plan_export_job(
                 [item.model_dump() for item in payload.sorting or []],
                 meta.stamp.isoformat(),
                 PLAN_EXPORT_RENDER_VERSION,
+                payload.valuesOnly,
             ],
             ensure_ascii=True,
         ).encode()
@@ -191,6 +193,7 @@ async def post_plan_export_job(
         filters=payload.filters,
         sorting=payload.sorting,
         include_unassigned=payload.asset is None,
+        values_only=payload.valuesOnly,
         file_name=file_name,
         total=meta.total,
         cache_key=cache_key,

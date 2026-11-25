@@ -101,7 +101,12 @@ def render_cost_workbook(request: KppkRealizationExportRequest, rows: Sequence[B
     validate_columns_allowed(request.columns, COST_KEYS[request.slice])
     sink = BytesIO()
     writer = TableWorkbookWriter(
-        sink, "Себестоимость", request.columns, header_pinned=request.headerPinned, row_total=len(rows)
+        sink,
+        "Себестоимость",
+        request.columns,
+        header_pinned=request.headerPinned,
+        row_total=len(rows),
+        values_only=request.valuesOnly,
     )
     writer.write_rows(rows)
     writer.close()
@@ -147,6 +152,7 @@ def render_realization_workbook(
         # with CellMergePlugin). The product name decides the run; the number
         # is merged alongside it when the caller exports that column.
         merge_rows_by=REALIZATION_MERGE_BY if request.mergeRows else (),
+        values_only=request.valuesOnly,
     )
     writer.write_rows(rows)
     writer.close()
@@ -170,6 +176,7 @@ def render_workbook(
         lists=lists,
         column_lists=REFERENCE_LISTS,
         row_total=len(rows),
+        values_only=request.valuesOnly,
     )
     writer.write_rows(rows)
     writer.close()

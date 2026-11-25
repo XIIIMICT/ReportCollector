@@ -55,6 +55,7 @@ async def test_export_movement_workbook(client) -> None:
             "headerPinned": True,
             "columns": movement_columns(),
             "fileName": "Движение сырья — август (13.08.2026, 00.45.12).xlsx",
+            "valuesOnly": False,
         },
         headers=signed_identity_headers(**admin_headers()),
     )
@@ -97,6 +98,30 @@ async def test_export_movement_workbook(client) -> None:
     assert sheet.cell(row=row_index, column=6).value == 90.0
     assert sheet.cell(row=row_index, column=7).value == 70.0
     assert sheet.cell(row=row_index, column=8).value == f"=F{row_index}-G{row_index}"
+
+
+async def test_export_default_writes_values_instead_of_formulas(client) -> None:
+    """The default export is fast-opening: deviations are numbers, not live formulas."""
+    response = await client.post(
+        "/api/raw-materials/export",
+        json={
+            "section": "materialMovement",
+            "reportMonth": "2026-08-01",
+            "headerPinned": True,
+            "columns": movement_columns(),
+            "fileName": "Движение значения.xlsx",
+        },
+        headers=signed_identity_headers(**admin_headers()),
+    )
+    assert response.status_code == 200
+    sheet = load_workbook(BytesIO(response.content)).active
+    row_index = next(
+        index
+        for index in range(2, 6)
+        if sheet.cell(row=index, column=1).value == "Аммиак" and sheet.cell(row=index, column=2).value == "СНХЗ"
+    )
+    assert sheet.cell(row=row_index, column=5).value == 20.0
+    assert sheet.cell(row=row_index, column=8).value == 20.0
 
 
 async def test_export_deviation_without_operands_uses_value(client) -> None:
@@ -396,6 +421,7 @@ async def test_export_big_table_becomes_background_job(client, my_engine, monkey
             "headerPinned": True,
             "columns": movement_columns(),
             "fileName": "движение большое.xlsx",
+            "valuesOnly": False,
         },
         headers=signed_identity_headers(**admin_headers()),
     )

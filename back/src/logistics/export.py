@@ -13,6 +13,8 @@ from collections.abc import Sequence
 from io import BytesIO
 from typing import TYPE_CHECKING
 
+from openpyxl.utils import get_column_letter
+
 from src.common.export import (
     ExportColumnLike,
     ExportValidationError,
@@ -103,6 +105,31 @@ def validate_request(request: LogisticsExportViewRequest) -> None:
         raise ExportValidationError(message)
 
 
+def _deviation_formulas(request: LogisticsExportViewRequest) -> dict[str, str]:
+    """
+    Live deviation formulas for the rates sheet (formula mode only).
+
+    The previous month's net is not a column in the grid, so it is embedded as
+    the constant ``net - deviation`` from the same exported row: the result is
+    identical to the stored value, but the cell remains a live formula the user
+    can recalculate. When the net column is not exported there is no cell to
+    reference and the stored value is kept.
+    """
+    if request.valuesOnly or request.section != "logisticsRates":
+        return {}
+    formulas: dict[str, str] = {}
+    for key, net_key in (
+        ("deviationRub", "netRateRub"),
+        ("deviationUsd", "netRateUsd"),
+        ("deviationPercent", "netRateRub"),
+    ):
+        index = next((i for i, column in enumerate(request.columns) if column.key == net_key), None)
+        if index is None:
+            continue
+        formulas[key] = f"{get_column_letter(index + 1)}{{row}}-({{{net_key}}}-{{{key}}})"
+    return formulas
+
+
 def render_workbook(request: LogisticsExportViewRequest, rows: Sequence[BaseModel]) -> bytes:
     """Build the section workbook and return its bytes (no disk write)."""
     sink = BytesIO()
@@ -113,6 +140,8 @@ def render_workbook(request: LogisticsExportViewRequest, rows: Sequence[BaseMode
         header_pinned=request.headerPinned,
         row_total=len(rows),
         merge_rows_by=merge_rows_by(request.section, request.columns),
+        calculated=_deviation_formulas(request),
+        values_only=request.valuesOnly,
     )
     writer.write_rows(rows)
     writer.close()

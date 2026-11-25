@@ -28,10 +28,12 @@ User-facing strings (sheet names, «Да»/«Нет») are Russian by the standa
 
 from __future__ import annotations
 
+import re
 import zipfile
 from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime
+from decimal import Decimal
 from typing import IO, Protocol, cast
 from xml.etree import ElementTree as ET
 
@@ -111,10 +113,11 @@ class TableWorkbookWriter:
         header_pinned: bool,
         lists: Mapping[str, Sequence[str]] | None = None,
         column_lists: Mapping[str, str] | None = None,
-        calculated: Mapping[str, tuple[str, ...]] | None = None,
+        calculated: Mapping[str, tuple[str, ...] | str] | None = None,
         row_total: int | None = None,
         totals_row: Mapping[str, float] | None = None,
         merge_rows_by: Sequence[str] | None = None,
+        values_only: bool = False,
     ) -> None:
         """
         Open the archive and write everything except the data rows.
@@ -127,9 +130,11 @@ class TableWorkbookWriter:
 
         ``lists``/``column_lists`` mirror the old ``add_reference_sheet`` /
         ``apply_reference_validation`` vocabulary: column key → list name,
-        list name → items. ``calculated`` maps a column key to its live
-        formula's operand KEYS (the «Сырьё» deviations); a column whose
-        operands were dropped falls back to its stored value. ``row_total``
+        list name → items. ``calculated`` maps a column key either to a live formula's operand KEYS
+        (the «Сырьё» deviations, rendered as ``A{row}-B{row}``) or to a
+        pre-escaped template with a ``{row}`` placeholder (Логистика deviations
+        with the previous month's net as a constant operand). ``values_only``
+        writes stored numbers everywhere, including the pinned totals row.
         is the EXPECTED number of data rows — the dropdown ranges need the
         exact last row (a wrong promise only stretches the range).
         ``totals_row`` mirrors the grid's pinned summary row (the renovation
@@ -140,6 +145,7 @@ class TableWorkbookWriter:
         """
         self.columns = list(columns)
         self.calculated = dict(calculated or {})
+        self.values_only = values_only
         # ── vertical merges of the DATA block ──
         # Column keys whose value decides a run: consecutive rows with the same
         # value(s) in ALL of them are merged vertically, each of the columns in
@@ -309,7 +315,7 @@ class TableWorkbookWriter:
                 continue
             letter = self._column_letters[index]
             style = self._column_style_ids.get((column.key, _TOTALS_STYLE), _TOTALS_STYLE)
-            if self.row_total:
+            if self.row_total and not self.values_only:
                 formula = f"SUM({letter}{data_from}:{letter}{data_from + self.row_total - 1})"
                 cells.append(xlsx_stream.formula_cell_xml(ref, formula, style=style, cached=cached))
             else:
@@ -363,7 +369,7 @@ class TableWorkbookWriter:
             values = row.model_dump()
             for index, column in enumerate(self.columns):
                 ref = f"{self._column_letters[index]}{row_number}"
-                cells.append(self._data_cell_xml(ref, values.get(column.key), column))
+                cells.append(self._data_cell_xml(ref, values.get(column.key), column, values))
             cells.append("</row>")
             if self._merge_columns:
                 self._track_runs(values)
@@ -413,13 +419,17 @@ class TableWorkbookWriter:
         text = str(value).strip()
         return text or None
 
-    def _data_cell_xml(self, ref: str, value: object, column: ExportColumnLike) -> str:
+    def _data_cell_xml(self, ref: str, value: object, column: ExportColumnLike, values: Mapping[str, object]) -> str:
         """One data cell with the value semantics of the old renderer."""
         style = self._column_style_ids.get((column.key, _DATA_STYLE), _DATA_STYLE)
         datetime_style = self._column_style_ids.get((column.key, _DATETIME_STYLE), _DATETIME_STYLE)
         operands = self.calculated.get(column.key)
-        if operands is not None:
-            formula = self._calculated_formula(ref, operands)
+        if operands is not None and not self.values_only:
+            formula = (
+                self._resolve_template(operands, ref, values)
+                if isinstance(operands, str)
+                else self._calculated_formula(ref, operands)
+            )
             if formula is not None:
                 cached = self._numeric_or_none(value)
                 return xlsx_stream.formula_cell_xml(ref, formula, style=style, cached=cached)
@@ -442,6 +452,20 @@ class TableWorkbookWriter:
         if isinstance(value, bool) or not isinstance(value, int | float):
             return None
         return float(value)
+
+    @staticmethod
+    def _resolve_template(template: str, ref: str, values: Mapping[str, object]) -> str:
+        """Fill `{row}` and `{field}` placeholders from the current row."""
+        row_number = "".join(ch for ch in ref if ch.isdigit())
+        result = template.replace("{row}", row_number)
+        for name in re.findall(r"\{(\w+)\}", result):
+            operand = values.get(name)
+            if isinstance(operand, Decimal):
+                operand = format(operand, "f")
+            elif isinstance(operand, float):
+                operand = f"{operand:.2f}"
+            result = result.replace("{" + name + "}", str(operand))
+        return result
 
     def _calculated_formula(self, ref: str, operands: Sequence[str]) -> str | None:
         """``A{row}-B{row}`` from the operand column letters; None if an operand was dropped."""

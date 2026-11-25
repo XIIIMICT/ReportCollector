@@ -482,6 +482,7 @@ class RenovationExportViewRequest(BaseModel):
     columns: list[ExportColumnRequest] = Field(min_length=1, max_length=64)
     rowIds: list[UUID] | None = None
     fileName: str = Field(min_length=1, max_length=255)
+    valuesOnly: bool = True
 
 
 class RenovationPlanExportRequest(BaseModel):
@@ -501,6 +502,8 @@ class RenovationPlanExportRequest(BaseModel):
     block: RBlock | None = None
     filters: list[RenovationColumnFilter] | None = None
     sorting: list[RenovationSortColumn] | None = None
+    # Default: write stored/derived values, not the plan's live formula columns.
+    valuesOnly: bool = True
 
 
 class RenovationPlanImportCellIssue(BaseModel):

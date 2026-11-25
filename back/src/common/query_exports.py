@@ -53,8 +53,9 @@ class TableSource:
     merge_rows_by: tuple[str, ...] = ()
     lists: dict[str, list[str]] | None = None
     column_lists: dict[str, str] = field(default_factory=dict)
-    calculated: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    calculated: Mapping[str, tuple[str, ...] | str] = field(default_factory=dict)
     totals: dict[str, float] | None = None
+    values_only: bool = False
 
     def select_rows(self, row_ids: list[UUID] | None) -> None:
         if row_ids is not None:
@@ -97,21 +98,26 @@ class TableSource:
             column_lists=self.column_lists,
             calculated=self.calculated,
             totals_row=self.totals,
+            values_only=self.values_only,
         )
 
 
 async def resolve_source(session: AsyncSession, spec: QueryExportSpec) -> TableSource:
+    values_only = bool(spec.request.get("valuesOnly", True))
     if spec.source == "raw_materials":
         from src.raw_materials.export_source import resolve_export_source as resolve_raw  # noqa: PLC0415
 
-        return await resolve_raw(session, spec)
-    if spec.source == "renovation_dictionary":
+        source = await resolve_raw(session, spec)
+    elif spec.source == "renovation_dictionary":
         from src.renovation.export_source import resolve_export_source as resolve_dictionary  # noqa: PLC0415
 
-        return await resolve_dictionary(session, spec)
-    from src.kppk.export_source import resolve_export_source  # noqa: PLC0415
+        source = await resolve_dictionary(session, spec)
+    else:
+        from src.kppk.export_source import resolve_export_source  # noqa: PLC0415
 
-    return await resolve_export_source(session, spec)
+        source = await resolve_export_source(session, spec)
+    source.values_only = values_only
+    return source
 
 
 async def _write_batch(writer: TableWorkbookWriter, rows: Sequence[BaseModel]) -> None:

@@ -322,6 +322,8 @@ class KppkRealizationExportRequest(BaseModel):
     headerPinned: bool = True
     columns: list[ExportColumnRequest] = Field(min_length=1, max_length=16)
     fileName: str = Field(min_length=1, max_length=255)
+    # Accepted for a uniform client contract; КППК has no computed columns yet.
+    valuesOnly: bool = True
 
 
 class KppkAppliedRead(BaseModel):
@@ -346,3 +348,4 @@ class KppkExportViewRequest(BaseModel):
     columns: list[ExportColumnRequest] = Field(min_length=1, max_length=64)
     rowIds: list[UUID] | None = None
     fileName: str = Field(min_length=1, max_length=255)
+    valuesOnly: bool = True

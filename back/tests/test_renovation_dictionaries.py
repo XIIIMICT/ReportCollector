@@ -600,6 +600,7 @@ async def test_dictionary_export_assets_carries_summary_row(client: AsyncClient)
                 {"key": "repairCount", "headerPath": ["Число ремонтных работ"], "width": 18},
             ],
             "rowIds": None,
+            "valuesOnly": False,
         },
     )
     assert response.status_code == 200
@@ -726,6 +727,7 @@ async def test_dictionary_export_catalog_carries_summary_row(client: AsyncClient
                 {"key": "repairCount", "headerPath": ["Число ремонтных работ"], "width": 18},
             ],
             "rowIds": None,
+            "valuesOnly": False,
         },
     )
     assert response.status_code == 200, response.text

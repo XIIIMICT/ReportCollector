@@ -201,6 +201,9 @@ class LogisticsExportViewRequest(BaseModel):
     # «Ставки» are period-scoped: the grid shows one month/year.
     month: int | None = Field(default=None, ge=1, le=12)
     year: int | None = Field(default=None, ge=2025, le=2028)
+    # Formula mode writes live deviation formulas with the previous net rate as
+    # a constant operand; the default writes stored values.
+    valuesOnly: bool = True
 
 
 class LogisticsDictionaryRead[T](BaseModel):

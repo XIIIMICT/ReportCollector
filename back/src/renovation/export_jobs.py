@@ -40,6 +40,7 @@ class ExportJobSpec(ExportSpec):
     filters: list[RenovationColumnFilter] | None = None
     sorting: list[RenovationSortColumn] | None = None
     include_unassigned: bool = False
+    values_only: bool = True
 
 
 async def generate_plan_file(job: ExportJob, *, report: Callable[[int, int], None] | None = None) -> None:
@@ -68,7 +69,7 @@ async def generate_plan_file(job: ExportJob, *, report: Callable[[int, int], Non
         with partial.open("wb") as sink:
             writer = RenovationWorkbookWriter(
                 sink,
-                build_plan_sheet_layout(spec.block, meta.totals),
+                build_plan_sheet_layout(spec.block, meta.totals, values_only=spec.values_only),
                 meta.reference_labels,
                 totals=meta.totals,
                 row_total=meta.total,
