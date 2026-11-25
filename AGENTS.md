@@ -157,6 +157,7 @@ The commands above are the contract — use them as written. **If one of the req
 - `docs/COLLAB.md` — WebSocket protocol, leases, presence, undo/redo, locks.
 - `docs/GRID.md` — revo-grid: forms and columns, clipboard, selection, coordinates, tooltips; the plan sections are split by topic (`###`), so jump to the heading.
 - `docs/TODO.md` — single current engineering backlog and explicit product deferrals.
+- `docs/LIMITS.md` — Phase 9 inventory and classification of every resource limit (inventory only, owner decisions pending).
 - `docs/WORKFLOW.md` — environment, quality, languages standard, pre-commit (prek), branching/commits/merge, Definition of done, working principles (the canonical process file).
 - `docs/KEYCLOAK.md` — corporate Keycloak: OIDC flow, prod config, claims→user, provisioning, local stand, diagnostics. Prod artifacts — `docs/keycloak/` (OIDC discovery, access token example).
 - `docs/samples/renovation_td_example.xlsb` — a real technical-directorate plan (~48 KB, committed): the template the plan importer is matched against, and what `back/tests/test_plan_import.py` runs on. Replace it when the customer's template changes.
