@@ -34,8 +34,8 @@ test("renovation single-cell edit persists and Ctrl+A stays disabled", async ({ 
     await page.evaluate(async () => {
         const grid = document.querySelector("revo-grid")!;
         const columns = await grid.getColumns();
-        const columnIndex = columns.findIndex((column) => column.prop === "col_011");
-        if (columnIndex < 0) throw new Error("Missing col_011");
+        const columnIndex = columns.findIndex((column) => column.prop === "process_position");
+        if (columnIndex < 0) throw new Error("Missing process_position");
         const rows = await grid.getVisibleSource("rgRow");
         const rowIndex = rows.findIndex((row) => row && row.id);
         // `setCellEdit` opens the editor directly — on revo-grid 4.31 the old
@@ -43,7 +43,7 @@ test("renovation single-cell edit persists and Ctrl+A stays disabled", async ({ 
         // `revogr-edit`. Both calls share ONE evaluate: scrolling re-renders the
         // grid and would drop the editor's focus.
         await grid.scrollToColumnIndex(columnIndex);
-        await grid.setCellEdit(rowIndex, "col_011");
+        await grid.setCellEdit(rowIndex, "process_position");
     });
     const editor = page.locator("revogr-edit input, revogr-edit textarea").first();
     await expect(editor).toBeVisible();
@@ -80,7 +80,7 @@ test("renovation single-cell edit persists and Ctrl+A stays disabled", async ({ 
                     const row = (await grid.getVisibleSource("rgRow")).find(
                         (candidate) => candidate.id === id,
                     );
-                    return row ? (row.col_011 ?? "") : null;
+                    return row ? (row.process_position ?? "") : null;
                 }, rowId),
             { timeout: 25000 },
         )
@@ -88,7 +88,7 @@ test("renovation single-cell edit persists and Ctrl+A stays disabled", async ({ 
     await page.evaluate(async () => {
         const grid = document.querySelector("revo-grid")!;
         const columns = await grid.getColumns();
-        const index = columns.findIndex((column) => column.prop === "col_011");
+        const index = columns.findIndex((column) => column.prop === "process_position");
         await grid.setCellsFocus({ x: index, y: 0 }, { x: index, y: 0 });
         await grid.refresh();
     });
@@ -116,10 +116,13 @@ test("production forms load and a price edit survives reload", async ({ page }) 
     );
     await page.getByRole("tab", { name: "Цены" }).click();
     expect((await pricesLoaded).ok()).toBe(true);
-    const rows = page
-        .locator("revogr-data .rgRow")
-        .filter({ has: page.locator(".rgCell:nth-child(8)") });
-    const cell = rows.first().locator(".rgCell").nth(4);
+    // The first two price columns are pinned into a separate viewport; the
+    // editable business-plan values are in the scrollable `rgCol` section.
+    const cell = page
+        .locator("revogr-viewport-scroll.rgCol revogr-data .rgRow")
+        .first()
+        .locator(".rgCell")
+        .nth(2); // Объём, т
     await expect(cell).toBeVisible();
     const rowId = await page.evaluate(async () => {
         const grid = document.querySelector("revo-grid")!;

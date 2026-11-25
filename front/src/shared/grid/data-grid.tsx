@@ -1427,6 +1427,26 @@ function DataGridInner(
     );
     flatColumnsRef.current = flatColumns;
 
+    /**
+     * RevoGrid reports focus/range x inside the CLICKED viewport: with
+     * `colPinStart` columns, x=0 of the scrolling `rgCol` viewport is the first
+     * UNPINNED column. The clipboard, presence and footer status index the full
+     * `flatColumns` list (pinned first), so a click on «Объём, т» otherwise
+     * selects «Базис поставки» and paste writes to the wrong cell. Normalize the
+     * scrolling viewport's coordinates before publishing a range.
+     */
+    const pinnedColumnCount = useMemo(
+        () => flatColumns.filter((column) => column.pin === "colPinStart").length,
+        [flatColumns],
+    );
+    const globalRange = useCallback(
+        (range: RangeArea, viewportType?: string): RangeArea =>
+            viewportType === "rgCol" && pinnedColumnCount > 0
+                ? { ...range, x: range.x + pinnedColumnCount, x1: range.x1 + pinnedColumnCount }
+                : range,
+        [pinnedColumnCount],
+    );
+
     const headerRowCount = columns.some(
         (column) => ((column as ColumnGrouping).children?.length ?? 0) > 0,
     )
@@ -3345,7 +3365,8 @@ function DataGridInner(
             void copySelection();
         };
         const handleSetRange = (event: Event) => {
-            updateSelectionRange((event as CustomEvent<RangeArea & { type?: string }>).detail);
+            const detail = (event as CustomEvent<RangeArea & { type?: string }>).detail;
+            updateSelectionRange(globalRange(detail, detail.type));
         };
         const handleFocusCell = (event: Event) => {
             const detail = (
@@ -3353,16 +3374,20 @@ function DataGridInner(
                     focus: { x: number; y: number };
                     end: { x: number; y: number };
                     range?: RangeArea;
+                    colType?: string;
                 }>
             ).detail;
             if (!detail) return;
             updateSelectionRange(
-                detail.range ?? {
-                    x: detail.focus.x,
-                    y: detail.focus.y,
-                    x1: detail.end.x,
-                    y1: detail.end.y,
-                },
+                globalRange(
+                    detail.range ?? {
+                        x: detail.focus.x,
+                        y: detail.focus.y,
+                        x1: detail.end.x,
+                        y1: detail.end.y,
+                    },
+                    detail.colType,
+                ),
             );
             setSelectedRowIds([]);
             rowSelectionAnchorRef.current = null;
@@ -3500,6 +3525,7 @@ function DataGridInner(
         copySelection,
         descriptorByKey,
         filteringEnabled,
+        globalRange,
         gridAdapter,
         onReleaseLease,
         pasteIntoSelection,

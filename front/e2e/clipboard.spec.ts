@@ -4,6 +4,15 @@ import { loginAsLocalUser } from "./helpers/auth";
 
 const APP_ORIGIN = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5000";
 
+/**
+ * «Сырьё» and «Актив» are pinned into their own viewport, so a data row never
+ * contains all nine price cells. The editable business-plan cells live in the
+ * scrollable `rgCol` section; select it instead of counting mounted cells.
+ */
+function priceDataRows(page: import("@playwright/test").Page) {
+    return page.locator("revogr-viewport-scroll.rgCol revogr-data .rgRow");
+}
+
 test("sorted Excel paste updates the visible row and preserves its neighbor", async ({
     page,
     context,
@@ -37,26 +46,23 @@ test("sorted Excel paste updates the visible row and preserves its neighbor", as
             ),
         )
         .not.toBe(originalFirst);
-    const ids = await page.evaluate(async () =>
-        (await document.querySelector("revo-grid")!.getVisibleSource("rgRow"))
-            .slice(0, 2)
-            .map((row) => String(row.id)),
-    );
     const beforeResponse = await page.request.get("/api/raw-materials/prices");
     expect(beforeResponse.ok()).toBe(true);
     const before = (await beforeResponse.json()) as {
         id: string;
         businessPlanQuantityTons: number | null;
     }[];
+    const cell = priceDataRows(page).first().locator(".rgCell").nth(2); // Объём, т
+    await cell.click();
+    // The sorted source can refresh just after the click; read the visible ids
+    // at paste time so the assertion follows the row that was actually selected.
+    const ids = await page.evaluate(async () =>
+        (await document.querySelector("revo-grid")!.getVisibleSource("rgRow"))
+            .slice(0, 2)
+            .map((row) => String(row.id)),
+    );
     const value =
         before.find((row) => row.id === ids[0])!.businessPlanQuantityTons === 6543 ? 6544 : 6543;
-    const cell = page
-        .locator("revogr-data .rgRow")
-        .filter({ has: page.locator(".rgCell:nth-child(8)") })
-        .first()
-        .locator(".rgCell")
-        .nth(4);
-    await cell.click();
     await page.evaluate((text) => navigator.clipboard.writeText(text), `${value}\r\n`);
     const saved = page.waitForResponse(
         (response) =>
@@ -96,15 +102,11 @@ test("clipboard: keyboard copy and paste applies values to cells", async ({ page
     await page.getByRole("tab", { name: "Цены" }).click();
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 20000 });
 
-    // Цены: столбцы — сырьё (0), актив (1), базис (2), факт (3), бизнес-план (4-7).
-    // Внутри revo-grid несколько revogr-data (пустые оболочки + заголовки строк с 1 ячейкой);
-    // строки данных отличаются наличием 8 ячеек.
-    const dataRows = page
-        .locator("revogr-data .rgRow")
-        .filter({ has: page.locator(".rgCell:nth-child(8)") });
-    const rowCells = dataRows.first().locator(".rgCell");
-    const source = rowCells.nth(4); // Объём, т — редактируемое число
-    const target = rowCells.nth(5); // USD / т — редактируемое число
+    // Цены: «Сырьё» (0) и «Актив» (1) закреплены слева; в прокручиваемой части
+    // столбцы — базис (0), факт (1), бизнес-план (2–6).
+    const rowCells = priceDataRows(page).first().locator(".rgCell");
+    const source = rowCells.nth(2); // Объём, т — редактируемое число
+    const target = rowCells.nth(3); // USD / т — редактируемое число
     await expect(source).toBeVisible();
 
     // Заполняем исходную ячейку через редактор.
@@ -259,12 +261,9 @@ test("clipboard: toolbar copy/paste buttons apply values", async ({ page, contex
     await page.getByRole("tab", { name: "Цены" }).click();
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 20000 });
 
-    const dataRows = page
-        .locator("revogr-data .rgRow")
-        .filter({ has: page.locator(".rgCell:nth-child(8)") });
-    const rowCells = dataRows.first().locator(".rgCell");
-    const source = rowCells.nth(4);
-    const target = rowCells.nth(6); // руб. / т
+    const rowCells = priceDataRows(page).first().locator(".rgCell");
+    const source = rowCells.nth(2);
+    const target = rowCells.nth(4); // руб. / т
     await expect(source).toBeVisible();
 
     await source.dblclick();

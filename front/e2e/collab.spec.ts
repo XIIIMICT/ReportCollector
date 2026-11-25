@@ -28,22 +28,27 @@ async function loginAs(page: Page, username: string, _password: string) {
  * Работает для обоих пользователей независимо от набора видимых колонок.
  */
 async function gridCellByProp(page: Page, prop: string, rowIndex: number) {
-    const { flat, visibleCount } = await page.evaluate(async () => {
+    const { flat, pinnedCount, visibleCount } = await page.evaluate(async () => {
         const grid = document.querySelector("revo-grid")!;
         const cols = await grid.getColumns();
         const flat = cols.flatMap((c) => (c.children?.length ? c.children : [c]));
-        const dataRow = [...document.querySelectorAll("revogr-data .rgRow")].find(
-            (row) => row.querySelectorAll(".rgCell").length > 1,
-        );
-        return { flat, visibleCount: dataRow ? dataRow.querySelectorAll(".rgCell").length : 0 };
+        const pinnedCount = flat.filter((column) => column.pin === "colPinStart").length;
+        // The pinned viewport renders its own rows; measuring it would compare
+        // the full column list against a two-cell row and report a false
+        // "outside the visible area" failure.
+        const dataRow = document.querySelector("revogr-viewport-scroll.rgCol revogr-data .rgRow");
+        return {
+            flat,
+            pinnedCount,
+            visibleCount: dataRow ? dataRow.querySelectorAll(".rgCell").length : 0,
+        };
     });
     const colIndex = flat.findIndex((c) => c.prop === prop);
     expect(colIndex, `колонка ${prop} не найдена`).toBeGreaterThanOrEqual(0);
-    expect(colIndex, `колонка ${prop} вне видимой области грида`).toBeLessThan(visibleCount);
-    const dataRows = page
-        .locator("revogr-data .rgRow")
-        .filter({ has: page.locator(".rgCell:nth-child(2)") });
-    const cell = dataRows.nth(rowIndex).locator(".rgCell").nth(colIndex);
+    const visibleIndex = colIndex - pinnedCount;
+    expect(visibleIndex, `колонка ${prop} вне видимой области грида`).toBeLessThan(visibleCount);
+    const dataRows = page.locator("revogr-viewport-scroll.rgCol revogr-data .rgRow");
+    const cell = dataRows.nth(rowIndex).locator(".rgCell").nth(visibleIndex);
     await expect(cell).toBeVisible();
     return cell;
 }
