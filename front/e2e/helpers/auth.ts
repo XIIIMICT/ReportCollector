@@ -19,6 +19,11 @@ export async function loginAsLocalUser(page: Page, options: { email: string; pas
     await page.locator('button[type="submit"]').click();
     await page.waitForURL(
         (url) => url.origin === LOCAL_APP_ORIGIN && !url.pathname.startsWith("/api/auth/"),
+        // The redirected workspace keeps streaming requests open (grid data,
+        // collaboration); waiting for the full `load` event routinely hit the
+        // 30s test timeout on a cold stand. The redirect has committed at
+        // DOMContentLoaded — that is all the login assertion needs.
+        { waitUntil: "domcontentloaded", timeout: 60000 },
     );
 }
 

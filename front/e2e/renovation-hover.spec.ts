@@ -106,9 +106,12 @@ test("action-bar kbd hint appears in the viewport without a page scrollbar", asy
     // A shortcut hint carries the KEYS only: the label is already on the
     // button, so repeating it here was deliberately dropped.
     await expect(hint.locator(".action-bar__hint-keys")).toContainText("Ctrl");
-    // The shortcut is a real Kbd component (modifier glyph + key), not text.
-    await expect(hint.locator(".kbd__abbr").first()).toBeAttached();
-    await expect(hint.locator(".kbd__content").first()).toHaveText("C");
+    // The shortcut is a real Kbd component. HeroUI v3 renders plain `<kbd>`
+    // elements with written-out modifiers, not the v2 `.kbd__abbr`/`.kbd__content`
+    // glyph pair, so assert the rendered keys rather than the old DOM internals.
+    await expect(hint.locator("kbd")).toHaveCount(2);
+    await expect(hint.locator("kbd").nth(0)).toHaveText("Ctrl");
+    await expect(hint.locator("kbd").nth(1)).toHaveText("C");
     // Portaled to <body> (escapes the footer's containing block) and fixed.
     expect(await hint.evaluate((el) => el.parentElement?.tagName)).toBe("BODY");
     expect(await hint.evaluate((el) => getComputedStyle(el).position)).toBe("fixed");

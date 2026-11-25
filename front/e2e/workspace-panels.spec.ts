@@ -112,7 +112,7 @@ test("plan code filter lists groups first, searches all code pages and restores 
     );
     await page.reload();
     const firstPage = await page.request.post(
-        "/api/renovation/plan/facets/query?column=col_003&limit=1",
+        "/api/renovation/plan/facets/query?column=work_or_repair_code&limit=1",
         {
             headers,
             data: { filters: [assetFilter] },
@@ -127,7 +127,7 @@ test("plan code filter lists groups first, searches all code pages and restores 
     }
     expect(facets.total).toBeGreaterThan(0);
     const lastPage = await page.request.post(
-        `/api/renovation/plan/facets/query?column=col_003&limit=1&offset=${facets.total - 1}`,
+        `/api/renovation/plan/facets/query?column=work_or_repair_code&limit=1&offset=${facets.total - 1}`,
         {
             headers,
             data: { filters: [assetFilter] },
@@ -329,10 +329,16 @@ test("plan header filter priorities persist and facets use only earlier filters"
     await openTable(page, "/renovation");
     const rowsResponse = await page.request.get("/api/renovation/plan/rows?limit=20");
     const body = await rowsResponse.json();
-    const row = body.rows.find((item: { values: Record<string, unknown> }) => item.values.col_011);
+    const row = body.rows.find(
+        (item: { values: Record<string, unknown> }) => item.values.process_position,
+    );
     expect(row).toBeTruthy();
     const filters = {
-        col_011: { column: "col_011", values: [row.values.col_011], includeNulls: false },
+        process_position: {
+            column: "process_position",
+            values: [row.values.process_position],
+            includeNulls: false,
+        },
         __assetName: { column: "__assetName", values: [row.assetName], includeNulls: false },
     };
     await page.evaluate(
@@ -378,13 +384,13 @@ test("plan header filter priorities persist and facets use only earlier filters"
     const sent = await request;
     expect(sent.method()).toBe("POST");
     expect(new URL(sent.url()).searchParams.has("filters")).toBe(false);
-    expect(sent.postDataJSON().filters).toEqual([filters.col_011]);
+    expect(sent.postDataJSON().filters).toEqual([filters.process_position]);
     await expect(page.locator(".column-filter__popover")).toBeVisible();
     await page.keyboard.press("Escape");
     const firstRequest = page.waitForRequest(
         (request) =>
             request.url().includes("/plan/facets/query") &&
-            new URL(request.url()).searchParams.get("column") === "col_011",
+            new URL(request.url()).searchParams.get("column") === "process_position",
     );
     await first.evaluate((element) => (element as HTMLButtonElement).click());
     expect((await firstRequest).postDataJSON().filters).toEqual([]);
@@ -425,12 +431,27 @@ test("toolbar follows visible controls and header funnel stays open at the botto
             pressResponderWarnings.push(message.text());
         }
     });
+    const versionsLoaded = page.waitForResponse(
+        (response) =>
+            response.url().includes("/api/raw-materials/movement/versions") &&
+            response.request().method() === "GET",
+    );
     await openTable(page, "/raw-materials");
+    // The picker's class settles only after the version list arrives. Reading it
+    // on the first rendered cell races with that request and can skip a stand
+    // that does have snapshots (or run on one that has none).
+    await versionsLoaded;
     const toolbar = page.locator(".workspace-card .table-toolbar");
     const archive = toolbar.locator(".archive-autocomplete");
+    await expect(archive).toHaveClass(/--hidden|--visible/);
     // The version picker only exists once the stand has an archived version;
-    // a freshly seeded database has none.
-    if (await archive.evaluate((element) => element.classList.contains("--hidden"))) {
+    // a freshly seeded database has none. `classList` needs the FULL token —
+    // checking for "--hidden" never matched `archive-autocomplete--hidden`.
+    if (
+        await archive.evaluate((element) =>
+            element.classList.contains("archive-autocomplete--hidden"),
+        )
+    ) {
         test.skip(true, "the stand has no archived versions");
     }
     await expect(archive).not.toHaveClass(/--hidden/);
@@ -523,7 +544,12 @@ test("timestamp filter keeps its bounds and result count after reload, reset per
     page,
 }) => {
     await openTable(page, "/renovation");
-    await viewAction(page, "Показать данные о редактировании строк");
+    // The service trio used to be a «Вид таблицы» menu entry; it is now a
+    // header unhide button. The grid shell overlays it, so a real click lands
+    // on the overlay — dispatch the button's own DOM click instead.
+    await page
+        .getByRole("button", { name: "Показать служебные столбцы" })
+        .evaluate((element) => (element as HTMLButtonElement).click());
     await page.locator(".revo-grid-external-scrollbar").evaluate((element) => {
         element.scrollLeft = element.scrollWidth;
     });
@@ -534,6 +560,34 @@ test("timestamp filter keeps its bounds and result count after reload, reset per
     await minimum.locator("button").click();
     const time = page.locator(".date-time-picker__popover .date-time-picker__time").first();
     await expect(page.locator(".date-time-picker__popover")).toBeVisible();
+    // The calendar opens on the CURRENT month; a hard-coded day click made the
+    // test depend on the CI clock. Walk to October 2026 using the calendar's
+    // own navigation, whichever direction is needed.
+    const monthLabel = page.locator(
+        '.date-time-picker__popover button[aria-label$="year selector"]',
+    );
+    const months = [
+        "январь",
+        "февраль",
+        "март",
+        "апрель",
+        "май",
+        "июнь",
+        "июль",
+        "август",
+        "сентябрь",
+        "октябрь",
+        "ноябрь",
+        "декабрь",
+    ];
+    for (let step = 0; step < 24; step++) {
+        const label = (await monthLabel.textContent()) ?? "";
+        const month = months.findIndex((name) => label.includes(name));
+        const year = Number(label.match(/\d{4}/)?.[0] ?? 0);
+        const distance = (year - 2026) * 12 + month - 9;
+        if (distance === 0) break;
+        await page.getByRole("button", { name: distance > 0 ? "Назад" : "Далее" }).click();
+    }
     const calendarDay = page.getByRole("button", { name: /среда, 14 октября 2026 г\./ }).last();
     await expect(calendarDay).toBeVisible();
     await calendarDay.click();
