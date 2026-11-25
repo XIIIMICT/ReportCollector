@@ -16,6 +16,7 @@ from sqlmodel import col, select
 
 from src.common.durable_imports import ImportJob  # noqa: TC001
 from src.common.job_models import ACTIVE_STATES, DataJob
+from src.config import get_settings
 from src.database import async_session_factory
 from src.observability import observe_phase
 from src.renovation.export_jobs import ExportQueueFullError
@@ -143,6 +144,7 @@ async def inspect_renovation_plan_import(
             asset_names_by_code=asset_names_by_code,
             reference_values=references,
             suffix=suffix,
+            issue_limit=get_settings().renovation_import_issue_limit,
         )
     if file_scope.assets:
         await cache.set_digest(digest, result, scope=scope, suffix=suffix)

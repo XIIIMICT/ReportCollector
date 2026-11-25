@@ -169,6 +169,47 @@ def test_an_unknown_asset_makes_the_file_invalid() -> None:
     assert known.unknown_assets == []
 
 
+def test_issue_report_cap_keeps_exact_totals(monkeypatch) -> None:
+    """Phase 9: a capped issue list still reports the exact number of issues."""
+    from src.renovation import import_plan
+
+    header = [import_plan._ASSET_HEADER, import_plan._CODE_HEADER] + [
+        label for _, label in import_plan._REQUIRED_COLUMN_LABELS
+    ]
+    row = [
+        "BSZR",
+        "DUP",
+        "1",
+        "ТОиР",
+        "КР",
+        "OPEX",
+        "Собственные силы",
+        "2027-01-01",
+        "2027-01-31",
+    ]
+    rows = [
+        header,
+        [str(index) for index in range(len(header))],
+        *[[*row[:1], f"DUP{index}", *row[2:]] for index in range(5) for _ in range(2)],
+    ]
+    monkeypatch.setattr(import_plan, "_read_rows", lambda _source, _suffix=None: rows)
+
+    capped = import_plan.inspect_plan_file(
+        Path("ignored.xlsb"), existing_codes=set(), asset_names_by_code={"BSZR": "АО «БСЗ»"}, issue_limit=2
+    )
+    assert capped.status == "has_errors"
+    assert len(capped.duplicate_codes) == 2
+    assert capped.issue_counts["duplicate_codes"] == 5
+    assert capped.truncated is True
+
+    full = import_plan.inspect_plan_file(
+        Path("ignored.xlsb"), existing_codes=set(), asset_names_by_code={"BSZR": "АО «БСЗ»"}, issue_limit=10
+    )
+    assert len(full.duplicate_codes) == 5
+    assert full.issue_counts["duplicate_codes"] == 5
+    assert full.truncated is False
+
+
 def test_duplicate_codes_name_every_sheet_row() -> None:
     """Repeated work codes are reported once with all the rows they occupy."""
     from src.renovation import import_plan

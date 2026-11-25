@@ -551,6 +551,10 @@ class RenovationPlanImportResult(BaseModel):
     # template presents them. The analyser already resolves every header to a form
     # field; this exposes that set instead of making the UI parse the workbook.
     columns: list[str] = Field(default_factory=list)
+    # Phase 9: per-category totals are exact even when the lists above are
+    # capped by RENOVATION_IMPORT_ISSUE_LIMIT; `truncated` says any cap applied.
+    issue_counts: dict[str, int] = Field(default_factory=dict)
+    truncated: bool = False
 
 
 class RenovationPlanImportApplyResult(BaseModel):

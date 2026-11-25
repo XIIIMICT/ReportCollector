@@ -82,6 +82,25 @@ test("renders only the supplied error categories", () => {
     expect(view.queryByText(/Некорректно рассчитанные коды/)).toBeNull();
 });
 
+test("a truncated preflight lists exact totals", () => {
+    const view = render(
+        <PlanExcelImportModal
+            isOpen
+            onFileSelected={() => {}}
+            onOpenChange={() => {}}
+            result={{
+                status: "has-errors",
+                duplicateCodes: ["R-1"],
+                issueCounts: { duplicate_codes: 137, unknown_assets: 4 },
+                truncated: true,
+            }}
+        />,
+    );
+    expect(view.getByText(/Показаны первые 1000 замечаний/)).toBeTruthy();
+    expect(view.getByText(/дубли кодов: 137/)).toBeTruthy();
+    expect(view.getByText(/неизвестные активы: 4/)).toBeTruthy();
+});
+
 test("a readable file without required columns lists every missing heading", () => {
     const view = render(
         <PlanExcelImportModal

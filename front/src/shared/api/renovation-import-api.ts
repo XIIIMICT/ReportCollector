@@ -19,6 +19,8 @@ export type RenovationPlanImportResult = {
     /** Required headings absent from a readable file (a content error). */
     missing_required_columns: string[];
     duplicate_codes: string[];
+    issue_counts?: Record<string, number>;
+    truncated?: boolean;
     invalid_calculated_codes: string[];
     invalid_data_types: RenovationPlanImportCellIssue[];
     /** Numeric cells breaking the field's integer/min/max/percentage rules. */

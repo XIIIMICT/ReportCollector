@@ -2043,6 +2043,8 @@ export function RenovationWorkspace({
                         unknownAssets: result.unknown_assets,
                         skippedRows: result.skipped_rows,
                         allRowsSkipped: result.all_rows_skipped,
+                        issueCounts: result.issue_counts,
+                        truncated: result.truncated,
                         assets: result.assets,
                         newRows: result.new_rows,
                         rowsToUpdate: result.rows_to_update,

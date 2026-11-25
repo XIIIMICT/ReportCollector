@@ -36,6 +36,9 @@ export type PlanExcelImportResult =
           skippedRows?: number[];
           /** Every data row lacked the asset — there is nothing to load. */
           allRowsSkipped?: boolean;
+          /** Exact per-category counts (even when the lists above were capped). */
+          issueCounts?: Record<string, number> | undefined;
+          truncated?: boolean | undefined;
       }
     | {
           status: "ready";
@@ -47,6 +50,18 @@ export type PlanExcelImportResult =
           /** Rows the load will skip because the asset cell is empty. */
           skippedRows?: number[];
       };
+
+const _ISSUE_LABELS: Record<string, string> = {
+    duplicate_codes: "дубли кодов",
+    invalid_calculated_codes: "некорректные коды",
+    invalid_data_types: "неверный тип данных",
+    invalid_values: "недопустимые значения",
+    formula_reference_errors: "ошибки ссылок",
+    missing_required_values: "пустые обязательные ячейки",
+    missing_dictionary_values: "неизвестные значения справочника",
+    unknown_assets: "неизвестные активы",
+    skipped_rows: "пропущенные строки",
+};
 
 /**
  * The preflight dialog. It owns the file check; the detached load itself is
@@ -320,6 +335,19 @@ function ImportErrors({
 }) {
     return (
         <div className="plan-excel-import-modal__errors" role="alert">
+            {result.truncated ? (
+                <p className="plan-excel-import-modal__truncated">
+                    Показаны первые 1000 замечаний каждой категории. Всего найдено:{" "}
+                    {Object.entries(result.issueCounts ?? {})
+                        .filter(([, count]) => count > 0)
+                        .map(
+                            ([category, count]) =>
+                                `${_ISSUE_LABELS[category] ?? category}: ${count}`,
+                        )
+                        .join("; ")}
+                    . Исправьте файл и повторите проверку, чтобы увидеть остальные.
+                </p>
+            ) : null}
             {result.missingRequiredColumns?.length ? (
                 <section>
                     <strong>Не найдены обязательные столбцы:</strong>
