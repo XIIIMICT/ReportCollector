@@ -16,10 +16,11 @@
 
 global:
   resolve_timeout: 5m
-  # STARTTLS is required, which is why the smarthost must be a port that
-  # ADVERTISES it (587). Port 465 speaks implicit TLS only and Alertmanager
-  # rejects it before authenticating.
-  smtp_require_tls: true
+  # Documented deviation: Alertmanager sends plain SMTP to the local smtp-relay
+  # on port 25 inside the private compose network; the relay authenticates to
+  # the corporate SMTP over STARTTLS 587. TLS is therefore disabled for the
+  # internal hop only. Port 465 (implicit TLS) remains incompatible.
+  smtp_require_tls: false
 
 route:
   receiver: support-mail

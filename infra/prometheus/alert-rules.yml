@@ -168,3 +168,43 @@ groups:
           description: >-
             Valkey pub/sub завершился ошибкой после повторов клиента.
             Сопоставьте время с WS close code и логами transport unavailable.
+
+  - name: reportcollector_monitoring_stack
+    # Unique project prefix: every project's rule file is copied into the
+    # central DWH rules/ directory, where generic names would collide.
+    rules:
+      - alert: ReportCollectorPrometheusSelfScrapeDown
+        expr: up{job="prometheus"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ReportCollector: Prometheus не скрапит себя"
+          description: "Санити-серия up. Дашборд «ReportCollector · Сервис», Prometheus → /alerts."
+
+      - alert: ReportCollectorLokiDown
+        expr: up{job="loki"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ReportCollector: Loki недоступен"
+          description: "Alloy некуда слать логи; приложение продолжает работать. Смотрите «ReportCollector · Ошибки» и Grafana → Explore, correlate by request_id."
+
+      - alert: ReportCollectorAlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ReportCollector: Alertmanager недоступен"
+          description: "Письма не уйдут; алерты видны в Prometheus → /alerts."
+
+      - alert: ReportCollectorGrafanaDown
+        expr: up{job="grafana"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ReportCollector: Grafana недоступна"
+          description: "Дашборды «ReportCollector · Сервис/Ошибки/Сотрудничество» недоступны; логи по-прежнему в Loki."

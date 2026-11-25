@@ -7,7 +7,10 @@
 # против внешнего Loki), loki/grafana/prometheus/alertmanager — по запросу
 # (`just monitoring-stand` — весь стек). На сервере эти сервисы предоставляет
 # центральный стек DWH infra/compose.monitoring.yaml; конфиги Loki и Alertmanager
-# здесь остаются source of truth для его копий (дрейф проверяется отдельно).
+# здесь остаются source of truth для его копий — дрейф проверяет локальная
+# команда `just drift-check` (инструмент лежит в ../infra/check-drift.py).
+# Prometheus-таргет бэкенда НЕ хардкодится: entrypoint.sh рендерит шаблон из
+# BACKEND_METRICS_HOST / BACKEND_PORT при старте контейнера.
 
 services:
   # Без профиля: логи собираются и в prod, и в dev.
@@ -37,7 +40,10 @@ services:
     container_name: rc-loki
     image: grafana/loki:3.7
     restart: unless-stopped
-    command: ["-config.file=/etc/loki/config.yaml"]
+    # Expand ${LOKI_RETENTION} inside the config file (one shared default).
+    command: ["-config.file=/etc/loki/config.yaml", "-config.expand-env=true"]
+    environment:
+      LOKI_RETENTION: ${LOKI_RETENTION:-168h}
     volumes:
       - ./loki/config.yaml:/etc/loki/config.yaml:ro
       - loki-data:/loki
@@ -49,16 +55,17 @@ services:
     container_name: rc-prometheus
     image: prom/prometheus:v3.6.0
     restart: unless-stopped
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      # 15 days of raw samples at a 15s scrape: enough to compare "now" against
-      # "last week" and to re-evaluate an incident, without the disk growing
-      # forever. Retention is the metrics counterpart of Loki's.
-      - --storage.tsdb.retention.time=15d
-      - --web.enable-lifecycle
+    # entrypoint.sh renders the scrape template (BACKEND_PORT is NOT hardcoded
+    # any more) and passes the configurable retention flag to Prometheus.
+    environment:
+      BACKEND_METRICS_HOST: ${BACKEND_METRICS_HOST:-host.docker.internal}
+      BACKEND_PORT: ${BACKEND_PORT:?BACKEND_PORT is required}
+      LOG_ENV: ${LOG_ENV:-local}
+      PROMETHEUS_RETENTION: ${PROMETHEUS_RETENTION:-15d}
+    entrypoint: ["/bin/sh", "/etc/prometheus/entrypoint.sh"]
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/prometheus.yml.tpl:/etc/prometheus/prometheus.yml.tpl:ro
+      - ./prometheus/entrypoint.sh:/etc/prometheus/entrypoint.sh:ro
       - ./prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
       - prometheus-data:/prometheus
     # Same resolution as Alloy: the Linux Docker daemon does not provide
@@ -79,6 +86,8 @@ services:
       ALERT_SMTP_SMARTHOST: ${ALERT_SMTP_SMARTHOST:-}
       ALERT_SMTP_USER: ${ALERT_SMTP_USER:-}
       ALERT_SMTP_PASSWORD: ${ALERT_SMTP_PASSWORD:-}
+    depends_on:
+      - smtp-relay
     volumes:
       - ./alertmanager/alertmanager.tpl.yml:/etc/alertmanager/alertmanager.tpl.yml:ro
       - ./alertmanager/entrypoint.sh:/entrypoint.sh:ro
@@ -87,6 +96,21 @@ services:
     networks: [net, net-dev]
     ports:
       - "9093:9093"
+
+  # Local SMTP relay: Alertmanager uses plain SMTP to it inside the private
+  # compose network; the relay authenticates to the corporate SMTP via STARTTLS.
+  smtp-relay:
+    container_name: rc-smtp-relay
+    image: juanluisbaptiste/postfix:1.11
+    restart: unless-stopped
+    environment:
+      # Placeholder default keeps the stack bootable without mail configured.
+      SMTP_SERVER: ${SMTP_RELAY_SERVER:-smtp.example.invalid}
+      SMTP_PORT: ${SMTP_RELAY_PORT:-587}
+      SMTP_USERNAME: ${SMTP_RELAY_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_RELAY_PASSWORD:-}
+      SERVER_HOSTNAME: ${SMTP_RELAY_HOSTNAME:-reportcollector-alerts}
+    networks: [net, net-dev]
 
   grafana:
     container_name: rc-grafana
