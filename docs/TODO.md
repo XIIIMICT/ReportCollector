@@ -117,14 +117,15 @@ different milestones. Do not reopen the explicit product deferrals below.
 - [ ] Replace repeated full-row snapshots/facet scans with revisioned/indexed
   structures; replace remote-map JSON fingerprints with stable collaboration
   revisions. Benchmark realistic row counts and 1k/10k remote cell markers.
-- [ ] Remove the extra unsearched facet request used for totalWithoutSearch in
-  serverFacetSource for remaining columns; identification-code facets already
-  return this count with the filtered page.
+- [x] **Facet totals come from the same grouped SQL scan** (Phase 6.1): generic
+  columns return `totalWithoutSearch`/counts via window functions alongside the
+  page; no second unsearched request remains for them.
 - [ ] Coalesce header-funnel geometry through one observer/RAF scheduling path.
 - [ ] Reconcile acknowledged dictionary edits locally instead of refetching the
   entire dictionary after every write.
-- [ ] Restore import job dialog/polling after reload; API job durability is
-  implemented, automatic UI recovery is not.
+- [x] **Import job UI re-attaches after a remount/reload** — `use-plan-import-job.ts`
+  keeps the id in sessionStorage and resumes polling (test in
+  `__tests__/use-plan-import-job.test.ts`).
 - [ ] Add authenticated cold/warm browser traces, long tasks, heap, scroll FPS
   and a Turbopack-compatible route bundle report; establish regression budgets
   from measured baselines. Keep multi-account Keycloak collaboration and
@@ -132,17 +133,10 @@ different milestones. Do not reopen the explicit product deferrals below.
 - [ ] Revisit domain router/journal boilerplate only when stable contracts expose
   a shared seam. Preserve project-local memberships, grants and undo scopes;
   do not replace differing project policies with generic CRUD.
-- [ ] **Rename the «Ремонт» plan columns away from `col_NNN`.** The db names are
-  positional leftovers from the legacy workbook (`col_002`…`col_218`), NOT stable
-  identifiers: inserting «Номер сметы» reused the retired `col_218` name for a
-  completely different field and re-based every `position`/`ordinal`/Excel range
-  after it. Today the field's `dbName`, its workbook ordinal, its form position
-  and its Excel letter are four different numbers held in sync only by a JSON
-  transform and a data-catalog comment guard. This is unmaintainable — a rename
-  to semantic names (e.g. `estimate_number`, `total_cost_rub`) needs one mapped
-  migration per project, a versioned import alias table for the customer's XLSB
-  headers, and an update of the frozen formula/excelFormula references. Do this
-  before adding any further plan column.
+- [x] **Rename the «Ремонт» plan columns away from `col_NNN`** — done by migration
+  0041 (semantic names, physical form order) + the frontend legacy-key decoder;
+  only the synthetic `col_002` asset column remains. See docs/GRID.md,
+  «Semantic field names (migration 0041)».
 
 ## Explicit product deferrals
 
@@ -230,14 +224,15 @@ infrastructure work, or owner gate.
 - [ ] **Gates B/C — DECIDED (2026-11-24).** Uniqueness scope = one plan; the DB
   still has duplicate codes, so this is the **P0 FIRST** task above. Duplicate
   codes inside one workbook keep rejecting the whole import until then; no
-  constraint or preflight narrowing before the data is clean.
-- [ ] **Gate D — DECIDED (2026-11-24): PHYSICAL column order is required.**
-  The owner explicitly accepted the table rebuild (ACCESS EXCLUSIVE for the
-  whole copy of ~261k rows / 824 MB, ~1.6–2 GB peak disk + WAL, recreate 8 FKs
-  / 14 indexes / comments, maintenance window with workers stopped, rollback =
-  another rebuild). Implement as a forward-only migration in Phase 3; do NOT
-  rebuild the table merely for logical order. A migration test from the
-  previous schema must prove data and schema objects survive.
+  constraint or preflight narrowing before the data is clean. Current sites:
+  the global code lookup is `router_import.py:126-128`, the apply-side scoped
+  lookup is `import_apply.py:145-151`, and the only index is
+  `plan.py:114` (`ix_r_plan_rows_plan_work_or_repair_code`, not unique).
+- [x] **Gate D — DECIDED (2026-11-24) and DONE.** The owner explicitly accepted
+  the table rebuild (261k rows, ~824 MB, ~1.6–2 GB peak disk + WAL, all FKs /
+  indexes / comments recreated, maintenance window). Migration 0041 performed
+  it; the dev DB was migrated and verified on 2026-11-24. Applied migrations are
+  immutable — never rewrite it.
 - [ ] **Final document/API limit policy** — last priority; generous,
   evidence-based ceilings after functional work and owner review (§3.10).
 - [ ] **Deep sorted-row pagination (if contract-changing)** — only if
