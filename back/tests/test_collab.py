@@ -680,6 +680,26 @@ async def test_ws_project_isolation(client, db_session, store) -> None:
 
 
 @pytest.mark.real_schema
+async def test_ws_oversized_lease_selection_is_an_error(db_session) -> None:
+    """A selection beyond the lease cap is rejected explicitly, never truncated."""
+    fake = FakeWebSocket(project="raw_materials")
+    task = await _run_collab_ws(db_session, fake)
+    await _wait_until(lambda: any(message.get("type") == "hello" for message in fake.sent))
+    fake.sent.clear()
+    fake.incoming.append(
+        {
+            "type": "lease:acquire",
+            "cells": [f"rm_material_movements/row-{index}/balanceOnSiteTons" for index in range(501)],
+        }
+    )
+    await _wait_until(lambda: any(message.get("type") == "error" for message in fake.sent))
+    error = next(message for message in fake.sent if message["type"] == "error")
+    assert "Слишком много ячеек" in error["message"]
+    fake.disconnect = True
+    await task
+
+
+@pytest.mark.real_schema
 async def test_ws_ping_refreshes_presence(db_session, store, presence_expiry) -> None:
     """Heartbeat renews presence: the member doesn't vanish from the room."""
     room = "rm:raw_materials:materialMovement:2026-08-01"

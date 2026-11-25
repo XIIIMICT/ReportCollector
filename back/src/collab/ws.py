@@ -618,7 +618,14 @@ async def _handle_message(
             current_access = await access.resolve(check_session)
             if message_type in {"lease:acquire", "lease:renew"}:
                 parsed = LeaseMessage.model_validate(message)
-                requested = parsed.cells[:_MAX_LEASE_CELLS]
+                # Phase 9: an oversized selection is an explicit error, never
+                # a silent slice — the client must know what was not leased.
+                if len(parsed.cells) > _MAX_LEASE_CELLS:
+                    await websocket.send_json(
+                        {"type": "error", "message": f"Слишком много ячеек для аренды (не более {_MAX_LEASE_CELLS})."}
+                    )
+                    return
+                requested = parsed.cells
                 await lock_rows(check_session, [key.rsplit("/", 1)[0] for key in requested])
                 allowed = await access.cells(check_session, current_access, requested, write=True)
                 if any(key not in allowed for key in requested):
@@ -677,10 +684,19 @@ async def _handle_message(
         await store.publish(room, {"type": "presence:update", "members": members})
         return
     parsed = LeaseMessage.model_validate(message)
-    cells = parsed.cells[:_MAX_LEASE_CELLS]
+    cells = parsed.cells
+    if len(cells) > _MAX_LEASE_CELLS:
+        await websocket.send_json(
+            {"type": "error", "message": f"Слишком много ячеек для аренды (не более {_MAX_LEASE_CELLS})."}
+        )
+        return
     if message_type == "lease:acquire":
         remaining = _MAX_OWNED_LEASES - len(owned_leases)
-        cells = cells[:remaining] if remaining > 0 else []
+        if len(cells) > remaining:
+            await websocket.send_json(
+                {"type": "error", "message": f"Слишком много выделенных ячеек (не более {_MAX_OWNED_LEASES})."}
+            )
+            return
         granted: list[str] = []
         denied: list[tuple[str, dict]] = []
         for cell_key in cells:
