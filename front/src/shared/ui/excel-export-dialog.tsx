@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Description, Modal, Switch } from "@heroui/react";
+import { Button, ButtonGroup, Modal, Switch } from "@heroui/react";
 import { Download, Xmark } from "iconoir-react";
 import { useState } from "react";
 
@@ -38,47 +38,43 @@ export function ExcelExportDialog({
                         <Modal.Heading>Выгрузка в Excel</Modal.Heading>
                     </Modal.Header>
                     <Modal.Body className="flex flex-col gap-5">
-                        <div className="flex flex-col gap-1">
-                            <Switch isSelected={useFilters} onChange={setUseFilters}>
-                                <Switch.Content>
-                                    <Switch.Control>
-                                        <Switch.Thumb />
-                                    </Switch.Control>
-                                    Учитывать фильтры и сортировки
-                                </Switch.Content>
-                            </Switch>
-                            <Description>
-                                Включено — «видимая таблица»; выключено — выгрузка всей таблицы без
-                                текущего вида.
-                            </Description>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <Switch isSelected={valuesOnly} onChange={setValuesOnly}>
-                                <Switch.Content>
-                                    <Switch.Control>
-                                        <Switch.Thumb />
-                                    </Switch.Control>
+                        <Switch isSelected={useFilters} onChange={setUseFilters}>
+                            <Switch.Content>
+                                <Switch.Control>
+                                    <Switch.Thumb />
+                                </Switch.Control>
+                                {/* HeroUI's `.switch__content` is font-medium;
+                                    a direct utility on the label keeps it regular. */}
+                                <span className="font-normal">Учитывать фильтры и сортировки</span>
+                            </Switch.Content>
+                        </Switch>
+                        <Switch isSelected={valuesOnly} onChange={setValuesOnly}>
+                            <Switch.Content>
+                                <Switch.Control>
+                                    <Switch.Thumb />
+                                </Switch.Control>
+                                <span className="font-normal">
                                     Сохранять значения вместо формул
-                                </Switch.Content>
-                            </Switch>
-                            <Description>
-                                Включено — посчитанные один раз значения (файл меньше и открывается
-                                быстрее).
-                            </Description>
-                        </div>
+                                </span>
+                            </Switch.Content>
+                        </Switch>
                     </Modal.Body>
                     <Modal.Footer>
-                        <Button variant="tertiary" onPress={() => onOpenChange(false)}>
-                            <Xmark aria-hidden="true" /> Отменить
-                        </Button>
-                        <Button
-                            onPress={() => {
-                                onOpenChange(false);
-                                onConfirm({ useFilters, valuesOnly });
-                            }}
-                        >
-                            <Download aria-hidden="true" /> Скачать
-                        </Button>
+                        <ButtonGroup>
+                            <Button variant="tertiary" onPress={() => onOpenChange(false)}>
+                                <Xmark aria-hidden="true" /> Отменить
+                            </Button>
+                            <Button
+                                variant="primary"
+                                onPress={() => {
+                                    onOpenChange(false);
+                                    onConfirm({ useFilters, valuesOnly });
+                                }}
+                            >
+                                <ButtonGroup.Separator />
+                                <Download aria-hidden="true" /> Скачать
+                            </Button>
+                        </ButtonGroup>
                     </Modal.Footer>
                 </Modal.Dialog>
             </Modal.Container>
