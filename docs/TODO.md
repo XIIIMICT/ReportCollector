@@ -187,7 +187,12 @@ of in a separate brief.
   deployment/infrastructure changes.
 - [ ] **Infrastructure and deployment review** — NGINX limits/timeouts, Compose
   networks/ports, health/readiness wiring, Docker TLS trust, deployment topology
-  and storage mounts.
+  and storage mounts. **Q9 open item (2026-11-25):** no trusted corporate CA
+  bundle is available for the build stages, so `uv sync --allow-insecure-host`
+  and `NODE_TLS_REJECT_UNAUTHORIZED=0` stay as documented deviations in both
+  ReportCollector and DocMasker; replace them with `NODE_EXTRA_CA_CERTS` /
+  system trust store when the CA is provided (host runs already use
+  `UV_SYSTEM_CERTS=1` and `NODE_OPTIONS=--use-system-ca`).
 - [ ] **Deep sorted pagination** — sorted windows still use SQL
   `OFFSET`: 3.2–3.8 s at a 150k offset on the 261k-row live plan. A covering
   index `(plan_id, lower(col), col, position, id)` measured 0.8–1.4 s and a
