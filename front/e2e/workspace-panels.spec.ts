@@ -272,7 +272,10 @@ test("KPPK restores sorting without merges and uses the same toolbar row gap", a
         const downloadButton = page.getByRole("button", { name: "Скачать в Excel", exact: true });
         await expect(downloadButton).toBeEnabled();
         await downloadButton.click();
-        await page.getByRole("menuitem", { name: "Скачать видимую таблицу", exact: true }).click();
+        await page
+            .getByRole("dialog")
+            .getByRole("button", { name: "Скачать", exact: true })
+            .click();
         const request = await requestPromise;
         expect(request.postDataJSON().mergeRows).toBe(mergeRows);
         expect(request.postDataJSON().rowIds.length).toBeGreaterThan(0);
@@ -579,7 +582,14 @@ test("Excel actions share a group and fullscreen Escape closes filter, selection
         group.getByRole("button", { name: "Загрузить из Excel", exact: true }),
     ).toBeVisible();
     await download.click();
-    await expect(page.getByRole("menuitem", { name: "Скачать видимую таблицу" })).toBeVisible();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(
+        dialog.getByRole("switch", { name: /Учитывать фильтры и сортировки/ }),
+    ).toBeChecked();
+    await expect(
+        dialog.getByRole("switch", { name: /Сохранять значения вместо формул/ }),
+    ).toBeChecked();
     await page.keyboard.press("Escape");
     await viewAction(page, "В полный экран");
     await expect(page.locator(".app-shell")).toHaveClass(/app-shell--fullscreen/);
