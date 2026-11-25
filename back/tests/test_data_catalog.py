@@ -96,7 +96,7 @@ def test_frozen_migration_matches_current_catalog() -> None:
     for name, (description, columns) in expected.items():
         if name not in migration_tables:
             migration_tables[name] = (description, dict(columns))
-    # 0041 renamed EVERY r_plan_rows column to the semantic §9.1 names and
+    # 0041 renamed EVERY r_plan_rows column to the semantic names frozen in its RENAME and the frontend decoder,
     # rebuilt the table in form order, so the frozen 0015 snapshot (col_XXX)
     # cannot be compared with the live catalog for this one table. The owner
     # explicitly waived pre-0041 schema compatibility (2026-11-24).

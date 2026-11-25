@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { decodeLegacyFieldKeys, decodeLegacyFieldName } from "@/shared/api/renovation";
 
-test("decodes a legacy col_NNN key to the semantic §9.1 name", () => {
+test("decodes a legacy col_NNN key to the frozen semantic name", () => {
     expect(decodeLegacyFieldName("col_003")).toBe("work_or_repair_code");
     expect(decodeLegacyFieldName("col_218")).toBe("estimate_number");
     expect(decodeLegacyFieldName("col_023")).toBe("defect_list_or_bill_of_quantities_number");

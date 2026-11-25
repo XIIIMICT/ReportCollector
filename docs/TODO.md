@@ -37,21 +37,20 @@ different milestones. Do not reopen the explicit product deferrals below.
   the originating worker, retention, cleanup and storage failure behavior.
 - [ ] Separate durable job supervisors from API lifespan into a dedicated worker
   service. Retain leases/fencing and prove restart recovery in the deployment.
-  Define a consistent global CPU/RAM budget plus per-kind concurrency; the
-  current admission count is global but compared with each caller's own limit.
+  Define a consistent global CPU/RAM budget plus per-kind concurrency; admission
+  uses `MAX_ACTIVE_JOBS` globally and per-call limits in the repositories.
 - [ ] Verify the locked hosted CI run and production image/migration/browser
   gates after push. Align reverse-proxy upload, response and timeout limits with
   application settings. Agree SLOs, availability and RPO/RTO with the operator.
 
 ## P1 — backend correctness and bounded work
 
-- [ ] Finish plan preflight as one bounded worker operation. It currently hashes
-  the upload, scans assets, then parses again; holds a request DB session during
-  parsing and reads existing codes across plans. Scope lookups to the target
-  plan/assets, release connections before CPU work, and persist the digest and
-  bounded validation result. Validate missing catalog definitions explicitly.
-  Cap scanned rows and issue reports with total/truncated counts and matching
-  frontend explanations (including duplicates and blank-code rows).
+- [ ] Finish plan preflight as one bounded worker operation: scope the existing-code
+  lookup to the target plan/assets and persist the bounded validation result.
+  The request DB session is already released before CPU parsing, and issue lists
+  are capped at 1000 per category with exact totals (`docs/LIMITS.md`). Validate
+  missing catalog definitions explicitly; row/column caps are intentionally not
+  introduced (streaming parsers, no evidence for a business maximum).
 - [ ] Finish preflight cache invalidation for row deletion (deleting a row that
   is not the newest leaves the max-`updated_at` plan token unchanged), then
   measure lookup/cache latency. Catalog and asset changes are now covered by
@@ -63,12 +62,11 @@ different milestones. Do not reopen the explicit product deferrals below.
   finer validation/finalize phases and failure-after-`write` observability remain
   open. This performance work is separate from the deferred concurrent-edit
   conflict policy.
-- [ ] Move high-cardinality plan facet search/order/paging into bounded SQL work,
-  preserving Unicode casefold, decimal ordering, client-timezone dates,
-  NULL/empty buckets and preceding-filter semantics. Current code loads the
-  entire grouped result with .all() and sorts it in Python before paging, except
-  identification codes, whose search/order/paging already runs in PostgreSQL.
-  Add a cardinality guard and revision/filter-scoped caching where beneficial.
+- [x] **High-cardinality facets run in PostgreSQL** (Phase 6.1): generic columns
+  are grouped, searched, numeric/casefold-sorted, counted and paginated in one
+  SQL scan, preserving null buckets/preceding filters; regression tests cover
+  ordering, search, nulls and offsets. Still open: a cardinality guard and
+  revision/filter-scoped caching where measurement justifies it.
 - [ ] Measure revision-aware counts/count-on-demand for lazy windows. Counts now
   restrict to the requested plan, combine anchor counting and correctly handle
   sparse positions, but still execute on each window. Do not cache by a timer
@@ -136,7 +134,9 @@ different milestones. Do not reopen the explicit product deferrals below.
 - [x] **Rename the «Ремонт» plan columns away from `col_NNN`** — done by migration
   0041 (semantic names, physical form order) + the frontend legacy-key decoder;
   only the synthetic `col_002` asset column remains. See docs/GRID.md,
-  «Semantic field names (migration 0041)».
+  «Semantic field names (migration 0041)». Historical §9.1 references in the
+  applied migration 0041 refer to the deleted implementation brief; the frozen
+  `RENAME` plus `LEGACY_FIELD_NAMES` are now the only source of truth.
 
 ## Explicit product deferrals
 
@@ -160,53 +160,57 @@ different milestones. Do not reopen the explicit product deferrals below.
   them in the hot path.
 - Old/new version comparison and change highlighting, including the currently
   unbounded full-plan diff. Use bounded SQL pages or a job before re-enabling it.
-- Import conflict detection/staged version finalization preventing concurrent
-  edit overwrites: accepted temporary testing compromise. No conflict UI now.
+- Import conflict policy: Gate A (whole-form blocking + server-side 409) is
+  implemented and recorded below; still open are stale cell leases and staged
+  version finalization during an import — decide whether a product policy is
+  needed. See `AGENTS.md` landmine 13a.
 - Further local Argon2/password-fallback work; Keycloak is the normal login path.
 
-## Deferred — implementation brief (moved from §6)
+## Deferred — owner decisions, infrastructure and future work
 
-Moved here verbatim from `docs/REPORTCOLLECTOR_IMPLEMENTATION_PROMPT.md` §6,
-so the brief itself stays an actionable implementation sequence. These items
-are NOT part of the current implementation phases; each needs its own decision,
-infrastructure work, or owner gate.
+These items are NOT part of the completed implementation phases. Each needs its
+own decision, infrastructure work or owner gate; they are recorded here instead
+of in a separate brief.
+
+- [ ] **Keep the modular monolith** — do not split into microservices or adopt a
+  new service architecture without explicit owner approval. Separate job workers
+  are tracked above and do not change this decision.
 
 - [ ] **S3-compatible object storage** — replace local import/export artifact
   storage with a durable shared object store; design migration, lifecycle,
-  credentials and recovery separately (§3.1 keeps current storage).
+  credentials and recovery separately (current storage stays local/shared-FS).
 - [ ] **Export artifact lifecycle** — retention, cleanup, quota/disk-growth
   handling and behavior above the XLSX format ceiling; needs an owner-approved
   retention/product policy.
 - [ ] **Multi-process worker topology** — separate API, import/export/query
   workers and outbox dispatch from the API lifespan; needs coordinated
-  deployment/infrastructure changes (§3.9).
+  deployment/infrastructure changes.
 - [ ] **Infrastructure and deployment review** — NGINX limits/timeouts, Compose
   networks/ports, health/readiness wiring, Docker TLS trust, deployment topology
-  and storage mounts (§3.9).
-- [ ] **Deep sorted pagination** (brief §6.4) — sorted windows still use SQL
+  and storage mounts.
+- [ ] **Deep sorted pagination** — sorted windows still use SQL
   `OFFSET`: 3.2–3.8 s at a 150k offset on the 261k-row live plan. A covering
   index `(plan_id, lower(col), col, position, id)` measured 0.8–1.4 s and a
   0.11 s head without changing the API/UI; the owner chose to keep current write
   cost. Cursor navigation would change the grid's infinite-scroll + go-to-№
   contract. Measurements in docs/ARCHITECTURE.md.
-- [ ] **Stream the Next upload proxy** (brief §5.4) — the route handler buffers
+- [ ] **Stream the Next upload proxy** — the route handler buffers
   multipart into one `Buffer`; re-streaming `request.body` into undici lost the
   parts in the Next dev runtime, and Next 16.4.5 documents only response
   streaming. Options: direct-to-backend upload with signed identity headers,
   proxy termination in the central nginx stack, or a chunked upload API. Do not
   add a fragile forward without verifying the full payload on the real runtime.
 - [ ] **Monitoring and alerting** — metrics exposure, per-process scraping,
-  queue-age/worker/DB metrics, alert design, operational dashboards (§3.9).
+  queue-age/worker/DB metrics, alert design, operational dashboards.
 - [ ] **Production runbooks and disaster recovery** — backup/restore validation,
-  RPO/RTO, failure procedures, disk-full/object-store/Valkey/DB outage response
-  (§3.9).
+  RPO/RTO, failure procedures, disk-full/object-store/Valkey/DB outage response.
 - [ ] **Security/logging review** — PII in authentication/application logs,
   retention, redaction and access policy with the organization.
 - [ ] **Load/stress certification** — representative large files/dataset,
   concurrent users, multiple replicas, worker crashes, dependency failures,
-  performance percentiles, capacity/SLO definition (§3.5).
+  performance percentiles, capacity/SLO definition.
 - [ ] **Full archive-to-archive plan diff** — currently not connected to a
-  user-facing workflow; revisit when product scope requires it (§3.4).
+  user-facing workflow; revisit when product scope requires it.
 - [x] **Gate A — import/edit conflict policy — IMPLEMENTED (2026-11-25).** While an
   import runs, **the whole «Пообъектный план» form is blocked**. Users on it see
   a RED chip in the form status reading
@@ -233,8 +237,27 @@ infrastructure work, or owner gate.
   indexes / comments recreated, maintenance window). Migration 0041 performed
   it; the dev DB was migrated and verified on 2026-11-24. Applied migrations are
   immutable — never rewrite it.
-- [ ] **Final document/API limit policy** — last priority; generous,
-  evidence-based ceilings after functional work and owner review (§3.10).
+- [x] **Final document/API limit policy — DECIDED (2026-11-25) and recorded in
+  `docs/LIMITS.md`**: 1000-per-category issue cap with exact totals, no export
+  row-id cap, no cell-char limit, explicit WS lease errors, other values unchanged,
+  no parser caps, infra/proxy untouched. Remaining gaps tracked in `LIMITS.md`.
+- [ ] **Keycloak/application session policy (owner review)** — the 400-day
+  `rc_session` lifetime is a demo configuration, not a production security policy;
+  production must use the organization's session limits. The contradictory
+  «12 hours» comment in `.env.example` should be corrected without changing auth
+  behavior; record the production decision with the owner.
+- [ ] **Renovation field type anomalies (owner decision)** — `col_083` («Ед. изм.»)
+  is typed numeric, `col_198` («Дата») is text, `col_199` («Номер») is date.
+  Migration 0041 preserved these types deliberately; ask before any type/data
+  conversion and document how existing values would be interpreted.
+- [ ] **Export inline/background threshold (product decision)** — the switch uses
+  row count only (`INLINE_EXPORT_MAX_ROWS = 5000`); wide plans with modest row
+  counts may still be expensive. Present options including selected column count
+  and estimated cell/value size; agree any latency target with the owner.
+- [ ] **Remaining import/lease edge cases after Gate A** — the form block and Undo
+  clearing are in place, but stale cell leases and staged version finalization
+  during an import remain open; trace them and decide whether a product policy is
+  needed (`AGENTS.md` landmine 13a).
 - [ ] **Deep sorted-row pagination (if contract-changing)** — only if
   measurements show OFFSET is material and a cursor would alter the grid/API
   contract.

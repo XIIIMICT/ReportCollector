@@ -599,7 +599,7 @@ def _compile_formula_template(
     """
     Render an engine formula onto the sheet's Excel cell references ONCE.
 
-    A field name (the §9.1 semantic `snake_case` identifier) becomes the field's
+    A field name (the semantic `snake_case` identifier frozen in migration 0041) becomes the field's
     exported column letter + the row placeholder; the row number is substituted
     per data row. Returns None when a referenced field was dropped (a block-filtered export) — the caller then falls back to
     the stored value.
