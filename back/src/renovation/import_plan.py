@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from itertools import chain, islice
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, TypeVar
 from zipfile import BadZipFile
 
 from openpyxl import load_workbook
@@ -472,6 +472,7 @@ def inspect_plan_file_streaming(
     asset_names_by_code: dict[str, str],
     reference_values: dict[str, set[str]] | None = None,
     suffix: str | None = None,
+    issue_limit: int = 1000,
 ) -> RenovationPlanImportResult:
     """Inspect an Excel workbook from a row iterator, keeping memory bounded by the report."""
     if isinstance(source, Path) and source.suffix.casefold() not in PLAN_FILE_SUFFIXES:
@@ -482,6 +483,7 @@ def inspect_plan_file_streaming(
             existing_codes=existing_codes,
             asset_names_by_code=asset_names_by_code,
             reference_values=reference_values,
+            issue_limit=issue_limit,
         )
     except BadZipFile, KeyError, OSError, ValueError, InvalidFileException:
         return RenovationPlanImportResult(status="invalid_format")
@@ -494,6 +496,7 @@ def inspect_plan_file(
     asset_names_by_code: dict[str, str],
     reference_values: dict[str, set[str]] | None = None,
     suffix: str | None = None,
+    issue_limit: int = 1000,
 ) -> RenovationPlanImportResult:
     """Run template, type, duplicate, formula and summary checks."""
     if isinstance(source, Path) and source.suffix.casefold() not in PLAN_FILE_SUFFIXES:
@@ -505,6 +508,7 @@ def inspect_plan_file(
             existing_codes=existing_codes,
             asset_names_by_code=asset_names_by_code,
             reference_values=reference_values,
+            issue_limit=issue_limit,
         )
     except BadZipFile, KeyError, OSError, ValueError, InvalidFileException:
         return RenovationPlanImportResult(status="invalid_format")
@@ -516,6 +520,7 @@ def _inspect_rows(
     existing_codes: set[str],
     asset_names_by_code: dict[str, str],
     reference_values: dict[str, set[str]] | None,
+    issue_limit: int = 1000,
 ) -> RenovationPlanImportResult:
     """Validate rows from either a materialized fixture or a streaming workbook."""
     rows_iter = iter(rows)
@@ -741,22 +746,45 @@ def _inspect_rows(
         )
         else "ready"
     )
+    # Phase 9: exact totals survive truncation. The UI can say «и ещё N» and
+    # the operator still knows the file was not silently accepted.
+    duplicate_codes = _duplicates_with_rows(codes, row_numbers)
+    issue_counts = {
+        "duplicate_codes": len(duplicates),
+        "invalid_calculated_codes": len(invalid_codes),
+        "invalid_data_types": len(type_errors),
+        "invalid_values": len(invalid_values),
+        "formula_reference_errors": len(formula_reference_errors),
+        "missing_required_values": len(missing_required_values),
+        "missing_dictionary_values": len(missing),
+        "unknown_assets": len(unknown_assets),
+        "skipped_rows": len(skipped_rows),
+    }
+    truncated = any(count > issue_limit for count in issue_counts.values())
+
+    _T = TypeVar("_T")
+
+    def cap(items: list[_T]) -> list[_T]:
+        return items[:issue_limit]
+
     return RenovationPlanImportResult(
         status=status,
-        duplicate_codes=_duplicates_with_rows(codes, row_numbers),
-        invalid_calculated_codes=_sorted_without_duplicates(invalid_codes),
-        invalid_data_types=type_errors,
-        invalid_values=invalid_values,
-        formula_reference_errors=formula_reference_errors,
-        missing_required_values=missing_required_values,
-        skipped_rows=sorted(skipped_rows),
+        duplicate_codes=cap(duplicate_codes),
+        invalid_calculated_codes=cap(_sorted_without_duplicates(invalid_codes)),
+        invalid_data_types=cap(type_errors),
+        invalid_values=cap(invalid_values),
+        formula_reference_errors=cap(formula_reference_errors),
+        missing_required_values=cap(missing_required_values),
+        skipped_rows=cap(sorted(skipped_rows)),
         all_rows_skipped=all_rows_skipped,
-        missing_dictionary_values=missing,
-        unknown_assets=unknown_assets,
+        missing_dictionary_values=cap(missing),
+        unknown_assets=cap(unknown_assets),
         assets=sorted(assets),
         new_rows=sum(code not in existing_codes for code in codes),
         rows_to_update=sum(code in existing_codes for code in codes),
         columns=_loaded_column_labels(columns),
+        issue_counts=issue_counts,
+        truncated=truncated,
     )
 
 

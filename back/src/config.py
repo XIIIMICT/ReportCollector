@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     renovation_upload_timeout_seconds: float = Field(
         default=300.0, validation_alias="RENOVATION_UPLOAD_TIMEOUT_SECONDS", gt=0
     )
+    # Phase 9: per-category cap on preflight issue lists. Exact totals are still
+    # returned, so truncating the JSON never hides how many issues a file has.
+    renovation_import_issue_limit: int = Field(default=1000, validation_alias="RENOVATION_IMPORT_ISSUE_LIMIT", gt=0)
     # Number of trusted reverse proxies in front of the app. 0 (default) means
     # X-Forwarded-For is ignored and the rate limiter keys on the socket peer;
     # N>0 makes it take the client from the Nth-from-right XFF entry.
