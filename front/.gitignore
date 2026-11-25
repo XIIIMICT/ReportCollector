@@ -6,6 +6,7 @@
 # Конфигурация и инструменты
 !/.dockerignore
 !/.gitignore
+!/AGENTS.md
 !Dockerfile
 !bun.lock
 !bunfig.toml
