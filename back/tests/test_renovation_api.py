@@ -1372,7 +1372,7 @@ async def test_import_clears_plan_undo_history(
 async def test_undo_restores_source_and_recalculates_formula(
     client: AsyncClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """§3.7: Undo restores the source cell AND the formula that depends on it."""
+    """Undo restores the source cell AND the formula that depends on it."""
     from src.renovation import router_undo
 
     published: list[int] = []

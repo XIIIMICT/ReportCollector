@@ -11,7 +11,7 @@ export const RENOVATION_SECTION = "renovationPlan";
 
 /**
  * Legacy `col_NNN` db names of the renovation plan fields, mapped to the
- * semantic §9.1 names used by the current schema/API (migration 0041).
+ * semantic names frozen in migration 0041's RENAME and used by the current schema/API.
  * Saved user state (filters, sorting, pinned/hidden columns) may still
  * carry the old keys; decode them on READ so nothing is silently lost.
  * `col_002` is intentionally absent: it is the synthetic asset column,

@@ -312,7 +312,7 @@ straight to the backend with CORS and signed identity headers, bypassing Next;
 (b) terminate the proxy in the central nginx stack (deferred with infra work);
 (c) add a chunked/direct-to-object-storage upload API. Do not switch to a
 fragile stream forward without verifying the full multipart payload on the real
-Next runtime — Phase 5.4 of the implementation brief explicitly requires that.
+Next runtime — the deferred upload-streaming item in `docs/TODO.md` explicitly requires that.
 
 ### Bundle shape (why the first load is heavy)
 
