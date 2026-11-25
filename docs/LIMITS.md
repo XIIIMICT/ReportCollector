@@ -46,7 +46,7 @@ reports" as outstanding.
 | Recompute batch | 1000 rows | ~4 min full sweep (documented) | D |
 | Preflight cache TTL | 1 h report, 7 d scope | versioned key `7:<flag>` | S |
 | Submit issue list | `SUBMIT_ID_ISSUE_ROW_LIMIT = 10` | counts exact, list truncated with «и ещё N» | P (only deliberate issue truncation) |
-| Import issue lists | **no caps** in `RenovationPlanImportResult` or the UI | all lists unbounded, full JSON cached in Valkey | D — gap |
+| Import issue lists | **1000 per category**, env-configurable (`RENOVATION_IMPORT_ISSUE_LIMIT`); exact totals in `issue_counts`, `truncated` flag and a UI banner «показаны первые 1000… всего N» | Implemented Phase 9; boundary tests below/above the cap | S (approved) |
 | Error detail | `str(error)[:2000]` | user-facing truncation | P |
 
 ## API pagination, filtering, editing
@@ -60,9 +60,8 @@ reports" as outstanding.
 | Filter `values` / search strings | uncapped | — | D — gap |
 | Plan cell batch | 1..500; dictionary batch 1..10000 | 422 | D |
 | Export columns | 1..64 (KPPK slice 1..16) | 422 | D / P |
-| Generic export `rowIds` | 100000 (`MAX_EXPORT_ROWS`) | 400 | S/D |
-| **Renovation plan export `rowIds`** | **uncapped** — does not call `validate_export_shape` | none | D — gap |
-| `MAX_CELL_CHARS` 32767 | `truncate()` exists but is **never called** | none — effectively unbounded | D — dead code |
+| Export `rowIds` | **no count cap** (owner decision 2026-11-25: export everything that exists); duplicates still rejected | generic and plan exports; 4 GiB ZIP ceiling unchanged | P (approved) |
+| `MAX_CELL_CHARS` | removed — dead code (owner decision) | Excel still enforces its own limit at open time | D (resolved) |
 | 4 GiB ZIP ceiling | `(1<<32)-1` per entry | `ExportTooLargeError` with actionable Russian message | S/P (owner-approved) |
 
 ## Jobs, leases and collaboration
@@ -76,20 +75,25 @@ reports" as outstanding.
 | Worker concurrency | export 1 (≤8), import 1 (≤4), env-configurable | validation error | S |
 | WS outbound queue | 256 messages/connection | close 1013 `slow_consumer` | S |
 | WS frame / rate | 64 KiB, 300 messages / 10 s | close 1009 / 1008 | S |
-| Lease cells / owned leases | 500 / 1000 | silent slice / «Некорректное выделение.» | D (silent slice is a gap) |
+| Lease cells / owned leases | 500 / 1000 | **explicit WS error** since Phase 9 (no silent slice); presence selection >1000 → «Некорректное выделение.» | D → S (approved) |
 | Undo stack / scan / TTL | 500 actions, 200 scanned, 24 h | oldest dropped | S / D |
 | Auth rate limit | 20 requests / 60 s | 429 + `Retry-After` | S |
 | Room members / sockets | no limit | — | D — gap |
 
-## Decisions still required
+## Owner decisions (2026-11-25)
 
-Nothing in this document is a proposal to enforce a new threshold. The owner
-must choose, for each gap/class-D item, whether to keep the current value,
-raise/lower it with evidence, make it env-configurable, or explicitly defer.
-Infrastructure/proxy limits stay untouched in this phase.
+- Issue reports: a generous **1000 per category** cap with exact `issue_counts`
+  and a `truncated` flag; env override `RENOVATION_IMPORT_ISSUE_LIMIT`.
+- `MAX_CELL_CHARS`/`truncate()` were dead code — **removed**, no cell limit introduced.
+- Export `rowIds`: **no count cap** anywhere (the owner wants everything exported);
+  duplicate IDs and the 4 GiB ZIP ceiling remain.
+- WS lease caps: an oversized selection is an **explicit error**, never a silent slice.
+- All other class-D values (page/facet limits, filter/sort arrays, batch sizes,
+  worker timeouts) are **unchanged**; their values are recorded above.
+- Parser row/column/cell/sheet caps: **not introduced** — readers stream and no
+  evidence supports a business maximum.
+- Infrastructure/proxy limits remain deferred and untouched.
 
-Verification commands used for the reference data: the committed
-`docs/samples/renovation_td_example.xlsb` inspected with `zipfile`; live plan
-size via `SELECT count(*) / pg_total_relation_size(...)`; CI configuration in
-`.github/workflows/ci.yaml` (pytest + migrations + MemoryStore/Valkey matrix,
-coverage ≥80%, bun typecheck/lint/tests).
+Verification: focused boundary tests (`test_plan_import.py`,
+`test_collab.py`) plus the full backend suite (690 passed / 13 skipped) and
+frontend suite (464 passed); no infra setting changed.
