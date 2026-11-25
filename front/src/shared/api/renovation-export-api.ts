@@ -24,6 +24,8 @@ export type RenovationPlanExportParams = {
     filters?: RenovationColumnFilter[] | null | undefined;
     /** Active server-side row ordering, in priority order. */
     sorting?: RenovationSortColumn[] | null | undefined;
+    /** Write stored values (default) or live Excel formulas. */
+    valuesOnly?: boolean | undefined;
 };
 
 export async function exportRenovationPlan(
@@ -106,6 +108,7 @@ export async function createRenovationExportJob(
         block: params.block ?? null,
         filters: params.filters ?? null,
         sorting: params.sorting ?? null,
+        valuesOnly: params.valuesOnly ?? true,
     });
 }
 
@@ -113,6 +116,17 @@ export async function getRenovationExportJob(jobId: string): Promise<RenovationE
     return requestJson<RenovationExportJob>(
         `/api/renovation/plan/export/jobs/${encodeURIComponent(jobId)}`,
     );
+}
+
+export async function cancelRenovationExportJob(jobId: string): Promise<void> {
+    try {
+        await fetch(`/api/renovation/plan/export/jobs/${encodeURIComponent(jobId)}`, {
+            method: "DELETE",
+            cache: "no-store",
+        });
+    } catch {
+        // The job expires on its own; the UI must still return to idle.
+    }
 }
 
 /** URL of a ready export file (streamed into the chosen file by the client). */

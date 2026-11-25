@@ -50,14 +50,17 @@ export type ExportState = {
      * and says why — the rule is the same in every project.
      */
     rowCount?: number | undefined;
-    onExport: (mode: ExportMode) => void;
+    onExport: (mode: ExportMode, valuesOnly?: boolean) => void;
+    /** Present while a durable job runs: turns the button into «Отменить». */
+    cancel?: (() => void) | undefined;
 };
 
 /** Keep row-count publications even when the download handler is unchanged. */
 export function reconcileExportState(current: ExportState, next: ExportState): ExportState {
     return current.pending === next.pending &&
         current.rowCount === next.rowCount &&
-        current.onExport === next.onExport
+        current.onExport === next.onExport &&
+        current.cancel === next.cancel
         ? current
         : next;
 }
@@ -97,49 +100,37 @@ export function buildReplaceAction({
 }
 
 /**
- * The Excel export button with its two-entry dropdown.
+ * The Excel export button, shared by every project.
  *
- * The button itself exports everything; the dropdown narrows to the visible
- * (filtered) table.
+ * Pressing it opens the export dialog (scope + value/formula choice); while a
+ * durable job runs the same button becomes an enabled «Отменить» that cancels
+ * the job on the server and stops local polling — the DocMasker pattern.
  */
 export function buildExportAction({
     pending,
     disabled,
     rowCount,
-    onExport,
+    onPress,
+    onCancel,
 }: {
     pending: boolean;
     disabled: boolean;
     /** Rows the current view holds — 0 disables the export (nothing to save). */
     rowCount?: number | undefined;
-    onExport: (mode: ExportMode) => void;
+    onPress: () => void;
+    onCancel?: (() => void) | undefined;
 }): ActionItem {
-    // An empty table has nothing to export: the button stays visible but
-    // disabled and explains itself, like every other disabled action.
     const empty = rowCount === 0;
     return {
         id: "export",
-        label: "Скачать в Excel",
-        icon: createElement(Download),
-        onPress: () => onExport("all"),
-        disabled: disabled || empty,
-        disabledReason: empty && !disabled ? NOTHING_TO_EXPORT_REASON : null,
+        label: onCancel ? "Отменить" : "Скачать в Excel",
+        icon: createElement(onCancel ? Xmark : Download),
+        onPress: onCancel ?? onPress,
+        disabled: disabled || (empty && onCancel === undefined),
+        disabledReason:
+            empty && !disabled && onCancel === undefined ? NOTHING_TO_EXPORT_REASON : null,
         pending,
         group: "download",
-        menu: [
-            {
-                id: "all",
-                label: "Скачать всю таблицу",
-                icon: createElement(Download, { "aria-hidden": "true" }),
-                onPress: () => onExport("all"),
-            },
-            {
-                id: "visible",
-                label: "Скачать видимую таблицу",
-                icon: createElement(Download, { "aria-hidden": "true" }),
-                onPress: () => onExport("visible"),
-            },
-        ],
     };
 }
 

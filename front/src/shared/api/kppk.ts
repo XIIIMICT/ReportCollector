@@ -468,12 +468,14 @@ export type KppkExportViewRequest = {
     headerPinned: boolean;
     columns: ExportColumn[];
     rowIds: string[] | null;
+    valuesOnly?: boolean;
     fileName: string;
 };
 
 export type KppkExportJobDownload = {
     job: ExportJobDescriptor;
     fileUrl: string;
+    jobsBaseUrl: string;
 };
 
 /**
@@ -493,6 +495,7 @@ export type KppkRealizationExportRequest = {
     headerPinned: boolean;
     columns: ExportColumn[];
     fileName: string;
+    valuesOnly?: boolean;
 };
 
 /**
@@ -504,12 +507,13 @@ export type KppkRealizationExportRequest = {
  */
 export async function exportKppkRealization(
     request: KppkRealizationExportRequest,
+    signal?: AbortSignal,
 ): Promise<Blob | KppkExportJobDownload> {
     const result = await downloadTableExport(
         "/api/kppk/realization/export",
         {
-            slice: request.slice,
-            orgId: request.orgId,
+            ...request,
+            valuesOnly: request.valuesOnly ?? true,
             month: request.month === null ? null : Number(request.month),
             year: request.year === null ? null : Number(request.year),
             rowIds: request.rowIds,
@@ -518,7 +522,8 @@ export async function exportKppkRealization(
             columns: request.columns,
             fileName: request.fileName,
         },
-        (job, base) => ({ job, fileUrl: tableExportJobFileUrl(base, job.id) }),
+        (job, base) => ({ job, fileUrl: tableExportJobFileUrl(base, job.id), jobsBaseUrl: base }),
+        signal,
     );
     return result;
 }
@@ -526,23 +531,29 @@ export async function exportKppkRealization(
 /** Download a КППК dictionary export — inline, or as a background job past the inline row limit. */
 export async function exportKppkTable(
     request: KppkExportViewRequest,
+    signal?: AbortSignal,
 ): Promise<Blob | KppkExportJobDownload> {
-    return downloadTableExport("/api/kppk/export", request, (job, base) => ({
-        job,
-        fileUrl: tableExportJobFileUrl(base, job.id),
-    }));
+    return downloadTableExport(
+        "/api/kppk/export",
+        { ...request, valuesOnly: request.valuesOnly ?? true },
+        (job, base) => ({ job, fileUrl: tableExportJobFileUrl(base, job.id), jobsBaseUrl: base }),
+        signal,
+    );
 }
 
 export async function exportKppkCost(
     request: KppkRealizationExportRequest & { rowIds: string[] | null },
+    signal?: AbortSignal,
 ): Promise<Blob | KppkExportJobDownload> {
     return downloadTableExport(
         "/api/kppk/cost/export",
         {
             ...request,
+            valuesOnly: request.valuesOnly ?? true,
             month: request.month === null ? null : Number(request.month),
             year: request.year === null ? null : Number(request.year),
         },
-        (job, base) => ({ job, fileUrl: tableExportJobFileUrl(base, job.id) }),
+        (job, base) => ({ job, fileUrl: tableExportJobFileUrl(base, job.id), jobsBaseUrl: base }),
+        signal,
     );
 }

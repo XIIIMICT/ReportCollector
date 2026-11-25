@@ -148,7 +148,8 @@ export function LogisticsUsersSection({
     onExportState: (state: {
         pending: boolean;
         rowCount: number;
-        onExport: (mode: ExportMode) => void;
+        onExport: (mode: ExportMode, valuesOnly?: boolean) => void;
+        cancel?: (() => void) | undefined;
     }) => void;
     onUndoStateChange: (state: {
         canUndo: boolean;
@@ -223,7 +224,11 @@ export function LogisticsUsersSection({
         void refreshUndoState();
     }, [refreshUndoState]);
 
-    const { pending: exportPending, exportTable } = useTableExport({
+    const {
+        pending: exportPending,
+        exportTable,
+        cancel: cancelExport,
+    } = useTableExport({
         gridRef,
         fileName: () => exportFileName("logisticsUsers", null),
         request: (view, fileName) =>
@@ -240,8 +245,9 @@ export function LogisticsUsersSection({
             pending: exportPending,
             rowCount: rows?.length ?? 0,
             onExport: exportTable,
+            cancel: cancelExport,
         });
-    }, [exportPending, exportTable, onExportState, rows]);
+    }, [exportPending, exportTable, cancelExport, onExportState, rows]);
     const assetReference = useMemo<ReferenceOption[]>(
         () => (orgs?.rows ?? []).map((row) => ({ id: row.id, name: row.prefixRu })),
         [orgs],

@@ -257,7 +257,8 @@ export function RenovationDictionarySection({
     }) => void;
     onExportState: (state: {
         pending: boolean;
-        onExport: (scope: "all" | "visible") => void;
+        onExport: (scope: "all" | "visible", valuesOnly?: boolean) => void;
+        cancel?: (() => void) | undefined;
     }) => void;
     /** Registers the display-reset handlers of the active dictionary grid. */
     onResetState: (state: {
@@ -699,7 +700,11 @@ export function RenovationDictionarySection({
         }
     }
 
-    const { pending: exportPending, exportTable } = useTableExport({
+    const {
+        pending: exportPending,
+        exportTable,
+        cancel: cancelExport,
+    } = useTableExport({
         gridRef,
         fileName: () => stampFileName(sectionLabel),
         request: (view, fileName) =>
@@ -713,8 +718,8 @@ export function RenovationDictionarySection({
     });
 
     useEffect(() => {
-        onExportState({ pending: exportPending, onExport: exportTable });
-    }, [exportPending, exportTable, onExportState]);
+        onExportState({ pending: exportPending, onExport: exportTable, cancel: cancelExport });
+    }, [exportPending, exportTable, cancelExport, onExportState]);
 
     // Header column filters (client-side, shared with every table). ?????????
     // ??? ??????? ? ??????????? must clear them like it clears RevoGrid's own.

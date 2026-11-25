@@ -285,6 +285,7 @@ function placeholderPayload(
 export type ExportMode = "all" | "visible";
 
 import type { ExportState } from "@/shared/ui/action-items";
+import { ExcelExportDialog } from "@/shared/ui/excel-export-dialog";
 
 export type ApproveState = {
     pending: boolean;
@@ -909,7 +910,11 @@ function SectionContent({
         }
     }
 
-    const { pending: exportPending, exportTable } = useTableExport({
+    const {
+        pending: exportPending,
+        exportTable,
+        cancel: cancelExport,
+    } = useTableExport({
         gridRef,
         fileName: () => exportFileName(section, reportMonth),
         request: (view, fileName) =>
@@ -929,8 +934,9 @@ function SectionContent({
             pending: exportPending,
             rowCount: rows?.length ?? 0,
             onExport: exportTable,
+            cancel: cancelExport,
         });
-    }, [exportPending, exportTable, rows, onExportState]);
+    }, [exportPending, exportTable, cancelExport, rows, onExportState]);
 
     // Stable identity: the grid's clipboard effect runs on every prop change
     // and publishes back through this handler — an inline one would re-trigger
@@ -1285,7 +1291,8 @@ function SectionFooter({
     isFullscreenPending,
     exportPending,
     exportRowCount,
-    onExport,
+    onOpenExport,
+    onCancelExport,
     onDelete,
     deleteBlockedReason,
     canReplace,
@@ -1312,7 +1319,8 @@ function SectionFooter({
     isFullscreenPending: boolean;
     exportPending: boolean;
     exportRowCount?: number | undefined;
-    onExport: (scope: "all" | "visible") => void;
+    onOpenExport: () => void;
+    onCancelExport?: (() => void) | undefined;
     onDelete: () => void;
     onCreateUser: () => void;
     onCopy: () => void;
@@ -1333,7 +1341,8 @@ function SectionFooter({
                 isFullscreenPending={isFullscreenPending}
                 exportPending={exportPending}
                 exportRowCount={exportRowCount}
-                onExport={onExport}
+                onOpenExport={onOpenExport}
+                onCancelExport={onCancelExport}
                 onDelete={onDelete}
                 deleteBlockedReason={deleteBlockedReason}
                 canReplace={canReplace}
@@ -1416,6 +1425,7 @@ export function RawMaterialsWorkspace({
         pending: false,
         onExport: async () => {},
     });
+    const [exportDialogOpen, setExportDialogOpen] = useState(false);
     const [gridResetState, setGridResetState] = useState<{
         resetColumnWidths: () => void;
         resetFiltersSorting: () => void;
@@ -1793,7 +1803,8 @@ export function RawMaterialsWorkspace({
                 isFullscreenPending={isFullscreenPending}
                 exportPending={exportState.pending}
                 exportRowCount={exportState.rowCount}
-                onExport={(scope) => void exportState.onExport(scope)}
+                onOpenExport={() => setExportDialogOpen(true)}
+                onCancelExport={exportState.cancel}
                 onDelete={deleteState.onDelete}
                 deleteBlockedReason={deleteState.blockedReason}
                 canReplace={replaceState.canReplace}
@@ -1803,6 +1814,16 @@ export function RawMaterialsWorkspace({
                 onCopy={clipboardState.onCopy}
                 onPaste={clipboardState.onPaste}
                 onDropdownOpenChange={setToolbarControlOpen}
+            />
+            <ExcelExportDialog
+                isOpen={exportDialogOpen}
+                onOpenChange={setExportDialogOpen}
+                onConfirm={(options) =>
+                    void exportState.onExport(
+                        options.useFilters ? "visible" : "all",
+                        options.valuesOnly,
+                    )
+                }
             />
         </div>
     );
@@ -1874,7 +1895,8 @@ function ActionBar({
     isFullscreenPending,
     exportPending,
     exportRowCount,
-    onExport,
+    onOpenExport,
+    onCancelExport,
     onDelete,
     deleteBlockedReason,
     canReplace,
@@ -1901,7 +1923,8 @@ function ActionBar({
     isFullscreenPending: boolean;
     exportPending: boolean;
     exportRowCount?: number | undefined;
-    onExport: (scope: "all" | "visible") => void;
+    onOpenExport: () => void;
+    onCancelExport?: (() => void) | undefined;
     onDelete: () => void;
     onCreateUser: () => void;
     onCopy: () => void;
@@ -1936,7 +1959,8 @@ function ActionBar({
             pending: exportPending,
             disabled: exportPending || isFullscreenPending,
             rowCount: exportRowCount,
-            onExport,
+            onPress: onOpenExport,
+            onCancel: onCancelExport,
         }),
         ...buildReplaceAction({
             // Dictionaries only: the «Движение»/«Цены» forms are not values.

@@ -139,17 +139,23 @@ export async function updateRenovationUserCells(updates: CellUpdate[]): Promise<
     });
 }
 
-export async function exportRenovationDictionary(request: {
-    section: string;
-    headerPinned: boolean;
-    columns: RenovationExportColumn[];
-    rowIds: string[] | null;
-    fileName: string;
-}): Promise<Blob | RenovationExportJobDownload> {
-    return downloadTableExport("/api/renovation/dictionary/export", request, (job, base) => ({
-        job,
-        fileUrl: tableExportJobFileUrl(base, job.id),
-    }));
+export async function exportRenovationDictionary(
+    request: {
+        section: string;
+        headerPinned: boolean;
+        columns: RenovationExportColumn[];
+        rowIds: string[] | null;
+        valuesOnly?: boolean;
+        fileName: string;
+    },
+    signal?: AbortSignal,
+): Promise<Blob | RenovationExportJobDownload> {
+    return downloadTableExport(
+        "/api/renovation/dictionary/export",
+        { ...request, valuesOnly: request.valuesOnly ?? true },
+        (job, base) => ({ job, fileUrl: tableExportJobFileUrl(base, job.id), jobsBaseUrl: base }),
+        signal,
+    );
 }
 
 // ─── Section-scoped undo/redo (plan and dictionaries) ─────────────────────

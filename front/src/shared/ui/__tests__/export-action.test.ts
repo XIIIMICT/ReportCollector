@@ -14,12 +14,14 @@ describe("buildExportAction", () => {
         const loaded = { ...initial, rowCount: 12 };
         const next = reconcileExportState(initial, loaded);
         expect(next).toBe(loaded);
-        expect(buildExportAction({ ...next, disabled: false }).disabled).toBe(false);
+        expect(buildExportAction({ ...next, disabled: false, onPress: () => {} }).disabled).toBe(
+            false,
+        );
         expect(reconcileExportState(next, { ...loaded })).toBe(next);
         expect(reconcileExportState(next, initial)).toBe(initial);
     });
     const disabledFor = (rowCount: number | undefined, disabled = false) =>
-        buildExportAction({ pending: false, disabled, rowCount, onExport: () => {} }).disabled;
+        buildExportAction({ pending: false, disabled, rowCount, onPress: () => {} }).disabled;
 
     test("a table with rows keeps the export enabled", () => {
         expect(disabledFor(12)).toBe(false);
@@ -38,7 +40,7 @@ describe("buildExportAction", () => {
             pending: false,
             disabled: false,
             rowCount: 0,
-            onExport: () => {},
+            onPress: () => {},
         });
         expect(action.disabledReason).toBe(NOTHING_TO_EXPORT_REASON);
     });
@@ -48,7 +50,7 @@ describe("buildExportAction", () => {
             pending: true,
             disabled: true,
             rowCount: 0,
-            onExport: () => {},
+            onPress: () => {},
         });
         expect(action.disabledReason).toBeNull();
     });
@@ -58,7 +60,7 @@ describe("buildExportAction", () => {
             pending: false,
             disabled: false,
             rowCount: 3,
-            onExport: () => {},
+            onPress: () => {},
         });
         expect(action.disabledReason).toBeNull();
     });

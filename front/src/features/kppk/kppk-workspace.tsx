@@ -95,6 +95,7 @@ import {
     type AddRecordValues,
 } from "@/shared/ui/add-record-modal";
 import { AppHeader } from "@/shared/ui/app-header";
+import { ExcelExportDialog } from "@/shared/ui/excel-export-dialog";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
@@ -678,7 +679,11 @@ function KppkSection({
         onRedo: () => void runRedo(),
     });
 
-    const { pending: exportPending, exportTable } = useTableExport({
+    const {
+        pending: exportPending,
+        exportTable,
+        cancel: cancelExport,
+    } = useTableExport({
         gridRef,
         fileName: () => exportFileName(section, null),
         request: (view, fileName) =>
@@ -696,8 +701,9 @@ function KppkSection({
             pending: exportPending,
             rowCount: rows?.length ?? 0,
             onExport: exportTable,
+            cancel: cancelExport,
         });
-    }, [exportPending, exportTable, rows, onExportState]);
+    }, [exportPending, exportTable, cancelExport, rows, onExportState]);
 
     useEffect(() => {
         onUndoStateChange({
@@ -1168,6 +1174,7 @@ export function KppkWorkspace({
     );
     const [undoActions, setUndoActions] = useState<KppkUndoActions>(EMPTY_UNDO_ACTIONS);
     const [exportState, setExportState] = useState<ExportState>(EMPTY_EXPORT_STATE);
+    const [exportDialogOpen, setExportDialogOpen] = useState(false);
     const [deleteState, setDeleteState] = useState<{ canDelete: boolean; onDelete: () => void }>({
         canDelete: false,
         onDelete: () => {},
@@ -1383,7 +1390,8 @@ export function KppkWorkspace({
                       pending: exportState.pending,
                       disabled: exportState.pending || isFullscreenPending,
                       rowCount: exportState.rowCount,
-                      onExport: (mode) => exportState.onExport(mode),
+                      onPress: () => setExportDialogOpen(true),
+                      onCancel: exportState.cancel,
                   }),
               ]),
         // The same shared «Заменить» action every project renders: the mounted
@@ -1578,6 +1586,16 @@ export function KppkWorkspace({
                 />
             </div>
             <ActionBar items={actionItems} onDropdownOpenChange={setToolbarControlOpen} />
+            <ExcelExportDialog
+                isOpen={exportDialogOpen}
+                onOpenChange={setExportDialogOpen}
+                onConfirm={(options) =>
+                    void exportState.onExport(
+                        options.useFilters ? "visible" : "all",
+                        options.valuesOnly,
+                    )
+                }
+            />
         </div>
     );
 
