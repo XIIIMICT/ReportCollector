@@ -21,9 +21,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-MAX_EXPORT_ROWS = 100_000
 MAX_EXPORT_COLUMNS = 64
-MAX_CELL_CHARS = 32_767
 
 # The row count at which a request switches from "render in the request"
 # (200 + bytes) to a background job (202 + polling). Covers the memory of a
@@ -53,7 +51,6 @@ class ExportTooLargeError(RuntimeError):
 
 # Shared Russian error texts — one wording for every project.
 ERROR_COLUMN_COUNT = "Некорректное количество экспортируемых столбцов."
-ERROR_TOO_MANY_ROWS = "Слишком много строк для экспорта."
 ERROR_DUPLICATE_ROWS = "Список экспортируемых строк содержит дубли."
 ERROR_BAD_HEADERS = "Некорректное описание заголовков экспорта."
 ERROR_HIDDEN_COLUMN = "Экспорт содержит скрытый или недоступный столбец."
@@ -125,11 +122,8 @@ def validate_export_shape(request: ExportRequestLike) -> None:
     """Validate the project-independent part of a request: limits, uniqueness, header shape, file name."""
     if not request.columns or len(request.columns) > MAX_EXPORT_COLUMNS:
         raise ExportValidationError(ERROR_COLUMN_COUNT)
-    if request.rowIds is not None:
-        if len(request.rowIds) > MAX_EXPORT_ROWS:
-            raise ExportValidationError(ERROR_TOO_MANY_ROWS)
-        if len(set(request.rowIds)) != len(request.rowIds):
-            raise ExportValidationError(ERROR_DUPLICATE_ROWS)
+    if request.rowIds is not None and len(set(request.rowIds)) != len(request.rowIds):
+        raise ExportValidationError(ERROR_DUPLICATE_ROWS)
     seen: set[str] = set()
     for column in request.columns:
         if (
@@ -157,10 +151,3 @@ def safe_sheet_name(value: str) -> str:
     if not trimmed or len(trimmed) > 31 or any(char in trimmed for char in "[]:*?/\\"):
         return "Отчёт"
     return trimmed
-
-
-def truncate(value: str) -> str:
-    """Clamp a cell string to Excel's character limit."""
-    if len(value) > MAX_CELL_CHARS:
-        return value[:MAX_CELL_CHARS]
-    return value
