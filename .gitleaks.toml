@@ -1,0 +1,25 @@
+title = "ReportCollector secret-scanning configuration"
+
+[extend]
+useDefault = true
+
+# False positives from the default `generic-api-key` rule. Each allowlist is
+# scoped to ONE rule, ONE path and the exact line shape we reviewed, so a real
+# credential added to those files is still reported.
+[[allowlists]]
+description = "PostgreSQL constraint names in the legacy rename migration are identifiers, not credentials"
+targetRules = ["generic-api-key"]
+paths = ['''back/migrations/versions/0013_rename_renovation_tables\.py''']
+regexTarget = "line"
+regexes = [
+    '''(?:renovation_plan_rows|r_plan_rows)_col_(?:015|017|018|019|020)_fkey''',
+]
+
+[[allowlists]]
+description = "The `exclusive=not _is_form_scope(...)` keyword argument is a boolean, not a key/value secret"
+targetRules = ["generic-api-key"]
+paths = ['''back/src/collab/undo\.py''']
+regexTarget = "line"
+regexes = [
+    '''exclusive\s*=\s*not\s+_is_form_scope\(scope\)''',
+]

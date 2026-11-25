@@ -10,6 +10,7 @@
 !/.gitattributes
 !/.gitignore
 !/.mcp.json
+!/.gitleaks.toml
 !/opencode.json
 !/compose.yaml
 !/justfile

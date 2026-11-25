@@ -40,7 +40,10 @@ const applyMock = mock(() => Promise.resolve(job()));
 let nextJob: () => Promise<Job> = () => Promise.resolve(job());
 const getJobMock = mock(() => nextJob());
 
-mock.module("@/shared/api/renovation", () => ({
+const realImportApi = await import("@/shared/api/renovation-import-api");
+
+mock.module("@/shared/api/renovation-import-api", () => ({
+    ...realImportApi,
     applyRenovationPlanImport: applyMock,
     getRenovationPlanImportJob: getJobMock,
 }));

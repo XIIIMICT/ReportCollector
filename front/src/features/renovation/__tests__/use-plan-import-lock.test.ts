@@ -9,7 +9,10 @@ type Job = RenovationPlanImportApplyResult;
 let nextJob: Job | null = null;
 const activeMock = mock(() => Promise.resolve(nextJob));
 
-mock.module("@/shared/api/renovation", () => ({
+const realImportApi = await import("@/shared/api/renovation-import-api");
+
+mock.module("@/shared/api/renovation-import-api", () => ({
+    ...realImportApi,
     getRenovationActivePlanImport: activeMock,
 }));
 
