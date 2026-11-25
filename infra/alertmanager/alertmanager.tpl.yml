@@ -1,18 +1,9 @@
 # Alertmanager: routing and delivery.
 #
-# DELIVERY was verified end-to-end on 2026-10-27. Recheck SMTP reachability after
-# deployment: a current dev log can still report connection refused. A successful
-# test alert produces `msg="Notify success" component=dispatcher receiver=support-mail
-# integration=email[0]` and the mail arrives. The details and the two traps that
-# cost the most time — port 465 is implicit TLS and cannot be used with
-# `smtp_require_tls`, and `ALERT_SMTP_USER` must be the SENDER mailbox — are in
-# SMTP diagnostics are kept in `docs/ARCHITECTURE.md`; do not duplicate secrets
-# or credentials in this template.
-#
-# `to`/`from`/`smarthost` are rendered at CONTAINER START by `entrypoint.sh`
-# (sed over this file) from `.env`: Alertmanager does NOT expand `${VAR}` in
-# those fields, and `--setenv` does not help. Editing `.env` therefore needs
-# `just monitoring-stand` (a restart), not a reload.
+# Rendered at CONTAINER START from .env by entrypoint.sh (Alertmanager does not
+# expand ${VAR} in to/from/smarthost): editing .env needs `just monitoring-stand`.
+# Mail route, the documented TLS deviation and verification notes: the canonical
+# "Mail delivery" section in docs/ARCHITECTURE.md. No credentials in this file.
 
 global:
   resolve_timeout: 5m
