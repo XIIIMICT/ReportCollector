@@ -28,7 +28,10 @@ export default defineConfig({
             // silently never checked.
             testMatch:
                 /(?:auth|health|smoke|clipboard|collab|fix-month|hover-dropdown|renovation-hover|raw-materials-ui|workspace-panels)\.spec\.ts/,
-            use: { ...devices["Desktop Chrome"] },
+            // The timestamp filter sends local midnight as UTC. Pin the zone so
+            // the expected instant is the same on a Moscow developer machine
+            // and on a UTC CI runner.
+            use: { ...devices["Desktop Chrome"], timezoneId: "Europe/Moscow" },
         },
         {
             name: "ui-keycloak",
