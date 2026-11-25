@@ -2130,7 +2130,10 @@ async def test_export_recalculates_derived_columns(
         response = await client.post(
             "/api/renovation/plan/export",
             headers=ADMIN_HEADERS,
-            json={"filters": [{"column": "__assetName", "values": ["АО «БСК»"], "includeNulls": False}]},
+            json={
+                "filters": [{"column": "__assetName", "values": ["АО «БСК»"], "includeNulls": False}],
+                "valuesOnly": False,
+            },
         )
     else:
         response = await client.get("/api/renovation/plan/export", headers=ADMIN_HEADERS)
@@ -2143,8 +2146,12 @@ async def test_export_recalculates_derived_columns(
     # row-number column one more): work_start_date/work_end_date land on W/X; work_duration_days on Y.
     assert worksheet["W14"].value.date() == date(2027, 1, 10)
     assert worksheet["X14"].value.date() == date(2027, 1, 25)
-    # The calculated column keeps its Excel formula, with the recomputed value cached.
-    assert worksheet["Y14"].value == "=X14 - W14"
+    if header_filter:
+        # Formula mode keeps the live Excel formula with the recomputed cache.
+        assert worksheet["Y14"].value == "=X14 - W14"
+    else:
+        # The compatibility GET uses the new default: stored values, no formula.
+        assert worksheet["Y14"].value == 15
     cached = load_workbook(BytesIO(response.content), data_only=True).active
     assert cached["Y14"].value == 15
 

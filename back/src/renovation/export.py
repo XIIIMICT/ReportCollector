@@ -59,7 +59,7 @@ def stream_renovation_workbook(plan: RenovationPlanExportData) -> Iterator[bytes
             sink = _QueueWriter(queue)
             writer = RenovationWorkbookWriter(
                 cast("IO[bytes]", sink),
-                build_plan_sheet_layout(plan.block, plan.totals),
+                build_plan_sheet_layout(plan.block, plan.totals, values_only=plan.values_only),
                 plan.reference_labels,
                 totals=plan.totals,
                 row_total=len(plan.rows),
@@ -204,9 +204,12 @@ class PlanSheetLayout:
     header_xml: str
     merged_xml: str
     header_rows: int
+    values_only: bool = True
 
 
-def build_plan_sheet_layout(block: object, totals: dict[str, float] | None = None) -> PlanSheetLayout:
+def build_plan_sheet_layout(
+    block: object, totals: dict[str, float] | None = None, *, values_only: bool = True
+) -> PlanSheetLayout:
     """
     Precompute the static sheet parts for a block-filtered export.
 
@@ -218,17 +221,18 @@ def build_plan_sheet_layout(block: object, totals: dict[str, float] | None = Non
     column_by_field = {meta.db_name: 1 + index for index, meta in enumerate(fields)}
     letters = {column: get_column_letter(column) for column in range(1, len(fields) + 1)}
     formulas: dict[str, str] = {}
-    for meta in fields:
-        if not (meta.is_calculated and meta.formula):
-            continue
-        template = _compile_formula_template(meta.formula, column_by_field, letters)
-        if template is not None:
-            # Escaped once - and with plain specials escaping (&, <, >), NOT
-            # `xlsx_stream.xml_escape`: that would strip the \x00 row
-            # placeholders the template still carries (NUL is illegal in the
-            # FINAL XML but is substituted with the row number before writing).
-            # The row loop only substitutes the row number afterwards.
-            formulas[meta.db_name] = xml_specials_escape(template)
+    if not values_only:
+        for meta in fields:
+            if not (meta.is_calculated and meta.formula):
+                continue
+            template = _compile_formula_template(meta.formula, column_by_field, letters)
+            if template is not None:
+                # Escaped once - and with plain specials escaping (&, <, >), NOT
+                # `xlsx_stream.xml_escape`: that would strip the \x00 row
+                # placeholders the template still carries (NUL is illegal in the
+                # FINAL XML but is substituted with the row number before writing).
+                # The row loop only substitutes the row number afterwards.
+                formulas[meta.db_name] = xml_specials_escape(template)
     return PlanSheetLayout(
         fields=fields,
         column_by_field=column_by_field,
@@ -238,6 +242,7 @@ def build_plan_sheet_layout(block: object, totals: dict[str, float] | None = Non
         header_xml=_header_rows_xml(fields, column_by_field, letters),
         merged_xml=_merged_ranges_xml(fields, column_by_field, totals),
         header_rows=len(header_rows()),
+        values_only=values_only,
     )
 
 
@@ -311,7 +316,7 @@ def _totals_row_xml(
             cells.append(xlsx_stream.styled_cell_xml(ref, style=1))
             continue
         cached = totals[meta.db_name]
-        if row_total:
+        if row_total and not layout.values_only:
             formula = f"SUM({letter}{data_from}:{letter}{data_from + row_total - 1})"
             # A live SUM over the exact exported range, bold and bordered
             # (style 7), with the cached sum so a reader sees it at once.
@@ -732,6 +737,7 @@ def render_workbook(
         lists=lists,
         column_lists=REFERENCE_LISTS,
         row_total=len(rows),
+        values_only=request.valuesOnly,
     )
     writer.write_rows(rows)
     writer.close()

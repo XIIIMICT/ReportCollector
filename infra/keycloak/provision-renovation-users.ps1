@@ -1,4 +1,4 @@
-﻿# Provision renovation-project demo users in the local Keycloak realm.
+# Provision renovation-project demo users in the local Keycloak realm.
 #
 # Idempotent: users are created once, then passwords are (re)set every run —
 # dev/demo only. Mirrors the app_users seeded by

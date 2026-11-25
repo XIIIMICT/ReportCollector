@@ -37,12 +37,14 @@ export async function downloadTableExport<TJob>(
     url: string,
     request: unknown,
     onJob: (job: ExportJobDescriptor, jobsBaseUrl: string) => TJob,
+    signal?: AbortSignal,
 ): Promise<Blob | TJob> {
     const response = await fetch(url, {
         cache: "no-store",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
+        signal: signal ?? null,
     });
     if (response.status === 202) {
         const job = (await response.json()) as ExportJobDescriptor;
@@ -62,4 +64,32 @@ export async function downloadTableExport<TJob>(
 /** URL of a table export job's file (streams the growing workbook). */
 export function tableExportJobFileUrl(jobsBaseUrl: string, jobId: string): string {
     return `${jobsBaseUrl}/${encodeURIComponent(jobId)}/file`;
+}
+
+/** Poll one durable job. Aborted when the user cancels or the hook unmounts. */
+export async function getTableExportJob(
+    jobsBaseUrl: string,
+    jobId: string,
+    signal?: AbortSignal,
+): Promise<ExportJobDescriptor> {
+    const response = await fetch(`${jobsBaseUrl}/${encodeURIComponent(jobId)}`, {
+        cache: "no-store",
+        signal: signal ?? null,
+    });
+    if (!response.ok) {
+        throw new ReportCollectorApiError(await readErrorDetail(response), response.status);
+    }
+    return (await response.json()) as ExportJobDescriptor;
+}
+
+/** Best-effort server-side cancel, matching DocMasker's job cancellation. */
+export async function cancelTableExportJob(jobsBaseUrl: string, jobId: string): Promise<void> {
+    try {
+        await fetch(`${jobsBaseUrl}/${encodeURIComponent(jobId)}`, {
+            method: "DELETE",
+            cache: "no-store",
+        });
+    } catch {
+        // The job will expire on its own; the UI must still return to idle.
+    }
 }

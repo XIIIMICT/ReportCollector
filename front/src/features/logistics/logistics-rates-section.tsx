@@ -322,7 +322,8 @@ export function LogisticsRatesSection({
     onExportState: (state: {
         pending: boolean;
         rowCount: number;
-        onExport: (mode: ExportMode) => void;
+        onExport: (mode: ExportMode, valuesOnly?: boolean) => void;
+        cancel?: (() => void) | undefined;
     }) => void;
     onUsdRateChange: (rate: number | null) => void;
     onRoomChange: (room: CollabRoom | null) => void;
@@ -840,7 +841,11 @@ export function LogisticsRatesSection({
 
     const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
 
-    const { pending: exportPending, exportTable } = useTableExport({
+    const {
+        pending: exportPending,
+        exportTable,
+        cancel: cancelExport,
+    } = useTableExport({
         gridRef,
         fileName: () => exportFileName("logisticsRates", periodDate),
         request: (view, fileName) =>
@@ -859,8 +864,9 @@ export function LogisticsRatesSection({
             pending: exportPending,
             rowCount: data?.rows.length ?? 0,
             onExport: exportTable,
+            cancel: cancelExport,
         });
-    }, [data, exportPending, exportTable, onExportState]);
+    }, [data, exportPending, exportTable, cancelExport, onExportState]);
 
     if (error) {
         return <GridLoadError error={error} />;

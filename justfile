@@ -30,9 +30,13 @@ auth-stand:
 monitoring:
     docker compose up -d alloy
 
-# Полный мониторинговый стек в этом compose (Loki, Grafana, Alloy, Prometheus, Alertmanager)
+# Полный мониторинговый стек в этом compose (Loki, Grafana, Alloy, Prometheus, Alertmanager, SMTP relay)
 monitoring-stand:
-    docker compose up -d loki grafana alloy prometheus alertmanager
+    docker compose up -d loki grafana alloy prometheus alertmanager smtp-relay
+
+# Локальная проверка дрейфа общих конфигов между тремя стеками и DWH
+drift-check:
+    python ../infra/check-drift.py
 
 # Nginx (fholzer/nginx-brotli) в этом compose
 proxy-stand:

@@ -36,6 +36,8 @@ class ExportViewRequest(BaseModel):
     rowIds: list[UUID] | None = None
     snapshotId: UUID | None = None
     fileName: str = Field(min_length=1, max_length=255)
+    # Phase: write computed cells as values (default) or as live Excel formulas.
+    valuesOnly: bool = True
 
 
 class MovementRowRead(BaseModel):

@@ -482,6 +482,7 @@ export type RenovationExportColumn = {
 export type RenovationExportJobDownload = {
     job: ExportJobDescriptor;
     fileUrl: string;
+    jobsBaseUrl: string;
 };
 
 /** Download a renovation dictionary export — inline, or as a background job past the inline row limit. */

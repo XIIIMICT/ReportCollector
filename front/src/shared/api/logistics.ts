@@ -1,6 +1,9 @@
 import { requestJson, requestWrite } from "@/shared/api/api-error";
-import { ReportCollectorApiError } from "@/shared/api/report-collector";
-import { downloadTableExport } from "@/shared/api/table-export";
+import {
+    downloadTableExport,
+    tableExportJobFileUrl,
+    type ExportJobDescriptor,
+} from "@/shared/api/table-export";
 import { getCollabSessionId } from "@/shared/collab/ws-client";
 import type { ExportColumn } from "@/shared/grid/grid-config";
 
@@ -261,16 +264,29 @@ export type LogisticsExportRequest = {
     /** `null` — «вся таблица»; the visible rows' ids — «видимая». */
     rowIds: string[] | null;
     fileName: string;
+    valuesOnly?: boolean;
     /** Required for «Ставки»: the grid shows one month/year. */
     month?: number | null;
     year?: number | null;
 };
 
-/** Download a «Логистика» grid as XLSX (inline: the tables are small). */
-export async function exportLogisticsTable(request: LogisticsExportRequest): Promise<Blob> {
-    return downloadTableExport("/api/logistics/export", request, () => {
-        throw new ReportCollectorApiError("Выгрузка недоступна.", 500);
-    });
+/** Download a «Логистика» grid as XLSX (inline or a durable job). */
+export type LogisticsExportJobDownload = {
+    job: ExportJobDescriptor;
+    fileUrl: string;
+    jobsBaseUrl: string;
+};
+
+export async function exportLogisticsTable(
+    request: LogisticsExportRequest,
+    signal?: AbortSignal,
+): Promise<Blob | LogisticsExportJobDownload> {
+    return downloadTableExport(
+        "/api/logistics/export",
+        { ...request, valuesOnly: request.valuesOnly ?? true },
+        (job, base) => ({ job, fileUrl: tableExportJobFileUrl(base, job.id), jobsBaseUrl: base }),
+        signal,
+    );
 }
 
 export async function getLogisticsRatesUndoState(periodDate: string): Promise<LogisticsUndoState> {

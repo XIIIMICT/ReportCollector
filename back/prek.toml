@@ -26,13 +26,13 @@ files = '\.py$'
 [[repos.hooks]]
 id = "ty-check"
 name = "ty check"
-# `ty` is a whole-project checker: it resolves imports across the package, so it
-# cannot narrow to one file. It is therefore opt-in rather than part of the
-# pre-commit gate — `just typecheck` and CI still run it on every change.
+# Shared hook policy (maintainer decision, 2026-11-25): all static checkers run
+# on the staged files at commit and on the whole tree in CI. `ty` still resolves
+# imports across the package, but diagnostics are limited to the staged files.
 entry = "uv run ty check"
 language = "system"
-stages = ["manual"]
-pass_filenames = false
+files = '\.py$'
+require_serial = true
 
 [[repos.hooks]]
 id = "uv-lock"

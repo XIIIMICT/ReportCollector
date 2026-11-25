@@ -40,6 +40,7 @@ import {
     buildHistoryActions,
 } from "@/shared/ui/action-items";
 import { AppHeader } from "@/shared/ui/app-header";
+import { ExcelExportDialog } from "@/shared/ui/excel-export-dialog";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
@@ -60,7 +61,8 @@ import { useDeleteShortcut } from "@/shared/ui/workspace-shortcuts";
 type LogisticsExportState = {
     pending: boolean;
     rowCount: number;
-    onExport: (mode: ExportMode) => void;
+    onExport: (mode: ExportMode, valuesOnly?: boolean) => void;
+    cancel?: (() => void) | undefined;
 };
 
 const EMPTY_EXPORT_STATE: LogisticsExportState = {
@@ -240,6 +242,7 @@ export function LogisticsWorkspace({
     });
     const [undoActions, setUndoActions] = useState(EMPTY_UNDO_ACTIONS);
     const [exportState, setExportState] = useState<LogisticsExportState>(EMPTY_EXPORT_STATE);
+    const [exportDialogOpen, setExportDialogOpen] = useState(false);
     const [usdRate, setUsdRate] = useState<number | null>(null);
     const [sectionRoom, setSectionRoom] = useState<CollabRoom | null>(null);
     const { setFilter: setPanelFilter } = useToolbarFilters("logisticsRates");
@@ -409,7 +412,8 @@ export function LogisticsWorkspace({
             pending: exportState.pending,
             disabled: exportState.pending || isFullscreenPending,
             rowCount: exportState.rowCount,
-            onExport: exportState.onExport,
+            onPress: () => setExportDialogOpen(true),
+            onCancel: exportState.cancel,
         }),
     ];
 
@@ -515,6 +519,16 @@ export function LogisticsWorkspace({
                 />
             </div>
             <ActionBar items={actionItems} onDropdownOpenChange={setToolbarControlOpen} />
+            <ExcelExportDialog
+                isOpen={exportDialogOpen}
+                onOpenChange={setExportDialogOpen}
+                onConfirm={(options) =>
+                    void exportState.onExport(
+                        options.useFilters ? "visible" : "all",
+                        options.valuesOnly,
+                    )
+                }
+            />
         </div>
     );
 
@@ -658,7 +672,11 @@ function LogisticsDictionarySection({
         section,
     ]);
     const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
-    const { pending: exportPending, exportTable } = useTableExport({
+    const {
+        pending: exportPending,
+        exportTable,
+        cancel: cancelExport,
+    } = useTableExport({
         gridRef,
         fileName: () => exportFileName(section, null),
         request: (view, fileName) =>
@@ -695,8 +713,13 @@ function LogisticsDictionarySection({
     }, [mergeDisabled, rows, section]);
 
     useEffect(() => {
-        onExportState({ pending: exportPending, rowCount: rows.length, onExport: exportTable });
-    }, [exportPending, exportTable, onExportState, rows.length]);
+        onExportState({
+            pending: exportPending,
+            rowCount: rows.length,
+            onExport: exportTable,
+            cancel: cancelExport,
+        });
+    }, [exportPending, exportTable, cancelExport, onExportState, rows.length]);
 
     useEffect(() => {
         onResetState({

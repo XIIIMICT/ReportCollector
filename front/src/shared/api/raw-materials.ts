@@ -387,12 +387,14 @@ export type ExportViewRequest = {
     columns: ExportColumn[];
     rowIds: string[] | null;
     snapshotId?: string | null;
+    valuesOnly?: boolean;
     fileName: string;
 };
 
 export type ExportJobDownload = {
     job: ExportJobDescriptor;
     fileUrl: string;
+    jobsBaseUrl: string;
 };
 
 /**
@@ -402,9 +404,12 @@ export type ExportJobDownload = {
  */
 export async function exportTableToExcel(
     request: ExportViewRequest,
+    signal?: AbortSignal,
 ): Promise<Blob | ExportJobDownload> {
-    return downloadTableExport("/api/raw-materials/export", request, (job, base) => ({
-        job,
-        fileUrl: tableExportJobFileUrl(base, job.id),
-    }));
+    return downloadTableExport(
+        "/api/raw-materials/export",
+        { ...request, valuesOnly: request.valuesOnly ?? true },
+        (job, base) => ({ job, fileUrl: tableExportJobFileUrl(base, job.id), jobsBaseUrl: base }),
+        signal,
+    );
 }

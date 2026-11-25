@@ -267,7 +267,8 @@ type KppkRealizationSectionProps = {
     onExportState: (state: {
         pending: boolean;
         rowCount?: number | undefined;
-        onExport: (mode: "all" | "visible") => void;
+        onExport: (mode: "all" | "visible", valuesOnly?: boolean) => void;
+        cancel?: (() => void) | undefined;
     }) => void;
     onDeleteState: (state: { canDelete: boolean; onDelete: () => void }) => void;
     onResetState: (state: {
@@ -701,7 +702,11 @@ export function KppkRealizationSection({
     // period) and its column shape. «Видимая» sends the rows the grid currently
     // shows — in the grid's order — because the header filters and the sort run
     // CLIENT-side. `useTableExport` owns that rule for every grid.
-    const { pending: exportPending, exportTable } = useTableExport({
+    const {
+        pending: exportPending,
+        exportTable,
+        cancel: cancelExport,
+    } = useTableExport({
         gridRef,
         fileName: () => exportFileName(roomSection, null),
         request: (requestView, requestFileName) => {
@@ -722,10 +727,10 @@ export function KppkRealizationSection({
         },
     });
     const onExport = useCallback(
-        (scope: "all" | "visible") => {
+        (scope: "all" | "visible", valuesOnly = true) => {
             // No ДЗО selected → there is no view to export.
             if (orgId === null) return;
-            exportTable(scope);
+            exportTable(scope, valuesOnly);
         },
         [exportTable, orgId],
     );
@@ -734,8 +739,9 @@ export function KppkRealizationSection({
             pending: exportPending,
             rowCount: viewStats?.filteredRows ?? 0,
             onExport,
+            cancel: cancelExport,
         });
-    }, [exportPending, onExport, onExportState, viewStats]);
+    }, [exportPending, cancelExport, onExport, onExportState, viewStats]);
     useEffect(() => {
         onUndoStateChange(
             undoCounts.canUndo || undoCounts.canRedo

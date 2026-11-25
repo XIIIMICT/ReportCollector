@@ -289,6 +289,24 @@ server refuses writes with 409, and the import clears the plan's Undo history
 in its own transaction. A stale editor cannot commit over imported values;
 stale cell leases themselves are unchanged and still expire on their TTL.
 
+## Excel export dialog (all projects)
+
+Every workspace uses the same export button and the same HeroUI v3 `Modal`
+(`front/src/shared/ui/excel-export-dialog.tsx`) instead of the old hover menu.
+Two switches default ON: «Учитывать фильтры и сортировки» (visible view; OFF =
+whole table) and «Сохранять значения вместо формул» (OFF = live Excel formulas).
+All export requests carry `valuesOnly` (default `true`); computed cells in
+«Сырьё» and the renovation plan are written as stored values by default, and
+the pinned totals row is static. Formula mode restores the live deviation /
+plan formulas, including the plan's derived columns; Логистика deviations
+use the previous month's net as an embedded constant operand. КППК currently
+has no computed columns, so the switch is accepted but inert there.
+
+After confirmation the job starts immediately; the same button becomes an
+enabled «Отменить» while the durable job runs. Cancellation sends `DELETE` to
+the job endpoint and aborts local polling/POST (DocMasker pattern), then the
+button returns to «Скачать в Excel». Inline exports stay a direct Blob download.
+
 ## Renovation plan export jobs
 Excel-export plumbing is shared by every project in `back/src/common/`:
 `xlsx_stream.py` carries the raw-XML streaming mechanics (static package parts,

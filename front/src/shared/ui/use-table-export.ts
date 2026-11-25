@@ -1,8 +1,12 @@
-import { useCallback, useRef, useState } from "react";
+import { toast } from "@heroui/react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { cancelTableExportJob, getTableExportJob } from "@/shared/api/table-export";
 import type { ExportColumn } from "@/shared/grid/grid-config";
 
+import { triggerNativeDownload } from "./download";
 import { runTableExport, type GridExportView } from "./table-export-action";
+import { errorMessage } from "./text-helpers";
 
 /** «вся таблица» — every row of the view; «видимая» — what the grid shows. */
 export type ExportMode = "all" | "visible";
@@ -17,28 +21,20 @@ export type ExportRequestView = {
     columns: ExportColumn[];
     rowIds: string[] | null;
     mergeRows: boolean;
+    valuesOnly: boolean;
 };
+
+type ActiveJob = { id: string; baseUrl: string; fileUrl: string; fileName: string };
+
+const POLL_INTERVAL_MS = 750;
 
 /**
  * One export flow for every grid: pending state, the grid snapshot, the file
- * name and the request.
+ * name, the request, and DocMasker-style cancellation of a durable job.
  *
- * The point is the `rowIds` rule, which used to be retyped at each call site —
- * and one copy of it silently drifted into a stub («forms have no client-side
- * filters»), so «видимая» exported the whole table. Keeping it in ONE place
- * means a form cannot forget it again:
- *
- * - `"visible"` sends `view.rowIds` — the rows the grid currently shows, IN ITS
- *   ORDER. Header filters and sorting run client-side, so the grid is the only
- *   component that knows either; the server must not reimplement them.
- * - `"all"` sends `null` and the server falls back to the whole view.
- *
- * @example
- * const { pending, exportTable } = useTableExport({
- *     gridRef,
- *     fileName: () => exportFileName(section, null),
- *     request: (view, name) => exportKppkTable({ section, columns: view.columns, rowIds: view.rowIds, fileName: name }),
- * });
+ * The `rowIds` rule stays here: «видимая» sends the grid's own rows IN ITS
+ * ORDER, «вся» sends null. `valuesOnly` travels in the same request: computed
+ * cells are written as values by default, so exports are smaller/faster.
  */
 export function useTableExport({
     gridRef,
@@ -48,48 +44,132 @@ export function useTableExport({
     gridRef: { current: { getExportState: () => Promise<GridExportView | null> } | null };
     /** The download's file name; receives the mode so a form may distinguish them. */
     fileName: (mode: ExportMode) => string;
-    /** Build and perform the request; `view.rowIds` is already mode-resolved. */
+    /** Build and perform the request; `view.rowIds`/`valuesOnly` are mode-resolved. */
     request: (
         view: ExportRequestView,
         fileName: string,
-    ) => Promise<Blob | { fileUrl: string; job: { fileName: string } }>;
-}): { pending: boolean; exportTable: (mode: ExportMode) => void } {
+        signal?: AbortSignal,
+    ) => Promise<
+        Blob | { fileUrl: string; jobsBaseUrl: string; job: { id: string; fileName: string } }
+    >;
+}): {
+    pending: boolean;
+    exportTable: (mode: ExportMode, valuesOnly?: boolean) => void;
+    cancel: (() => void) | undefined;
+} {
     const [pending, setPending] = useState(false);
-    // `fileName` and `request` are passed INLINE by every call site, so their
-    // identity changes on every render of the owning section. If `exportTable`
-    // depended on them it would be a new function each render — and the section
-    // publishes it (`onExportState({ pending, onExport: exportTable })`) from an
-    // effect, the workspace stores the fresh object, re-renders, rebuilds the
-    // callback, and the effect fires again: «Maximum update depth exceeded».
-    // That is what took the «Предприятия» and «Пользователи» tabs of «Ремонт»
-    // down. Read them through refs instead, so this callback is stable for the
-    // hook's lifetime.
+    const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
     const fileNameRef = useRef(fileName);
     fileNameRef.current = fileName;
     const requestRef = useRef(request);
     requestRef.current = request;
     const pendingRef = useRef(pending);
     pendingRef.current = pending;
+    const postController = useRef<AbortController | null>(null);
+    const pollController = useRef<AbortController | null>(null);
+    const timer = useRef<number | null>(null);
+    const activeJobRef = useRef<ActiveJob | null>(null);
+
+    const end = useCallback(() => {
+        if (timer.current !== null) window.clearTimeout(timer.current);
+        timer.current = null;
+        pollController.current = null;
+        postController.current = null;
+        activeJobRef.current = null;
+        setActiveJob(null);
+        setPending(false);
+    }, []);
+
+    const cancel = useCallback(() => {
+        const job = activeJobRef.current;
+        if (job === null) return;
+        void cancelTableExportJob(job.baseUrl, job.id);
+        pollController.current?.abort();
+        end();
+        toast("Выгрузка отменена");
+    }, [end]);
+
+    const startPolling = useCallback(
+        (job: ActiveJob) => {
+            activeJobRef.current = job;
+            setActiveJob(job);
+            setPending(true);
+            pollController.current = new AbortController();
+            const poll = async (): Promise<void> => {
+                try {
+                    const status = await getTableExportJob(
+                        job.baseUrl,
+                        job.id,
+                        pollController.current?.signal,
+                    );
+                    if (status.status === "done") {
+                        triggerNativeDownload(job.fileUrl, job.fileName);
+                        toast.success("Файл выгружен", { description: job.fileName });
+                        end();
+                        return;
+                    }
+                    if (status.status === "failed") {
+                        toast.danger("Не удалось выгрузить файл", {
+                            description: status.error ?? undefined,
+                        });
+                        end();
+                        return;
+                    }
+                    timer.current = window.setTimeout(() => void poll(), POLL_INTERVAL_MS);
+                } catch (reason) {
+                    if (pollController.current?.signal.aborted !== true) {
+                        toast.danger("Не удалось выгрузить файл", {
+                            description: errorMessage(reason),
+                        });
+                        end();
+                    }
+                }
+            };
+            void poll();
+        },
+        [end],
+    );
+
+    useEffect(
+        () => () => {
+            pollController.current?.abort();
+            postController.current?.abort();
+            if (timer.current !== null) window.clearTimeout(timer.current);
+        },
+        [],
+    );
+
     const exportTable = useCallback(
-        (mode: ExportMode) => {
+        (mode: ExportMode, valuesOnly = true) => {
+            postController.current = new AbortController();
             void runTableExport({
                 pending: pendingRef.current,
                 gridRef,
                 setPending,
                 fileName: () => fileNameRef.current(mode),
-                // THE rule: «видимая» = the grid's own rows, in the grid's order.
                 request: (view, name) =>
                     requestRef.current(
                         {
                             columns: view.columns,
                             rowIds: mode === "visible" ? view.rowIds : null,
                             mergeRows: view.mergeRows ?? true,
+                            valuesOnly,
                         },
                         name,
+                        postController.current?.signal,
                     ),
+                signal: postController.current.signal,
+                onJob: (result) =>
+                    startPolling({
+                        id: result.job.id,
+                        baseUrl: result.jobsBaseUrl,
+                        fileUrl: result.fileUrl,
+                        fileName: result.job.fileName,
+                    }),
             });
         },
-        [gridRef],
+        [gridRef, startPolling],
     );
-    return { pending, exportTable };
+
+    return { pending, exportTable, cancel: activeJob !== null ? cancel : undefined };
 }

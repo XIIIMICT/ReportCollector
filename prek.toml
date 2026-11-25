@@ -1,5 +1,7 @@
 #:schema https://www.schemastore.org/prek.json
 
+# Independent hook set per package directory (root / back / front).
+orphan = true
 default_install_hook_types = ["pre-commit"]
 default_stages = ["pre-commit"]
 

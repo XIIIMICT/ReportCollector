@@ -24,7 +24,6 @@ import type { CellUpdate } from "@/shared/api/raw-materials";
 import {
     addRenovationRow,
     approveRenovationPlan,
-    createRenovationExportJob,
     deleteRenovationRow,
     getRenovationDiff,
     getRenovationMeta,
@@ -40,7 +39,6 @@ import {
     decodeLegacyFieldKeys,
     decodeLegacyFieldName,
     renovationCatalogSection,
-    renovationExportJobFileUrl,
     submitRenovationPlan,
     undoCells,
     updateRenovationCells,
@@ -91,6 +89,7 @@ import {
 } from "@/shared/ui/action-items";
 import { AppHeader } from "@/shared/ui/app-header";
 import { precedingColumnFilters, type ColumnFilter } from "@/shared/ui/column-filter-facets";
+import { ExcelExportDialog } from "@/shared/ui/excel-export-dialog";
 import { FooterProgress } from "@/shared/ui/footer-progress";
 import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
@@ -137,6 +136,7 @@ import {
 import { ASSET_COLUMN_PROP, ASSET_FIELD_DB_NAME, AUDIT_COLUMNS } from "./renovation-grid-constants";
 import { usePlanImportJob } from "./use-plan-import-job";
 import { usePlanImportLock } from "./use-plan-import-lock";
+import { useRenovationPlanExport } from "./use-renovation-plan-export";
 
 /** Standard grid toasts: see `gridWarningHandlers`. */
 const gridWarnings = gridWarningHandlers({});
@@ -220,23 +220,6 @@ function toGridRow(
         __missingComponents: row.missingComponents,
         __invalidFields: row.invalidFields ?? [],
     };
-}
-
-/**
- * Hand the file URL to the browser as a normal download.
- *
- * The browser streams it to disk and shows its OWN progress UI — unlike the
- * File System Access / blob flows, which report the byte progress in a site
- * toast and (for a blob) buffer the whole file in memory.
- */
-function triggerNativeDownload(url: string, fileName: string): void {
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    link.rel = "noopener";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
 }
 
 function formatVersionStamp(value: string): string {
@@ -806,7 +789,7 @@ export function RenovationWorkspace({
     // correct and unique — the message is shown in an AlertDialog.
     const [submitBlocked, setSubmitBlocked] = useState<string | null>(null);
     const [isMutationPending, setIsMutationPending] = useState(false);
-    const [exportPending, setExportPending] = useState(false);
+    const [exportDialogOpen, setExportDialogOpen] = useState(false);
     const [planExcelImportOpen, setPlanExcelImportOpen] = useState(false);
     const [planExcelImportResult, setPlanExcelImportResult] = useState<
         import("./plan-excel-import-modal").PlanExcelImportResult | null
@@ -835,7 +818,8 @@ export function RenovationWorkspace({
     }>({ canReplace: false, blockedReason: null, onReplace: () => {} });
     const [dictExportState, setDictExportState] = useState<{
         pending: boolean;
-        onExport: (scope: "all" | "visible") => void;
+        onExport: (scope: "all" | "visible", valuesOnly?: boolean) => void;
+        cancel?: (() => void) | undefined;
     }>({ pending: false, onExport: () => {} });
     const [dictResetState, setDictResetState] = useState<{
         resetColumnWidths: () => void;
@@ -1359,64 +1343,46 @@ export function RenovationWorkspace({
         [doCommit, readOnly],
     );
 
-    const exportPlan = useCallback(
-        async (scope: "all" | "visible") => {
-            if (exportPending) return;
-            setExportPending(true);
-            // «Видимая» — the whole plan filtered server-side by the active
-            // asset, block and header filters, not just the window currently
-            // rendered.
-            const visible = scope === "visible";
-            try {
-                // Start the background export (fast) so the file begins generating.
-                const job = await createRenovationExportJob({
-                    planId: viewPlanId ?? undefined,
-                    asset: visible ? assetFilter : null,
-                    block: visible ? blockFilter : null,
-                    filters: visible ? activeColumnFilters : null,
-                    sorting: visible ? activeSorting : null,
+    const handlePlanExportError = useCallback(
+        (reason: unknown) => {
+            if (discardInvalidPlanQuery(reason)) {
+                toast.warning("Сортировка или фильтр столбца удалены", {
+                    description: "Столбец больше не поддерживается — повторите выгрузку.",
                 });
-                if (job.status === "failed") {
-                    throw new Error(job.error ?? "Не удалось сформировать файл.");
-                }
-                // Hand the URL to the browser as a native download IMMEDIATELY.
-                // The file endpoint streams the growing workbook, so the browser's
-                // own save dialog and download UI open at once and advance with the
-                // generation. Closing the tab or reloading neither cancels the
-                // generation (it runs in the background worker) nor the
-                // browser-owned download.
-                triggerNativeDownload(renovationExportJobFileUrl(job.id), job.fileName);
-            } catch (reason) {
-                if (discardInvalidPlanQuery(reason)) {
-                    // The stale column is gone, but THIS click produced no file:
-                    // say so, otherwise the export looks like a dead button.
-                    toast.warning("Сортировка или фильтр столбца удалены", {
-                        description: "Столбец больше не поддерживается — повторите выгрузку.",
-                    });
-                    return;
-                }
-                toast.danger("Не удалось выгрузить файл", { description: errorMessage(reason) });
-            } finally {
-                setExportPending(false);
+                return true;
             }
+            return false;
+        },
+        [discardInvalidPlanQuery],
+    );
+    const planExport = useRenovationPlanExport(handlePlanExportError);
+
+    const handleStripExport = useCallback(
+        (scope: "all" | "visible", valuesOnly = true) => {
+            if (!isPlanSection) {
+                dictExportState.onExport(scope, valuesOnly);
+                return;
+            }
+            const visible = scope === "visible";
+            planExport.start({
+                planId: viewPlanId ?? undefined,
+                asset: visible ? assetFilter : null,
+                block: visible ? blockFilter : null,
+                filters: visible ? activeColumnFilters : null,
+                sorting: visible ? activeSorting : null,
+                valuesOnly,
+            });
         },
         [
             activeColumnFilters,
             activeSorting,
             assetFilter,
             blockFilter,
-            discardInvalidPlanQuery,
-            exportPending,
+            dictExportState,
+            isPlanSection,
+            planExport,
             viewPlanId,
         ],
-    );
-
-    const handleStripExport = useCallback(
-        (scope: "all" | "visible") => {
-            if (isPlanSection) void exportPlan(scope);
-            else dictExportState.onExport(scope);
-        },
-        [dictExportState, exportPlan, isPlanSection],
     );
 
     // The plan grid resets its own widths and the workspace asset/block
@@ -1917,10 +1883,11 @@ export function RenovationWorkspace({
         ...planClipboardActions,
         ...(canEditRows ? undoRedoActions : []),
         buildExportAction({
-            pending: exportPending,
-            disabled: exportPending || isFullscreenPending,
+            pending: planExport.pending,
+            disabled: planExport.pending || isFullscreenPending,
             rowCount: gridStats?.filteredRows ?? 0,
-            onExport: (mode) => void handleStripExport(mode),
+            onPress: () => setExportDialogOpen(true),
+            onCancel: isPlanSection ? planExport.cancel : dictExportState.cancel,
         }),
         ...(!isArchive && isAdmin
             ? [
@@ -1979,7 +1946,8 @@ export function RenovationWorkspace({
             pending: dictExportState.pending,
             disabled: dictExportState.pending || isFullscreenPending,
             rowCount: dictGridStats?.filteredRows ?? 0,
-            onExport: dictExportState.onExport,
+            onPress: () => setExportDialogOpen(true),
+            onCancel: dictExportState.cancel,
         }),
         ...(dictUserCreateState.canCreate
             ? buildAddRowAction({
@@ -2014,6 +1982,16 @@ export function RenovationWorkspace({
                 />
             </div>
             {planImport.progress ? <FooterProgress {...planImport.progress} /> : null}
+            <ExcelExportDialog
+                isOpen={exportDialogOpen}
+                onOpenChange={setExportDialogOpen}
+                onConfirm={(options) =>
+                    void handleStripExport(
+                        options.useFilters ? "visible" : "all",
+                        options.valuesOnly,
+                    )
+                }
+            />
             <ActionBar
                 items={isPlanSection ? actions : dictActions}
                 onDropdownOpenChange={setToolbarControlOpen}
