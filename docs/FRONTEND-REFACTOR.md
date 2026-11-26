@@ -230,6 +230,18 @@ for common contracts. No re-export from `data-grid` was added, so the old
 dependency cannot silently return. Values, comments, memo dependencies and JSX
 are unchanged; 544 unit tests.
 
+### Stage C (cont.) — pure config boundaries (2026-11-26)
+
+`grid-config.ts` dropped from 1,378 to 979 lines. The eight shared type
+declarations moved to `grid-config-types.ts`; the twelve pure number/date/facet
+formatters, placeholder-last comparator and `exportFileName` (plus
+`SECTION_LABELS`, needed by the latter) moved to `grid-format.ts`. The original
+module re-exports all of them, so roughly thirty existing import sites are
+untouched; `grid-format.ts` has no runtime import of `grid-config.ts`, so no
+cycle was introduced. 15 new formatter/re-export tests (559 total).
+Descriptors, column builders, cell templates and cell-property logic stayed in
+`grid-config.ts` — they carry RevoGrid callback identities and are not pure.
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,
