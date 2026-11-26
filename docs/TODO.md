@@ -71,12 +71,20 @@ different milestones. Do not reopen the explicit product deferrals below.
   Catalog and asset changes keep their own `count(*) + max(updated_at)` tokens.
   Migration 0043 is AUTHORED ONLY (rollout follows the blocked 0042 gate, see
   `docs/DATA-JOBS.md`); measure lookup/cache latency after deployment.
-- [ ] Measure long transaction/project-gate/row-lock contention on a big import.
-  The recompute is now narrowed to the rows the load wrote (and only changed
-  rows are updated), and the job reports `parse`/`write`/`recompute` progress;
-  finer validation/finalize phases and failure-after-`write` observability remain
-  open. This performance work is separate from the deferred concurrent-edit
-  conflict policy.
+- [ ] Measure long transaction/project-gate/row-lock contention on a big import
+  IN PRODUCTION. The recompute is narrowed to the rows the load wrote (and only
+  changed rows are updated), and RC-3 added bounded staging, parse-before-transaction
+  and phase metrics for parse/staging/gate-wait/gate-hold/apply/recompute/commit/
+  finalization; the synthetic before/after numbers are in `docs/DATA-JOBS.md`.
+  A real large plan, multi-replica contention and worker-heartbeat interaction
+  are still unmeasured. This performance work is separate from the deferred
+  concurrent-edit conflict policy.
+- [x] **RC-3 — bounded import memory** (2026-11-26). Exact issue/duplicate/new/
+  update totals with bounded examples; disk-backed duplicate spool; apply uses
+  transaction-local temp tables instead of O(N) Python sets/lists; recompute
+  streams written ids in 1000-row pages. Parsing precedes the session, gate and
+  transaction in the durable worker. Tests: `back/tests/test_import_bounded_memory.py`
+  and the job tests in `test_durable_imports.py`; contract in `docs/LIMITS.md`.
 - [x] **High-cardinality facets run in PostgreSQL** (Phase 6.1): generic columns
   are grouped, searched, numeric/casefold-sorted, counted and paginated in one
   SQL scan, preserving null buckets/preceding filters; regression tests cover

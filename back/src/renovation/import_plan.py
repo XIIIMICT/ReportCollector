@@ -1,13 +1,15 @@
 """Validate a technical-directorate Excel plan without changing the database."""
 
-from collections import Counter
-from collections.abc import Iterable, Iterator
+import heapq
+import struct
+import tempfile
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from itertools import chain, islice
 from pathlib import Path
-from typing import BinaryIO, TypeVar
+from typing import BinaryIO, cast
 from zipfile import BadZipFile
 
 from openpyxl import load_workbook
@@ -20,8 +22,6 @@ from src.renovation.plan import RReferenceCatalog
 from src.renovation.reference_data import REFERENCE_OPTIONS
 from src.renovation.renovation_id import (
     DIRECTION_CODE_FIELD,
-    RENOVATION_ID_FORMULA_ENABLED,
-    RenovationIdError,
     RenovationIdInput,
     RenovationIdResult,
     calculate_renovation_id,
@@ -514,6 +514,129 @@ def inspect_plan_file(
         return RenovationPlanImportResult(status="invalid_format")
 
 
+class _CappedExamples[T]:
+    """Exact counter with at most `limit` actionable examples retained."""
+
+    __slots__ = ("_limit", "count", "items")
+
+    def __init__(self, limit: int) -> None:
+        self._limit = max(limit, 0)
+        self.count = 0
+        self.items: list[T] = []
+
+    def add(self, make: Callable[[], T]) -> None:
+        """Count every occurrence, but build an example only while under the cap."""
+        self.count += 1
+        if len(self.items) < self._limit:
+            self.items.append(make())
+
+
+# Row numbers kept in a duplicate example; the rest are counted, not materialized.
+_MAX_EXAMPLE_ROWS = 10
+
+
+def _format_duplicate(code: str, rows: list[int], hidden: int = 0) -> str:
+    """Render one duplicate code with the sheet rows it occupies."""
+    shown = ", ".join(str(number) for number in rows[:_MAX_EXAMPLE_ROWS])
+    extra = f" и ещё {hidden}" if hidden else ""
+    return f"{code} (строки {shown}{extra})"
+
+
+class _CodeRowSpool:
+    """
+    Whole-file duplicate detection with O(run) memory instead of O(rows).
+
+    `(code, row)` pairs are written to OS-backed temporary files in sorted runs
+    and then k-way merged, so a file of any size reports exact duplicate and
+    new/update totals while keeping only bounded examples in RAM. The files are
+    deleted when the spool is closed (also on failure/cancellation).
+    """
+
+    _RUN_SIZE = 20_000
+
+    def __init__(self, existing_codes: set[str]) -> None:
+        self._existing_codes = existing_codes
+        self._buffer: list[tuple[str, int]] = []
+        self._runs: list[BinaryIO] = []
+        self.new_rows = 0
+        self.rows_to_update = 0
+
+    def add(self, code: str, row_number: int) -> None:
+        if code in self._existing_codes:
+            self.rows_to_update += 1
+        else:
+            self.new_rows += 1
+        self._buffer.append((code, row_number))
+        if len(self._buffer) >= self._RUN_SIZE:
+            self._flush_run()
+
+    def _flush_run(self) -> None:
+        if not self._buffer:
+            return
+        self._buffer.sort()
+        # Kept open across calls so the merge can stream it; closed in close().
+        # Length-prefixed binary records are cheaper than JSON lines at this size.
+        run = cast("BinaryIO", tempfile.TemporaryFile(mode="w+b"))  # noqa: SIM115
+        try:
+            for code, row_number in self._buffer:
+                encoded = code.encode("utf-8")
+                run.write(struct.pack("!I", len(encoded)))
+                run.write(encoded)
+                run.write(struct.pack("!Q", row_number))
+        except BaseException:
+            run.close()
+            raise
+        run.seek(0)
+        self._runs.append(run)
+        self._buffer.clear()
+
+    @staticmethod
+    def _read_run(run: BinaryIO) -> Iterator[tuple[str, int]]:
+        while header := run.read(4):
+            length = struct.unpack("!I", header)[0]
+            payload = run.read(length + 8)
+            yield payload[:length].decode("utf-8"), struct.unpack("!Q", payload[length:])[0]
+
+    def _sorted_pairs(self) -> Iterator[tuple[str, int]]:
+        streams = [self._read_run(run) for run in self._runs]
+        if self._buffer:
+            streams.append(iter(sorted(self._buffer)))
+        yield from heapq.merge(*streams)
+
+    def result(self, issue_limit: int) -> tuple[list[str], int]:
+        """Return (bounded examples, exact count of distinct repeated codes)."""
+        examples: list[str] = []
+        duplicates = 0
+        current: str | None = None
+        rows: list[int] = []
+        total_rows = 0
+        for code, row_number in self._sorted_pairs():
+            if code != current:
+                self._finish(current, rows, total_rows - len(rows), examples, issue_limit)
+                duplicates += current is not None and total_rows > 1
+                current, rows, total_rows = code, [], 0
+            total_rows += 1
+            if len(rows) < _MAX_EXAMPLE_ROWS:
+                rows.append(row_number)
+        self._finish(current, rows, total_rows - len(rows), examples, issue_limit)
+        if current is not None:
+            duplicates += total_rows > 1
+        return examples, duplicates
+
+    @staticmethod
+    def _finish(code: str | None, rows: list[int], hidden: int, examples: list[str], issue_limit: int) -> None:
+        if code is None or len(rows) < 2:
+            return
+        if len(examples) < issue_limit:
+            examples.append(_format_duplicate(code, rows, hidden))
+
+    def close(self) -> None:
+        self._buffer.clear()
+        for run in self._runs:
+            run.close()
+        self._runs.clear()
+
+
 def _inspect_rows(
     rows: Iterable[list[object]],
     *,
@@ -574,22 +697,22 @@ def _inspect_rows(
         index for field, index in columns.items() if field in _REQUIRED_FIELDS and field != "col_002"
     )
     name_by_key = {_asset_name_key(name): name for name in asset_names_by_code.values()}
-    repair_code_by_name = {_asset_name_key(name): code for code, name in asset_names_by_code.items()}
 
-    type_errors: list[RenovationPlanImportCellIssue] = []
-    invalid_values: list[RenovationPlanImportCellIssue] = []
-    formula_reference_errors: list[RenovationPlanImportCellIssue] = []
-    missing: list[RenovationPlanImportCellIssue] = []
-    missing_required_values: list[RenovationPlanImportCellIssue] = []
-    skipped_rows: list[int] = []
+    # Counters are incremented as cells are read; only the first `issue_limit`
+    # examples are ever materialized. Nothing is collected and sliced later.
+    type_errors = _CappedExamples(issue_limit)
+    invalid_values = _CappedExamples(issue_limit)
+    formula_reference_errors = _CappedExamples(issue_limit)
+    missing = _CappedExamples(issue_limit)
+    missing_required_values = _CappedExamples(issue_limit)
+    skipped = _CappedExamples(issue_limit)
+    unknown_assets = _CappedExamples(issue_limit)
+    # Whole-file duplicate detection (and the new/update totals) are disk-backed:
+    # a file of any size keeps exact counts without an O(rows) Python collection.
+    spool = _CodeRowSpool(existing_codes)
     data_row_count = 0
-    unknown_assets: list[RenovationPlanImportCellIssue] = []
     unknown_catalogs: set[str] = set()
     assets: set[str] = set()
-    codes: list[str] = []
-    valid_rows: list[dict[str, object]] = []
-    asset_repair_codes: list[str | None] = []
-    row_numbers: list[int] = []
     field_by_name = {field.db_name: field for field in field_metas()}
     label_by_index = {
         index: meta.label for field, index in columns.items() if (meta := field_by_name.get(field)) is not None
@@ -604,184 +727,174 @@ def _inspect_rows(
             column_label=label_by_index.get(index),
         )
 
-    for row_number, raw in _data_rows(data_rows, data_start, code_index):
-        data_row_count += 1
-        asset_cell = raw[asset_index] if asset_index < len(raw) else None
-        asset_key = _asset_name_key(asset_cell)
-        if not asset_key:
-            # The asset is the row's foreign key: without it the row cannot be
-            # attributed to the plan. This is the ONLY skip criterion, and the
-            # skip is not an error unless every data row lacks the asset.
-            skipped_rows.append(row_number)
-            continue
-        code = str(raw[code_index]).strip() if code_index < len(raw) and raw[code_index] is not None else ""
-        empty_required = [index for index in required_columns if index >= len(raw) or _is_blank(raw[index])]
-        if not code:
-            empty_required.insert(0, code_index)
-        if empty_required:
-            # A blank cell in a present required column is an error: the row is
-            # not written and the file must be fixed before it can be loaded.
-            missing_required_values.extend(cell_issue(index, row_number, "") for index in empty_required)
-            continue
-        codes.append(code)
-        row_numbers.append(row_number)
-        # In «Предприятие» mode the cell holds the legal-entity NAME; the repair
-        # code is then derived for the (archived) ID check only.
-        repair_code = asset_key.upper()
-        if assets_are_names:
-            # The cell holds the legal-entity name: the dictionary turns it into
-            # its canonical spelling (quotes included), with a template fallback
-            # for a database whose asset list is still empty.
-            asset_name = name_by_key.get(asset_key) or _TEMPLATE_ASSET_NAMES.get(asset_key, "")
-            repair_code = repair_code_by_name.get(asset_key) or _REPAIR_CODES_BY_NAME.get(asset_key, "")
-        else:
-            asset_name = asset_names_by_code.get(_REPAIR_CODES.get(repair_code, repair_code), "")
-        if asset_name:
-            assets.add(asset_name)
-        else:
-            # The asset is a reference value like any catalog label: a code the
-            # project's dictionary does not have makes the file invalid — it is
-            # never silently dropped from the load.
-            unknown_assets.append(cell_issue(asset_index, row_number, str(asset_cell)))
-            if not assets_are_names and (default_name := _TEMPLATE_ASSETS.get(asset_key.upper())) is not None:
-                # Still counted among the file's assets: the cache scope must
-                # cover the rows a fixed file would touch.
-                assets.add(default_name)
-        if RENOVATION_ID_FORMULA_ENABLED:
-            asset_repair_codes.append(repair_code or None)
-        values: dict[str, object] = {}
-        for field, index in columns.items():
-            # Whitespace-only text is EMPTY, exactly like an empty cell: the
-            # text cells are stored trimmed, so a blank must never reach the
-            # type check (there it became «неверный тип данных», even for an
-            # optional field like «Влияние на производство»).
-            if index >= len(raw) or _is_blank(raw[index]):
+    try:
+        for row_number, raw in _data_rows(data_rows, data_start, code_index):
+            data_row_count += 1
+            asset_cell = raw[asset_index] if asset_index < len(raw) else None
+            asset_key = _asset_name_key(asset_cell)
+            if not asset_key:
+                # The asset is the row's foreign key: without it the row cannot be
+                # attributed to the plan. This is the ONLY skip criterion, and the
+                # skip is not an error unless every data row lacks the asset.
+                skipped.add(lambda number=row_number: number)
                 continue
-            meta = field_by_name.get(field)
-            if meta is None:
+            code = str(raw[code_index]).strip() if code_index < len(raw) and raw[code_index] is not None else ""
+            empty_required = [index for index in required_columns if index >= len(raw) or _is_blank(raw[index])]
+            if not code:
+                empty_required.insert(0, code_index)
+            if empty_required:
+                # A blank cell in a present required column is an error: the row is
+                # not written and the file must be fixed before it can be loaded.
+                for index in empty_required:
+                    missing_required_values.add(lambda idx=index, number=row_number: cell_issue(idx, number, ""))
                 continue
-            # Calculated columns are not stored, but a broken reference there is
-            # still a broken formula the operator must see — check BEFORE the
-            # calculated-field skip.
-            if _is_reference_error(raw[index]):
-                formula_reference_errors.append(cell_issue(index, row_number, str(raw[index]).strip()))
-                continue
-            if meta.is_calculated:
-                continue
-            # The «Направление деятельности» («Лот») code always ends with a dot:
-            # a correct code typed or stored without it gets it added silently.
-            if field == DIRECTION_CODE_FIELD:
-                values[field] = normalize_direction_code(str(raw[index]))
-                continue
-            # Reference fields carry labels in the source; text validation of the
-            # numeric id is meaningless, so only the catalog lookup runs. The
-            # label is stored trimmed: stray spaces must not create a value the
-            # catalogue does not know.
-            if meta.catalog:
-                trimmed = _trimmed_text(raw[index])
-                if trimmed is None:
-                    continue
-                values[field] = True
-                label = trimmed
+            spool.add(code, row_number)
+            # In «Предприятие» mode the cell holds the legal-entity NAME. The
+            # repair code was needed only by the archived ID check (now off).
+            if assets_are_names:
+                asset_name = name_by_key.get(asset_key) or _TEMPLATE_ASSET_NAMES.get(asset_key, "")
             else:
-                if meta.cell_type == "number":
-                    value, problem = _number_value(raw[index], meta)
-                    if value is None:
-                        issue = cell_issue(index, row_number, str(raw[index]))
-                        if problem is None:
-                            type_errors.append(issue)
-                        else:
-                            invalid_values.append(issue)
+                repair_code = asset_key.upper()
+                asset_name = asset_names_by_code.get(_REPAIR_CODES.get(repair_code, repair_code), "")
+            if asset_name:
+                assets.add(asset_name)
+            else:
+                # The asset is a reference value like any catalog label: a code the
+                # project's dictionary does not have makes the file invalid — it is
+                # never silently dropped from the load.
+                unknown_assets.add(
+                    lambda number=row_number, cell=asset_cell: cell_issue(asset_index, number, str(cell))
+                )
+                if not assets_are_names and (default_name := _TEMPLATE_ASSETS.get(asset_key.upper())) is not None:
+                    # Still counted among the file's assets: the cache scope must
+                    # cover the rows a fixed file would touch.
+                    assets.add(default_name)
+            values: dict[str, object] = {}
+            for field, index in columns.items():
+                # Whitespace-only text is EMPTY, exactly like an empty cell: the
+                # text cells are stored trimmed, so a blank must never reach the
+                # type check (there it became «неверный тип данных», even for an
+                # optional field like «Влияние на производство»).
+                if index >= len(raw) or _is_blank(raw[index]):
+                    continue
+                meta = field_by_name.get(field)
+                if meta is None:
+                    continue
+                # Calculated columns are not stored, but a broken reference there is
+                # still a broken formula the operator must see — check BEFORE the
+                # calculated-field skip.
+                if _is_reference_error(raw[index]):
+                    formula_reference_errors.add(
+                        lambda idx=index, number=row_number, cells=raw: cell_issue(idx, number, str(cells[idx]).strip())
+                    )
+                    continue
+                if meta.is_calculated:
+                    continue
+                # The «Направление деятельности» («Лот») code always ends with a dot:
+                # a correct code typed or stored without it gets it added silently.
+                if field == DIRECTION_CODE_FIELD:
+                    values[field] = normalize_direction_code(str(raw[index]))
+                    continue
+                # Reference fields carry labels in the source; text validation of the
+                # numeric id is meaningless, so only the catalog lookup runs. The
+                # label is stored trimmed: stray spaces must not create a value the
+                # catalogue does not know.
+                if meta.catalog:
+                    trimmed = _trimmed_text(raw[index])
+                    if trimmed is None:
                         continue
+                    values[field] = True
+                    label = trimmed
                 else:
-                    value = _coerce(raw[index], meta.cell_type)
-                    if value is None:
-                        type_errors.append(cell_issue(index, row_number, str(raw[index])))
-                        continue
-                values[field] = value
-                label = raw[index]
-            if meta.catalog:
-                # STRICT form catalogue: a value that differs in spelling is
-                # "absent", unlike the seed's typo-tolerant import.
-                known = reference_values.get(meta.catalog) if reference_values is not None else None
-                if known is None:
-                    unknown_catalogs.add(meta.catalog)
-                elif not _value_in_catalog(known, label):
-                    missing.append(cell_issue(index, row_number, str(label)))
-        if RENOVATION_ID_FORMULA_ENABLED:
-            valid_rows.append(values)
-    duplicates = sorted(code for code, count in Counter(codes).items() if count > 1)
-    # ARCHIVED: the «correctly calculated code» check. The renovation-ID formula
-    # is OFF (`service.RENOVATION_ID_FORMULA_ENABLED`) and work_or_repair_code is imported
-    # from the template as-is, so comparing it with the generator's output would
-    # flag every hand-edited code. The check is kept verbatim below, switched
-    # off, to be restored together with the formula. Duplicates are the only
-    # blocker left, and they keep blocking.
-    invalid_codes: list[str] = []
-    if RENOVATION_ID_FORMULA_ENABLED:
-        for row_number, code, values, asset_repair_code in zip(
-            row_numbers, codes, valid_rows, asset_repair_codes, strict=False
-        ):
-            try:
-                expected = _calculate_code(values, asset_repair_code)
-            except RenovationIdError:
-                # An unassemblable row (e.g. an empty «Лот») is an invalid code.
-                invalid_codes.append(f"{code} (строка {row_number})")
-                continue
-            if expected.value != code:
-                invalid_codes.append(f"{code} (строка {row_number})")
-    all_rows_skipped = bool(data_row_count) and len(skipped_rows) == data_row_count
+                    if meta.cell_type == "number":
+                        value, problem = _number_value(raw[index], meta)
+                        if value is None:
+                            if problem is None:
+                                type_errors.add(
+                                    lambda idx=index, number=row_number, cells=raw: cell_issue(
+                                        idx, number, str(cells[idx])
+                                    )
+                                )
+                            else:
+                                invalid_values.add(
+                                    lambda idx=index, number=row_number, cells=raw: cell_issue(
+                                        idx, number, str(cells[idx])
+                                    )
+                                )
+                            continue
+                    else:
+                        value = _coerce(raw[index], meta.cell_type)
+                        if value is None:
+                            type_errors.add(
+                                lambda idx=index, number=row_number, cells=raw: cell_issue(idx, number, str(cells[idx]))
+                            )
+                            continue
+                    values[field] = value
+                    label = raw[index]
+                if meta.catalog:
+                    # STRICT form catalogue: a value that differs in spelling is
+                    # "absent", unlike the seed's typo-tolerant import.
+                    known = reference_values.get(meta.catalog) if reference_values is not None else None
+                    if known is None:
+                        unknown_catalogs.add(meta.catalog)
+                    elif not _value_in_catalog(known, label):
+                        missing.add(
+                            lambda idx=index, number=row_number, value=label: cell_issue(idx, number, str(value))
+                        )
+        duplicate_codes, duplicate_count = spool.result(issue_limit)
+        new_rows, rows_to_update = spool.new_rows, spool.rows_to_update
+    finally:
+        spool.close()
+    # ARCHIVED: the «correctly calculated code» check stays off. The renovation-ID
+    # formula is disabled and codes are imported as typed, so every hand-edited code
+    # would be flagged. Restoring it also requires reinstating the row-value spool.
+    invalid_code_count = 0
+    all_rows_skipped = bool(data_row_count) and skipped.count == data_row_count
     status = (
         "has_errors"
         if (
-            duplicates
-            or invalid_codes
-            or type_errors
-            or invalid_values
-            or formula_reference_errors
-            or missing
-            or missing_required_values
-            or unknown_assets
+            duplicate_count
+            or invalid_code_count
+            or type_errors.count
+            or invalid_values.count
+            or formula_reference_errors.count
+            or missing.count
+            or missing_required_values.count
+            or unknown_assets.count
             or all_rows_skipped
         )
         else "ready"
     )
     # Phase 9: exact totals survive truncation. The UI can say «и ещё N» and
     # the operator still knows the file was not silently accepted.
-    duplicate_codes = _duplicates_with_rows(codes, row_numbers)
     issue_counts = {
-        "duplicate_codes": len(duplicates),
-        "invalid_calculated_codes": len(invalid_codes),
-        "invalid_data_types": len(type_errors),
-        "invalid_values": len(invalid_values),
-        "formula_reference_errors": len(formula_reference_errors),
-        "missing_required_values": len(missing_required_values),
-        "missing_dictionary_values": len(missing),
-        "unknown_assets": len(unknown_assets),
-        "skipped_rows": len(skipped_rows),
+        "duplicate_codes": duplicate_count,
+        "invalid_calculated_codes": invalid_code_count,
+        "invalid_data_types": type_errors.count,
+        "invalid_values": invalid_values.count,
+        "formula_reference_errors": formula_reference_errors.count,
+        "missing_required_values": missing_required_values.count,
+        "missing_dictionary_values": missing.count,
+        "unknown_assets": unknown_assets.count,
+        "skipped_rows": skipped.count,
     }
     truncated = any(count > issue_limit for count in issue_counts.values())
 
-    _T = TypeVar("_T")
-
-    def cap(items: list[_T]) -> list[_T]:
-        return items[:issue_limit]
-
     return RenovationPlanImportResult(
         status=status,
-        duplicate_codes=cap(duplicate_codes),
-        invalid_calculated_codes=cap(_sorted_without_duplicates(invalid_codes)),
-        invalid_data_types=cap(type_errors),
-        invalid_values=cap(invalid_values),
-        formula_reference_errors=cap(formula_reference_errors),
-        missing_required_values=cap(missing_required_values),
-        skipped_rows=cap(sorted(skipped_rows)),
+        duplicate_codes=duplicate_codes,
+        invalid_calculated_codes=[],
+        invalid_data_types=type_errors.items,
+        invalid_values=invalid_values.items,
+        formula_reference_errors=formula_reference_errors.items,
+        missing_required_values=missing_required_values.items,
+        skipped_rows=sorted(skipped.items),
         all_rows_skipped=all_rows_skipped,
-        missing_dictionary_values=cap(missing),
-        unknown_assets=cap(unknown_assets),
+        missing_dictionary_values=missing.items,
+        unknown_assets=unknown_assets.items,
         assets=sorted(assets),
-        new_rows=sum(code not in existing_codes for code in codes),
-        rows_to_update=sum(code in existing_codes for code in codes),
+        new_rows=new_rows,
+        rows_to_update=rows_to_update,
         columns=_loaded_column_labels(columns),
         issue_counts=issue_counts,
         truncated=truncated,
@@ -812,15 +925,10 @@ def _duplicates_with_rows(codes: list[str], row_numbers: list[int]) -> list[str]
     for code, row_number in zip(codes, row_numbers, strict=False):
         rows_by_code.setdefault(code, []).append(row_number)
     return [
-        f"{code} (строки {', '.join(str(number) for number in numbers)})"
+        _format_duplicate(code, numbers, len(numbers) - len(numbers[:_MAX_EXAMPLE_ROWS]))
         for code, numbers in sorted(rows_by_code.items())
         if len(numbers) > 1
     ]
-
-
-def _sorted_without_duplicates(values: list[str]) -> list[str]:
-    """Sort display entries while keeping one line per distinct value."""
-    return sorted(dict.fromkeys(values))
 
 
 def normalized_option(value: object) -> str:
