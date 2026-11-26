@@ -87,7 +87,19 @@ different milestones. Do not reopen the explicit product deferrals below.
   sparse positions, but still execute on each window. Do not cache by a timer
   or by a token that costs more than the aggregate itself.
 - [ ] Bound visible-row ID lists, filter arrays and serialized job payloads;
-  return stable 413/422 errors and record rejections.
+  return stable 413/422 errors and record rejections. **RC-6 scope note:** export
+  `rowIds` is deliberately NOT capped (owner decision) and filter `values` /
+  search strings stay uncapped pending owner approval — only the legacy
+  full-plan read received a resource guard. See `docs/LIMITS.md`.
+- [x] **RC-6 — bound the legacy full-plan read without breaking compatibility**
+  (2026-11-26). `GET /plan` keeps the historical full response up to 5000 rows
+  (the approved inline-work number, not a product cap); a larger plan gets HTTP
+  422 with the fixed code `PLAN_FULL_READ_TOO_LARGE`, `maxRows` and `alternative`
+  `/plan/rows`, and no rows are materialized or truncated. Consumer inventory:
+  the app reads only paged `/plan/rows`; the `getRenovationPlan` frontend wrapper
+  has no in-app callers; backend tests and unknown external clients keep small
+  full reads. Tests in `tests/test_plan_read_compat.py`; contract in
+  `docs/LIMITS.md`.
 - [ ] Complete atomic KPPK multi-cell batch writes/paste; a serialized frontend
   queue alone does not give an all-or-nothing backend transaction. Complete
   per-cell revision/read integration and multi-account proof of stale-edit,
@@ -123,6 +135,12 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 ## P2 — frontend performance and maintainability
 
+- [ ] Remove the now-unused `getRenovationPlan` compatibility wrapper (and its
+  `RenovationPlan` type) from `front/src/shared/api/renovation-plan-api.ts` once
+  external full-`GET /plan` clients are confirmed absent. The app reads only
+  paged windows; the backend now refuses plans above the 5000-row budget with
+  `PLAN_FULL_READ_TOO_LARGE` (see `docs/LIMITS.md`). Not done here: frontend
+  files are outside the RC-6 change scope.
 - [ ] Continue extracting remaining shared grid lifecycle/selection/clipboard/
   remote-overlay orchestration around the existing RevoGrid adapter. Adapter,
   filter, export and focus primitives already exist; preserve the renovation

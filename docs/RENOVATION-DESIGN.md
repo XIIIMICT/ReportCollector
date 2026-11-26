@@ -107,6 +107,39 @@ owner-approved consistency design. The **preflight-only** generation added by
 DB triggers precisely so no mutation path has to be enumerated in application
 code; it keys the optional Valkey report cache, not grid reads.
 
+### Legacy full-plan read compatibility (RC-6)
+
+`GET /renovation/plan` is a compatibility endpoint: it returns a whole plan
+version (`RenovationPlanRead`) in one response, including one Pydantic row model
+with ~215 values per row. On the 261,419-row live plan that is an unbounded
+allocation inside the request process. It is now bounded at
+`FULL_PLAN_READ_MAX_ROWS = 5000` (the owner-approved `INLINE_EXPORT_MAX_ROWS`
+inline-work budget — no new product number). `read_plan` fetches
+`LIMIT 5001`: the extra row is the overflow signal. At or below the bound the
+response is unchanged; above it the whole request is refused BEFORE any row is
+converted to a response model — no truncation, no partial plan.
+
+The refusal is a stable contract: HTTP 422 with
+`detail = {"code": "PLAN_FULL_READ_TOO_LARGE", "message": "<Russian>",
+"maxRows": 5000, "alternative": "/plan/rows"}` (schema
+`PlanFullReadTooLargeDetail`, router translation in `router_plan.py`). Clients
+match on `code` and migrate to `GET /plan/rows` / `POST /plan/rows/query` with
+`offset`/`limit`. This is a documented deprecation path, not a removal.
+
+Consumer evidence: the application itself loads only paged windows
+(`getRenovationPlanRows`, `getRenovationPlanSummary`, `getRenovationPlanFacets`
+in `renovation-workspace.tsx`); `getRenovationPlan` in
+`front/src/shared/api/renovation-plan-api.ts` has no in-app callers and is kept
+as a compatibility export; the smoke spec's `/api/renovation/plan?` wait is a
+PATCH, not a full read. Backend tests and scripts call the endpoint/router, and
+external clients cannot be ruled out — hence small-plan full reads stay intact.
+`read_plan_export_data` / `iter_plan_export_rows` are a separate path: exact-set
+`rowIds` exports remain **uncapped** (owner decision), duplicates are rejected
+in `RenovationPlanExportRequest`, and the 4 GiB ZIP ceiling is unchanged.
+Filters and search strings stay uncapped — no owner-approved value cap and no
+measured abuse case; transport limits remain deferred. Full contract and test
+inventory: `docs/LIMITS.md`, `tests/test_plan_read_compat.py`.
+
 Sorted windows still use SQL `OFFSET` (the grid has infinite scroll plus a
 "go to №" jump, so a cursor would change the API/UI contract). Measured on the
 live plan: default deep 41 ms, `work_description` sorted head 827 ms / deep

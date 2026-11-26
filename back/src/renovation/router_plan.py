@@ -20,7 +20,10 @@ from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.plan import (
     RPlanState,
 )
+from src.renovation.plan_reads import PlanFullReadTooLargeError
 from src.renovation.schemas import (
+    PLAN_FULL_READ_ERROR_MESSAGE,
+    PlanFullReadTooLargeDetail,
     RenovationDiffRead,
     RenovationFacetsRead,
     RenovationMetaRead,
@@ -94,7 +97,16 @@ async def get_renovation_plan(
     plan_id: Annotated[UUID | None, Query()] = None,
     state: Annotated[RPlanState | None, Query()] = None,
 ) -> RenovationPlanRead:
-    """Return a renovation plan version; default — the working plan."""
+    """
+    Compatibility full-plan read; default — the working plan.
+
+    Kept for clients that consume a whole plan in one response. Bounded to
+    `FULL_PLAN_READ_MAX_ROWS` rows (an owner-approved inline-work budget, not a
+    product value cap): a larger scope returns 422 with the fixed code
+    `PLAN_FULL_READ_TOO_LARGE` and NO rows — never a silent truncation. New
+    clients must page through `GET /plan/rows` or `POST /plan/rows/query`.
+    Contract: docs/LIMITS.md, docs/RENOVATION-DESIGN.md.
+    """
     try:
         return await read_plan(
             session,
@@ -104,6 +116,14 @@ async def get_renovation_plan(
         )
     except RenovationPlanNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except PlanFullReadTooLargeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=PlanFullReadTooLargeDetail(
+                message=PLAN_FULL_READ_ERROR_MESSAGE.format(max_rows=error.limit),
+                maxRows=error.limit,
+            ).model_dump(),
+        ) from error
 
 
 def reject_column_query_filters(request: Request) -> None:

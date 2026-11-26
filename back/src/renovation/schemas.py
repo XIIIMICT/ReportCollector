@@ -11,12 +11,24 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _EMPTY_ASSET_UPDATE = "Задайте хотя бы одно поле: name или repairCode"
 _EMPTY_OPTION_UPDATE = "Задайте поле label"
 
-from src.common.export import ExportColumnRequest  # noqa: TC001 — Pydantic needs the runtime model
+from src.common.export import (
+    ERROR_DUPLICATE_ROWS,
+    ExportColumnRequest,
+)
+
+# Stable contract of the bounded legacy full-plan read (GET /plan). A client can
+# match on `code` without parsing the Russian message; `alternative` names the
+# paged endpoint that always works. See docs/LIMITS.md and RENOVATION-DESIGN.md.
+PLAN_FULL_READ_ERROR_CODE = "PLAN_FULL_READ_TOO_LARGE"
+PLAN_FULL_READ_ERROR_MESSAGE = (
+    "План содержит более {max_rows} строк: полная выгрузка одним ответом недоступна. "
+    "Используйте постраничное чтение /plan/rows (GET) или /plan/rows/query (POST)."
+)
 from src.renovation.models import RBlock, RProjectRole
 
 SectionId = Literal["renovationPlan"]
@@ -147,6 +159,15 @@ class RenovationPlanRead(BaseModel):
     updatedBy: str
     rows: list[RenovationPlanRowRead]
     baselineBoundary: int | None = None
+
+
+class PlanFullReadTooLargeDetail(BaseModel):
+    """HTTP error detail of `GET /plan` when the plan exceeds the full-read budget."""
+
+    code: Literal["PLAN_FULL_READ_TOO_LARGE"] = PLAN_FULL_READ_ERROR_CODE
+    message: str
+    maxRows: int
+    alternative: Literal["/plan/rows"] = "/plan/rows"
 
 
 class RenovationPlanRowsRead(BaseModel):
@@ -494,6 +515,10 @@ class RenovationPlanExportRequest(BaseModel):
     and `filters` are the grid's active header filters (the same shape
     `POST /plan/rows/query` takes) and `sorting` carries ordered server-side sort
     levels — together the server-side equivalent of the grid's «видимая» view.
+
+    `rowIds` has NO count cap (owner decision 2026-11-25: export everything that
+    exists). Duplicates are still refused, and the 4 GiB ZIP ceiling stays in
+    force — both are shared export invariants, not row-count limits.
     """
 
     planId: UUID | None = None
@@ -504,6 +529,13 @@ class RenovationPlanExportRequest(BaseModel):
     sorting: list[RenovationSortColumn] | None = None
     # Default: write stored/derived values, not the plan's live formula columns.
     valuesOnly: bool = True
+
+    @field_validator("rowIds")
+    @classmethod
+    def _unique_row_ids(cls, value: list[UUID] | None) -> list[UUID] | None:
+        if value is not None and len(set(value)) != len(value):
+            raise ValueError(ERROR_DUPLICATE_ROWS)
+        return value
 
 
 class RenovationPlanImportCellIssue(BaseModel):
