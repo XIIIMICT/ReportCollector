@@ -303,6 +303,15 @@ takes six explicit arguments and returns only the one debounce trigger that the
 unchanged JSX needs; all timeout values, tolerance math, scope re-arm semantics
 and dependency arrays are preserved. 8 hook tests (689 unit tests total).
 
+## Grid decomposition — Stage 6: cell rendering (2026-11-26)
+
+The final pure slice of `grid-config.ts`: `isCellReadOnly`, `cellProperties`,
+`nextBooleanValue`, `renderedDisplayValue` and all six cell templates moved
+verbatim to `grid-cell-rendering.tsx` (249 lines). The module imports only types
+and formatters, so the dependency stays one-way and all 10 names are
+re-exported from `grid-config.ts` (732 unit tests after 43 new cases).
+`grid-config.ts` is now 360 lines, holding only column/export builders.
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,
