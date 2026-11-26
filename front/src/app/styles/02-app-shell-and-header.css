@@ -1,0 +1,254 @@
+/* ─── Рабочее пространство «Сырьё» ───────────────────────── */
+
+.app-shell {
+    display: flex;
+    width: 100%;
+    height: 100dvh;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.app-header {
+    z-index: 20;
+    display: grid;
+    min-height: 4.8rem;
+    max-height: 4.8rem;
+    /* The middle track is an empty spacer: it must absorb free space, not
+       reserve a fixed 22–36rem. A fixed middle squeezed the logo and the
+       profile pill at ~1025–1256px — the sides are content-sized instead
+       (auto), so «РепортКоллектор» never shrinks. */
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1rem;
+    padding: 0 1.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    contain: paint;
+    overflow: hidden;
+    transition:
+        max-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        min-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        padding 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        border-color 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-header .brand {
+    min-width: 0;
+    /* `place-self: center start` — the brand is centered on the block axis and
+       pinned to the start of the inline axis. */
+    place-self: center start;
+}
+
+.app-header__actions {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-self: end;
+    gap: 0.85rem;
+}
+
+.brand {
+    position: static;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.65rem;
+    letter-spacing: -0.04em;
+    user-select: none;
+}
+
+.brand__icon {
+    height: 1.25em;
+    width: auto;
+    flex: none;
+    object-fit: contain;
+}
+
+.brand__icon[hidden] {
+    display: none;
+}
+
+.brand__name {
+    font-size: 1.65rem;
+    font-weight: 760;
+    line-height: 1;
+}
+.brand__edition {
+    color: var(--muted);
+    font-size: 1.65rem;
+    font-weight: 760;
+    line-height: 1;
+    letter-spacing: -0.04em;
+}
+
+.brand__edition--button {
+    height: auto;
+    min-width: 0;
+    padding: 0;
+    color: var(--muted);
+    font-size: 1.65rem;
+    font-weight: 760;
+    line-height: 1;
+    letter-spacing: -0.04em;
+}
+
+.brand__edition--button,
+.brand__edition--button:hover,
+.brand__edition--button[data-hover],
+.brand__edition--button[data-focus-visible],
+.brand__edition--button[data-pressed] {
+    background: transparent;
+    box-shadow: none;
+}
+
+.project-placeholder {
+    display: grid;
+    min-height: 24rem;
+    place-items: center;
+    border-radius: 1rem;
+    background: var(--surface);
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+}
+
+.profile-pill {
+    height: auto;
+    width: auto;
+    min-width: 0;
+    max-width: 24rem;
+    align-self: center;
+    justify-content: flex-start;
+    padding-block: 0.625rem;
+}
+
+.profile-pill__copy {
+    display: grid;
+    min-width: 0;
+    flex: 1;
+    gap: 0.05rem;
+    text-align: left;
+}
+
+.profile-pill__copy strong,
+.profile-pill__copy small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.profile-pill__copy strong {
+    font-size: 0.84rem;
+}
+
+.profile-pill__copy small {
+    color: var(--muted);
+    font-size: 0.75rem;
+}
+
+/*
+ * «Связаться с разработчиком» — icon-only until hovered, then it expands to
+ * its full label. The mechanics mirror the toolbar's collapsible controls:
+ * the label is a child that animates its `max-width` from 0 to its content
+ * width, so nothing jumps. Focus expands it too (keyboard users would
+ * otherwise face an icon-only control), and `--pinned` keeps it open — the
+ * «no access» screen renders it that way from the start.
+ *
+ * A plain anchor, not a HeroUI Button: this is a `mailto:` link.
+ */
+.support-link {
+    display: inline-flex;
+    min-width: 2.65rem;
+    height: 2.25rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    overflow: hidden;
+    padding-inline: 0.7rem;
+    border-radius: 999px;
+    color: var(--button-fg, currentColor);
+    cursor: pointer;
+    /* The control is button-shaped, so it never underlines — the Link's own
+       hover rule is nested inside `.link` and would otherwise win. */
+    text-decoration: none;
+    transition:
+        gap 180ms cubic-bezier(0.22, 1, 0.36, 1),
+        color 140ms ease,
+        background-color 100ms ease;
+}
+
+.support-link > svg {
+    flex: 0 0 auto;
+    width: 1.15rem;
+    height: 1.15rem;
+}
+
+.support-link__label {
+    display: inline-block;
+    overflow: hidden;
+    max-width: 0;
+    font-size: 0.84rem;
+    white-space: nowrap;
+    opacity: 0;
+    transition:
+        max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 140ms ease;
+}
+
+.support-link:hover,
+.support-link:focus-visible,
+.support-link--pinned {
+    gap: 0.45rem;
+    background: var(--button-bg-hover, var(--button-bg));
+    color: var(--button-fg, currentColor);
+}
+
+.support-link:hover .support-link__label,
+.support-link:focus-visible .support-link__label,
+.support-link--pinned .support-link__label {
+    /* Wide enough for the label's own content, animated rather than snapped. */
+    max-width: 20rem;
+    opacity: 1;
+}
+
+.support-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Never underlined, whatever state the Link is in (hover, focus, pressed). */
+.support-link,
+.support-link:hover,
+.support-link:focus,
+.support-link:focus-visible,
+.support-link[data-hovered="true"],
+.support-link[data-pressed="true"] {
+    text-decoration: none;
+}
+
+/*
+ * The support link as a BUTTON inside a `ButtonGroup` (the crash screen): the
+ * group strips the corners (`.button-group .button`) and squares the shared
+ * edges, so the anchor has to carry HeroUI's `.button` class to take part.
+ * Tinted as the constructive way out — the only "success" action on that card.
+ */
+.support-link--success {
+    --button-bg: color-mix(in oklch, var(--success) 22%, transparent);
+    --button-bg-hover: color-mix(in oklch, var(--success) 30%, transparent);
+    --button-bg-pressed: color-mix(in oklch, var(--success) 34%, transparent);
+    --button-fg: var(--success);
+}
+
+/* The button-shaped variant is a Link too: no underline in any state. */
+.support-link--success,
+.support-link--success:hover,
+.support-link--success:focus,
+.support-link--success:focus-visible,
+.support-link--success[data-hovered="true"],
+.support-link--success[data-pressed="true"] {
+    text-decoration: none;
+}

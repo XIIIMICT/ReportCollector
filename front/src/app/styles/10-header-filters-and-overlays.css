@@ -1,0 +1,704 @@
+/* ─── Header column filter ─────────────────────────────────── */
+
+/* THE filter funnel of the app — one look wherever a table can be filtered:
+   the plan's overlay header, every client grid's RevoGrid header (whose own
+   `.rv-filter` button carries these classes) and the «№» corners.
+
+   Collapsed to zero width and invisible while the header is idle; it opens on
+   hover/focus or while the column has an active filter, fading in as the label
+   makes room for it. The plan draws its headers as an overlay, so these rules
+   also stand in for RevoGrid's own `.rv-filter` styling. */
+.header-filter-button {
+    position: absolute;
+    z-index: 3;
+    top: 0;
+    /* The last 6px of every header cell are the column BOUNDARY: RevoGrid's
+       `.resizable-r` handle in the client grids, the plan's own
+       `.renovation-grid__resize-handle` (6px, straddling the line — 3px on each
+       side). A funnel flush with the edge covered that strip (it is above the
+       header), so the pointer hit the button and resizing became impossible.
+       7px clears the strip on both sides; the overlay funnels use the same gap. */
+    right: 7px;
+    bottom: 1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    opacity: 0;
+    /* A collapsed funnel is invisible but its 11px icon still overflows the
+       zero-width box — with pointer events it silently swallowed the first
+       pixels of the resize strip beside it (in the plan the handle starts 6px
+       before the cell edge). Clicks at a collapsed funnel belong to the header
+       (sort) and to the boundary (resize); the open state re-enables them. */
+    pointer-events: none;
+    transition:
+        opacity 267ms cubic-bezier(0.4, 0, 0.2, 1),
+        width 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The label makes room for the funnel while it is open. Half the funnel's
+   width: an 11px icon does not need 24px of shift, which read as the text
+   jumping away from the header. */
+.renovation-grid__header-label,
+.renovation-grid__number-label,
+.renovation-grid__corner-label {
+    min-width: 0;
+    transition: margin-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.renovation-grid__header-cell:has(.renovation-grid__sort-indicator),
+.renovation-grid__number-cell:has(.renovation-grid__sort-indicator) {
+    cursor: pointer;
+}
+
+.renovation-grid__header-cell:has(.renovation-grid__sort-indicator) .renovation-grid__header-label,
+.renovation-grid__number-cell:has(.renovation-grid__sort-indicator) .renovation-grid__number-label {
+    margin-left: 24px;
+}
+
+.renovation-grid__sort-indicator {
+    position: absolute;
+    top: 50%;
+    left: 6px;
+    z-index: 1;
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 1px;
+    transform: translateY(-50%);
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.renovation-grid__sort-indicator i.asc::after,
+.renovation-grid__sort-indicator i.desc::after {
+    font-size: 13px;
+}
+
+.renovation-grid__sort-indicator i.asc::after {
+    content: "↑";
+}
+
+.renovation-grid__sort-indicator i.desc::after {
+    content: "↓";
+}
+
+.renovation-grid__sort-indicator .sort-order-index {
+    position: static;
+    font-size: 10px;
+    line-height: 1;
+}
+
+.renovation-grid__header-cell:hover:has(.header-filter-button) .renovation-grid__header-label,
+.renovation-grid__header-cell:has(.header-filter-button.is-active) .renovation-grid__header-label,
+.renovation-grid__number-cell:hover:has(.header-filter-button) .renovation-grid__number-label,
+.renovation-grid__number-cell:has(.header-filter-button.is-active) .renovation-grid__number-label,
+.renovation-grid__corner:hover:has(.header-filter-button) .renovation-grid__corner-label,
+.renovation-grid__corner:has(.header-filter-button.is-active) .renovation-grid__corner-label {
+    margin-right: 12px;
+}
+
+/* The label row is a stacking context above RevoGrid's own `.header-content` —
+   that box is `position: relative` and would otherwise swallow the header click,
+   which RevoGrid reads as a sort. The funnel is NOT a child of it: in a client
+   grid the button lives in the `.report-header-funnels` overlay (see below). */
+.report-header__title {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding-right: 0;
+    transition: padding-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The label steps aside exactly while its funnel TAKES SPACE — that is, while the
+   button is open (hovered, or pinned by an applied filter). The button lives in
+   the OVERLAY (a sibling of the grid), so the label cannot see it and CSS cannot
+   correlate the two; `DataGrid` writes `data-funnel-open="true"` onto each
+   matching label and the shift keys on that marker.
+   A column with an APPLIED filter keeps its funnel open at all times, so the
+   shift follows the BUTTON, not the pointer: it used to key on hover alone, and
+   the text slid back under a funnel that was still there.
+   NOT `:focus-within`: the filter popover keeps focus in the cell after it
+   closes, and the text stayed shifted with an invisible funnel beside it. */
+.report-header__title[data-funnel-open="true"],
+.report-header__title[data-hovered="true"] {
+    padding-right: 12px;
+}
+
+/* The reveal: a funnel opens while its header cell is hovered, or while its
+   column has an active filter. The base rule collapses it to zero width –
+   without this block the buttons are never visible at all.
+   The plan keys on its own header cells (the funnel is a child there). The
+   RevoGrid tables key on the grid's `data-cell-hover` marker instead: their
+   funnel is an OVERLAY SIBLING of `revo-grid`, so it never inherits the cell's
+   `:hover` — see the traps list in `docs/GRID.md`.
+   NOT `:focus-within`: the filter popover keeps focus inside the cell after it
+   closes, which would leave the funnel open until another column was opened. */
+.renovation-grid__header-cell:hover .header-filter-button,
+.renovation-grid__header-cell:has(.header-filter-button.is-active) .header-filter-button,
+.renovation-grid__number-cell:hover .header-filter-button,
+.renovation-grid__corner:hover .header-filter-button,
+.renovation-grid__corner:has(.header-filter-button.is-active) .header-filter-button,
+.header-filter-button[data-cell-hover="true"],
+.header-filter-button.is-active {
+    width: 24px;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.header-filter-button.is-active {
+    color: var(--accent);
+}
+
+.header-filter-button__icon {
+    width: 11px;
+    height: 11px;
+    flex: 0 0 auto;
+    /* ONE icon source for every header funnel: the iconoir glyph, painted as a
+       mask. The plan used to render the React component while the RevoGrid
+       tables rendered an empty `<span>` here — two sources for one glyph that
+       would drift apart silently the next time the icon changed. */
+    background-color: currentColor;
+    mask: var(--filter-icon) center / contain no-repeat;
+}
+
+.header-filter-button__order {
+    position: absolute;
+    right: calc(50% + 7px);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--accent);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ─── Hidden columns ───────────────────────────────────────── */
+
+/* The layer holding the expand buttons. It covers the header band only, so a
+   button can never float over the data rows. `measureUnhide` writes its top
+   and height from the live header cells. */
+.report-header-unhide {
+    position: absolute;
+    /* The reveal buttons must stay ABOVE the pinned viewport (z-index 2) and
+       the resize handles (z-index 1/3): a button under a pinned column or a
+       hovered column boundary could not be clicked. */
+    z-index: 4;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 0;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.grid-unhide-anchor {
+    position: absolute;
+    z-index: 8;
+    display: inline-flex;
+    /* Centred ON the hidden block's left boundary, not started at it. */
+    transform: translateX(-50%);
+    pointer-events: auto;
+}
+
+/* In the plan the header overlay owns the layer: the buttons paint above the
+   pinned cells (z-index 2), the opaque backdrop (z-index 1) and the resize
+   handles (z-index 1/3). Each button additionally raises its own z-index by
+   its hide priority (set inline), so the most recently hidden block wins. */
+.renovation-grid__header .grid-unhide-anchor {
+    z-index: 10;
+}
+
+/* While the pointer is on an expand button, the column boundary underneath
+   must not light up or be draggable: the button owns that hit area. */
+.renovation-grid__header:has(.grid-unhide-anchor:hover) .renovation-grid__resize-handle,
+.renovation-grid__header:has(.grid-unhide-anchor:hover) .renovation-grid__level-resize-handle {
+    pointer-events: none;
+}
+
+.renovation-grid__header:has(.grid-unhide-anchor:hover) .renovation-grid__resize-handle:hover,
+.renovation-grid__header:has(.grid-unhide-anchor:hover)
+    .renovation-grid__level-resize-handle:hover {
+    background: transparent;
+}
+
+.grid-unhide-button {
+    min-width: 22px;
+    width: 22px;
+    height: 22px;
+    min-height: 22px;
+    padding: 0;
+}
+
+.grid-unhide-button svg {
+    width: 13px;
+    height: 13px;
+}
+
+/* Zero-size fixed anchor for the header context menu: the HeroUI Dropdown
+   opens its animated popover at the right-click point, while the trigger keeps
+   the menu's focus and keyboard handling intact. */
+.grid-header-menu__anchor {
+    position: fixed;
+    z-index: 2000;
+    width: 1px;
+    height: 1px;
+    min-width: 1px;
+    min-height: 1px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* HeroUI exposes data-entering/data-exiting on the popover; these two keyframes
+   make the context menu appear from the pointer and fade back out. */
+@keyframes grid-header-menu-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes grid-header-menu-out {
+    from {
+        opacity: 1;
+        transform: none;
+    }
+
+    to {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.98);
+    }
+}
+
+.grid-header-menu__popover {
+    transform-origin: top left;
+}
+
+.grid-header-menu__popover[data-entering] {
+    animation: grid-header-menu-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.grid-header-menu__popover[data-exiting] {
+    animation: grid-header-menu-out 120ms ease-in;
+}
+
+/* The Autocomplete trigger is an invisible zero-height anchor placed at the
+   header cell — the popover floats next to it. */
+.column-filter__anchor {
+    position: fixed;
+    z-index: 1000;
+    height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    pointer-events: none;
+}
+
+.column-filter__anchor > * {
+    display: none;
+}
+
+/* The panel is a focus SCOPE, not a control: opening it parks the focus on the
+   popover element itself, and the theme draws its focus RING around the whole box
+   — the "selection" outline that vanished as soon as anything inside was pressed.
+   Nothing is being keyboard-navigated at that moment, and the controls inside
+   (the search field, the range pickers, the buttons) draw their own ring, so the
+   container's one is dropped. HeroUI paints it with a Tailwind ring, not with
+   `outline`, hence the variables. */
+.column-filter__popover:focus,
+.column-filter__popover:focus-visible {
+    outline: none;
+    --tw-ring-shadow: 0 0 #0000;
+    --tw-ring-offset-shadow: 0 0 #0000;
+    box-shadow: 0 0.6rem 1.8rem rgb(22 25 24 / 18%);
+}
+
+.column-filter__popover {
+    z-index: 1000;
+    display: flex;
+    /* Sized by its content (the list caps itself) — never stretched to the max. */
+    align-content: flex-start;
+    /* ONE width for the whole panel. The list sizes itself to the longest
+       option, so a re-measured commit group could not set the panel's width —
+       it is pinned here and the list wraps inside it. */
+    width: min(420px, 90vw);
+    /* react-aria sets `max-height` INLINE to whatever space is left above the
+       funnel, so the popover's own height is not ours to choose. What matters
+       is that its children fit INSIDE it: the list is the only grower, the
+       search field and the commit footer keep their size. */
+    flex-direction: column;
+    gap: 0.4rem;
+    overflow: hidden;
+    /* A flex column shrinks to its content, so the list would collapse instead of
+       scrolling. Give the popover a real height — and OVERRIDE react-aria's inline
+       `max-height`, which is only the space between the anchor and the viewport
+       edge (208px here) and left the list two rows tall. The list scrolls, so a
+       taller popover costs nothing. */
+    /* react-aria's inline `max-height` is the space above the anchor; the search
+       field is one more row inside it, so the cap is raised a little rather than
+       overridden — the panel shrinks to its content otherwise. */
+    /* A flex column shrinks to its CONTENT unless it is given a height, and with
+       no height the list collapses to nothing. The panel takes a real height and
+       overrides react-aria's inline `max-height` (that one is only the space
+       between the anchor and the viewport edge — with the search field added the
+       list got two rows). The list scrolls inside it. */
+    /* No fixed height: a short list (two buckets, a handful of values) must not
+       be stretched to the panel's maximum. The list takes what it needs up to
+       the cap below. */
+    max-height: min(460px, 70vh) !important;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    /* HeroUI's default popover radius, so the column filter matches the other
+       Autocomplete popovers (the block/version filters) instead of a tighter
+       one-off rounding. */
+    border-radius: min(32px, var(--radius-3xl));
+    background: var(--surface);
+    box-shadow: 0 0.6rem 1.8rem rgb(22 25 24 / 18%);
+}
+
+/* The master toggle's icon (list / task-list): sits before the caption and
+   inherits the muted tone of the item's hint text. */
+.column-filter__master-icon {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    margin-right: 0.35rem;
+    color: var(--muted);
+}
+
+.column-filter__list {
+    /* The list takes what its content needs and scrolls past the cap — the panel
+       is sized by its content, so the ceiling lives here. `flex: 0 1 auto` lets
+       it SHRINK below its content (that is what makes it scroll) but never GROW
+       beyond it: a two-bucket column then gets a two-row panel instead of a
+       full-height one. */
+    min-height: 0;
+    flex: 0 1 auto;
+    max-height: 320px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+/* The search field lives INSIDE the scrolling list and sticks to its top, so a
+   short popover (react-aria sizes it from the space above the funnel) does not
+   lose room to a separate row. */
+/* The search field sits INSIDE the scrolling list, aligned with an option row:
+   the row's own inline padding is what the panel is built around, so the field
+   cancels its own (it is an input, not a card) and keeps a small side margin —
+   HALF of what lines its text up with an option label, which reads better than
+   a text column that starts exactly at the labels. */
+.column-filter__popover .search-field,
+.column-filter__popover [data-slot="search-field"] {
+    padding-inline: 0;
+    /* Symmetric: the field is centred in the panel, so equal margins on both
+       sides. An asymmetric pair (to chase the option LABEL) read as the field
+       being shifted right. */
+    margin-inline: 0.375rem;
+}
+
+.column-filter__search {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+    padding-bottom: 0.3rem;
+    background: var(--surface);
+}
+
+/* The number column's search: MIN — MAX in one row. The PARENT owns the
+   spacing (one margin per side, one gap between the boxes and the dash), so the
+   controls stay direct children and nothing has to carry its own margins. */
+.column-filter__range {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding-block: 0.125rem;
+    padding-inline: 0.375rem;
+}
+
+.column-filter__range-field {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+/* No stepper buttons inside the range: they eat the width the two boxes share
+   and are useless for typing a bound. */
+.column-filter__range-field input::-webkit-outer-spin-button,
+.column-filter__range-field input::-webkit-inner-spin-button {
+    margin: 0;
+    appearance: none;
+}
+
+.column-filter__range-field input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+/* The instant window (a `timestamptz` column): the date range above the SAME
+   commit footer every filter uses, so the buttons are the shared
+   `ExpandableButtonGroup` — no bespoke button styling lives here. */
+.column-filter__instant {
+    display: flex;
+    flex-direction: column;
+    min-width: 18rem;
+    /* NO padding of its own: the list popover pads nothing either — the rows and
+       the footer carry their own insets, so the panels line up. An outer frame
+       here made the window look padded on every side compared with the others. */
+    padding: 0;
+}
+
+.column-filter__range-dash {
+    flex: 0 0 auto;
+    color: var(--muted);
+    user-select: none;
+}
+
+/* The timestamp column's search: MIN above MAX, each a full date-time field.
+   A date AND a time needs the whole width, so the pair stacks instead of
+   sharing a row. */
+.column-filter__date-range {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding-block: 0.125rem;
+    padding-inline: 0.375rem;
+}
+
+/* One bound per line: the shared picker puts its caption on the left and the
+   field fills the rest (`date-time-picker`). */
+.column-filter__date-field {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* ─── The shared date / date-time picker ───────────────────────────────
+   Used anywhere the app needs a day or an instant: a caption on the LEFT of the
+   field, and — for a timestamp — a «Время:» row inside the calendar popover. */
+
+.date-time-picker {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.date-time-picker__label {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: inherit;
+    white-space: nowrap;
+}
+
+.date-time-picker__field,
+.date-time-picker__time-field {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* The portal wrapper react-aria renders around the calendar is a bare `div`
+   with an INLINE `display: contents`. An element with no box of its own makes
+   the hit test skip its whole subtree, so a click inside the calendar resolved
+   to `body` — which dismissed the filter instead of picking a day. The wrapper
+   carries no class, so it is reached from the popover it holds; `!important`
+   is required to beat the inline value. */
+body > div:has(> .date-time-picker__popover) {
+    display: block !important;
+}
+
+/* The «Время:» row: the same shape as a caption+field line, separated from the
+   calendar above it. */
+.date-time-picker__time {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+}
+
+/* The commit-mode footer («По умолчанию / Отменить / Применить») of a
+   SmartSelect without hover dismissal: a separate zone pinned under the
+   scrolling list, right-aligned, divided from it by a rule.
+   HeroUI's popovers carry no padding (`p-0`), so the bar brings its own — the
+   same 0.5rem the column filter pads its panel with. Without it the buttons
+   sit flush against the panel's bottom and right edges. */
+.smart-select__action-bar {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+}
+
+.smart-select__footer-separator {
+    margin: 0;
+    background: var(--border);
+}
+
+.smart-select__footer {
+    display: flex;
+    flex: none;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    padding: 0.5rem;
+}
+
+/* The commit group reserves room for the widest state of its labels (269px here)
+   while the buttons themselves take 127px. Right-aligned, that reserve sits to
+   their LEFT, so expanding a label slid every neighbour sideways — the "jump"
+   between «По умолчанию» and «Отменить». Anchoring the row to the LEFT keeps the
+   buttons still and lets the extra room fall to their right, where nothing moves;
+   the footer itself stays right-aligned, so the group sits where it did. */
+
+/* ─── Header funnel overlay ────────────────────────────────── */
+
+/* The funnels are drawn over RevoGrid's header, positioned from the header
+   cells' rects — never inside the header template, because RevoGrid rewrites
+   `.header-content` when a column is sorted and that dragged anything inside it
+   sideways. The layer clips (a column scrolled out must not leave its funnel
+   floating over its neighbour) and lets pointer events through except on the
+   buttons themselves. */
+.report-header-funnels {
+    position: absolute;
+    /* Above the pinned viewport (z-index 2): KPPK's «Продукция»/«Рынок
+       сбыта» are pinned identity columns and their funnel must stay visible. */
+    z-index: 3;
+    right: 0;
+    left: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.report-header-funnels .header-filter-button {
+    position: absolute;
+    /* Anchored by its RIGHT edge: `left` is the cell's right edge, and the
+       button grows leftwards from it — the plan's geometry, including the 7px
+       gap that keeps the column boundary's resize strip uncovered. */
+    right: auto;
+    bottom: auto;
+    transform: translateX(calc(-100% - 7px));
+    /* A collapsed funnel keeps its box (zero width) but must not swallow clicks
+       aimed at the header; it becomes clickable only once it is open. */
+    pointer-events: none;
+}
+
+/* The reveal comes from the CELL under the pointer, not from the button: a
+   collapsed button is zero-width and could never be hovered to open itself. The
+   grid mirrors the hovered header cell onto the matching funnel via
+   `[data-cell-hover]`. */
+.report-header-funnels .header-filter-button[data-cell-hover="true"],
+.report-header-funnels .header-filter-button.is-active {
+    width: 24px;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.report-header-funnels .header-filter-button.is-active {
+    color: var(--accent);
+}
+
+.report-header-funnels .header-filter-button__icon {
+    width: 11px;
+    height: 11px;
+    flex: 0 0 auto;
+    background-color: currentColor;
+    mask: var(--filter-icon) center / contain no-repeat;
+}
+
+/* Divides «Выбрать все»/«Пустые» from the value list. */
+.column-filter__separator {
+    margin: 0.25rem 0;
+    background: var(--border);
+}
+
+/* ─── Row/column-number («№») go-to popover ───────────────────────── */
+
+.row-go-to-filter__popover {
+    width: 17rem;
+    min-width: 0;
+    max-width: calc(100vw - 2rem);
+}
+
+/* Native React Aria presence retains these nodes through the exit animation. */
+.column-filter__popover,
+.row-go-to-filter__popover {
+    animation: plan-filter-enter 180ms ease-out both;
+}
+
+.column-filter__popover[data-exiting],
+.row-go-to-filter__popover[data-exiting] {
+    animation: plan-filter-exit 140ms ease-in both;
+    pointer-events: none;
+}
+
+@keyframes plan-filter-enter {
+    from {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes plan-filter-exit {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-4px) scale(0.97);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .column-filter__popover,
+    .column-filter__popover[data-exiting],
+    .row-go-to-filter__popover,
+    .row-go-to-filter__popover[data-exiting] {
+        animation: none;
+    }
+}
+
+.row-go-to-filter__actions {
+    align-self: flex-end;
+    flex: none;
+    justify-content: flex-end;
+}
+
+.row-go-to-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.25rem;
+}
+
+/* One labelled field: the «Номер строки» / «Номер столбца» captions sit above
+   their NumberField so the two targets stay visually grouped. */
+.row-go-to-filter__field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.row-go-to-filter__label {
+    font-size: 0.8125rem;
+    font-weight: 500;
+}

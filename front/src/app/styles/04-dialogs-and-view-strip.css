@@ -1,0 +1,337 @@
+/* The «Добавить строку» dialog: the asset picker fills the body width. */
+.add-row-dialog__field {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.add-row-dialog__hint {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+/* The «Добавить запись» dialog (users): one field per row, full width. */
+.add-record-modal {
+    width: min(32rem, calc(100vw - 2rem));
+}
+
+.add-record-modal__header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.65rem;
+    text-align: left;
+}
+
+.add-record-modal__header > svg {
+    width: 1.35rem;
+    height: 1.35rem;
+    flex: 0 0 auto;
+}
+
+.add-record-modal__title {
+    font-size: 1.25rem;
+}
+
+.add-record-modal__body {
+    display: grid;
+    gap: 1rem;
+}
+
+.add-record-modal__hint {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+/* Excel preflight dialog for the administrator's renovation-plan import. */
+.plan-excel-import-modal {
+    min-height: min(32rem, calc(100dvh - 5rem));
+}
+
+.plan-excel-import-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+/* Summary at the top, the progress/guidance in the grown middle, and the
+   load's own error at the bottom right above the file picker. */
+.plan-excel-import-modal__middle {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Centred guidance of the drop zone; replaced by the analysis progress bar. */
+.plan-excel-import-modal__hint {
+    padding: 1rem;
+    color: var(--muted);
+    font-size: 0.95rem;
+    text-align: center;
+    line-height: 1.5;
+    text-wrap: balance;
+}
+
+/* The guidance disappears once a report is shown: it has done its job. */
+.plan-excel-import-modal__hint--with-result:not(.plan-excel-import-modal__hint--active) {
+    display: none;
+}
+
+/* The drag hint keeps the standing guidance's place and look, just tinted. */
+.plan-excel-import-modal__hint--active {
+    color: var(--accent);
+}
+
+.plan-excel-import-modal__status {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+/* The check is indeterminate and spans the dialog body. */
+.plan-excel-import-modal__progress {
+    width: 100%;
+}
+
+.file-input {
+    min-width: 0;
+}
+
+.file-input__suffix {
+    padding-inline-end: 0;
+}
+
+/*
+ * `.input-group__suffix` paints the whole slot with the placeholder colour, and
+ * a Button inside it inherits that colour: `.button` declares
+ * `--button-fg: currentColor`, while the background-only variants never
+ * override it, so the label and icon would come out muted. Re-point the token
+ * to the field's own text colour for the button only.
+ */
+.file-input__suffix > [data-slot="button"] {
+    --button-fg: var(--field-foreground, var(--foreground));
+}
+
+.plan-excel-import-modal__footer {
+    justify-content: flex-end;
+}
+
+/* File picker and «Загрузить» share ONE footer row; the picker takes the rest. */
+.plan-excel-import-modal__file-row {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.plan-excel-import-modal__file-row > .file-input {
+    flex: 1 1 auto;
+}
+
+.plan-excel-import-modal__upload {
+    flex: 0 0 auto;
+}
+
+.plan-excel-import-modal__errors,
+.plan-excel-import-modal__summary {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* The analysis summary reads as one block: line by line, no blank lines between
+   «Активы», «Новых строк» and the column list. */
+.plan-excel-import-modal__summary {
+    gap: 0;
+}
+
+.plan-excel-import-modal__summary p {
+    margin: 0;
+    line-height: 1.6;
+}
+
+/* The columns the load writes, under the counts. */
+.plan-excel-import-modal__columns {
+    margin-top: 0.5rem;
+}
+
+/* Rows the load will not write because the asset cell is empty: the report
+   closes with them in both outcomes — after the valid-file summary and after
+   the error sections. */
+.plan-excel-import-modal__skipped {
+    margin-top: 0.5rem;
+}
+
+.plan-excel-import-modal__skipped p {
+    margin: 0.25rem 0 0;
+    line-height: 1.6;
+}
+
+.plan-excel-import-modal__columns ul {
+    margin: 0.25rem 0 0;
+    padding-left: 1.25rem;
+    list-style: disc;
+}
+
+.plan-excel-import-modal__columns li {
+    line-height: 1.5;
+}
+
+.plan-excel-import-modal__truncated {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--warning);
+    border-radius: 0.5rem;
+    color: var(--text-secondary);
+}
+
+.plan-excel-import-modal__errors section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.plan-excel-import-modal__errors ul {
+    margin: 0;
+    padding-left: 1.25rem;
+    list-style: disc;
+}
+
+.plan-excel-import-modal__errors ul ul {
+    margin-top: 0.2rem;
+    list-style: circle;
+}
+
+/* View strip between the toolbar and the grid: display-only controls in ONE
+   row — asset/block filters («Ремонт» plan) on the left, export/fullscreen
+   buttons on the right. The filters take exactly the width they need. */
+.view-strip {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0 0.75rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--divider);
+}
+
+.view-strip__filters {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* «Закрепить заголовок» — compact inline checkbox right after the block
+   filter. */
+.view-strip__toggles {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 1rem;
+    font-size: 0.8rem;
+}
+
+/* The forced two-line break in the switch labels applies below lg only; from
+   lg up the labels read on a single line. */
+@media (width >= 64rem) {
+    .view-strip__br {
+        display: none;
+    }
+}
+
+.view-strip__actions {
+    display: flex;
+    flex: 0 0 auto;
+    margin-left: auto;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+/* «Вид таблицы» shows its label without hovering on wide screens (see the
+   label rule below), so the base `.expandable-button` (which only opens the gap
+   on `:hover`) would leave the icon and the text touching. The gap therefore
+   follows the LABEL's visibility instead of the pointer: it is set here and
+   dropped again wherever the label is collapsed (the compact block below). */
+.expandable-button.view-strip__view-button {
+    gap: var(--expandable-button-gap);
+}
+
+.view-strip__view-button .expandable-button__label {
+    max-width: 13rem;
+    opacity: 1;
+}
+
+/* COMPACT «Вид таблицы» (narrow screens): the label collapses and comes back on
+   hover / open menu, like the shared `.expandable-button`. The gap must follow
+   the LABEL — `gap: 0` here alone (a two-class selector) used to win over
+   `.expandable-button:hover`/`--expanded`, so the label appeared with no space
+   from the icon. Reset the gap from the wide-screen rule and let the shared
+   hover/expanded rules open it again. */
+@media (width <= 40rem) {
+    .expandable-button.view-strip__view-button {
+        gap: 0;
+    }
+
+    /* Restated at the SAME specificity as the hover/expanded rules so the
+       pointer (or an open menu) still opens the gap. */
+    .expandable-button.view-strip__view-button:hover,
+    .expandable-button.view-strip__view-button[data-focus-visible="true"],
+    .expandable-button.view-strip__view-button.expandable-button--expanded {
+        gap: var(--expandable-button-gap);
+    }
+
+    .view-strip__view-button .expandable-button__label {
+        max-width: 0;
+        opacity: 0;
+    }
+}
+
+/* Content-sized filters: no fixed width — each control is as wide as its
+   value/placeholder needs. */
+.plan-filters__asset,
+.plan-filters__block {
+    min-width: 0;
+}
+
+.plan-filters__popover {
+    width: max(var(--trigger-width, 0px), 14rem);
+    max-width: max(var(--trigger-width, 0px), 14rem);
+}
+
+.alert-dialog__header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0;
+}
+
+.alert-dialog__header .alert-dialog__heading {
+    text-align: left;
+}
+
+/* The replace dialog stacks its explanation and the target selector; HeroUI's
+   body is a plain block, so the gap has to be declared here. */
+.replace-record-dialog__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* A dialog's explanation stays muted; the values it names (the replaced value,
+   its dictionary, a deleted record) are accented so the sentence scans at a
+   glance. Quotation marks stay OUTSIDE the span - they are punctuation, not
+   part of the name. `AlertDialog.Body` already paints its text muted. */
+.dialog-accent {
+    color: var(--accent);
+    font-weight: 500;
+}

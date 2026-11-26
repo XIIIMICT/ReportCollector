@@ -1,0 +1,296 @@
+.app-body {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    padding: 1rem;
+    transition: padding 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.workspace {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+}
+
+.workspace-card {
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: 0 0.6rem 1.8rem rgb(22 25 24 / 5%);
+    overflow: hidden;
+}
+
+.workspace-card__content {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    padding: 0;
+}
+
+.table-toolbar {
+    z-index: 4;
+    display: flex;
+    min-height: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0;
+    padding-block: 0;
+    background: var(--surface);
+    contain: paint;
+    overflow: hidden;
+    transition:
+        max-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        min-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        padding 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.table-toolbar > * {
+    /* Child margins replace the toolbar `gap`: a collapsed control (e.g. a
+       version picker collapsed to zero width) thereby contributes no space. */
+    flex: 0 0 auto;
+    /* The rhythm between the toolbar's own children (version picker, block
+       filter, tab group, view strip) in «Сырьё» and «Ремонт», where they are
+       direct children. */
+    margin-right: 0.75rem;
+}
+
+/* In a STACKED toolbar (КППК) the direct children are full-width ROWS, not
+   controls: a row must span the toolbar edge to edge, so it takes no side
+   margin — its own children carry the rhythm instead (see
+   `.table-toolbar__row > *`). Without this the row was inset by 0.75rem on the
+   right and the view strip never reached the card edge. */
+.table-toolbar--stacked > .table-toolbar__row {
+    margin-right: 0;
+}
+
+.table-toolbar > :last-child {
+    margin-right: 0;
+}
+
+/* A toolbar that stacks extra rows under its main one (КППК «Реализация»
+   period filters). The main row keeps the single-row toolbar's rhythm; the
+   extra rows animate their height, so the panel below grows/shrinks smoothly. */
+.table-toolbar--stacked {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0;
+    row-gap: 0.75rem;
+}
+
+.table-toolbar--stacked:has(> .toolbar-filters__row--hidden) {
+    row-gap: 0;
+}
+
+.table-toolbar__row {
+    display: flex;
+    min-height: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0;
+    padding-block: 0;
+}
+
+/* The ONE rule that spaces a stacked toolbar's row: every direct child gets the
+   same trailing margin, the last one none. `margin`, not `gap`, because a
+   collapsed control (`.toolbar-collapse--hidden` — КППК's «Настройка акциза»
+   outside «Продуктовые позиции») stays a flex item with zero width, and `gap`
+   would keep reserving its space. `margin-right` obeys the element's own
+   `display` instead: a hidden wrapper contributes nothing. */
+.table-toolbar__row > * {
+    flex: 0 0 auto;
+    margin-right: 0.75rem;
+}
+
+.table-toolbar__row > :last-child {
+    margin-right: 0;
+}
+
+.table-toolbar__row > .table-toolbar__controls {
+    flex: 1 1 auto;
+}
+
+.table-toolbar__controls {
+    display: flex;
+    min-width: 0;
+    /* Grow into the free middle but shrink when the tabs are wide, so the
+       right cluster («Скачать в Excel» / «Вид таблицы») is never pushed off
+       the screen — the tabs compress (and clip internally) before pushing. */
+    flex: 1 1 auto;
+    align-items: center;
+    overflow: hidden;
+}
+
+/* NOTE: no gap and no margin between `.table-toolbar__controls` children. The
+   controls sit flush against each other and the TABS carry their own left edge
+   through the pill — КППК's «Настройка акциза» switch is a plain flex item
+   before them. Spacing here would either reserve space for a COLLAPSED control
+   (`gap` does exactly that: a `.toolbar-collapse--hidden` is zero-width but
+   still a flex item) or shift the tabs away from the card edge. */
+
+.section-tabs {
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+}
+
+/* «Реализация» — полоса фильтров ПОД вкладками (обязательное ДЗО + срез +
+   период). The readable sentence «<Срез> по <ДЗО> за <месяц> <год>>: plain
+   text between the controls, no reservation beyond what each trigger needs. */
+.kppk-realization-filter-asset {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.kppk-realization-filter-text {
+    flex: 0 0 auto;
+    color: var(--heroui-default-500);
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+/* The filters own a SECOND row of the stacked toolbar (`.table-toolbar__row`).
+   They appear by GROWING downwards — a height + fade transition of the row
+   itself, so the toolbar (and the grid beneath it) grows/shrinks as one block
+   instead of a control sliding in from the left. `overflow: hidden` clips the
+   controls while the height animates. `ToolbarFilters placement="below"`
+   renders this; the inline variant reuses `toolbar-collapse` (width).
+   The row is indented by HeroUI's pill padding (`p-1`, 0.25rem): the tabs sit
+   inside that pill, so indenting here lines the filter controls up with the tab
+   TEXT while the pill keeps its frame — a negative margin on the strip instead
+   would clip it against the toolbar's `overflow: hidden`. */
+.toolbar-filters__inline {
+    /* Filters that live in the TABS row (the «Логистика» month/year pair, the
+       «Ремонт» block select): one horizontal line, never wrapped — the row is
+       as tall as one control. `toolbar-collapse` owns the width/opacity
+       animation, so this rule must not change `max-width`. */
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.5rem;
+    overflow: hidden;
+}
+
+/* The «Логистика» period row carries a caption, two pickers and the rate —
+   wider than the generic 22rem collapse cap (which would clip the caption and
+   let the tabs start over it). The hidden state still collapses to zero: the
+   `:not` keeps this cap from outranking `.toolbar-collapse--hidden`, which
+   would leave the invisible row occupying 40rem and push the tabs right. */
+.toolbar-filters__inline.toolbar-collapse:not(.toolbar-collapse--hidden) {
+    max-width: 40rem;
+}
+
+/* A read-only caption beside the inline filters («Период:», «Курс валюты:»).
+   Normal text colour, single line, vertically centred. */
+.toolbar-filters__caption {
+    flex: 0 0 auto;
+    font-size: 0.875rem;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+/* The read-only currency value: a compact HeroUI Input that matches the
+   pickers' height, never grows with the row. The year picker is 70px wide —
+   stay at or below it. */
+.toolbar-filters__rate-input {
+    width: 4.25rem;
+    flex: 0 0 auto;
+    text-align: center;
+}
+
+/* The toolbar and the footer clip their content (`overflow: hidden` +
+   `contain: paint` drive the collapse animations), which also shaved the outer
+   HeroUI focus ring off the top and bottom. Draw those rings INSIDE the
+   control instead: the outline then follows the border box and is never cut. */
+.toolbar-filters__rate-input:focus,
+.toolbar-filters__rate-input[data-focused="true"] {
+    box-shadow: none;
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+}
+
+.table-footer .action-bar .button:focus-visible,
+.table-footer .action-bar .button[data-focus-visible="true"] {
+    box-shadow: none;
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+}
+
+.toolbar-filters__row {
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.8rem;
+    overflow: hidden;
+    opacity: 1;
+    transition:
+        max-height 220ms cubic-bezier(0.22, 1, 0.36, 1),
+        margin-top 220ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 140ms ease;
+    /* Tall enough for the tallest trigger (the two-line «Рабочая версия»
+       shares this row in other projects); a taller control would be clipped. */
+    max-height: 3rem;
+    margin-block: 0;
+}
+
+.toolbar-filters__row--hidden {
+    max-height: 0;
+    margin-top: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.kppk-realization-period {
+    margin-left: auto;
+    padding-right: 0.4rem;
+    font-weight: 600;
+    color: var(--heroui-default-600);
+    white-space: nowrap;
+}
+
+/* Override the fixed-size `flex` the toolbar's blanket child rule applies:
+   the tab strip must be able to shrink so the right cluster always stays on
+   screen when the tabs are wide. */
+.table-toolbar > .table-toolbar__controls {
+    flex: 1 1 auto;
+}
+
+.section-tabs [role="tab"],
+.section-tabs [data-slot="tab"] {
+    white-space: nowrap;
+    user-select: none;
+}
+
+.section-tabs .tabs__list-container {
+    width: 100%;
+    min-width: 0;
+}
+
+.grid-viewport {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+    background: var(--surface);
+}
+
+/* The stacked toolbar's second row («Реализация» filters) ends with the same
+   breathing room a filterless toolbar leaves before its grid — the row's own
+   padding only fills the gap to the tabs (half of the usual rhythm). */
+.table-toolbar--stacked > .toolbar-filters__row {
+    margin-bottom: 0;
+}
+
+.table-toolbar--stacked > .toolbar-filters__row--hidden {
+    margin-bottom: 0;
+}
