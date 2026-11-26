@@ -90,6 +90,7 @@ import {
 import { readScrollPosition, scrollScopeKey, writeScrollPosition } from "./scroll-position";
 import { isChunkedSection } from "./section-policy";
 import { describeSelection } from "./selection-label";
+import { groupSkippedCells } from "./skipped-cell-reasons";
 
 /**
  * The shared editable grid of the application.
@@ -2077,18 +2078,7 @@ function DataGridInner(
             }
         }
         if (skippedColumns.size > 0) {
-            const reasons = new Map<string, string[]>();
-            for (const [title, reason] of skippedColumns) {
-                const titles = reasons.get(reason) ?? [];
-                titles.push(title);
-                reasons.set(reason, titles);
-            }
-            const description = [...reasons.entries()]
-                .map(
-                    ([reason, titles]) =>
-                        `${titles.map((title) => `«${title}»`).join(", ")}: ${reason}`,
-                )
-                .join("; ");
+            const description = groupSkippedCells(skippedColumns);
             onPasteSkipped?.(description);
         }
     }
