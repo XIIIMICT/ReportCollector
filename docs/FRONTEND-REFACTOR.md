@@ -294,6 +294,15 @@ total). Column builders, cell templates, cell-property logic and export-column
 construction stayed in `grid-config.ts` because they carry RevoGrid callback
 identities.
 
+## Grid decomposition — Stage 5: DataGrid scroll restore (2026-11-26)
+
+The whole remembered-position lifecycle (four refs, two restore effects, the
+bounded 20-attempt retry, the 250 ms debounced save, its unmount cleanup and
+the `scrollchange` listener) moved into `use-grid-scroll-restore.ts`. The hook
+takes six explicit arguments and returns only the one debounce trigger that the
+unchanged JSX needs; all timeout values, tolerance math, scope re-arm semantics
+and dependency arrays are preserved. 8 hook tests (689 unit tests total).
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,
