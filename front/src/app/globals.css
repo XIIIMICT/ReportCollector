@@ -1,15 +1,12 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 
-@theme {
-    /* Freeze HeroUI's responsive component scaling: the theme shrinks
-       buttons/pagination/values above sm (40rem) and md (48rem), which made
-       controls jump between viewports. The app itself never uses sm:/md:
-       utilities, so pinning these two breakpoints to 0 renders every
-       component's roomier base look on all viewports. lg is untouched. */
-    --breakpoint-sm: 0rem;
-    --breakpoint-md: 0rem;
-}
+/* Tailwind's sm/md breakpoints keep their standard values (40rem / 48rem).
+   The old override to 0rem did not affect HeroUI: its component styles use
+   literal `@media (min-width:40rem)` rules, not these theme variables. It only
+   made Tailwind `sm:` utilities match at every width — the single `sm:` call
+   site (Excel export dialog) now uses an unconditional `max-w-[420px]` so the
+   dialog looks the same on narrow screens. */
 
 revogr-attribution {
     display: none; /* NEVER TOUCH THIS */

@@ -91,6 +91,23 @@ a regression; no e2e assertion was weakened to hide it. No DOM/row-count
 performance numbers were captured yet — that needs a DevTools/Performance
 recording on a prepared stack.
 
+## Stage 8.1 — Tailwind breakpoints (done)
+
+Verification before changing anything: HeroUI 3.2.8's compiled styles use
+literal `@media (min-width:40rem)` / `48rem` rules, so overriding
+`--breakpoint-sm/md` to `0rem` never affected its component scaling. The only
+effect was on Tailwind utilities: `sm:max-w-[420px]` in the Excel export dialog
+compiled to `@media (min-width:0){...}`, applying at every width.
+
+- Removed the two `@theme` overrides; `sm` / `md` keep their standard values.
+- Replaced the dialog's `sm:max-w-[420px]` with unconditional `max-w-[420px]`
+  so its rendered width is unchanged on narrow screens.
+- Source scan: no remaining `sm:` / `md:` utilities in `front/src`.
+- Built CSS verification: no `.sm\:max-w-[420px]` rule; `.max-w-\[420px\]{max-width:420px}`
+  is unconditional. Bundle stays 3,722.3 KB / 1,198.1 KB gzip / 37 chunks.
+
+This is a CSS-semantics fix, not a visual change; no screenshot claim is made.
+
 ## Zustand decision
 
 **Not needed.** Panel filters remain URL-backed per tab
