@@ -16,6 +16,7 @@ import pytest
 from conftest import signed_identity_headers
 from httpx2 import AsyncClient
 from openpyxl import load_workbook
+from sqlalchemy import text
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -410,7 +411,10 @@ async def test_renovation_id_filter_lists_buckets_and_codes(client: AsyncClient,
     assert await rows_for("Некорректные") == 0
     assert await rows_for("2027_BSKR_1.1.1_1382467") == 1
 
-    # A repeated code makes BOTH of its rows incorrect.
+    # A repeated code makes BOTH of its rows incorrect. The legacy state is
+    # representable only without the new unique index; the DROP is inside this
+    # test's transaction and the outer fixture rollback restores the index.
+    await db_session.execute(text("DROP INDEX uq_r_plan_rows_plan_work_or_repair_code"))  # ty: ignore[deprecated]
     first = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
     second = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 2))).one()
     second.work_or_repair_code = first.work_or_repair_code
@@ -1596,6 +1600,8 @@ async def test_submit_accepts_a_code_carrying_the_null_placeholder(
 
 async def test_submit_rejects_duplicate_work_ids(client: AsyncClient, db_session: AsyncSession) -> None:
     """Submit is refused while two rows share the same work ID."""
+    # Legacy duplicate state: drop the new index inside this transaction only.
+    await db_session.execute(text("DROP INDEX uq_r_plan_rows_plan_work_or_repair_code"))  # ty: ignore[deprecated]
     first = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 1))).one()
     second = (await db_session.exec(select(RenovationPlanRow).where(col(RenovationPlanRow.position) == 2))).one()
     second.work_or_repair_code = first.work_or_repair_code

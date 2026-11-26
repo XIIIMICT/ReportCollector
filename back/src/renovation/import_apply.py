@@ -14,8 +14,9 @@ from sqlalchemy.schema import CreateTable
 from sqlmodel import SQLModel, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.collab.locking import lock_project
+from src.collab.locking import lock_project, lock_rows
 from src.collab.persistence import JournalStore
+from src.common.durable_imports import ImportValidationError
 from src.observability import observe_phase
 from src.renovation.constants import RENOVATION_PROJECT_KEY
 from src.renovation.form_schema import field_meta, field_metas
@@ -65,6 +66,23 @@ _STAGED_ID_SQL = (
     f"WHERE t.plan_id = :plan_id AND t.work_or_repair_code IN "
     f"(SELECT work_or_repair_code FROM {_STAGE_TABLE})"
 )
+# The preflight is advisory. Apply re-checks uniqueness in its own transaction,
+# scoped to the target plan: rows whose code is already duplicated there are
+# ambiguous and must never be overwritten by a set-based UPDATE. The grouped
+# subquery is served by the (plan_id, work_or_repair_code) index.
+_AMBIGUOUS_SQL = (
+    f"SELECT t.id, t.work_or_repair_code, t.position FROM {_PLAN_TABLE.name} AS t "  # noqa: S608
+    f"WHERE t.plan_id = :plan_id AND t.work_or_repair_code IN ("
+    f"SELECT work_or_repair_code FROM {_PLAN_TABLE.name} "
+    "WHERE plan_id = :plan_id AND work_or_repair_code IS NOT NULL "
+    "GROUP BY work_or_repair_code HAVING count(*) > 1) "
+    "ORDER BY t.work_or_repair_code, t.position"
+)
+# Defence in depth: staging keeps one row per distinct code, so a duplicate that
+# slips past the parse loop fails at the database boundary too. Like the table
+# itself this index is transaction-local (ON COMMIT DROP), never a migration.
+_STAGE_UNIQUE_DDL = f"CREATE UNIQUE INDEX ux_{_STAGE_TABLE}_code ON {_STAGE_TABLE} (work_or_repair_code)"
+_ERROR_DETAIL_LIMIT = 10
 
 
 @dataclass(slots=True)
@@ -75,6 +93,34 @@ class _PendingRow:
     asset_id: UUID
     is_new: bool
     position: int | None
+
+
+async def _ambiguous_codes(session: AsyncSession, plan_id: UUID) -> dict[str, list[tuple[UUID, int]]]:
+    """Codes already duplicated in the TARGET plan → their (row id, position)."""
+    result = await session.execute(text(_AMBIGUOUS_SQL), {"plan_id": plan_id})  # ty: ignore[deprecated]
+    grouped: dict[str, list[tuple[UUID, int]]] = {}
+    for row_id, code, position in result.all():
+        grouped.setdefault(code, []).append((row_id, position))
+    return grouped
+
+
+def _duplicate_in_file_error(code: str, first_row: int, next_row: int) -> ImportValidationError:
+    """Report a workbook code repeated across rows (possibly across batch boundaries)."""
+    return ImportValidationError(
+        f"Код работы «{code}» встречается дважды в загружаемом файле (строки {first_row} и {next_row}). "
+        "Загрузка отклонена: код должен быть уникален в одном плане. План не изменён."
+    )
+
+
+def _ambiguous_existing_error(code: str, rows: list[tuple[UUID, int]]) -> ImportValidationError:
+    """Report a file code matching several working-plan rows and refuse the overwrite."""
+    shown = ", ".join(f"id={row_id}, №{position}" for row_id, position in rows[:_ERROR_DETAIL_LIMIT])
+    extra = "" if len(rows) <= _ERROR_DETAIL_LIMIT else f" и ещё {len(rows) - _ERROR_DETAIL_LIMIT}"
+    return ImportValidationError(
+        f"Код работы «{code}» встречается в {len(rows)} строках рабочего плана ({shown}{extra}). "
+        "Загрузка отклонена: неоднозначный код нельзя обновлять. "
+        "Удалите дубли в плане или исправьте код в файле. План не изменён."
+    )
 
 
 async def apply_plan_file(
@@ -100,8 +146,10 @@ async def apply_plan_file(
     Reference labels resolve to the form's catalog ids here; a label the catalog
     does not know aborts the whole load (the preflight reports it first).
 
-    Rows are matched by the work code: a code already in the plan updates that
-    row in place, a new code appends a row to the end of the plan.
+    Rows are matched by the work code: a code already in the TARGET plan updates
+    its single matching row, a new code appends a row to the end of the plan.
+    A code repeated in the workbook or duplicated in the target plan refuses the
+    whole file — this is re-checked here, not inherited from the inspect request.
 
     `progress` receives `(done, total, phase)`: the write phase counts processed
     rows, the recompute phase counts rescanned rows, and `total` is twice the
@@ -122,17 +170,23 @@ async def apply_plan_file(
         batches = one_batch()
     with observe_phase("import", "project_lock"):
         await lock_project(session, RENOVATION_PROJECT_KEY)
-    # The staging table is session-local + transaction-local (ON COMMIT DROP).
-    # DROP IF EXISTS also handles nested test savepoints where COMMIT does not
-    # happen between two loads on the same pooled connection.
-    await session.execute(text(f"DROP TABLE IF EXISTS {_STAGE_TABLE}"))  # ty: ignore[deprecated]
-    await session.execute(text(_STAGE_DDL))  # ty: ignore[deprecated]
     plan_query = select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING)
     if plan_id is not None:
         plan_query = plan_query.where(col(RenovationPlan.id) == plan_id)
     plan = (await session.exec(plan_query)).first()
     if plan is None:
         raise _ERR_NO_WORKING_PLAN
+    # The project gate is SHARED (it admits normal edits and several imports).
+    # A second, plan-scoped exclusive lock serializes applies of the same plan:
+    # otherwise two workers could both read the same code set and insert it
+    # twice before either commits. Released with the surrounding transaction.
+    await lock_rows(session, [f"renovation_import_plan:{plan.id}"])
+    # The staging table is session-local + transaction-local (ON COMMIT DROP).
+    # DROP IF EXISTS also handles nested test savepoints where COMMIT does not
+    # happen between two loads on the same pooled connection.
+    await session.execute(text(f"DROP TABLE IF EXISTS {_STAGE_TABLE}"))  # ty: ignore[deprecated]
+    await session.execute(text(_STAGE_DDL))  # ty: ignore[deprecated]
+    await session.execute(text(_STAGE_UNIQUE_DDL))  # ty: ignore[deprecated]
     reference_ids = await _reference_ids(session)
     assets = (await session.exec(select(RAsset))).all()
     asset_ids = {asset.code.upper(): asset.id for asset in assets}
@@ -141,9 +195,11 @@ async def apply_plan_file(
     asset_ids_by_name = {_asset_name_key(asset.name): asset.id for asset in assets}
 
     # Owner-approved semantics (Phase 5): rows are identified by work code;
-    # EVERY plan row with that code is overwritten, and a code absent from the
-    # working plan appends a new row. Duplicate codes in the plan are not
-    # resolved yet (P0/Gate B/C) — UPDATE ... FROM overwrites all matches.
+    # a code already in the TARGET plan updates its single matching row and a
+    # code absent from it appends a new row. A code duplicated in the plan is
+    # ambiguous: refuse it rather than let UPDATE ... FROM overwrite every
+    # match. This check lives in APPLY, independent of the preflight request.
+    ambiguous = await _ambiguous_codes(session, plan.id)
     existing_codes: set[str] = {
         code
         for code in (
@@ -178,9 +234,22 @@ async def apply_plan_file(
     inserted = 0
     updated = 0
     batch: list[_PendingRow] = []
+    # A single set spans ALL batches: the same new code in batch 1 and batch 2
+    # is still a duplicate. `first_seen` names the earlier workbook row in the
+    # error so the operator can find it.
+    seen_codes: set[str] = set()
+    first_seen: dict[str, int] = {}
+    file_row = 0
     async with contextlib.aclosing(batches):
         async for parsed_batch in batches:
             for row in parsed_batch:
+                file_row += 1
+                if row.code in seen_codes:
+                    raise _duplicate_in_file_error(row.code, first_seen[row.code], file_row)
+                seen_codes.add(row.code)
+                first_seen[row.code] = file_row
+                if row.code in ambiguous:
+                    raise _ambiguous_existing_error(row.code, ambiguous[row.code])
                 if row.asset_is_name:
                     asset_id = asset_ids_by_name.get(_asset_name_key(row.asset_key))
                 else:

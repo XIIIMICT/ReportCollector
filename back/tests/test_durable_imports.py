@@ -145,6 +145,33 @@ async def test_cancelled_or_expired_import_rolls_back_all_writes(setup_import, m
         assert result.error == "Загрузка отменена."
 
 
+async def test_duplicate_codes_fail_the_job_without_writing(setup_import, monkeypatch) -> None:
+    """Apply re-checks uniqueness: a duplicate workbook never reaches completion."""
+    repository, owner, directory = setup_import
+    duplicate_rows = [
+        ParsedPlanRow(code="DUP_JOB_CODE", asset_key="BSZR", values={"workshop_name": "первая"}),
+        ParsedPlanRow(code="DUP_JOB_CODE", asset_key="BSZR", values={"workshop_name": "вторая"}),
+    ]
+    monkeypatch.setattr(
+        "src.renovation.import_apply.iter_plan_row_batches", lambda *_: (batch for batch in [duplicate_rows])
+    )
+    worker = manager(repository)
+    job = await accept(worker, owner, directory, digest="duplicates")
+    await worker.execute(await repository.claim(worker.kind))
+    result = await worker.get(job.id, owner)
+    assert result.status == "failed"
+    assert result.result is None
+    assert result.error is not None
+    assert "DUP_JOB_CODE" in result.error
+    async with repository.session_factory() as session:
+        written = (
+            await session.exec(
+                select(col(RenovationPlanRow.id)).where(col(RenovationPlanRow.work_or_repair_code) == "DUP_JOB_CODE")
+            )
+        ).all()
+    assert written == []
+
+
 async def test_lost_commit_reply_keeps_atomic_success_and_never_requeues(setup_import) -> None:
     repository, owner, directory = setup_import
 

@@ -9,6 +9,7 @@ sub-router with the shared ``/renovation`` prefix.
 import asyncio
 from datetime import datetime
 from typing import Annotated, Literal, cast
+from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func
@@ -64,6 +65,28 @@ from src.renovation.router_common import (  # noqa: F401
 )
 
 
+def _working_plan_import_scope(
+    plan_id: UUID | None,
+    asset_ids: list[UUID],
+    latest_change: datetime | None,
+    *,
+    row_count: int = 0,
+    dictionaries: str = "",
+) -> str:
+    """
+    Preflight cache scope, bound to the CURRENT working plan.
+
+    `_import_cache_scope` describes the file's assets/catalogs and their change
+    tokens. The plan identity is added here because validation is plan-scoped:
+    archiving a version and opening the next one must re-key an otherwise
+    identical workbook — an archived-only code is «new» in the new plan, not an
+    update of an old row. `plan=none` keeps an upload cacheable even before a
+    working plan exists, without sharing a report with a plan that does.
+    """
+    base = _import_cache_scope(asset_ids, latest_change, row_count=row_count, dictionaries=dictionaries)
+    return f"plan={plan_id or 'none'}|{base}"
+
+
 @router.post("/plan/import/inspect", response_model=RenovationPlanImportResult)
 async def inspect_renovation_plan_import(
     session: SessionDependency,
@@ -76,6 +99,11 @@ async def inspect_renovation_plan_import(
         return RenovationPlanImportResult(status="invalid_format")
     with observe_phase("import", "hash_upload"):
         digest = await _rewind_and_hash_upload(file)
+    # Uniqueness is scoped to ONE plan version: resolve the working plan before
+    # validating or caching, so a code that only exists in an archived plan is
+    # new for the plan the upload will actually load into.
+    plan = (await session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).first()
+    working_plan_id = plan.id if plan is not None else None
     cache = get_inspect_cache()
     # Phase 5.2: scope discovery parses the whole workbook in a worker thread.
     # Release the request's pooled DB connection before that CPU phase; the
@@ -102,11 +130,12 @@ async def inspect_renovation_plan_import(
     touched_asset_ids = [asset.id for asset in touched]
     plan_row_count = 0
     latest_change: datetime | None = None
-    if touched_asset_ids:
+    if touched_asset_ids and working_plan_id is not None:
         plan_row_count, latest_change = (
             await session.exec(
                 select(func.count(), func.max(RenovationPlanRow.updated_at)).where(
-                    col(RenovationPlanRow.asset_id).in_(touched_asset_ids)
+                    col(RenovationPlanRow.plan_id) == working_plan_id,
+                    col(RenovationPlanRow.asset_id).in_(touched_asset_ids),
                 )
             )
         ).one()
@@ -115,7 +144,8 @@ async def inspect_renovation_plan_import(
         if file_scope.assets
         else ""
     )
-    scope = _import_cache_scope(
+    scope = _working_plan_import_scope(
+        working_plan_id,
         touched_asset_ids,
         latest_change,
         row_count=plan_row_count,
@@ -124,9 +154,22 @@ async def inspect_renovation_plan_import(
     cached = await cache.get_digest(digest, scope=scope, suffix=suffix) if file_scope.assets else None
     if cached is not None:
         return cached
-    existing_codes = {
-        value for value in (await session.exec(select(col(RenovationPlanRow.work_or_repair_code)))).all() if value
-    }
+    # Only the CURRENT working plan's codes decide «new» vs «update». Including
+    # archived plans here made a newer version inherit codes of an older one and
+    # silently turn an insert into an overwrite.
+    existing_codes: set[str] = set()
+    if working_plan_id is not None:
+        existing_codes = {
+            value
+            for value in (
+                await session.exec(
+                    select(col(RenovationPlanRow.work_or_repair_code)).where(
+                        col(RenovationPlanRow.plan_id) == working_plan_id
+                    )
+                )
+            ).all()
+            if value
+        }
     references: dict[str, set[str]] = {}
     for value in (await session.exec(select(RenovationReferenceValue))).all():
         references.setdefault(value.catalog.value, set()).add(value.label.casefold())
