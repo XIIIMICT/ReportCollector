@@ -138,9 +138,12 @@ bytes in different containers go through different readers and must never share
 a report). The scope has two parts. The version is the analyzer's: bump
 `INSPECT_CACHE_VERSION` whenever a deploy changes what a report contains, so a
 report written by the previous analyzer is not served for up to the TTL. The
+scope is prefixed with the id of the CURRENT working plan (`plan=<uuid>|…`):
+codes are compared only inside that plan, so archiving it and opening a newer
+version must re-key the report even when the uploaded bytes are identical. The
 plan part is the file's assets («Наименование ДО» repair codes → asset
 ids, or «Предприятие» names → asset ids when the code column is absent) plus
-the `count(*) + max(updated_at)` token of the working plan rows **of those
+the `count(*) + max(updated_at)` token of the **working plan's** rows **of those
 assets**; a plan edit in any other asset therefore keeps the cached report
 valid, while a row edit/insert/delete in a loaded asset recomputes it. The
 dictionary part carries `count(*) + max(updated_at)` of every reference catalog
@@ -217,14 +220,22 @@ leaving and returning to the project: the job id is kept per project in
 remount resumes polling until the job settles. The analysis wait before it
 keeps its indeterminate bar inside the dialog.
 
-Rows are matched by «Код работы» (`work_or_repair_code`): a code already in the
-plan **overwrites every row with that code** in one set-based statement, a code
-the plan does not have **appends** a row at the end (picking up the positional
-sequence after the current last row). Duplicate codes in the plan are not yet a
-business error (P0/Gate B/C): all matching rows are overwritten, not just the
-last one; a load file with duplicate codes is still refused by the preflight
-before it can reach the worker. A row without the asset value is skipped by the
-loader with the same rule the preflight applies; every other blank required cell
+Rows are matched by «Код работы» (`work_or_repair_code`) **inside the target
+working plan**: a code present there updates its single matching row in one
+set-based `UPDATE ... FROM`; a code absent there — including one that only
+exists in an archived version — **appends** a row at the end (picking up the
+positional sequence after the current last row). The preflight reads existing
+codes from the working plan only, and the report scope carries that plan's id.
+A code repeated in the uploaded workbook is refused by the preflight **and**
+again by apply (one seen-code set spans all 200-row batches); a code already
+duplicated in the target plan is refused by apply with an actionable error that
+names the conflicting row ids and positions — no ambiguous overwrite. Apply
+re-checks uniqueness inside its own transaction: it never trusts
+`expected_rows`, the inspect request or frontend flags. A plan-scoped advisory
+lock serializes applies of the same plan and a unique index on the
+transaction-local staging table stops a newly seen code from being inserted
+twice. A row without the asset value is skipped by the loader with the same rule
+the preflight applies; every other blank required cell
 is an error and refuses the whole file, so the written counts match the report.
 
 **Owner-approved overwrite semantics (Phase 5):** the file does not patch the
@@ -288,6 +299,52 @@ job is active (`GET /plan/import/active` + `usePlanImportLock` red chip), the
 server refuses writes with 409, and the import clears the plan's Undo history
 in its own transaction. A stale editor cannot commit over imported values;
 stale cell leases themselves are unchanged and still expire on their TTL.
+
+### Work-code uniqueness rollout (migration 0042 — BLOCKED)
+
+Uniqueness is one code per **plan version**, on the semantic column
+`r_plan_rows.work_or_repair_code` (migration 0041 renamed `col_003`). The live
+schema still has the non-unique `ix_r_plan_rows_plan_work_or_repair_code`.
+Migration `0042_plan_work_code_unique` is authored on the fix branch — it
+creates `uq_r_plan_rows_plan_work_or_repair_code` on `(plan_id, work_or_repair_code)`,
+has no `IF NOT EXISTS`, and therefore **fails on any existing duplicate**;
+`lock_timeout=30s` makes a blocked build fail loudly. It is **not applied by the
+author** to dev or prod. The backend tests apply the full chain to a dedicated
+throwaway `rc_test*` schema, which is how the index is exercised in CI.
+
+Read-only audit (SELECT only, `SET TRANSACTION READ ONLY`, exit 1 when duplicates
+exist, so it can gate the rollout):
+
+    uv run --directory back -m src.scripts.audit_plan_work_code_duplicates
+    uv run --directory back -m src.scripts.audit_plan_work_code_duplicates --format json
+    uv run --directory back -m src.scripts.audit_plan_work_code_duplicates --plan-id <uuid>
+    uv run --directory back -m src.scripts.audit_plan_work_code_duplicates --dry-run
+
+Each group reports `plan_id`, `plan_state`, `work_or_repair_code`,
+`duplicate_count`, `row_ids` and `positions` in position order. A code repeated
+in *different* plan versions is expected and is not reported. `--dry-run`
+prints a commented SQL **template** only; nothing is executed, seeded or
+deleted by the script.
+
+Maintainer procedure to unblock the index:
+
+1. Announce a maintenance window and make sure no import job is pending/running
+   (`GET /api/renovation/plan/import/active`); the plan form is blocked while one
+   runs.
+2. Back up the real table before any data change, e.g.
+   `pg_dump -n rc -t r_plan_rows -Fc -f r_plan_rows_before_uniqueness.dump <db>`
+   (adjust schema/database; verify the dump can be listed).
+3. Run the audit and save its JSON. For every `(plan_id, code)` group, inspect the
+   named rows and choose the surviving one — the lowest position is a hint, not
+   an automatic decision. This is a **data change**, not a schema change.
+4. Delete only the reviewed losing row ids, scoped by `plan_id` and
+   `work_or_repair_code`, in one explicit transaction; do not renumber positions
+   (gaps are allowed and `uq_r_plan_rows_position` stays valid). Fix the underlying
+   workbook codes if the rows represent distinct works.
+5. Re-run the audit until it exits 0 with zero groups and zero rows involved.
+6. With a maintainer approval recorded, run `just migrate`. If it fails on a
+   duplicate, the migration transaction has rolled back: stop, clean and audit
+   again. Never edit an applied migration. `downgrade()` drops only the index.
 
 ## Excel export dialog (all projects)
 

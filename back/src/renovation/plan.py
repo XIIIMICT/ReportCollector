@@ -112,6 +112,12 @@ class RenovationPlanRow(UpdaterDisplay, table=True):
         # and added the text ones; the metadata has to match, because
         # `create_all` and the migration tests compare it with the real schema.
         Index("ix_r_plan_rows_plan_work_or_repair_code", "plan_id", "work_or_repair_code"),
+        # Intended uniqueness contract (one code per plan version). Migration
+        # 0042 authors this index but its rollout is BLOCKED until the live
+        # duplicates are cleaned and the maintainer approves — see docs/TODO.md.
+        # The metadata must already match the migration's head schema; apply
+        # re-checks duplicates independently even before the index exists live.
+        Index("uq_r_plan_rows_plan_work_or_repair_code", "plan_id", "work_or_repair_code", unique=True),
         Index("ix_r_plan_rows_plan_workshop_name", "plan_id", "workshop_name"),
         Index("ix_r_plan_rows_plan_department_or_installation_name", "plan_id", "department_or_installation_name"),
         Index("ix_r_plan_rows_plan_equipment_class", "plan_id", "equipment_class"),

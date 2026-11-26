@@ -47,6 +47,18 @@ methods, dependencies and response models are unchanged (verified by diffing
 tests monkeypatch are re-exported from `router.py` for back-compat, and the
 three import tests now target `router_import`.
 
+`router_import` resolves the working plan before validating an upload: existing
+work codes are read with `plan_id = :working` and the plan id prefixes the
+preflight cache scope, so archived versions cannot turn a new code into an
+update. `import_apply` enforces the same rule independently in the worker's
+transaction — workbook duplicates across batch boundaries and codes already
+duplicated in the target plan are refused, applies of one plan are serialized by
+a plan-scoped advisory lock, and the set-based `UPDATE ... FROM` writer stays.
+The intended DB constraint is `UNIQUE (plan_id, work_or_repair_code)` on the
+semantic 0041 column (`col_003` is gone); migration 0042 is authored but its
+rollout is BLOCKED pending the read-only audit and live-data cleanup described
+in `DATA-JOBS.md`.
+
 `front/src/shared/api/renovation.ts` (1140 -> 11 lines) is now a barrel
 re-exporting six workflow modules: `renovation-shared.ts` (types, constants,
 `decodeLegacyFieldName`/`decodeLegacyFieldKeys`), `renovation-import-api.ts`,

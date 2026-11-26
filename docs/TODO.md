@@ -7,23 +7,35 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 ## P0 — release acceptance and deployment
 
-- [ ] **P0 FIRST — make the renovation work/repair code (`col_003` →
-  `work_or_repair_code`) unique WITHIN ONE PLAN.** Owner decision (2026-11-24):
-  uniqueness scope is one plan/version, NOT the whole database. **The current DB
-  still contains incorrect rows with duplicate codes**, so do NOT add a
-  constraint or narrow the preflight until the data is clean. Ordered steps:
-  1. audit and clean the existing duplicate `col_003` rows in `r_plan_rows`
-     (backup first; the cleanup is a data change, not a schema change);
-  2. narrow the import preflight (`back/src/renovation/router.py:419`) from a
-     global `SELECT col_003` to `WHERE plan_id = :plan` — `import_apply.py:102`
-     and `service.py:931` are already scoped correctly;
-  3. keep rejecting duplicate codes inside one uploaded workbook (preflight
-     `import_plan.py:708`) and add an explicit guard in the apply path, which
-     currently would INSERT both duplicates if preflight were bypassed;
-  4. then add a unique index on `(plan_id, col_003)`.
-  Gate C duplicates are part of the same problem: today the whole import is
-  rejected, and that behavior stays until this P0 is done. Historical rows from
-  older plan versions must NOT block a new import of a newer version.
+- [ ] **P0 FIRST — enforce work/repair-code uniqueness WITHIN ONE PLAN; schema
+  rollout still BLOCKED.** Owner decision (2026-11-24): uniqueness scope is one
+  plan/version (`r_plans.id`), NOT the whole database. `r_plan_rows` uses the
+  semantic column `work_or_repair_code` (migration 0041 renamed `col_003`);
+  `col_003` no longer exists and must not appear in new SQL. Code work DONE on
+  branch `fix/renovation-work-code-uniqueness`:
+  1. [x] Preflight (`router_import.py`) resolves the WORKING plan first, reads
+     existing codes only with `plan_id = :working`, and includes the plan id in
+     the Valkey report scope — an archived-only code is new in a newer version.
+  2. [x] Apply (`import_apply.py`) independently rejects a code repeated in the
+     workbook (one set spans all 200-row batches), refuses a code already
+     duplicated in the TARGET plan, serializes applies per plan, and keeps the
+     set-based `UPDATE ... FROM` writer. A plan-scoped advisory lock plus a
+     unique index on the transaction-local staging table stop a second insert.
+  3. [x] Migration `0042_plan_work_code_unique` is AUTHORED for
+     `UNIQUE INDEX uq_r_plan_rows_plan_work_or_repair_code ON r_plan_rows
+     (plan_id, work_or_repair_code)` (metadata matches `plan.py`). **Not executed
+     by the author.** Plain `CREATE UNIQUE INDEX` (no `IF NOT EXISTS`) fails on
+     existing duplicates; `lock_timeout=30s` makes a blocked build fail loudly.
+  4. [ ] **Maintainer gate, still open:** run the read-only
+     `uv run --directory back -m src.scripts.audit_plan_work_code_duplicates`
+     (plan id, code, row ids, positions, counts), back up `r_plan_rows`, clean
+     live duplicates as a reviewed data change, re-run the audit until empty,
+     approve a maintenance window and only then run `just migrate`. Procedure:
+     docs/DATA-JOBS.md, «Work-code uniqueness rollout».
+  Gate C duplicates are part of the same problem: the whole import is still
+  rejected when a workbook repeats a code; that behavior stays. Historical rows
+  from older plan versions must NOT block a newer import — now enforced in both
+  preflight and apply.
 - [ ] Establish a repeatable production-like workload matrix: 306k-row plan
   windows/counts/facets with combined filters, KPPK slices, full/filtered exports,
   representative XLSB/XLSX inspect/apply, concurrent collaboration, and worker restart
@@ -246,13 +258,16 @@ of in a separate brief.
   red chip. The shared advisory gate itself does NOT serialize edits/imports.
   Remaining follow-up: push terminal job state over WebSocket instead of
   polling (optional; poll already authoritative).
-- [ ] **Gates B/C — DECIDED (2026-11-24).** Uniqueness scope = one plan; the DB
-  still has duplicate codes, so this is the **P0 FIRST** task above. Duplicate
-  codes inside one workbook keep rejecting the whole import until then; no
-  constraint or preflight narrowing before the data is clean. Current sites:
-  the global code lookup is `router_import.py:126-128`, the apply-side scoped
-  lookup is `import_apply.py:145-151`, and the only index is
-  `plan.py:114` (`ix_r_plan_rows_plan_work_or_repair_code`, not unique).
+- [ ] **Gates B/C — DECIDED (2026-11-24), code DONE, schema rollout BLOCKED.**
+  Uniqueness scope = one plan; the DB may still have duplicate codes, so the
+  **P0 FIRST** maintainer gate above remains open. Duplicate codes inside one
+  workbook keep rejecting the whole import. Current sites: the working-plan
+  lookup is in `router_import.py` (`inspect_renovation_plan_import`), the
+  apply-side guards are in `import_apply.py` (`_ambiguous_codes`, `apply_plan_file`),
+  and the indexes are in `plan.py`:
+  `ix_r_plan_rows_plan_work_or_repair_code` (non-unique, live) and
+  `uq_r_plan_rows_plan_work_or_repair_code` (unique, authored in migration 0042,
+  not applied to live).
 - [x] **Gate D — DECIDED (2026-11-24) and DONE.** The owner explicitly accepted
   the table rebuild (261k rows, ~824 MB, ~1.6–2 GB peak disk + WAL, all FKs /
   indexes / comments recreated, maintenance window). Migration 0041 performed

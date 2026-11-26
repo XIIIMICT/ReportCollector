@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import text
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -398,10 +399,15 @@ async def test_a_blank_cell_clears_an_existing_value_on_update(
     assert loaded.work_start_date is None
 
 
-async def test_all_plan_rows_with_a_duplicate_code_are_overwritten(
+async def test_an_ambiguous_existing_code_is_refused_without_overwriting(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Uniqueness is a later Gate B/C decision; until then UPDATE FROM overwrites every match."""
+    """Two plan rows share a code: apply refuses instead of a blanket overwrite.
+
+    The unique index is dropped inside this test's transaction so the problematic
+    legacy data can be represented; the outer fixture rolls the DDL back, so the
+    index is back for every other test.
+    """
     bsz = (await db_session.exec(select(RAsset).where(col(RAsset.code) == "BSZR"))).first()
     if bsz is None:
         pytest.skip("the seed carries no BSZR asset")
@@ -409,6 +415,7 @@ async def test_all_plan_rows_with_a_duplicate_code_are_overwritten(
         await db_session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))
     ).first()
     assert plan is not None
+    await db_session.execute(text("DROP INDEX uq_r_plan_rows_plan_work_or_repair_code"))  # ty: ignore[deprecated]
     last = (
         await db_session.exec(
             select(col(RenovationPlanRow.position))
@@ -431,8 +438,8 @@ async def test_all_plan_rows_with_a_duplicate_code_are_overwritten(
 
     rows = [ParsedPlanRow(code="TEST_DUP_CODE", asset_key="BSZR", values={"workshop_name": "Общее новое значение"})]
     monkeypatch.setattr("src.renovation.import_apply.parse_plan_rows", lambda _source, _suffix=None: rows)
-    result = await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
-    assert (result.new_rows, result.updated_rows) == (0, 1)
+    with pytest.raises(ValueError, match="TEST_DUP_CODE"):
+        await apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
 
     loaded = (
         await db_session.exec(
@@ -440,7 +447,7 @@ async def test_all_plan_rows_with_a_duplicate_code_are_overwritten(
         )
     ).all()
     assert len(loaded) == 2
-    assert {row.workshop_name for row in loaded} == {"Общее новое значение"}
+    assert {row.workshop_name for row in loaded} == {"Первая", "Вторая"}
 
 
 async def test_a_multi_batch_mixed_load_issues_one_set_based_update(
