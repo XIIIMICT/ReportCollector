@@ -99,18 +99,21 @@ export async function copyToClipboard(text: string): Promise<boolean> {
         await navigator.clipboard.writeText(text);
         return true;
     } catch {
+        let textarea: HTMLTextAreaElement | undefined;
         try {
-            const textarea = document.createElement("textarea");
+            textarea = document.createElement("textarea");
             textarea.value = text;
             textarea.style.position = "fixed";
             textarea.style.opacity = "0";
             document.body.appendChild(textarea);
             textarea.select();
             document.execCommand("copy");
-            textarea.remove();
             return true;
         } catch {
             return false;
+        } finally {
+            // A throwing execCommand must not leave the hidden textarea behind.
+            textarea?.remove();
         }
     }
 }
@@ -120,7 +123,10 @@ export async function copyToClipboard(text: string): Promise<boolean> {
  */
 export async function readFromClipboard(): Promise<string | null> {
     try {
-        return await navigator.clipboard.readText();
+        const text = await navigator.clipboard.readText();
+        // An empty buffer is as unusable as a failed read: callers bail out on
+        // both before parsing, so expose one sentinel for them.
+        return text === "" ? null : text;
     } catch {
         return null;
     }
