@@ -31,8 +31,11 @@ class CredentialQueryFilter(logging.Filter):
 
 # Only bounded correlation and classification fields reach the shared log
 # pipeline. Identity claims, raw request values and exception text are excluded:
-# Loki is operational infrastructure, not a store for personal data. Failure
-# diagnostics use `error_code` / `error_type`, never a free-form `error` value.
+# Loki is operational infrastructure, not a store for personal data. Any
+# `exc_info` attached by a caller is reduced to a stable error_type/error_code —
+# never formatted as a traceback — while request/job ids, phase and other
+# allowlisted fields survive. Failure diagnostics therefore use error_code /
+# error_type, never a free-form `error` value or a nested cause.
 SAFE_LOG_FIELDS = (
     "event",
     "request_id",
@@ -67,7 +70,6 @@ SAFE_LOG_FIELDS = (
     "field_ids_count",
     "filter_count",
     "method",
-    "path",
     "status_code",
     "template_row_id",
     "record_id",
@@ -75,6 +77,45 @@ SAFE_LOG_FIELDS = (
     "project_key",
     "room",
 )
+
+
+# A class name is the only exception-derived string allowed into a log record.
+# Anything that is not a plain identifier is generalized: an attacker-controlled
+# exception message, cause or dynamically built class name must never reach Loki.
+_SAFE_TYPE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+_GENERIC_ERROR_TYPE = "Exception"
+_GENERIC_ERROR_CODE = "unhandled_error"
+_ERROR_CODES = {
+    "CancelledError": "cancelled",
+    "ConnectionError": "dependency_unavailable",
+    "DBAPIError": "dependency_unavailable",
+    "IntegrityError": "constraint_violation",
+    "KeyError": "missing_key",
+    "OperationalError": "dependency_unavailable",
+    "OSError": "io_error",
+    "RuntimeError": "operation_failed",
+    "TimeoutError": "dependency_timeout",
+    "TypeError": "invalid_type",
+    "ValueError": "invalid_value",
+}
+
+
+def safe_error_type(error: object) -> str:
+    """Return a bounded error_type; never read the exception text or traceback."""
+    if isinstance(error, str):
+        name = error
+    elif isinstance(error, type):
+        name = error.__name__ if issubclass(error, BaseException) else ""
+    elif isinstance(error, BaseException):
+        name = type(error).__name__
+    else:
+        name = ""
+    return name if _SAFE_TYPE_NAME.fullmatch(name) else _GENERIC_ERROR_TYPE
+
+
+def error_code_for(error_type: str) -> str:
+    """Map a bounded error_type to a stable, low-cardinality error_code."""
+    return _ERROR_CODES.get(error_type, _GENERIC_ERROR_CODE)
 
 
 class JsonFormatter(logging.Formatter):
@@ -93,8 +134,13 @@ class JsonFormatter(logging.Formatter):
             if value is not None:
                 payload[field_name] = value
 
+        # An exc_info may arrive from a third-party library. Classify it by type
+        # only: the message, chained causes, traceback frames and their locals
+        # are deliberately never inspected or serialized.
         if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
+            error_type = safe_error_type(record.exc_info[0])
+            payload.setdefault("error_type", error_type)
+            payload.setdefault("error_code", error_code_for(error_type))
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
@@ -147,6 +193,34 @@ def log_warning(logger: logging.Logger, event: str, message: str, **fields: obje
 def log_error(logger: logging.Logger, event: str, message: str, **fields: object) -> None:
     """Record an error."""
     logger.error(message, extra={"event": event, **fields})
+
+
+def log_failure(
+    logger: logging.Logger,
+    event: str,
+    message: str,
+    error: BaseException,
+    *,
+    error_code: str | None = None,
+    **fields: object,
+) -> None:
+    """
+    Record a failure as a stable classification, never as exception text.
+
+    Callers pass a static ``message``; the exception itself is reduced to a
+    bounded ``error_type`` and ``error_code``. No ``exc_info`` is attached, so
+    neither this record nor a future formatter change can emit a traceback.
+    """
+    error_type = safe_error_type(error)
+    logger.error(
+        message,
+        extra={
+            "event": event,
+            "error_type": error_type,
+            "error_code": error_code or error_code_for(error_type),
+            **fields,
+        },
+    )
 
 
 def monotonic_ms() -> float:

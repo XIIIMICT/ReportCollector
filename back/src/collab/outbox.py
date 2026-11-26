@@ -7,6 +7,7 @@ from time import monotonic
 from sqlalchemy import text
 from sqlmodel import col, select
 
+from src.app_logging import log_failure
 from src.collab.models import OutboxEvent
 from src.collab.persistence import JournalStore
 from src.collab.store import get_collab_store
@@ -45,8 +46,15 @@ async def run_outbox() -> None:
                     await JournalStore(session).prune_expired()
                     await session.commit()
                 next_prune = monotonic() + 15
-        except Exception:
-            logger.exception("Committed collaboration notifications await retry")
+        except Exception as error:  # noqa: BLE001 - classify, never log exception text
+            log_failure(
+                logger,
+                "outbox.dispatch_failed",
+                "Committed collaboration notifications await retry",
+                error,
+                error_code="outbox_dispatch_failed",
+                phase="dispatch",
+            )
             idle_delay = 0.05
             await asyncio.sleep(1)
             continue

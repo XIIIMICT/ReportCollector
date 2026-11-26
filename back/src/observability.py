@@ -16,7 +16,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from valkey.exceptions import ConnectionError as ValkeyConnectionError
 from valkey.exceptions import TimeoutError as ValkeyTimeoutError
 
-from .app_logging import log_event
+from .app_logging import log_event, log_failure
 from .metrics import (
     HTTP_LAST_FAILURE,
     HTTP_REQUESTS_IN_PROGRESS,
@@ -146,9 +146,18 @@ class RequestMetricsMiddleware:
 
         try:
             await self.app(scope, measured_receive, measured_send)
-        except Exception:
-            LOGGER.exception(
-                "Request failed", extra={"request_id": request_id, "path": scope["path"], "method": scope["method"]}
+        except Exception as error:
+            route = getattr(scope.get("route"), "path", None) or "unmatched"
+            log_failure(
+                LOGGER,
+                "http_request_exception",
+                "Ошибка обработки запроса.",
+                error,
+                error_code="request_failed",
+                request_id=request_id,
+                method=scope["method"],
+                route=route,
+                phase="request",
             )
             raise
         finally:
@@ -185,7 +194,6 @@ class RequestMetricsMiddleware:
                         if status >= 400
                         else "http_request",
                         "method": scope["method"],
-                        "path": scope["path"],
                         "route": route,
                         "status_code": status,
                         "duration_ms": round(duration * 1000, 1),
