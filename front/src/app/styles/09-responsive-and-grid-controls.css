@@ -1,0 +1,162 @@
+/* ─── Narrow screens (below lg, e.g. a split-screen tab) ──────────────────── */
+
+@media (width < 64rem) {
+    /* Header: drop the middle spacer, keep the «РепортКоллектор»→«Сырьё» gap.
+       Both texts may ellipsize, but the flex gap is never collapsed, so the
+       project name can't overlap the logo text. */
+    .app-header {
+        grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+        gap: 0.75rem;
+        padding: 0 1rem;
+    }
+
+    .app-header > span[aria-hidden="true"] {
+        display: none;
+    }
+
+    .brand__name {
+        min-width: 0;
+        line-height: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* The edition («Сырьё») never ellipsizes — a short project name. No
+       overflow hidden: it would clip the descender of «ё» at line-height 1. */
+    .brand__edition {
+        min-width: 0;
+        line-height: 1.2;
+        white-space: nowrap;
+    }
+
+    .app-body {
+        padding: 0.5rem;
+    }
+
+    /* Keep the base rule's zero gap: the toolbar spaces its children with
+       margins, so a collapsed control (the archive picker at zero width) adds
+       nothing. A `gap` here would push the block filter 8px away from the
+       grid's left edge — the toolbar and the grid must start on the same line. */
+    .table-toolbar {
+        column-gap: 0;
+        padding-block: 0;
+    }
+
+    /* Status summary keeps its full-width layout on every breakpoint — it never
+       collapses to a dot. */
+    .table-toolbar__controls {
+        flex: 1 1 auto;
+        max-width: none;
+    }
+
+    /* Two-line switch labels: keep the forced break tight. */
+    .view-strip__toggles [data-slot="switch-content"] {
+        line-height: 1.15;
+        text-align: left;
+        white-space: normal;
+    }
+    /* Action bar: the inline buttons are replaced by the single «Действия»
+       hover-menu (the component itself renders only one of the two). */
+    .action-more-button {
+        gap: 0.4rem;
+    }
+
+    .action-more-button__label {
+        font-size: 0.84rem;
+        white-space: nowrap;
+    }
+
+    .action-more-menu [data-slot="item"] {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+
+    .action-more-menu [data-slot="item"] svg {
+        width: 1.1rem;
+        height: 1.1rem;
+        flex: 0 0 auto;
+    }
+
+    /* The footer keeps its horizontal padding at zero — the toolbar and the
+       status line must align with the grid edge (no extra left inset beyond
+       what `.app-body` already provides on narrow screens). */
+    .table-footer {
+        gap: 0.5rem;
+        padding-block: 0;
+    }
+}
+
+/* ─── Редакторы ячеек RevoGrid (Autocomplete) ─────────────── */
+.grid-autocomplete-editor {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+}
+.grid-autocomplete-editor .grid-autocomplete-editor__hidden-trigger,
+.grid-autocomplete-editor .select__trigger {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    min-height: 100% !important;
+    height: 100% !important;
+    border: 0 !important;
+    border-radius: 0;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    box-shadow: none !important;
+}
+
+/* DatePicker (date cells): the calendar popover is anchored explicitly to the
+   editor wrapper via triggerRef (see DateEditor), so only the visible field is
+   hidden — the floating calendar opens beside the cell. */
+.grid-autocomplete-editor [data-slot="date-picker"] {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+.grid-autocomplete-editor [data-slot="date-picker-trigger"] {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+.data-grid revogr-edit:has(.grid-autocomplete-editor),
+.renovation-grid revogr-edit:has(.grid-autocomplete-editor) {
+    background: transparent !important;
+    border-color: transparent !important;
+}
+
+.profile-pill__avatar {
+    flex: 0 0 auto;
+}
+
+@media (min-width: 40.01rem) {
+    .profile-pill__avatar {
+        display: none;
+    }
+}
+
+/* sm tier (Tailwind sm = 40rem): hide «РепортКоллектор» from the logo, keep
+   the icon + project switcher; show the profile as an initials avatar instead
+   of the name + email. */
+@media (max-width: 40rem) {
+    .brand__name {
+        display: none;
+    }
+
+    .profile-pill {
+        min-width: 2.5rem;
+        max-width: 2.5rem;
+        justify-content: center;
+        padding-block: 0;
+    }
+
+    .profile-pill__copy {
+        display: none;
+    }
+}

@@ -108,6 +108,34 @@ compiled to `@media (min-width:0){...}`, applying at every width.
 
 This is a CSS-semantics fix, not a visual change; no screenshot claim is made.
 
+## Stage 9 — CSS split (done)
+
+`globals.css` is now the App Router entry point only: `@import "tailwindcss";`,
+`@import "@heroui/styles";`, then 11 imports from `./styles/` in this exact
+cascade order (the partials are contiguous slices of the former 4,250-line
+file — no selector or declaration was reordered or rewritten):
+
+1. `01-theme-and-base.css` — tokens, reset, `html` / `body`
+2. `02-app-shell-and-header.css` — shell, header, brand, profile, support link
+3. `03-workspace-and-toolbar.css` — workspace, toolbar, tabs, grid viewport
+4. `04-dialogs-and-view-strip.css` — row/record/import dialogs, view strip, alerts
+5. `05-form-status-and-footer.css` — status badge/tooltip, footer, collapse controls
+6. `06-action-bar-fullscreen-and-misc.css` — action bar, expandable buttons, fullscreen, profile modal
+7. `07-grid-common.css` — shared RevoGrid shell, cells, headers, editors
+8. `08-renovation-grid.css` — plan grid, overlay header, dictionaries
+9. `09-responsive-and-grid-controls.css` — `<lg` block, grid editors, `sm` logo block
+10. `10-header-filters-and-overlays.css` — funnel, hidden columns, filter popovers, go-to
+11. `11-reduced-motion.css` — the consolidated reduced-motion policy, imported **last**
+
+The five pre-existing `prefers-reduced-motion` blocks stay at their original
+positions inside their owning partials: hoisting them into the final partial
+would change which rule wins. Verification: concatenated partials are
+whitespace-normalised identical to the old rule stream (136,919 bytes after
+`oxfmt`; 477 rule blocks, 635 selectors, 1,673 declarations, 89 `!important`,
+15 `@media` blocks including 6 reduced-motion). The two emitted production CSS
+chunks are byte-identical (matching SHA-256) before and after the split. No
+visual/e2e claim is made here — the parent stage runs that against the stack.
+
 ## Zustand decision
 
 **Not needed.** Panel filters remain URL-backed per tab
@@ -142,7 +170,7 @@ coordinate tracking, one RAF-coalesced geometry check and one cancellable
 
 The remaining (higher-risk) part of 5.2–5.3 — splitting the workspace's data
 loading, collaboration, commit/undo and dialog composition, and the grid's
-column/header/selection logic — is still pending. Stages 9 (CSS split) and the
-measured before/after runtime scenarios are also pending. They require React
-DevTools/Performance recordings and the prepared stack; no claims about them
-are made here.
+column/header/selection logic — is still pending. The measured before/after
+runtime scenarios are also pending: they require React DevTools/Performance
+recordings and the prepared stack; no claims about them are made here. Stage 9
+(CSS split) is complete — see above.

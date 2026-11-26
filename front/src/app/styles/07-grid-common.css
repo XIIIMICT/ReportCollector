@@ -1,0 +1,975 @@
+/* ─── RevoGrid (таблицы «Сырьё») ─────────────────────────── */
+
+.revo-grid-shell,
+.data-grid {
+    width: 100%;
+}
+
+.revo-grid-shell {
+    position: relative;
+    height: 100%;
+    background: var(--surface);
+    overflow: hidden;
+    /* The grid keeps this gutter on its right: the service reveal button is
+       centred on the table's right boundary, so without the gutter its right
+       half would sit on the shell edge / vertical scrollbar. Read by
+       `refreshHorizontalScrollbar` — keep the two in sync. */
+    --grid-right-gutter: 12px;
+}
+
+.revo-grid-shell .data-grid {
+    /* `width: 100%` plus a margin would overflow the shell: the grid must be
+       narrowed by the gutter so the margin lands INSIDE the shell. */
+    width: calc(100% - var(--grid-right-gutter));
+    margin-right: var(--grid-right-gutter);
+}
+
+.revo-grid-vertical-scroller {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+}
+
+.revo-grid-shell--pinned .data-grid {
+    height: 100%;
+}
+
+.revo-grid-shell:not(.revo-grid-shell--pinned) .revo-grid-vertical-scroller {
+    overflow-y: auto;
+}
+
+/* Reserve the external horizontal strip in pinned dictionaries and in BOTH
+   pin states of the plan (which always scrolls internally). Without the latter,
+   Chrome lets the unpinned plan's final row slide under the absolute strip.
+   Ordinary unpinned dictionaries use an external vertical scroller instead. */
+.revo-grid-shell--pinned:not(.revo-grid-shell--no-hscroll) .revo-grid-vertical-scroller,
+.renovation-grid-shell:not(.revo-grid-shell--no-hscroll) .revo-grid-vertical-scroller {
+    padding-bottom: 17px;
+}
+
+.revo-grid-shell:not(.revo-grid-shell--pinned) .data-grid {
+    height: var(--grid-content-height);
+    min-height: 100%;
+}
+
+/* In unpinned mode both internal scrollbars are hidden — the external
+   scroller and the external horizontal strip take over. Without this, the
+   internal vertical strip keeps its old (taller) spacer until revo-grid's
+   async re-measure and its native scrollbar lingers next to the external
+   one right after unpinning ("duplicated scrollbar" flicker). Hiding is
+   done by zeroing the strip sizes (plus visibility for good measure), not
+   by visibility alone: revo-grid sets an inline min-width/min-height on the
+   strip hosts, and Firefox paints the native scrollbar of a
+   visibility:hidden scroll container — a zero-size strip has no scrollbar
+   to paint in any browser. */
+.revo-grid-shell:not(.revo-grid-shell--pinned) .data-grid revogr-scroll-virtual {
+    visibility: hidden;
+}
+
+.revo-grid-shell:not(.revo-grid-shell--pinned) .data-grid revogr-scroll-virtual.vertical {
+    width: 0 !important;
+    min-width: 0 !important;
+}
+
+/* The custom external strip is the visible horizontal bar in both pin states
+   (it can be inset before the vertical scrollbar's lane); the native one must
+   stay hidden in pinned mode too, or two bars would render side by side. */
+/* The vertical strip sits inside the grid (its header is not an overlay, unlike
+   the renovation plan), so without this it starts at the shell's top and runs
+   across the header cells' right edge. Offset it below the header the same way
+   the plan offsets it below its summary row: `top` + the matching height cut. */
+.revo-grid-shell .data-grid revogr-scroll-virtual.vertical {
+    top: var(--grid-header-height, 0px);
+    height: calc(100% - var(--grid-header-height, 0px)) !important;
+}
+.revo-grid-shell .data-grid revogr-scroll-virtual.horizontal {
+    height: 0 !important;
+    min-height: 0 !important;
+}
+
+.revo-grid-external-scrollbar {
+    position: absolute;
+    z-index: 8;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 17px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: var(--surface);
+    color-scheme: light;
+    scrollbar-color: var(--scrollbar) var(--surface);
+    scrollbar-width: auto;
+}
+
+.dark .revo-grid-external-scrollbar {
+    color-scheme: dark;
+}
+
+.revo-grid-external-scrollbar::-webkit-scrollbar {
+    height: 17px;
+}
+
+.revo-grid-external-scrollbar::-webkit-scrollbar-track {
+    background: var(--surface);
+}
+
+.revo-grid-external-scrollbar::-webkit-scrollbar-thumb {
+    min-width: 32px;
+    background: var(--scrollbar);
+    border: 3px solid var(--surface);
+    border-radius: 999px;
+}
+
+.revo-grid-shell--no-hscroll .revo-grid-external-scrollbar {
+    display: none;
+}
+
+.revo-grid-external-scrollbar > div {
+    height: 1px;
+}
+
+/* revo-grid's light theme (theme="compact") sets color-scheme: light on
+   its host — without this, native scrollbars (and form controls) inside
+   the grid stay light even in the app's dark theme. */
+.dark .data-grid {
+    color-scheme: dark;
+}
+
+.data-grid {
+    --revo-grid-font-family: var(--font-sans);
+    --revo-grid-font-size: 12px;
+    --revo-grid-header-height: var(--grid-header-row-height, 44px);
+    --revo-grid-header-font-size: 11.5px;
+    --revo-grid-header-font-weight: 650;
+    --revo-grid-header-text-transform: none;
+    --revo-grid-header-text-align: center;
+    --revo-grid-header-padding: 0 9px;
+    --revo-grid-cell-padding: 0 9px;
+    --revo-grid-background: var(--surface);
+    --revo-grid-text: var(--foreground);
+    --revo-grid-border: var(--cell-border);
+    --revo-grid-header-bg: var(--surface);
+    --revo-grid-header-color: var(--foreground);
+    --revo-grid-header-border: var(--cell-border);
+    --revo-grid-header-focused-bg: var(--surface);
+    --revo-grid-header-hover-bg: var(--surface);
+    --revo-grid-cell-border: var(--cell-border);
+    --revo-grid-cell-vertical-border: var(--cell-border);
+    --revo-grid-focused-bg: rgb(0 120 99 / 7%);
+    --revo-grid-row-hover: rgb(255 255 255 / 6%);
+    --revo-grid-row-headers-bg: var(--surface);
+    --revo-grid-row-headers-color: var(--muted);
+    --revo-grid-cell-disabled-bg: transparent;
+    --revo-grid-selection-border: var(--accent);
+    --revo-grid-selection-bg: transparent;
+    --revo-grid-header-resize-hover: var(--accent);
+
+    /* Панель фильтров RevoGrid — адаптивна к теме оформления */
+    --revo-grid-filter-panel-bg: var(--surface);
+    --revo-grid-filter-panel-border: var(--cell-border);
+    --revo-grid-filter-panel-input-bg: var(--surface-secondary);
+    --revo-grid-filter-panel-divider: var(--cell-border);
+    --revo-grid-filter-panel-text: var(--foreground);
+    --revo-grid-filter-panel-muted-text: var(--muted);
+    --revo-grid-filter-panel-icon: var(--muted);
+    --revo-grid-filter-panel-icon-active: var(--accent);
+    --revo-grid-filter-panel-shadow: rgb(0 0 0 / 25%);
+    --revo-grid-filter-panel-select-border: var(--cell-border);
+    --revo-grid-filter-panel-select-border-hover: var(--accent);
+    --revo-grid-filter-panel-reorder-accent: var(--accent);
+    --revo-grid-filter-panel-reorder-color: var(--muted);
+    --revo-grid-filter-panel-focus-ring: 0 0 0 2px
+        color-mix(in oklch, var(--accent) 30%, transparent);
+    --revo-grid-button-bg: var(--accent);
+    --revo-grid-button-text: var(--accent-foreground);
+    --revo-grid-button-outline-border: var(--cell-border);
+    --revo-grid-button-outline-text: var(--foreground);
+    border: 0 !important;
+    background: var(--surface) !important;
+}
+
+/* Панель фильтров и выпадающие списки RevoGrid: тёмный фон + светлый текст */
+.data-grid revogr-filter-panel .filter-panel-dialog,
+.data-grid revo-dropdown .rv-dr-root {
+    color: var(--foreground) !important;
+    background-color: var(--surface) !important;
+}
+
+.data-grid revogr-filter-panel .filter-panel-dialog input[type="text"],
+.data-grid revogr-filter-panel .filter-panel-dialog input[type="date"],
+.data-grid revogr-filter-panel .select-css,
+.data-grid revo-dropdown .rv-dr-root .rv-dr-item {
+    color: var(--foreground) !important;
+    background-color: var(--surface-secondary) !important;
+}
+
+.data-grid revogr-filter-panel .filter-actions {
+    background: var(--surface) !important;
+}
+
+.data-grid .revo-button.green {
+    background-color: var(--success) !important;
+}
+
+.data-grid .revo-button.red {
+    background-color: var(--danger) !important;
+}
+
+.data-grid revogr-header,
+.data-grid revogr-header .header-rgRow,
+.data-grid revogr-header .group-rgRow,
+.data-grid revogr-header .rgHeaderCell,
+.data-grid .rowHeaders,
+.data-grid .header-wrapper {
+    background-color: var(--surface) !important;
+}
+
+.data-grid revogr-header .rgHeaderCell .header-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    line-height: 1.18;
+    min-width: 0;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    /* The label sits above the funnel, so the cell itself must not create a
+       stacking context. Declared with the rest of the selector: a second block
+       further down was invisible to anyone reading this rule. */
+    position: static;
+    z-index: auto;
+    transition:
+        margin-left 267ms cubic-bezier(0.4, 0, 0.2, 1),
+        margin-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.data-grid:not(.data-grid--user-sorted) revogr-header .sort-indicator {
+    display: none !important;
+}
+
+/* The sort arrow and the filter funnel live in one `.header-controls` flex row
+   (`[.sort-indicator, .filter-button-wrapper]`). RevoGrid anchors that row to the
+   cell's RIGHT edge while a column is unsorted, but switches it to `static` on a
+   sorted column. Because the label (`.header-content`) is absolutely positioned,
+   the now-static row becomes the only in-flow flex item and the whole cell's
+   `display: flex` puts it at the LEFT — both the arrow and the funnel drift
+   there. Re-anchor the row to fill the cell and separate the two ends
+   (`space-between`: arrow left, funnel right). The funnel is the wrapper
+   (`.filter-button-wrapper`), NOT the inner `.rv-filter` button, so target the
+   row's ends rather than the button.
+
+   Scope it to ACTUALLY sorted cells (`.asc`/`.desc`): RevoGrid renders a
+   `.sort-indicator` in EVERY sortable column (with a `sort-off` icon), so a plain
+   match would move every header once the grid is user-sorted. The arrow stays in
+   the flow (it must occupy the left end for `space-between`) and fades in via
+   `opacity`, staying in step with the label's `margin-left`. Painted with
+   `--muted` — the color the funnel resolves to (it uses the grid-local
+   `--revo-grid-filter-panel-icon`, not defined on the renovation/dictionary
+   grids). */
+.data-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls,
+.renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls {
+    /* The row's left edge is where the arrow lands (it is the first child), so
+       this is also the arrow's offset from the cell's left edge. */
+    position: absolute;
+    top: 0;
+    right: 1px;
+    bottom: 1px;
+    left: 6px;
+    width: auto;
+    min-width: 0;
+    margin-inline-end: 0;
+    justify-content: space-between;
+}
+
+.data-grid revogr-header .rgHeaderCell .header-controls .sort-indicator,
+.renovation-grid revogr-header .rgHeaderCell .header-controls .sort-indicator {
+    order: -1;
+    display: inline-flex;
+    align-items: center;
+    /* Present but hidden until the column is sorted — the arrow fades in place
+       (no `display`/layout switch), so it stays in step with `margin-left`. */
+    opacity: 0;
+    color: var(--accent);
+    transition: opacity 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.data-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls .sort-indicator,
+.renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-controls .sort-indicator {
+    opacity: 1;
+}
+
+/* RevoGrid intentionally omits its rank for a single active sort. Keep the
+   same numbered treatment for one and many levels by mirroring our priority
+   onto the rendered indicator and painting the number in one place. */
+.data-grid revogr-header .rgHeaderCell .header-controls .sort-indicator[data-sort-priority]::after {
+    content: attr(data-sort-priority);
+    font-size: 10px;
+    line-height: 1;
+}
+
+.data-grid
+    revogr-header
+    .rgHeaderCell
+    .header-controls
+    .sort-indicator[data-sort-priority]
+    .sort-order-index {
+    display: none;
+}
+
+.data-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content,
+.renovation-grid revogr-header .rgHeaderCell:is(.asc, .desc) .header-content {
+    margin-left: 24px;
+    /* Keep the label's centering basis IDENTICAL in both sort states: RevoGrid
+       flips `.header-content` from `position: absolute; inset: 0` (unsorted) to
+       `position: relative; flex: 1 1 0` (sorted), which happens instantly while
+       `margin-left` eases — the label would jump to the flex-centered spot and
+       only then slide (the "jerk"). Pin the sorted state to the absolute model
+       so only `margin-left` ever moves. */
+    position: absolute;
+    inset: 0;
+    flex: none;
+}
+
+/* Sorted cell with a filter funnel: RevoGrid reserves the funnel's width via
+   `margin-right: 24px` only for `:not(.asc):not(.desc)` (on hover/focus, or when
+   a filter is pinned). Mirror BOTH triggers here — otherwise the funnel overlaps
+   the label on a sorted column and, unlike an unsorted one, the text does not
+   make room, which breaks the centering symmetry.
+
+   The application funnel is an overlay sibling, so it cannot be matched with
+   `:has(.rv-filter.active)`. `data-funnel-open` is synchronised onto the label
+   whenever that overlay is visible (including an applied filter). Reserving the
+   right side from that marker keeps a sort+filter header in the same geometry
+   before and after hover; the pointer only changes opacity, never the label's
+   position. */
+.data-grid
+    revogr-header
+    .rgHeaderCell:is(.asc, .desc):is(
+        :hover,
+        :focus-within,
+        :has(.rv-filter.active),
+        :has(.report-header__title[data-funnel-open="true"])
+    )
+    .header-content {
+    margin-right: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .data-grid revogr-header .rgHeaderCell .rv-filter,
+    .data-grid revogr-header .rgHeaderCell .header-content,
+    .renovation-grid revogr-header .rgHeaderCell .header-content,
+    .data-grid revogr-header .rgHeaderCell .header-controls .sort-indicator,
+    .renovation-grid revogr-header .rgHeaderCell .header-controls .sort-indicator {
+        transition: none;
+    }
+}
+
+.data-grid revogr-header .header-rgRow,
+.data-grid revogr-header .group-rgRow,
+.data-grid revogr-data .rgRow {
+    box-shadow: none !important;
+}
+
+.data-grid revogr-header .rgHeaderCell {
+    border: 0 !important;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.data-grid revogr-header .rgHeaderCell.report-header-cell--outer-top,
+.data-grid .rowHeaders revogr-header .rgHeaderCell {
+    box-shadow:
+        0 1px 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.data-grid revogr-header .rgHeaderCell.report-header-cell--rowspan {
+    top: calc(-1 * var(--revo-grid-header-height));
+    height: 200%;
+    z-index: 2;
+}
+
+.data-grid revogr-data .rgCell {
+    border: 0 !important;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.data-grid revogr-viewport-scroll.colPinStart {
+    box-shadow: none !important;
+}
+
+/* The plan draws the pinned columns' right edge itself: the library's own
+   `colPinStart` inset line is always full-viewport-tall (it appears before any
+   row has loaded), so it is suppressed and replaced by an element whose height
+   we control. */
+.renovation-grid revogr-viewport-scroll.colPinStart {
+    box-shadow: none !important;
+}
+
+.renovation-grid-shell .renovation-grid__pinned-boundary {
+    position: absolute;
+    top: 0;
+    z-index: 3;
+    width: 1px;
+    height: var(--renovation-pinned-boundary-height, 0px);
+    background: var(--cell-border);
+    pointer-events: none;
+}
+
+.data-grid revogr-data .rgRow.focused-rgRow {
+    background-color: transparent !important;
+}
+
+.data-grid .rowHeaders revogr-header .rgHeaderCell,
+.data-grid .rowHeaders revogr-data .rgCell.report-row-header {
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.data-grid .rowHeaders revogr-header .rgHeaderCell {
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.data-grid revogr-data .rgCell.report-cell {
+    background: var(--cell-base) !important;
+    color: var(--foreground);
+    font-variant-numeric: tabular-nums;
+}
+
+/* A CellMergePlugin span (the «Реализация» product column: one cell across
+   all of the product's region rows) is as tall as the whole run, and the
+   plugin renders the label at its top edge. Center it vertically against the
+   merged height — `flex` makes the label a centered flex item in browsers
+   where the cell is a container, and `line-height` alone keeps single-row
+   cells unchanged. */
+.data-grid revogr-data .rgCell[merged]:not(.report-row-header) {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.data-grid revogr-data .rgCell.report-cell--selected {
+    background-image: linear-gradient(rgb(0 120 99 / 10%), rgb(0 120 99 / 10%)) !important;
+}
+
+.report-row-header__button {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+}
+
+/* Override both HeroUI branches: Select has a trigger-based min-width,
+   Autocomplete a trigger-based width/max-width. Size by rendered content only. */
+/*
+ * Width of an open SmartSelect list.
+ *
+ * The list sizes to its CONTENT (`max-content`) — a narrow «Блок» / «Архив» /
+ * «Бизнес-план» trigger must not squeeze its options. A long text value would
+ * then stretch the panel across the whole screen, so the content is capped and
+ * the item text WRAPS inside the cap instead of being cut.
+ *
+ * The cap is responsive: on a wide screen it is 25% of the viewport, with a
+ * 45rem ceiling — so the widest it ever gets is 720px, which lands exactly at
+ * 2880px wide (the requested 25%). The 22rem floor takes over below ~88rem, so
+ * on a laptop the list is a comfortable 352px rather than a sliver; phones
+ * fall back to `100vw - 2rem`.
+ */
+.smart-select-popover {
+    width: max-content;
+    min-width: 0;
+    max-width: clamp(22rem, 25vw, 45rem);
+}
+
+/* Narrow screens: the clamp's floor and the viewport bound decide. */
+@media (width < 64rem) {
+    .smart-select-popover {
+        max-width: calc(100vw - 2rem);
+    }
+}
+
+.smart-select-popover .list-box,
+.smart-select-popover .autocomplete__list-box {
+    width: auto;
+    /* Search input's intrinsic width must not set the panel's minimum size. */
+    white-space: nowrap;
+}
+
+.smart-select-popover [data-slot="search-field"],
+.smart-select-popover [data-slot="search-field-group"] {
+    min-width: 0;
+}
+
+.smart-select-popover [data-slot="search-field-input"] {
+    width: 0;
+    min-width: 0;
+    flex: 1;
+}
+
+/* Every dropdown option in SmartSelect: the tick indicator sits FIRST, in the
+   normal flow, and the label follows after a fixed gap. HeroUI's default draws
+   the indicator absolutely at the right edge with only `pe-7` reserved — a long
+   value then runs under the tick. Non-selectable rows («Выбрать все»/«Пустые»)
+   have no indicator, so they are unaffected.
+   `top`/`translate` come from the absolute-positioning rule: in the flow they
+   lift the box above the text baseline. HeroUI sets the modern `translate`
+   property (NOT `transform`), so both have to be reset. */
+.smart-select-popover .list-box-item__indicator,
+.column-filter__popover .list-box-item__indicator {
+    position: static;
+    order: -1;
+    top: auto;
+    inset-inline: auto;
+    /* The item's own `gap` separates the tick from the label — no extra margin. */
+    margin: 0;
+    /* HeroUI centers the tick with the modern `translate` property fed by two
+       Tailwind variables; a bare `translate: none` is not enough when a later
+       rule re-assembles the value, so zero the variables too. */
+    --tw-translate-x: 0;
+    --tw-translate-y: 0;
+    translate: none;
+    transform: none;
+    align-self: center;
+}
+
+/* The item's default `gap-3` (12px) is tuned for icon rows; a checkbox-to-text
+   gap of 8px reads tighter here. */
+.smart-select-popover .list-box-item,
+.column-filter__popover .list-box-item {
+    /* `max-content` makes the row as wide as its text so the panel can size
+       to the longest option; `max-width: 100%` lets it shrink back to the
+       panel's cap, where the label wraps instead of overflowing. */
+    width: max-content;
+    max-width: 100%;
+    min-width: 100%;
+    gap: 0.5rem;
+    /* Pull the left edge in: the row's own `px-2` plus the tick's box made the
+       indicator look inset relative to the popover edge. */
+    padding-inline-start: 0.25rem;
+    /* Wrapping labels: a long value breaks inside the capped panel rather than
+       being clipped. `overflow-wrap: anywhere` also splits an unbroken token
+       (a pasted code, a URL), which would otherwise widen the row past the
+       cap. */
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+/* With the indicator back in the flow the reserved right padding is dead
+   space — drop it so the label uses the full row width. */
+.smart-select-popover .list-box-item:has(.list-box-item__indicator),
+.column-filter__popover .list-box-item:has(.list-box-item__indicator) {
+    padding-inline-end: 0.5rem;
+}
+
+/* The rule between the pinned rows («Все варианты»/«Пустые») and the real
+   values of a SmartSelect. */
+.smart-select-popover .smart-select__separator {
+    margin-block: 0.25rem;
+}
+
+/* A pinned row selected («Все блоки», «Все варианты») is a REAL value: our
+   trigger renders its label, but react-aria still flags `data-placeholder`
+   because the stored value is the owner's sentinel, not an option id — and the
+   placeholder style greys the text. */
+.smart-select--has-value [data-slot="select-value"],
+.smart-select--has-value [data-slot="autocomplete-value"] {
+    color: var(--foreground);
+    opacity: 1;
+}
+
+/* The sequential number of a not-yet-loaded slot: same geometry as the
+   button, muted — it becomes clickable once the chunk arrives. */
+.report-row-header__number {
+    display: block;
+    width: 100%;
+    text-align: center;
+    color: var(--muted);
+}
+
+.data-grid .rowHeaders revogr-data .rgCell.report-row-header--selected {
+    color: var(--foreground);
+    background: var(--accent-glow);
+}
+
+.report-cell__checkbox {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+}
+
+/* A nullable boolean with NO value (the plan's «Наличие МТР»): an empty cell —
+   no checkbox at all. The label still covers the whole cell, so the first
+   click sets «Да». */
+.report-cell__checkbox--empty {
+    cursor: pointer;
+}
+
+.report-cell__checkbox input {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.report-cell__checkbox input:disabled {
+    cursor: default;
+}
+
+/* The hover hint that locks a dependent cell («выберите тип транспортного
+   средства…»): the native `title` lives on this wrapper, so it must cover the
+   whole cell — an inline span around the (empty) text would never be hovered. */
+.report-cell__hint {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    align-items: center;
+    overflow: hidden;
+}
+
+.data-grid revogr-data .rgCell.report-cell--readonly {
+    color: var(--muted);
+}
+
+/* Невидимая точка привязки плавающего Tooltip над занятой ячейкой. */
+.remote-cell-tooltip-trigger {
+    position: fixed;
+    z-index: 100;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+/* The floating cell hint is a sentence, not a token. HeroUI's tooltip defaults
+   to `word-break: break-all`, which split «заполнить» into «за»/«полнить» at
+   the capped width — break between words only; a genuinely long token still
+   wraps through `overflow-wrap: break-word`. */
+.grid-cell-tooltip {
+    max-width: 24rem;
+    word-break: normal;
+    overflow-wrap: break-word;
+    text-wrap: pretty;
+}
+
+.lock-tooltip {
+    display: block;
+    line-height: 1.35;
+    white-space: nowrap;
+}
+
+.data-grid revogr-data .rgCell.report-cell--placeholder {
+    background: var(--cell-placeholder) !important;
+}
+
+.data-grid revogr-data .rgCell.report-cell--empty {
+    background: var(--cell-empty) !important;
+}
+
+.data-grid revogr-data .rgCell.report-cell--calculated,
+.data-grid revogr-data .rgCell.report-cell--placeholder.report-cell--calculated {
+    background: var(--cell-calculated) !important;
+}
+
+.data-grid revogr-data .rgCell.report-cell--new {
+    background: var(--cell-new) !important;
+}
+
+.data-grid revogr-data .rgCell.report-cell--changed {
+    background: var(--cell-changed) !important;
+}
+
+.data-grid revogr-data .rgCell.report-cell--deleted {
+    background: var(--cell-deleted) !important;
+    color: #8c1d18;
+    text-decoration: line-through;
+}
+
+/* Numbers read aligned to the right edge in EVERY grid — the dictionaries,
+   «Сырьё», КППК and the plan's own form. The class comes from the shared column
+   config for a generic grid and from the plan's own column builder, so the rule
+   is deliberately NOT scoped to `.data-grid`: the plan is `.renovation-grid`
+   and used to fall through to the default left alignment. `justify-content`
+   covers a cell a layout turns into a flex container; `text-align` covers the
+   plain block cell. */
+revogr-data .rgCell.report-cell--number {
+    justify-content: flex-end;
+    text-align: right;
+}
+
+/* The span a numeric cell template renders (the plan's `numberTemplate`, the
+   shared `numberCellTemplate`). As an inline span `width`/`text-align` were
+   inert — the text was aligned by the CELL, not by the span. */
+.report-cell__number {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.report-cell__multi-value {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The compact «Архив» trigger is narrow; the opened list must not shrink to
+   the trigger width (Autocomplete locks it to `--trigger-width`). */
+.search-autocomplete-popover {
+    width: max(var(--trigger-width, 0px), 22rem);
+    max-width: max(var(--trigger-width, 0px), 22rem);
+}
+
+/* ── The shared grid loading skeleton ─────────────────────────────────────
+   A miniature of the table: «number | wide cell» pairs in a grid whose 1px
+   `gap` on the cell border colour IS the rule between the blocks. The header
+   row is taller (a header is taller than a row), the data rows share one
+   height — so the grid mounts into the same shape and nothing jumps. */
+.grid-loading-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 1px;
+    background: var(--cell-border);
+}
+
+.grid-loading-skeleton__row {
+    display: grid;
+    grid-template-columns: 4rem minmax(0, 1fr);
+    gap: 1px;
+    background: var(--cell-border);
+}
+
+.grid-loading-skeleton__row--head {
+    /* The header block: 2.6rem matches the grid's header height. */
+    grid-template-rows: 2.6rem;
+}
+
+.grid-loading-skeleton__row:not(.grid-loading-skeleton__row--head) {
+    grid-template-rows: 2.2rem;
+}
+
+.grid-loading-skeleton__cell {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    padding: 0 0.6rem;
+    background: var(--surface);
+}
+
+.grid-loading-skeleton__block {
+    width: 100%;
+    height: 0.75rem;
+    border-radius: 0.25rem;
+}
+
+.grid-loading-skeleton__row--head .grid-loading-skeleton__block {
+    height: 0.9rem;
+    opacity: 0.7;
+}
+
+/* The whole block below the header stays quiet: one muted tone, no shimmer
+   race between rows. */
+.grid-loading-skeleton__row:not(.grid-loading-skeleton__row--head) .grid-loading-skeleton__block {
+    opacity: 0.45;
+}
+
+/* The «№» column reads narrower than the data one. */
+.grid-loading-skeleton__cell--head {
+    justify-content: center;
+}
+
+.grid-loading-skeleton__cell--head .grid-loading-skeleton__block {
+    width: 1.5rem;
+}
+
+/* The «№» corner header above the row numbers (rendered by the shared grid's
+   rowHeaders columnTemplate). On grids with merged (multi-level) headers the
+   corner cell sits in the lowest header row — stretch it up so the «№» reads
+   across the full header height, like the joined column headers do. */
+.report-row-header__heading {
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 650;
+    user-select: none;
+    /* Declared here rather than in a second block further down: the funnel
+       animates the label's room, and the two halves of one selector drift when
+       they live apart. */
+    transition: margin-right 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The corner hosts the «Перейти к строке» funnel — the shared go-to popover of
+   every table. It mirrors the plan's corner funnel: collapsed while the header
+   is idle, revealed on hover/focus, and the «№» label makes room for it so the
+   two never overlap. */
+.report-row-header__heading-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    /* The corner's content box is `width: 100%`, so the funnel's `right: 0`
+       lands on the cell's edge — not on the text's. */
+    box-sizing: border-box;
+}
+
+.report-row-header__filter-button {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    /* Same offset as the column funnels in the grids (their label row is inset
+       the same way), so the corner matches them instead of hugging the edge. */
+    right: -4px;
+    bottom: 0;
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+        opacity 267ms cubic-bezier(0.4, 0, 0.2, 1),
+        width 267ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The same funnel as every other filter affordance in the app. */
+.report-row-header__filter-button::after {
+    width: 11px;
+    height: 11px;
+    background-color: currentColor;
+    content: "";
+    mask: var(--filter-icon) center / contain no-repeat;
+}
+
+.report-row-header--heading:hover .report-row-header__filter-button,
+.report-row-header__heading-wrap:hover .report-row-header__filter-button {
+    width: 24px;
+    opacity: 1;
+}
+
+.report-row-header--heading:hover .report-row-header__heading {
+    margin-right: 12px;
+}
+
+/* Touch pointers have no hover — keep the funnel reachable, like RevoGrid. */
+@media (hover: none), (pointer: coarse) {
+    .report-row-header__filter-button {
+        width: 24px;
+        opacity: 1;
+    }
+
+    .report-row-header__heading {
+        margin-right: 20px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .report-row-header__filter-button,
+    .report-row-header__heading {
+        transition: none;
+    }
+}
+
+/* Pinned summary row (the assets dictionary): one vertical (right) + one bottom
+   border, white empty cells and a green numeric total — like the plan's
+   summary. Its row header shows no number. */
+.data-grid revogr-data .rgCell.data-grid__summary-cell {
+    background: var(--surface) !important;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+    font-weight: 650;
+}
+
+.data-grid revogr-data .rgCell.data-grid__summary-cell--filled {
+    background: var(--cell-calculated) !important;
+}
+
+/* No line between the header and the pinned summary row: drop any bottom edge
+   on the header and any top edge on the summary cells. */
+.data-grid--summary revogr-header,
+.data-grid--summary revogr-header .header-rgRow,
+.data-grid--summary revogr-header .group-rgRow,
+.data-grid--summary revogr-header .rgHeaderCell {
+    border-bottom: 0 !important;
+    box-shadow: none !important;
+}
+
+.data-grid--summary revogr-data .rgCell.data-grid__summary-cell,
+.data-grid--summary revogr-data .rgCell.data-grid__summary-cell--filled {
+    border-top: 0 !important;
+}
+
+/* Merge the header with the pinned summary row where the summary cell stays
+   empty (every assets column but the two carrying totals): the header cell
+   stretches over both rows and covers the empty summary cell, so the column
+   reads as one tall header cell with its label centred — like the plan's
+   merged column-number cells. The totals columns keep a separate header cell
+   and the green totals cell below it. The pinned row is as tall as the grid's
+   rowSize (36). */
+.data-grid--summary revogr-header .rgHeaderCell.report-header-cell--summary-merge,
+.data-grid--summary .rowHeaders revogr-header .rgHeaderCell.report-row-header--heading {
+    height: calc(100% + var(--rm-summary-row-height)) !important;
+    z-index: 2;
+}
+
+/* The row header's «№» rests on the cell's line box; centre it in the merged
+   cell so it sits level with the stretched column headers. */
+.data-grid--summary .rowHeaders revogr-header .rgHeaderCell.report-row-header--heading {
+    align-items: center;
+}
+
+.report-row-header__summary {
+    display: block;
+}
+
+/* Pinned-row copies: read-only snapshots under the column-number strip. The
+   original row stays in the table; the copy is marked by its number only so a
+   glance is enough to tell where «Открепить» lives. */
+.data-grid revogr-data .rgCell.data-grid__pinned-copy {
+    background: var(--surface);
+}
+
+.report-row-header__button--pinned-copy {
+    color: var(--accent);
+    font-weight: 650;
+}
+
+.data-grid.data-grid--merged-header revogr-header .rgHeaderCell.report-row-header--heading {
+    top: calc(-1 * var(--grid-header-height) / 2);
+    height: 200%;
+    z-index: 2;
+}

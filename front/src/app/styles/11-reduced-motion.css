@@ -1,0 +1,30 @@
+/* Reduced-motion policy for the app-owned surfaces not covered by the five
+   targeted blocks above. Keep each selector local: HeroUI's own reduced-motion
+   policy stays untouched, and the grid's intentional layout transitions are
+   still perceivable without motion (the state change itself remains). */
+@media (prefers-reduced-motion: reduce) {
+    html,
+    .app-header,
+    .support-link,
+    .support-link__label,
+    .app-body,
+    .table-toolbar,
+    .toolbar-filters__row,
+    .form-status__dot--connecting,
+    .form-status__dot--import,
+    .table-footer,
+    .toolbar-collapse,
+    .action-bar > *,
+    .fullscreen-panel,
+    .renovation-grid__header-slot,
+    .renovation-grid__header-cell,
+    .header-filter-button,
+    .renovation-grid__corner-label,
+    .report-header__title,
+    .grid-header-menu__popover[data-entering],
+    .grid-header-menu__popover[data-exiting] {
+        animation: none;
+        transition: none;
+        scroll-behavior: auto;
+    }
+}

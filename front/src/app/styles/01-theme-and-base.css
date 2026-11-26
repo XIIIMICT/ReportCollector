@@ -1,0 +1,152 @@
+/* Tailwind's sm/md breakpoints keep their standard values (40rem / 48rem).
+   The old override to 0rem did not affect HeroUI: its component styles use
+   literal `@media (min-width:40rem)` rules, not these theme variables. It only
+   made Tailwind `sm:` utilities match at every width — the single `sm:` call
+   site (Excel export dialog) now uses an unconditional `max-w-[420px]` so the
+   dialog looks the same on narrow screens. */
+
+revogr-attribution {
+    display: none; /* NEVER TOUCH THIS */
+}
+
+.scrollbar-hidden {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+}
+
+:root,
+.light,
+.default,
+[data-theme="light"],
+[data-theme="default"] {
+    /* Theme Colors (Light Mode) */
+    --accent: oklch(51.12% 0.0965 174.82);
+    --accent-foreground: oklch(99.11% 0 0);
+    --background: oklch(97.02% 0 174.82);
+    --border: oklch(90% 0 174.82);
+    --danger: oklch(65.32% 0.2328 16.26);
+    --danger-foreground: oklch(99.11% 0 0);
+    --default: oklch(94% 0 174.82);
+    --default-foreground: oklch(21.03% 0.0059 174.82);
+    --field-background: oklch(100% 0 174.82);
+    --field-border: transparent;
+    --field-foreground: oklch(21.03% 0 174.82);
+    --field-placeholder: oklch(55.17% 0 174.82);
+    --focus: oklch(51.12% 0.0965 174.82);
+    --foreground: oklch(21.03% 0 174.82);
+    --muted: oklch(55.17% 0 174.82);
+    --overlay: oklch(100% 0 174.82);
+    --overlay-foreground: oklch(21.03% 0 174.82);
+    --scrollbar: oklch(87.1% 0 174.82);
+    --segment: oklch(100% 0 174.82);
+    --segment-foreground: oklch(21.03% 0 174.82);
+    --separator: oklch(92% 0 174.82);
+    --success: oklch(73.29% 0.1935 141.33);
+    --success-foreground: oklch(21.03% 0.0059 141.33);
+    --surface: oklch(100% 0 174.82);
+    --surface-foreground: oklch(21.03% 0 174.82);
+    --surface-secondary: oklch(95.24% 0 174.82);
+    --surface-secondary-foreground: oklch(21.03% 0 174.82);
+    --surface-tertiary: oklch(93.73% 0 174.82);
+    --surface-tertiary-foreground: oklch(21.03% 0 174.82);
+    --warning: oklch(78.19% 0.1585 62.85);
+    --warning-foreground: oklch(21.03% 0.0059 62.85);
+
+    /* Text aliases (collab bar и пр.) */
+    --text: var(--foreground);
+    --text-secondary: var(--muted);
+    --text-tertiary: var(--muted);
+
+    /* Border Radius */
+    --radius: 0.5rem;
+    --field-radius: 1rem;
+
+    /* Grid (RevoGrid) cell palette */
+    --accent-glow: rgb(0 120 99 / 9%);
+    --cell-base: oklch(95.24% 0 174.82);
+    --cell-empty: oklch(83.5% 0 174.82);
+    --cell-calculated: oklch(93.5% 0.03 160);
+    --cell-placeholder: oklch(93% 0.02 220);
+    --cell-new: oklch(95% 0.05 90);
+    --cell-deleted: oklch(93% 0.03 20);
+    --cell-changed: oklch(95% 0.05 90);
+    --cell-invalid: oklch(91% 0.055 22);
+    --cell-border: oklch(80% 0 174.82);
+    /* THE filter glyph of the app — iconoir's `Filter`, the same shape every
+       filter affordance draws (the plan header, the «№» corner, the grids'
+       header funnels). Kept as a mask so it inherits the surrounding colour. */
+    --filter-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.99961 3H19.9997C20.552 3 20.9997 3.44764 20.9997 3.99987L20.9999 5.58569C21 5.85097 20.8946 6.10538 20.707 6.29295L14.2925 12.7071C14.105 12.8946 13.9996 13.149 13.9996 13.4142L13.9996 19.7192C13.9996 20.3698 13.3882 20.8472 12.7571 20.6894L10.7571 20.1894C10.3119 20.0781 9.99961 19.6781 9.99961 19.2192L9.99961 13.4142C9.99961 13.149 9.89425 12.8946 9.70672 12.7071L3.2925 6.29289C3.10496 6.10536 2.99961 5.851 2.99961 5.58579V4C2.99961 3.44772 3.44732 3 3.99961 3Z'/%3E%3C/svg%3E");
+}
+
+.dark,
+[data-theme="dark"] {
+    color-scheme: dark;
+    /* Theme Colors (Dark Mode) */
+    --accent: oklch(51.12% 0.0965 174.82);
+    --accent-foreground: oklch(99.11% 0 0);
+    --background: oklch(12% 0 174.82);
+    --border: oklch(28% 0 174.82);
+    --danger: oklch(59.4% 0.1967 15.15);
+    --danger-foreground: oklch(99.11% 0 0);
+    --default: oklch(27.4% 0 174.82);
+    --default-foreground: oklch(99.11% 0 0);
+    --field-background: oklch(21.03% 0 174.82);
+    --field-border: transparent;
+    --field-foreground: oklch(99.11% 0 174.82);
+    --field-placeholder: oklch(70.5% 0 174.82);
+    --focus: oklch(51.12% 0.0965 174.82);
+    --foreground: oklch(99.11% 0 174.82);
+    --muted: oklch(70.5% 0 174.82);
+    --overlay: oklch(21.03% 0 174.82);
+    --overlay-foreground: oklch(99.11% 0 174.82);
+    --scrollbar: oklch(70.5% 0 174.82);
+    --segment: oklch(39.64% 0 174.82);
+    --segment-foreground: oklch(99.11% 0 174.82);
+    --separator: oklch(25% 0 174.82);
+    --success: oklch(73.29% 0.1935 141.33);
+    --success-foreground: oklch(21.03% 0.0059 141.33);
+    --surface: oklch(21.03% 0 174.82);
+    --surface-foreground: oklch(99.11% 0 174.82);
+    --surface-secondary: oklch(25.7% 0 174.82);
+    --surface-secondary-foreground: oklch(99.11% 0 174.82);
+    --surface-tertiary: oklch(27.21% 0 174.82);
+    --surface-tertiary-foreground: oklch(99.11% 0 174.82);
+    --warning: oklch(82.03% 0.1388 66.86);
+    --warning-foreground: oklch(21.03% 0.0059 66.86);
+
+    /* Grid (RevoGrid) cell palette */
+    --accent-glow: rgb(0 120 99 / 18%);
+    --cell-base: oklch(25.7% 0 174.82);
+    --cell-empty: oklch(33% 0 174.82);
+    --cell-calculated: oklch(30% 0.03 160);
+    --cell-placeholder: oklch(29% 0.02 220);
+    --cell-new: oklch(31% 0.05 90);
+    --cell-deleted: oklch(30% 0.03 20);
+    --cell-changed: oklch(31% 0.05 90);
+    --cell-invalid: oklch(32% 0.055 22);
+    --cell-border: oklch(39.64% 0 174.82);
+}
+
+/* NextThemesProvider: плавная смена темы */
+html {
+    transition:
+        background-color 200ms ease,
+        color 200ms ease;
+    /* The app is a fixed shell (`.app-shell` = 100dvh) that scrolls
+       internally. HeroUI portals overlays (tooltips, popovers) into
+       `document.body` as absolutely-positioned boxes; with
+       `body { min-height: 100% }` a box anchored near the footer grew the
+       document and a stray page scrollbar appeared. Clip the document root
+       instead: `html` owns the no-scroll, while `body` stays
+       `overflow: visible` so the owned-by-body portal is not cut off. */
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    height: 100%;
+}

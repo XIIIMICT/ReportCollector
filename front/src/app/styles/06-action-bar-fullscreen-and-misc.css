@@ -1,0 +1,376 @@
+.action-bar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.45rem;
+}
+
+.action-bar > *,
+.action-button-wrapper {
+    display: inline-flex;
+}
+
+/* Appearing action-bar buttons (e.g. «Зафиксировать» on its tab) slide and fade
+   in smoothly instead of popping — the same settle as the version picker. */
+.action-bar > * {
+    animation: action-button-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes action-button-enter {
+    from {
+        opacity: 0;
+        transform: translateX(0.4rem);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.shortcut-tooltip {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+/* The action bar's floating kbd hint. `position: fixed` keeps it out of the
+   document flow (no stray page scrollbar) and unclipped by the shell; the
+   coordinates come from the hovered button's rect (viewport-relative). */
+.action-bar__hint {
+    position: fixed;
+    z-index: 1000;
+    transform: translate(-50%, calc(-100% - 0.5rem));
+    padding: 0.3rem 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--foreground);
+    box-shadow: 0 0.35rem 1rem rgb(22 25 24 / 18%);
+    font-size: 0.8rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* The keys of a shortcut hint («Ctrl» «Y»), side by side, no words. */
+.action-bar__hint-keys {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.action-bar__hint-keys .kbd {
+    background: var(--surface-secondary);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 0 var(--border);
+}
+
+.expandable-button {
+    --expandable-button-gap: 0.45rem;
+    display: inline-flex;
+    min-width: 2.65rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    overflow: hidden;
+    padding-inline: 0.7rem;
+    transition:
+        gap 180ms ease,
+        padding 180ms ease;
+}
+
+.expandable-button:hover {
+    gap: var(--expandable-button-gap);
+}
+
+/* A disabled action still has to explain itself: HeroUI's disabled state sets
+   `pointer-events: none`, which would swallow the hover that shows the reason.
+   The button stays non-clickable (it keeps `disabled` and `aria-disabled`), we
+   only let the pointer through so the action bar can show its hint. */
+.expandable-button:disabled[data-action-tooltip],
+.expandable-button[aria-disabled="true"][data-action-tooltip] {
+    pointer-events: auto;
+    cursor: not-allowed;
+}
+
+/* While a HoverDropdown trigger's menu is open the button loses :hover
+   (react-aria inerts the rest of the page), so keep the label/expanded look
+   via an explicit class instead. */
+.expandable-button--expanded {
+    gap: var(--expandable-button-gap);
+}
+
+.expandable-button__icon {
+    display: inline-grid;
+    flex: 0 0 auto;
+    place-items: center;
+}
+
+.expandable-button__icon svg {
+    width: 1.1rem;
+    height: 1.1rem;
+}
+
+.expandable-button__label {
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    white-space: nowrap;
+    transition:
+        max-width 220ms ease,
+        opacity 130ms ease;
+}
+
+.expandable-button:hover .expandable-button__label,
+.expandable-button:focus-visible .expandable-button__label,
+.expandable-button[data-focus-visible="true"] .expandable-button__label,
+.expandable-button--expanded .expandable-button__label {
+    max-width: 13rem;
+    opacity: 1;
+}
+
+.expandable-button:focus-visible,
+.expandable-button[data-focus-visible="true"] {
+    gap: var(--expandable-button-gap);
+}
+
+/* Reserved expansion space belongs before the buttons in right-aligned footers. */
+.expandable-button-group {
+    justify-content: flex-end;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .expandable-button,
+    .expandable-button__label {
+        transition: none;
+    }
+}
+
+/* Compact view menu (< md): fixed-width check column keeps the toggle and
+   action entries aligned. */
+.view-strip-menu-check {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: 1.1rem;
+    justify-content: center;
+}
+
+.app-shell--fullscreen .app-header {
+    min-height: 0;
+    max-height: 0;
+    padding-block: 0;
+    border-color: transparent;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-100%);
+}
+
+.app-shell--fullscreen .app-body {
+    padding: 0;
+}
+
+/* The measured child keeps its intrinsic height; only its outside frame animates. */
+.workspace-panel {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: clip;
+}
+
+.workspace-panel__content {
+    display: flow-root;
+}
+
+/* Breathing room between the panel and the grid below it. The card's content is
+   a flex column whose 4px `gap` was the only separation the stacked layout left,
+   so in «Сырьё» the table sat 4px under the panel. The gap is the card's own
+   side inset, so the table keeps the same frame everywhere.
+   NOT in fullscreen: the card's padding is gone there and the panels ARE the
+   frame of the screen. */
+.workspace-card:not(.workspace-card--fullscreen) .workspace-card__content {
+    row-gap: 1rem;
+}
+
+/* Inside a card the panels take their height FROM the content: no vertical
+   padding of their own (the card frames them) and no fixed `min`/`max` height —
+   a fixed height split its surplus above and below with `align-items: center`.
+   The horizontal padding stays: it aligns the controls with the grid.
+   Fullscreen is excluded — there the panels ARE the frame of the screen. */
+.workspace-card:not(.workspace-card--fullscreen) .table-toolbar,
+.workspace-card:not(.workspace-card--fullscreen) .table-footer,
+.workspace-card .table-toolbar__row {
+    padding-block: 0;
+    min-height: 0;
+    max-height: none;
+}
+
+.app-shell--fullscreen .workspace-card {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.app-shell--fullscreen .workspace-card__content {
+    row-gap: 0;
+}
+
+.app-shell--fullscreen .workspace-card .table-toolbar,
+.app-shell--fullscreen .workspace-card .view-strip,
+.app-shell--fullscreen .workspace-card .table-footer {
+    min-height: 0;
+    max-height: 0;
+    padding-block: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Collapsed to zero height (above), so the grid reclaims the full viewport;
+    the transform just keeps the pre-existing slide-out animation direction. */
+.app-shell--fullscreen .workspace-card .table-toolbar {
+    transform: translateY(-100%);
+}
+
+.app-shell--fullscreen .workspace-card .table-footer {
+    transform: translateY(100%);
+}
+
+.fullscreen-reveal {
+    position: fixed;
+    z-index: 10000;
+}
+
+.fullscreen-reveal--top {
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 1em;
+}
+
+.fullscreen-reveal--bottom {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 1em;
+}
+
+.fullscreen-panel {
+    position: absolute;
+    z-index: 1;
+    border: 1px solid var(--border);
+    border-radius: 2rem;
+    opacity: 0;
+    pointer-events: none;
+    background: var(--surface);
+    box-shadow: 0 0.8rem 2rem rgb(22 25 24 / 11%);
+    backdrop-filter: blur(0.8rem);
+    visibility: hidden;
+    overflow: hidden;
+    padding: 1em;
+    transition:
+        opacity 180ms ease,
+        transform 240ms ease,
+        visibility 0s linear 240ms;
+}
+
+.fullscreen-panel--top {
+    top: 0.75rem;
+    right: 1em;
+    left: 1em;
+    transform: translateY(calc(-100% - 1rem));
+}
+
+.fullscreen-panel--bottom {
+    right: 1em;
+    bottom: 0.75rem;
+    left: 1em;
+    transform: translateY(calc(100% + 1rem));
+}
+
+.fullscreen-panel .app-header,
+.fullscreen-panel .table-toolbar,
+.fullscreen-panel .view-strip,
+.fullscreen-panel .table-footer {
+    border: 0;
+    border-radius: inherit;
+}
+
+.fullscreen-reveal:hover .fullscreen-panel,
+.fullscreen-reveal:has(.fullscreen-panel:hover) .fullscreen-panel,
+.fullscreen-reveal--open .fullscreen-panel {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(0);
+    visibility: visible;
+    transition-delay: 0s;
+}
+
+.fullscreen-reveal--bottom.is-open .fullscreen-panel {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(0);
+    visibility: visible;
+    transition-delay: 0s;
+}
+
+.grid-empty {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: grid;
+    place-items: center;
+    color: var(--muted);
+    background: var(--surface);
+}
+
+/* A read-only dictionary backed by an external database table: the table is
+   missing, so the grid shows the built-in demo rows. */
+.grid-source-warning {
+    margin: 0 0.75rem 0.5rem;
+    padding: 0.45rem 0.7rem;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.35rem;
+}
+
+.startup-error-card {
+    margin: auto;
+    min-width: min(28rem, calc(100vw - 2rem));
+}
+
+.profile-modal__header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.65rem;
+    text-align: left;
+}
+
+.profile-modal__header > svg {
+    width: 1.35rem;
+    height: 1.35rem;
+    flex: 0 0 auto;
+}
+.profile-modal__title {
+    font-size: 1.25rem;
+}
+
+.theme-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.theme-selector [data-slot="label"] {
+    font-size: 0.85rem;
+}
+
+.profile-modal__body {
+    display: grid;
+    gap: 1rem;
+}
+
+.profile-modal {
+    width: min(36rem, calc(100vw - 2rem));
+}

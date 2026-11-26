@@ -1,0 +1,437 @@
+/* Merged summary in the top toolbar: the status badge (dot, LEFT, vertically
+   centered against the stacked lines), the collab presence («На форме») and
+   the selection/filter breakdown («Выделено», «Строки»). The hover tooltip
+   spells out the breakdown first, then the presence list. */
+.form-status {
+    display: flex;
+    /* Take the toolbar half the tabs don't use (tabs are capped at 50%). */
+    flex: 1 1 auto;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    line-height: 1.25;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.form-status__body {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    /* NO row `gap`: the collapsible «Выделено» row owns its own spacing, so a
+       collapsed line contributes nothing at all (a `gap` would still reserve
+       room for the mounted-but-hidden row). */
+    gap: 0;
+}
+
+.form-status__presence,
+.form-status__selection,
+.form-status__rows {
+    color: var(--text);
+    font-size: 0.8rem;
+}
+
+/* Recreate the old `gap: 0.1rem` between lines that are actually VISIBLE. The
+   selection row is always mounted, so ":first-child"/":last-child" cannot
+   express this; the row supplies its own margin while open. */
+.form-status__rows:not(:first-child) {
+    margin-block-start: 0;
+}
+
+/* The «Выделено» line is COLLAPSIBLE, not conditional: it stays mounted and
+   animates its own height, so the footer (whose height follows its content —
+   `.workspace-card:not(--fullscreen) .table-footer` has `max-height: none`)
+   grows and shrinks smoothly instead of jumping by one line. A `0fr → 1fr` grid
+   row animates an unknown height with no measurement and no JS. The line is
+   removed from the accessibility tree while collapsed, so a hidden fragment is
+   never announced. */
+.form-status__selection {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    margin-block-start: 0;
+    transition: opacity 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.form-status__selection--shown {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    margin-block-start: 0;
+}
+
+/* The inner wrapper clips the line to the animated row height. */
+.form-status__selection > * {
+    min-height: 0;
+    overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .form-status__selection {
+        transition: none;
+    }
+}
+
+/* While collaboration is off or still connecting there is no member list —
+   only the state itself, emphasised. */
+.form-status__presence--bold {
+    font-weight: 600;
+}
+
+.form-status__dot {
+    flex: 0 0 auto;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--text-tertiary);
+}
+
+.form-status__dot--online {
+    background: var(--success);
+}
+
+.form-status__dot--connecting {
+    background: var(--warning);
+    animation: collab-pulse 1.2s ease-in-out infinite;
+}
+
+.form-status__dot--offline {
+    background: var(--danger);
+}
+
+.form-status__dot--import {
+    background: var(--danger);
+    animation: collab-pulse 1.2s ease-in-out infinite;
+}
+
+/* Gate A: a running workbook load blocks the whole plan form. */
+.form-status__import {
+    color: var(--danger);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.form-status-tooltip {
+    max-width: none !important;
+}
+
+.form-status-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    color: var(--text);
+}
+
+/* The Строки/Столбцы stats sit as their own group, separated from «Выделено»
+   by a two-line gap (0.6rem ≈ two line breaks); within the group Строки and
+   Столбцы are one line apart (the parent's tight gap). */
+.form-status-detail__stats {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+}
+
+/* The numbered list of hidden columns: the table numbers (not list indexes)
+   followed by the header chain, exactly as the «+» tooltip spells them out. */
+.form-status-detail__hidden {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-top: 0.6rem;
+    white-space: normal;
+}
+
+.grid-hidden-columns {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    white-space: normal;
+}
+
+.grid-hidden-columns li {
+    color: inherit;
+}
+
+.grid-hidden-columns strong {
+    font-variant-numeric: tabular-nums;
+}
+
+.grid-unhide-tooltip {
+    max-width: 22rem;
+    white-space: normal;
+}
+
+/* One empty line between the stats block and the «Фильтры:» list. */
+.form-status-detail__gap {
+    height: 0.5rem;
+}
+
+.form-status-detail__filters {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+/* Marked list of the columns a filter narrows: a bullet per column, indented
+   under the bold «Фильтры:» caption. The entries read in the normal text colour —
+   this is a list of names, not a de-emphasised hint. */
+.form-status-detail__filters-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    list-style: disc;
+}
+
+.form-status-detail__filters-item {
+    color: inherit;
+}
+
+.form-status-detail__filters-sep {
+    color: inherit;
+}
+
+/* The sorting is NUMBERED: several columns can be sorted, and their order
+   decides which one wins. The markers follow the table's own numerals. */
+.form-status-detail__sort-list {
+    list-style: decimal;
+}
+
+/* The sorting direction: a small arrow after the column name. */
+.form-status-detail__sort-order {
+    color: var(--muted);
+}
+
+.form-status-detail__presence {
+    display: grid;
+    gap: 0.3rem;
+    margin: 0;
+    padding: 0;
+}
+
+.form-status-detail__presence-summary {
+    font-size: 0.8rem;
+}
+
+.form-status-detail__presence-list {
+    display: grid;
+    gap: 0.4rem;
+    margin: 0;
+    padding-inline-start: 1.2em;
+    list-style: disc outside;
+}
+
+.form-status-detail__presence-item {
+    display: list-item;
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.form-status-detail__head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.3rem;
+}
+
+.form-status-detail__name {
+    font-weight: 600;
+}
+
+.form-status-detail__role,
+.form-status-detail__cells {
+    opacity: 0.75;
+}
+
+.form-status-detail__cells {
+    display: block;
+    margin-top: 0.15rem;
+}
+
+/* Match the blank-line separation before the statistics group. */
+.form-status-detail__presence + .form-status-detail__row {
+    margin-top: 0.6rem;
+}
+
+@keyframes collab-pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.35;
+    }
+}
+
+.table-footer {
+    z-index: 4;
+    display: flex;
+    min-height: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-block: 0;
+    background: var(--surface);
+    contain: paint;
+    overflow: hidden;
+    transition:
+        max-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        min-height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        padding 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.table-footer__summary {
+    display: flex;
+    min-width: 0;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 0.8rem;
+}
+
+/* The footer's left slot. It yields width before the action bar does. */
+.table-footer__status {
+    display: flex;
+    min-width: 0;
+    flex: 0 1 auto;
+    align-items: center;
+}
+
+/* A background operation's progress (the Excel load). It is bounded at 20em
+   and centered on the footer itself, never on the gap the status and the
+   actions happen to leave: while it is shown both sides take equal tracks, so
+   the bar holds the panel's center instead of drifting with their content. */
+.table-footer__progress {
+    display: flex;
+    min-width: 5em;
+    max-width: 20em;
+    flex: 0 1 20em;
+    align-items: center;
+}
+
+.table-footer:has(.table-footer__progress) .table-footer__status,
+.table-footer:has(.table-footer__progress) .action-bar {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+/* The action bar never shrinks below its buttons — they would slide under the
+   bar. With a wider action set (an approver's «Согласовать» and the like) the
+   bar therefore gives up the exact center instead of being covered. */
+.table-footer:has(.table-footer__progress) .action-bar {
+    min-width: max-content;
+}
+
+/* The status gets at most the other half while the bar holds the center, so
+   its lines ellipsize instead of running under the bar on a tight footer (its
+   tooltip still spells out the presence list and the numbers). The tooltip
+   trigger in between defaults to `min-width: auto`, which would pin the track
+   to the text's full width. */
+.table-footer:has(.table-footer__progress) .table-footer__status > * {
+    min-width: 0;
+}
+
+.table-footer:has(.table-footer__progress) .form-status__presence,
+.table-footer:has(.table-footer__progress) .form-status__selection,
+.table-footer:has(.table-footer__progress) .form-status__rows {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Just above lg the full action bar (four two-button groups, ~23.5rem) needs
+   more than the half the centering reserves for it, so a 20em bar would cover
+   it. There the bar yields exactly the width the action side cannot spare —
+   `100% - 48rem` is what remains once each side keeps the action bar plus the
+   footer gap — and holds the panel's center all the same. From ~72rem on it is
+   20em again. */
+@media (width >= 64rem) {
+    .table-footer:has(.table-footer__progress) .table-footer__progress {
+        max-width: min(20em, calc(100% - 48rem));
+    }
+}
+
+/* Below sm the view strip's «Вид таблицы» label collapses (the same
+   `width <= 40rem` block), so the footer is tighter and the bar gives half its
+   width back. Only at that size does the load get the status's width: the form
+   status collapses to its presence badge (its tooltip still works). On a
+   roomier footer the status keeps its lines. */
+@media (width <= 40rem) {
+    .table-footer__progress {
+        max-width: 10em;
+        flex-basis: 10em;
+    }
+
+    .table-footer:has(.table-footer__progress) .form-status__body {
+        display: none;
+    }
+}
+
+.table-footer__progress-bar {
+    width: 100%;
+    min-width: 0;
+}
+
+/* The bar's caption line: the current stage on the left, the percentage on the
+   right. Both step down to the footer's scale, and the caption ellipsizes
+   instead of pushing the percentage out of the bounded slot. */
+.table-footer__progress .table-footer__progress-bar [data-slot="label"] {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.table-footer__progress .table-footer__progress-bar .progress-bar__output {
+    color: var(--text);
+    font-size: 0.75rem;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* A toolbar control shown only on some sections (the «Рабочая версия» picker,
+   the plan's «Блок» filter): it stays mounted and collapses its width — plus
+   margin and opacity — instead of popping, so the toolbar settles smoothly
+   when the section changes. */
+.archive-autocomplete,
+.toolbar-collapse {
+    max-width: 22rem;
+    min-width: 0;
+    overflow: hidden;
+    opacity: 1;
+    pointer-events: auto;
+    transition:
+        max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+        margin 220ms cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 140ms ease;
+}
+
+.archive-autocomplete {
+    /* Content-sized trigger at every width: the two-line «Рабочая версия»
+       takes as much space as it needs. The opened list keeps its own width
+       (see .search-autocomplete-popover below — at least 22rem). It never
+       shrinks below its content in the expanded state. */
+    width: auto;
+    flex: 0 0 auto;
+}
+
+.archive-autocomplete--hidden,
+.toolbar-collapse--hidden {
+    max-width: 0;
+    height: 0;
+    min-height: 0;
+    margin-right: 0;
+    opacity: 0;
+    pointer-events: none;
+}

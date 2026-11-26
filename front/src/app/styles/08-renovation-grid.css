@@ -1,0 +1,514 @@
+/* ─── RevoGrid (план «Ремонт») ────────────────────────────── */
+
+/* Both native headers are hidden: the 11-level column header is drawn by the
+   page overlay (.renovation-grid__header), and the «№» corner header inside
+   revogr-row-headers collapses with it — then both data areas (main and
+   row-header) start at y=0 and stay aligned. */
+.renovation-grid revogr-header {
+    display: none !important;
+}
+
+.renovation-grid {
+    --revo-grid-font-family: var(--font-sans);
+    --revo-grid-font-size: 12px;
+    --revo-grid-header-height: 44px;
+    --revo-grid-header-font-size: 11.5px;
+    --revo-grid-header-font-weight: 650;
+    --revo-grid-header-text-transform: none;
+    --revo-grid-header-text-align: center;
+    --revo-grid-header-padding: 0 9px;
+    --revo-grid-cell-padding: 0 9px;
+    --revo-grid-background: var(--surface);
+    --revo-grid-text: var(--foreground);
+    --revo-grid-border: var(--cell-border);
+    --revo-grid-header-bg: var(--surface);
+    --revo-grid-header-color: var(--foreground);
+    --revo-grid-header-border: var(--cell-border);
+    --revo-grid-header-focused-bg: var(--surface);
+    --revo-grid-header-hover-bg: var(--surface);
+    --revo-grid-cell-border: var(--cell-border);
+    --revo-grid-cell-vertical-border: var(--cell-border);
+    --revo-grid-focused-bg: rgb(0 120 99 / 7%);
+    --revo-grid-row-hover: rgb(255 255 255 / 6%);
+    --revo-grid-row-headers-bg: var(--surface);
+    --revo-grid-row-headers-color: var(--muted);
+    --revo-grid-cell-disabled-bg: transparent;
+    --revo-grid-selection-border: var(--accent);
+    --revo-grid-selection-bg: transparent;
+    --revo-grid-header-resize-hover: var(--accent);
+    border: 0 !important;
+    background: var(--surface) !important;
+    /* The library stylesheet sets `revo-grid { min-height: 300px }` (a Safari
+       stretch workaround). Under the pinned 264px overlay header the data
+       viewport is often shorter than that — the grid then refuses to shrink,
+       overflows the clipped viewport and the last rows (the «+» add-row) are
+       unreachable. Let it shrink to the space the shell gives it. */
+    min-height: 0;
+}
+
+.revo-grid-shell--pinned .renovation-grid {
+    height: 100%;
+}
+
+/* The plan grid always fills the shell and scrolls through its OWN native
+   strips. The header overlay is a flex sibling whose margin animates away when
+   «Закрепить заголовок» is off; the grid simply resizes (revo-grid re-measures)
+   — the old external 11M-px scroller froze the renderer with the Infinity
+   Scroll source. */
+.revo-grid-shell:not(.revo-grid-shell--pinned) .renovation-grid,
+.revo-grid-shell--pinned .renovation-grid {
+    height: 100%;
+    min-height: 0;
+}
+
+/* The overlay slot: when «Закрепить заголовок» is off the 11 header LEVELS
+   slide up and fade out, giving their height back to the grid — but the
+   column-number strip and the «№» corner stay visible: they sit in the slot's
+   bottom band, and the slot is pulled up by exactly the levels' height
+   (`--renovation-header-levels-height`), so that band lands at the top of the
+   grid, right above the pinned totals row. `overflow: hidden` lives on the
+   shell, so the levels clip cleanly. */
+.renovation-grid__header-slot {
+    position: relative;
+    z-index: 5;
+    flex: 0 0 auto;
+    transition: margin-top 240ms ease;
+}
+
+.renovation-grid__header-slot--hidden {
+    margin-top: calc(-1 * var(--renovation-header-levels-height, 0px));
+}
+
+/* The levels fade with the slide; the number strip (a sibling of the level
+   cells) and the corner stay at full opacity. */
+.renovation-grid__header-slot--hidden .renovation-grid__header-cell {
+    opacity: 0;
+}
+
+/* In the renovation shell the external vertical scroller is gone: the grid
+   scrolls internally in both pin states. The generic 17px padding rules keep
+   reserving the bottom row for the custom horizontal strip while it shows. */
+.renovation-grid-shell .revo-grid-vertical-scroller,
+.renovation-grid-shell:not(.revo-grid-shell--pinned) .revo-grid-vertical-scroller {
+    overflow: hidden;
+}
+
+/* ── Strips of the plan grid ───────────────────────────────────────────────
+   The native horizontal strip is hidden (Chrome draws it too thick): the
+   custom external strip (`revo-grid-external-scrollbar`) is the visible bar,
+   like the «Сырьё» grids. The native vertical strip stays and starts below the
+   pinned summary row so it never covers it. */
+.renovation-grid-shell .renovation-grid revogr-scroll-virtual.horizontal,
+.revo-grid-shell--pinned .renovation-grid revogr-scroll-virtual.horizontal {
+    height: 0 !important;
+    min-height: 0 !important;
+}
+
+.renovation-grid-shell .renovation-grid revogr-scroll-virtual.vertical {
+    top: var(--renovation-summary-height, 0px) !important;
+    /* The strip starts below the pinned summary row (the `top` above) and must
+       END at the grid's bottom edge: the library's `height: 100%`, shifted down
+       by the summary height, would otherwise stick 36px past the grid — right
+       over the custom horizontal strip's right end (the overlap in the
+       bottom-right corner). Subtract the shift instead of overhanging. */
+    height: calc(100% - var(--renovation-summary-height, 0px)) !important;
+}
+
+.dark .renovation-grid {
+    color-scheme: dark;
+}
+
+.renovation-grid revogr-data .rgCell {
+    border: 0 !important;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.renovation-grid revogr-data .rgRow.focused-rgRow {
+    background-color: transparent !important;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell {
+    background: var(--cell-base) !important;
+    color: var(--foreground);
+    font-variant-numeric: tabular-nums;
+}
+
+.renovation-grid .rowHeaders revogr-data .rgCell.report-row-header {
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset !important;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--selected {
+    background-image: linear-gradient(rgb(0 120 99 / 10%), rgb(0 120 99 / 10%)) !important;
+}
+
+.renovation-grid .rowHeaders revogr-data .rgCell.report-row-header--selected {
+    color: var(--foreground);
+    background: var(--accent-glow);
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--readonly {
+    color: var(--muted);
+}
+
+/* A cell occupied by ANOTHER member (their selection or an active lease).
+   ONE rule for every grid: the tiles are independent of the project — the
+   class comes from the shared grid code (`report-cell--remote-locked`), so a
+   new grid gets the same look without a per-project copy. */
+.rgCell.report-cell--remote-locked {
+    z-index: 2;
+    background: color-mix(in srgb, var(--warning) 28%, transparent) !important;
+    color: var(--muted) !important;
+    outline: 2px solid var(--warning);
+    outline-offset: -2px;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--calculated {
+    background: var(--cell-calculated) !important;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--invalid {
+    background: var(--cell-invalid) !important;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--new {
+    background: var(--cell-new) !important;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--changed {
+    background: var(--cell-changed) !important;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--deleted {
+    background: var(--cell-deleted) !important;
+    color: #8c1d18;
+    text-decoration: line-through;
+}
+
+.renovation-grid revogr-data .rgCell.report-cell--empty {
+    background: var(--cell-empty) !important;
+}
+
+/* The baseline boundary: the last archived row (position equals
+   plan.baselineBoundary). It and the rows above it are protected from
+   deletion by the server — the green line passes under its bottom edge,
+   so only the rows added after the archive sit below the line. */
+.renovation-grid revogr-data .rgCell.report-cell--baseline-boundary {
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset,
+        0 -2px 0 var(--success) inset !important;
+}
+
+.renovation-grid .rowHeaders revogr-data .rgCell.report-row-header--boundary {
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset,
+        0 -2px 0 var(--success) inset !important;
+}
+
+/* The overlay column header: the page draws the 11 Excel levels above the
+   grid (the grid's own header is hidden). The shell is a flex column: the
+   header occupies its own height at the top, and the grid's data area
+   (which starts at y=0, since the native header is display:none) fills the
+   remaining space below — the overlay never covers the rows. The corner
+   (52px = № column) is a fixed absolute block on the left; the body carries
+   the real strip width (geometry.totalWidth, set inline — never flex-sized,
+   so no flex-basis override) and translates by -scrollLeft, so the cells
+   beyond the viewport exist and slide in as the grid scrolls. The corner
+   overlaps the body (z-index 2, opaque) so cells pass underneath it. */
+.renovation-grid-shell {
+    display: flex;
+    flex-direction: column;
+}
+
+/* The first paint, while the remembered row is still travelling.
+   The grid mounts and immediately paints its first rows; restoring the saved
+   position is an async scroll, so without this the plan visibly opens at the
+   TOP and then jumps. The HEADER stays (it is fixed and does not move) — only
+   the data rows are hidden, so the frame never appears row-less. `visibility`
+   rather than `display`/`opacity`: it keeps the layout identical, so the jump
+   measures the same viewport it will land in, and the reveal costs no reflow. */
+.renovation-grid-shell--restoring .renovation-grid revogr-data {
+    visibility: hidden;
+}
+
+.renovation-grid-shell .renovation-grid__header {
+    position: relative;
+    z-index: 5;
+    flex: 0 0 auto;
+    background: var(--surface);
+    /* Landmine: the sideways clip must stay, but a number cell of a column with
+       no total is merged with the empty totals cell below it and extends 36px
+       into the pinned totals row. `overflow: hidden` would cut that merge off —
+       clip-path with a negative bottom inset clips left/right/top at the box
+       while letting the merged cells paint over the totals row. */
+    overflow: visible;
+    clip-path: inset(0 0 -36px 0);
+}
+
+/* The «№» corner above the row numbers: an opaque, full-header-height cell
+   that hides the № buttons scrolling beneath. It closes all four edges by
+   itself — the synthetic column headers around it don't reach this corner. */
+.renovation-grid__corner {
+    position: absolute;
+    z-index: 2;
+    /* The height is set inline: the corner merges the number strip and the
+       totals row into itself (no internal borders, its bottom line under the
+       totals row) — a single cell beside the «№» data column. */
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 650;
+    user-select: none;
+    box-shadow:
+        1px 0 0 var(--cell-border) inset,
+        -1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+}
+
+.renovation-grid-shell .revo-grid-vertical-scroller {
+    position: relative;
+    width: 100%;
+    height: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+.renovation-grid-shell .renovation-grid__header-body {
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+/* The pinned column area stays fixed while the header body slides. The
+   backdrop closes the gaps between grouped header cells; the pinned cells
+   counter-translate by the same amount as the body, so their net position is
+   constant. */
+.renovation-grid__header-pinned-backdrop {
+    position: absolute;
+    top: 0;
+    z-index: 1;
+    height: 100%;
+    background: var(--surface);
+    transform: translateX(var(--renovation-scroll-x, 0px));
+    /* The pinned boundary: the SAME pixel as the first unpinned header cell's
+       left line and the pinned data viewport's inset line (x = right - 1). An
+       outset line here sat one pixel to the right and doubled the boundary in
+       the header only — the thick header-only rule the users reported. */
+    box-shadow: -1px 0 0 var(--cell-border) inset;
+}
+
+.renovation-grid__header-cell--pinned,
+.renovation-grid__number-cell--pinned {
+    z-index: 2;
+    background: var(--surface);
+    transform: translateX(var(--renovation-scroll-x, 0px));
+}
+
+.renovation-grid__header-cell {
+    position: absolute;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 9px;
+    overflow: hidden;
+    color: var(--foreground);
+    background: var(--surface);
+    border: 0;
+    /* Vertical lines at the RIGHT edge, like the data cells below — an
+       inset 1px line at the left edge would sit 1px to the right of the
+       data gridlines (a +1px shift of the whole header grid). Only the LEFT
+       and BOTTOM lines are painted: a TOP line on every cell would double to
+       a 2px border where a cell meets the one above it (both draw the shared
+       edge). The top row of cells draws the table's top line itself (see
+       --top). */
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+    font-size: 11.5px;
+    font-weight: 650;
+    line-height: 1.18;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: normal;
+    user-select: none;
+    /* Fades out with the slide when the header is unpinned (the number strip
+       and the corner never fade). */
+    transition: opacity 180ms ease;
+}
+
+/* The header's top row closes the table's top line (the container's own line
+   covers only the empty № corner). */
+.renovation-grid__header-cell--top {
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+}
+
+/* A bottom-most header cell sits directly above the summary row: dropping its
+   bottom line merges the header and the summary into one block. */
+.renovation-grid__header-cell--bottom {
+    box-shadow: -1px 0 0 var(--cell-border) inset;
+}
+
+.renovation-grid__header-cell--top.renovation-grid__header-cell--bottom {
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset;
+}
+
+/* The plan's pinned totals row (a revo-grid pinned top row, like the assets
+   dictionary): one vertical (right) + one bottom border, white empty cells and
+   green numeric totals. The row header shows no number. */
+.renovation-grid revogr-data .rgCell.renovation-grid__summary-cell {
+    justify-content: flex-end;
+    background: var(--surface) !important;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+    color: var(--foreground);
+    font-size: 11.5px;
+    font-weight: 650;
+    text-align: right;
+}
+
+.renovation-grid revogr-data .rgCell.renovation-grid__summary-cell--filled {
+    background: var(--cell-calculated) !important;
+}
+
+/* The column-number strip: one cell per visible column with its number in the
+   form («Предприятие» = 1), drawn at the bottom of the overlay. Muted — a
+   service row, not a header level. Top border: the header cell above drops its
+   bottom line. A cell of a column whose totals cell is empty is taller (24px +
+   the totals row) and merges with it — one cell, the number centered over both
+   rows. The cell is hoverable: the column-number tooltip lists the column's
+   header chain from the top level down. */
+.renovation-grid__number-cell {
+    position: absolute;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    color: var(--muted);
+    background: var(--surface);
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    user-select: none;
+    box-shadow:
+        -1px 0 0 var(--cell-border) inset,
+        0 1px 0 var(--cell-border) inset,
+        0 -1px 0 var(--cell-border) inset;
+}
+
+/* The column-number tooltip's content: one header level per line, «↓» between
+   the levels, centred. */
+.renovation-grid__number-tooltip {
+    display: block;
+    line-height: 1.35;
+    text-align: center;
+}
+
+.renovation-grid__resize-handle {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    margin-left: -3px;
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.renovation-grid__resize-handle:hover,
+.renovation-grid__resize-handle.is-dragging {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.renovation-grid__resize-handle--pinned {
+    z-index: 3;
+    transform: translateX(var(--renovation-scroll-x, 0px));
+}
+
+/* Header level height: a horizontal handle on each level's bottom boundary
+   (the level above the boundary is the one being resized). The vertical
+   handles are rendered AFTER these, so at a crossing the column resize wins
+   and the level boundary stays grabbable a few pixels away from it. */
+.renovation-grid__level-resize-handle {
+    position: absolute;
+    z-index: 1;
+    right: 0;
+    left: 0;
+    height: 6px;
+    margin-top: -3px;
+    cursor: row-resize;
+    touch-action: none;
+}
+
+.renovation-grid__level-resize-handle:hover,
+.renovation-grid__level-resize-handle.is-dragging {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* Reference dictionary tables shown on the «Ремонт» dictionary tabs. */
+.renovation-dict {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    background: var(--surface);
+}
+
+.renovation-dict__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--foreground);
+}
+
+.renovation-dict__table th {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 650;
+    text-align: left;
+    white-space: nowrap;
+    box-shadow: 0 1px 0 var(--cell-border) inset;
+}
+
+.renovation-dict__table td {
+    padding: 0.375rem 0.75rem;
+    background: var(--cell-base);
+    box-shadow: 0 -1px 0 var(--cell-border) inset;
+}
+
+.renovation-dict__table tbody tr:hover td {
+    background: var(--surface-secondary);
+}
+
+/* The boolean cell: ONE native checkbox everywhere (`report-cell__checkbox`
+   above). A nullable field with no value renders NO checkbox at all. */
+
+.toolbar-filter-button {
+    font-size: 0.8rem;
+}
