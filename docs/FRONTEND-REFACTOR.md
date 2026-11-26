@@ -55,6 +55,42 @@ Bundle: **3,722.5 KB / 1,198.1 KB gzip across 37 chunks** (baseline 3,722.9 /
 1,198.2 KB) — the dedup is a maintainability change, not a bundle optimization,
 so no performance gain is claimed.
 
+## Stages 5.2–5.3 — first safe extractions (done)
+
+- `renovation-grid-edits.ts`: the plan grid's `extractEdits` event adapter is now
+  a pure module (with `renovationCellKind`) and has 6 unit tests for the
+  single-cell/`data`-snapshot shape, range patches, missing models, deleted rows,
+  unchanged values and deduplication. `renovation-grid.tsx` went from
+  **4,181 → 4,116 lines**; no RevoGrid API, ref or callback identity changed.
+- `renovation-workspace-view.ts`: pure scope-key, Russian validation-column
+  regex, plan-row → grid-row mapping, version timestamp and block labels moved
+  out of the workspace with 4 unit tests. `renovation-workspace.tsx` went from
+  **2,282 → 2,192 lines**; ownership of state stays in the workspace.
+- Tests after both extractions: **479 pass / 0 fail**; format, lint, typecheck
+  and production build green. Build: compiled 3.6 s, TypeScript 1.5 s; bundle
+  **3,722.3 KB / 1,198.1 KB gzip / 37 chunks** — still noise-level, no
+  performance claim.
+
+## End-to-end smoke (CI stack, 127.0.0.1:16000)
+
+`E2E_BASE_URL=http://127.0.0.1:16000 KEYCLOAK_ENABLED=false bun run test:e2e
+--project=smoke --reporter=list`:
+
+| Run | Result |
+|---|---|
+| Baseline (before the extractions) | 30 passed, 1 failed, 3 skipped |
+| Repeat run on the same CI stack | 30 passed, 1 failed, 3 skipped |
+
+The CI stack serves a **prebuilt production image**, so these two runs are an
+environment baseline, not a verification of the refactor; the refactor is
+verified separately against the dev stack (`:5000`, compose `--watch`).
+The single failure is identical in both runs and occurs before any refactoring:
+`raw-materials-ui.spec.ts:59` times out in `loginAsLocalUser` (`waitForURL`,
+30 s) on the CI stack. It is recorded as a pre-existing/environment issue, not
+a regression; no e2e assertion was weakened to hide it. No DOM/row-count
+performance numbers were captured yet — that needs a DevTools/Performance
+recording on a prepared stack.
+
 ## Zustand decision
 
 **Not needed.** Panel filters remain URL-backed per tab
@@ -66,7 +102,9 @@ store would multiply canonical sources without fixing one.
 
 ## Remaining work
 
-Stages 5.2–5.3 (RenovationWorkspace/Grid decomposition), 8 (breakpoints,
+The remaining (higher-risk) part of 5.2–5.3 — splitting the workspace's data
+loading, collaboration, commit/undo and dialog composition, and the grid's
+column/header/selection logic — is still pending. Stages 8 (breakpoints,
 reduced motion, HoverDropdown), 9 (CSS split) and the measured before/after
-runtime scenarios are still pending. They require the prepared stack and
-React DevTools/Performance recordings; no claims about them are made here.
+runtime scenarios are also pending. They require React DevTools/Performance
+recordings and the prepared stack; no claims about them are made here.

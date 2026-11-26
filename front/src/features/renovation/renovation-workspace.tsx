@@ -134,6 +134,15 @@ import {
     type RenovationRowPatch,
 } from "./renovation-grid";
 import { ASSET_COLUMN_PROP, ASSET_FIELD_DB_NAME, AUDIT_COLUMNS } from "./renovation-grid-constants";
+import {
+    BLOCK_LABELS,
+    BLOCK_ORDER,
+    formatVersionStamp,
+    renovationGridScopeKey,
+    toRenovationGridRow,
+    validationColumn,
+    VERSION_STATE_LABELS,
+} from "./renovation-workspace-view";
 import { usePlanImportJob } from "./use-plan-import-job";
 import { usePlanImportLock } from "./use-plan-import-lock";
 import { useRenovationPlanExport } from "./use-renovation-plan-export";
@@ -154,105 +163,6 @@ export type RenovationWorkspaceProps = {
 };
 
 const WORKING_VERSION_ID = "__working";
-
-/**
- * Identity of the remote row scope the grid loads: the plan version plus every
- * server-side filter. Changing any of them must restart loading from the first
- * chunk, so the grid keys its Infinity Scroll config off this string.
- */
-function renovationGridScopeKey(params: {
-    planId: string | null;
-    asset: string | null;
-    filters: ColumnFilter[];
-    sorting: RenovationSortColumn[];
-}): string {
-    return JSON.stringify([
-        params.planId ?? "working",
-        params.asset ?? "",
-        params.filters,
-        params.sorting,
-    ]);
-}
-
-/**
- * The column a plan-query validation error names, if any: the backend reports a
- * stale sorting/filter as «Неизвестный столбец «<db name>»» (or «… столбца
- * «<db name>»» for a bad range bound). Matching the RUSSIAN message is the only
- * signal there is — the 422 body carries no structured column field.
- */
-function validationColumn(message: string): string | null {
-    return message.match(/столб(?:ец|ца|цу|цом|це)\s+«([^»]+)»/i)?.[1] ?? null;
-}
-
-/**
- * A server plan row as the grid renders it: the cell values plus the service
- * fields the columns, the row header and the live patches read. It is applied
- * as a chunk loads, so the diff state (an archived plan compared to its
- * baseline) is stamped immediately instead of waiting for the diff request.
- *
- * Deleted rows live only in the diff — the grid's source is server-ordered and
- * index-addressed (grid index == server offset), so a ghost row cannot be
- * spliced in; the deletion is reported through the diff cell highlighting.
- */
-function toGridRow(
-    row: RenovationPlanRow,
-    diffByRowId: Map<string, RenovationDiffRow>,
-): RenovationGridRow {
-    const diffRow = diffByRowId.get(row.id);
-    return {
-        ...row.values,
-        // The read-only «№ ремонта» column shows the computed value.
-        work_or_repair_code: row.renovationId,
-        // Service columns (header «+» / project-wide view state).
-        id: row.id,
-        position: row.position,
-        revision: row.revision,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
-        updatedBy: row.updatedBy,
-        __id: row.id,
-        __position: row.position,
-        __assetId: row.assetId,
-        __assetName: row.assetName ?? "",
-        __renovationId: row.renovationId,
-        __rowState: diffRow ? (diffRow.isNew ? "new" : "changed") : "unchanged",
-        __changedFields: diffRow?.cells.map((cell) => cell.field) ?? [],
-        __missingComponents: row.missingComponents,
-        __invalidFields: row.invalidFields ?? [],
-    };
-}
-
-function formatVersionStamp(value: string): string {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return new Intl.DateTimeFormat("ru-RU", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-    }).format(date);
-}
-
-const VERSION_STATE_LABELS: Record<string, string> = {
-    working: "рабочая",
-    pending_approval: "на согласовании",
-    archived: "утверждённая",
-};
-
-/**
- * Canonical display names of the responsibility blocks — the same strings in
- * the plan's column-header overlay and in the «Все блоки» filter dropdown.
- * The values are the backend RBlock keys (tech, ksir, mto).
- */
-const BLOCK_LABELS: Record<string, string> = {
-    tech: "1) Техническая дирекция",
-    ksir: "2) Дирекция КСиР",
-    mto: "3) Дирекция МТО",
-};
-/** Preferred dropdown order (after «Все блоки»). */
-const BLOCK_ORDER = ["tech", "ksir", "mto"];
 
 export function RenovationWorkspace({
     currentUser,
@@ -726,7 +636,7 @@ export function RenovationWorkspace({
             if (scopeKeyRef.current !== requestedScope) return { rows: [], total: 0 };
             const diffByRowId = diffByRowIdRef.current;
             return {
-                rows: page.rows.map((row) => toGridRow(row, diffByRowId)),
+                rows: page.rows.map((row) => toRenovationGridRow(row, diffByRowId)),
                 total: page.total,
             };
         },
