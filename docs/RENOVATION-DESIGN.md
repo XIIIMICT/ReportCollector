@@ -62,10 +62,16 @@ three import tests now target `router_import`.
 `router_import` resolves the working plan before validating an upload: existing
 work codes are read with `plan_id = :working`, and the cache scope carries that
 plan id plus `r_plans.revision`. Migration 0043 maintains the revision
-with statement-level triggers on `r_plan_rows`, so every insert/delete and every
-`work_or_repair_code` change (cell edit, undo/redo, import, recompute, script)
+with statement-level triggers on `r_plan_rows`, so every insert/delete, every
+`plan_id` transfer and every `work_or_repair_code` change (cell edit,
+undo/redo, import, recompute, script)
 invalidates the preflight atomically; an archived-only code is new in a newer
 version, while edits in an archived plan cannot invalidate the working one.
+RC-1: a row moved between plans with an UNCHANGED `work_or_repair_code` still
+changes both code sets, so the statement-level UPDATE trigger bumps BOTH the
+old and new plan from the transition tables (one increment per plan per
+statement). `back/tests/test_plan_revision_trigger.py` pins that contract on
+the real migrated disposable schema.
 The old `count(*) + max(updated_at)` token missed non-latest deletes; the cache
 version moved from `7` to `8` so entries using it are never served.
 `import_apply` enforces the same rule independently in the worker's
@@ -84,7 +90,8 @@ in `docs/DATA-JOBS.md`.
 The intended DB constraint is `UNIQUE (plan_id, work_or_repair_code)` on the
 semantic 0041 column (`col_003` is gone); migration 0042 is authored but its
 rollout is BLOCKED pending the read-only audit and live-data cleanup described
-in `DATA-JOBS.md`.
+in `DATA-JOBS.md`; migration 0043 was corrected in place before rollout and
+inherits that same gate.
 
 `front/src/shared/api/renovation.ts` (1140 -> 11 lines) is now a barrel
 re-exporting six workflow modules: `renovation-shared.ts` (types, constants,
