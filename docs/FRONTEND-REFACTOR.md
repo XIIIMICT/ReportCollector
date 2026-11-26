@@ -263,6 +263,16 @@ normalization — remains in the owning grid; no `isRenovation` flag, new hook o
 dependency was introduced. This is the foundation for the deeper stateful
 decomposition, not a substitute for it.
 
+## Grid decomposition — Stage 2: DataGrid edit decisions (2026-11-26)
+
+`data-grid.tsx` dropped another ~100 lines: `checkEditStart`, `checkEdit`,
+`uneditableReason` and `normalizeRangePatch` now live in the pure
+`shared/grid/data-grid-editing.ts` with 26 tests (656 unit tests total). Only
+decision logic moved; `preventDefault`, lease refs/acquire, validation toasts,
+event payload casts, `afterEdit`, memo dependencies and JSX remain in the
+component. The own-lease-beats-foreign-presence asymmetry and the invalid-value
+early return before skipped-cell messages are pinned by tests.
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,

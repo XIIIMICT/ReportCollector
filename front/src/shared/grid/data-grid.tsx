@@ -60,6 +60,7 @@ import { hasOpenKeyboardOverlay } from "@/shared/ui/modal-presence";
 import { RowGoToFilter } from "@/shared/ui/row-go-to-filter";
 import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
 
+import { checkEdit, checkEditStart, normalizeRangePatch } from "./data-grid-editing";
 import {
     buildGridColumns,
     exportColumnsFromGrid,
@@ -1950,68 +1951,48 @@ function DataGridInner(
     }
 
     function beforeEditStart(event: CustomEvent<BeforeSaveDataDetails>) {
-        const descriptor = descriptorByKey.get(String(event.detail.prop));
         const row = event.detail.model as GridRow;
-        if (
-            !descriptor ||
-            !editableKeys.has(descriptor.key) ||
-            !canEditDescriptor(descriptor, row)
-        ) {
+        const decision = checkEditStart({
+            descriptor: descriptorByKey.get(String(event.detail.prop)),
+            row,
+            editableKeys,
+            canEdit: canEditDescriptor,
+            remoteLocks,
+            remotePresence,
+        });
+        if (!decision.allowed) {
             event.preventDefault();
+            if (decision.owner && decision.canonicalKey) {
+                onLockedCellEdit?.(decision.canonicalKey, decision.owner);
+            }
             return;
         }
-        const canonicalKey = row.canonicalCells?.[descriptor.key];
-        if (canonicalKey) {
-            // Lease or foreign selection — the cell is protected: editing can't start.
-            const owner = remoteLocks.get(canonicalKey) ?? remotePresence.get(canonicalKey);
-            if (owner) {
-                event.preventDefault();
-                onLockedCellEdit?.(
-                    canonicalKey,
-                    owner.fullname || owner.email || "другой пользователь",
-                );
-                return;
-            }
-        }
-        if (canonicalKey && !row.isPlaceholder) {
-            activeLeaseRef.current = canonicalKey;
-            onAcquireLease?.([canonicalKey]);
+        if (decision.canonicalKey && !row.isPlaceholder) {
+            activeLeaseRef.current = decision.canonicalKey;
+            onAcquireLease?.([decision.canonicalKey]);
         } else {
             activeLeaseRef.current = null;
         }
     }
 
     function beforeEdit(event: CustomEvent<BeforeSaveDataDetails>) {
-        const descriptor = descriptorByKey.get(String(event.detail.prop));
-        const row = event.detail.model as GridRow;
-        if (
-            !descriptor ||
-            !editableKeys.has(descriptor.key) ||
-            !canEditDescriptor(descriptor, row)
-        ) {
+        const decision = checkEdit({
+            descriptor: descriptorByKey.get(String(event.detail.prop)),
+            row: event.detail.model as GridRow,
+            editableKeys,
+            canEdit: canEditDescriptor,
+            remoteLocks,
+            remotePresence,
+            activeLease: activeLeaseRef.current,
+        });
+        if (!decision.allowed) {
             event.preventDefault();
+            if (decision.owner && decision.canonicalKey) {
+                onLockedCellEdit?.(decision.canonicalKey, decision.owner);
+            }
             return;
         }
-        const canonicalKey = row.canonicalCells?.[descriptor.key];
-        if (canonicalKey) {
-            const byLease = remoteLocks.get(canonicalKey);
-            // A foreign lease always blocks; a foreign selection — except when
-            // I'm editing the cell myself (my lease beats a foreign selection).
-            const byPresence =
-                remotePresence.get(canonicalKey) && activeLeaseRef.current !== canonicalKey
-                    ? remotePresence.get(canonicalKey)
-                    : undefined;
-            const owner = byLease ?? byPresence;
-            if (owner) {
-                event.preventDefault();
-                onLockedCellEdit?.(
-                    canonicalKey,
-                    owner.fullname || owner.email || "другой пользователь",
-                );
-                return;
-            }
-        }
-        const normalized = normalizeValue(event.detail.val, descriptor.kind);
+        const normalized = normalizeValue(event.detail.val, decision.descriptor.kind);
         if (!normalized.ok) {
             event.preventDefault();
             onValidationError(normalized.message);
@@ -2026,59 +2007,24 @@ function DataGridInner(
             event.preventDefault();
             return;
         }
-        const patches = event.detail.data as Record<string, GridRow>;
-        const models = event.detail.models as Record<string, GridRow | undefined>;
-        const skippedColumns = new Map<string, string>();
-        for (const [rowIndex, patch] of Object.entries(patches)) {
-            const currentRow = models[Number(rowIndex)] ?? rows[Number(rowIndex)];
-            for (const prop of Object.keys(patch)) {
-                const descriptor = descriptorByKey.get(String(prop));
-                if (!descriptor) {
-                    delete patch[prop];
-                    continue;
-                }
-                if (!editableKeys.has(descriptor.key)) {
-                    delete patch[prop];
-                    const reason =
-                        descriptor.kind === "calculated"
-                            ? "расчётное поле"
-                            : descriptor.fixed
-                              ? "фиксированное поле"
-                              : "поле недоступно для редактирования";
-                    skippedColumns.set(descriptor.label, reason);
-                    continue;
-                }
-                if (!currentRow || !canEditDescriptor(descriptor, currentRow)) {
-                    delete patch[prop];
-                    const reason =
-                        descriptor.kind === "calculated"
-                            ? "расчётное поле"
-                            : descriptor.fixed
-                              ? "фиксированное поле"
-                              : "поле недоступно для редактирования";
-                    skippedColumns.set(descriptor.label, reason);
-                    continue;
-                }
-                const canonicalKey = currentRow.canonicalCells?.[descriptor.key];
-                if (
-                    canonicalKey &&
-                    (remoteLocks.has(canonicalKey) || remotePresence.has(canonicalKey))
-                ) {
-                    delete patch[prop];
-                    skippedColumns.set(descriptor.label, "ячейка занята другим пользователем");
-                    continue;
-                }
-                const normalized = normalizeValue(patch[prop], descriptor.kind);
-                if (!normalized.ok) {
-                    event.preventDefault();
-                    onValidationError(normalized.message);
-                    return;
-                }
-                patch[prop] = normalized.value;
-            }
+        const { skipped, invalid } = normalizeRangePatch({
+            patches: event.detail.data as Record<string, GridRow>,
+            models: event.detail.models as Record<string, GridRow | undefined>,
+            rows,
+            descriptors: descriptorByKey,
+            editableKeys,
+            canEdit: canEditDescriptor,
+            remoteLocks,
+            remotePresence,
+            normalizeValue,
+        });
+        if (invalid !== null) {
+            event.preventDefault();
+            onValidationError(invalid);
+            return;
         }
-        if (skippedColumns.size > 0) {
-            const description = groupSkippedCells(skippedColumns);
+        if (skipped.size > 0) {
+            const description = groupSkippedCells(skipped);
             onPasteSkipped?.(description);
         }
     }
