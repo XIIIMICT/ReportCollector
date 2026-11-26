@@ -35,6 +35,17 @@ async function hoverWithRealMouse(
     await page.mouse.move(cx, cy);
 }
 
+async function centerOf(locator: import("@playwright/test").Locator) {
+    const box = await locator.boundingBox();
+    if (!box) throw new Error("no bounding box");
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+async function moveAway(page: import("@playwright/test").Page) {
+    await page.mouse.move(5, 5);
+    await page.mouse.move(3, 3);
+}
+
 async function assertNoFlicker(
     page: import("@playwright/test").Page,
     locator: import("@playwright/test").Locator,
@@ -47,6 +58,15 @@ async function assertNoFlicker(
     }
     const transitions = states.filter((s, i) => i > 0 && s !== states[i - 1]).length;
     expect(transitions).toBe(0);
+}
+
+async function openViewMenu(page: import("@playwright/test").Page) {
+    const btn = page.locator('button[aria-label="Вид таблицы"]');
+    await expect(btn).toBeVisible({ timeout: 15000 });
+    await hoverWithRealMouse(page, btn);
+    const menu = page.locator(".view-strip-popover");
+    await expect(menu).toBeVisible({ timeout: 5000 });
+    return { btn, menu };
 }
 
 test("compact action menu: no flicker on hover, closes on outside click and Escape", async ({
@@ -97,4 +117,95 @@ test("view strip menu: opens on hover, no flicker, Escape closes", async ({ page
 
     await page.keyboard.press("Escape");
     await expect(menu).toHaveCount(0, { timeout: 3000 });
+});
+
+test("a real hover opens the menu through React Aria's hover event", async ({ page }) => {
+    await login(page);
+    const { menu } = await openViewMenu(page);
+    await expect(menu).toBeVisible();
+});
+
+test("moving from the trigger into the popover on a diagonal keeps it open", async ({ page }) => {
+    await login(page);
+    const { btn, menu } = await openViewMenu(page);
+    const from = await centerOf(btn);
+    const to = await centerOf(menu);
+    await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2);
+    await page.mouse.move(to.x, to.y);
+    await page.waitForTimeout(500);
+    await expect(menu).toBeVisible();
+});
+
+test("outside pointer closes only after the grace period", async ({ page }) => {
+    await login(page);
+    const { menu } = await openViewMenu(page);
+    await moveAway(page);
+    // Immediately after leaving both rectangles the menu must still be open.
+    await expect(menu).toBeVisible();
+    // The one-shot timeout closes it without any further pointer movement.
+    await expect(menu).toHaveCount(0, { timeout: 2000 });
+});
+
+test("re-entering before the grace period cancels the close", async ({ page }) => {
+    await login(page);
+    const { btn, menu } = await openViewMenu(page);
+    await moveAway(page);
+    await page.waitForTimeout(80);
+    const trigger = await centerOf(btn);
+    await page.mouse.move(trigger.x, trigger.y);
+    await page.waitForTimeout(500);
+    await expect(menu).toBeVisible();
+});
+
+test("keyboard opening does not use a stale pointer position", async ({ page }) => {
+    await login(page);
+    const btn = page.locator('button[aria-label="Вид таблицы"]');
+    await expect(btn).toBeVisible({ timeout: 15000 });
+    await moveAway(page);
+    await btn.focus();
+    await page.keyboard.press("Enter");
+    const menu = page.locator(".view-strip-popover");
+    await expect(menu).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(600);
+    await expect(menu).toBeVisible();
+});
+
+test("Escape suppression releases only after the pointer leaves and re-enters", async ({
+    page,
+}) => {
+    await login(page);
+    const { btn, menu } = await openViewMenu(page);
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0, { timeout: 3000 });
+    await page.waitForTimeout(350);
+    await expect(menu).toHaveCount(0);
+    await moveAway(page);
+    await hoverWithRealMouse(page, btn);
+    await expect(menu).toBeVisible({ timeout: 5000 });
+});
+
+test("a rapid reopen is not closed by a timer from the previous interaction", async ({ page }) => {
+    await login(page);
+    const { menu } = await openViewMenu(page);
+    await moveAway(page);
+    await expect(menu).toHaveCount(0, { timeout: 2000 });
+    await openViewMenu(page);
+    await page.waitForTimeout(500);
+    await expect(menu).toBeVisible();
+});
+
+test.describe("touch interaction", () => {
+    test.use({ hasTouch: true });
+
+    test("press opens the menu and a synthetic hover does not close it", async ({ page }) => {
+        await login(page);
+        const btn = page.locator('button[aria-label="Вид таблицы"]');
+        await expect(btn).toBeVisible({ timeout: 15000 });
+        const point = await centerOf(btn);
+        await page.touchscreen.tap(point.x, point.y);
+        const menu = page.locator(".view-strip-popover");
+        await expect(menu).toBeVisible({ timeout: 5000 });
+        await page.waitForTimeout(500);
+        await expect(menu).toBeVisible();
+    });
 });

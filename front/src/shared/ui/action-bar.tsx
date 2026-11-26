@@ -109,10 +109,10 @@ export function ActionBar({
                     key={action.id}
                     className="action-more-popover"
                     {...(onDropdownOpenChange && { onOpenChange: onDropdownOpenChange })}
-                    trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
+                    trigger={({ ref, onHoverStart, isOpen, onPress }) => (
                         <ExpandableButton
                             ref={ref}
-                            onMouseEnter={onMouseEnter}
+                            onHoverStart={onHoverStart}
                             onPress={onPress}
                             variant={action.variant ?? "tertiary"}
                             {...(action.disabled !== undefined && { isDisabled: action.disabled })}
@@ -281,10 +281,10 @@ export function CompactActionMenu({
         <HoverDropdown
             className="action-more-popover"
             {...(onOpenChange && { onOpenChange })}
-            trigger={({ ref, onMouseEnter, isOpen, onPress }) => (
+            trigger={({ ref, onHoverStart, isOpen, onPress }) => (
                 <ExpandableButton
                     ref={ref}
-                    onMouseEnter={onMouseEnter}
+                    onHoverStart={onHoverStart}
                     onPress={onPress}
                     isExpanded={isOpen}
                     icon={<MoreHoriz aria-hidden="true" />}
