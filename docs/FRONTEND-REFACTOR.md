@@ -242,6 +242,16 @@ cycle was introduced. 15 new formatter/re-export tests (559 total).
 Descriptors, column builders, cell templates and cell-property logic stayed in
 `grid-config.ts` — they carry RevoGrid callback identities and are not pure.
 
+## Test quality — coverage gate (2026-11-26)
+
+`scripts/coverage-gate.ts` is now a thin CLI wrapper over the pure
+`coverage-gate-parse.ts`: `--min 65` and `--min=65` share one validator, LF/LH
+records are strict non-negative integers with `LH <= LF`, CRLF is accepted and
+all file records are aggregated. Malformed thresholds/reports and `NaN`
+percentages fail with a clear error instead of a false pass. The 65% floor is
+unchanged (fresh baseline 73.94%). 621 unit tests; the parser module was also
+whitelisted in `front/.dockerignore` so an image running the gate has it.
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,

@@ -10,6 +10,7 @@
 !tsconfig.json
 !src/**
 !scripts/coverage-gate.ts
+!scripts/coverage-gate-parse.ts
 !public/**
 src/**/.DS_Store
 public/**/.DS_Store
