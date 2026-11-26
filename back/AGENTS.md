@@ -99,6 +99,13 @@ contracts. Keep one home per fact.
     timer. Cached: renovation catalogue, КППК `read_excise_products`.
     Deliberately not cached: «Сырьё»/КППК dictionaries and plan row counts
     (tried and reverted). Tests clear the cache per test.
+12. **Logs never carry identity claims or payload text.** `JsonFormatter`
+    (`back/src/app_logging.py`) emits only `SAFE_LOG_FIELDS`: correlation and
+    bounded classification values. Email, names, OIDC `sub`/issuer,
+    `preferred_username`, `email_verified`, raw `Origin`/client id and `error=`
+    exception text are excluded; failures use `error_code`/`error_type`.
+    Contract — `docs/ARCHITECTURE.md` «Logging»; sentinels —
+    `back/tests/test_log_privacy.py`.
 
 ## Seeds and migrations (owner decisions)
 

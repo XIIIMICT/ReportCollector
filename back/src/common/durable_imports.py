@@ -242,7 +242,12 @@ class DurableImportManager:
                     max((time.time() - job.created_at.timestamp() for job in active), default=0)
                 )
             except Exception as error:  # noqa: BLE001 - metrics must not kill the worker
-                log_error(LOGGER, "import.metrics_failed", "Не удалось прочитать очередь загрузки.", error=str(error))
+                log_error(
+                    LOGGER,
+                    "import.metrics_failed",
+                    "Не удалось прочитать очередь загрузки.",
+                    error_type=type(error).__name__,
+                )
             await asyncio.sleep(5)
 
     async def run(self) -> None:
@@ -263,7 +268,12 @@ class DurableImportManager:
                     await self.execute(record)
                     continue
             except Exception as error:  # noqa: BLE001 - dependency outages are recoverable
-                log_error(LOGGER, "import.worker_error", "Ошибка обработчика загрузки.", error=str(error))
+                log_error(
+                    LOGGER,
+                    "import.worker_error",
+                    "Ошибка обработчика загрузки.",
+                    error_type=type(error).__name__,
+                )
             await asyncio.sleep(POLL_SECONDS)
 
     async def cleanup_orphans(self) -> None:
@@ -316,7 +326,14 @@ class DurableImportManager:
                 else ("Не удалось загрузить файл. План не изменён. Повторите загрузку.")
             )
             EXPORT_JOBS_FAILED_TOTAL.labels(kind=self.kind).inc()
-            log_error(LOGGER, "import.failed", "Не удалось загрузить файл.", job_id=job.id, error=str(error))
+            log_error(
+                LOGGER,
+                "import.failed",
+                "Не удалось загрузить файл.",
+                job_id=job.id,
+                error_code=error_code,
+                error_type=type(error).__name__,
+            )
         finally:
             task.cancel()
             heartbeat.cancel()

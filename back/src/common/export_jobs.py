@@ -323,7 +323,7 @@ class ExportJobManager:
                     LOGGER,
                     "export.export_job_failed",
                     "Не удалось сформировать выгрузку.",
-                    error=str(error),
+                    error_type=type(error).__name__,
                     job_id=job.id,
                     request_id=job.request_id,
                 )

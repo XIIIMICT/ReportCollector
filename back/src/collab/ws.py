@@ -380,7 +380,6 @@ async def _serve_room(
             logger,
             "collab.ws_identity_rejected",
             "Отклонено WebSocket-соединение: не удалось проверить идентичность.",
-            client_id=websocket.query_params.get("clientId") or "",
         )
         await websocket.close(code=4401)
         return
@@ -413,7 +412,6 @@ async def _serve_room(
             logger,
             "collab.ws_access_rejected",
             "Отклонено WebSocket-соединение: нет доступа к проекту.",
-            user_email=identity.email or "",
         )
         await websocket.close(code=4403)
         return
@@ -429,8 +427,6 @@ async def _serve_room(
             logger,
             "collab.ws_origin_rejected",
             "Отклонено WebSocket-соединение: неожиданный Origin.",
-            user_email=user.email or "",
-            extra_origin=str(origin),
         )
         await websocket.close(code=4403)
         return
@@ -479,7 +475,6 @@ async def _serve_room(
             logger,
             "collab.ws_connect",
             "WebSocket подключён.",
-            user_email=user.email or "",
             project_key=project_key,
             room=room,
         )
@@ -587,7 +582,6 @@ async def _serve_room(
             logger,
             "collab.ws_disconnect",
             "WebSocket отключён.",
-            user_email=user.email or "",
             project_key=project_key,
             room=room,
         )

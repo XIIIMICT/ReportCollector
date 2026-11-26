@@ -29,6 +29,54 @@ class CredentialQueryFilter(logging.Filter):
         return True
 
 
+# Only bounded correlation and classification fields reach the shared log
+# pipeline. Identity claims, raw request values and exception text are excluded:
+# Loki is operational infrastructure, not a store for personal data. Failure
+# diagnostics use `error_code` / `error_type`, never a free-form `error` value.
+SAFE_LOG_FIELDS = (
+    "event",
+    "request_id",
+    "route",
+    "request_bytes",
+    "response_bytes",
+    "operation",
+    "phase",
+    "outcome",
+    "job_id",
+    "attempt",
+    "error_code",
+    "queue_wait_ms",
+    "rows",
+    "bytes",
+    "duration_ms",
+    "error_type",
+    "form_id",
+    "form_db_name",
+    "form_name",
+    "form_row_mode",
+    "field_id",
+    "field_db_name",
+    "field_count",
+    "rows_affected",
+    "rows_deleted",
+    "loaded_for",
+    "period",
+    "access_rule_id",
+    "access_mode",
+    "user_ids_count",
+    "field_ids_count",
+    "filter_count",
+    "method",
+    "path",
+    "status_code",
+    "template_row_id",
+    "record_id",
+    "catalog_db_name",
+    "project_key",
+    "room",
+)
+
+
 class JsonFormatter(logging.Formatter):
     """Formats application events as JSON Lines for Loki."""
 
@@ -40,61 +88,7 @@ class JsonFormatter(logging.Formatter):
             "module": record.module,
             "message": record.getMessage(),
         }
-        # All extra fields passed via extra={}
-        for field_name in (
-            "event",
-            "request_id",
-            "route",
-            "request_bytes",
-            "response_bytes",
-            "operation",
-            "phase",
-            "outcome",
-            "job_id",
-            "attempt",
-            "error_code",
-            "queue_wait_ms",
-            "rows",
-            "bytes",
-            "duration_ms",
-            "error",
-            "error_type",
-            "form_id",
-            "form_db_name",
-            "form_name",
-            "form_row_mode",
-            "field_id",
-            "field_db_name",
-            "field_count",
-            "rows_affected",
-            "rows_deleted",
-            "loaded_for",
-            "period",
-            "access_rule_id",
-            "access_mode",
-            "user_ids_count",
-            "field_ids_count",
-            "filter_count",
-            "method",
-            "path",
-            "status_code",
-            "user_email",
-            "user_name",
-            "user_sub",
-            "user_is_admin",
-            "oidc_issuer",
-            "preferred_username",
-            "given_name",
-            "family_name",
-            "email_verified",
-            "bootstrap_is_admin",
-            "template_row_id",
-            "record_id",
-            "catalog_db_name",
-            "project_key",
-            "room",
-            "extra_origin",
-        ):
+        for field_name in SAFE_LOG_FIELDS:
             value = getattr(record, field_name, None)
             if value is not None:
                 payload[field_name] = value

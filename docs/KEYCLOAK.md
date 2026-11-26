@@ -86,7 +86,7 @@ treat `admin/admin` as an application login — that pair is the Keycloak admin
 
 ## Diagnostics
 
-- Logs (Loki, `{app="reportcollector"}`): `keycloak_identity_received` (identity data on login), `oidc_authentication_succeeded` / `oidc_authentication_failed` (front, callback), `user_created`, `blocked_user_attempt`.
+- Logs (Loki, `{app="reportcollector"}`): `keycloak_identity_received` (identity handled on login; claim values are never logged — see the log-field contract in `docs/ARCHITECTURE.md` «Logging»), `oidc_authentication_succeeded` / `oidc_authentication_failed` (front, callback), `user_created`, `blocked_user_attempt`.
 - **WS handshake 403** → Origin not in the CORS list: almost always a trailing slash in `AUTH_APP_ORIGIN`. Remove the slash and restart.
 - **"Not authorized" mid-work** → the `rc_session` cookie expired (`AUTH_SESSION_MAX_AGE_SECONDS`); the ID token is irrelevant here.
 - **ID token verification error** → compare the actual `iss` with `AUTH_KEYCLOAK_TOKEN_ISSUER`, the signing algorithm with `AUTH_KEYCLOAK_SIGNING_ALGORITHMS`.

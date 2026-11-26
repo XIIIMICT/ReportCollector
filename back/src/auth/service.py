@@ -184,19 +184,9 @@ async def upsert_current_user(
     provisioning runs only for the seed admin; a regular user gets a project
     membership through request_project_access instead.
     """
-    log_event(
-        LOGGER,
-        "keycloak_identity_received",
-        "Получены идентификационные данные пользователя.",
-        user_email=identity.email,
-        user_name=identity.name,
-        user_sub=identity.oidc_sub,
-        oidc_issuer=identity.issuer,
-        preferred_username=identity.preferred_username,
-        given_name=identity.given_name,
-        family_name=identity.family_name,
-        email_verified=identity.email_verified,
-    )
+    # Identity claims are personal data: the event records that an identity was
+    # handled, never the claim values. Correlation comes from the request id.
+    log_event(LOGGER, "keycloak_identity_received", "Получены идентификационные данные пользователя.")
 
     user = await get_user_by_identity(session, identity)
     seed_admin_email = get_settings().auth_seed_admin_email
@@ -214,13 +204,7 @@ async def upsert_current_user(
             preferred_username=identity.preferred_username,
             email_verified=identity.email_verified,
         )
-        log_event(
-            LOGGER,
-            "user_created",
-            "Создан локальный пользователь по данным OIDC.",
-            user_email=user.email,
-            user_created_active=is_seed_admin,
-        )
+        log_event(LOGGER, "user_created", "Создан локальный пользователь по данным OIDC.")
 
     user.email = normalize_email(identity.email) if identity.email else user.email
     user.name = identity.name or user.name
@@ -246,8 +230,6 @@ async def upsert_current_user(
             LOGGER,
             "blocked_user_attempt",
             "Заблокированный пользователь попытался получить доступ.",
-            user_email=user.email,
-            user_sub=user.oidc_sub,
         )
         blocked_message = "Пользователь заблокирован в ReportCollector."
         raise BlockedUserError(blocked_message)
@@ -336,7 +318,6 @@ async def authenticate_local_user(session: AsyncSession, email: str, password: s
             LOGGER,
             "local_login_failed",
             "Неудачная попытка локального входа: пользователь не найден.",
-            login_email=normalized_email,
         )
         raise _INVALID_CREDENTIALS
 
@@ -349,7 +330,6 @@ async def authenticate_local_user(session: AsyncSession, email: str, password: s
                 LOGGER,
                 "local_login_failed",
                 "Неудачная попытка локального входа: слабый первоначальный пароль.",
-                user_email=user.email,
             )
             raise _INVALID_CREDENTIALS from None
         user.password_hash = await hash_password_async(password)
@@ -357,14 +337,12 @@ async def authenticate_local_user(session: AsyncSession, email: str, password: s
             LOGGER,
             "local_password_set",
             "Установлен первоначальный пароль локального пользователя.",
-            user_email=user.email,
         )
     elif not await verify_password_async(password, stored_hash):
         log_event(
             LOGGER,
             "local_login_failed",
             "Неудачная попытка локального входа: неверный пароль.",
-            user_email=user.email,
         )
         raise _INVALID_CREDENTIALS
 
@@ -372,12 +350,7 @@ async def authenticate_local_user(session: AsyncSession, email: str, password: s
     session.add(user)
     await session.commit()
     await session.refresh(user)
-    log_event(
-        LOGGER,
-        "local_login_succeeded",
-        "Локальный вход выполнен.",
-        user_email=user.email,
-    )
+    log_event(LOGGER, "local_login_succeeded", "Локальный вход выполнен.")
     return user
 
 
