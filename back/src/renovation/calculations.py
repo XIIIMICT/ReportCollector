@@ -1,18 +1,40 @@
 """
-Порт движка расчётных формул реновации.
+Port of the renovation formula engine.
 
-Эталон: ReportCollector-Renovation/src-tauri/src/formula.rs.
-Арифметика выполняется на float (как f64 в эталоне); даты — на date.
+Reference: ReportCollector-Renovation/src-tauri/src/formula.rs (not present in
+this repository). Numeric values stay ``Decimal`` from literal/input parsing
+through evaluation and materialization; dates stay ``date`` with integer-day
+shifts.
 """
 
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import (
+    ROUND_HALF_UP,
+    Context,
+    Decimal,
+    DivisionByZero,
+    InvalidOperation,
+    Overflow,
+    localcontext,
+)
 
 NUMBER_CELL = "number"
 DATE_CELL = "date"
+
+# 28 significant digits covers NUMERIC(18,4) with headroom for chained sums.
+_ARITHMETIC_PRECISION = 28
+# Literal magnitude still observes the legacy f64 finite-literal guard (~1e308).
+_MAX_LITERAL_EXPONENT = 308
+# timedelta.max.days; larger shifts must fail as FormulaError, not OverflowError.
+_MAX_DATE_SHIFT = 999_999_999
+_ARITHMETIC_CONTEXT = Context(
+    prec=_ARITHMETIC_PRECISION,
+    rounding=ROUND_HALF_UP,
+    traps=[DivisionByZero, Overflow, InvalidOperation],
+)
 
 _ERR_PARSE = "формула поля {field}: {detail}"
 _ERR_DUPLICATE_FIELD = "поле {field} определено более одного раза"
@@ -120,7 +142,7 @@ class _Expression:
 
 @dataclass(frozen=True)
 class _Number(_Expression):
-    value: float
+    value: Decimal
 
 
 @dataclass(frozen=True)
@@ -163,7 +185,7 @@ class _Evaluated:
 
 @dataclass(frozen=True)
 class _EvaluatedNumber(_Evaluated):
-    value: float
+    value: Decimal
 
 
 @dataclass(frozen=True)
@@ -289,19 +311,20 @@ class FormulaEngine:
         expression: _Expression,
         decimal_places: int | None,
     ) -> None:
-        evaluated = _evaluate(expression, values, self._field_types)
-        if isinstance(evaluated, _EvaluatedMissingDate):
-            return
-        if isinstance(evaluated, _EvaluatedNumber):
-            if cell_type != NUMBER_CELL:
+        with localcontext(_ARITHMETIC_CONTEXT):
+            evaluated = _evaluate(expression, values, self._field_types)
+            if isinstance(evaluated, _EvaluatedMissingDate):
+                return
+            if isinstance(evaluated, _EvaluatedNumber):
+                if cell_type != NUMBER_CELL:
+                    raise _target_type_mismatch(field)
+                values[field] = _round_to_places(evaluated.value, decimal_places)
+            elif isinstance(evaluated, _EvaluatedDate):
+                if cell_type != DATE_CELL:
+                    raise _target_type_mismatch(field)
+                values[field] = evaluated.value
+            else:
                 raise _target_type_mismatch(field)
-            values[field] = Decimal(str(_round_to_places(evaluated.value, decimal_places)))
-        elif isinstance(evaluated, _EvaluatedDate):
-            if cell_type != DATE_CELL:
-                raise _target_type_mismatch(field)
-            values[field] = evaluated.value
-        else:
-            raise _target_type_mismatch(field)
 
 
 def _collect_variables(expression: _Expression) -> set[str]:
@@ -381,11 +404,11 @@ def _evaluate(
 
 def _evaluate_compare(left: _Evaluated, right: _Evaluated) -> _Evaluated:
     if isinstance(left, _EvaluatedMissingDate) or isinstance(right, _EvaluatedMissingDate):
-        return _EvaluatedNumber(0.0)
+        return _EvaluatedNumber(Decimal(0))
     if isinstance(left, _EvaluatedNumber) and isinstance(right, _EvaluatedNumber):
-        return _EvaluatedNumber(1.0 if left.value == right.value else 0.0)
+        return _EvaluatedNumber(Decimal(1) if left.value == right.value else Decimal(0))
     if isinstance(left, _EvaluatedDate) and isinstance(right, _EvaluatedDate):
-        return _EvaluatedNumber(1.0 if left.value == right.value else 0.0)
+        return _EvaluatedNumber(Decimal(1) if left.value == right.value else Decimal(0))
     raise _invalid_operation(_COMPARE_LABEL)
 
 
@@ -413,25 +436,25 @@ def _evaluate_call(
         if len(call.args) != 1:
             raise _invalid_operation(name)
         parsed = _call_date(call.args[0], values, field_types)
-        return _EvaluatedMissingDate() if parsed is None else _EvaluatedNumber(float(parsed.year))
+        return _EvaluatedMissingDate() if parsed is None else _EvaluatedNumber(Decimal(parsed.year))
     if name == "MONTH":
         if len(call.args) != 1:
             raise _invalid_operation(name)
         parsed = _call_date(call.args[0], values, field_types)
-        return _EvaluatedMissingDate() if parsed is None else _EvaluatedNumber(float(parsed.month))
+        return _EvaluatedMissingDate() if parsed is None else _EvaluatedNumber(Decimal(parsed.month))
     if name == "AND":
         if len(call.args) < 2:
             raise _invalid_operation(name)
         for arg in call.args:
             evaluated = _evaluate(arg, values, field_types)
-            if not isinstance(evaluated, _EvaluatedNumber) or evaluated.value == 0.0:
-                return _EvaluatedNumber(0.0)
-        return _EvaluatedNumber(1.0)
+            if not isinstance(evaluated, _EvaluatedNumber) or evaluated.value == 0:
+                return _EvaluatedNumber(Decimal(0))
+        return _EvaluatedNumber(Decimal(1))
     if name == "IF":
         if len(call.args) != 3:
             raise _invalid_operation(name)
         condition = _evaluate(call.args[0], values, field_types)
-        truthy = isinstance(condition, _EvaluatedNumber) and condition.value != 0.0
+        truthy = isinstance(condition, _EvaluatedNumber) and condition.value != 0
         return _evaluate(call.args[1] if truthy else call.args[2], values, field_types)
     raise _invalid_operation(call.name)
 
@@ -447,11 +470,19 @@ def _evaluate_variable(
     value = values.get(field)
     if field_type == NUMBER_CELL:
         if value is None:
-            return _EvaluatedNumber(0.0)
+            return _EvaluatedNumber(Decimal(0))
+        if isinstance(value, bool):
+            raise _invalid_value_type(field)
         if isinstance(value, Decimal):
-            return _finite_number(float(value))
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return _finite_number(float(value))
+            return _finite_number(value)
+        if isinstance(value, int):
+            return _finite_number(Decimal(value))
+        # A float input is normalized through its shortest round-tripping text,
+        # never used as an arithmetic operand.
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                raise _overflow()
+            return _finite_number(Decimal(str(value)))
         raise _invalid_value_type(field)
     if field_type == DATE_CELL:
         if value is None:
@@ -475,65 +506,73 @@ def _evaluate_binary(operator: str, left: _Evaluated, right: _Evaluated) -> _Eva
     left_date = left.value if isinstance(left, _EvaluatedDate) else None
     right_date = right.value if isinstance(right, _EvaluatedDate) else None
 
-    if operator == "+":
-        if left_number is not None and right_number is not None:
-            return _finite_number(left_number + right_number)
-        if left_date is not None and right_number is not None:
-            return _shift_date(left_date, right_number, add=True)
-        if left_number is not None and right_date is not None:
-            return _shift_date(right_date, left_number, add=True)
+    try:
+        if operator == "+":
+            if left_number is not None and right_number is not None:
+                return _finite_number(left_number + right_number)
+            if left_date is not None and right_number is not None:
+                return _shift_date(left_date, right_number, add=True)
+            if left_number is not None and right_date is not None:
+                return _shift_date(right_date, left_number, add=True)
+            raise _invalid_operation(operator)
+        if operator == "-":
+            if left_number is not None and right_number is not None:
+                return _finite_number(left_number - right_number)
+            if left_date is not None and right_date is not None:
+                return _finite_number(Decimal((left_date - right_date).days))
+            if left_date is not None and right_number is not None:
+                return _shift_date(left_date, right_number, add=False)
+            raise _invalid_operation(operator)
+        if operator == "*":
+            if left_number is not None and right_number is not None:
+                return _finite_number(left_number * right_number)
+            raise _invalid_operation(operator)
+        if operator == "/":
+            if left_number is not None and right_number is not None:
+                if right_number == 0:
+                    raise _division_by_zero()
+                return _finite_number(left_number / right_number)
+            raise _invalid_operation(operator)
         raise _invalid_operation(operator)
-    if operator == "-":
-        if left_number is not None and right_number is not None:
-            return _finite_number(left_number - right_number)
-        if left_date is not None and right_date is not None:
-            return _EvaluatedNumber(float((left_date - right_date).days))
-        if left_date is not None and right_number is not None:
-            return _shift_date(left_date, right_number, add=False)
-        raise _invalid_operation(operator)
-    if operator == "*":
-        if left_number is not None and right_number is not None:
-            return _finite_number(left_number * right_number)
-        raise _invalid_operation(operator)
-    if operator == "/":
-        if left_number is not None and right_number is not None:
-            if right_number == 0.0:
-                raise _division_by_zero()
-            return _finite_number(left_number / right_number)
-        raise _invalid_operation(operator)
-    raise _invalid_operation(operator)
+    except DivisionByZero as error:
+        raise _division_by_zero() from error
+    except (Overflow, InvalidOperation) as error:
+        raise _overflow() from error
 
 
-def _shift_date(value: date, days: float, add: bool) -> _Evaluated:
-    if not _is_finite(days) or days % 1 != 0.0 or days < -9.2e18 or days > 9.2e18:
+def _shift_date(value: date, days: Decimal, add: bool) -> _Evaluated:
+    if not days.is_finite() or days != days.to_integral_value():
         raise _fractional_days()
-    delta = timedelta(days=int(days))
-    shifted = value + delta if add else value - delta
+    count = int(days)
+    if not -_MAX_DATE_SHIFT <= count <= _MAX_DATE_SHIFT:
+        raise _overflow()
+    delta = timedelta(days=count)
+    try:
+        shifted = value + delta if add else value - delta
+    except OverflowError as error:
+        raise _overflow() from error
     return _EvaluatedDate(shifted)
 
 
-def _finite_number(number: float) -> _Evaluated:
-    if _is_finite(number):
-        return _EvaluatedNumber(number)
-    raise _overflow()
+def _finite_number(number: Decimal) -> _Evaluated:
+    if not number.is_finite():
+        raise _overflow()
+    if number == 0:
+        return _EvaluatedNumber(Decimal(0))
+    return _EvaluatedNumber(number)
 
 
-def _round_to_places(number: float, places: int | None) -> float:
-    if not _is_finite(number):
+def _round_to_places(number: Decimal, places: int | None) -> Decimal:
+    if not number.is_finite():
         raise _overflow()
     if places is None:
-        return number
-    factor = 10**places
-    rounded = round(number * factor) / factor
-    if rounded == -0.0:
-        rounded = 0.0
-    if _is_finite(rounded):
-        return rounded
-    raise _overflow()
-
-
-def _is_finite(number: float) -> bool:
-    return math.isfinite(number)
+        return Decimal(0) if number == 0 else number
+    quantum = Decimal(1).scaleb(-places)
+    try:
+        rounded = number.quantize(quantum, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, Overflow) as error:
+        raise _overflow() from error
+    return Decimal(0) if rounded == 0 else rounded
 
 
 def _parse_date(source: str) -> date | None:
@@ -663,11 +702,13 @@ class _Parser:
                 self._position += 1
             if exponent_start == self._position:
                 raise _ParserError(_PARSE_EXPONENT_DIGITS)
+        literal = self._source[start : self._position]
         try:
-            number = float(self._source[start : self._position])
-        except ValueError as error:
+            number = Decimal(literal)
+            exponent = number.adjusted()
+        except InvalidOperation as error:
             raise _ParserError(_PARSE_INVALID_NUMBER) from error
-        if not _is_finite(number):
+        if not number.is_finite() or exponent > _MAX_LITERAL_EXPONENT:
             raise _ParserError(_PARSE_FINITE_LITERAL)
         return _Number(number)
 
