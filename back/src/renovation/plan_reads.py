@@ -246,6 +246,31 @@ def _header_cell_read(cell: RenovationHeaderCell) -> RenovationHeaderCellRead:
     )
 
 
+# Compatibility budget for the legacy full-plan read (`GET /plan`). It
+# deliberately matches the owner-approved inline-work row budget
+# (`INLINE_EXPORT_MAX_ROWS`): one row becomes a Pydantic model with ~215 values,
+# so an unbounded read of the 261k-row live plan would materialize tens of
+# millions of Python objects inside the request process. This is a resource
+# guard, NOT a product value-count cap. Above the bound the endpoint returns a
+# stable, actionable error and directs the client to paged reads; it never
+# returns a truncated plan.
+FULL_PLAN_READ_MAX_ROWS = INLINE_EXPORT_MAX_ROWS
+
+
+class PlanFullReadTooLargeError(RuntimeError):
+    """
+    The full-plan read scope exceeds `FULL_PLAN_READ_MAX_ROWS`.
+
+    Unlike the export path, there is no job fallback for a full JSON plan
+    response: the legacy contract is kept only for small plans. `limit` is the
+    bound the caller exceeded; no rows are materialized or returned.
+    """
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"Full plan read exceeds the {limit}-row compatibility budget")
+        self.limit = limit
+
+
 async def read_plan(
     session: AsyncSession,
     assets: list[RAsset],
@@ -253,7 +278,13 @@ async def read_plan(
     plan_id: UUID | None = None,
     state: RPlanState = RPlanState.WORKING,
 ) -> RenovationPlanRead:
-    """Return a plan version with rows (reference fields as labels, renovation ID)."""
+    """
+    Return a plan version with rows (reference fields as labels, renovation ID).
+
+    Bounded by `FULL_PLAN_READ_MAX_ROWS`: the query fetches one row beyond the
+    budget and refuses the whole request if it arrives. The extra row is the
+    overflow signal — the plan is never truncated and never fully materialized.
+    """
     if plan_id is not None:
         plan = await session.get(RenovationPlan, plan_id)
         if plan is None:
@@ -275,8 +306,13 @@ async def read_plan(
                 | (col(RenovationPlanRow.asset_id).is_(None) & literal(bool(asset_ids)))
             )
             .order_by(col(RenovationPlanRow.position))
+            # Fetch one extra row: it proves the scope is larger than the budget
+            # without ever pulling the whole plan into this process.
+            .limit(FULL_PLAN_READ_MAX_ROWS + 1)
         )
     ).all()
+    if len(rows) > FULL_PLAN_READ_MAX_ROWS:
+        raise PlanFullReadTooLargeError(FULL_PLAN_READ_MAX_ROWS)
     baseline_boundary = await _baseline_boundary(session) if plan.state == RPlanState.WORKING else None
     return RenovationPlanRead(
         id=plan.id,

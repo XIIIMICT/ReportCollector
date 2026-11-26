@@ -53,16 +53,62 @@ reports" as outstanding.
 
 | Limit | Value | Failure | Class |
 |---|---|---|---|
+| Legacy full `GET /plan` | **5000 rows** (`FULL_PLAN_READ_MAX_ROWS`, aligned with `INLINE_EXPORT_MAX_ROWS`) | 422 with fixed code `PLAN_FULL_READ_TOO_LARGE`; no rows returned | S (resource guard, not a product cap) |
 | `/plan/rows` `limit` | 1..10000, default 1000 | 422 | D (10000 unjustified) |
 | `/plan/facets` `limit` | 1..1000, default 200 (front `FACET_PAGE` 200) | 422 | D |
 | `filters` / `sorting` arrays | `max_length=256` each | 422 | D |
 | Sort column name | 1..64 chars | 422 | D |
-| Filter `values` / search strings | uncapped | — | D — gap |
+| Filter `values` / search strings | uncapped (no product cap — owner approval required) | 422 only for a malformed filter SHAPE; no app-level 413 for body size | D — gap, reviewed RC-6 |
 | Plan cell batch | 1..500; dictionary batch 1..10000 | 422 | D |
 | Export columns | 1..64 (KPPK slice 1..16) | 422 | D / P |
-| Export `rowIds` | **no count cap** (owner decision 2026-11-25: export everything that exists); duplicates still rejected | generic and plan exports; 4 GiB ZIP ceiling unchanged | P (approved) |
+| Export `rowIds` | **no count cap** (owner decision 2026-11-25: export everything that exists); duplicates still rejected, including on plan exports | generic and plan exports; 4 GiB ZIP ceiling unchanged | P (approved) |
 | `MAX_CELL_CHARS` | removed — dead code (owner decision) | Excel still enforces its own limit at open time | D (resolved) |
 | 4 GiB ZIP ceiling | `(1<<32)-1` per entry | `ExportTooLargeError` with actionable Russian message | S/P (owner-approved) |
+
+### Legacy full-plan read compatibility (RC-6)
+
+`GET /api/renovation/plan` is kept as a compatibility read for small plans. It
+builds one Pydantic row model with ~215 values per row, so an unbounded read of
+the 261,419-row live plan would materialize tens of millions of Python objects
+in the request process. `read_plan` now fetches `LIMIT 5001`: the extra row is
+the overflow signal. At or below 5000 rows the historical `RenovationPlanRead`
+response is unchanged; above it the server refuses the WHOLE request — it never
+returns a truncated plan and never builds response row models for a refused
+plan. 5000 is not a new product number: it reuses the owner-approved
+`INLINE_EXPORT_MAX_ROWS` synchronous-work budget (above).
+
+The error contract is stable and machine-readable: HTTP **422** with
+`detail = {"code": "PLAN_FULL_READ_TOO_LARGE", "message": "<Russian, names the
+limit and the alternative>", "maxRows": 5000, "alternative": "/plan/rows"}`
+(`PlanFullReadTooLargeDetail` in `src/renovation/schemas.py`). Clients should
+match on `code`, then page through `GET /plan/rows` (or `POST /plan/rows/query`)
+with `offset`/`limit`. This is a documented deprecation path, not a removal:
+the application itself already reads rows only through the paged endpoints; the
+`front/src/shared/api/renovation-plan-api.ts` `getRenovationPlan` wrapper is a
+compatibility export with no in-app callers. External clients cannot be ruled
+out, so small-plan full reads keep working.
+
+### Filter values / search strings (RC-6 review)
+
+`RenovationColumnFilter.values`, facet search strings and search bounds remain
+**uncapped**: a 5001-value filter is an existing, passing test case
+(`test_large_filter_body_and_validation`) and no measured/realistic in-repo
+abuse case justifies a new product maximum. The owner has not approved a value
+count cap, so none was added. Stable behavior stays as follows: an invalid
+filter shape (e.g. a range on a text column) is 422 with a Russian message;
+JSON request bodies have no application-level size check; the front proxy still
+buffers the whole body; and nginx `client_max_body_size` remains unset (1 MiB
+default, 413 before the app) — infrastructure is deferred and out of scope
+here. This stays a documented class-D gap, not a new silent limit.
+
+### `rowIds` exact-set export (RC-6 confirmation)
+
+Neither the generic nor the plan export caps the number of `rowIds`; a plan
+export with 5001 distinct IDs is accepted and exports exactly the rows that
+exist. Duplicates are still rejected with the shared Russian message
+`Список экспортируемых строк содержит дубли.` (the plan request now validates
+this in `RenovationPlanExportRequest`), and the 4 GiB ZIP/XLSX ceiling is
+unchanged. Neither restriction is a row-count cap.
 
 ## Jobs, leases and collaboration
 
@@ -94,6 +140,18 @@ reports" as outstanding.
   evidence supports a business maximum.
 - Infrastructure/proxy limits remain deferred and untouched.
 
-Verification: focused boundary tests (`test_plan_import.py`,
-`test_collab.py`) plus the full backend suite (690 passed / 13 skipped) and
-frontend suite (464 passed); no infra setting changed.
+### RC-6 decision (2026-11-26)
+
+- Legacy full `GET /plan`: **5000-row compatibility budget**, reusing the
+  approved inline-work number; larger plans get a stable 422 code
+  `PLAN_FULL_READ_TOO_LARGE` and must page through `/plan/rows`. No truncation.
+- Filter `values` / search strings: **no cap introduced** (no owner approval, no
+  measured abuse case); request-body/transport protection stays deferred with
+  infrastructure. Documented gap, not a new limit.
+- Export `rowIds`: **still no count cap**; duplicates and the 4 GiB ceiling stay.
+- Infrastructure/proxy limits remain untouched.
+
+Verification (RC-6): `tests/test_plan_read_compat.py` (boundary at/above 5000,
+zero row models materialized on refusal, stable error shape, paged alternative,
+uncapped and duplicate `rowIds`) plus targeted plan/export/router tests; the
+full backend suite and static checks are recorded in the commit body.
