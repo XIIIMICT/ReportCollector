@@ -19,16 +19,32 @@ export async function loginAsLocalUser(page: Page, options: { email: string; pas
     }
 
     await page.goto(`${LOCAL_APP_ORIGIN}/api/auth/login`);
+    // Assert the login round-trip itself. The redirect target comes from the
+    // server's AUTH_APP_ORIGIN, which may differ from E2E_BASE_URL; deriving
+    // the expected origin from the response avoids that configuration trap.
+    const responsePromise = page.waitForResponse(
+        (response) =>
+            response.url().includes("/api/auth/login") && response.request().method() === "POST",
+        { timeout: 10000 },
+    );
     await page.locator('input[name="email"]').fill(email);
     await page.locator('input[name="password"]').fill(password);
     await page.locator('button[type="submit"]').click();
+    const response = await responsePromise;
+    if (response.status() !== 303) {
+        throw new Error(`Local login did not redirect (HTTP ${response.status()}).`);
+    }
+    const location = response.headers()["location"];
+    if (!location) {
+        throw new Error("Local login redirect is missing its Location header.");
+    }
+    const expectedOrigin = new URL(location, page.url()).origin;
+    // The redirected workspace keeps streaming requests open (grid data,
+    // collaboration), so DOMContentLoaded is the right boundary. Keep the
+    // wait below the default 30 s test timeout instead of asking for 60 s.
     await page.waitForURL(
-        (url) => url.origin === LOCAL_APP_ORIGIN && !url.pathname.startsWith("/api/auth/"),
-        // The redirected workspace keeps streaming requests open (grid data,
-        // collaboration); waiting for the full `load` event routinely hit the
-        // 30s test timeout on a cold stand. The redirect has committed at
-        // DOMContentLoaded — that is all the login assertion needs.
-        { waitUntil: "domcontentloaded", timeout: 60000 },
+        (url) => url.origin === expectedOrigin && !url.pathname.startsWith("/api/auth/"),
+        { waitUntil: "domcontentloaded", timeout: 10000 },
     );
 }
 

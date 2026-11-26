@@ -415,6 +415,25 @@ substitute for either.** The `ui-keycloak` project is not started by CI.
       the callback assertions above pass, and no secret is committed. Not
       covered by CI today.
 
+### Test-quality follow-ups (senior-qa audit, 2026-11-26)
+
+- [ ] **Dictionary CRUD e2e is still flaky — NOT closed.** `raw-materials-ui.spec.ts`
+  opens the hover-driven project menu twice with a mouse click, asserts a
+  placeholder cell's `hasText()` as proof of creation, then maps two
+  independently virtualized row lists by index. Observed failure: the created
+  record was never posted, the placeholder draft was selected, and the wrong
+  row was deleted. Acceptance for the fix: assert `POST /api/raw-materials/assets`
+  succeeds, reload/re-open the section, select by the row's stable `data-row-id`,
+  split the monolithic spec, and wrap mutations in `try/finally` cleanup. No
+  assertion may be weakened or skipped. The shared login helper was fixed and
+  verified 3/3; this CRUD case remains open.
+- [ ] **Reduce arbitrary sleeps and weak selectors.** 22 `waitForTimeout` calls
+  and ~16 CSS-targeted semantic controls remain; keep only flicker-sampling
+  waits, prefer `getByRole(..., { exact: true })` and web-first assertions.
+- [ ] **Fix docs/config drift.** `docs/FRONTEND-REFACTOR.md` test section is
+  stale (ports/counts); root `AGENTS.md` names `--project=keycloak` while the
+  config declares `ui-keycloak`.
+
 ## Process (hard rules)
 
 Short recap — the canonical text is `docs/WORKFLOW.md`; this list is the living

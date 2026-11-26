@@ -39,7 +39,6 @@ LOGGER = logging.getLogger("reportcollector.application")
 # limit across API workers; this store preserves protection during an outage.
 _rate_limit_store: dict[str, list[float]] = {}
 _RATE_LIMIT_WINDOW = 60.0  # seconds
-_RATE_LIMIT_MAX_AUTH = 20  # max auth requests per window
 # Hard cap on tracked clients: a flood of distinct keys must not grow the dict
 # without bound. Empty buckets are swept, and if the cap is still exceeded the
 # oldest buckets are dropped.
@@ -136,7 +135,9 @@ async def rate_limit_auth(
         try:
             async with asyncio.timeout(0.5):
                 allowed = await store.allow_rate_limit(
-                    f"rc:auth-rate:{client_ip}", limit=_RATE_LIMIT_MAX_AUTH, window_seconds=int(_RATE_LIMIT_WINDOW)
+                    f"rc:auth-rate:{client_ip}",
+                    limit=settings.auth_rate_limit_max,
+                    window_seconds=int(_RATE_LIMIT_WINDOW),
                 )
         except ValkeyError, TimeoutError:
             storage = "fallback"
@@ -148,7 +149,7 @@ async def rate_limit_auth(
             # No locking: asyncio is single-threaded, no concurrent access to _rate_limit_store.
             cutoff = now - _RATE_LIMIT_WINDOW
             timestamps = [t for t in _rate_limit_store.get(client_ip, []) if t > cutoff]
-            allowed = allowed and len(timestamps) < _RATE_LIMIT_MAX_AUTH
+            allowed = allowed and len(timestamps) < settings.auth_rate_limit_max
             if allowed:
                 timestamps.append(now)
                 _rate_limit_store[client_ip] = timestamps

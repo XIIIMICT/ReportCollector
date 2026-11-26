@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     # X-Forwarded-For is ignored and the rate limiter keys on the socket peer;
     # N>0 makes it take the client from the Nth-from-right XFF entry.
     trusted_proxy_hops: int = Field(default=0, validation_alias="TRUSTED_PROXY_HOPS")
+    # Auth requests per client IP per minute. The production default stays 20;
+    # isolated CI stacks raise it because every browser test signs in anew.
+    auth_rate_limit_max: int = Field(default=20, validation_alias="AUTH_RATE_LIMIT_MAX", gt=0)
     # Defaults to local dev origins. In the compose stack the value is derived
     # from AUTH_APP_ORIGIN (the single source of the app host); here it matters
     # only when running the backend on the host outside compose.
