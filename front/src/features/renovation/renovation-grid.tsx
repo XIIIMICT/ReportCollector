@@ -94,8 +94,9 @@ import {
     pasteTargetRange,
     readFromClipboard,
     serializeCellValue,
+    SUMMARY_ROW_ID,
+    type GridViewStats,
 } from "@/shared/grid";
-import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/data-grid";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import {
     columnMenuItems,

@@ -56,7 +56,7 @@ import {
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import { isValidEmail } from "@/shared/email";
-import { DataGrid, type GridViewStats, type DataGridHandle } from "@/shared/grid/data-grid";
+import { DataGrid, type DataGridHandle } from "@/shared/grid/data-grid";
 import {
     ADMIN_SECTIONS,
     exportFileName,
@@ -69,6 +69,7 @@ import {
     type SectionId,
 } from "@/shared/grid/grid-config";
 import { buildGridResetState } from "@/shared/grid/grid-reset-state";
+import type { GridViewStats } from "@/shared/grid/grid-types";
 import {
     collaborationAvailableFor,
     undoAvailableFor,

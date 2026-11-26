@@ -31,9 +31,10 @@ import {
 import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
-import { DataGrid, type GridViewStats, type DataGridHandle } from "@/shared/grid/data-grid";
+import { DataGrid, type DataGridHandle } from "@/shared/grid/data-grid";
 import { exportFileName, type ColumnDescriptor, type GridRow } from "@/shared/grid/grid-config";
 import { buildGridResetState } from "@/shared/grid/grid-reset-state";
+import type { GridViewStats } from "@/shared/grid/grid-types";
 import { ScopedMutationQueue } from "@/shared/grid/mutation-queue";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";

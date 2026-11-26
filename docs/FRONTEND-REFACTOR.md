@@ -219,6 +219,17 @@ same `null` sentinel as failed reads. Row-source mapping, sparse-row checks,
 paste parsing, selection restore, RevoGrid payloads and all memo dependencies
 remain local and unchanged; 8 new unit tests (542 total).
 
+## Stage C — neutral grid contracts (2026-11-26)
+
+`SUMMARY_ROW_ID` and `GridViewStats` moved out of the `data-grid.tsx`
+implementation into `shared/grid/grid-constants.ts` and `grid-types.ts`; both
+are re-exported from the `shared/grid` barrel. All thirteen import sites were
+updated to the neutral modules, and neither name is imported from `data-grid`
+any more — RenovationGrid no longer depends on the other grid's implementation
+for common contracts. No re-export from `data-grid` was added, so the old
+dependency cannot silently return. Values, comments, memo dependencies and JSX
+are unchanged; 544 unit tests.
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,

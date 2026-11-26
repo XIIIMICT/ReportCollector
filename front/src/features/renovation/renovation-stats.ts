@@ -1,4 +1,4 @@
-import type { GridViewStats } from "@/shared/grid/data-grid";
+import type { GridViewStats } from "@/shared/grid/grid-types";
 
 /** The loader size is filtered; the status denominator is the whole plan. */
 export function renovationRowStats(

@@ -31,17 +31,14 @@ import {
 import { canonicalCellKey, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import { isValidEmail } from "@/shared/email";
-import {
-    DataGrid,
-    SUMMARY_ROW_ID,
-    type GridViewStats,
-    type DataGridHandle,
-} from "@/shared/grid/data-grid";
+import { DataGrid, type DataGridHandle } from "@/shared/grid/data-grid";
 import {
     getEditableKeys,
     renovationCatalogDescriptors,
     type GridRow,
 } from "@/shared/grid/grid-config";
+import { SUMMARY_ROW_ID } from "@/shared/grid/grid-constants";
+import type { GridViewStats } from "@/shared/grid/grid-types";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { DeleteRecordDialog } from "@/shared/ui/action-items";

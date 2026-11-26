@@ -54,7 +54,7 @@ import {
 import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
-import { DataGrid, type GridViewStats, type DataGridHandle } from "@/shared/grid/data-grid";
+import { DataGrid, type DataGridHandle } from "@/shared/grid/data-grid";
 import {
     exportFileName,
     KPPK_GROUPED_POSITION_DESCRIPTORS,
@@ -65,6 +65,7 @@ import {
 } from "@/shared/grid/grid-config";
 import { parseNumericText } from "@/shared/grid/grid-edit";
 import { buildGridResetState } from "@/shared/grid/grid-reset-state";
+import type { GridViewStats } from "@/shared/grid/grid-types";
 import { sameGridViewStats } from "@/shared/grid/grid-view-stats";
 import { ScopedMutationQueue } from "@/shared/grid/mutation-queue";
 import {

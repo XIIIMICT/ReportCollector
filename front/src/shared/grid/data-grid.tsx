@@ -76,8 +76,10 @@ import {
     type ReferenceOption,
     type SectionId,
 } from "./grid-config";
+import { SUMMARY_ROW_ID } from "./grid-constants";
 import { extractEdits, parseNumericText } from "./grid-edit";
 import { MultiAssetEditor, ReferenceEditor, SelectEditor } from "./grid-editors";
+import type { GridViewStats } from "./grid-types";
 import {
     copyToClipboard,
     parsePastedText,
@@ -88,9 +90,6 @@ import {
 import { readScrollPosition, scrollScopeKey, writeScrollPosition } from "./scroll-position";
 import { isChunkedSection } from "./section-policy";
 import { describeSelection } from "./selection-label";
-
-/** The pinned summary row's id (revo-grid `pinnedTopSource`) — never a real record. */
-export const SUMMARY_ROW_ID = "__summary__";
 
 /**
  * The shared editable grid of the application.
@@ -139,39 +138,6 @@ export type DataGridState = {
     columns: ExportColumn[];
     rowIds: string[];
     mergeRows: boolean;
-};
-
-export type GridViewStats = {
-    totalRows: number;
-    /** Rows matching the current filters (non-placeholder, non-deleted). */
-    filteredRows: number;
-    totalCols: number;
-    /** Whether any column filter is currently applied. */
-    filtersApplied: boolean;
-    /**
-     * The columns an applied filter narrows, each as its full header CHAIN —
-     * group first, leaf last (a grouped column reads «Иерархия → Лист»), which
-     * is what the status tooltip lists. Empty when nothing is filtered.
-     */
-    filteredColumns: string[][];
-    /**
-     * The columns the table is SORTED by, in the order RevoGrid applies them —
-     * each as its header chain (like `filteredColumns`) plus the direction.
-     * Empty when the table is unsorted.
-     */
-    sortedColumns: Array<{ path: string[]; order: "asc" | "desc" }>;
-    /** Fixed (non-calculated) columns — not editable. */
-    immutableCols: number;
-    /** Calculated columns. */
-    calculatedCols: number;
-    /** Editable columns. */
-    editableCols: number;
-    /**
-     * Columns hidden by the user, in table order — the same numbered list the
-     * expand button's tooltip shows. Service columns appear too while their
-     * project-wide toggle is off.
-     */
-    hiddenColumns?: HiddenColumnEntry[];
 };
 
 export type DataGridHandle = {

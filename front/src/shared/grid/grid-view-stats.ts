@@ -1,4 +1,4 @@
-import type { GridViewStats } from "./data-grid";
+import type { GridViewStats } from "./grid-types";
 
 /**
  * Have the footer's grid statistics really changed?
