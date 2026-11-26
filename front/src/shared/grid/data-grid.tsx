@@ -34,7 +34,11 @@ import {
     type GridMenuItem,
     type GridMenuRequest,
 } from "@/shared/grid/grid-header-menu";
-import { keepsGridSelection } from "@/shared/grid/grid-selection";
+import {
+    keepsGridSelection,
+    selectionCellKeys,
+    selectionRowCellKeys,
+} from "@/shared/grid/grid-selection";
 import {
     hiddenColumnBlocks,
     useGridHiddenColumns,
@@ -297,54 +301,6 @@ function markSummaryMerge<T>(properties: T): T {
 function hasSummaryMergeMarker(properties: ColumnRegular["columnProperties"] | undefined): boolean {
     const probe = properties as unknown as { __summaryMerge?: boolean } | undefined;
     return probe?.__summaryMerge === true;
-}
-
-/**
- * Canonical keys of the cells in the selected range — the same for all
- * members regardless of the visible column set (coordinates diverge when
- * users have different column sets).
- */
-function selectionCellKeys(
-    range: RangeArea | null,
-    rows: GridRow[],
-    columns: ColumnRegular[],
-): string[] {
-    if (!range || range.x1 < range.x || range.y1 < range.y) return [];
-    const keys: string[] = [];
-    for (let y = range.y; y <= Math.min(range.y1, rows.length - 1); y++) {
-        const row = rows[y];
-        if (!row?.canonicalCells) continue;
-        for (let x = range.x; x <= Math.min(range.x1, columns.length - 1); x++) {
-            const prop = columns[x]?.prop;
-            if (prop == null) continue;
-            const key = row.canonicalCells[String(prop)];
-            if (key) keys.push(key);
-        }
-    }
-    return keys;
-}
-
-/**
- * Canonical keys of all cells in the selected rows (across all columns).
- */
-function selectionRowCellKeys(
-    rows: GridRow[],
-    startRow: number,
-    endRow: number,
-    columns: ColumnRegular[],
-): string[] {
-    const keys: string[] = [];
-    for (let y = startRow; y <= endRow; y++) {
-        const row = rows[y];
-        if (!row?.canonicalCells) continue;
-        for (const column of columns) {
-            const prop = column.prop;
-            if (prop == null) continue;
-            const key = row.canonicalCells[String(prop)];
-            if (key) keys.push(key);
-        }
-    }
-    return keys;
 }
 
 export function sortingConfigFromEvent(detail: GridSortingEvent): GridSortingConfig {
@@ -1564,11 +1520,15 @@ function DataGridInner(
                             ? `строка ${firstIndex + 1}`
                             : `строки ${firstIndex + 1}–${lastIndex + 1}`
                         : (described?.label ?? null);
+                // Presence keys are canonical, not coordinate-based: users with
+                // different visible column sets must still resolve the same cells.
+                const canonicalKey = (row: GridRow, prop: string): string | undefined =>
+                    row.canonicalCells?.[String(prop)] || undefined;
                 const keys = rowIndexes.length
                     ? rowIndexes.flatMap((index) =>
-                          selectionRowCellKeys(visible, index, index, flatColumns),
+                          selectionRowCellKeys(visible, index, index, flatColumns, canonicalKey),
                       )
-                    : selectionCellKeys(selectionRange, visible, flatColumns);
+                    : selectionCellKeys(selectionRange, visible, flatColumns, canonicalKey);
                 // Row selection names rows only; the column details belong to a
                 // cell range (the renovation plan behaves the same way).
                 onSelectionChange?.({

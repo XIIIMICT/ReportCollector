@@ -4,6 +4,23 @@
 
 import type { RangeArea } from "@revolist/revogrid";
 
+/** A column source accepted by the shared key helpers: a bare prop or a column object. */
+export type SelectionColumnProp = string | { prop?: unknown };
+
+/** Resolve the persistence key of one cell; `undefined` means "no key, skip it". */
+export type CellKeyAccessor<TRow> = (row: TRow, prop: string) => string | undefined;
+
+function columnPropOf(column: SelectionColumnProp | undefined): string | undefined {
+    if (column === undefined) return undefined;
+    if (typeof column === "string") return column;
+    return column.prop == null ? undefined : String(column.prop);
+}
+
+/** Legacy default: `${row.id}/${prop}` for rows that carry an id. */
+function defaultCellKey<TRow extends { id: string }>(row: TRow, prop: string): string {
+    return `${row.id}/${prop}`;
+}
+
 /**
  * Targets that must keep the grid selection on an outside pointerdown.
  *
@@ -33,79 +50,56 @@ export function isGridTarget(event: Event, grid: HTMLElement): boolean {
 }
 
 /**
- * Get cell keys for a selection range
+ * Cell keys for a selection range, in row-major order.
+ *
+ * `getCellKey` resolves a cell's persistence key — pass a `canonicalCells`
+ * accessor when keys must stay identical across different visible column sets.
+ * Rows and columns are clamped to the source; a null or reversed range yields
+ * no keys.
  */
 export function selectionCellKeys<TRow extends { id: string }>(
-    range: RangeArea,
+    range: RangeArea | null,
     rows: TRow[],
-    columnProps: string[],
+    columns: ReadonlyArray<SelectionColumnProp>,
+    getCellKey: CellKeyAccessor<TRow> = defaultCellKey,
 ): string[] {
+    if (!range || range.x1 < range.x || range.y1 < range.y) return [];
     const keys: string[] = [];
     for (let y = range.y; y <= Math.min(range.y1, rows.length - 1); y++) {
         const row = rows[y];
         if (!row) continue;
-        for (let x = range.x; x <= Math.min(range.x1, columnProps.length - 1); x++) {
-            const prop = columnProps[x];
+        for (let x = range.x; x <= Math.min(range.x1, columns.length - 1); x++) {
+            const prop = columnPropOf(columns[x]);
             if (!prop) continue;
-            keys.push(`${row.id}/${prop}`);
+            const key = getCellKey(row, prop);
+            if (key !== undefined) keys.push(key);
         }
     }
     return keys;
 }
 
 /**
- * Get cell keys for selected rows
+ * Cell keys for selected rows, across all columns in column order.
  */
 export function selectionRowCellKeys<TRow extends { id: string }>(
     rows: TRow[],
     startRow: number,
     endRow: number,
-    columnProps: string[],
+    columns: ReadonlyArray<SelectionColumnProp>,
+    getCellKey: CellKeyAccessor<TRow> = defaultCellKey,
 ): string[] {
     const keys: string[] = [];
     for (let y = startRow; y <= Math.min(endRow, rows.length - 1); y++) {
         const row = rows[y];
         if (!row) continue;
-        for (const prop of columnProps) {
-            keys.push(`${row.id}/${prop}`);
+        for (const column of columns) {
+            const prop = columnPropOf(column);
+            if (!prop) continue;
+            const key = getCellKey(row, prop);
+            if (key !== undefined) keys.push(key);
         }
     }
     return keys;
-}
-
-/**
- * Build a human-readable label for the current selection
- */
-export function selectionLabelForRange<TDescriptor extends { key: string; label: string }>(
-    range: RangeArea | null,
-    columns: Array<{ prop: string }>,
-    descriptorMap: Map<string, TDescriptor>,
-    rowCount: number,
-): string | null {
-    if (!range) return null;
-
-    const height = range.y1 - range.y + 1;
-    const width = range.x1 - range.x + 1;
-
-    if (height === 1 && width === 1) {
-        const prop = columns[range.x]?.prop;
-        if (!prop) return null;
-        const descriptor = descriptorMap.get(String(prop));
-        return descriptor ? descriptor.label : null;
-    }
-
-    if (height === rowCount) {
-        // Full column(s) selected
-        if (width === 1) {
-            const prop = columns[range.x]?.prop;
-            if (!prop) return null;
-            const descriptor = descriptorMap.get(String(prop));
-            return descriptor ? `${descriptor.label} (весь столбец)` : null;
-        }
-        return `${width} столбцов, ${height} строк`;
-    }
-
-    return `${width} × ${height}`;
 }
 
 /**
