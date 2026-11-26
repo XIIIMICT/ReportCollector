@@ -283,6 +283,17 @@ DataGrid's two local canonical-key copies were replaced with calls and a small
 accessor at the call boundary. 9 new tests (665 total); selection publication,
 effect dependencies and all RevoGrid invariants unchanged.
 
+## Grid decomposition — Stage 4: descriptor data (2026-11-26)
+
+`grid-config.ts` dropped from 979 to 587 lines. All section metadata, the
+`DESCRIPTORS` table, KPPK/renovation/service descriptor sets, the six descriptor
+factories and `getVisibleDescriptors` / `getEditableKeys` moved verbatim into
+`grid-config-descriptors.ts`; the original module re-exports all 16 names, and
+the new module has no import of it, so no cycle exists. 16 new tests (681
+total). Column builders, cell templates, cell-property logic and export-column
+construction stayed in `grid-config.ts` because they carry RevoGrid callback
+identities.
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,
