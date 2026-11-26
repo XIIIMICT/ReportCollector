@@ -1,15 +1,18 @@
 """Validate a technical-directorate Excel plan without changing the database."""
 
+import hashlib
 import heapq
+import mmap
 import struct
 import tempfile
-from collections.abc import Callable, Iterable, Iterator
+import threading
+from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from itertools import chain, islice
 from pathlib import Path
-from typing import BinaryIO, cast
+from typing import BinaryIO, Protocol, Self, cast
 from zipfile import BadZipFile
 
 from openpyxl import load_workbook
@@ -468,7 +471,7 @@ def _iter_xlsx_rows(source: Path | BinaryIO) -> Iterator[list[object]]:
 def inspect_plan_file_streaming(
     source: Path | BinaryIO,
     *,
-    existing_codes: set[str],
+    existing_codes: CodeMembership | Collection[str],
     asset_names_by_code: dict[str, str],
     reference_values: dict[str, set[str]] | None = None,
     suffix: str | None = None,
@@ -492,7 +495,7 @@ def inspect_plan_file_streaming(
 def inspect_plan_file(
     source: Path | BinaryIO,
     *,
-    existing_codes: set[str],
+    existing_codes: CodeMembership | Collection[str],
     asset_names_by_code: dict[str, str],
     reference_values: dict[str, set[str]] | None = None,
     suffix: str | None = None,
@@ -534,6 +537,240 @@ class _CappedExamples[T]:
 # Row numbers kept in a duplicate example; the rest are counted, not materialized.
 _MAX_EXAMPLE_ROWS = 10
 
+# Bounded buffers of the existing-code membership oracle. None of these grow
+# with the plan: a digest run holds at most `_ORACLE_RUN_CODES` fixed-width
+# hashes, the bloom bitmask has a fixed size, and merges keep at most
+# `_ORACLE_MERGE_FAN_IN` runs open. The sorted digests themselves live in
+# OS-backed temporary files (and one read-only mmap), never in a Python set.
+_CODE_DIGEST_BYTES = 32  # full SHA-256: collision odds ~1e-65 for a 300k plan
+_ORACLE_RUN_CODES = 8192
+_ORACLE_BLOOM_BYTES = 1 << 20  # 1 MiB, ~2.5e-5 false positives at 300k codes
+_ORACLE_BLOOM_HASHES = 7
+_ORACLE_MERGE_FAN_IN = 32
+
+
+class CodeMembership(Protocol):
+    """Narrow oracle used by the analyzer to classify a code as new or existing."""
+
+    def contains(self, code: str) -> bool: ...
+
+
+class ExistingCodeOracle:
+    """
+    Exact membership test for one plan's work codes with bounded Python memory.
+
+    Codes are hashed to fixed-width digests, externally sorted in temporary
+    files and searched in place; a fixed-size Bloom filter rejects absent codes
+    without touching the disk. A Bloom false positive only costs a binary search
+    — it can never change a verdict. The only "approximate" step is digest
+    collision: with 32-byte SHA-256 the odds for a 300k-code plan are ~1e-65
+    (the same practical-exactness assumption as the upload hash used for the
+    cache key), and a 128-bit digest would already be ~1e-33.
+
+    `seal()` must be called after the last `add()` and before any `contains()`.
+    `close()` is idempotent and releases the mmap and every temporary file; use
+    the context manager so success, failure and cancellation all clean up.
+    """
+
+    __slots__ = (
+        "_added",
+        "_bloom",
+        "_buffer",
+        "_closed",
+        "_count",
+        "_data",
+        "_files",
+        "_lock",
+        "_map",
+        "_runs",
+        "_sealed",
+    )
+
+    def __init__(self) -> None:
+        # asyncio.to_thread cannot stop a running parse on cancellation. The
+        # lock keeps close() from unmapping a file another thread is searching.
+        self._lock = threading.Lock()
+        self._bloom = bytearray(_ORACLE_BLOOM_BYTES)
+        self._buffer: list[bytes] = []
+        self._runs: list[BinaryIO] = []
+        self._files: list[BinaryIO] = []
+        self._map: mmap.mmap | None = None
+        self._data: BinaryIO | None = None
+        self._count = 0
+        self._added = 0
+        self._sealed = False
+        self._closed = False
+
+    @staticmethod
+    def _bloom_indexes(digest: bytes) -> Iterator[int]:
+        """Double hashing keeps the filter deterministic across processes."""
+        first = int.from_bytes(digest[:8], "big")
+        second = int.from_bytes(digest[8:16], "big") | 1
+        bits = _ORACLE_BLOOM_BYTES * 8
+        for offset in range(_ORACLE_BLOOM_HASHES):
+            yield (first + offset * second) % bits
+
+    def _new_temp(self) -> BinaryIO:
+        handle = cast("BinaryIO", tempfile.TemporaryFile(mode="w+b"))  # noqa: SIM115
+        self._files.append(handle)
+        return handle
+
+    def add(self, code: str) -> None:
+        """Feed one plan code into the oracle; blank codes are ignored as before."""
+        if self._sealed or self._closed:
+            msg = "cannot add codes to a sealed or closed oracle"
+            raise RuntimeError(msg)
+        if not code:
+            return
+        digest = hashlib.sha256(code.encode("utf-8")).digest()
+        for index in self._bloom_indexes(digest):
+            self._bloom[index >> 3] |= 1 << (index & 7)
+        self._buffer.append(digest)
+        self._added += 1
+        if len(self._buffer) >= _ORACLE_RUN_CODES:
+            self._flush_run()
+
+    def _flush_run(self) -> None:
+        if not self._buffer:
+            return
+        run = self._new_temp()
+        try:
+            run.write(b"".join(sorted(self._buffer)))
+            run.seek(0)
+        except BaseException:
+            run.close()
+            raise
+        self._runs.append(run)
+        self._buffer.clear()
+
+    @staticmethod
+    def _read_digests(run: BinaryIO) -> Iterator[bytes]:
+        while record := run.read(_CODE_DIGEST_BYTES):
+            if len(record) != _CODE_DIGEST_BYTES:
+                msg = "corrupt code-digest run"
+                raise ValueError(msg)
+            yield record
+
+    def _merge_group(self, runs: list[BinaryIO]) -> tuple[BinaryIO, int]:
+        """Merge up to `_ORACLE_MERGE_FAN_IN` sorted runs, dropping duplicates."""
+        merged = self._new_temp()
+        unique = 0
+        previous: bytes | None = None
+        try:
+            for digest in heapq.merge(*(self._read_digests(run) for run in runs)):
+                if digest == previous:
+                    continue
+                merged.write(digest)
+                unique += 1
+                previous = digest
+            merged.seek(0)
+        except BaseException:
+            merged.close()
+            raise
+        for run in runs:
+            run.close()
+        return merged, unique
+
+    def seal(self) -> None:
+        """Finish the sorted digest file; required before membership queries."""
+        if self._closed:
+            msg = "cannot seal a closed oracle"
+            raise RuntimeError(msg)
+        if self._sealed:
+            return
+        self._flush_run()
+        runs = self._runs
+        while len(runs) > _ORACLE_MERGE_FAN_IN:
+            next_round: list[BinaryIO] = []
+            for start in range(0, len(runs), _ORACLE_MERGE_FAN_IN):
+                merged, _ = self._merge_group(runs[start : start + _ORACLE_MERGE_FAN_IN])
+                next_round.append(merged)
+            runs = next_round
+        data, unique = self._merge_group(runs)
+        self._runs = []
+        self._count = unique
+        self._data = data
+        if unique:
+            self._map = mmap.mmap(data.fileno(), 0, access=mmap.ACCESS_READ)
+        self._sealed = True
+
+    def contains(self, code: str) -> bool:
+        with self._lock:
+            if not self._sealed or self._closed:
+                msg = "oracle must be sealed before membership queries"
+                raise RuntimeError(msg)
+            digest = hashlib.sha256(code.encode("utf-8")).digest()
+            if any(not self._bloom[index >> 3] & (1 << (index & 7)) for index in self._bloom_indexes(digest)):
+                return False
+            mapping = self._map
+            if mapping is None:
+                return False
+            low, high = 0, self._count
+            while low < high:
+                middle = (low + high) // 2
+                start = middle * _CODE_DIGEST_BYTES
+                if mapping[start : start + _CODE_DIGEST_BYTES] < digest:
+                    low = middle + 1
+                else:
+                    high = middle
+            start = low * _CODE_DIGEST_BYTES
+            return low < self._count and mapping[start : start + _CODE_DIGEST_BYTES] == digest
+
+    def __contains__(self, code: str) -> bool:
+        return self.contains(code)
+
+    def __len__(self) -> int:
+        """Exact count of distinct (non-blank) codes after `seal()`."""
+        return self._count
+
+    @property
+    def added(self) -> int:
+        """Number of codes fed in, including duplicates; useful for diagnostics."""
+        return self._added
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            if self._map is not None:
+                self._map.close()
+                self._map = None
+            for handle in self._files:
+                handle.close()
+            self._files.clear()
+            self._runs.clear()
+            self._buffer.clear()
+            self._bloom = bytearray()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+
+class _CollectionMembership:
+    """Adapter that keeps small callers/tests on the same narrow oracle contract."""
+
+    __slots__ = ("_codes",)
+
+    def __init__(self, codes: Collection[str]) -> None:
+        self._codes = codes
+
+    def contains(self, code: str) -> bool:
+        return code in self._codes
+
+    def __contains__(self, code: str) -> bool:
+        return self.contains(code)
+
+    def __len__(self) -> int:
+        return len(self._codes)
+
+
+def _as_membership(existing_codes: CodeMembership | Collection[str]) -> CodeMembership:
+    if callable(getattr(existing_codes, "contains", None)):
+        return cast("CodeMembership", existing_codes)
+    return _CollectionMembership(cast("Collection[str]", existing_codes))
+
 
 def _format_duplicate(code: str, rows: list[int], hidden: int = 0) -> str:
     """Render one duplicate code with the sheet rows it occupies."""
@@ -554,7 +791,7 @@ class _CodeRowSpool:
 
     _RUN_SIZE = 20_000
 
-    def __init__(self, existing_codes: set[str]) -> None:
+    def __init__(self, existing_codes: CodeMembership) -> None:
         self._existing_codes = existing_codes
         self._buffer: list[tuple[str, int]] = []
         self._runs: list[BinaryIO] = []
@@ -562,7 +799,7 @@ class _CodeRowSpool:
         self.rows_to_update = 0
 
     def add(self, code: str, row_number: int) -> None:
-        if code in self._existing_codes:
+        if self._existing_codes.contains(code):
             self.rows_to_update += 1
         else:
             self.new_rows += 1
@@ -640,7 +877,7 @@ class _CodeRowSpool:
 def _inspect_rows(
     rows: Iterable[list[object]],
     *,
-    existing_codes: set[str],
+    existing_codes: CodeMembership | Collection[str],
     asset_names_by_code: dict[str, str],
     reference_values: dict[str, set[str]] | None,
     issue_limit: int = 1000,
@@ -709,7 +946,7 @@ def _inspect_rows(
     unknown_assets = _CappedExamples(issue_limit)
     # Whole-file duplicate detection (and the new/update totals) are disk-backed:
     # a file of any size keeps exact counts without an O(rows) Python collection.
-    spool = _CodeRowSpool(existing_codes)
+    spool = _CodeRowSpool(_as_membership(existing_codes))
     data_row_count = 0
     unknown_catalogs: set[str] = set()
     assets: set[str] = set()

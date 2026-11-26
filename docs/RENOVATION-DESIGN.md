@@ -86,7 +86,12 @@ collections; recompute pages over written ids in bounded batches. The preflight
 counts issues incrementally with bounded examples and detects whole-file
 duplicates through an OS-backed sorted spool (exact totals, no row caps). Phase
 timings use `observe_phase`; the synthetic harness and before/after numbers are
-in `docs/DATA-JOBS.md`.
+in `docs/DATA-JOBS.md`. RC-2 removes the last O(plan) Python collection from the
+preflight: `router_import` pages the working plan's codes from PostgreSQL and
+feeds a bounded, disk-backed `ExistingCodeOracle` (sorted 32-byte digests plus a
+1 MiB bloom filter) to the same analyzer, so a 300k-row plan no longer holds a
+300k-entry `set` during parsing. Classification, duplicates, cache scope and
+version are unchanged; measurements are in `docs/DATA-JOBS.md`.
 The intended DB constraint is `UNIQUE (plan_id, work_or_repair_code)` on the
 semantic 0041 column (`col_003` is gone); migration 0042 is authored but its
 rollout is BLOCKED pending the read-only audit and live-data cleanup described

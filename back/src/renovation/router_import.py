@@ -12,6 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlmodel import col, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.common.durable_imports import ImportJob  # noqa: TC001
 from src.common.job_models import ACTIVE_STATES, DataJob
@@ -21,6 +22,7 @@ from src.observability import observe_phase
 from src.renovation.export_jobs import ExportQueueFullError
 from src.renovation.import_jobs import import_jobs
 from src.renovation.import_plan import (
+    ExistingCodeOracle,
     inspect_plan_file_streaming,
     plan_file_suffix,
     scan_file_scope,
@@ -93,6 +95,38 @@ def _working_plan_import_scope(
     return "|".join(parts)
 
 
+# Keyset pages of the working plan's codes. The DB read is bounded by this page
+# size; the oracle external-sorts the digests so no Python set of codes exists.
+_EXISTING_CODE_PAGE_SIZE = 5000
+
+
+async def _fill_existing_code_oracle(session: AsyncSession, oracle: ExistingCodeOracle, plan_id: UUID) -> None:
+    """
+    Stream one plan's non-blank work codes into the bounded membership oracle.
+
+    Keyset pagination over the primary key is stable while the plan is being
+    edited by others; `id > last_id` never skips a row on a page boundary. The
+    caller owns the oracle and closes it on every path, including cancellation.
+    """
+    last_id: UUID | None = None
+    while True:
+        statement = select(col(RenovationPlanRow.id), col(RenovationPlanRow.work_or_repair_code)).where(
+            col(RenovationPlanRow.plan_id) == plan_id,
+            col(RenovationPlanRow.work_or_repair_code).is_not(None),
+        )
+        if last_id is not None:
+            statement = statement.where(col(RenovationPlanRow.id) > last_id)
+        page = (await session.exec(statement.order_by(col(RenovationPlanRow.id)).limit(_EXISTING_CODE_PAGE_SIZE))).all()
+        if not page:
+            return
+        for _row_id, code in page:
+            if code:
+                oracle.add(code)
+        last_id = page[-1][0]
+        if len(page) < _EXISTING_CODE_PAGE_SIZE:
+            return
+
+
 @router.post("/plan/import/inspect", response_model=RenovationPlanImportResult)
 async def inspect_renovation_plan_import(
     session: SessionDependency,
@@ -158,42 +192,41 @@ async def inspect_renovation_plan_import(
         return cached
     # Only the CURRENT working plan's codes decide «new» vs «update». Including
     # archived plans here made a newer version inherit codes of an older one and
-    # silently turn an insert into an overwrite.
-    existing_codes: set[str] = set()
-    if working_plan_id is not None:
-        existing_codes = {
-            value
-            for value in (
-                await session.exec(
-                    select(col(RenovationPlanRow.work_or_repair_code)).where(
-                        col(RenovationPlanRow.plan_id) == working_plan_id
-                    )
-                )
-            ).all()
-            if value
-        }
-    references: dict[str, set[str]] = {}
-    for value in (await session.exec(select(RenovationReferenceValue))).all():
-        references.setdefault(value.catalog.value, set()).add(value.label.casefold())
-    asset_names_by_code = {asset.code: asset.name for asset in assets if asset.code}
-    # Phase 5.2: the reference snapshot above is complete and consistent; the
-    # analysis that follows is pure CPU in a worker thread and must not keep a
-    # DB connection checked out of the pool.
-    await session.close()
-    await file.seek(0)
-    with observe_phase("import", "inspect"):
-        result = await asyncio.to_thread(
-            inspect_plan_file_streaming,
-            file.file,
-            existing_codes=existing_codes,
-            asset_names_by_code=asset_names_by_code,
-            reference_values=references,
-            suffix=suffix,
-            issue_limit=get_settings().renovation_import_issue_limit,
-        )
-    if file_scope.assets:
-        await cache.set_digest(digest, result, scope=scope, suffix=suffix)
-    return result
+    # silently turn an insert into an overwrite. The oracle external-sorts those
+    # codes into fixed-width digests, so a 300k-row plan no longer materializes a
+    # 300k-entry Python set that stays alive for the whole CPU-bound parse.
+    oracle = ExistingCodeOracle()
+    try:
+        if working_plan_id is not None:
+            with observe_phase("import", "existing_codes"):
+                await _fill_existing_code_oracle(session, oracle, working_plan_id)
+        oracle.seal()
+        references: dict[str, set[str]] = {}
+        for value in (await session.exec(select(RenovationReferenceValue))).all():
+            references.setdefault(value.catalog.value, set()).add(value.label.casefold())
+        asset_names_by_code = {asset.code: asset.name for asset in assets if asset.code}
+        # Phase 5.2: the reference snapshot above is complete and consistent; the
+        # analysis that follows is pure CPU in a worker thread and must not keep a
+        # DB connection checked out of the pool.
+        await session.close()
+        await file.seek(0)
+        with observe_phase("import", "inspect"):
+            result = await asyncio.to_thread(
+                inspect_plan_file_streaming,
+                file.file,
+                existing_codes=oracle,
+                asset_names_by_code=asset_names_by_code,
+                reference_values=references,
+                suffix=suffix,
+                issue_limit=get_settings().renovation_import_issue_limit,
+            )
+        if file_scope.assets:
+            await cache.set_digest(digest, result, scope=scope, suffix=suffix)
+        return result
+    finally:
+        # Covers success, parse errors and CancelledError; close() is idempotent
+        # and removes the OS-backed runs even when to_thread was interrupted.
+        oracle.close()
 
 
 @router.post("/plan/import/apply", response_model=RenovationImportJobRead, status_code=status.HTTP_202_ACCEPTED)
