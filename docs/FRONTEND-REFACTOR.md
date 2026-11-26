@@ -252,6 +252,17 @@ percentages fail with a clear error instead of a false pass. The 65% floor is
 unchanged (fresh baseline 73.94%). 621 unit tests; the parser module was also
 whitelisted in `front/.dockerignore` so an image running the gate has it.
 
+## Grid decomposition — Stage 1: shared skipped-cell reason policy (2026-11-26)
+
+The byte-identical Russian message construction from a `Map<label, reason>`
+inside both grids' `beforeRangeEdit` is now one pure
+`shared/grid/skipped-cell-reasons.ts::groupSkippedCells`, with 9 equivalence
+tests (630 unit tests total). Domain-specific policy — descriptor/field lookup,
+`canEditDescriptor` vs `cellAllowed`, canonical keys, sparse rows and
+normalization — remains in the owning grid; no `isRenovation` flag, new hook or
+dependency was introduced. This is the foundation for the deeper stateful
+decomposition, not a substitute for it.
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,

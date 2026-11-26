@@ -117,6 +117,7 @@ import {
 } from "@/shared/grid/revo-grid-adapter";
 import { isChunkedSection } from "@/shared/grid/section-policy";
 import { selectionDetailForColumn } from "@/shared/grid/selection-label";
+import { groupSkippedCells } from "@/shared/grid/skipped-cell-reasons";
 import { isFromTextEditor } from "@/shared/keyboard";
 import { hasOpenKeyboardOverlay } from "@/shared/ui/modal-presence";
 import { hasOpenSmartSelect } from "@/shared/ui/smart-select";
@@ -2374,18 +2375,7 @@ function RenovationGridInner(
             }
         }
         if (skipped.size > 0) {
-            const reasons = new Map<string, string[]>();
-            for (const [label, reason] of skipped) {
-                const labels = reasons.get(reason) ?? [];
-                labels.push(label);
-                reasons.set(reason, labels);
-            }
-            const description = [...reasons.entries()]
-                .map(
-                    ([reason, labels]) =>
-                        `${labels.map((label) => `«${label}»`).join(", ")}: ${reason}`,
-                )
-                .join("; ");
+            const description = groupSkippedCells(skipped);
             onPasteSkipped(description);
         }
     }
