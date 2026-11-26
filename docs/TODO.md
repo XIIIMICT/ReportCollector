@@ -427,6 +427,12 @@ substitute for either.** The `ui-keycloak` project is not started by CI.
   split the monolithic spec, and wrap mutations in `try/finally` cleanup. No
   assertion may be weakened or skipped. The shared login helper was fixed and
   verified 3/3; this CRUD case remains open.
+- [ ] **Invalid-reference paste warning is not shown.** `clipboard.spec.ts:164`
+  consistently fails after the rate-limit fix: the clipboard contains
+  `СНХЗ, НЕСУЩЕСТВУЮЩИЙ АКТИВ`, `Control+V` is dispatched with a grid cell
+  focused, but no warning toast appears. Diagnose the paste/focus/selection
+  boundary and fix the test or the app; no assertion may be weakened. This is a
+  second open e2e defect (the first is dictionary CRUD above).
 - [ ] **Reduce arbitrary sleeps and weak selectors.** 22 `waitForTimeout` calls
   and ~16 CSS-targeted semantic controls remain; keep only flicker-sampling
   waits, prefer `getByRole(..., { exact: true })` and web-first assertions.
