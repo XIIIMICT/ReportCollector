@@ -292,11 +292,12 @@ of in a separate brief.
   grid contracts, pure config types/formatters), the DocMasker Stage G items,
   and the first three grid-decomposition slices — shared skipped-cell reasons,
   pure DataGrid edit decisions, the selection-helper naming/accessor contract
-  (§3.1/§3.3), and the descriptor-data slice of `grid-config.ts` (§4.4) — are
-  merged into `dev`. Still pending: the stateful DataGrid and RenovationGrid
-  decomposition (prompt §4.1/§4.2 stages D/E), the remaining column/template
-  builders of `grid-config.ts`, `ColumnFilterPopover` and `SmartSelect`
-  lifecycles (§4.5/§4.6), and workspace decompositions (§4.7). These are explicitly **not covered by CI**; pure
+  (§3.1/§3.3), the descriptor-data slice of `grid-config.ts` (§4.4), and the
+  DataGrid scroll-restore hook (§4.1 step 4) — are merged into `dev`. Still
+  pending: the remaining stateful DataGrid controllers (selection/clipboard/
+  header/sorting), all RenovationGrid stateful decomposition (§4.2), the
+  remaining column/template builders of `grid-config.ts`, `ColumnFilterPopover`
+  and `SmartSelect` lifecycles (§4.5/§4.6), and workspace decompositions (§4.7). These are explicitly **not covered by CI**; pure
   helper tests are not a substitute. Acceptance: one coherent lifecycle per
   branch, all RevoGrid invariants from prompt §6 encoded in tests before edits,
   no callback identity or memo-dependency changes, large-plan e2e after every
