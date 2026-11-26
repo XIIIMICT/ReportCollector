@@ -18,7 +18,8 @@ import endpoint; there is no seed-time workbook parser.
 
 import argparse
 import asyncio
-from datetime import UTC, date, datetime
+import os
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, TypedDict
 from uuid import UUID
@@ -44,6 +45,7 @@ from src.raw_materials.models import (
     RawMaterialAsset,
     RawMaterialPrice,
     RawMaterialUserAsset,
+    ReportSnapshot,
 )
 from src.renovation.constants import R_ASSETS, RENOVATION_PROJECT_KEY, RENOVATION_PROJECT_NAME
 from src.renovation.models import RAsset, RBlock, RProjectRole, RUserAsset, RUserRole
@@ -309,6 +311,82 @@ for _asset_code in RENOVATION_ASSET_WORKER_ASSETS:
     )
 
 
+# ─── Isolated e2e fixtures (opt-in; never in production) ───────────────────
+# The smoke specs sign in as four reserved local-auth accounts. They are created
+# only when RC_SEED_E2E_FIXTURES=1 on an isolated CI/local stand with
+# KEYCLOAK_ENABLED=false. The password comes from E2E_TEST_PASSWORD (see the
+# root .env.example) — no credential literal belongs in the repository.
+RC_SEED_E2E_FIXTURES = "RC_SEED_E2E_FIXTURES"
+E2E_CREDENTIAL_ENV = "E2E_TEST_PASSWORD"
+E2E_ARCHIVE_CREATOR = "e2e-fixture"
+
+
+class SeedE2EUser(TypedDict):
+    """Reserved local-auth user used by the smoke specs."""
+
+    email: str
+    name: str
+    role: ProjectRole
+    assets: list[str]
+
+
+# Four distinct people so the collaboration presence assertions see separate
+# members: an admin and the three asset workers the raw-materials specs use.
+SEED_E2E_USERS: tuple[SeedE2EUser, ...] = (
+    {
+        "email": "user1@test.local",
+        "name": "Евтушенко Сергей Николаевич",
+        "role": ProjectRole.ADMIN,
+        "assets": [],
+    },
+    {
+        "email": "user2@test.local",
+        "name": "Смирнов Иван Викторович",
+        "role": ProjectRole.ASSET_WORKER,
+        "assets": ["СНХЗ"],
+    },
+    {
+        "email": "user3@test.local",
+        "name": "Петров Дмитрий Анатольевич",
+        "role": ProjectRole.ASSET_WORKER,
+        "assets": ["СХ", "СНХЗ"],
+    },
+    {
+        "email": "user4@test.local",
+        "name": "Лебедева Ольга Ивановна",
+        "role": ProjectRole.ASSET_WORKER,
+        "assets": ["ВОС"],
+    },
+)
+
+# Work codes for the four demo plan rows: unique inside the working plan, so
+# they are «Корректные» for the work-code facet spec and do not affect import or
+# submit validation (see the Gate B decision in docs/TODO.md).
+E2E_WORK_CODES: tuple[str, ...] = (
+    "RC-E2E-0001",
+    "RC-E2E-0002",
+    "RC-E2E-0003",
+    "RC-E2E-0004",
+)
+
+
+def e2e_fixtures_enabled() -> bool:
+    """Explicit opt-in: an isolated stand must ask for these fixtures."""
+    return os.environ.get(RC_SEED_E2E_FIXTURES) == "1"
+
+
+def e2e_test_password() -> str:
+    """Fail early with an actionable message instead of seeding empty hashes."""
+    password = os.environ.get(E2E_CREDENTIAL_ENV, "")
+    if not password:
+        msg = f"Set {E2E_CREDENTIAL_ENV} when {RC_SEED_E2E_FIXTURES}=1 (isolated stands only)."
+        raise ValueError(msg)
+    if len(password) < 8:
+        msg = f"{E2E_CREDENTIAL_ENV} must contain at least 8 characters."
+        raise ValueError(msg)
+    return password
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -331,6 +409,38 @@ def _movement_values(index: int) -> dict[str, Any]:
 def _price_business_plan_tons(index: int) -> float:
     """Compute the business plan of a «Цены» row (deterministic by index)."""
     return 800.0 + (index % 9) * 125.5
+
+
+async def _seed_e2e_archived_plan(
+    session: AsyncSession,
+    renovation_project: Project,
+    now: datetime,
+) -> None:
+    """One frozen version so the renovation version picker is deterministic."""
+    existing = (
+        await session.exec(
+            select(RenovationPlan).where(
+                RenovationPlan.project_id == renovation_project.id,
+                RenovationPlan.state == RPlanState.ARCHIVED,
+                RenovationPlan.created_by == E2E_ARCHIVE_CREATOR,
+            )
+        )
+    ).one_or_none()
+    if existing is not None:
+        return
+    frozen_at = now - timedelta(days=1)
+    session.add(
+        RenovationPlan(
+            project_id=renovation_project.id,
+            state=RPlanState.ARCHIVED,
+            baseline_generation=0,
+            created_at=frozen_at,
+            created_by=E2E_ARCHIVE_CREATOR,
+            updated_at=frozen_at,
+            updater_user_id=None,
+        )
+    )
+    await session.flush()
 
 
 async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
@@ -513,6 +623,7 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
                     created_at=now,
                     updated_at=now,
                     updater_user_id=None,
+                    work_or_repair_code=E2E_WORK_CODES[position] if e2e_fixtures_enabled() else None,
                     process_position=object_name,
                     bpof_section="Ремонтный бюджет",
                     work_category_id=renovation_reference_by_id[
@@ -538,7 +649,119 @@ async def seed_renovation(session: AsyncSession) -> dict[str, Project]:
         recomputed = await recompute_plan_rows(session, plan_id=working_plan.id)
         session.info["renovation_plan_recomputed"] = recomputed.changed
 
+    if e2e_fixtures_enabled():
+        await _seed_e2e_archived_plan(session, renovation_project, now)
+
     return projects
+
+
+async def _seed_e2e_users_and_snapshot(
+    session: AsyncSession,
+    projects: dict[str, Project],
+    assets: dict[str, RawMaterialAsset],
+    now: datetime,
+) -> User:
+    """Create the reserved login users and a preliminary movement snapshot."""
+    password = e2e_test_password()
+    admin_user: User | None = None
+    for fixture in SEED_E2E_USERS:
+        email = fixture["email"]
+        user = (await session.exec(select(User).where(User.email == email))).one_or_none()
+        if user is None:
+            user = User(
+                email=email,
+                name=fixture["name"],
+                is_deleted=False,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(user)
+            await session.flush()
+        user.password_hash = hash_password(password)
+
+        if fixture["role"] == ProjectRole.ADMIN:
+            # The admin works in every project (raw materials, КППК, renovation,
+            # logistics) — the same single mechanism as the seed admin.
+            await sync_project_memberships(session, user.id, activate_admin=True)
+            admin_user = user
+            renovation_project = projects[RENOVATION_PROJECT_KEY]
+            r_link = (
+                await session.exec(
+                    select(RUserRole).where(
+                        RUserRole.user_id == user.id,
+                        RUserRole.project_id == renovation_project.id,
+                    )
+                )
+            ).one_or_none()
+            if r_link is None:
+                session.add(
+                    RUserRole(
+                        user_id=user.id,
+                        project_id=renovation_project.id,
+                        role=RProjectRole.ADMIN,
+                        block=None,
+                        is_active=True,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+        else:
+            project = projects[RAW_MATERIALS_PROJECT_KEY]
+            link = (
+                await session.exec(
+                    select(UserRole).where(UserRole.user_id == user.id, UserRole.project_id == project.id)
+                )
+            ).one_or_none()
+            if link is None:
+                session.add(
+                    UserRole(
+                        user_id=user.id,
+                        project_id=project.id,
+                        role=fixture["role"],
+                        is_active=True,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            for asset_name in fixture["assets"]:
+                grant = (
+                    await session.exec(
+                        select(RawMaterialUserAsset).where(
+                            RawMaterialUserAsset.user_id == user.id,
+                            RawMaterialUserAsset.asset_id == assets[asset_name].id,
+                        )
+                    )
+                ).one_or_none()
+                if grant is None:
+                    session.add(RawMaterialUserAsset(user_id=user.id, asset_id=assets[asset_name].id))
+    await session.flush()
+
+    if admin_user is None:
+        msg = "SEED_E2E_USERS must contain one admin"
+        raise ValueError(msg)
+
+    # A PRELIMINARY snapshot on the first movement period makes the raw-materials
+    # version picker visible while leaving that month fixable, so the fix-month
+    # dialog specs still run on a freshly seeded stand. No snapshot rows are
+    # needed: the specs only assert the picker, never open the archived grid.
+    first_period = MOVEMENT_PERIODS[0]
+    snapshot = (
+        await session.exec(select(ReportSnapshot).where(ReportSnapshot.report_month == first_period))
+    ).one_or_none()
+    if snapshot is None:
+        session.add(
+            ReportSnapshot(
+                report_month=first_period,
+                fixed_at=now - timedelta(days=1),
+                fixed_by_user_id=admin_user.id,
+                fixed_by_email=str(admin_user.email),
+                fixed_by_fullname=str(admin_user.name),
+                is_final=False,
+                previous_snapshot_id=None,
+            )
+        )
+        await session.flush()
+    return admin_user
 
 
 async def seed(session: AsyncSession) -> None:
@@ -720,6 +943,9 @@ async def seed(session: AsyncSession) -> None:
                 session.add(RawMaterialUserAsset(user_id=extra_user.id, asset_id=asset.id))
     await session.flush()
 
+    if e2e_fixtures_enabled():
+        await _seed_e2e_users_and_snapshot(session, projects, assets, now)
+
     await seed_logistics(session)
     await session.commit()
 
@@ -745,6 +971,11 @@ async def run(
     if data_only and (reset or renovation_only):
         message = "--data-only нельзя совмещать с --reset или --renovation."
         raise ValueError(message)
+    if e2e_fixtures_enabled():
+        e2e_test_password()
+        if settings.keycloak_enabled:
+            msg = f"{RC_SEED_E2E_FIXTURES} is for isolated stands: set KEYCLOAK_ENABLED=false."
+            raise ValueError(msg)
     async with async_engine.begin() as conn:
         if reset:
             await conn.execute(text(f'DROP SCHEMA IF EXISTS "{settings.postgres_schema}" CASCADE'))
@@ -773,7 +1004,8 @@ async def run(
                 f"активы реновации={len(R_ASSETS)}, справочники реновации={len(REFERENCE_OPTIONS)}, "
                 f"пользователи реновации={len(RENOVATION_USERS)}, "
                 f"строк рабочего плана реновации={plan_rows_count}, "
-                f"пересчитано расчётных строк={recomputed}."
+                f"пересчитано расчётных строк={recomputed}, "
+                f"e2e-пользователи={len(SEED_E2E_USERS) if e2e_fixtures_enabled() else 0}."
             )
             return
 
@@ -792,7 +1024,8 @@ async def run(
             f"({', '.join(str(u['email']) for u in RENOVATION_USERS)}), "
             f"активы реновации={len(R_ASSETS)}, справочники реновации={len(REFERENCE_OPTIONS)}, "
             f"строк рабочего плана реновации={plan_rows_count}, "
-            f"пересчитано расчётных строк={recomputed}."
+            f"пересчитано расчётных строк={recomputed}, "
+            f"e2e-пользователи={len(SEED_E2E_USERS) if e2e_fixtures_enabled() else 0}."
         )
 
 

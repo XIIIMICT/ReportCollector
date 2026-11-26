@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { loginAsLocalUser } from "./helpers/auth";
+import { loginAsTestUser } from "./helpers/test-users";
 
 const APP_ORIGIN = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5000";
 
@@ -18,7 +18,7 @@ test("sorted Excel paste updates the visible row and preserves its neighbor", as
     context,
 }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: APP_ORIGIN });
-    await loginAsEvtushenko(page);
+    await loginAsAdmin(page);
     const loaded = page.waitForResponse(
         (response) =>
             response.url().includes("/api/raw-materials/prices") &&
@@ -83,11 +83,8 @@ test("sorted Excel paste updates the visible row and preserves its neighbor", as
     );
 });
 
-async function loginAsEvtushenko(page: import("@playwright/test").Page) {
-    await loginAsLocalUser(page, {
-        email: "evtushenko.sn@ruschem.ru",
-        password: "TestPassword123",
-    });
+async function loginAsAdmin(page: import("@playwright/test").Page) {
+    await loginAsTestUser(page, "admin");
     await page.goto("/raw-materials");
     await expect(page.getByRole("tab", { name: "Цены" })).toBeVisible({ timeout: 20000 });
 }
@@ -96,7 +93,7 @@ test("clipboard: keyboard copy and paste applies values to cells", async ({ page
     await context.grantPermissions(["clipboard-read", "clipboard-write"], {
         origin: APP_ORIGIN,
     });
-    await loginAsEvtushenko(page);
+    await loginAsAdmin(page);
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
 
     await page.getByRole("tab", { name: "Цены" }).click();
@@ -135,7 +132,7 @@ test("clipboard: Ctrl+C works with Russian keyboard layout", async ({ page, cont
     await context.grantPermissions(["clipboard-read", "clipboard-write"], {
         origin: APP_ORIGIN,
     });
-    await loginAsEvtushenko(page);
+    await loginAsAdmin(page);
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
 
     const firstCell = page.locator("revogr-data .rgCell:not(.report-row-header)").first();
@@ -171,7 +168,7 @@ test("clipboard: reference fields paste validates values and rejects unknown", a
     await context.grantPermissions(["clipboard-read", "clipboard-write"], {
         origin: APP_ORIGIN,
     });
-    await loginAsEvtushenko(page);
+    await loginAsAdmin(page);
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
 
     await page.getByRole("tab", { name: "Сырьевые позиции" }).click();
@@ -255,7 +252,7 @@ test("clipboard: toolbar copy/paste buttons apply values", async ({ page, contex
     await context.grantPermissions(["clipboard-read", "clipboard-write"], {
         origin: APP_ORIGIN,
     });
-    await loginAsEvtushenko(page);
+    await loginAsAdmin(page);
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
 
     await page.getByRole("tab", { name: "Цены" }).click();

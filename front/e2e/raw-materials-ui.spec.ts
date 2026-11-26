@@ -1,14 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-import { loginAsLocalUser } from "./helpers/auth";
+import { loginAsTestUser, TEST_USERS } from "./helpers/test-users";
 
 test("evtushenko: raw-materials workspace shows movement, prices and dictionaries", async ({
     page,
 }) => {
-    await loginAsLocalUser(page, {
-        email: "evtushenko.sn@ruschem.ru",
-        password: "TestPassword123",
-    });
+    await loginAsTestUser(page, "admin");
     // The workspace defaults to «Ремонт»; this spec runs on «Сырьё» forms.
     const switcher = page.locator(".brand__edition--button");
     await expect(switcher).toBeVisible({ timeout: 20000 });
@@ -57,10 +54,7 @@ test("evtushenko: raw-materials workspace shows movement, prices and dictionarie
 });
 
 test("evtushenko: project switcher and dictionary CRUD", async ({ page }) => {
-    await loginAsLocalUser(page, {
-        email: "evtushenko.sn@ruschem.ru",
-        password: "TestPassword123",
-    });
+    await loginAsTestUser(page, "admin");
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
 
     // The workspace defaults to «Ремонт» — switch to «Сырьё» first.
@@ -177,10 +171,7 @@ test("evtushenko: project switcher and dictionary CRUD", async ({ page }) => {
 });
 
 test("evtushenko: undo/redo works on dictionaries (asset rename)", async ({ page }) => {
-    await loginAsLocalUser(page, {
-        email: "evtushenko.sn@ruschem.ru",
-        password: "TestPassword123",
-    });
+    await loginAsTestUser(page, "admin");
 
     // The workspace defaults to «Ремонт» — switch to «Сырьё» first.
     const switcher = page.locator(".brand__edition--button");
@@ -242,10 +233,7 @@ test("evtushenko: undo/redo works on dictionaries (asset rename)", async ({ page
 test("evtushenko: header shows fullname, profile modal works with theme + password", async ({
     page,
 }) => {
-    await loginAsLocalUser(page, {
-        email: "evtushenko.sn@ruschem.ru",
-        password: "TestPassword123",
-    });
+    await loginAsTestUser(page, "admin");
 
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
 
@@ -266,7 +254,7 @@ test("evtushenko: header shows fullname, profile modal works with theme + passwo
 
     const pill = page.locator(".profile-pill");
     await expect(pill).toContainText("Евтушенко Сергей Николаевич");
-    await expect(pill).toContainText("evtushenko.sn@ruschem.ru");
+    await expect(pill).toContainText(TEST_USERS.admin.email);
 
     // No theme switcher in the header anymore
     await expect(page.locator(".app-header .theme-selector")).toHaveCount(0);

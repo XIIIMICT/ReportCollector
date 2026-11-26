@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { loginAsLocalUser } from "./helpers/auth";
+import { loginAsTestUser } from "./helpers/test-users";
 
 // Regression coverage for the toolbar hover-open autocompletes/selects
 // (version picker, section/asset/block filters):
@@ -13,10 +13,7 @@ import { loginAsLocalUser } from "./helpers/auth";
 // The shared local-login helper: these suites exercise hover behaviour, not
 // SSO, so they must not require a Keycloak redirect to run.
 async function login(page: import("@playwright/test").Page) {
-    await loginAsLocalUser(page, {
-        email: "evtushenko.sn@ruschem.ru",
-        password: "TestPassword123",
-    });
+    await loginAsTestUser(page, "admin");
 }
 
 async function switchToRenovation(page: import("@playwright/test").Page) {
@@ -40,12 +37,10 @@ test("version autocomplete: hover opens, stays open moving within, closes after 
     await switchToRenovation(page);
     await page.waitForTimeout(1000);
 
-    // The version picker exists only when the stand has an archived version;
-    // a freshly seeded database has none, so there is nothing to open here.
+    // The isolated seed provisions an archived plan version, so the picker is
+    // always present here — assert it rather than skipping when it is absent.
     const picker = page.locator(".archive-autocomplete--visible").first();
-    if ((await picker.count()) === 0) {
-        test.skip(true, "the stand has no archived versions");
-    }
+    await expect(picker).toBeVisible({ timeout: 15000 });
     const trigger = picker.locator("button").first();
     await trigger.scrollIntoViewIfNeeded();
     const box = await trigger.boundingBox();

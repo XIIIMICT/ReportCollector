@@ -300,7 +300,57 @@ of in a separate brief.
   no callback identity or memo-dependency changes, large-plan e2e after every
   meaningful stage, and no runtime-performance claim without a reproducible
   measurement. Detailed evidence — `FRONTEND-REFACTOR-STAGE-A.md` (workspace
-  root).
+  root). The full deferred browser-integration scope is recorded just below.
+
+### Deferred browser-integration coverage (NOT implemented, NOT in CI)
+
+The isolated CI smoke project exercises local auth on a seeded stand only.
+**Neither item below is covered by CI, and pure-helper/unit tests are not a
+substitute for either.** The `ui-keycloak` project is not started by CI.
+
+- [ ] **(a) DataGrid / RenovationGrid integration coverage — DEFERRED (full
+      scope).** Real-browser coverage of the stateful RevoGrid contracts, to be
+      added before any further stateful decomposition is accepted:
+      - **Visible vs source index mapping:** every index→row operation (paste
+        `models`, cut, copy, presence selection keys, `canPasteRange`,
+        shift-select, Ctrl+A) must use `getVisibleRows()` under sorting and
+        filtering; assert values land on the visible row, never `rows[position]`.
+      - **Sparse InfinityScrollPlugin:** window chunks, preload, eviction and
+        stale-response suppression — assert no ghost rows and no late response
+        overwriting an evicted chunk.
+      - **Row identity:** stable ids across sort/filter/reload, no id reuse
+        after eviction, correct id→row resolution for patches.
+      - **Unloaded paste rows:** a range spanning unloaded chunks must resolve
+        and load those rows before writing; no phantom rows, no silent skips.
+      - **Pinned rows:** read-only `::pinned` copies survive eviction and sort
+        and stay excluded from clipboard/paste guards.
+      - **Scroll restoration:** position/anchor survives edit, reload and
+        scope/version switch.
+      - **11-level header mapping:** grouped/funnel header cells resolve to the
+        correct leaf columns and coordinates in both pinned and scrolling
+        viewports.
+      - **Lease/edit semantics:** single-cell `data` array vs range patch +
+        `models`, busy-cell skip, lease TTL/renew, undo journaling and the
+        page-lifetime `session_id`.
+      - **Test infrastructure:** prepared full stack (Postgres + Valkey +
+        deterministic seed), chromium, workers=1, representative 94k/306k-row
+        plan windows, deterministic fixtures, local auth (no Keycloak needed
+        for these flows).
+      - **Acceptance:** large-plan e2e after every meaningful stage; no callback
+        identity or memo-dependency regressions; no weakening of existing
+        assertions; no runtime-performance claim without a reproducible
+        measurement.
+- [ ] **(b) Real Keycloak browser CI path — DEFERRED.** Requires an isolated
+      IdP/realm and committed non-production configuration plus a runtime
+      secret; no new corporate IdP is introduced by the current work. Scope:
+      `KEYCLOAK_ENABLED=true` isolated stack, realm/client setup, credentials
+      supplied through CI secrets, and browser assertions on the actual OIDC
+      callback — redirect to the realm, callback with state/nonce, session
+      cookie establishment, claims→user mapping (email, roles), callback
+      failure handling and logout redirect. Acceptance: the `ui-keycloak`
+      project runs in CI against the prepared realm without a corporate IdP,
+      the callback assertions above pass, and no secret is committed. Not
+      covered by CI today.
 
 ## Process (hard rules)
 

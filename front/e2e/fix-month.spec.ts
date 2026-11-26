@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { loginAsLocalUser } from "./helpers/auth";
+import { loginAsTestUser } from "./helpers/test-users";
 
 /**
  * The «Зафиксировать» (fix-month) flow on the «Движение» form.
@@ -19,10 +19,7 @@ import { loginAsLocalUser } from "./helpers/auth";
 const BASE = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5000";
 
 async function loginAndOpenMovement(page: Page) {
-    await loginAsLocalUser(page, {
-        email: "evtushenko.sn@ruschem.ru",
-        password: "TestPassword123",
-    });
+    await loginAsTestUser(page, "admin");
     await page.goto(`${BASE}/raw-materials`, { waitUntil: "domcontentloaded" });
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 30000 });
 }
@@ -37,10 +34,11 @@ test("the fix dialog opens, explains the consequence and closes without writing"
 
     const action = fixAction(page);
     await expect(action).toBeVisible({ timeout: 20000 });
-    // The button is only actionable where a fix is allowed; if this env is
-    // already fully fixed there is nothing to open and the spec is not relevant.
+    // OPTIONAL (stand-state precondition, never a success path): the isolated
+    // seed keeps the first open month preliminary, so this runs in CI. A reused
+    // local stand may already have a final fix, where no dialog can open.
     if (await action.isDisabled()) {
-        test.skip(true, "the month is already fixed on this stand");
+        test.skip(true, "optional: no fixable month remains on this stand");
     }
     await action.click();
 
@@ -60,8 +58,10 @@ test("«Отменить» dismisses the fix without fixing anything", async ({ 
     await loginAndOpenMovement(page);
 
     const action = fixAction(page);
+    // OPTIONAL (stand-state precondition, never a success path): same reason as
+    // the dialog test above. The assertions that follow are unchanged.
     if (await action.isDisabled()) {
-        test.skip(true, "the month is already fixed on this stand");
+        test.skip(true, "optional: no fixable month remains on this stand");
     }
     await action.click();
     const dialog = fixDialog(page);
