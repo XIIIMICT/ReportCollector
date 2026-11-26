@@ -32,6 +32,8 @@ different milestones. Do not reopen the explicit product deferrals below.
      live duplicates as a reviewed data change, re-run the audit until empty,
      approve a maintenance window and only then run `just migrate`. Procedure:
      docs/DATA-JOBS.md, «Work-code uniqueness rollout».
+  0043 is a linear child of 0042 and inherits this gate; no shared or
+  persistent environment has applied it.
   Gate C duplicates are part of the same problem: the whole import is still
   rejected when a workbook repeats a code; that behavior stays. Historical rows
   from older plan versions must NOT block a newer import — now enforced in both
@@ -66,10 +68,13 @@ different milestones. Do not reopen the explicit product deferrals below.
 - [x] Finish preflight cache invalidation for row deletion — DONE (2026-11-26).
   The plan part of the scope is `plan=<id>|rev=<r_plans.revision>`;
   migration 0043 bumps that counter with DB triggers on every work-code-changing
-  insert/update/delete (including imports, undo/redo and recompute), so deleting
-  a non-latest row re-keys the report. `INSPECT_CACHE_VERSION` moved `7` → `8`.
+  insert/update/delete and every plan transfer (including imports, undo/redo
+  and recompute), so deleting a non-latest row re-keys the report. `INSPECT_CACHE_VERSION` moved `7` → `8`.
   Catalog and asset changes keep their own `count(*) + max(updated_at)` tokens.
-  Migration 0043 is AUTHORED ONLY (rollout follows the blocked 0042 gate, see
+  Migration 0043 was corrected IN PLACE (RC-1) before rollout: a same-code
+  plan transfer now bumps BOTH plans; the change was safe because only the
+  disposable CI stack had applied it. Exact status: 0042 unique index is
+  BLOCKED on duplicate cleanup and 0043 inherits that gate (see
   `docs/DATA-JOBS.md`); measure lookup/cache latency after deployment.
 - [ ] Measure long transaction/project-gate/row-lock contention on a big import
   IN PRODUCTION. The recompute is narrowed to the rows the load wrote (and only

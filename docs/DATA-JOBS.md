@@ -451,26 +451,77 @@ Maintainer procedure to unblock the index:
    duplicate, the migration transaction has rolled back: stop, clean and audit
    again. Never edit an applied migration. `downgrade()` drops only the index.
 
-### Plan work-code revision rollout (migration 0043 — AUTHORED ONLY)
+**Exact status (2026-11-27):** `uq_r_plan_rows_plan_work_or_repair_code` is
+authored but **BLOCKED** on the live duplicate audit/cleanup above. Migration
+0043 is a linear child of 0042 and **inherits that gate** — see below.
 
-Migration `0043_plan_work_code_revision` is authored on the fix branch and was
-**not executed by the author** against dev or prod; only the disposable
-`rc_test*` schema used by the backend tests applies the full chain. It adds
-`r_plans.revision INTEGER NOT NULL DEFAULT 0` and three
-statement-level triggers on `r_plan_rows` (INSERT, DELETE, UPDATE of
-`work_or_repair_code`) that increment that counter using transition tables —
-one plan-row update per affected plan per statement, not per row. Existing
-plans need no backfill: they start at `0`, and the cache version bump makes any
-entry written under the old scheme unreachable. The triggers are in the
-database, so no application write path can bypass the invalidation (cell edits,
-row create/delete/asset assignment, undo/redo, import apply, recompute and
-maintenance scripts all go through them); a recompute that rewrites the same
-code value does not bump because the UPDATE uses `IS DISTINCT FROM`.
+### Plan work-code revision rollout (migration 0043 — in-place fix, inherits the 0042 gate)
 
-Rollout order: 0043 is a linear child of `0042_plan_work_code_unique`, whose
-own rollout is still blocked by the live duplicate audit above. `just migrate`
-on a live DB therefore requires the 0042 maintainer gate first; afterwards 0043
-is additive. The connection's `lock_timeout=30s` applies. `downgrade()` drops
+Migration `0043_plan_work_code_revision` was authored on the fix branch and
+**not executed by the author** against dev or prod. Read-only local verification
+(2026-11-27): the disposable CI stack `rc_ci` (schema `rc`) is at
+`0043_plan_work_code_revision`; the persistent local dev database still has
+`rc.alembic_version = 0041_plan_rows_semantic_names`; the only other
+installations of the triggers are the disposable `rc_test*` schemas rebuilt by
+the test suite. **No shared/persistent environment has applied 0043**, so its
+RC-1 correction below was made **IN PLACE** before rollout, not as a forward
+migration. Never edit a migration already applied to a shared environment, and
+never run a destructive migration against a live database.
+
+It adds `r_plans.revision INTEGER NOT NULL DEFAULT 0` and three statement-level
+triggers on `r_plan_rows` (INSERT, DELETE, UPDATE) that increment that counter
+using transition tables — one plan-row update per affected plan per statement,
+not per row. Existing plans need no backfill: they start at `0`, and the cache
+version bump makes any entry written under the old scheme unreachable. The
+triggers are in the database, so no application write path can bypass the
+invalidation (cell edits, row create/delete/asset assignment, undo/redo, import
+apply, recompute and maintenance scripts all go through them); a recompute that
+rewrites the same code value does not bump because the UPDATE uses
+`IS DISTINCT FROM`.
+
+**RC-1 correction (in place).** The original UPDATE branch bumped only the
+*new* plan and only when `work_or_repair_code` changed. Moving a row from plan
+A to plan B with an **unchanged** code bumped neither, so both plans' preflight
+reports stayed stale. The statement now reads both transition tables and bumps
+every distinct plan whose row's `plan_id` **or** `work_or_repair_code` changed:
+`id IN (SELECT o.plan_id … WHERE … UNION SELECT n.plan_id … WHERE …)`. One
+statement per trigger event, no per-row loop; a code-only edit still bumps the
+owning plan (the two SELECTs return the same id and UNION collapses them), an
+unrelated UPDATE or a no-op code rewrite bumps nothing.
+
+**Write-path audit (RC-1, no assumed impossibility).** Searched every
+application and maintenance write of `r_plan_rows` in `back/src/**`, migrations
+and tests (`plan_id =`, `SET plan_id`, `UPDATE r_plan_rows`, `update(
+RenovationPlanRow)`, `.values(...)`, `INSERT … FROM SELECT`):
+
+- `cell_mutations.py` — `update_plan_cells` sets only `field_meta(field)` form
+  columns (`plan_id` is not one) and refuses a row whose `plan_id` differs from
+  the working plan; row create and undo recreate are INSERTs, delete and undo
+  delete are DELETEs, asset assignment touches only `asset_id`.
+- `lifecycle.py` — the approval copy is `INSERT … FROM SELECT` into the NEW
+  plan (INSERT trigger bumps the destination); it never re-points a live row.
+- `import_apply.py` — the set-based `UPDATE … FROM` matches
+  `t.plan_id = :plan_id` and excludes `work_or_repair_code` from its SET list;
+  no `plan_id` write.
+- `recompute.py` and `catalogs.py` — update only calculated / catalog value
+  columns, never `plan_id`.
+- `collab/undo.py` — authorization reads `plan_id`; restore is an INSERT/DELETE
+  in `_apply_plan_row_change`.
+- `src/scripts/**` (seed, recompute, explain, duplicate audit) and migrations
+  0001–0042 — INSERT or SELECT only; the audit's DELETE template is scoped by
+  `plan_id` and code. No `UPDATE … SET plan_id` exists anywhere.
+
+So no current path moves a row between plans; the transfer case is still
+covered defensively because the DB is a shared boundary (psql, future code).
+Covered by `back/tests/test_plan_revision_trigger.py` against the real migrated
+disposable schema: code edit, insert, delete, plan A → B move with unchanged
+code, move with code change, multi-row move (one bump per plan per statement),
+unrelated/no-op update, and rollback atomicity.
+
+Rollout order and exact status: **0042's unique index is BLOCKED** on the live
+duplicate cleanup above; **0043 inherits that gate** — `just migrate` on a live
+DB requires the 0042 maintainer gate first, after which 0043 is additive. The
+connection's `lock_timeout=30s` applies. `downgrade()` drops
 the three triggers, the function and the column; no business data is rewritten.
 The cache keeps working during rollout: an old backend reading a schema without
 the column is impossible once the migration is applied, and the new backend

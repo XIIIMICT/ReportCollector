@@ -1,18 +1,37 @@
 """
 Plan-level work-code revision for the preflight cache.
 
-**Author only — the author did not execute this migration against dev/prod.**
-It adds `r_plans.revision` and three statement-level triggers on
-`r_plan_rows` that increment it in the SAME transaction as every write that can
-change the plan's set of work codes: row inserts, row deletes and updates that
-change `work_or_repair_code`. A set-based UPDATE (import, recompute) bumps once
+**Updated in place before rollout — never edit a migration applied to a shared
+environment.** Local read-only evidence (2026-11-27): the disposable CI stack
+`rc_ci` is at `0043_plan_work_code_revision` in schema `rc`, while the
+persistent local dev database still has
+`rc.alembic_version = 0041_plan_rows_semantic_names`; the only other
+installations of these triggers are the disposable `rc_test*` schemas rebuilt
+by the test suite. No shared/persistent environment has applied 0043, so the
+plan-transfer correction below is made IN PLACE instead of shipping a forward
+migration. Do not execute destructive migrations against a live database.
+
+It adds `r_plans.revision` and three statement-level triggers on `r_plan_rows`
+that increment it in the SAME transaction as every write that can change a
+plan's set of work codes: row inserts, row deletes and updates that change
+`work_or_repair_code` OR move a row to another `plan_id`. Moving a row even
+with an UNCHANGED code changes the code set of BOTH plans, so both revisions
+are bumped. A set-based UPDATE (import, recompute, multi-plan move) bumps once
 per affected plan per statement, not once per row. The trigger lives in the
 database, so cell edits, row lifecycle, undo/redo, imports, recompute and any
 script/maintenance write are all covered without an app-level call site.
 
 Preflight reads the revision with the working plan's id; the versioned cache
 key changes whenever it changes. A change in an archived plan bumps only THAT
-plan's counter and cannot invalidate a working-plan report.
+plan's counter and cannot invalidate a report for the working plan.
+
+Write-path audit (RC-1): no current application or maintenance path UPDATEs
+`plan_id` on an existing row. Cell edits set only form fields (`plan_id` is not
+one); row create/undo recreate and the lifecycle copy are INSERTs; row delete
+and its undo are DELETEs; import apply, recompute and catalog replacement
+update only value columns. The transfer case is still covered defensively:
+the DB is a shared boundary (psql, future code) and must stay correct even
+when the moved row's code is unchanged.
 
 Rollout note: this revision sits after `0042_plan_work_code_unique`, whose own
 rollout is still blocked on live duplicate cleanup (docs/DATA-JOBS.md). Applying
@@ -41,7 +60,10 @@ _TRIGGERS = (
 
 # Unqualified names: search_path is the app schema (`rc` / `rc_test*`), as in
 # 0042. Transition tables are read once per statement, so a 20k-row import UPDATE
-# costs one plan-row increment per plan, not 20k increments.
+# costs one plan-row increment per plan, not 20k increments. `id IN (...)`
+# updates each plan row once even when several source rows name the same plan;
+# UNION makes that dedup explicit. `IS DISTINCT FROM` handles nullable codes and
+# keeps an unrelated UPDATE (no code/plan change) from bumping anything.
 _BUMP = """
 CREATE OR REPLACE FUNCTION r_plans_bump_revision() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -53,12 +75,23 @@ BEGIN
         UPDATE r_plans SET revision = revision + 1
         WHERE id IN (SELECT DISTINCT plan_id FROM old_rows);
     ELSE
+        -- A moved row removes a code from its old plan and adds it to the new
+        -- one even when work_or_repair_code itself is unchanged. A pure code
+        -- edit bumps the owning plan; both SELECTs return the same id and
+        -- UNION collapses them to a single increment.
         UPDATE r_plans SET revision = revision + 1
         WHERE id IN (
-            SELECT DISTINCT n.plan_id
-            FROM new_rows AS n
-            JOIN old_rows AS o ON o.id = n.id
-            WHERE o.work_or_repair_code IS DISTINCT FROM n.work_or_repair_code
+            SELECT o.plan_id
+            FROM old_rows AS o
+            JOIN new_rows AS n ON n.id = o.id
+            WHERE o.plan_id IS DISTINCT FROM n.plan_id
+               OR o.work_or_repair_code IS DISTINCT FROM n.work_or_repair_code
+            UNION
+            SELECT n.plan_id
+            FROM old_rows AS o
+            JOIN new_rows AS n ON n.id = o.id
+            WHERE o.plan_id IS DISTINCT FROM n.plan_id
+               OR o.work_or_repair_code IS DISTINCT FROM n.work_or_repair_code
         );
     END IF;
     RETURN NULL;
