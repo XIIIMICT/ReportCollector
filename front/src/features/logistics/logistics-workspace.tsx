@@ -25,6 +25,8 @@ import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector"
 import type { CollabRoom } from "@/shared/collab/use-collab-room";
 import { DataGrid, type DataGridHandle, type GridViewStats } from "@/shared/grid/data-grid";
 import { exportFileName, type ReferenceOption } from "@/shared/grid/grid-config";
+import { buildGridResetState } from "@/shared/grid/grid-reset-state";
+import { sameGridViewStats } from "@/shared/grid/grid-view-stats";
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
@@ -45,7 +47,7 @@ import { FormStatus } from "@/shared/ui/form-status";
 import { GridErrorBoundary } from "@/shared/ui/grid-error-boundary";
 import { GridLoadingSkeleton } from "@/shared/ui/grid-loading-skeleton";
 import { SmartSelect } from "@/shared/ui/smart-select";
-import { toGridRow, type ClipboardActions } from "@/shared/ui/text-helpers";
+import { toGridRow, updateClipboardActions, type ClipboardActions } from "@/shared/ui/text-helpers";
 import { ToolbarFilters } from "@/shared/ui/toolbar-filters";
 import { useFullscreenPanels } from "@/shared/ui/use-fullscreen-panels";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
@@ -304,21 +306,13 @@ export function LogisticsWorkspace({
     );
 
     const handleGridStats = useCallback((state: GridViewStats) => {
-        setGridStats((current) => {
-            if (current && JSON.stringify(current) === JSON.stringify(state)) return current;
-            return state;
-        });
+        setGridStats((current) => (sameGridViewStats(current, state) ? current : state));
     }, []);
 
-    const handleClipboardState = useCallback((next: ClipboardActions) => {
-        setClipboardState((current) =>
-            current.canPaste === next.canPaste &&
-            current.onCopy === next.onCopy &&
-            current.onPaste === next.onPaste
-                ? current
-                : next,
-        );
-    }, []);
+    const handleClipboardState = useCallback(
+        (next: ClipboardActions) => updateClipboardActions(setClipboardState, next),
+        [],
+    );
 
     useEffect(() => {
         // No selection yet, or a stale `?section=` that has no tab — fall back
@@ -722,13 +716,7 @@ function LogisticsDictionarySection({
     }, [exportPending, exportTable, cancelExport, onExportState, rows.length]);
 
     useEffect(() => {
-        onResetState({
-            resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
-            resetFiltersSorting: () => {
-                clearFilters();
-                void gridRef.current?.resetFiltersSorting();
-            },
-        });
+        onResetState(buildGridResetState(gridRef, clearFilters));
     }, [clearFilters, onResetState]);
 
     if (error) {

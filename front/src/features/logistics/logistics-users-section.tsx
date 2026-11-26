@@ -27,6 +27,7 @@ import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import { DataGrid, type DataGridHandle, type GridViewStats } from "@/shared/grid/data-grid";
 import { exportFileName, type GridRow, type ReferenceOption } from "@/shared/grid/grid-config";
+import { buildGridResetState } from "@/shared/grid/grid-reset-state";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { NO_ROW_SELECTED_REASON, DeleteRecordDialog } from "@/shared/ui/action-items";
@@ -390,13 +391,7 @@ export function LogisticsUsersSection({
     }, [onUserCreateState, openUserCreate]);
 
     useEffect(() => {
-        onResetState({
-            resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
-            resetFiltersSorting: () => {
-                clearFilters();
-                void gridRef.current?.resetFiltersSorting();
-            },
-        });
+        onResetState(buildGridResetState(gridRef, clearFilters));
     }, [clearFilters, onResetState]);
 
     if (error) {

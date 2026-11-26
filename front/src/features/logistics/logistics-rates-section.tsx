@@ -47,6 +47,7 @@ import {
     type ReferenceOption,
     type SelectOption,
 } from "@/shared/grid/grid-config";
+import { buildGridResetState } from "@/shared/grid/grid-reset-state";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { useScopedAsyncData } from "@/shared/hooks/use-scoped-async-data";
@@ -62,7 +63,7 @@ import {
 } from "@/shared/ui/text-helpers";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
 import { useTableExport, type ExportMode } from "@/shared/ui/use-table-export";
-import { GridLoadError } from "@/shared/ui/workspace-feedback";
+import { GridLoadError, ScopeStaleNotice } from "@/shared/ui/workspace-feedback";
 
 const gridWarnings = gridWarningHandlers({ lockedVerb: "редактирует" });
 const NO_REFERENCES: ReferenceOption[] = [];
@@ -783,13 +784,7 @@ export function LogisticsRatesSection({
     );
 
     useEffect(() => {
-        onResetState({
-            resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
-            resetFiltersSorting: () => {
-                clearFilters();
-                void gridRef.current?.resetFiltersSorting();
-            },
-        });
+        onResetState(buildGridResetState(gridRef, clearFilters));
     }, [clearFilters, onResetState]);
 
     // One row at a time, like the dictionary grids: select, confirm, delete.
@@ -878,21 +873,9 @@ export function LogisticsRatesSection({
     return (
         <div className="grid-viewport" aria-busy={isMutationPending || scopeStale}>
             {scopeStale ? (
-                <div
-                    role="status"
-                    style={{
-                        position: "absolute",
-                        inset: "0.5rem 0.75rem auto",
-                        zIndex: 4,
-                        padding: "0.35rem 0.6rem",
-                        color: "var(--muted)",
-                        background: "var(--surface)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "0.35rem",
-                    }}
-                >
+                <ScopeStaleNotice>
                     Загружается выбранный период. Редактирование временно недоступно.
-                </div>
+                </ScopeStaleNotice>
             ) : null}
             <GridErrorBoundary>
                 <DataGrid

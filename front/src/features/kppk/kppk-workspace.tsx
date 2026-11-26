@@ -64,6 +64,8 @@ import {
     type ReferenceOption,
 } from "@/shared/grid/grid-config";
 import { parseNumericText } from "@/shared/grid/grid-edit";
+import { buildGridResetState } from "@/shared/grid/grid-reset-state";
+import { sameGridViewStats } from "@/shared/grid/grid-view-stats";
 import { ScopedMutationQueue } from "@/shared/grid/mutation-queue";
 import {
     collaborationAvailableFor,
@@ -120,7 +122,7 @@ import { useTableExport } from "@/shared/ui/use-table-export";
 import { readToolbarFilters, useToolbarFilters } from "@/shared/ui/use-toolbar-filters";
 import { useViewState } from "@/shared/ui/use-view-state";
 import { ViewStrip } from "@/shared/ui/view-strip";
-import { GridLoadError } from "@/shared/ui/workspace-feedback";
+import { GridLoadError, ScopeStaleNotice } from "@/shared/ui/workspace-feedback";
 import { WorkspaceContent, WorkspaceFullscreenPanels } from "@/shared/ui/workspace-layout";
 import { useDeleteShortcut, useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
 
@@ -821,13 +823,7 @@ function KppkSection({
         clearFilters,
     } = useGridColumnFilters("kppk", section);
     useEffect(() => {
-        onResetState({
-            resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
-            resetFiltersSorting: () => {
-                clearFilters();
-                void gridRef.current?.resetFiltersSorting();
-            },
-        });
+        onResetState(buildGridResetState(gridRef, clearFilters));
     }, [clearFilters, onResetState]);
 
     const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
@@ -980,21 +976,9 @@ function KppkSection({
         <>
             <div className="grid-viewport" aria-busy={isMutationPending || scopeStale}>
                 {scopeStale ? (
-                    <div
-                        role="status"
-                        style={{
-                            position: "absolute",
-                            inset: "0.5rem 0.75rem auto",
-                            zIndex: 4,
-                            padding: "0.35rem 0.6rem",
-                            color: "var(--muted)",
-                            background: "var(--surface)",
-                            border: "1px solid var(--border)",
-                            borderRadius: "0.35rem",
-                        }}
-                    >
+                    <ScopeStaleNotice>
                         Загружается выбранный срез. Редактирование временно недоступно.
-                    </div>
+                    </ScopeStaleNotice>
                 ) : null}
                 <GridErrorBoundary>
                     <DataGrid
@@ -1250,10 +1234,7 @@ export function KppkWorkspace({
         );
     }, []);
     const handleGridStats = useCallback((state: GridViewStats) => {
-        setGridStats((current) => {
-            if (current && JSON.stringify(current) === JSON.stringify(state)) return current;
-            return state;
-        });
+        setGridStats((current) => (sameGridViewStats(current, state) ? current : state));
     }, []);
     const handleSectionRoom = useCallback((room: CollabRoom | null) => {
         setSectionRoom((current) => (current === room ? current : room));

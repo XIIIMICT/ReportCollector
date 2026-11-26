@@ -33,6 +33,7 @@ import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
 import { DataGrid, type GridViewStats, type DataGridHandle } from "@/shared/grid/data-grid";
 import { exportFileName, type ColumnDescriptor, type GridRow } from "@/shared/grid/grid-config";
+import { buildGridResetState } from "@/shared/grid/grid-reset-state";
 import { ScopedMutationQueue } from "@/shared/grid/mutation-queue";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
@@ -43,6 +44,7 @@ import { applyHistoryResult, runHistoryAction } from "@/shared/ui/history-action
 import { errorMessage, publishSelection, type GridSelectionInfo } from "@/shared/ui/text-helpers";
 import { useGridClipboardActions } from "@/shared/ui/use-grid-clipboard-actions";
 import { useTableExport } from "@/shared/ui/use-table-export";
+import { ScopeStaleNotice } from "@/shared/ui/workspace-feedback";
 import { useUndoRedoShortcuts } from "@/shared/ui/workspace-shortcuts";
 
 import { expandExcise } from "./kppk-excise";
@@ -756,13 +758,7 @@ export function KppkRealizationSection({
     // Header column filters (client-side, shared with every table). ?????????
     // ??? ??????? ? ??????????? must clear them like it clears RevoGrid's own.
     useEffect(() => {
-        onResetState({
-            resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
-            resetFiltersSorting: () => {
-                clearFilters();
-                void gridRef.current?.resetFiltersSorting();
-            },
-        });
+        onResetState(buildGridResetState(gridRef, clearFilters));
     }, [clearFilters, onResetState]);
     const handleClipboardState = useGridClipboardActions(gridRef, onClipboardStateChange);
 
@@ -818,21 +814,9 @@ export function KppkRealizationSection({
     return (
         <div className="grid-viewport" aria-busy={scopeStale || isMutationPending}>
             {scopeStale ? (
-                <div
-                    role="status"
-                    style={{
-                        position: "absolute",
-                        inset: "0.5rem 0.75rem auto",
-                        zIndex: 4,
-                        padding: "0.35rem 0.6rem",
-                        color: "var(--muted)",
-                        background: "var(--surface)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "0.35rem",
-                    }}
-                >
+                <ScopeStaleNotice>
                     Загружается выбранный срез. Редактирование временно недоступно.
-                </div>
+                </ScopeStaleNotice>
             ) : null}
             <DataGrid
                 ref={gridRef}
