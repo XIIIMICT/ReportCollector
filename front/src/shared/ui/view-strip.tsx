@@ -61,13 +61,13 @@ export function ViewStrip({
         isOpen: boolean,
         handlers: {
             ref: React.Ref<HTMLButtonElement>;
-            onMouseEnter: () => void;
+            onHoverStart: () => void;
             onPress: () => void;
         },
     ) => (
         <ExpandableButton
             ref={handlers.ref}
-            onMouseEnter={handlers.onMouseEnter}
+            onHoverStart={handlers.onHoverStart}
             onPress={handlers.onPress}
             className="view-strip__view-button"
             variant="tertiary"
@@ -84,8 +84,8 @@ export function ViewStrip({
             <HoverDropdown
                 className="view-strip-popover"
                 {...(onDropdownOpenChange && { onOpenChange: onDropdownOpenChange })}
-                trigger={({ ref, onMouseEnter, isOpen, onPress }) =>
-                    viewButton(isOpen, { ref, onMouseEnter, onPress })
+                trigger={({ ref, onHoverStart, isOpen, onPress }) =>
+                    viewButton(isOpen, { ref, onHoverStart, onPress })
                 }
                 content={
                     <Dropdown.Menu
