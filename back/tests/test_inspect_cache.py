@@ -8,6 +8,7 @@ from valkey.exceptions import ValkeyError
 from src.renovation.import_plan import PlanFileScope
 from src.renovation.inspect_cache import (
     INSPECT_CACHE_TTL_SECONDS,
+    INSPECT_CACHE_VERSION,
     INSPECT_SCOPE_TTL_SECONDS,
     InspectResultCache,
     inspect_cache_key,
@@ -62,13 +63,22 @@ def test_key_is_the_file_hash() -> None:
 
 def test_key_carries_the_analyzer_version() -> None:
     """A report written by another analyzer version is never served as this one."""
-    from src.renovation.inspect_cache import INSPECT_CACHE_VERSION
-
     key = inspect_cache_key(b"same")
+    assert INSPECT_CACHE_VERSION.startswith("8:")
     assert f"rc:planimport:v{INSPECT_CACHE_VERSION}:" in key
     # The old, version-less key is a different entry: a deploy invalidates it.
     digest = hashlib.sha256(b"same").hexdigest()
     assert key != f"rc:planimport:{digest}"
+
+
+async def test_entry_from_the_previous_analyzer_version_is_never_served() -> None:
+    """A v7 report written before the plan-revision change must miss after deploy."""
+    redis = _FakeRedis()
+    key = inspect_cache_key(b"same")
+    old_key = key.replace(f"v{INSPECT_CACHE_VERSION}:", "v7:", 1)
+    assert old_key != key
+    redis.store[old_key] = _report().model_dump_json()
+    assert await InspectResultCache(redis).get(b"same") is None
 
 
 def test_key_carries_the_asset_and_plan_state_scope() -> None:

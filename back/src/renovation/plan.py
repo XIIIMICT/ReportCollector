@@ -94,6 +94,12 @@ class RenovationPlan(UpdaterDisplay, table=True):
         )
     )
     baseline_generation: int = Field(default=0, sa_column=Column(Integer, nullable=False, server_default="0"))
+    # Work-code generation of this plan version. Migration 0043 installs a
+    # statement-level trigger on r_plan_rows that increments it transactionally
+    # for every insert/delete and every work-code change, covering cell edits,
+    # row lifecycle, undo/redo, imports and recompute alike. It is the plan-level
+    # preflight cache token: no count/max over rows, and no app call site to forget.
+    revision: int = Field(default=0, sa_column=Column(Integer, nullable=False, server_default="0"))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))
     created_by: str = Field(default="", sa_column=Column(Text, nullable=False, server_default=""))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False))

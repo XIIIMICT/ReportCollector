@@ -7,12 +7,10 @@ sub-router with the shared ``/renovation`` prefix.
 """
 
 import asyncio
-from datetime import datetime
 from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
-from sqlalchemy import func
 from sqlmodel import col, select
 
 from src.common.durable_imports import ImportJob  # noqa: TC001
@@ -67,24 +65,32 @@ from src.renovation.router_common import (  # noqa: F401
 
 def _working_plan_import_scope(
     plan_id: UUID | None,
+    revision: int,
     asset_ids: list[UUID],
-    latest_change: datetime | None,
     *,
-    row_count: int = 0,
     dictionaries: str = "",
 ) -> str:
     """
-    Preflight cache scope, bound to the CURRENT working plan.
+    Preflight cache scope, bound to the CURRENT working plan and its generation.
 
-    `_import_cache_scope` describes the file's assets/catalogs and their change
-    tokens. The plan identity is added here because validation is plan-scoped:
-    archiving a version and opening the next one must re-key an otherwise
-    identical workbook — an archived-only code is «new» in the new plan, not an
-    update of an old row. `plan=none` keeps an upload cacheable even before a
-    working plan exists, without sharing a report with a plan that does.
+    Validation compares the file's codes with the working plan only, so both the
+    plan id and `revision` are part of the key: a new version (or any
+    write that can change its code set) must re-key an otherwise identical
+    workbook. The revision is bumped by DB triggers on `r_plan_rows` in the
+    mutating transaction — no `count(*)`/`max(updated_at)` token that could miss
+    a delete of a non-latest row, and no app write path to remember. `plan=none`
+    keeps an upload cacheable before a working plan exists without sharing a
+    report with a plan that does.
+
+    The file's touched assets and dictionary tokens stay in the scope: a catalog
+    or asset the file never mentions cannot change its report.
     """
-    base = _import_cache_scope(asset_ids, latest_change, row_count=row_count, dictionaries=dictionaries)
-    return f"plan={plan_id or 'none'}|{base}"
+    parts = [f"plan={plan_id or 'none'}", f"rev={revision}"]
+    if asset_ids:
+        parts.append("assets=" + ",".join(sorted(str(asset_id) for asset_id in asset_ids)))
+    if dictionaries:
+        parts.append(dictionaries)
+    return "|".join(parts)
 
 
 @router.post("/plan/import/inspect", response_model=RenovationPlanImportResult)
@@ -101,9 +107,17 @@ async def inspect_renovation_plan_import(
         digest = await _rewind_and_hash_upload(file)
     # Uniqueness is scoped to ONE plan version: resolve the working plan before
     # validating or caching, so a code that only exists in an archived plan is
-    # new for the plan the upload will actually load into.
-    plan = (await session.exec(select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING))).first()
-    working_plan_id = plan.id if plan is not None else None
+    # new for the plan the upload will actually load into. Read scalar columns
+    # instead of the ORM entity: a request that follows an edit in the same
+    # session must see the committed revision, not a stale identity-map copy.
+    plan_state = (
+        await session.exec(
+            select(col(RenovationPlan.id), col(RenovationPlan.revision)).where(
+                col(RenovationPlan.state) == RPlanState.WORKING
+            )
+        )
+    ).first()
+    working_plan_id, plan_revision = plan_state if plan_state is not None else (None, 0)
     cache = get_inspect_cache()
     # Phase 5.2: scope discovery parses the whole workbook in a worker thread.
     # Release the request's pooled DB connection before that CPU phase; the
@@ -128,17 +142,6 @@ async def inspect_renovation_plan_import(
     by_key = _asset_scope_lookup(assets, assets_are_names=file_scope.assets_are_names)
     touched = [by_key[key] for key in file_scope.assets if key in by_key]
     touched_asset_ids = [asset.id for asset in touched]
-    plan_row_count = 0
-    latest_change: datetime | None = None
-    if touched_asset_ids and working_plan_id is not None:
-        plan_row_count, latest_change = (
-            await session.exec(
-                select(func.count(), func.max(RenovationPlanRow.updated_at)).where(
-                    col(RenovationPlanRow.plan_id) == working_plan_id,
-                    col(RenovationPlanRow.asset_id).in_(touched_asset_ids),
-                )
-            )
-        ).one()
     dictionaries = (
         await _dictionary_fingerprint(session, file_scope=file_scope, touched_assets=touched)
         if file_scope.assets
@@ -146,9 +149,8 @@ async def inspect_renovation_plan_import(
     )
     scope = _working_plan_import_scope(
         working_plan_id,
+        int(plan_revision),
         touched_asset_ids,
-        latest_change,
-        row_count=plan_row_count,
         dictionaries=dictionaries,
     )
     cached = await cache.get_digest(digest, scope=scope, suffix=suffix) if file_scope.assets else None

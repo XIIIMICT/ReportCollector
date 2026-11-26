@@ -135,25 +135,37 @@ Reports are cached in Valkey (`src/renovation/inspect_cache.py`): the key is
 where the version includes both the analyzer version and the renovation-ID
 generator flag, and the suffix is the upload's own `.xlsb`/`.xlsx` (identical
 bytes in different containers go through different readers and must never share
-a report). The scope has two parts. The version is the analyzer's: bump
-`INSPECT_CACHE_VERSION` whenever a deploy changes what a report contains, so a
-report written by the previous analyzer is not served for up to the TTL. The
-scope is prefixed with the id of the CURRENT working plan (`plan=<uuid>|…`):
-codes are compared only inside that plan, so archiving it and opening a newer
-version must re-key the report even when the uploaded bytes are identical. The
-plan part is the file's assets («Наименование ДО» repair codes → asset
-ids, or «Предприятие» names → asset ids when the code column is absent) plus
-the `count(*) + max(updated_at)` token of the **working plan's** rows **of those
-assets**; a plan edit in any other asset therefore keeps the cached report
-valid, while a row edit/insert/delete in a loaded asset recomputes it. The
-dictionary part carries `count(*) + max(updated_at)` of every reference catalog
-the file has a column for (`scan_file_scope` maps the template header through
-the form schema, so a catalog the file never mentions cannot affect its report)
-and the same token for the asset entries the file names. Adding the value a
-cached report called missing therefore changes the key and lets the same file
-be re-uploaded immediately instead of serving the stale error until the TTL.
-The TTL is one hour. The cache is optional — without `VALKEY_URL` or when Valkey
-is unreachable the file is analysed again.
+a report). The version is the analyzer's: bump `INSPECT_CACHE_VERSION` whenever
+a deploy changes what a report contains, so a report written by the previous
+analyzer is not served for up to the TTL. It was bumped from `7` to `8` together
+with the plan-token change below: every entry written with the old scope is
+unreachable at the new version prefix, so no rollout needs a Valkey flush.
+
+The scope starts with the id of the CURRENT working plan and that plan's
+work-code generation: `plan=<uuid>|rev=<n>|…` (`plan=none|rev=0|…` before a
+working plan exists). Codes are compared only inside that plan, so archiving it
+and opening a newer version re-keys the report even for identical bytes.
+`rev` is `r_plans.revision`, maintained by database triggers on
+`r_plan_rows` **in the same transaction as the write**: every row insert, every
+row delete and every `work_or_repair_code` change increments it, including cell
+edits, undo/redo, imports and the recompute paths that write codes. An archived
+plan's changes bump only that plan's counter and cannot invalidate a report for
+the working plan. This replaced the old `count(*) + max(updated_at)` token over
+the touched assets: the maximum missed a delete/update of a non-latest row, so
+the preflight kept serving a report that still listed a removed code.
+
+The rest of the scope is file-derived. The asset part names the file's assets
+(«Наименование ДО» repair codes → asset ids, or «Предприятие» names → asset ids
+when the code column is absent). The dictionary part carries
+`count(*) + max(updated_at)` of every reference catalog the file has a column
+for (`scan_file_scope` maps the template header through the form schema, so a
+catalog the file never mentions cannot affect its report) and the same token
+for the asset entries the file names. Adding the value a cached report called
+missing therefore changes the key and lets the same file be re-uploaded
+immediately instead of serving the stale error until the TTL. The TTL is one
+hour. The cache is optional — without `VALKEY_URL` or when Valkey is unreachable
+(or an entry is malformed) the file is analysed again; no cache failure can fail
+the import.
 
 The upload is **hashed before any workbook reader is opened**: the hash of the
 received bytes is the cache key, so a repeat never pays parse time to find out
@@ -345,6 +357,31 @@ Maintainer procedure to unblock the index:
 6. With a maintainer approval recorded, run `just migrate`. If it fails on a
    duplicate, the migration transaction has rolled back: stop, clean and audit
    again. Never edit an applied migration. `downgrade()` drops only the index.
+
+### Plan work-code revision rollout (migration 0043 — AUTHORED ONLY)
+
+Migration `0043_plan_work_code_revision` is authored on the fix branch and was
+**not executed by the author** against dev or prod; only the disposable
+`rc_test*` schema used by the backend tests applies the full chain. It adds
+`r_plans.revision INTEGER NOT NULL DEFAULT 0` and three
+statement-level triggers on `r_plan_rows` (INSERT, DELETE, UPDATE of
+`work_or_repair_code`) that increment that counter using transition tables —
+one plan-row update per affected plan per statement, not per row. Existing
+plans need no backfill: they start at `0`, and the cache version bump makes any
+entry written under the old scheme unreachable. The triggers are in the
+database, so no application write path can bypass the invalidation (cell edits,
+row create/delete/asset assignment, undo/redo, import apply, recompute and
+maintenance scripts all go through them); a recompute that rewrites the same
+code value does not bump because the UPDATE uses `IS DISTINCT FROM`.
+
+Rollout order: 0043 is a linear child of `0042_plan_work_code_unique`, whose
+own rollout is still blocked by the live duplicate audit above. `just migrate`
+on a live DB therefore requires the 0042 maintainer gate first; afterwards 0043
+is additive. The connection's `lock_timeout=30s` applies. `downgrade()` drops
+the three triggers, the function and the column; no business data is rewritten.
+The cache keeps working during rollout: an old backend reading a schema without
+the column is impossible once the migration is applied, and the new backend
+never serves a pre-bump entry because of the `8:` key prefix.
 
 ## Excel export dialog (all projects)
 
