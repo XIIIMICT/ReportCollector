@@ -273,6 +273,16 @@ event payload casts, `afterEdit`, memo dependencies and JSX remain in the
 component. The own-lease-beats-foreign-presence asymmetry and the invalid-value
 early return before skipped-cell messages are pinned by tests.
 
+## Grid decomposition — Stage 3: selection helper contract (2026-11-26)
+
+The unused `grid-selection.ts::selectionLabelForRange` (different format and no
+call sites) was removed, leaving `selection-label.ts` as the single public
+naming contract. `selectionCellKeys` / `selectionRowCellKeys` now accept an
+explicit `getCellKey` accessor (default keeps the old `id/prop` keys);
+DataGrid's two local canonical-key copies were replaced with calls and a small
+accessor at the call boundary. 9 new tests (665 total); selection publication,
+effect dependencies and all RevoGrid invariants unchanged.
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,
