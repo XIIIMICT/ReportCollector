@@ -68,6 +68,7 @@ import {
     type ReferenceOption,
     type SectionId,
 } from "@/shared/grid/grid-config";
+import { buildGridResetState } from "@/shared/grid/grid-reset-state";
 import {
     collaborationAvailableFor,
     undoAvailableFor,
@@ -652,13 +653,7 @@ function SectionContent({
         clearFilters,
     } = useGridColumnFilters("raw-materials", "plan");
     useEffect(() => {
-        onResetState({
-            resetColumnWidths: () => gridRef.current?.resetColumnWidths(),
-            resetFiltersSorting: () => {
-                clearFilters();
-                void gridRef.current?.resetFiltersSorting();
-            },
-        });
+        onResetState(buildGridResetState(gridRef, clearFilters));
     }, [clearFilters, onResetState]);
 
     // The users section creates records through the modal, so the action-bar

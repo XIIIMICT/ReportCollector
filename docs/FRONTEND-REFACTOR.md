@@ -195,11 +195,29 @@ The 60 ms polling loop was replaced with React Aria `onHoverStart`, pointermove
 coordinate tracking, one RAF-coalesced geometry check and one cancellable
 250 ms timeout. See `front/e2e/hover-dropdown.spec.ts` and `docs/GRID.md`.
 
+## Stage 5.4 — proportional review of other workspaces (done)
+
+Reviewed `raw-materials`, `kppk` and `logistics` workspaces for genuine
+repetition. Most lifecycle machinery was already shared (`ScopedMutationQueue`,
+history helpers, `useTableExport`, `useGridClipboardActions`, column filters,
+remote-cell maps). Extracted only mechanisms with proven identical contracts:
+`buildGridResetState` (6 call sites), `ScopeStaleNotice` (3 sites) and
+`sameGridViewStats` (KPPK + logistics). Everything else was deliberately left
+explicit — similar-looking undo/remote-cell/clipboard paths have different
+semantics, and wrapping two-line idioms in hooks would add indirection without
+removing logic. 12 new deterministic tests (534 unit tests total).
+
 ## Remaining work
 
-The remaining (higher-risk) part of 5.2–5.3 — splitting the workspace's data
-loading, collaboration, commit/undo and dialog composition, and the grid's
-column/header/selection logic — is still pending. The measured before/after
+The stateful half of 5.2–5.3 — splitting the workspace's data loading,
+collaboration, commit/undo and dialog composition, and the grid's imperative
+selection/clipboard/scroll integration — is still pending. The pure selector,
+geometry, header-chain and value-normalization boundaries are already extracted
+and tested (see above); `renovation-grid.tsx` deliberately keeps its RevoGrid
+contracts, memo identities and JSX structure intact. The measured before/after
 runtime scenarios are also pending: they require React DevTools/Performance
-recordings and the prepared stack; no claims about them are made here. Stage 9
-(CSS split) is complete — see above.
+recordings and the prepared stack; no performance claims are made here. Stage 9
+(CSS split) is complete — see above. §8.4 (small shared UI duplication) was
+compared across the two independent deployments: support-button contracts,
+brand switchers and domain-specific theme tokens differ by product requirement,
+so no forced convergence was applied.
