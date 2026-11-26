@@ -127,7 +127,23 @@ different milestones. Do not reopen the explicit product deferrals below.
 - [ ] Add authenticated cold/warm browser traces, long tasks, heap, scroll FPS
   and a Turbopack-compatible route bundle report; establish regression budgets
   from measured baselines. Keep multi-account Keycloak collaboration and
-  browser-only grid contracts in the browser gate.
+  browser-only grid contracts in the browser gate. **No React DevTools /
+  Performance baseline was captured before the 2026-11-26 frontend refactor**,
+  so there is no retroactive before/after FPS or latency evidence; do not claim
+  such gains for the structural changes. Bundle before/after evidence is in the
+  workspace root `FRONTEND-AUDIT-FINAL-REPORT.md`.
+- [ ] **Frontend audit §5.2/5.3 — stateful decomposition (deferred).** The pure
+  workspace selectors and grid geometry/header-chain/value-normalization
+  boundaries are extracted and tested. Data loading, collaboration,
+  commit/undo, dialog composition and the imperative RevoGrid
+  selection/clipboard/scroll integration remain in `RenovationWorkspace` and
+  `RenovationGrid` on purpose: they own memo identity and grid contracts. Any
+  further split must keep those identities and be gated by the large-plan e2e
+  suite.
+- [ ] **Frontend audit §8.2 — animation timing tokens (deferred).** The
+  consolidated reduced-motion block is in place; the ~15 ad-hoc durations and
+  easings in `front/src/app/styles/*.css` were intentionally not tokenized.
+  Consolidate only together with a before/after visual check.
 - [ ] Revisit domain router/journal boilerplate only when stable contracts expose
   a shared seam. Preserve project-local memberships, grants and undo scopes;
   do not replace differing project policies with generic CRUD.
