@@ -2,6 +2,24 @@ import { expect, test } from "@playwright/test";
 
 import { loginAsLocalUser } from "./helpers/auth";
 
+test("reduced-motion disables app-owned transitions", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await loginAsLocalUser(page, {
+        email: "evtushenko.sn@ruschem.ru",
+        password: "TestPassword123",
+    });
+    await page.goto("/");
+    await expect(page.locator(".app-shell")).toBeVisible({ timeout: 30000 });
+    const styles = await page.evaluate(() => {
+        const node = document.querySelector(".app-header");
+        if (!node) throw new Error("app-header is missing");
+        const style = getComputedStyle(node);
+        return { transition: style.transitionDuration, animation: style.animationName };
+    });
+    expect(styles.transition).toBe("0s");
+    expect(styles.animation).toBe("none");
+});
+
 test("renovation single-cell edit persists and Ctrl+A stays disabled", async ({ page }) => {
     await loginAsLocalUser(page, {
         email: "evtushenko.sn@ruschem.ru",
