@@ -289,12 +289,13 @@ of in a separate brief.
 - [ ] **Frontend refactor prompt — remaining stages (not covered).** The
   current audit prompt `frontend-refactor-agent-prompt.md` is only partly
   implemented: Stage A (inventory), Stage B (clipboard I/O), Stage C (neutral
-  grid contracts, pure config types/formatters) and the DocMasker Stage G items
-  are merged into `dev`. Still pending: the stateful DataGrid and RenovationGrid
-  decomposition (prompt §4.1/§4.2 stages D/E), descriptor/column/template split
-  of `grid-config.ts`, `ColumnFilterPopover` and `SmartSelect` lifecycles (§4.5/§4.6),
-  workspace decompositions (§4.7), and the §3.1/§3.3 edit-policy and selection
-  contract reconciliation. These are explicitly **not covered by CI**; pure
+  grid contracts, pure config types/formatters), the DocMasker Stage G items,
+  and the first three grid-decomposition slices — shared skipped-cell reasons,
+  pure DataGrid edit decisions and the selection-helper naming/accessor contract
+  (§3.1/§3.3) — are merged into `dev`. Still pending: the stateful DataGrid and
+  RenovationGrid decomposition (prompt §4.1/§4.2 stages D/E), descriptor/column/
+  template split of `grid-config.ts`, `ColumnFilterPopover` and `SmartSelect`
+  lifecycles (§4.5/§4.6), and workspace decompositions (§4.7). These are explicitly **not covered by CI**; pure
   helper tests are not a substitute. Acceptance: one coherent lifecycle per
   branch, all RevoGrid invariants from prompt §6 encoded in tests before edits,
   no callback identity or memo-dependency changes, large-plan e2e after every
