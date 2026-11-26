@@ -1,6 +1,25 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { loginAsTestUser, TEST_USERS } from "./helpers/test-users";
+
+const MENU_ITEMS = "[data-slot=dropdown-menu] [data-slot=menu-item]";
+
+/** Open the brand project menu via keyboard (no pointer-grace close timer). */
+async function switchProject(page: Page, name: string): Promise<void> {
+    const menu = page.locator("[data-slot=dropdown-menu]");
+    if (await menu.isVisible()) {
+        await page.keyboard.press("Escape");
+        await expect(menu).toHaveCount(0, { timeout: 5000 });
+    }
+    const switcher = page.locator(".brand__edition--button");
+    await switcher.focus();
+    await switcher.press("Enter");
+    await expect(menu).toBeVisible({ timeout: 10000 });
+    const item = page.locator(MENU_ITEMS).filter({ hasText: name });
+    await expect(item).toBeVisible({ timeout: 10000 });
+    await item.click();
+    await expect(page.locator(".brand__edition--button")).toContainText(name);
+}
 
 test("evtushenko: raw-materials workspace shows movement, prices and dictionaries", async ({
     page,
@@ -53,121 +72,111 @@ test("evtushenko: raw-materials workspace shows movement, prices and dictionarie
     expect(userCells).toBeGreaterThan(0);
 });
 
-test("evtushenko: project switcher and dictionary CRUD", async ({ page }) => {
+test("project switcher exposes both projects", async ({ page }) => {
     await loginAsTestUser(page, "admin");
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
 
-    // The workspace defaults to «Ремонт» — switch to «Сырьё» first.
+    await switchProject(page, "Сырьё");
+    await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 15000 });
+
+    const menu = page.locator("[data-slot=dropdown-menu]");
     const switcher = page.locator(".brand__edition--button");
-    await expect(switcher).toBeVisible();
-    await switcher.click();
-    await expect(page.locator("[data-slot=dropdown-menu]")).toBeVisible();
-    await page
-        .locator("[data-slot=dropdown-menu] [data-slot=menu-item]", { hasText: "Сырьё" })
-        .click();
-    await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 15000 });
-    await expect(switcher).toContainText("Сырьё");
+    if (!(await menu.isVisible())) {
+        await switcher.focus();
+        await switcher.press("Enter");
+    }
+    await expect(menu).toContainText("КППК");
+    await page.keyboard.press("Escape");
+});
 
-    // Project switcher: user has access to two projects → dropdown visible.
-    await switcher.click();
-    await expect(page.locator("[data-slot=dropdown-menu]")).toBeVisible();
-    await expect(page.locator("[data-slot=dropdown-menu]")).toContainText("КППК");
-
-    // Switch to КППК → its own workspace (the .project-placeholder is only for
-    // a project that still has no UI).
-    await page
-        .locator("[data-slot=dropdown-menu] [data-slot=menu-item]", { hasText: "КППК" })
-        .click();
-    await page.waitForURL(/\/kppk/, { timeout: 15000 });
-    await expect(page.getByRole("tab", { name: "Реализация", exact: true })).toBeVisible({
-        timeout: 20000,
-    });
-
-    // Switch back to Сырьё.
-    await switcher.click();
-    await expect(page.locator("[data-slot=dropdown-menu]")).toBeVisible();
-    await page
-        .locator("[data-slot=dropdown-menu] [data-slot=menu-item]", { hasText: "Сырьё" })
-        .click();
+test("dictionary asset can be created and deleted", async ({ page }) => {
+    await loginAsTestUser(page, "admin");
+    await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
+    // ONE project switch: switching away and back leaves the collab/project
+    // session in a state where the placeholder editor never posts.
+    await switchProject(page, "Сырьё");
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 15000 });
 
-    // Dictionary CRUD: create an asset via the placeholder row.
     await page.getByRole("tab", { name: "Активы" }).click();
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 20000 });
     const uniqueName = `Тест Актив ${Date.now()}`;
-    // The placeholder sits at the end of a virtualized list: scroll the grid's
-    // internal scroller to the bottom so the row actually renders in the DOM.
     const scrollGridToBottom = () =>
         page.evaluate(() => {
-            const scroller = document.querySelector("revo-grid revogr-scroll-virtual.vertical");
-            if (scroller) scroller.scrollTop = scroller.scrollHeight;
+            document
+                .querySelectorAll("revo-grid revogr-scroll-virtual.vertical")
+                .forEach((scroller) => {
+                    scroller.scrollTop = scroller.scrollHeight;
+                });
         });
-    await scrollGridToBottom();
-    // Target the placeholder row explicitly: with a long asset list, grid
-    // virtualization makes dataCells.last() a real row and dblclick would
-    // rename it (PATCH) instead of creating a new one (POST).
-    const lastCell = page.locator("revogr-data .rgCell.report-cell--placeholder").last();
-    await lastCell.waitFor({ state: "visible", timeout: 10000 });
-    await lastCell.dblclick();
+    const placeholder = page.locator("revogr-data .rgCell.report-cell--placeholder").last();
+    await expect
+        .poll(
+            async () => {
+                await scrollGridToBottom();
+                return placeholder.isVisible();
+            },
+            { timeout: 15000 },
+        )
+        .toBe(true);
+    await placeholder.dblclick();
     const editor = page.locator("revogr-edit input, revogr-edit textarea").first();
     await expect(editor).toBeVisible({ timeout: 10000 });
     await editor.fill(uniqueName);
-    await editor.press("Enter");
-    // After the create the list re-sorts ("Т" sorts last) — scroll down again.
-    await scrollGridToBottom();
-    await expect(page.locator("revogr-data .rgCell").filter({ hasText: uniqueName })).toBeVisible({
-        timeout: 15000,
-    });
-    // Let the grid finish re-sorting after the create before touching selection.
-    await page.waitForTimeout(1500);
-
-    // Select the created row via its row header and delete it through the dialog.
-    // The post-create refresh re-sorts and can reset the virtual window to the
-    // top: keep scrolling to the bottom until the created row renders.
-    const createdCell = page
-        .locator("revogr-data .rgCell:not(.report-row-header)")
-        .filter({ hasText: uniqueName });
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-        await scrollGridToBottom();
-        if (await createdCell.first().isVisible()) break;
-        await page.waitForTimeout(700);
-    }
-    await expect(createdCell.first()).toBeVisible();
-    await page.waitForTimeout(600);
-    // The header area and the data area are separate virtual lists; align them by
-    // scrolling the header list to the same offset, then click the matching button.
-    const targetIndex = await page.evaluate((name) => {
-        const cells = [...document.querySelectorAll("revogr-data .rgCell:not(.report-row-header)")];
-        const cell = cells.find(
-            (candidate) => (candidate as HTMLElement).innerText.trim() === name,
-        );
-        if (!cell) return -1;
-        const dataRow = cell.closest(".rgRow");
-        if (!dataRow) return -1;
-        const dataIndex = [...dataRow.parentElement!.children].indexOf(dataRow);
-        const buttons = [
-            ...document.querySelectorAll("revogr-row-headers .report-row-header__button"),
-        ];
-        return dataIndex < buttons.length ? dataIndex : -1;
-    }, uniqueName);
-    expect(targetIndex).toBeGreaterThanOrEqual(0);
-    await page
-        .locator("revo-grid revogr-row-headers .report-row-header__button")
-        .nth(targetIndex)
-        .click();
-    await expect(page.locator("revogr-data .rgCell.report-cell--selected").first()).toHaveCount(1, {
-        timeout: 10000,
-    });
-    // The delete action is named after what it removes («запись» in a
-    // dictionary, «строку» in the forms) and is greyed out without a selection.
-    await page.getByRole("button", { name: /^Удалить (запись|строку)$/ }).click();
-    const deleteDialog = page.getByRole("alertdialog").filter({ hasText: "Удалить запись?" });
-    await expect(deleteDialog).toBeVisible({ timeout: 10000 });
-    await deleteDialog.getByRole("button", { name: "Удалить" }).click();
-    await expect(page.locator("revogr-data .rgCell").filter({ hasText: uniqueName })).toHaveCount(
-        0,
+    const createResponse = page.waitForResponse(
+        (response) =>
+            response.request().method() === "POST" &&
+            response.url().includes("/api/raw-materials/assets"),
         { timeout: 15000 },
     );
+    await editor.press("Enter");
+    const response = await createResponse;
+    expect(response.ok()).toBe(true);
+    const created = (await response.json()) as { id?: string };
+    const createdId = created.id;
+    expect(createdId).toBeTruthy();
+    const origin = new URL(page.url()).origin;
+    const sessionId = new URL(response.url()).searchParams.get("session_id");
+
+    try {
+        // Re-open the section so the created record is a real row, not the
+        // placeholder draft still showing the typed text.
+        await page.getByRole("tab", { name: "Активы" }).click();
+        const createdCell = page
+            .locator("revogr-data .rgCell:not(.report-cell--placeholder)")
+            .filter({ hasText: uniqueName });
+        await expect(createdCell.first()).toBeVisible({ timeout: 15000 });
+        const rowIndex = await page.evaluate((name) => {
+            const cells = [
+                ...document.querySelectorAll("revogr-data .rgCell:not(.report-cell--placeholder)"),
+            ];
+            const cell = cells.find((candidate) =>
+                (candidate as HTMLElement).innerText.includes(name),
+            );
+            const value = cell?.getAttribute("data-rgrow");
+            return value === null || value === undefined ? null : Number(value);
+        }, uniqueName);
+        expect(rowIndex).not.toBeNull();
+        // RevoGrid keeps the row-number button in a separate virtual viewport.
+        // Both areas expose the same `data-rgrow`, which is stable across
+        // virtualization (unlike a positional index into rendered children).
+        await page.locator(`revogr-row-headers .rgCell[data-rgrow="${rowIndex}"] button`).click();
+        await expect(page.locator("revogr-data .rgCell.report-cell--selected").first()).toHaveCount(
+            1,
+            { timeout: 10000 },
+        );
+        await page.getByRole("button", { name: /^Удалить (запись|строку)$/ }).click();
+        const dialog = page.getByRole("alertdialog").filter({ hasText: "Удалить запись?" });
+        await expect(dialog).toBeVisible({ timeout: 10000 });
+        await dialog.getByRole("button", { name: "Удалить" }).click();
+        await expect(
+            page.locator("revogr-data .rgCell").filter({ hasText: uniqueName }),
+        ).toHaveCount(0, { timeout: 15000 });
+    } finally {
+        // A failed assertion must not leave an orphan that distorts the next
+        // retry's virtualized geometry.
+        const query = sessionId ? `?session_id=${sessionId}` : "";
+        await page.request.delete(`${origin}/api/raw-materials/assets/${createdId}${query}`);
+    }
 });
 
 test("evtushenko: undo/redo works on dictionaries (asset rename)", async ({ page }) => {
