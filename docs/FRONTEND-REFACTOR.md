@@ -89,6 +89,17 @@ so no performance gain is claimed.
   all exit 0. Production build and Playwright are intentionally left to the
   parent stage after integration.
 
+## Stage 5.3 — renovation grid pure extractions (done)
+
+`renovation-grid.tsx` keeps its React tree, refs, memoized structures and every
+dependency list; only pure factory bodies were lifted into three new modules:
+`renovation-grid-geometry.ts` (level offsets, column left edges),
+`renovation-grid-header-chain.ts` (chain/level derivations from header metadata)
+and `renovation-grid-value-normalization.ts` (cell value coercion + workbook
+rules). Call sites in `beforeEdit`/`beforeRangeEdit` and the header memos now
+delegate to them. All RevoGrid selection/geometry/clipboard invariants are
+untouched; unit tests cover empty data, boundaries and 217-column inputs.
+
 ## End-to-end smoke (CI stack, 127.0.0.1:16000)
 
 `E2E_BASE_URL=http://127.0.0.1:16000 KEYCLOAK_ENABLED=false bun run test:e2e

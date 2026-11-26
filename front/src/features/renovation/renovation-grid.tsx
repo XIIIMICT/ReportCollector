@@ -56,9 +56,12 @@ import { extractRenovationEdits } from "@/features/renovation/renovation-grid-ed
 import {
     dateTemplate,
     dateTimeTemplate,
-    normalizeDate,
     numberTemplate,
 } from "@/features/renovation/renovation-grid-format";
+import {
+    computeLevelOffsets,
+    measureColumnOffsets,
+} from "@/features/renovation/renovation-grid-geometry";
 import {
     clampLevelHeight,
     clampWidth,
@@ -69,6 +72,15 @@ import {
     mergeBands,
     type HandleBand,
 } from "@/features/renovation/renovation-grid-header";
+import {
+    buildHeaderChainByProp,
+    buildHeaderChainForPosition,
+    buildHeaderLevelByPosition,
+} from "@/features/renovation/renovation-grid-header-chain";
+import {
+    checkRenovationFieldRules,
+    normalizeRenovationValue,
+} from "@/features/renovation/renovation-grid-value-normalization";
 import type { CellUpdate } from "@/shared/api/raw-materials";
 import type {
     RenovationCatalog,
@@ -78,7 +90,6 @@ import type {
 import type { RenovationSortColumn } from "@/shared/api/renovation";
 import { parsePastedText, pasteTargetRange, serializeCellValue } from "@/shared/grid";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/data-grid";
-import { parseNumericText } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import {
     columnMenuItems,
@@ -316,8 +327,6 @@ export function canonicalRenovationKey(rowId: string, field: string): string {
     return `${RENOVATION_PLAN_ROWS_TABLE}/${rowId}/${field}`;
 }
 
-type NormalizeResult = { ok: true; value: unknown } | { ok: false; message: string };
-
 function RenovationGridInner(
     {
         fields,
@@ -434,15 +443,10 @@ function RenovationGridInner(
     );
     // Top edge of every header level: levelOffsets[i] is the top of level i,
     // levelOffsets[HEADER_LEVEL_COUNT] is the whole 11-level block's height.
-    const levelOffsets = useMemo(() => {
-        const offsets: number[] = [0];
-        let acc = 0;
-        for (const height of levelHeights) {
-            acc += (height * rowHeight) / 36;
-            offsets.push(acc);
-        }
-        return offsets;
-    }, [levelHeights, rowHeight]);
+    const levelOffsets = useMemo(
+        () => computeLevelOffsets(levelHeights, rowHeight),
+        [levelHeights, rowHeight],
+    );
     const headerHeight =
         levelOffsets[HEADER_LEVEL_COUNT] ?? HEADER_LEVEL_COUNT * HEADER_LEVEL_HEIGHT;
     // The totals row is a revo-grid pinned top row (like the assets dictionary).
@@ -636,15 +640,10 @@ function RenovationGridInner(
     // Left edge of every visible field (grid-relative x, the 52px row header
     // and the synthetic asset column included) and the total content width —
     // live during a resize drag.
-    const geometry = useMemo(() => {
-        const offsets = new Map<string, number>();
-        let acc = ROW_HEADER_WIDTH + assetWidth;
-        for (const field of displayFields) {
-            offsets.set(field.dbName, acc);
-            acc += fieldWidth(field);
-        }
-        return { offsets, totalWidth: acc };
-    }, [assetWidth, displayFields, fieldWidth]);
+    const geometry = useMemo(
+        () => measureColumnOffsets(displayFields, fieldWidth, ROW_HEADER_WIDTH + assetWidth),
+        [assetWidth, displayFields, fieldWidth],
+    );
 
     /** Width of the always-pinned asset plus the user-pinned form fields. */
     const pinnedHeaderWidth = useMemo(
@@ -883,15 +882,10 @@ function RenovationGridInner(
         widthOf,
     ]);
 
-    const headerLevelByPosition = useMemo(() => {
-        const levels = new Map<number, number>();
-        for (const cell of overlayCells) {
-            for (let position = cell.fromPosition; position < cell.toPosition; position += 1) {
-                levels.set(position, Math.max(levels.get(position) ?? 0, cell.level));
-            }
-        }
-        return levels;
-    }, [overlayCells]);
+    const headerLevelByPosition = useMemo(
+        () => buildHeaderLevelByPosition(overlayCells),
+        [overlayCells],
+    );
 
     /**
      * The header chain of every numbered column: the cells covering it, from
@@ -899,32 +893,10 @@ function RenovationGridInner(
      * out with «↓», the status tooltip with «→» (the same texts the overlay
      * draws, canonical block labels included).
      */
-    const headerChainByProp = useMemo(() => {
-        const chains = new Map<string, string[]>();
-        const add = (prop: string, position: number | null) => {
-            if (position === null) return;
-            const texts: string[] = [];
-            for (const cell of overlayCells) {
-                if (cell.fromPosition > position || position >= cell.toPosition) continue;
-                const text = cell.text.trim();
-                // Consecutive duplicates (a label repeated on two levels) read
-                // as noise in the chain.
-                if (text !== "" && text !== texts[texts.length - 1]) texts.push(text);
-            }
-            if (texts.length > 0) chains.set(prop, texts);
-        };
-        add(ASSET_COLUMN_PROP, assetPosition);
-        for (const field of displayFields) {
-            if (SERVICE_DB_NAMES.has(field.dbName)) {
-                // An audit column has no header cell of its own: its chain is
-                // the column's label, which is what the tooltip should read.
-                chains.set(field.dbName, [field.label]);
-                continue;
-            }
-            add(field.dbName, field.position);
-        }
-        return chains;
-    }, [assetPosition, displayFields, overlayCells]);
+    const headerChainByProp = useMemo(
+        () => buildHeaderChainByProp(overlayCells, assetPosition, displayFields),
+        [assetPosition, displayFields, overlayCells],
+    );
 
     /**
      * The header chain of a form position, from the raw header cells.
@@ -935,39 +907,7 @@ function RenovationGridInner(
      * same way the overlay does it.
      */
     const headerChainForPosition = useCallback(
-        (position: number): string[] => {
-            const covered = headerCells
-                .filter(
-                    (cell) =>
-                        cell.startPosition + 1 <= position &&
-                        position < cell.startPosition + cell.colSpan + 1,
-                )
-                .sort((left, right) => left.level - right.level);
-            const texts: string[] = [];
-            for (const cell of covered) {
-                let text = cell.text.trim();
-                if (cell.level === 0 && text.startsWith("Блок ")) {
-                    for (
-                        let candidatePosition = cell.startPosition + 1;
-                        candidatePosition < cell.startPosition + cell.colSpan + 1;
-                        candidatePosition += 1
-                    ) {
-                        const field = fields.find(
-                            (candidate) =>
-                                candidate.position === candidatePosition &&
-                                candidate.responsibilityBlock &&
-                                candidate.responsibilityBlock !== "read_only",
-                        );
-                        if (field?.responsibilityBlock) {
-                            text = BLOCK_HEADER_LABELS[field.responsibilityBlock] ?? text;
-                            break;
-                        }
-                    }
-                }
-                if (text !== "" && text !== texts[texts.length - 1]) texts.push(text);
-            }
-            return texts;
-        },
+        (position: number): string[] => buildHeaderChainForPosition(position, headerCells, fields),
         [fields, headerCells],
     );
 
@@ -2292,110 +2232,6 @@ function RenovationGridInner(
         };
     }, [gridAdapter, reportCenterPosition, reportLoadedRows, scopeKey]);
 
-    function normalizeValue(value: unknown, field: RenovationField): NormalizeResult {
-        if (field.cellType === "number") {
-            if (value === null || value === undefined || String(value).trim() === "") {
-                return { ok: true, value: null };
-            }
-            const parsed = parseNumericText(value);
-            if (parsed === null || !Number.isFinite(parsed)) {
-                return { ok: false, message: `Введите число в ячейку «${field.label}».` };
-            }
-            return { ok: true, value: parsed };
-        }
-        if (field.cellType === "date") {
-            if (value === null || value === undefined || String(value).trim() === "") {
-                return { ok: true, value: null };
-            }
-            const iso = normalizeDate(String(value).trim());
-            if (!iso) {
-                return {
-                    ok: false,
-                    message: `Введите дату в ячейку «${field.label}» в формате ДД.ММ.ГГГГ или ГГГГ-ММ-ДД.`,
-                };
-            }
-            return { ok: true, value: iso };
-        }
-        if (field.cellType === "boolean") {
-            const text = String(value).trim().toLocaleLowerCase("ru-RU");
-            if (text === "да" || text === "true" || text === "1") return { ok: true, value: true };
-            if (text === "нет" || text === "false" || text === "0" || text === "") {
-                return { ok: true, value: text === "" ? null : false };
-            }
-            return { ok: false, message: `Выберите «Да» или «Нет» в ячейке «${field.label}».` };
-        }
-        if (field.cellType === "reference") {
-            const requested = String(value ?? "").trim();
-            if (!requested) return { ok: true, value: "" };
-            const options = catalogLabelsByField.get(field.dbName) ?? [];
-            const byLabel = new Map(
-                options
-                    .filter((option) => Boolean(option))
-                    .map((option) => [option.toLocaleLowerCase("ru-RU"), option]),
-            );
-            const canonical = byLabel.get(requested.toLocaleLowerCase("ru-RU"));
-            if (!canonical) {
-                return {
-                    ok: false,
-                    message: `Значение «${requested}» отсутствует в справочнике поля «${field.label}».`,
-                };
-            }
-            return { ok: true, value: canonical };
-        }
-        return {
-            ok: true,
-            value: value === null || value === undefined ? null : String(value).trim(),
-        };
-    }
-
-    /**
-     * Field rules from the source workbook that need the whole row: the local
-     * ones (minimum/integer/percentage/allowed_values) are also enforced by the
-     * backend, but checking them here gives immediate feedback without a round
-     * trip; the cross-field ones (field_compare, calendar_year) are frontend-only.
-     * Returns an error message, or null when the value is valid.
-     */
-    function checkFieldRules(
-        field: RenovationField,
-        value: unknown,
-        row: RenovationGridRow,
-    ): string | null {
-        if (value === null || value === undefined || String(value).trim() === "") return null;
-        const rules = field.rules ?? [];
-        for (const rule of rules) {
-            if (rule.kind === "minimum" && rule.value !== undefined) {
-                const numeric = Number(value);
-                if (Number.isFinite(numeric) && numeric < Number(rule.value)) {
-                    return `Значение в ячейке «${field.label}» не может быть отрицательным.`;
-                }
-            } else if (rule.kind === "integer") {
-                if (!Number.isInteger(Number(value))) {
-                    return `Значение в ячейке «${field.label}» должно быть целым числом.`;
-                }
-            } else if (rule.kind === "percentage") {
-                const numeric = Number(value);
-                const minimum = rule.minimum ?? 0;
-                const maximum = rule.maximum ?? 100;
-                if (Number.isFinite(numeric) && (numeric < minimum || numeric > maximum)) {
-                    return `Значение в ячейке «${field.label}» должно быть от ${minimum} до ${maximum}%.`;
-                }
-            } else if (rule.kind === "allowed_values" && rule.values) {
-                if (!rule.values.includes(String(value).trim())) {
-                    return `Значение в ячейке «${field.label}» не входит в список допустимых.`;
-                }
-            } else if (rule.kind === "field_compare" && rule.field && rule.operator === "gte") {
-                // e.g. «Дата окончания» ≥ «Дата начала»; ISO date strings compare
-                // lexicographically, and a missing counterpart skips the check.
-                const other = row[rule.field];
-                const otherText = other === null || other === undefined ? "" : String(other);
-                if (otherText && String(value) < otherText) {
-                    return `Значение в ячейке «${field.label}» не должно быть меньше «${otherText}».`;
-                }
-            }
-        }
-        return null;
-    }
-
     // Stable identity: the selection effect below calls this while computing
     // the paste-button state — an inline function would re-run that effect
     // (and re-render the workspace) on every render.
@@ -2462,13 +2298,13 @@ function RenovationGridInner(
             onLockedCellEdit(key, owner.fullname || owner.email || "другой пользователь");
             return;
         }
-        const normalized = normalizeValue(event.detail.val, field);
+        const normalized = normalizeRenovationValue(event.detail.val, field, catalogLabelsByField);
         if (!normalized.ok) {
             event.preventDefault();
             onValidationError(normalized.message);
             return;
         }
-        const ruleError = checkFieldRules(field, normalized.value, row);
+        const ruleError = checkRenovationFieldRules(field, normalized.value, row);
         if (ruleError) {
             event.preventDefault();
             onValidationError(ruleError);
@@ -2511,13 +2347,17 @@ function RenovationGridInner(
                     skipped.set(field.label, "ячейка занята другим пользователем");
                     continue;
                 }
-                const normalized = normalizeValue(patch[prop], field);
+                const normalized = normalizeRenovationValue(
+                    patch[prop],
+                    field,
+                    catalogLabelsByField,
+                );
                 if (!normalized.ok) {
                     event.preventDefault();
                     onValidationError(normalized.message);
                     return;
                 }
-                const ruleError = checkFieldRules(field, normalized.value, currentRow);
+                const ruleError = checkRenovationFieldRules(field, normalized.value, currentRow);
                 if (ruleError) {
                     event.preventDefault();
                     onValidationError(ruleError);
