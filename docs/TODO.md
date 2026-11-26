@@ -292,18 +292,24 @@ of in a separate brief.
   grid contracts, pure config types/formatters), the DocMasker Stage G items,
   and the first three grid-decomposition slices — shared skipped-cell reasons,
   pure DataGrid edit decisions, the selection-helper naming/accessor contract
-  (§3.1/§3.3), the descriptor-data slice of `grid-config.ts` (§4.4), and the
-  DataGrid scroll-restore hook (§4.1 step 4) — are merged into `dev`. Still
-  pending: the remaining stateful DataGrid controllers (selection/clipboard/
-  header/sorting), all RenovationGrid stateful decomposition (§4.2), the
-  remaining column/template builders of `grid-config.ts`, `ColumnFilterPopover`
-  and `SmartSelect` lifecycles (§4.5/§4.6), and workspace decompositions (§4.7). These are explicitly **not covered by CI**; pure
-  helper tests are not a substitute. Acceptance: one coherent lifecycle per
-  branch, all RevoGrid invariants from prompt §6 encoded in tests before edits,
-  no callback identity or memo-dependency changes, large-plan e2e after every
-  meaningful stage, and no runtime-performance claim without a reproducible
-  measurement. Detailed evidence — `FRONTEND-REFACTOR-STAGE-A.md` (workspace
-  root). The full deferred browser-integration scope is recorded just below.
+  (§3.1/§3.3), all pure `grid-config.ts` slices (types/formatters, descriptors,
+  cell rendering — now 360 lines), and the DataGrid scroll-restore hook
+  (§4.1 step 4) — are merged into `dev`. **Deferred with evidence, not
+  overlooked:** the remaining stateful DataGrid controllers (selection,
+  clipboard, header geometry, sorting/filtering), all RenovationGrid stateful
+  decomposition (§4.2), `ColumnFilterPopover` (§4.5) and `SmartSelect` (§4.6)
+  lifecycles, and workspace decompositions (§4.7). Reason: each remaining
+  boundary currently returns or consumes roughly 8–15 interdependent values,
+  so extracting it would create exactly the "large hook with dozens of values"
+  the prompt forbids; the sparse grid additionally needs a large-plan e2e
+  harness that is not available here. These are explicitly **not covered by
+  CI**; pure-helper tests are not a substitute. Acceptance when resumed: one
+  coherent lifecycle per branch, all RevoGrid invariants from prompt §6
+  encoded in tests before edits, no callback identity or memo-dependency
+  changes, large-plan e2e after every meaningful stage, and no
+  runtime-performance claim without a reproducible measurement. Detailed
+  evidence — `FRONTEND-REFACTOR-STAGE-A.md` (workspace root). The full deferred
+  browser-integration scope is recorded just below.
 
 ### Deferred browser-integration coverage (NOT implemented, NOT in CI)
 
