@@ -135,13 +135,21 @@ import {
 } from "./renovation-grid";
 import { ASSET_COLUMN_PROP, ASSET_FIELD_DB_NAME, AUDIT_COLUMNS } from "./renovation-grid-constants";
 import {
+    buildArchiveItems,
+    calculatedPlanFieldKeys,
+    editablePlanFieldKeys,
+    mergeablePlanFieldKeys,
+    planAssetFilterSet,
+    renovationAssetNames,
+    renovationSections,
+    sectionTabDescriptors,
+} from "./renovation-workspace-selectors";
+import {
     BLOCK_LABELS,
     BLOCK_ORDER,
-    formatVersionStamp,
     renovationGridScopeKey,
     toRenovationGridRow,
     validationColumn,
-    VERSION_STATE_LABELS,
 } from "./renovation-workspace-view";
 import { usePlanImportJob } from "./use-plan-import-job";
 import { usePlanImportLock } from "./use-plan-import-lock";
@@ -801,39 +809,20 @@ export function RenovationWorkspace({
     // and rejects edits outside it. The meta now carries userBlock so the
     // frontend can restrict editing to the user's block on the client side.
     const userBlock = meta?.userBlock ?? null;
-    const editableFieldKeys = useMemo(() => {
-        const keys = new Set<string>();
-        if (!meta) return keys;
-        if (isApprover) return keys;
-        for (const field of meta.fields) {
-            if (field.isCalculated || field.isReadOnly) continue;
-            // Block owners can only edit fields in their block (+ central
-            // fields with no block assignment).
-            if (userBlock && field.responsibilityBlock && field.responsibilityBlock !== userBlock) {
-                continue;
-            }
-            keys.add(field.dbName);
-        }
-        return keys;
-    }, [isApprover, meta, userBlock]);
+    const editableFieldKeys = useMemo(
+        () => editablePlanFieldKeys(meta, isApprover, userBlock),
+        [isApprover, meta, userBlock],
+    );
     // Calculated fields (formula results + the renovation ID) are never edited
     // directly, but they DO update live from other users' edits — the backend
     // publishes them as cell:changed, and displayRows merges them on top.
-    const calculatedFieldKeys = useMemo(() => {
-        const keys = new Set<string>();
-        if (!meta) return keys;
-        for (const field of meta.fields) {
-            if (field.isCalculated) keys.add(field.dbName);
-        }
-        return keys;
-    }, [meta]);
+    const calculatedFieldKeys = useMemo(() => calculatedPlanFieldKeys(meta), [meta]);
     // The union of editable + calculated fields: the fields displayRows merges
     // from remote cell values.
-    const mergeableFieldKeys = useMemo(() => {
-        const keys = new Set(editableFieldKeys);
-        for (const key of calculatedFieldKeys) keys.add(key);
-        return keys;
-    }, [editableFieldKeys, calculatedFieldKeys]);
+    const mergeableFieldKeys = useMemo(
+        () => mergeablePlanFieldKeys(editableFieldKeys, calculatedFieldKeys),
+        [editableFieldKeys, calculatedFieldKeys],
+    );
 
     const userAssetIds = useMemo(() => {
         if (!meta) return null;
@@ -873,16 +862,7 @@ export function RenovationWorkspace({
     // Section tabs: the plan grid first, then the reference dictionaries
     // (enterprises, the five catalogs and project users), mirroring the
     // «Сырьё» workspace. The dictionaries are admin-only.
-    const sections = useMemo(() => {
-        if (!meta) return [];
-        if (!isAdmin) return [{ id: "plan", label: "Пообъектный план" }];
-        return [
-            { id: "plan", label: "Пообъектный план" },
-            { id: "assets", label: "Предприятия" },
-            ...meta.catalogs.map((catalog) => ({ id: catalog.id, label: catalog.label })),
-            { id: "users", label: "Пользователи" },
-        ];
-    }, [isAdmin, meta]);
+    const sections = useMemo(() => renovationSections(meta, isAdmin), [isAdmin, meta]);
 
     useEffect(() => {
         if (sections.length > 0 && !sections.some((section) => section.id === activeSection)) {
@@ -901,15 +881,7 @@ export function RenovationWorkspace({
 
     // The same strip as «Сырьё»: the plan first, then the dictionaries, then
     // the users dictionary after its own separator.
-    const sectionTabItems = useMemo(
-        () =>
-            sections.map((section, index) => ({
-                id: section.id,
-                label: section.label,
-                separatorBefore: index === 1 || section.id === "users",
-            })),
-        [sections],
-    );
+    const sectionTabItems = useMemo(() => sectionTabDescriptors(sections), [sections]);
 
     // The collab room joins the active section: the plan (renovationPlan) or
     // the dictionary tab (renovationAssets / renovationCatalog:{id} /
@@ -923,15 +895,9 @@ export function RenovationWorkspace({
             : renovationCatalogSection(activeSection);
     const collabSection = dictSection ?? RENOVATION_SECTION;
 
-    const visibleAssetNames = useMemo(
-        () => (meta?.assets ?? []).map((asset) => asset.name),
-        [meta],
-    );
+    const visibleAssetNames = useMemo(() => renovationAssetNames(meta), [meta]);
 
-    const assetFilterSet = useMemo(
-        () => (assetFilter ? new Set([assetFilter]) : null),
-        [assetFilter],
-    );
+    const assetFilterSet = useMemo(() => planAssetFilterSet(assetFilter), [assetFilter]);
 
     // A selected version is read-only («archive») only when it is the approved
     // one. The pending («на согласовании») version is still edited by the block
@@ -1503,23 +1469,10 @@ export function RenovationWorkspace({
 
     // Version footer: the working version plus every non-working version
     // (pending approval and archived) viewed read-only with a diff.
-    const archiveItems = useMemo<ArchiveItem[]>(() => {
-        const effective = approveVersions ?? versions;
-        if (!effective || effective.length === 0) return [];
-        return effective
-            .filter((version) => version.state !== "working")
-            .map((version) => ({
-                id: version.id,
-                // Main label is the state only ("Версия на согласовании" etc.);
-                // the description carries the date+time, like the «Сырьё» picker.
-                // The archived state reads as a noun phrase («Утверждённая версия»).
-                name:
-                    version.state === "archived"
-                        ? "Утверждённая версия"
-                        : `Версия ${VERSION_STATE_LABELS[version.state]}`,
-                description: formatVersionStamp(version.createdAt),
-            }));
-    }, [approveVersions, versions]);
+    const archiveItems = useMemo<ArchiveItem[]>(
+        () => buildArchiveItems(versions, approveVersions),
+        [approveVersions, versions],
+    );
 
     const archiveState = useMemo<ArchiveState>(
         () => ({
