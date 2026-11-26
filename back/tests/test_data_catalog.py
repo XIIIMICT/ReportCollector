@@ -34,7 +34,8 @@ def test_catalog_covers_every_application_table_and_column() -> None:
     # 0035 adds the «Ставки» main table (21 columns).
     # 0037 adds the asset grants of a «Работник на активе» (6 columns).
     # 0040 re-adds r_plan_rows.estimate_number as «Номер сметы» (1 column).
-    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 554
+    # 0043 adds r_plans.revision, the trigger-maintained preflight cache token.
+    assert sum(len(table.c) for table in SQLModel.metadata.tables.values()) == 555
     assert set(TABLE_COMMENTS) == set(SQLModel.metadata.tables)
     for table in SQLModel.metadata.tables.values():
         assert table.comment == TABLE_COMMENTS[table.name].rstrip(".")

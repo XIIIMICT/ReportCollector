@@ -34,19 +34,21 @@ INSPECT_SCOPE_TTL_SECONDS = 7 * 24 * 3600
 # being served after the fix — the operator re-uploaded the same file and saw
 # the old analysis. Bump it whenever the report's content changes. The renovation
 # ID generator is a behavior-affecting config flag, so a flip invalidates all
-# entries without a code deploy.
-INSPECT_CACHE_VERSION = f"7:{int(RENOVATION_ID_FORMULA_ENABLED)}"
+# entries without a code deploy. Bumped to 8 when the scope switched from
+# `count(*) + max(updated_at)` to the plan's transactional work-code revision;
+# entries written by the old token must never be served after the deploy.
+INSPECT_CACHE_VERSION = f"8:{int(RENOVATION_ID_FORMULA_ENABLED)}"
 
 
 def inspect_cache_key(payload: bytes, *, scope: str = "", suffix: str | None = None) -> str:
     """
     Valkey key of a workbook: its SHA-256 digest plus the plan state scope.
 
-    The scope names the uploaded assets and the plan's last-change timestamp
-    *within those assets*, so an edit in another asset keeps this report valid
-    while any touch of a loaded asset recomputes it. The container suffix is in
-    the key too: identical bytes named `.xlsb` and `.xlsx` go through different
-    readers and must never share a report.
+    The scope names the working plan, its transactional work-code revision and
+    the uploaded assets plus the catalogs the file uses, so a write that can
+    change the plan's codes re-keys the report while an unrelated edit does not.
+    The container suffix is in the key too: identical bytes named `.xlsb` and
+    `.xlsx` go through different readers and must never share a report.
     """
     digest = hashlib.sha256(payload).hexdigest()
     return inspect_cache_key_from_digest(digest, scope=scope, suffix=suffix)

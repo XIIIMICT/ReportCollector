@@ -114,17 +114,18 @@ async def test_preflight_compares_codes_only_in_the_current_working_plan(
     assert other.work_or_repair_code in captured["codes"]
 
 
-def test_cache_scope_carries_the_working_plan_identity() -> None:
-    """A new plan version must not reuse a report computed against the old one."""
+def test_cache_scope_carries_the_working_plan_identity_and_revision() -> None:
+    """A new plan version or a new work-code generation must not reuse a report."""
     asset = uuid4()
-    stamp = datetime(2026, 11, 26, 10, 0, tzinfo=UTC)
-    first = _working_plan_import_scope(asset, [asset], stamp)
-    second = _working_plan_import_scope(uuid4(), [asset], stamp)
-    same = _working_plan_import_scope(asset, [asset], stamp)
-    assert first.startswith(f"plan={asset}|")
+    first = _working_plan_import_scope(asset, 3, [asset])
+    second = _working_plan_import_scope(uuid4(), 3, [asset])
+    newer = _working_plan_import_scope(asset, 4, [asset])
+    same = _working_plan_import_scope(asset, 3, [asset])
+    assert first.startswith(f"plan={asset}|rev=3|")
     assert first == same
     assert first != second
-    assert _working_plan_import_scope(None, [asset], stamp).startswith("plan=none|")
+    assert first != newer
+    assert _working_plan_import_scope(None, 0, [asset]).startswith("plan=none|rev=0|")
 
 
 async def test_archived_only_code_is_new_for_the_working_plan(

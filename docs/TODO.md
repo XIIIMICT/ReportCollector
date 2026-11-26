@@ -1,6 +1,6 @@
 # ReportCollector — remaining engineering work
 
-Updated 2026-10-30. Single backlog replacing the backend/frontend audits and
+Updated 2026-11-26. Single backlog replacing the backend/frontend audits and
 SCALING_BACKLOG. Completed implementation history remains in Git. This list is
 not a production-readiness sign-off; checked code and deployment acceptance are
 different milestones. Do not reopen the explicit product deferrals below.
@@ -63,11 +63,14 @@ different milestones. Do not reopen the explicit product deferrals below.
   are capped at 1000 per category with exact totals (`docs/LIMITS.md`). Validate
   missing catalog definitions explicitly; row/column caps are intentionally not
   introduced (streaming parsers, no evidence for a business maximum).
-- [ ] Finish preflight cache invalidation for row deletion (deleting a row that
-  is not the newest leaves the max-`updated_at` plan token unchanged), then
-  measure lookup/cache latency. Catalog and asset changes are now covered by
-  their own `count(*) + max(updated_at)` tokens; the plan part is still a max
-  over the touched assets and cannot represent every dependency.
+- [x] Finish preflight cache invalidation for row deletion — DONE (2026-11-26).
+  The plan part of the scope is `plan=<id>|rev=<r_plans.revision>`;
+  migration 0043 bumps that counter with DB triggers on every work-code-changing
+  insert/update/delete (including imports, undo/redo and recompute), so deleting
+  a non-latest row re-keys the report. `INSPECT_CACHE_VERSION` moved `7` → `8`.
+  Catalog and asset changes keep their own `count(*) + max(updated_at)` tokens.
+  Migration 0043 is AUTHORED ONLY (rollout follows the blocked 0042 gate, see
+  `docs/DATA-JOBS.md`); measure lookup/cache latency after deployment.
 - [ ] Measure long transaction/project-gate/row-lock contention on a big import.
   The recompute is now narrowed to the rows the load wrote (and only changed
   rows are updated), and the job reports `parse`/`write`/`recompute` progress;
@@ -282,8 +285,10 @@ of in a separate brief.
   production must use the organization's session limits. The contradictory
   «12 hours» comment in `.env.example` should be corrected without changing auth
   behavior; record the production decision with the owner.
-- [ ] **Renovation field type anomalies (owner decision)** — `col_083` («Ед. изм.»)
-  is typed numeric, `col_198` («Дата») is text, `col_199` («Номер») is date.
+- [ ] **Renovation field type anomalies (owner decision)** — the semantic
+  columns from migration 0041 `adjustment_work_volume_unit` (was `col_083`,
+  «Ед. изм.») is typed numeric, `subcontract_contract_date` (was `col_198`,
+  «Дата») is text, `subcontract_contract_number` (was `col_199`, «Номер») is date.
   Migration 0041 preserved these types deliberately; ask before any type/data
   conversion and document how existing values would be interpreted.
 - [ ] **Export inline/background threshold (product decision)** — the switch uses

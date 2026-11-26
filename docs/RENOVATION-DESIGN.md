@@ -48,9 +48,15 @@ tests monkeypatch are re-exported from `router.py` for back-compat, and the
 three import tests now target `router_import`.
 
 `router_import` resolves the working plan before validating an upload: existing
-work codes are read with `plan_id = :working` and the plan id prefixes the
-preflight cache scope, so archived versions cannot turn a new code into an
-update. `import_apply` enforces the same rule independently in the worker's
+work codes are read with `plan_id = :working`, and the cache scope carries that
+plan id plus `r_plans.revision`. Migration 0043 maintains the revision
+with statement-level triggers on `r_plan_rows`, so every insert/delete and every
+`work_or_repair_code` change (cell edit, undo/redo, import, recompute, script)
+invalidates the preflight atomically; an archived-only code is new in a newer
+version, while edits in an archived plan cannot invalidate the working one.
+The old `count(*) + max(updated_at)` token missed non-latest deletes; the cache
+version moved from `7` to `8` so entries using it are never served.
+`import_apply` enforces the same rule independently in the worker's
 transaction — workbook duplicates across batch boundaries and codes already
 duplicated in the target plan are refused, applies of one plan are serialized by
 a plan-scoped advisory lock, and the set-based `UPDATE ... FROM` writer stays.
@@ -94,9 +100,12 @@ catalog SELECT per cell; see the import/export section above.
 Page reads still issue ONE count query (filtered total, whole-plan total,
 position spread and the anchor offset) and keep exact totals: 89 ms at the head
 and 41 ms at a 150k offset on the live plan. No time-only count cache and no
-`data_revision` was introduced — both would need an inventory of every mutation
-path (imports, edits, Undo, recompute, lifecycle, scripts) and an owner-approved
-consistency design.
+read-path `data_revision` was introduced — both would need an inventory of every
+mutation path (imports, edits, Undo, recompute, lifecycle, scripts) and an
+owner-approved consistency design. The **preflight-only** generation added by
+0043 is a different, narrow token: it lives on the plan row and is maintained by
+DB triggers precisely so no mutation path has to be enumerated in application
+code; it keys the optional Valkey report cache, not grid reads.
 
 Sorted windows still use SQL `OFFSET` (the grid has infinite scroll plus a
 "go to №" jump, so a cursor would change the API/UI contract). Measured on the
