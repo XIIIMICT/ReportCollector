@@ -100,6 +100,14 @@ different milestones. Do not reopen the explicit product deferrals below.
   has no in-app callers; backend tests and unknown external clients keep small
   full reads. Tests in `tests/test_plan_read_compat.py`; contract in
   `docs/LIMITS.md`.
+- [x] **RC-4 — Decimal arithmetic in the renovation formula engine**
+  (2026-11-26). Numeric literals and inputs stay `Decimal` end-to-end; division
+  uses 28 significant digits, results are quantized to the declared precision
+  with `ROUND_HALF_UP`, negative zero is normalized and non-finite/overflow
+  errors are deterministic. All 133 form formulas compile and materialize;
+  tests in `tests/test_renovation_decimal_formulas.py`. The legacy `formula.rs`
+  is absent from the repo — the tie-rule evidence and decision are in
+  `docs/DATA-JOBS.md`, «Renovation formula arithmetic».
 - [ ] Complete atomic KPPK multi-cell batch writes/paste; a serialized frontend
   queue alone does not give an all-or-nothing backend transaction. Complete
   per-cell revision/read integration and multi-account proof of stale-edit,

@@ -3,6 +3,62 @@
 Import/preflight and export detail moved from `ARCHITECTURE.md` (Phase 8
 split). The API endpoints and environment remain in `ARCHITECTURE.md`.
 
+## Renovation formula arithmetic (RC-4)
+
+`back/src/renovation/calculations.py` keeps every numeric value as `Decimal`
+from literal/input parsing through intermediate expressions to materialization;
+dates stay `date` and a date difference is an integer-day count. Before RC-4 the
+port pushed each `Decimal` input and literal through `float`, so `0.1 + 0.2`
+became `0.30000000000000004`, and `round(value * 100) / 100` applied Python's
+ties-to-even rule to an already-binary value.
+
+**Reference evidence — authoritative engine missing.** The legacy
+`ReportCollector-Renovation/src-tauri/src/formula.rs` is not in this repository
+or the local workspace. What survives: the port note in
+`RENOVATION_MIGRATION_CONTEXT.md` (f64 literals limited to the finite range,
+integer-day date math, rounding to the declared DB precision) and the copied
+`renovation-form.json` (217 fields, **133 formulas**, money fields declaring
+`decimals = 2`). The committed `docs/samples/renovation_td_example.xlsb` is an
+import template: its numeric cells carry at most two decimal places and contain
+no cached midpoint or computed-formula value that could decide a tie. No stored
+production data is in the repo. The tie rule below is therefore a documented,
+conservative choice — not a recovered legacy constant.
+
+**Chosen policy, applied consistently:**
+
+- **Literals** are parsed with `Decimal(text)`. A magnitude above `1e308` keeps
+  the legacy f64 finite-literal compile error («числовой литерал должен быть
+  конечным»); exact exponent forms such as `1e-2` are accepted as written.
+- **Inputs**: `Decimal` and `int` are exact; a finite `float` is normalized via
+  its shortest round-tripping text and never used as an arithmetic operand;
+  `bool` is rejected. A non-finite input raises the Russian overflow error.
+- **Arithmetic** runs in a local context of 28 significant digits (headroom
+  over `NUMERIC(18,4)`) with `ROUND_HALF_UP` and traps for division by zero,
+  overflow and invalid operations. Division is therefore rounded at 28 digits:
+  `1/3` is `0.3333333333333333333333333333` and `1/3*3` is
+  `0.9999999999999999999999999999`, not `1`.
+- **Materialization** quantizes to the field's declared `decimals` with
+  `ROUND_HALF_UP`: `1.005 → 1.01`, `1.015 → 1.02`, `-1.005 → -1.01`, and
+  `0.5 → 1` at zero places. This is a deliberate compatibility correction:
+  Python `round()` is ties-to-even, while Rust `f64::round()` and Excel `ROUND`
+  are half-away-from-zero, and the repository's money convention already uses
+  `ROUND_HALF_UP` (`back/src/logistics/rates.py`). Business rule: round monetary
+  values to the declared database precision (migration context).
+- **Negative zero** is normalized to an unsigned `Decimal(0)` in every numeric
+  result, including intermediate expressions, so no `-0` reaches the grid.
+- **Non-finite/overflow** always surfaces as a `FormulaError` with the existing
+  Russian text «результат вычисления выходит за допустимый диапазон»; divide by
+  zero keeps «деление на ноль». An out-of-range integral date shift now raises
+  that `FormulaError` instead of a raw `OverflowError` (deliberate correction,
+  deterministic failure).
+- **Unchanged**: dependency order, missing number → `0`, missing date → field
+  skipped, lazy `IF`/`AND`, formula validation, and all other error texts.
+
+`back/tests/test_renovation_decimal_formulas.py` pins midpoint cases, binary-
+artifact add/multiply/divide chains, exact date shifts/differences, deterministic
+errors, and materializes all 133 form formulas including the financial total and
+monthly/quarterly roll-ups.
+
 ## Renovation plan import (technical directorate, `.xlsb` / `.xlsx`)
 
 `back/src/renovation/import_plan.py` validates an uploaded «РБ ПОФ» workbook

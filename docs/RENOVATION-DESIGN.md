@@ -37,6 +37,18 @@ checks stayed at the same call sites; the full backend suite (677 passed /
 similarly owns the generic durable-job limits and `ExportQueueFullError`,
 re-exported by `common/export_jobs.py`.
 
+### Formula engine arithmetic (RC-4)
+
+`recompute.py` materializes derived plan fields through `formula_engine()` on
+edits, imports, the backfill and the export's missing-value path. Numeric
+formulas now evaluate as `Decimal` end-to-end (28-digit division,
+`ROUND_HALF_UP` to the declared precision, normalized negative zero, bounded
+non-finite/overflow errors); date math stays integer days. Dependency order,
+missing-value semantics and error texts are unchanged. The missing legacy
+`formula.rs` evidence and the full rounding decision live in
+`docs/DATA-JOBS.md`, «Renovation formula arithmetic»; all 133 form formulas are
+exercised by `back/tests/test_renovation_decimal_formulas.py`.
+
 `router.py` (1935 -> 27 lines) is now just the aggregator: it creates one
 `APIRouter` and `include_router`s six sub-routers with the shared
 `/renovation` prefix — `router_import`, `router_plan`, `router_export`,
