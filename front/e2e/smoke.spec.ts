@@ -1,13 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-import { loginAsLocalUser } from "./helpers/auth";
+import { loginAsTestUser } from "./helpers/test-users";
 
 test("reduced-motion disables app-owned transitions", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await loginAsLocalUser(page, {
-        email: "evtushenko.sn@ruschem.ru",
-        password: "TestPassword123",
-    });
+    await loginAsTestUser(page, "admin");
     await page.goto("/");
     await expect(page.locator(".app-shell")).toBeVisible({ timeout: 30000 });
     const styles = await page.evaluate(() => {
@@ -21,10 +18,7 @@ test("reduced-motion disables app-owned transitions", async ({ page }) => {
 });
 
 test("renovation single-cell edit persists and Ctrl+A stays disabled", async ({ page }) => {
-    await loginAsLocalUser(page, {
-        email: "evtushenko.sn@ruschem.ru",
-        password: "TestPassword123",
-    });
+    await loginAsTestUser(page, "admin");
     await page.goto("/renovation");
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 30000 });
     // The first chunk arrives asynchronously: take the row once it is loaded.
@@ -119,10 +113,7 @@ test("renovation single-cell edit persists and Ctrl+A stays disabled", async ({ 
 });
 
 test("production forms load and a price edit survives reload", async ({ page }) => {
-    await loginAsLocalUser(page, {
-        email: "evtushenko.sn@ruschem.ru",
-        password: "TestPassword123",
-    });
+    await loginAsTestUser(page, "admin");
     await page.goto("/renovation");
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 30000 });
     await page.goto("/raw-materials");

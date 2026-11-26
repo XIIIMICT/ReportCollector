@@ -58,5 +58,15 @@ live in `back/AGENTS.md`; contracts in `docs/API.md`, `docs/COLLAB.md`,
   request; UTF-8/no BOM/LF.
 - `just dev` syncs a running stack via compose `--watch` — never `docker cp`.
 - e2e needs a running prepared stack, `KEYCLOAK_ENABLED=false`, workers=1.
+- **E2e identities and fixtures:** smoke specs resolve all credentials through
+  `e2e/helpers/test-users.ts` — reserved `user1@test.local` … `user4@test.local`
+  and the shared `E2E_TEST_PASSWORD` env var (placeholder in root
+  `.env.example`). No corporate emails or password literals in specs. Playwright
+  does not read `.env` files: export the env var in the shell. The isolated seed
+  creates those users and the deterministic archive/work-code fixtures only with
+  `RC_SEED_E2E_FIXTURES=1` (never on prod or with Keycloak enabled).
+- From `front/`, `bunx --no-install playwright test --project=smoke --list`
+  discovers the smoke suite without a running stack; CI logs it and fails if a
+  required spec disappears. It is not a substitute for running the suite.
 - **Docstrings:** D100–D107 are ignored in `back/pyproject.toml`; write one only
   for a non-obvious contract, never to satisfy a linter.

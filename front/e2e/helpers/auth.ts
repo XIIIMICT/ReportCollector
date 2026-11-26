@@ -12,6 +12,11 @@ const LOCAL_APP_ORIGIN = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5000";
  */
 export async function loginAsLocalUser(page: Page, options: { email: string; password: string }) {
     const { email, password } = options;
+    if (!email || !password) {
+        throw new Error(
+            "loginAsLocalUser needs both email and password (see helpers/test-users.ts).",
+        );
+    }
 
     await page.goto(`${LOCAL_APP_ORIGIN}/api/auth/login`);
     await page.locator('input[name="email"]').fill(email);

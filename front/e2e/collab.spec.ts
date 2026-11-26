@@ -1,22 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { loginAsLocalUser } from "./helpers/auth";
+import { loginAsTestUser, type TestUserId } from "./helpers/test-users";
 
 const APP_ORIGIN = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5000";
 
-async function loginAs(page: Page, username: string, _password: string) {
+async function loginAs(page: Page, user: TestUserId) {
     // Deep-link into the raw-materials project: the scenario is about the
-    // asset-scoped presence on its «Движение» form. The Keycloak callback
-    // lands on the preferred project, so navigate again after the login.
-    const emails: Record<string, string> = {
-        evtushenko: "evtushenko.sn@ruschem.ru",
-        smirnov: "smirnov.iv@ruschem.ru",
-        petrov: "petrov.da@ruschem.ru",
-        lebedeva: "lebedeva.ol@ruschem.ru",
-    };
-    const email = emails[username];
-    if (!email) throw new Error(`Unknown username: ${username}`);
-    await loginAsLocalUser(page, { email, password: "TestPassword123" });
+    // asset-scoped presence on its «Движение» form. The login lands on the
+    // preferred project, so navigate again afterwards.
+    await loginAsTestUser(page, user);
     await page.goto(APP_ORIGIN + "/raw-materials", { waitUntil: "domcontentloaded" });
     await expect(page.locator("revogr-data .rgCell").first()).toBeVisible({ timeout: 30000 });
 }
@@ -87,9 +79,9 @@ test.describe("collab: совместное редактирование", () =>
         const pageA = await ctxA.newPage();
         const pageB = await ctxB.newPage();
         const pageC = await ctxC.newPage();
-        await loginAs(pageA, "lebedeva", "lebedeva");
-        await loginAs(pageB, "smirnov", "smirnov");
-        await loginAs(pageC, "evtushenko", "TestPassword123");
+        await loginAs(pageA, "assetWorkerVos");
+        await loginAs(pageB, "assetWorkerSnhz");
+        await loginAs(pageC, "admin");
 
         // Assert the actual presence list, independent of tooltip hover timing.
         const presenceA = pageA.locator(".form-status__presence");
@@ -117,8 +109,8 @@ test.describe("collab: совместное редактирование", () =>
         const ctxB = await browser.newContext();
         const pageA = await ctxA.newPage();
         const pageB = await ctxB.newPage();
-        await loginAs(pageA, "smirnov", "smirnov");
-        await loginAs(pageB, "petrov", "petrov");
+        await loginAs(pageA, "assetWorkerSnhz");
+        await loginAs(pageB, "assetWorkerBoth");
 
         // Оба пользователя видят одну и ту же ячейку «План, т» (Потребность)
         // первого сырья (Алкилат/СНХЗ — доступен обоим).
@@ -186,8 +178,8 @@ test.describe("collab: совместное редактирование", () =>
         const ctxB = await browser.newContext();
         const pageA = await ctxA.newPage();
         const pageB = await ctxB.newPage();
-        await loginAs(pageA, "smirnov", "smirnov");
-        await loginAs(pageB, "smirnov", "smirnov");
+        await loginAs(pageA, "assetWorkerSnhz");
+        await loginAs(pageB, "assetWorkerSnhz");
 
         await expect(pageA.locator(".form-status__dot--online")).toBeVisible();
         await expect(pageB.locator(".form-status__dot--online")).toBeVisible();

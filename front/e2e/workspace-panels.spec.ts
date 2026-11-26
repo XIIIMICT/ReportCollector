@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-import { loginAsLocalUser } from "./helpers/auth";
+import { loginAsTestUser } from "./helpers/test-users";
 
 test.beforeEach(async ({ page }, info) => {
     await page.setViewportSize({ width: 1600, height: 1000 });
@@ -15,10 +15,7 @@ test.beforeEach(async ({ page }, info) => {
         await page.locator('input[type="submit"], button[type="submit"]').click();
         await expect(page).toHaveURL(/:5000\/(?:renovation|raw-materials|kppk)?$/);
     } else {
-        await loginAsLocalUser(page, {
-            email: "evtushenko.sn@ruschem.ru",
-            password: "TestPassword123",
-        });
+        await loginAsTestUser(page, "admin");
     }
 });
 
@@ -120,11 +117,8 @@ test("plan code filter lists groups first, searches all code pages and restores 
     );
     expect(firstPage.ok()).toBe(true);
     const facets = await firstPage.json();
-    // Demo plan rows carry no work codes; the filter still needs a stand that
-    // was imported from a real plan, so there is nothing to page through here.
-    if (facets.total === 0) {
-        test.skip(true, "the seeded plan has no work codes");
-    }
+    // The isolated seed gives the demo plan deterministic unique work codes,
+    // so the facet always has at least one page to walk through here.
     expect(facets.total).toBeGreaterThan(0);
     const lastPage = await page.request.post(
         `/api/renovation/plan/facets/query?column=work_or_repair_code&limit=1&offset=${facets.total - 1}`,
@@ -444,16 +438,9 @@ test("toolbar follows visible controls and header funnel stays open at the botto
     const toolbar = page.locator(".workspace-card .table-toolbar");
     const archive = toolbar.locator(".archive-autocomplete");
     await expect(archive).toHaveClass(/--hidden|--visible/);
-    // The version picker only exists once the stand has an archived version;
-    // a freshly seeded database has none. `classList` needs the FULL token —
-    // checking for "--hidden" never matched `archive-autocomplete--hidden`.
-    if (
-        await archive.evaluate((element) =>
-            element.classList.contains("archive-autocomplete--hidden"),
-        )
-    ) {
-        test.skip(true, "the stand has no archived versions");
-    }
+    // The isolated seed provisions a movement snapshot, so the version picker
+    // is always available. `classList` needs the FULL token — checking for
+    // "--hidden" never matched `archive-autocomplete--hidden`.
     await expect(archive).not.toHaveClass(/--hidden/);
     const tall = await height(toolbar);
     await page.getByRole("tab", { name: "Цены", exact: true }).click();

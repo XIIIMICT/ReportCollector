@@ -164,6 +164,24 @@ jobs:
         with:
           node-version: "26"
       - run: bun install --frozen-lockfile
+      - name: Discover smoke e2e specs
+        # The smoke project's testMatch is the source of truth. Fail if a
+        # required spec disappears; never assert an exact test count and never
+        # involve the Keycloak project (which CI does not prepare).
+        run: |
+          bunx --no-install playwright test --project=smoke --list | tee smoke-discovery.txt
+          for spec in auth clipboard collab fix-month health hover-dropdown raw-materials-ui renovation-hover smoke workspace-panels; do
+            grep -Fq "$spec.spec.ts" smoke-discovery.txt || {
+              echo "::error::required smoke spec $spec.spec.ts is absent from the Playwright discovery list"
+              exit 1
+            }
+          done
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: smoke-discovery
+          path: front/smoke-discovery.txt
+          retention-days: 7
       - run: bunx --no-install next typegen
       - run: bun run typecheck
       - run: bun run lint:check
@@ -207,6 +225,9 @@ jobs:
     timeout-minutes: 25
     env:
       E2E_BASE_URL: http://127.0.0.1:15000
+      # Isolated-stand-only credential, per run. Shared by the seed step and
+      # the browser smoke step; never a production secret.
+      E2E_TEST_PASSWORD: ${{ format('e2e-{0}', github.run_id) }}
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -263,7 +284,13 @@ jobs:
           # the same fixture `just seed-dev-dict` uses for a developer's DB.
           uv run --directory back --no-sync python -m src.scripts.seed_dev_dict --yes
           uv run --directory back --no-sync python -m migrations.upgrade
-          docker compose -f infra/compose.ci.yaml run --rm --no-deps back python -m src.scripts.seed_database --data-only
+          # Opt in to the reserved .test users and the deterministic archive /
+          # work-code fixtures. The flag is never set in production; the
+          # password is passed from this job's env, not stored in the repo.
+          docker compose -f infra/compose.ci.yaml run --rm --no-deps \
+            -e RC_SEED_E2E_FIXTURES=1 \
+            -e E2E_TEST_PASSWORD="$E2E_TEST_PASSWORD" \
+            back python -m src.scripts.seed_database --data-only
           # The КППК merge/export spec needs a non-empty realization grid,
           # which comes from the period rows; the base seed owns only «Сырьё»
           # and the renovation plan. On a clean database the script creates the
