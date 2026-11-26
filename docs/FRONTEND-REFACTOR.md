@@ -207,6 +207,18 @@ explicit — similar-looking undo/remote-cell/clipboard paths have different
 semantics, and wrapping two-line idioms in hooks would add indirection without
 removing logic. 12 new deterministic tests (534 unit tests total).
 
+## Stage B — shared clipboard I/O (2026-11-26)
+
+The four repeated `navigator.clipboard` write/read + textarea/`execCommand`
+fallback blocks in `data-grid.tsx` (copy, cut, paste-read) and
+`renovation-grid.tsx` (copy, paste-read) now call the existing
+`grid-clipboard.ts` helpers. Cut still aborts before clearing source cells when
+both write paths fail; the fallback textarea is removed in `finally` so a
+throwing `execCommand` cannot leak it. Empty clipboard reads normalize to the
+same `null` sentinel as failed reads. Row-source mapping, sparse-row checks,
+paste parsing, selection restore, RevoGrid payloads and all memo dependencies
+remain local and unchanged; 8 new unit tests (542 total).
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,

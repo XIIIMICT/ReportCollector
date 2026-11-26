@@ -78,7 +78,13 @@ import {
 } from "./grid-config";
 import { extractEdits, parseNumericText } from "./grid-edit";
 import { MultiAssetEditor, ReferenceEditor, SelectEditor } from "./grid-editors";
-import { parsePastedText, pasteTargetRange, serializeCellValue } from "./index";
+import {
+    copyToClipboard,
+    parsePastedText,
+    pasteTargetRange,
+    readFromClipboard,
+    serializeCellValue,
+} from "./index";
 import { readScrollPosition, scrollScopeKey, writeScrollPosition } from "./scroll-position";
 import { isChunkedSection } from "./section-policy";
 import { describeSelection } from "./selection-label";
@@ -3176,22 +3182,7 @@ function DataGridInner(
     const copySelection = useCallback(async () => {
         const text = await buildCopyText(selectionRangeRef.current);
         if (text === null) return;
-        try {
-            await navigator.clipboard.writeText(text);
-        } catch {
-            try {
-                const textarea = document.createElement("textarea");
-                textarea.value = text;
-                textarea.style.position = "fixed";
-                textarea.style.opacity = "0";
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand("copy");
-                textarea.remove();
-            } catch {
-                // clipboard may be unavailable, ignore
-            }
-        }
+        await copyToClipboard(text);
     }, [buildCopyText]);
 
     const cutSelection = useCallback(async () => {
@@ -3201,23 +3192,8 @@ function DataGridInner(
         if (!range) return;
         const text = await buildCopyText(range);
         if (text === null) return;
-        try {
-            await navigator.clipboard.writeText(text);
-        } catch {
-            try {
-                const textarea = document.createElement("textarea");
-                textarea.value = text;
-                textarea.style.position = "fixed";
-                textarea.style.opacity = "0";
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand("copy");
-                textarea.remove();
-            } catch {
-                // buffer unavailable — don't clear the source
-                return;
-            }
-        }
+        // A failed write aborts the cut: source cells stay as they were.
+        if (!(await copyToClipboard(text))) return;
         // Models come from the current visible source: under sorting/filtering
         // the displayed row index doesn't match the original rows index.
         const visible = await getVisibleRows();
@@ -3266,11 +3242,7 @@ function DataGridInner(
             const grid = gridRef.current;
             if (!grid) return;
             if (text == null) {
-                try {
-                    text = await navigator.clipboard.readText();
-                } catch {
-                    return;
-                }
+                text = (await readFromClipboard()) ?? undefined;
             }
             if (!text) return;
             // Excel leaves a trailing line break (and trailing tabs) in the

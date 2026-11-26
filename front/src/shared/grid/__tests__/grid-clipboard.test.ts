@@ -1,6 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { parsePastedText, pasteTargetRange } from "@/shared/grid/grid-clipboard";
+import {
+    copyToClipboard,
+    parsePastedText,
+    pasteTargetRange,
+    readFromClipboard,
+} from "@/shared/grid/grid-clipboard";
 import type { ColumnDescriptor, GridRow } from "@/shared/grid/grid-config";
 import { extractEdits } from "@/shared/grid/grid-edit";
 
@@ -317,5 +322,131 @@ describe("pasteTargetRange (выделение после вставки)", () =
         const selection = { x: 1, y: 1, x1: 2, y1: 2 };
         const result = pasteTargetRange(selection, { height: 1, width: 1 }, bounds);
         expect(result).toEqual({ range: selection, truncated: false });
+    });
+});
+
+type ClipboardStub = {
+    writeText?: (text: string) => Promise<void>;
+    readText?: () => Promise<string>;
+};
+
+// test-setup.ts installs happy-dom's navigator/document; own-property stubs
+// shadow its clipboard and execCommand and are removed again after each test.
+const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+const execCommandDescriptor = Object.getOwnPropertyDescriptor(document, "execCommand");
+
+function installClipboard(stub: ClipboardStub | undefined): void {
+    Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        writable: true,
+        value: stub,
+    });
+}
+
+function installExecCommand(impl: (command: string) => boolean): void {
+    Object.defineProperty(document, "execCommand", {
+        configurable: true,
+        writable: true,
+        value: impl,
+    });
+}
+
+function restoreGlobal(
+    target: object,
+    key: string,
+    descriptor: PropertyDescriptor | undefined,
+): void {
+    if (descriptor) Object.defineProperty(target, key, descriptor);
+    else Reflect.deleteProperty(target, key);
+}
+
+afterEach(() => {
+    restoreGlobal(navigator, "clipboard", clipboardDescriptor);
+    restoreGlobal(document, "execCommand", execCommandDescriptor);
+    document.body.innerHTML = "";
+});
+
+describe("copyToClipboard", () => {
+    test("primary clipboard write succeeds without a fallback textarea", async () => {
+        const writeText = mock((_text: string) => Promise.resolve());
+        const execCommand = mock((_command: string) => true);
+        installClipboard({ writeText });
+        installExecCommand(execCommand);
+
+        expect(await copyToClipboard("1\t2\n3\t4")).toBe(true);
+        expect(writeText).toHaveBeenCalledTimes(1);
+        expect(writeText).toHaveBeenCalledWith("1\t2\n3\t4");
+        expect(execCommand).not.toHaveBeenCalled();
+        expect(document.querySelectorAll("textarea")).toHaveLength(0);
+    });
+
+    test("primary write fails, fallback succeeds and removes the textarea", async () => {
+        const writeText = mock((_text: string) => Promise.reject(new Error("denied")));
+        let fallback: { value: string; position: string; opacity: string } | undefined;
+        const execCommand = mock((command: string) => {
+            const textarea = document.querySelector("textarea") as HTMLTextAreaElement | null;
+            fallback = {
+                value: textarea?.value ?? "",
+                position: textarea?.style.position ?? "",
+                opacity: textarea?.style.opacity ?? "",
+            };
+            return command === "copy";
+        });
+        installClipboard({ writeText });
+        installExecCommand(execCommand);
+
+        expect(await copyToClipboard("fallback text")).toBe(true);
+        expect(execCommand).toHaveBeenCalledWith("copy");
+        expect(fallback).toEqual({ value: "fallback text", position: "fixed", opacity: "0" });
+        expect(document.querySelectorAll("textarea")).toHaveLength(0);
+    });
+
+    test("both writes fail → false and no leftover textarea", async () => {
+        const writeText = mock((_text: string) => Promise.reject(new Error("denied")));
+        const execCommand = mock((_command: string) => {
+            throw new Error("execCommand unavailable");
+        });
+        installClipboard({ writeText });
+        installExecCommand(execCommand);
+
+        expect(await copyToClipboard("x")).toBe(false);
+        expect(document.querySelectorAll("textarea")).toHaveLength(0);
+    });
+
+    test("a thrown execCommand is cleaned up in finally", async () => {
+        const writeText = mock((_text: string) => Promise.reject(new Error("denied")));
+        let presentDuringAttempt = false;
+        installClipboard({ writeText });
+        installExecCommand(() => {
+            presentDuringAttempt = document.querySelectorAll("textarea").length === 1;
+            throw new Error("execCommand exploded");
+        });
+
+        expect(await copyToClipboard("hidden")).toBe(false);
+        expect(presentDuringAttempt).toBe(true);
+        expect(document.querySelectorAll("textarea")).toHaveLength(0);
+        expect(document.body.innerHTML).not.toContain("textarea");
+    });
+});
+
+describe("readFromClipboard", () => {
+    test("successful read returns the text", async () => {
+        installClipboard({ readText: () => Promise.resolve("a\tb") });
+        expect(await readFromClipboard()).toBe("a\tb");
+    });
+
+    test("failed read → null", async () => {
+        installClipboard({ readText: () => Promise.reject(new Error("permission denied")) });
+        expect(await readFromClipboard()).toBeNull();
+    });
+
+    test("missing clipboard API → null", async () => {
+        installClipboard(undefined);
+        expect(await readFromClipboard()).toBeNull();
+    });
+
+    test("empty read → null", async () => {
+        installClipboard({ readText: () => Promise.resolve("") });
+        expect(await readFromClipboard()).toBeNull();
     });
 });

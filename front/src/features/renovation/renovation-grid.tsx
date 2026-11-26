@@ -88,7 +88,13 @@ import type {
     RenovationHeaderCell,
 } from "@/shared/api/renovation";
 import type { RenovationSortColumn } from "@/shared/api/renovation";
-import { parsePastedText, pasteTargetRange, serializeCellValue } from "@/shared/grid";
+import {
+    copyToClipboard,
+    parsePastedText,
+    pasteTargetRange,
+    readFromClipboard,
+    serializeCellValue,
+} from "@/shared/grid";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/data-grid";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import {
@@ -2508,22 +2514,7 @@ function RenovationGridInner(
         void (async () => {
             const text = await buildCopyText();
             if (text == null || text === "") return;
-            try {
-                await navigator.clipboard.writeText(text);
-            } catch {
-                try {
-                    const textarea = document.createElement("textarea");
-                    textarea.value = text;
-                    textarea.style.position = "fixed";
-                    textarea.style.opacity = "0";
-                    document.body.appendChild(textarea);
-                    textarea.select();
-                    document.execCommand("copy");
-                    textarea.remove();
-                } catch {
-                    // Clipboard unavailable — nothing to do.
-                }
-            }
+            await copyToClipboard(text);
         })();
     }, [buildCopyText]);
 
@@ -2532,11 +2523,7 @@ function RenovationGridInner(
             const grid = gridRef.current;
             if (!grid) return;
             if (text == null) {
-                try {
-                    text = await navigator.clipboard.readText();
-                } catch {
-                    return;
-                }
+                text = (await readFromClipboard()) ?? undefined;
             }
             if (!text) return;
             // Excel leaves a trailing line break (and trailing tabs) in the
