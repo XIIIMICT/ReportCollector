@@ -7,8 +7,9 @@ session. ``service.py`` re-exports ``recompute_plan_rows`` for its historical
 importers (import_apply, seed, maintenance script, tests).
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncGenerator, AsyncIterable, Callable, Iterable, Sequence
 from dataclasses import dataclass
+from itertools import islice
 from uuid import UUID
 
 from sqlalchemy import bindparam
@@ -118,7 +119,8 @@ async def recompute_plan_rows(
     session: AsyncSession,
     *,
     plan_id: UUID | None = None,
-    row_ids: Sequence[UUID] | None = None,
+    row_ids: Iterable[UUID] | None = None,
+    id_batches: AsyncIterable[Sequence[UUID]] | None = None,
     batch_size: int = 1000,
     progress: Callable[[int], None] | None = None,
 ) -> RenovationRecomputeResult:
@@ -133,7 +135,9 @@ async def recompute_plan_rows(
     `row_ids` narrows the sweep to the rows an import just wrote (~20k instead of
     the whole ~306k-row plan); `None` keeps the full backfill used by
     `just recompute-renovation-plan`. `progress` receives the number of rows
-    scanned so far, after every batch.
+    scanned so far, after every batch. An async `id_batches` iterator is the
+    set-based alternative used by the importer: ids come from a transaction-local
+    staging table in bounded pages, so neither side materializes an O(rows) list.
 
     Rows stream by primary key (bounded memory) and only rows whose derived
     values actually changed are written, in one batched `UPDATE` per batch (a
@@ -186,29 +190,45 @@ async def recompute_plan_rows(
         if progress is not None:
             progress(scanned)
 
-    if row_ids is not None:
-        # Deduplicate while keeping the caller's order; an import may name the
-        # same row twice only through a duplicate work code, which the preflight
-        # already refuses — the guard costs nothing.
-        pending = list(dict.fromkeys(row_ids))
-        for start in range(0, len(pending), batch_size):
-            chunk = pending[start : start + batch_size]
+    async def run_batches(chunks: AsyncIterable[Sequence[UUID]]) -> RenovationRecomputeResult:
+        async for chunk in chunks:
+            # Dedupe within a bounded chunk only: there is no global O(rows) set.
+            ids = list(dict.fromkeys(chunk))
+            if not ids:
+                continue
             query = select(RenovationPlanRow).where(
                 col(RenovationPlanRow.plan_id) == plan_id,
-                col(RenovationPlanRow.id).in_(chunk),
+                col(RenovationPlanRow.id).in_(ids),
             )
             rows = list((await session.exec(query.order_by(col(RenovationPlanRow.id)))).all())
             await write_batch(rows)
         return RenovationRecomputeResult(plan_id=plan_id, scanned=scanned, changed=changed)
 
-    last_id: UUID | None = None
-    while True:
-        query = select(RenovationPlanRow).where(col(RenovationPlanRow.plan_id) == plan_id)
-        if last_id is not None:
-            query = query.where(col(RenovationPlanRow.id) > last_id)
-        rows = list((await session.exec(query.order_by(col(RenovationPlanRow.id)).limit(batch_size))).all())
-        if not rows:
-            break
-        await write_batch(rows)
-        last_id = rows[-1].id
-    return RenovationRecomputeResult(plan_id=plan_id, scanned=scanned, changed=changed)
+    if id_batches is not None:
+        return await run_batches(id_batches)
+
+    if row_ids is not None:
+        source = iter(row_ids)
+
+        async def bounded_chunks() -> AsyncGenerator[list[UUID]]:
+            while True:
+                chunk = list(islice(source, batch_size))
+                if not chunk:
+                    return
+                yield chunk
+
+        return await run_batches(bounded_chunks())
+
+    async def all_rows() -> AsyncGenerator[list[UUID]]:
+        last_id: UUID | None = None
+        while True:
+            query = select(RenovationPlanRow.id).where(col(RenovationPlanRow.plan_id) == plan_id)
+            if last_id is not None:
+                query = query.where(col(RenovationPlanRow.id) > last_id)
+            ids = list((await session.exec(query.order_by(col(RenovationPlanRow.id)).limit(batch_size))).all())
+            if not ids:
+                return
+            yield ids
+            last_id = ids[-1]
+
+    return await run_batches(all_rows())

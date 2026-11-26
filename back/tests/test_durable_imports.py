@@ -398,3 +398,67 @@ async def test_actual_subprocess_refuses_bad_file_without_writing(setup_import, 
     assert "справочнике" in result.error
     assert await imported_count(repository) == 0
     assert not input_path(job.input_key).exists()
+
+
+async def test_slow_parser_holds_no_db_session_or_project_gate(setup_import, monkeypatch) -> None:
+    """Parsing happens in a spool before a session, transaction or gate exists."""
+    import threading
+
+    from src.renovation import import_apply, import_jobs
+
+    repository, owner, directory = setup_import
+    accepted = manager(repository)
+    await accept(accepted, owner, directory)
+    claimed = await repository.claim(accepted.kind)
+    assert claimed is not None
+    job = accepted.job_from_record(claimed)
+    entered, release = threading.Event(), threading.Event()
+
+    def slow_parser(*_args: object) -> object:
+        entered.set()
+        assert release.wait(10), "test did not release the parser"
+        yield [ParsedPlanRow(code="SLOW_PARSE", asset_key="BSZR", values={"workshop_name": "ok"})]
+
+    monkeypatch.setattr(import_apply, "iter_plan_row_batches", slow_parser)
+    real_factory = import_jobs.async_session_factory
+    opened: list[int] = []
+
+    def counting_factory() -> object:
+        opened.append(1)
+        return real_factory()
+
+    monkeypatch.setattr(import_jobs, "async_session_factory", counting_factory)
+    work = asyncio.create_task(generate_plan_import(job, input_path(job.input_key)))
+    try:
+        assert await asyncio.to_thread(entered.wait, 10)
+        await asyncio.sleep(0.05)
+        assert opened == []
+    finally:
+        release.set()
+    await work
+    assert opened
+    assert (await manager(repository).get(job.id, owner)).status == "done"
+    async with repository.session_factory() as session:
+        stored = (
+            await session.exec(
+                select(col(RenovationPlanRow.id)).where(col(RenovationPlanRow.work_or_repair_code) == "SLOW_PARSE")
+            )
+        ).all()
+    assert len(stored) == 1
+
+
+async def test_finalization_failure_rolls_back_writes_and_success(setup_import, monkeypatch) -> None:
+    """A failed lease-fenced completion must not publish a successful job."""
+    repository, owner, directory = setup_import
+    worker = manager(repository)
+    job = await accept(worker, owner, directory)
+
+    async def refused_completion(*_args: object, **_kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(JobRepository, "complete_in_transaction", refused_completion)
+    await worker.execute(await repository.claim(worker.kind))
+    result = await worker.get(job.id, owner)
+    assert result.status != "done"
+    assert result.result is None
+    assert await imported_count(repository) == 0

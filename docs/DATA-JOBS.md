@@ -245,10 +245,13 @@ digest, plan id and internal input key. `GET /plan/import/jobs/{id}` polls the
 bounded result and `DELETE` cancels it. A supervisor claims the PostgreSQL
 lease and starts `src.scripts.import_worker` in a separate Python process, so
 XLSB/XLSX parsing and plan recomputation do not share the ASGI interpreter or its
-log handler. The child takes the **shared** project advisory gate, streams
-batches of 200 and commits the plan writes **and** the terminal job result in
-one transaction. A shared lock is compatible with other shared locks: this gate
-does NOT serialize the import against normal cell edits. Cancellation/lease loss
+log handler. Since RC-3 the child first parses and validates the whole workbook
+into a local temporary spool (`_ParsedRowSpool`) **before opening a DB session,
+a write transaction or the project gate**; only then does it take the **shared**
+project advisory gate, replay batches of 200 and commit the plan writes **and**
+the terminal job result in one transaction. A shared lock is compatible with
+other shared locks: this gate does NOT serialize the import against normal cell
+edits. Cancellation/lease loss
 therefore rolls the transaction back; a lost HTTP response cannot cause a
 second apply. The input is removed only after a terminal job state or TTL
 cleanup. Gate A's approved form-blocking policy handles the
@@ -258,6 +261,40 @@ polls it and blocks the form with a red chip, and `update_plan_cells` refuses
 writes with 409 while a job is active. A successful import clears the
 `renovationPlan/` undo stack in the same transaction: old cell actions would
 otherwise replay obsolete values over the imported rows.
+
+**Bounded work (RC-3).** The preflight counts every issue incrementally and
+retains at most `issue_limit` examples; whole-file duplicate detection spools
+`(code, row)` pairs into OS-backed sorted runs and k-way merges them, so a file
+of any size yields exact duplicate/new/update totals without an O(rows) Python
+collection. Apply replaces its `existing_codes` set, `seen_codes` dict and
+`affected: list[UUID]` with transaction-local temp tables
+(`plan_import_existing`, `plan_import_ambiguous`, `plan_import_seen`,
+`plan_import_written`, all `ON COMMIT DROP`, no migration): one batched
+`INSERT … ON CONFLICT … RETURNING` per 200 rows detects workbook duplicates
+across batches, and the set-based `UPDATE … FROM` is unchanged. Recompute reads
+only the written row ids from `plan_import_written` in 1000-row pages via
+`recompute_plan_rows(id_batches=…)`; the historical
+`recompute_plan_rows(row_ids=…)` contract (bounded chunks of an iterable)
+remains for other callers. Every issue list, duplicate example and ambiguous-
+code detail stays bounded and actionable; no arbitrary row/column cap was added
+to either reader.
+
+**Phase measurements.** `observe_phase` records wall time for `parse`,
+`staging`, `project_gate_wait`, `project_gate_hold`, `apply`, `write_batch`,
+`recompute`, `transaction_body`, `commit`, `rollback` and `finalization`; the
+project lock itself also records `database_lock/project_shared` wait. The
+reproducible harness `back/tests/benchmark_import_bounded_memory.py` generates
+a synthetic workbook/plan and reports wall time, rows/second, peak traced heap,
+peak process RSS, DB connection hold and lock wait/hold for `inspect`, direct
+`apply` and the full `worker` path. Before/after on 10 000 rows (worker path,
+one Windows dev machine, synthetic data): wall 63.1 → 65.0 s, DB connection
+hold 63.1 → 59.6 s, lock wait 0.004 → 0.007 s, peak traced heap 41.3 → 39.3 MB,
+peak RSS 184.8 → 181.0 MB. Inspect on 20 000 invalid rows: wall 8.1 → 10.7 s,
+peak traced heap 19.2 → 7.6 MB, peak RSS 151.8 → 129.1 MB. The disk-backed
+spool trades a little wall time for bounded RAM. **Limitations:** no production
+data, no multi-worker contention, no supervisor heartbeat/lease renewal, no
+real XLSB bytes in the direct-`apply` mode; these are not production numbers.
+The slow-parser test proves the session and gate are not acquired while parsing.
 
 **A completed import is history.** Admission deduplicates by
 `plan_id:digest`, but imports reuse only a `pending`/`running` job: a repeated

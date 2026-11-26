@@ -72,6 +72,15 @@ version moved from `7` to `8` so entries using it are never served.
 transaction — workbook duplicates across batch boundaries and codes already
 duplicated in the target plan are refused, applies of one plan are serialized by
 a plan-scoped advisory lock, and the set-based `UPDATE ... FROM` writer stays.
+RC-3 moved workbook parsing/spooling out of the write transaction: the worker
+parses into a temporary spool first, then mutates in one short transaction with
+the gate held only for apply. Existing codes, seen codes, ambiguous codes and
+written row ids are transaction-local temp tables instead of O(rows) Python
+collections; recompute pages over written ids in bounded batches. The preflight
+counts issues incrementally with bounded examples and detects whole-file
+duplicates through an OS-backed sorted spool (exact totals, no row caps). Phase
+timings use `observe_phase`; the synthetic harness and before/after numbers are
+in `docs/DATA-JOBS.md`.
 The intended DB constraint is `UNIQUE (plan_id, work_or_repair_code)` on the
 semantic 0041 column (`col_003` is gone); migration 0042 is authored but its
 rollout is BLOCKED pending the read-only audit and live-data cleanup described

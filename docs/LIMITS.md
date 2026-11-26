@@ -30,23 +30,29 @@ plan export is documented at ~3.3–3.5 GB against the 4 GiB ZIP ceiling
 
 No row/column/cell/sheet-count caps exist in either reader; `.xlsb` and `.xlsx`
 are streamed row by row (`back/src/renovation/import_plan.py:439-465`). Only the
-first sheet whose name starts with «РБ» is read (`:446,458`); other sheets are
-ignored, not capped. `docs/TODO.md` still lists "cap scanned rows and issue
-reports" as outstanding.
+first sheet whose name starts with «РБ» is read; other sheets are
+ignored, not capped. Since RC-3 the *diagnostics* are bounded too: every issue
+category is counted incrementally and keeps at most `issue_limit` examples, and
+whole-file duplicate detection uses an OS-backed sorted spool rather than an
+O(rows) Python list. No row/column/cell cap was introduced — the parser still
+streams everything.
 
 | Limit | Value | Notes | Class |
 |---|---|---|---|
 | Accepted containers | `.xlsb`, `.xlsx` | 422/JSON `invalid_format` | P |
 | Header search window | first 2 rows | template-shaped assumption | D |
-| Skipped rows | all-blank rows + one «№ п/п» counting row | no fixed cap | D |
-| Asset-less rows | skipped, listed in `skipped_rows`; whole file fails only if all skipped | P | `import_plan.py:604-611,728` |
+| Skipped rows | all-blank rows + one «№ п/п» counting row | exact count, bounded examples | D |
+| Asset-less rows | skipped, listed in `skipped_rows`; whole file fails only if all skipped | P | `import_plan.py` |
 | Parse / write batch | 200 rows (`_BATCH_SIZE`) | memory/throughput only | D (justified comment) |
+| Duplicate spool run | 20 000 `(code, row)` pairs | disk-backed sorted runs + k-way merge; exact duplicate/new/update totals, bounded examples | S (RC-3) |
 | Staging/target UPDATE | one set-based statement per file (Phase 5.1) | no per-row loop | S |
+| Apply code/index sets | transaction-local temp tables (`plan_import_existing`, `plan_import_ambiguous`, `plan_import_seen`, `plan_import_written`) | no O(rows) Python sets/lists; `ON COMMIT DROP`, no migration | S (RC-3) |
 | Export scan / table batches | 5000 / 5000 / 500 rows | memory/throughput only | D |
-| Recompute batch | 1000 rows | ~4 min full sweep (documented) | D |
-| Preflight cache TTL | 1 h report, 7 d scope | versioned key `7:<flag>` | S |
+| Recompute batch | 1000 rows | written ids streamed from `plan_import_written`; full sweep is the backfill | D |
+| Preflight cache TTL | 1 h report, 7 d scope | versioned key `8:<flag>` | S |
 | Submit issue list | `SUBMIT_ID_ISSUE_ROW_LIMIT = 10` | counts exact, list truncated with «и ещё N» | P (only deliberate issue truncation) |
-| Import issue lists | **1000 per category**, env-configurable (`RENOVATION_IMPORT_ISSUE_LIMIT`); exact totals in `issue_counts`, `truncated` flag and a UI banner «показаны первые 1000… всего N» | Implemented Phase 9; boundary tests below/above the cap | S (approved) |
+| Import issue lists | **1000 per category**, env-configurable (`RENOVATION_IMPORT_ISSUE_LIMIT`); exact totals in `issue_counts`, `truncated` flag and a UI banner «показаны первые 1000… всего N» | Phase 9; RC-3 makes collection bounded while counting (no collect-then-slice) | S (approved) |
+| Duplicate example rows | first 10 sheet rows per code, then «и ещё N» | keeps an actionable example bounded even when one code repeats thousands of times | S (RC-3) |
 | Error detail | `str(error)[:2000]` | user-facing truncation | P |
 
 ## API pagination, filtering, editing
@@ -139,6 +145,20 @@ unchanged. Neither restriction is a row-count cap.
 - Parser row/column/cell/sheet caps: **not introduced** — readers stream and no
   evidence supports a business maximum.
 - Infrastructure/proxy limits remain deferred and untouched.
+
+### RC-3 decision (2026-11-26)
+
+- No parser row/column/cell/sheet caps: the readers still stream. The resource
+  guard is on *retained* data: bounded issue examples with exact counters, a
+  disk-backed sorted duplicate spool and transaction-local code/id sets in
+  apply. A workbook of any size can be analysed without materializing an
+  O(rows) Python collection in the worker.
+- Apply parses (and validates) into a temporary spool BEFORE opening the DB
+  session, the write transaction or the project gate; the mutation itself is
+  still ONE transaction with the lease-fenced job result in the same commit.
+- Measurement: `back/tests/benchmark_import_bounded_memory.py` (synthetic
+  workbook/plan only). See `docs/DATA-JOBS.md` for the before/after numbers and
+  their limits. No production figures are claimed.
 
 ### RC-6 decision (2026-11-26)
 

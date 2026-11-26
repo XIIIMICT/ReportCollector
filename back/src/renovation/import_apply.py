@@ -2,7 +2,9 @@
 
 import asyncio
 import contextlib
-from collections.abc import AsyncGenerator, Callable, Generator, Sequence
+import pickle  # the spool is written and read by this process only
+import tempfile
+from collections.abc import AsyncGenerator, Callable, Generator, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import BinaryIO, cast
@@ -11,6 +13,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import Column, MetaData, Table, insert, text
 from sqlalchemy.dialects.postgresql import dialect as postgresql_dialect
 from sqlalchemy.schema import CreateTable
+from sqlalchemy.types import TypeEngine
 from sqlmodel import SQLModel, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -30,6 +33,7 @@ from src.renovation.service import recompute_plan_rows
 # Rows per INSERT/UPDATE batch: short statements (the row is ~216 columns wide)
 # without paying a round trip per row.
 _BATCH_SIZE = 200
+_RECOMPUTE_ID_BATCH = 1000
 _ERR_NO_WORKING_PLAN = ValueError("Нет рабочего плана для загрузки.")
 
 # Phase 5.1: existing rows are updated set-based from a session-local staging
@@ -61,28 +65,73 @@ _UPDATE_SQL = (
     + f" FROM {_STAGE_TABLE} AS s "
     + "WHERE t.plan_id = :plan_id AND t.work_or_repair_code = s.work_or_repair_code"
 )
-_STAGED_ID_SQL = (
-    f"SELECT t.id FROM {_PLAN_TABLE.name} AS t "  # noqa: S608  # same: only plan_id is bound
-    f"WHERE t.plan_id = :plan_id AND t.work_or_repair_code IN "
-    f"(SELECT work_or_repair_code FROM {_STAGE_TABLE})"
-)
-# The preflight is advisory. Apply re-checks uniqueness in its own transaction,
-# scoped to the target plan: rows whose code is already duplicated there are
-# ambiguous and must never be overwritten by a set-based UPDATE. The grouped
-# subquery is served by the (plan_id, work_or_repair_code) index.
-_AMBIGUOUS_SQL = (
-    f"SELECT t.id, t.work_or_repair_code, t.position FROM {_PLAN_TABLE.name} AS t "  # noqa: S608
-    f"WHERE t.plan_id = :plan_id AND t.work_or_repair_code IN ("
-    f"SELECT work_or_repair_code FROM {_PLAN_TABLE.name} "
-    "WHERE plan_id = :plan_id AND work_or_repair_code IS NOT NULL "
-    "GROUP BY work_or_repair_code HAVING count(*) > 1) "
-    "ORDER BY t.work_or_repair_code, t.position"
-)
 # Defence in depth: staging keeps one row per distinct code, so a duplicate that
 # slips past the parse loop fails at the database boundary too. Like the table
 # itself this index is transaction-local (ON COMMIT DROP), never a migration.
 _STAGE_UNIQUE_DDL = f"CREATE UNIQUE INDEX ux_{_STAGE_TABLE}_code ON {_STAGE_TABLE} (work_or_repair_code)"
 _ERROR_DETAIL_LIMIT = 10
+
+
+def _temp_table(name: str, *columns: tuple[str, TypeEngine], primary: str | None = None) -> tuple[Table, str]:
+    """Declare a transaction-local table from ORM column types (no migration)."""
+    table = Table(
+        name,
+        MetaData(),
+        *(Column(column_name, column_type, primary_key=column_name == primary) for column_name, column_type in columns),
+    )
+    ddl = (
+        str(CreateTable(table).compile(dialect=postgresql_dialect())).replace("CREATE TABLE", "CREATE TEMP TABLE", 1)
+        + " ON COMMIT DROP"
+    )
+    return table, ddl
+
+
+# Four tiny transaction-local sets replace O(rows) Python collections in apply:
+# plan codes, codes already duplicated in the plan, workbook codes seen so far
+# (with their first row) and the ids the recompute must visit.
+_code_type = _PLAN_TABLE.c.work_or_repair_code.type
+_id_type = _PLAN_TABLE.c.id.type
+_int_type = _PLAN_TABLE.c.position.type
+_existing_table, _EXISTING_DDL = _temp_table("plan_import_existing", ("code", _code_type), primary="code")
+_ambiguous_table, _AMBIGUOUS_DDL = _temp_table(
+    "plan_import_ambiguous", ("code", _code_type), ("occurrences", _int_type), primary="code"
+)
+_seen_table, _SEEN_DDL = _temp_table("plan_import_seen", ("code", _code_type), ("first_row", _int_type), primary="code")
+_written_table, _WRITTEN_DDL = _temp_table("plan_import_written", ("id", _id_type), primary="id")
+_TEMP_DDLS = (_STAGE_DDL, _STAGE_UNIQUE_DDL, _EXISTING_DDL, _AMBIGUOUS_DDL, _SEEN_DDL, _WRITTEN_DDL)
+
+_LOAD_EXISTING_SQL = (
+    f"INSERT INTO {_existing_table.name} (code) "  # noqa: S608  # identifiers come from ORM metadata
+    f"SELECT work_or_repair_code FROM {_PLAN_TABLE.name} "
+    "WHERE plan_id = :plan_id AND work_or_repair_code IS NOT NULL "
+    "ON CONFLICT (code) DO NOTHING"
+)
+_LOAD_AMBIGUOUS_SQL = (
+    f"INSERT INTO {_ambiguous_table.name} (code, occurrences) "  # noqa: S608
+    f"SELECT work_or_repair_code, count(*) FROM {_PLAN_TABLE.name} "
+    "WHERE plan_id = :plan_id AND work_or_repair_code IS NOT NULL "
+    "GROUP BY work_or_repair_code HAVING count(*) > 1"
+)
+# One statement per batch (not per row): `unnest` keeps the row order intact,
+# and RETURNING names exactly the codes that were not already seen.
+_SEEN_INSERT_SQL = (
+    f"INSERT INTO {_seen_table.name} (code, first_row) "  # noqa: S608
+    "SELECT value.code, value.first_row FROM "
+    "unnest(CAST(:codes AS text[]), CAST(:rows AS integer[])) AS value(code, first_row) "
+    "ON CONFLICT (code) DO NOTHING RETURNING code"
+)
+_WRITTEN_INSERT_SQL = f"INSERT INTO {_written_table.name} (id) VALUES (:id) ON CONFLICT (id) DO NOTHING"  # noqa: S608
+_WRITTEN_FROM_STAGE_SQL = (
+    f"INSERT INTO {_written_table.name} (id) "  # noqa: S608
+    f"SELECT t.id FROM {_PLAN_TABLE.name} AS t JOIN {_STAGE_TABLE} AS s "
+    "ON t.work_or_repair_code = s.work_or_repair_code "
+    "WHERE t.plan_id = :plan_id ON CONFLICT (id) DO NOTHING"
+)
+_AMBIGUOUS_ROWS_SQL = (
+    f"SELECT id, position FROM {_PLAN_TABLE.name} "  # noqa: S608
+    "WHERE plan_id = :plan_id AND work_or_repair_code = :code "
+    "ORDER BY position LIMIT :detail_limit"
+)
 
 
 @dataclass(slots=True)
@@ -95,13 +144,57 @@ class _PendingRow:
     position: int | None
 
 
-async def _ambiguous_codes(session: AsyncSession, plan_id: UUID) -> dict[str, list[tuple[UUID, int]]]:
-    """Codes already duplicated in the TARGET plan → their (row id, position)."""
-    result = await session.execute(text(_AMBIGUOUS_SQL), {"plan_id": plan_id})  # ty: ignore[deprecated]
-    grouped: dict[str, list[tuple[UUID, int]]] = {}
-    for row_id, code, position in result.all():
-        grouped.setdefault(code, []).append((row_id, position))
-    return grouped
+class _ParsedRowSpool:
+    """
+    Disk-backed spool of normalized rows, written before any DB session exists.
+
+    Parsing a large workbook is CPU/IO work; holding the project gate or a write
+    transaction for it keeps locks and pool connections busy for minutes. The
+    worker parses into this temporary file first, then replays bounded batches
+    inside one short transaction. The file is removed on close (including on
+    cancellation or failure).
+    """
+
+    def __init__(self) -> None:
+        # Kept open across calls; close() owns its lifetime.
+        self._file = tempfile.TemporaryFile(mode="w+b")  # noqa: SIM115
+        self.rows = 0
+
+    def write_batch(self, batch: Sequence[ParsedPlanRow]) -> None:
+        for row in batch:
+            pickle.dump((row.code, row.asset_key, row.asset_is_name, row.values), self._file)
+        self.rows += len(batch)
+
+    def iter_batches(self, batch_size: int = _BATCH_SIZE) -> Iterator[list[ParsedPlanRow]]:
+        self._file.seek(0)
+        batch: list[ParsedPlanRow] = []
+        while True:
+            try:
+                code, asset_key, asset_is_name, values = pickle.load(self._file)  # noqa: S301
+            except EOFError:
+                break
+            batch.append(ParsedPlanRow(code=code, asset_key=asset_key, values=values, asset_is_name=asset_is_name))
+            if len(batch) >= batch_size:
+                yield batch
+                batch = []
+        if batch:
+            yield batch
+
+    def close(self) -> None:
+        self._file.close()
+
+
+def spool_plan_rows(source: BinaryIO, suffix: str | None = None, batch_size: int = _BATCH_SIZE) -> _ParsedRowSpool:
+    """Parse the whole workbook into a temporary spool; no DB access involved."""
+    spool = _ParsedRowSpool()
+    try:
+        for batch in iter_plan_row_batches(source, batch_size, suffix):
+            spool.write_batch(batch)
+    except BaseException:
+        spool.close()
+        raise
+    else:
+        return spool
 
 
 def _duplicate_in_file_error(code: str, first_row: int, next_row: int) -> ImportValidationError:
@@ -112,12 +205,15 @@ def _duplicate_in_file_error(code: str, first_row: int, next_row: int) -> Import
     )
 
 
-def _ambiguous_existing_error(code: str, rows: list[tuple[UUID, int]]) -> ImportValidationError:
+def _ambiguous_existing_error(
+    code: str, rows: list[tuple[UUID, int]], occurrences: int | None = None
+) -> ImportValidationError:
     """Report a file code matching several working-plan rows and refuse the overwrite."""
+    total = len(rows) if occurrences is None else occurrences
     shown = ", ".join(f"id={row_id}, №{position}" for row_id, position in rows[:_ERROR_DETAIL_LIMIT])
-    extra = "" if len(rows) <= _ERROR_DETAIL_LIMIT else f" и ещё {len(rows) - _ERROR_DETAIL_LIMIT}"
+    extra = "" if total <= _ERROR_DETAIL_LIMIT else f" и ещё {total - _ERROR_DETAIL_LIMIT}"
     return ImportValidationError(
-        f"Код работы «{code}» встречается в {len(rows)} строках рабочего плана ({shown}{extra}). "
+        f"Код работы «{code}» встречается в {total} строках рабочего плана ({shown}{extra}). "
         "Загрузка отклонена: неоднозначный код нельзя обновлять. "
         "Удалите дубли в плане или исправьте код в файле. План не изменён."
     )
@@ -126,7 +222,7 @@ def _ambiguous_existing_error(code: str, rows: list[tuple[UUID, int]]) -> Import
 async def apply_plan_file(
     session: AsyncSession,
     *,
-    source: BinaryIO,
+    source: BinaryIO | _ParsedRowSpool,
     user_id: UUID | None,
     plan_id: UUID | None = None,
     streaming: bool = False,
@@ -137,14 +233,13 @@ async def apply_plan_file(
     """
     Load a validated technical-directorate file into the working plan.
 
-    The workbook is parsed in a worker thread (CPU-bound: tens of thousands of
-    rows × 216 columns), then written in short batches inside ONE transaction,
-    so the plan is never seen half-loaded. The shared project advisory gate is
-    compatible with other shared locks: it does NOT serialize this load against
-    normal cell edits (those use row locks/leases/revisions). Gate A's chosen
-    policy blocks the form while the import job runs; see docs/TODO.md.
-    Reference labels resolve to the form's catalog ids here; a label the catalog
-    does not know aborts the whole load (the preflight reports it first).
+    The workbook is parsed into a local spool BEFORE the project gate or any
+    write transaction is acquired (the durable worker does this even earlier,
+    before opening a session). The spool is replayed in bounded batches inside
+    ONE transaction, so the plan is never seen half-loaded. The shared project
+    advisory gate is compatible with other shared locks: it does NOT serialize
+    this load against normal cell edits (those use row locks/leases/revisions).
+    Gate A's chosen policy blocks the form while the import job runs.
 
     Rows are matched by the work code: a code already in the TARGET plan updates
     its single matching row, a new code appends a row to the end of the plan.
@@ -156,171 +251,246 @@ async def apply_plan_file(
     preflight's row count (the file is written, then those rows are recomputed).
     `expected_rows=0` means the client did not send a preflight count — the
     counters still advance, but the caller treats `total=0` as indeterminate.
-    `source_suffix` names the container when `source` is an already-open stream
-    (the durable job reads a path whose suffix may be `.xlsb` or `.xlsx`).
+    `source_suffix` names the container when `source` is an already-open stream;
+    a caller that already prepared a spool passes it as `source` instead.
     """
-    if streaming:
-        batches = _stream_parsed_batches(source, source_suffix)
+    spool: _ParsedRowSpool
+    if isinstance(source, _ParsedRowSpool):
+        spool = source
+    elif streaming:
+        with observe_phase("import", "parse"):
+            spool = await asyncio.to_thread(spool_plan_rows, source, source_suffix, _BATCH_SIZE)
     else:
-        parsed = await asyncio.to_thread(parse_plan_rows, source, source_suffix)
+        with observe_phase("import", "parse"):
+            parsed = await asyncio.to_thread(parse_plan_rows, source, source_suffix)
+            spool = _ParsedRowSpool()
+            for start in range(0, len(parsed), _BATCH_SIZE):
+                spool.write_batch(parsed[start : start + _BATCH_SIZE])
+    try:
+        batches = _stream_batches(spool.iter_batches())
+        with observe_phase("import", "project_gate_wait"):
+            await lock_project(session, RENOVATION_PROJECT_KEY)
+        with observe_phase("import", "project_gate_hold"):
+            plan_query = select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING)
+            if plan_id is not None:
+                plan_query = plan_query.where(col(RenovationPlan.id) == plan_id)
+            plan = (await session.exec(plan_query)).first()
+            if plan is None:
+                raise _ERR_NO_WORKING_PLAN
+            # The project gate is SHARED (it admits normal edits and several imports).
+            # A second, plan-scoped exclusive lock serializes applies of the same plan.
+            await lock_rows(session, [f"renovation_import_plan:{plan.id}"])
+            # Transaction-local sets: DROP IF EXISTS also handles nested test
+            # savepoints where COMMIT does not happen between two loads.
+            for table_name in (
+                _STAGE_TABLE,
+                _seen_table.name,
+                _written_table.name,
+                _existing_table.name,
+                _ambiguous_table.name,
+            ):
+                await session.execute(text(f"DROP TABLE IF EXISTS {table_name}"))  # ty: ignore[deprecated]
+            with observe_phase("import", "staging"):
+                for ddl in _TEMP_DDLS:
+                    await session.execute(text(ddl))  # ty: ignore[deprecated]
+                await session.execute(text(_LOAD_EXISTING_SQL), {"plan_id": plan.id})  # ty: ignore[deprecated]
+                await session.execute(text(_LOAD_AMBIGUOUS_SQL), {"plan_id": plan.id})  # ty: ignore[deprecated]
+                reference_ids = await _reference_ids(session)
+                assets = (await session.exec(select(RAsset))).all()
+                asset_ids = {asset.code.upper(): asset.id for asset in assets}
+                # A drop without «Наименование ДО» names the entity in «Предприятие»:
+                # the same dictionary, matched by name (case/quote/space-insensitive).
+                asset_ids_by_name = {_asset_name_key(asset.name): asset.id for asset in assets}
+            last_position = (
+                await session.exec(
+                    select(RenovationPlanRow.position)
+                    .where(col(RenovationPlanRow.plan_id) == plan.id)
+                    .order_by(col(RenovationPlanRow.position).desc())
+                    .limit(1)
+                )
+            ).first() or 0
 
-        async def one_batch() -> AsyncGenerator[list[ParsedPlanRow]]:
-            yield parsed
+            expected = max(expected_rows, 0)
+            total = expected * 2
+            processed = 0
 
-        batches = one_batch()
-    with observe_phase("import", "project_lock"):
-        await lock_project(session, RENOVATION_PROJECT_KEY)
-    plan_query = select(RenovationPlan).where(col(RenovationPlan.state) == RPlanState.WORKING)
-    if plan_id is not None:
-        plan_query = plan_query.where(col(RenovationPlan.id) == plan_id)
-    plan = (await session.exec(plan_query)).first()
-    if plan is None:
-        raise _ERR_NO_WORKING_PLAN
-    # The project gate is SHARED (it admits normal edits and several imports).
-    # A second, plan-scoped exclusive lock serializes applies of the same plan:
-    # otherwise two workers could both read the same code set and insert it
-    # twice before either commits. Released with the surrounding transaction.
-    await lock_rows(session, [f"renovation_import_plan:{plan.id}"])
-    # The staging table is session-local + transaction-local (ON COMMIT DROP).
-    # DROP IF EXISTS also handles nested test savepoints where COMMIT does not
-    # happen between two loads on the same pooled connection.
-    await session.execute(text(f"DROP TABLE IF EXISTS {_STAGE_TABLE}"))  # ty: ignore[deprecated]
-    await session.execute(text(_STAGE_DDL))  # ty: ignore[deprecated]
-    await session.execute(text(_STAGE_UNIQUE_DDL))  # ty: ignore[deprecated]
-    reference_ids = await _reference_ids(session)
-    assets = (await session.exec(select(RAsset))).all()
-    asset_ids = {asset.code.upper(): asset.id for asset in assets}
-    # A drop without «Наименование ДО» names the entity in «Предприятие»: the
-    # same dictionary, matched by name (case/quote/space-insensitive).
-    asset_ids_by_name = {_asset_name_key(asset.name): asset.id for asset in assets}
+            def report(phase: str, done: int) -> None:
+                if progress is None:
+                    return
+                # The file can differ from the preflight count; never let a
+                # stale estimate push the bar past 100 %.
+                progress(min(done, total) if total else done, total, phase)
 
-    # Owner-approved semantics (Phase 5): rows are identified by work code;
-    # a code already in the TARGET plan updates its single matching row and a
-    # code absent from it appends a new row. A code duplicated in the plan is
-    # ambiguous: refuse it rather than let UPDATE ... FROM overwrite every
-    # match. This check lives in APPLY, independent of the preflight request.
-    ambiguous = await _ambiguous_codes(session, plan.id)
-    existing_codes: set[str] = {
-        code
-        for code in (
-            await session.exec(
-                select(col(RenovationPlanRow.work_or_repair_code)).where(col(RenovationPlanRow.plan_id) == plan.id)
-            )
-        ).all()
-        if code
-    }
-    last_position = (
-        await session.exec(
-            select(RenovationPlanRow.position)
-            .where(col(RenovationPlanRow.plan_id) == plan.id)
-            .order_by(col(RenovationPlanRow.position).desc())
-            .limit(1)
-        )
-    ).first() or 0
-
-    expected = max(expected_rows, 0)
-    total = expected * 2
-    processed = 0
-    affected: list[UUID] = []
-
-    def report(phase: str, done: int) -> None:
-        if progress is None:
-            return
-        # The file can differ from the preflight count (it was checked, then
-        # edited); never let a stale estimate push the bar past 100 %.
-        progress(min(done, total) if total else done, total, phase)
-
-    report("parse", 0)
-    inserted = 0
-    updated = 0
-    batch: list[_PendingRow] = []
-    # A single set spans ALL batches: the same new code in batch 1 and batch 2
-    # is still a duplicate. `first_seen` names the earlier workbook row in the
-    # error so the operator can find it.
-    seen_codes: set[str] = set()
-    first_seen: dict[str, int] = {}
-    file_row = 0
-    async with contextlib.aclosing(batches):
-        async for parsed_batch in batches:
-            for row in parsed_batch:
-                file_row += 1
-                if row.code in seen_codes:
-                    raise _duplicate_in_file_error(row.code, first_seen[row.code], file_row)
-                seen_codes.add(row.code)
-                first_seen[row.code] = file_row
-                if row.code in ambiguous:
-                    raise _ambiguous_existing_error(row.code, ambiguous[row.code])
-                if row.asset_is_name:
-                    asset_id = asset_ids_by_name.get(_asset_name_key(row.asset_key))
-                else:
-                    asset_id = asset_ids.get(row.asset_key)
-                if asset_id is None:
-                    # A reference value like any catalog label: an asset the project's
-                    # dictionary does not have refuses the whole file (the preflight
-                    # reports it) instead of dropping its rows from the plan.
-                    raise _unknown_asset(row.code, row.asset_key)
-                is_new = row.code not in existing_codes
-                position: int | None = None
-                if not is_new:
-                    updated += 1
-                else:
-                    last_position += 1
-                    position = last_position
-                    inserted += 1
-                batch.append(_PendingRow(parsed=row, asset_id=asset_id, is_new=is_new, position=position))
-                if len(batch) >= _BATCH_SIZE:
-                    with observe_phase("import", "write_batch"):
-                        affected.extend(
-                            await _flush_batch(
-                                session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id
+            report("parse", 0)
+            inserted = 0
+            updated = 0
+            batch: list[_PendingRow] = []
+            file_row = 0
+            with observe_phase("import", "apply"):
+                async with contextlib.aclosing(batches):
+                    async for parsed_batch in batches:
+                        codes = [row.code for row in parsed_batch]
+                        first_rows = [file_row + index + 1 for index in range(len(parsed_batch))]
+                        # One statement per batch: codes already seen (in this or an
+                        # earlier batch) conflict on the temp table's primary key.
+                        fresh: dict[str, int] = {}
+                        for code in (
+                            (
+                                await session.execute(  # ty: ignore[deprecated]
+                                    text(_SEEN_INSERT_SQL), {"codes": codes, "rows": first_rows}
+                                )
                             )
+                            .scalars()
+                            .all()
+                        ):
+                            fresh[code] = fresh.get(code, 0) + 1
+                        ambiguous = set(
+                            (
+                                await session.exec(
+                                    select(col(_ambiguous_table.c.code)).where(col(_ambiguous_table.c.code).in_(codes))
+                                )
+                            ).all()
                         )
-                    batch = []
+                        existing = set(
+                            (
+                                await session.exec(
+                                    select(col(_existing_table.c.code)).where(col(_existing_table.c.code).in_(codes))
+                                )
+                            ).all()
+                        )
+                        for row, number in zip(parsed_batch, first_rows, strict=True):
+                            file_row = number
+                            if fresh.get(row.code, 0) == 0:
+                                first = cast(
+                                    "int",
+                                    (
+                                        await session.exec(
+                                            select(col(_seen_table.c.first_row)).where(
+                                                col(_seen_table.c.code) == row.code
+                                            )
+                                        )
+                                    ).one(),
+                                )
+                                raise _duplicate_in_file_error(row.code, first, number)
+                            fresh[row.code] -= 1
+                            if row.code in ambiguous:
+                                occurrences = cast(
+                                    "int",
+                                    (
+                                        await session.exec(
+                                            select(col(_ambiguous_table.c.occurrences)).where(
+                                                col(_ambiguous_table.c.code) == row.code
+                                            )
+                                        )
+                                    ).one(),
+                                )
+                                details = [
+                                    (row_id, position)
+                                    for row_id, position in (
+                                        await session.execute(  # ty: ignore[deprecated]
+                                            text(_AMBIGUOUS_ROWS_SQL),
+                                            {
+                                                "plan_id": plan.id,
+                                                "code": row.code,
+                                                "detail_limit": _ERROR_DETAIL_LIMIT,
+                                            },
+                                        )
+                                    ).all()
+                                ]
+                                raise _ambiguous_existing_error(row.code, details, occurrences)
+                            if row.asset_is_name:
+                                asset_id = asset_ids_by_name.get(_asset_name_key(row.asset_key))
+                            else:
+                                asset_id = asset_ids.get(row.asset_key)
+                            if asset_id is None:
+                                # A reference value like any catalog label: an asset the
+                                # project's dictionary does not have refuses the whole
+                                # file (the preflight reports it) instead of dropping
+                                # its rows from the plan.
+                                raise _unknown_asset(row.code, row.asset_key)
+                            is_new = row.code not in existing
+                            position: int | None = None
+                            if not is_new:
+                                updated += 1
+                            else:
+                                last_position += 1
+                                position = last_position
+                                inserted += 1
+                            batch.append(_PendingRow(parsed=row, asset_id=asset_id, is_new=is_new, position=position))
+                            if len(batch) >= _BATCH_SIZE:
+                                with observe_phase("import", "write_batch"):
+                                    await _flush_batch(
+                                        session,
+                                        plan_id=plan.id,
+                                        batch=batch,
+                                        reference_ids=reference_ids,
+                                        user_id=user_id,
+                                    )
+                                batch = []
+                                processed = inserted + updated
+                                report("write", min(processed, expected) if total else processed)
+                if batch:
+                    with observe_phase("import", "write_batch"):
+                        await _flush_batch(
+                            session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id
+                        )
                     processed = inserted + updated
                     report("write", min(processed, expected) if total else processed)
-    if batch:
-        with observe_phase("import", "write_batch"):
-            affected.extend(
-                await _flush_batch(session, plan_id=plan.id, batch=batch, reference_ids=reference_ids, user_id=user_id)
-            )
-        processed = inserted + updated
-        report("write", min(processed, expected) if total else processed)
 
-    # ONE set-based UPDATE for all staged rows (all duplicate plan rows with a
-    # matching code are overwritten). No per-row UPDATE round trip remains.
-    with observe_phase("import", "apply_updates"):
-        await session.execute(text(_UPDATE_SQL), {"plan_id": plan.id})  # ty: ignore[deprecated]
-        affected.extend(
-            (await session.execute(text(_STAGED_ID_SQL), {"plan_id": plan.id})).scalars().all()  # ty: ignore[deprecated]
-        )
+                # ONE set-based UPDATE for all staged rows. No per-row UPDATE round
+                # trip remains, and the written ids move into a temp table instead
+                # of an O(rows) Python list.
+                await session.execute(text(_UPDATE_SQL), {"plan_id": plan.id})  # ty: ignore[deprecated]
+                await session.execute(text(_WRITTEN_FROM_STAGE_SQL), {"plan_id": plan.id})  # ty: ignore[deprecated]
 
-    # Only the rows this load wrote need their derived values: the full sweep
-    # (`just recompute-renovation-plan`) is the backfill, and rewriting all
-    # ~306k rows was where most of the former ~340-second import went.
-    with observe_phase("import", "recompute"):
-        written = min(processed, expected) if total else 0
-        report("recompute", written)
-        await recompute_plan_rows(
-            session,
-            plan_id=plan.id,
-            row_ids=affected,
-            progress=lambda scanned: report("recompute", written + scanned if total else scanned),
-        )
-    # Gate A follow-up: the import overwrites whole rows, so any edit stack made
-    # before it would replay obsolete values over the imported ones. Clear the
-    # plan's history in the SAME transaction as the write (rolled back with it).
-    await JournalStore(session).clear_undo_state_for_scope("renovationPlan/")
-    return RenovationPlanImportApplyResult(new_rows=inserted, updated_rows=updated)
+            # Only the rows this load wrote need their derived values: the full
+            # sweep is the backfill. Ids are read from the temp table in bounded
+            # batches, so neither apply nor recompute holds an O(N) UUID list.
+            async def written_id_batches() -> AsyncGenerator[list[UUID]]:
+                last_id: UUID | None = None
+                while True:
+                    query = select(col(_written_table.c.id)).order_by(col(_written_table.c.id))
+                    if last_id is not None:
+                        query = query.where(col(_written_table.c.id) > last_id)
+                    ids = cast("list[UUID]", list((await session.exec(query.limit(_RECOMPUTE_ID_BATCH))).all()))
+                    if not ids:
+                        return
+                    yield ids
+                    last_id = ids[-1]
+
+            with observe_phase("import", "recompute"):
+                written = min(processed, expected) if total else 0
+                report("recompute", written)
+                await recompute_plan_rows(
+                    session,
+                    plan_id=plan.id,
+                    id_batches=written_id_batches(),
+                    progress=lambda scanned: report("recompute", written + scanned if total else scanned),
+                )
+            # Gate A follow-up: the import overwrites whole rows, so any edit stack
+            # made before it would replay obsolete values over the imported ones.
+            await JournalStore(session).clear_undo_state_for_scope("renovationPlan/")
+            return RenovationPlanImportApplyResult(new_rows=inserted, updated_rows=updated)
+    finally:
+        spool.close()
 
 
 async def _stream_parsed_batches(source: BinaryIO, suffix: str | None = None) -> AsyncGenerator[list[ParsedPlanRow]]:
-    """Pull one batch at a time; never leave a producer blocked after a failed write."""
+    """Stream a workbook's parsed batches (kept for callers/tests that bypass the spool)."""
     batches = cast("Generator[list[ParsedPlanRow]]", iter_plan_row_batches(source, _BATCH_SIZE, suffix))
+    async with contextlib.aclosing(_stream_batches(batches)) as streamed:
+        async for item in streamed:
+            yield item
+
+
+async def _stream_batches(batches: Iterator[list[ParsedPlanRow]]) -> AsyncGenerator[list[ParsedPlanRow]]:
+    """Bridge a bounded sync iterator to the async writer without abandoning a producer."""
+    iterator = iter(batches)
     try:
         while True:
 
             def read_next() -> list[ParsedPlanRow] | None:
-                return next(batches, None)
+                return next(iterator, None)
 
             read = asyncio.create_task(asyncio.to_thread(read_next))
             try:
@@ -328,14 +498,16 @@ async def _stream_parsed_batches(source: BinaryIO, suffix: str | None = None) ->
                     item = await asyncio.shield(read)
             except asyncio.CancelledError:
                 # Cancellation cannot interrupt a Python thread. Wait for this
-                # bounded batch before closing the workbook/upload underneath it.
+                # bounded batch before closing the spool underneath it.
                 await read
                 raise
             if item is None:
                 break
             yield item
     finally:
-        await asyncio.to_thread(batches.close)
+        close = getattr(iterator, "close", None)
+        if close is not None:
+            await asyncio.to_thread(close)
 
 
 async def _flush_batch(
@@ -345,12 +517,12 @@ async def _flush_batch(
     batch: Sequence[_PendingRow],
     reference_ids: dict[str, dict[str, str]],
     user_id: UUID | None,
-) -> list[UUID]:
+) -> None:
     """
     Write one batch: new rows in one INSERT, existing rows staged for one UPDATE.
 
-    The set-based UPDATE runs after the last batch. Returns the ids of the
-    inserted rows; updated rows are collected from the staging table afterwards.
+    The set-based UPDATE runs after the last batch. Inserted ids are recorded in
+    a transaction-local table for the bounded recompute; no list is returned.
     """
     now = datetime.now(UTC)
     new_rows: list[dict[str, object]] = []
@@ -373,8 +545,8 @@ async def _flush_batch(
                     raise _unknown_reference(pending.parsed.code, field, value)
                 values[field] = resolved
             elif field in _DATE_FIELDS:
-                # The parser's contract is ISO text (see _DATE_FIELDS); the
-                # column is DATE. An empty cell stays NULL.
+                # The parser's contract is ISO text; the column is DATE. An
+                # empty cell stays NULL.
                 values[field] = date.fromisoformat(str(value)) if value else None
             else:
                 values[field] = value
@@ -410,18 +582,17 @@ async def _flush_batch(
         )
     if new_rows:
         # One multi-row VALUES clause, so every dict must carry the SAME keys:
-        # the parser drops blank cells, which makes real rows ragged (and made
-        # SQLAlchemy raise "explicitly rendered as a boundparameter"). Pad them
+        # the parser drops blank cells, which makes real rows ragged. Pad them
         # to the batch's union — an omitted cell is a NULL on a created row.
         columns = sorted(set().union(*(row.keys() for row in new_rows)))
         await session.exec(
             insert(RenovationPlanRow).values([{column: row.get(column) for column in columns} for row in new_rows])
         )
+        await session.execute(text(_WRITTEN_INSERT_SQL), [{"id": row_id} for row_id in inserted_ids])  # ty: ignore[deprecated]
     if stage_rows:
         # One batched INSERT into the transaction-local staging table; the
         # target rows are updated by ONE UPDATE ... FROM after the last batch.
         await session.execute(insert(_stage_table), stage_rows)  # ty: ignore[deprecated]
-    return inserted_ids
 
 
 def _label(field: str) -> str:
@@ -441,12 +612,10 @@ async def _reference_ids(session: AsyncSession) -> dict[str, dict[str, str]]:
     """
     Catalog id → {casefolded label: option id}, from the LIVE dictionary.
 
-    These are the very rows the preflight (`/plan/import/inspect`) checks the
-    file against. Reading the static seed list instead meant every option the
-    operator added after the seed was unusable: the preflight said «ready» and
-    the load then refused the whole file with "значение не найдено в
-    справочнике" — the «Собственными силами» case. The dictionary is the
-    authority, in both passes.
+    These are the very rows the preflight checks the file against. Reading the
+    static seed list instead meant every option the operator added after the
+    seed was unusable: the preflight said «ready» and the load then refused the
+    whole file with "значение не найдено в справочнике".
     """
     ids: dict[str, dict[str, str]] = {}
     for option in (await session.exec(select(RenovationReferenceValue))).all():
