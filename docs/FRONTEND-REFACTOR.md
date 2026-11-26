@@ -117,11 +117,32 @@ state stays local, and RevoGrid owns its own interaction state. No measured
 rerender or cross-branch state problem has been demonstrated yet; adding a
 store would multiply canonical sources without fixing one.
 
+## Stage 8.2 — reduced motion (done)
+
+Audited the five existing `prefers-reduced-motion` blocks and the 34 animated
+app-owned CSS blocks. Added one consolidated block at the end of `globals.css`
+covering the previously unprotected surfaces (header, toolbar, footer,
+fullscreen panel, grid header overlays/filters, status dots, popover entrance
+animations). HeroUI's own reduced-motion policy is not overridden. An e2e case
+uses `page.emulateMedia({ reducedMotion: "reduce" })` and asserts computed
+`transition-duration: 0s` on `.app-header`.
+
+Duration/easing token consolidation (the audit's §8.2.5) is intentionally left
+for the CSS-split stage: the stylesheet still uses ~15 ad-hoc timing values,
+and replacing them mechanically would be a visual-risk change without a
+measurement. No animation claim is made.
+
+## Stage 8.3 — HoverDropdown (done elsewhere)
+
+The 60 ms polling loop was replaced with React Aria `onHoverStart`, pointermove
+coordinate tracking, one RAF-coalesced geometry check and one cancellable
+250 ms timeout. See `front/e2e/hover-dropdown.spec.ts` and `docs/GRID.md`.
+
 ## Remaining work
 
 The remaining (higher-risk) part of 5.2–5.3 — splitting the workspace's data
 loading, collaboration, commit/undo and dialog composition, and the grid's
-column/header/selection logic — is still pending. Stages 8 (breakpoints,
-reduced motion, HoverDropdown), 9 (CSS split) and the measured before/after
-runtime scenarios are also pending. They require React DevTools/Performance
-recordings and the prepared stack; no claims about them are made here.
+column/header/selection logic — is still pending. Stages 9 (CSS split) and the
+measured before/after runtime scenarios are also pending. They require React
+DevTools/Performance recordings and the prepared stack; no claims about them
+are made here.
