@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
     clipboardActionsFrom,
+    errorMessage,
     lockedCellMessage,
     recordLabel,
+    toGridRow,
     trimmedText,
     updateClipboardActions,
 } from "@/shared/ui/text-helpers";
@@ -16,6 +18,29 @@ describe("shared text and grid adapters", () => {
     test("trimmedText and lockedCellMessage keep UI wording centralized", () => {
         expect(trimmedText("  значение ")).toBe("значение");
         expect(lockedCellMessage("Иванов", "редактирует")).toBe("Сейчас её редактирует Иванов.");
+    });
+
+    test("toGridRow applies the single grid envelope without mutating the source", () => {
+        const row = { id: "r1", name: "Сырьё" };
+        const gridRow = toGridRow(row);
+        expect(gridRow).toEqual({
+            ...row,
+            rowState: "unchanged",
+            changedFields: [],
+            isDeleted: false,
+            isPlaceholder: false,
+        });
+        expect(row).toEqual({ id: "r1", name: "Сырьё" });
+    });
+
+    test("recordLabel honours the caller's candidate order (KPPK: name then code)", () => {
+        expect(recordLabel({ code: "C-1", name: "  " }, ["name", "code"])).toBe("C-1");
+        expect(recordLabel(undefined, ["name", "code"])).toBeNull();
+    });
+
+    test("errorMessage keeps the default Russian fallback for non-Error reasons", () => {
+        expect(errorMessage(new Error("boom"))).toBe("boom");
+        expect(errorMessage("boom")).toBe("Неизвестная ошибка.");
     });
 
     test("clipboard actions preserve the paste flag and call the grid handle", () => {

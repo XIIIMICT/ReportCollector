@@ -52,6 +52,7 @@ import {
     SERVICE_DB_NAMES,
     WIDTH_STORAGE_PREFIX,
 } from "@/features/renovation/renovation-grid-constants";
+import { extractRenovationEdits } from "@/features/renovation/renovation-grid-edits";
 import {
     dateTemplate,
     dateTimeTemplate,
@@ -77,12 +78,7 @@ import type {
 import type { RenovationSortColumn } from "@/shared/api/renovation";
 import { parsePastedText, pasteTargetRange, serializeCellValue } from "@/shared/grid";
 import { SUMMARY_ROW_ID, type GridViewStats } from "@/shared/grid/data-grid";
-import {
-    cellValuesEqual,
-    deduplicateUpdates,
-    parseNumericText,
-    toCellValue,
-} from "@/shared/grid/grid-edit";
+import { parseNumericText } from "@/shared/grid/grid-edit";
 import { DateEditor, ReferenceEditor } from "@/shared/grid/grid-editors";
 import {
     columnMenuItems,
@@ -2547,73 +2543,12 @@ function RenovationGridInner(
         }
     }
 
-    function extractEdits(detail: BeforeSaveDataDetails | Record<string, unknown>): {
-        updates: CellUpdate[];
-    } {
-        const updates: CellUpdate[] = [];
-        // Same revo-grid 4.27 shape check as grid-edit.ts extractEdits: plain
-        // single-cell edits carry `data` (a source snapshot array) too, so the
-        // range branch must key off the keyed-patch + no-prop shape.
-        const isRangeSave =
-            "data" in detail &&
-            !Array.isArray((detail as { data?: unknown }).data) &&
-            (detail as { prop?: unknown }).prop === undefined;
-        if (isRangeSave) {
-            const models = (detail as { models?: RenovationGridRow[] }).models ?? [];
-            for (const [rowIndex, patch] of Object.entries(
-                detail.data as Record<string, Record<string, unknown>>,
-            )) {
-                const previous = models[Number(rowIndex)] as RenovationGridRow | undefined;
-                const row = (previous ?? patch) as RenovationGridRow;
-                if (!row?.__id || row.__rowState === "deleted") continue;
-                const known = rowValuesRef.current.get(row.__id);
-                for (const [field, value] of Object.entries(patch)) {
-                    if (!editableFieldKeys.has(field)) continue;
-                    const meta = fieldByDbName.get(field);
-                    const kind =
-                        meta?.cellType === "number"
-                            ? "number"
-                            : meta?.cellType === "date"
-                              ? "date"
-                              : meta?.cellType === "boolean"
-                                ? "boolean"
-                                : meta?.cellType === "datetime"
-                                  ? "datetime"
-                                  : "text";
-                    if (known && meta && cellValuesEqual(kind, known[field], value)) continue;
-                    updates.push({ rowId: row.__id, field, value: toCellValue(value) });
-                }
-            }
-        } else {
-            const field = String(detail.prop);
-            const row = detail.model as RenovationGridRow;
-            if (!row?.__id || row.__rowState === "deleted") {
-                return { updates };
-            }
-            if (editableFieldKeys.has(field)) {
-                const known = rowValuesRef.current.get(row.__id);
-                const meta = fieldByDbName.get(field);
-                const kind =
-                    meta?.cellType === "number"
-                        ? "number"
-                        : meta?.cellType === "date"
-                          ? "date"
-                          : meta?.cellType === "boolean"
-                            ? "boolean"
-                            : meta?.cellType === "datetime"
-                              ? "datetime"
-                              : "text";
-                if (known && meta && cellValuesEqual(kind, known[field], detail.val)) {
-                    return { updates };
-                }
-                updates.push({ rowId: row.__id, field, value: toCellValue(detail.val) });
-            }
-        }
-        return { updates: deduplicateUpdates(updates) };
-    }
-
     function afterEdit(event: CustomEvent<BeforeSaveDataDetails | Record<string, unknown>>) {
-        const { updates } = extractEdits(event.detail);
+        const { updates } = extractRenovationEdits(event.detail, {
+            editableFieldKeys,
+            fieldByDbName,
+            previousValues: rowValuesRef.current,
+        });
         const releaseKeys: string[] = [];
         if ("data" in event.detail) {
             const models = (event.detail as { models?: RenovationGridRow[] }).models ?? [];

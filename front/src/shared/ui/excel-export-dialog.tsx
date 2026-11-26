@@ -32,7 +32,7 @@ export function ExcelExportDialog({
     return (
         <Modal.Backdrop isOpen={isOpen} onOpenChange={onOpenChange}>
             <Modal.Container>
-                <Modal.Dialog className="sm:max-w-[420px]" aria-label="Выгрузка в Excel">
+                <Modal.Dialog className="max-w-[420px]" aria-label="Выгрузка в Excel">
                     <Modal.CloseTrigger />
                     <Modal.Header>
                         <Modal.Heading>Выгрузка в Excel</Modal.Heading>
