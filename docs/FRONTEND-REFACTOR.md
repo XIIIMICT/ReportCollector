@@ -71,6 +71,24 @@ so no performance gain is claimed.
   **3,722.3 KB / 1,198.1 KB gzip / 37 chunks** — still noise-level, no
   performance claim.
 
+## Stage 5.2 — workspace pure selectors (first safe step, done)
+
+- New `front/src/features/renovation/renovation-workspace-selectors.ts`: eight
+  pure derivations (four groups) lifted verbatim out of `renovation-workspace.tsx`
+  — version-picker `buildArchiveItems`, `renovationSections` +
+  `sectionTabDescriptors`, the editable/calculated/mergeable field-key set
+  builders, and `renovationAssetNames` + `planAssetFilterSet`.
+- The workspace remains the composition root and sole owner of React state:
+  every `useMemo`/`useCallback` wrapper and its dependency list is unchanged,
+  only the memo bodies became calls. No new store, no props/context changes.
+  `renovation-workspace.tsx`: 2,192 → 2,145 lines.
+- 11 unit tests in `__tests__/renovation-workspace-selectors.test.ts` cover the
+  empty/missing-data cases, block/approver rules, the approve-response override
+  and input immutability. Full suite: **492 pass / 0 fail / 1,276 assertions
+  (83 files)**; `format`, `format:check`, `lint:check`, `typecheck` and `test`
+  all exit 0. Production build and Playwright are intentionally left to the
+  parent stage after integration.
+
 ## End-to-end smoke (CI stack, 127.0.0.1:16000)
 
 `E2E_BASE_URL=http://127.0.0.1:16000 KEYCLOAK_ENABLED=false bun run test:e2e
