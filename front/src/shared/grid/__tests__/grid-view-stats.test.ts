@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { GridViewStats } from "../data-grid";
+import { SUMMARY_ROW_ID } from "../grid-constants";
+import type { GridViewStats } from "../grid-types";
 import { sameGridViewStats } from "../grid-view-stats";
 
 const stats = (overrides: Partial<GridViewStats> = {}): GridViewStats => ({
@@ -56,5 +57,26 @@ describe("sameGridViewStats", () => {
         });
         expect(sameGridViewStats(empty, stats())).toBe(false);
         expect(sameGridViewStats(empty, empty)).toBe(true);
+    });
+});
+
+describe("shared grid contracts", () => {
+    test("SUMMARY_ROW_ID is the stable pinned-summary sentinel", () => {
+        expect(SUMMARY_ROW_ID).toBe("__summary__");
+    });
+
+    test("GridViewStats keeps its representative footer shape", () => {
+        const representative: GridViewStats = {
+            totalRows: 10,
+            filteredRows: 4,
+            totalCols: 3,
+            filtersApplied: true,
+            filteredColumns: [["Базис", "Поставки"]],
+            sortedColumns: [{ path: ["Объём"], order: "asc" }],
+            immutableCols: 1,
+            calculatedCols: 1,
+            editableCols: 1,
+        };
+        expect(representative).toEqual(stats());
     });
 });

@@ -23,9 +23,10 @@ import {
 } from "@/shared/api/logistics";
 import { isProjectAdmin, type CurrentUser } from "@/shared/api/report-collector";
 import type { CollabRoom } from "@/shared/collab/use-collab-room";
-import { DataGrid, type DataGridHandle, type GridViewStats } from "@/shared/grid/data-grid";
+import { DataGrid, type DataGridHandle } from "@/shared/grid/data-grid";
 import { exportFileName, type ReferenceOption } from "@/shared/grid/grid-config";
 import { buildGridResetState } from "@/shared/grid/grid-reset-state";
+import type { GridViewStats } from "@/shared/grid/grid-types";
 import { sameGridViewStats } from "@/shared/grid/grid-view-stats";
 import { SectionTabs, type WorkspaceTab } from "@/shared/grid/section-tabs";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";

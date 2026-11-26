@@ -58,8 +58,8 @@ import {
 import { canonicalCellKey, useCollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
-import type { GridViewStats } from "@/shared/grid/data-grid";
 import { fieldFacetOrder } from "@/shared/grid/grid-config";
+import type { GridViewStats } from "@/shared/grid/grid-types";
 import { useGridHiddenColumns } from "@/shared/grid/hidden-columns";
 import { useGridPinnedColumns } from "@/shared/grid/pinned-columns";
 import { collaborationAvailableFor, undoAvailableFor } from "@/shared/grid/section-policy";

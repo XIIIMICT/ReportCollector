@@ -25,9 +25,10 @@ import {
 import { useCollabRoom, type CollabRoom } from "@/shared/collab/use-collab-room";
 import { useRemoteCellMaps } from "@/shared/collab/use-remote-cell-maps";
 import type { CollabCellChanged } from "@/shared/collab/ws-client";
-import { DataGrid, type DataGridHandle, type GridViewStats } from "@/shared/grid/data-grid";
+import { DataGrid, type DataGridHandle } from "@/shared/grid/data-grid";
 import { exportFileName, type GridRow, type ReferenceOption } from "@/shared/grid/grid-config";
 import { buildGridResetState } from "@/shared/grid/grid-reset-state";
+import type { GridViewStats } from "@/shared/grid/grid-types";
 import { useGridColumnFilters } from "@/shared/grid/use-grid-column-filters";
 import { useAsyncData } from "@/shared/hooks/use-async-data";
 import { NO_ROW_SELECTED_REASON, DeleteRecordDialog } from "@/shared/ui/action-items";

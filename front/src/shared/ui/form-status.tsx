@@ -12,7 +12,7 @@ import {
 } from "@/shared/collab/collab-presence";
 import type { CollabRoom } from "@/shared/collab/use-collab-room";
 import type { CollabMember } from "@/shared/collab/ws-client";
-import type { GridViewStats } from "@/shared/grid/data-grid";
+import type { GridViewStats } from "@/shared/grid/grid-types";
 import { HiddenColumnsList } from "@/shared/grid/hidden-columns-list";
 
 /**
