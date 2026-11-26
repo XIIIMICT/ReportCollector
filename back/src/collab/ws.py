@@ -31,7 +31,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.websockets import WebSocketDisconnected
 from valkey.exceptions import ValkeyError
 
-from src.app_logging import log_event, log_warning
+from src.app_logging import log_event, log_failure, log_warning
 from src.auth.constants import RAW_MATERIALS_PROJECT_KEY
 from src.auth.models import User
 from src.auth.service import (
@@ -211,8 +211,15 @@ class RoomManager:
                         WS_EVENTS_RELAYED_TOTAL.labels(room_section=section).inc()
         except asyncio.CancelledError:
             return
-        except Exception:
-            logger.exception("Collaboration relay failed; clients must reconnect and resynchronize")
+        except Exception as error:  # noqa: BLE001 - classify, never log exception text
+            log_failure(
+                logger,
+                "collab.ws_relay_failed",
+                "Collaboration relay failed; clients must reconnect and resynchronize",
+                error,
+                error_code="ws_relay_failed",
+                phase="relay",
+            )
         # Exhaustion is also a lost subscription, not a healthy connection.
         for websocket in list(self._queues.get(room, {})):
             await self.close(websocket, 1013, "transport")
@@ -252,8 +259,15 @@ class RoomManager:
             NoLogisticsAccessError,
         ):
             await self.close(websocket, 4403, "access_denied")
-        except Exception:
-            logger.exception("Collaboration writer failed; closing connection")
+        except Exception as error:  # noqa: BLE001 - classify, never log exception text
+            log_failure(
+                logger,
+                "collab.ws_writer_failed",
+                "Collaboration writer failed; closing connection",
+                error,
+                error_code="ws_writer_failed",
+                phase="writer",
+            )
             await self.close(websocket, 1013, "writer_error")
 
 

@@ -5,7 +5,7 @@ import json
 import logging
 import sys
 
-from src.app_logging import log_error
+from src.app_logging import log_error, safe_error_type
 from src.common.export_jobs import ExportJob, ExportSpec, final_path
 
 
@@ -42,8 +42,10 @@ async def generate_in_process(job: ExportJob) -> None:
                     "export.process_failed",
                     "Ошибка процесса формирования выгрузки.",
                     job_id=job.id,
-                    # The child publishes type(error).__name__, never exception text.
-                    error_type=event.get("error") or "unknown",
+                    error_code="export_process_failed",
+                    # The child publishes a class name; bound it before logging
+                    # because subprocess output is not trusted log content.
+                    error_type=safe_error_type(event.get("error")),
                 )
         code = await process.wait()
         if code:

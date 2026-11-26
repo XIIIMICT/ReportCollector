@@ -102,10 +102,13 @@ contracts. Keep one home per fact.
 12. **Logs never carry identity claims or payload text.** `JsonFormatter`
     (`back/src/app_logging.py`) emits only `SAFE_LOG_FIELDS`: correlation and
     bounded classification values. Email, names, OIDC `sub`/issuer,
-    `preferred_username`, `email_verified`, raw `Origin`/client id and `error=`
-    exception text are excluded; failures use `error_code`/`error_type`.
-    Contract — `docs/ARCHITECTURE.md` «Logging»; sentinels —
-    `back/tests/test_log_privacy.py`.
+    `preferred_username`, `email_verified`, raw `Origin`/client id/raw path and
+    `error=` exception text are excluded; failures use `error_code`/`error_type`.
+    `log_failure()` classifies exception paths without attaching `exc_info`;
+    the formatter never calls `formatException()` and never reads a traceback or
+    nested cause. `logger.exception()` is forbidden — use the AST/sentinel
+    guards in `back/tests/test_log_privacy.py`. Contract —
+    `docs/ARCHITECTURE.md` «Logging».
 
 ## Seeds and migrations (owner decisions)
 
