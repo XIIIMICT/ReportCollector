@@ -11,6 +11,9 @@ x-back-env: &back-env
   AUTH_SEED_ADMIN_EMAIL: evtushenko.sn@ruschem.ru
   AUTH_SEED_ADMIN_PASSWORD: TestPassword123
   KEYCLOAK_ENABLED: "false"
+  # Every browser test signs in anew; the production default of 20/min would
+  # rate-limit a sequential 43-test smoke run with HTTP 429.
+  AUTH_RATE_LIMIT_MAX: "1000"
   VALKEY_URL: redis://valkey:6379/0
   BACKEND_CORS_ORIGINS: '["http://127.0.0.1:15000"]'
 services:

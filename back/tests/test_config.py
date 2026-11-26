@@ -39,3 +39,14 @@ def test_database_limits_are_configurable_and_bounded() -> None:
     assert settings.database_pool_timeout_seconds == 3.5
     assert settings.database_statement_timeout_ms == 12_000
     assert settings.database_lock_timeout_ms == 2_000
+
+
+def test_auth_rate_limit_max_is_configurable_and_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert Settings(_env_file=None).auth_rate_limit_max == 20
+    monkeypatch.setenv("AUTH_RATE_LIMIT_MAX", "1000")
+    assert Settings(_env_file=None).auth_rate_limit_max == 1000
+    monkeypatch.setenv("AUTH_RATE_LIMIT_MAX", "0")
+    with pytest.raises(ValueError, match="AUTH_RATE_LIMIT_MAX"):
+        Settings(_env_file=None)
