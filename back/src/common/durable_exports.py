@@ -144,7 +144,12 @@ class DurableExportManager[Spec: ExportSpec]:
                     max((time.time() - j.created_at.timestamp() for j in active), default=0)
                 )
             except Exception as error:  # noqa: BLE001 - dependency outages are recoverable
-                log_error(LOGGER, "export.metrics_failed", "Не удалось прочитать состояние очереди.", error=str(error))
+                log_error(
+                    LOGGER,
+                    "export.metrics_failed",
+                    "Не удалось прочитать состояние очереди.",
+                    error_type=type(error).__name__,
+                )
             await asyncio.sleep(5)
 
     async def run(self) -> None:
@@ -162,7 +167,12 @@ class DurableExportManager[Spec: ExportSpec]:
                     await self.execute(record)
                     continue
             except Exception as error:  # noqa: BLE001 - a dependency outage must not kill the consumer
-                log_error(LOGGER, "export.worker_error", "Ошибка фонового обработчика выгрузок.", error=str(error))
+                log_error(
+                    LOGGER,
+                    "export.worker_error",
+                    "Ошибка фонового обработчика выгрузок.",
+                    error_type=type(error).__name__,
+                )
             await asyncio.sleep(POLL_SECONDS)
 
     async def execute(self, record: DataJob) -> None:
@@ -216,8 +226,8 @@ class DurableExportManager[Spec: ExportSpec]:
                 "export.export_job_failed",
                 "Не удалось сформировать выгрузку.",
                 job_id=job.id,
-                error=str(error),
                 error_code=error_code,
+                error_type=type(error).__name__,
                 request_id=job.request_id,
             )
         finally:

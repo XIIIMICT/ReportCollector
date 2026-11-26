@@ -42,7 +42,8 @@ async def generate_in_process(job: ExportJob) -> None:
                     "export.process_failed",
                     "Ошибка процесса формирования выгрузки.",
                     job_id=job.id,
-                    error=event.get("error"),
+                    # The child publishes type(error).__name__, never exception text.
+                    error_type=event.get("error") or "unknown",
                 )
         code = await process.wait()
         if code:
