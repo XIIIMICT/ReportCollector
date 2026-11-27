@@ -89,44 +89,67 @@ def make_workbook(rows: int, path: Path, *, repeat: int | None = None) -> None:
     book.close()
 
 
+def _memory_counters() -> ctypes.Structure | None:
+    """Windows PROCESS_MEMORY_COUNTERS, or None on unsupported platforms."""
+    if sys.platform != "win32":
+        return None
+    try:
+        from ctypes import wintypes
+
+        class Counters(ctypes.Structure):
+            _fields_ = [
+                ("cb", wintypes.DWORD),
+                ("PageFaultCount", wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        kernel = ctypes.windll.kernel32
+        kernel.GetCurrentProcess.restype = wintypes.HANDLE
+        memory_info = kernel.K32GetProcessMemoryInfo
+        memory_info.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+        memory_info.restype = wintypes.BOOL
+        counters = Counters()
+        counters.cb = ctypes.sizeof(Counters)
+        process = kernel.GetCurrentProcess()
+        return counters if memory_info(process, ctypes.byref(counters), counters.cb) else None
+    except AttributeError, OSError, ValueError:
+        return None
+
+
 def peak_rss_bytes() -> int | None:
     """Peak process RSS, or None when the platform cannot report it."""
+    counters = _memory_counters()
+    if counters is not None:
+        return int(counters.PeakWorkingSetSize)
     if sys.platform == "win32":
-        try:
-            from ctypes import wintypes
-
-            class Counters(ctypes.Structure):
-                _fields_ = [
-                    ("cb", wintypes.DWORD),
-                    ("PageFaultCount", wintypes.DWORD),
-                    ("PeakWorkingSetSize", ctypes.c_size_t),
-                    ("WorkingSetSize", ctypes.c_size_t),
-                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                    ("PagefileUsage", ctypes.c_size_t),
-                    ("PeakPagefileUsage", ctypes.c_size_t),
-                ]
-
-            kernel = ctypes.windll.kernel32
-            kernel.GetCurrentProcess.restype = wintypes.HANDLE
-            memory_info = kernel.K32GetProcessMemoryInfo
-            memory_info.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
-            memory_info.restype = wintypes.BOOL
-            counters = Counters()
-            counters.cb = ctypes.sizeof(Counters)
-            process = kernel.GetCurrentProcess()
-            if memory_info(process, ctypes.byref(counters), counters.cb):
-                return int(counters.PeakWorkingSetSize)
-        except AttributeError, OSError, ValueError:
-            return None
         return None
     try:
         import resource
 
         return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * 1024
     except ImportError:
+        return None
+
+
+def current_rss_bytes() -> int | None:
+    """Return current process RSS (best effort), usable as a before/after delta."""
+    counters = _memory_counters()
+    if counters is not None:
+        return int(counters.WorkingSetSize)
+    if sys.platform == "win32":
+        return None
+    try:
+        with Path("/proc/self/statm").open() as stream:
+            resident_pages = int(stream.read().split()[1])
+        return resident_pages * os.sysconf("SC_PAGE_SIZE")
+    except OSError, ValueError:
         return None
 
 

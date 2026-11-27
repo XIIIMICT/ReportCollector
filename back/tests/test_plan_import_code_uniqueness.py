@@ -3,7 +3,7 @@
 import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -13,7 +13,13 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.common.durable_imports import ImportValidationError
-from src.renovation.import_plan import _ASSET_HEADER, _CODE_HEADER, _REQUIRED_COLUMN_LABELS, inspect_plan_file
+from src.renovation.import_plan import (
+    _ASSET_HEADER,
+    _CODE_HEADER,
+    _REQUIRED_COLUMN_LABELS,
+    CodeMembership,
+    inspect_plan_file,
+)
 from src.renovation.import_rows import ParsedPlanRow
 from src.renovation.models import RAsset
 from src.renovation.plan import RenovationPlan, RenovationPlanRow, RPlanState
@@ -96,10 +102,14 @@ async def test_preflight_compares_codes_only_in_the_current_working_plan(
     assert other is not None
     assert other.work_or_repair_code
 
-    captured: dict[str, set[str]] = {}
+    captured: dict[str, bool] = {}
 
-    def fake_inspect(*_args: object, existing_codes: set[str], **_kwargs: object) -> RenovationPlanImportResult:
-        captured["codes"] = existing_codes
+    def fake_inspect(*_args: object, existing_codes: object, **_kwargs: object) -> RenovationPlanImportResult:
+        # The endpoint closes the disk-backed oracle as soon as the parse ends,
+        # so evaluate membership while it is still alive.
+        oracle = cast("CodeMembership", existing_codes)
+        captured["archived"] = oracle.contains(_CODE)
+        captured["working"] = oracle.contains(str(other.work_or_repair_code))
         return RenovationPlanImportResult(status="ready", new_rows=1, rows_to_update=0)
 
     monkeypatch.setattr(router_import, "inspect_plan_file_streaming", fake_inspect)
@@ -109,9 +119,7 @@ async def test_preflight_compares_codes_only_in_the_current_working_plan(
         headers=signed_identity_headers(email="admin@example.ru", name="Admin User"),
     )
     assert response.status_code == 200, response.text
-    assert "codes" in captured
-    assert _CODE not in captured["codes"]
-    assert other.work_or_repair_code in captured["codes"]
+    assert captured == {"archived": False, "working": True}
 
 
 def test_cache_scope_carries_the_working_plan_identity_and_revision() -> None:

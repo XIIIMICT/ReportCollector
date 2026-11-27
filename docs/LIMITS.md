@@ -45,6 +45,7 @@ streams everything.
 | Asset-less rows | skipped, listed in `skipped_rows`; whole file fails only if all skipped | P | `import_plan.py` |
 | Parse / write batch | 200 rows (`_BATCH_SIZE`) | memory/throughput only | D (justified comment) |
 | Duplicate spool run | 20 000 `(code, row)` pairs | disk-backed sorted runs + k-way merge; exact duplicate/new/update totals, bounded examples | S (RC-3) |
+| Preflight existing-code oracle | 8192 digests/run, 1 MiB bloom, 32-way merge fan-in | working plan's codes live in a sorted fixed-width digest file; no Python set/list of codes; DB read uses 5000-row keyset pages | S (RC-2) |
 | Staging/target UPDATE | one set-based statement per file (Phase 5.1) | no per-row loop | S |
 | Apply code/index sets | transaction-local temp tables (`plan_import_existing`, `plan_import_ambiguous`, `plan_import_seen`, `plan_import_written`) | no O(rows) Python sets/lists; `ON COMMIT DROP`, no migration | S (RC-3) |
 | Export scan / table batches | 5000 / 5000 / 500 rows | memory/throughput only | D |
@@ -145,6 +146,35 @@ unchanged. Neither restriction is a row-count cap.
 - Parser row/column/cell/sheet caps: **not introduced** — readers stream and no
   evidence supports a business maximum.
 - Infrastructure/proxy limits remain deferred and untouched.
+
+### RC-2 decision (2026-11-27)
+
+- No arbitrary row cap and no product limit: the working plan's codes are
+  indexed on disk instead of in a Python `set`. `ExistingCodeOracle` hashes each
+  code to a 32-byte SHA-256 digest, external-sorts the digests in temporary
+  files (8192-digest runs, at most 32 open runs per merge pass) and answers
+  `contains(code)` from a read-only mmap of the sorted file. A fixed 1 MiB bloom
+  filter (7 hashes) short-circuits absent codes; a bloom false positive only
+  costs a binary search and never changes a verdict.
+- The **unavoidable bounded buffers** are the 1 MiB bloom bitmask, one 8192 ×
+  32-byte sort run (~256 KiB), the 5000-row DB keyset page, the 20 000-pair
+  duplicate spool from RC-3, and the `issue_limit` example lists. The mmap of
+  the digest file is file-backed and pageable; its bytes are not Python heap.
+  Full SHA-256 digests make a collision-induced wrong verdict ~1e-65 likely for
+  a 300k-code plan (the same practical-exactness assumption as the upload hash).
+- The request DB connection is released after the code page reads and the
+  reference snapshot, before the CPU-bound workbook parse; the oracle is closed
+  in a `finally` (including `CancelledError`) under a lock so a detached
+  `to_thread` parse cannot touch an unmapped file.
+- Measurement (`back/tests/test_existing_code_oracle.py`, synthetic 150k-code
+  plan and 300k-row workbook, one Windows dev machine, `tracemalloc` covering
+  index build + parse): bounded oracle traced peak **6.1 MiB** and RSS delta
+  **13.3 MiB**, versus the old set-based path's **16.3 MiB** traced peak and
+  **30.3 MiB** RSS delta. Exact counts matched: 200k updates, 100k new rows,
+  100k duplicate codes. Traced wall time (77.6 s vs 41.6 s) is inflated by
+  millions of tiny mmap slices being traced; without tracing the index build
+  takes **1.1 s** and 300k membership tests **3.8 s**. No production data or
+  multi-worker contention was measured.
 
 ### RC-3 decision (2026-11-26)
 

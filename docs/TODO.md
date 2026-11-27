@@ -59,12 +59,21 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 ## P1 — backend correctness and bounded work
 
-- [ ] Finish plan preflight as one bounded worker operation: scope the existing-code
-  lookup to the target plan/assets and persist the bounded validation result.
-  The request DB session is already released before CPU parsing, and issue lists
-  are capped at 1000 per category with exact totals (`docs/LIMITS.md`). Validate
-  missing catalog definitions explicitly; row/column caps are intentionally not
+- [ ] Finish plan preflight as one bounded worker operation: persist the bounded
+  validation result and validate missing catalog definitions explicitly. The
+  existing-code lookup is now bounded too (RC-2), the request DB session is
+  released before CPU parsing, and issue lists are capped at 1000 per category
+  with exact totals (`docs/LIMITS.md`). Row/column caps are intentionally not
   introduced (streaming parsers, no evidence for a business maximum).
+- [x] **RC-2 — bounded existing-code lookup in preflight** (2026-11-27). The
+  working plan's codes are externally sorted into 32-byte SHA-256 digests in
+  temporary files and queried through a bounded oracle (fixed 1 MiB bloom
+  filter + sorted digest file), never a 300k-entry Python set. Exact new/update
+  and duplicate totals, archived-plan isolation and cache scope/version are
+  unchanged; the DB connection is released before parsing. Measured 150k-code
+  plan × 300k-row workbook: traced heap 6.1 → 16.3 MiB (old set), RSS delta
+  13.3 → 30.3 MiB, untraced oracle build 1.1 s + 300k lookups 3.8 s. Test:
+  `back/tests/test_existing_code_oracle.py`; details — `docs/DATA-JOBS.md`.
 - [x] Finish preflight cache invalidation for row deletion — DONE (2026-11-26).
   The plan part of the scope is `plan=<id>|rev=<r_plans.revision>`;
   migration 0043 bumps that counter with DB triggers on every work-code-changing

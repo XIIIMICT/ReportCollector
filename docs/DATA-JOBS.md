@@ -210,6 +210,35 @@ the working plan. This replaced the old `count(*) + max(updated_at)` token over
 the touched assets: the maximum missed a delete/update of a non-latest row, so
 the preflight kept serving a report that still listed a removed code.
 
+**Bounded existing-code lookup (RC-2).** The working plan's codes no longer
+become a Python `set` in the request process. `router_import` keyset-pages the
+plan's `work_or_repair_code` values in 5000-row batches and feeds them to
+`ExistingCodeOracle` (`src/renovation/import_plan.py`): each code is hashed to a
+32-byte SHA-256 digest, digests are externally sorted in temporary files (8192
+per run, at most 32 runs open per merge pass) and the final sorted file is
+searched through a read-only mmap. A fixed 1 MiB bloom filter answers definite
+negatives without touching the disk; a false positive only triggers the exact
+binary search. The analyzer sees a narrow `contains(code)` oracle, so the
+new/update classification, duplicate spool, issue counts and bounded examples
+keep their exact semantics; a 128-bit-or-wider digest makes a collision-induced
+wrong verdict a practical impossibility (~1e-65 for a 300k-code plan). The DB
+connection is released before the CPU-bound parse, and the oracle is closed in
+a `finally` on success, error and cancellation (a lock prevents closing during
+a detached `to_thread` search). Cache scope and `INSPECT_CACHE_VERSION` are
+unchanged — report content is unchanged, so old entries stay valid.
+
+The reproducible comparison lives in
+`back/tests/test_existing_code_oracle.py`: a synthetic 150k-code plan and
+300k-row workbook with exact expected totals (200k updates, 100k new, 100k
+duplicate codes) are analysed both through the oracle and through the old
+`set`-based representation. On one Windows dev machine, `tracemalloc` over
+index build + parse peaked at **6.1 MiB** for the oracle versus **16.3 MiB**
+for the set; process RSS deltas were **13.3 MiB** vs **30.3 MiB**. Traced wall
+time is misleading (77.6 s vs 41.6 s) because millions of small mmap slices
+are traced; untraced, building the index takes **1.1 s** and 300k membership
+tests **3.8 s**. RSS is reported, not asserted — it includes page-cache-backed
+mmap pages. No production figures or multi-worker contention are claimed.
+
 The rest of the scope is file-derived. The asset part names the file's assets
 («Наименование ДО» repair codes → asset ids, or «Предприятие» names → asset ids
 when the code column is absent). The dictionary part carries
@@ -262,11 +291,12 @@ writes with 409 while a job is active. A successful import clears the
 `renovationPlan/` undo stack in the same transaction: old cell actions would
 otherwise replay obsolete values over the imported rows.
 
-**Bounded work (RC-3).** The preflight counts every issue incrementally and
+**Bounded work (RC-2 + RC-3).** The preflight counts every issue incrementally and
 retains at most `issue_limit` examples; whole-file duplicate detection spools
 `(code, row)` pairs into OS-backed sorted runs and k-way merges them, so a file
 of any size yields exact duplicate/new/update totals without an O(rows) Python
-collection. Apply replaces its `existing_codes` set, `seen_codes` dict and
+collection; the working plan's codes it compares against are equally disk-backed
+(RC-2, above). Apply replaces its `existing_codes` set, `seen_codes` dict and
 `affected: list[UUID]` with transaction-local temp tables
 (`plan_import_existing`, `plan_import_ambiguous`, `plan_import_seen`,
 `plan_import_written`, all `ON COMMIT DROP`, no migration): one batched
