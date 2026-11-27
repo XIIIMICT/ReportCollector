@@ -113,6 +113,8 @@ picks another interpreter (use `uv run pytest`); `npx` picks another resolver.
 - `docs/GRID.md` — revo-grid forms, columns, clipboard, selection, coordinates,
   tooltips; split into `###` sections — jump to the heading.
 - `docs/TODO.md` — the single engineering backlog and product deferrals.
+- `docs/LOAD-PROFILES.md` — ASSUMPTION-only target load profiles (no usage data).
+- `docs/LOAD-BASELINE.md` — measured SCALED-DOWN k6 baseline, exact commands and caveats; suite in `load/`, on-demand workflow `.github/workflows/load-baseline.yaml`.
 - `docs/LIMITS.md` — owner-approved Phase 9 limit decisions.
 - `docs/WORKFLOW.md` — canonical process: quality, languages, prek, branches.
 - `docs/KEYCLOAK.md` — OIDC flow, prod config, claims→user, diagnostics. Prod

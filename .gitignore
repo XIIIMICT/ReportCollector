@@ -24,6 +24,8 @@
 !/.github/**
 !/docs/
 !/docs/**
+!/load/
+!/load/**
 !/infra/
 !/infra/**
 # Bytecode from the stdlib-only infra bind guard/tests is never source.
