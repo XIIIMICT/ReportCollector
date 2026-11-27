@@ -354,6 +354,103 @@ and formatters, so the dependency stays one-way and all 10 names are
 re-exported from `grid-config.ts` (732 unit tests after 43 new cases).
 `grid-config.ts` is now 360 lines, holding only column/export builders.
 
+## Phase 2.2/2.4 — grid hot-path algorithms (2026-11-27, STATIC)
+
+**BLOCKED: runtime profiling was not possible here.** The documented ~94k-row
+plan fixture does not exist locally and the disposable DB has only **4 plan
+rows / 67 asset rows / 134 movement rows** (`docs/FRONTEND-AUDIT-BASELINE.md`
+§4); the 306k-row harness is a backend-only window benchmark. No browser trace,
+long-task/INP recording, FPS sample, React Profiler session or heap snapshot
+was taken, and no large-plan E2E was run. Everything labelled STATIC below is a
+source-reading conclusion about asymptotic behaviour — **not** a measured
+runtime gain. MEASURED means the exact check output at the end of the section.
+
+### Ownership and hot-path map (all rows STATIC unless tagged)
+
+| Operation | Owner / lines | Input size | Complexity before → after | Tag |
+|---|---|---|---|---|
+| Single-cell / range edit extraction | `grid-edit.ts:12-73`, `renovation-grid-edits.ts:44-78`, called at `data-grid.tsx` `afterEdit` and `renovation-grid.tsx:2383` | patch cells `P` (+ row models) | `O(P)` time / `O(P)` space; `previousValues` is already a keyed map, patches are iterated once | STATIC, unchanged |
+| Paste / cut range build | `data-grid.tsx:2872-3043`, `renovation-grid.tsx:2512-2589`, `grid-clipboard.ts:23-47` | Excel buffer `B`, target `H×W`, loaded window `Wv` | `O(B + H·W)` time / `O(H·W)` space for `data`/`models`; the plan resolves rows through `rowsByIndex` (`renovation-grid.tsx:1220-1226`). No JSON round-trip or deep clone in the paste path | STATIC, unchanged |
+| Copy with row-header selection | `data-grid.tsx:2877-2911` | selected rows `S`, source rows `N`, columns `C` | before `O(S·N)` (`rows.find` per id) → after `O(N + S)` keyed pass; space `O(N)` for the id map | STATIC, **changed** |
+| Selection publication / presence keys | `data-grid.tsx:1337-1411`, `renovation-grid.tsx:2795-2936` | visible/loaded rows `N`, selected `S`, columns `C` | `O(N + S·C)` and `O(R·C)` for the published range; debounced and bounded by visible/loaded rows | STATIC, unchanged |
+| Sort / filter / facets | `data-grid.tsx:895-935`, `facetSourceFor` `data-grid.tsx:901-923`, `column-filter-facets.ts:356-402` | source rows `N` | one `O(N)` pass per filter/facet derivation; `computeRowFacets` is already single-pass. The plan's facets are server-side (`renovation-column-filter.tsx:101`) | STATIC, unchanged |
+| Remote cell apply (`cell:changed`) | `renovation-workspace.tsx:1064-1086` | loaded rows `W`, mergeable fields `F≈217`, received values `R` | before `O(W·F)` **per frame** → after `O(R + W)` with a keyed inverse index; same patch order and the same replay of pending values to newly loaded rows | STATIC, **changed** |
+| Remote cell overlay (client grids) | `raw-materials-workspace.tsx:669-701` and the KPPK/logistics mirrors | `N` × editable fields `F` on every `remoteCellValues` change | `O(N·F)`, but these grids hold tens/low hundreds of rows (MEASURED fixture counts: 67 assets, 134 movements); no large-workspace evidence | STATIC, rejected |
+| Data replacement / previous-value snapshot | `data-grid.tsx:498`, `renovation-grid.tsx:1693` | all rows `N` / loaded window `W` | one `O(N)` / `O(W)` keyed map with a shallow row clone **per rows change**, not per edit; the clone is required because the plan patches rows in place | STATIC, rejected |
+| Pinned-row patch reconciliation | `renovation-grid.tsx:3221-3240` | pinned snapshots `P`, patches `R` | `O(P·R)`; `P` is 0 in the common case and the effect returns early | STATIC, rejected |
+| Remembered-position lookup | `renovation-grid.tsx:2104` | sparse source length `N` | `O(N)` scan, but only on `afterFocus` (a deliberate click), not on scroll | STATIC, rejected |
+
+All index→row operations continue to go through `getVisibleRows()` /
+`rowsByIndex` under sorting and filtering (`front/AGENTS.md` landmine 2,
+`docs/GRID.md` «Coordinates»). No callback identity, memo dependency,
+RevoGrid event ordering, imperative handle, selection restore, undo/rollback,
+paste ordering, collaboration seq/delta/lease or keyboard contract was changed.
+
+### Chosen fixes
+
+1. **Keyed row resolution for id-based copy** — `grid-clipboard.ts`
+   `rowsForSelectedIds`, called from `data-grid.tsx:2887`. `Array.find` per
+   selected id was quadratic in a large row-header selection; the map keeps the
+   first row for duplicate ids (what `find` returned) and skips unknown ids, so
+   emitted TSV line order is unchanged. Covers copy and cut (cut reuses
+   `buildCopyText`).
+2. **Inverted remote-cell index** — `renovation-workspace-view.ts`
+   `remoteCellPatchesByRow`, called at `renovation-workspace.tsx:1075`. The old
+   effect scanned every loaded row × every mergeable field for each frame; the
+   new helper walks only received `table/rowId/field` keys and groups them by
+   row, then the caller resolves them through the existing `loadedRowsRef`
+   keyed mirror. Foreign-table keys, malformed keys, non-mergeable fields and
+   `undefined` values are ignored; `null` is still applied; the
+   `work_or_repair_code` → `__renovationId` / `__missingComponents` derivation
+   is unchanged. Walking the loaded rows afterwards preserves patch order and
+   re-applies pending values to rows that only just loaded.
+
+Tests: 5 cases for the keyed row selection (empty/sparse rows, duplicate ids,
+selection order, a 1000×5000 repeated-selection property) in
+`grid-clipboard.test.ts`; 6 cases for the inverted remote index (empty map,
+grouping with `null`, work-id companions, foreign/malformed/stale keys, explicit
+table isolation, a 500-change accumulation) in
+`renovation-workspace-view.test.ts`. Existing clipboard/paste, selection,
+collab and undo tests were not weakened.
+
+### Rejected alternatives (with evidence)
+
+- Memoizing `computeRowFacets`, `extractEdits` or column builders globally:
+  they are already single-pass or patch-sized, React Compiler is on, and no
+  profile attributes cost to them.
+- Reusing `rowValuesRef` for copy: it is a snapshot taken at a rows-change
+  boundary; copy must read current `rows` (a change in semantics), so the helper
+  builds a reference-only map at call time instead.
+- Inverting the raw-materials grid-row mirror too: O(N·F) but N is 67/134 in
+  the only measured fixture; no evidence of a large client-grid workload.
+- Rewriting the pinned-row `rowPatches.find` and the scroll-restore `find`:
+  both run on rare/small inputs (pinned rows are usually none; the lookup runs
+  on a click), so they are micro-optimizations without a measurement.
+- Web Worker for paste normalization, a generic grid framework, a global store
+  or unifying the two grids: no measurement showing main-thread blocking, and
+  each would change the RevoGrid/domain contracts documented in `docs/GRID.md`.
+
+### Validation (MEASURED)
+
+| Command | Exit | Result |
+|---|---:|---|
+| `bun run --cwd front format` then `format:check` | 0 | oxfmt: 307 files correct |
+| `bun run --cwd front lint:check` | 0 | 0 errors, 683 warnings (unchanged from the Phase-0 baseline; all oxlint `react-perf`/deps/`no-shadow`) |
+| `bun run --cwd front typecheck` | 0 | `bun check`: no type errors in 290 files |
+| `bun run --cwd front test` | 0 | **746 pass / 0 fail / 2175 assertions / 96 files** (baseline 735; +11 new tests) |
+| `bun run --cwd front build` | 0 | Next 16.4.6 Turbopack; compiled 1831 ms, TypeScript 1031 ms, 4 static pages, 16 routes |
+| `prek run --all-files` | 0 | all back/front/workspace hooks passed |
+
+**E2E: NOT RUN.** `E2E_TEST_PASSWORD` is not exported and neither disposable
+stand endpoint answered (`http://127.0.0.1:16000/api/health` and
+`http://127.0.0.1:19000/health` unavailable), so no Playwright grid, clipboard,
+collab or 94k-plan scenario was executed. Spec discovery alone was verified:
+`bunx --no-install playwright test --project=smoke --list` → 44 tests in 10
+files. `clipboard.spec.ts`, `smoke.spec.ts` (single-cell edit + Ctrl+A
+disabled), `collab.spec.ts` (undo/redo, presence, leases) and
+`workspace-panels.spec.ts` (sorted/filtered facets) remain the specs to run on
+a prepared stack. No runtime-performance claim is made for either fix.
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,

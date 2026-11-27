@@ -127,13 +127,17 @@ import {
     renovationSectionTable,
 } from "./renovation-dictionary-section";
 import {
-    canonicalRenovationKey,
     RenovationGrid,
     type RenovationGridHandle,
     type RenovationGridRow,
     type RenovationRowPatch,
 } from "./renovation-grid";
-import { ASSET_COLUMN_PROP, ASSET_FIELD_DB_NAME, AUDIT_COLUMNS } from "./renovation-grid-constants";
+import {
+    ASSET_COLUMN_PROP,
+    ASSET_FIELD_DB_NAME,
+    AUDIT_COLUMNS,
+    RENOVATION_PLAN_ROWS_TABLE,
+} from "./renovation-grid-constants";
 import {
     buildArchiveItems,
     calculatedPlanFieldKeys,
@@ -147,6 +151,7 @@ import {
 import {
     BLOCK_LABELS,
     BLOCK_ORDER,
+    remoteCellPatchesByRow,
     renovationGridScopeKey,
     toRenovationGridRow,
     validationColumn,
@@ -1063,26 +1068,22 @@ export function RenovationWorkspace({
     // value up when their chunk loads.
     useEffect(() => {
         if (isArchive || remoteCellValues.size === 0) return;
+        // One keyed pass over the received cells instead of a loaded-rows ×
+        // fields scan for every frame. Walking the loaded rows afterwards keeps
+        // the previous patch order and applies every pending remote value to a
+        // row that only just loaded.
+        const byRow = remoteCellPatchesByRow(
+            remoteCellValues,
+            mergeableFieldKeys,
+            RENOVATION_PLAN_ROWS_TABLE,
+        );
+        if (byRow.size === 0) return;
         const changes: Array<{ rowId: string; fields: Record<string, unknown> }> = [];
         for (const row of loadedRowsRef.current.values()) {
-            const fields: Record<string, unknown> = {};
-            for (const field of mergeableFieldKeys) {
-                const value = remoteCellValues.get(canonicalRenovationKey(row.__id, field));
-                if (value === undefined) continue;
-                fields[field] = value;
-                if (field === "work_or_repair_code") {
-                    // The renovation ID drives the red «incomplete» tint: derive
-                    // the missing-components flag from the value itself (<NULL>
-                    // placeholder) — the cell:changed payload carries no metadata.
-                    fields.__renovationId = value == null ? null : String(value);
-                    fields.__missingComponents = String(value).includes("<NULL>")
-                        ? ["missing"]
-                        : [];
-                }
-            }
-            if (Object.keys(fields).length > 0) changes.push({ rowId: row.__id, fields });
+            const fields = byRow.get(row.__id);
+            if (fields) changes.push({ rowId: row.__id, fields });
         }
-        patchLoadedRows(changes);
+        if (changes.length > 0) patchLoadedRows(changes);
     }, [isArchive, mergeableFieldKeys, patchLoadedRows, remoteCellValues]);
 
     // The diff marks rows as new/changed; it arrives after the rows themselves,

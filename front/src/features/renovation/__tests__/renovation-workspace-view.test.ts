@@ -6,6 +6,7 @@ import {
     BLOCK_LABELS,
     BLOCK_ORDER,
     formatVersionStamp,
+    remoteCellPatchesByRow,
     renovationGridScopeKey,
     toRenovationGridRow,
     validationColumn,
@@ -81,5 +82,84 @@ describe("renovation workspace view helpers", () => {
             "2) Дирекция КСиР",
             "3) Дирекция МТО",
         ]);
+    });
+});
+
+describe("remoteCellPatchesByRow (keyed remote-cell apply)", () => {
+    const mergeable = new Set(["qty", "work_or_repair_code", "note"]);
+
+    test("empty values and no mergeable fields give no patches", () => {
+        expect(remoteCellPatchesByRow(new Map(), mergeable).size).toBe(0);
+        expect(
+            remoteCellPatchesByRow(new Map([["r_plan_rows/r1/readonly", 5]]), mergeable).size,
+        ).toBe(0);
+    });
+
+    test("values are grouped per row in arrival order, including null", () => {
+        const values = new Map<string, unknown>([
+            ["r_plan_rows/r1/qty", 3],
+            ["r_plan_rows/r2/qty", null],
+            ["r_plan_rows/r1/note", "готово"],
+        ]);
+        expect(remoteCellPatchesByRow(values, mergeable)).toEqual(
+            new Map([
+                ["r1", { qty: 3, note: "готово" }],
+                ["r2", { qty: null }],
+            ]),
+        );
+    });
+
+    test("work id derives the incomplete-tint companions from the remote value", () => {
+        const withCode = remoteCellPatchesByRow(
+            new Map([["r_plan_rows/r1/work_or_repair_code", "<NULL>-1"]]),
+            mergeable,
+        );
+        expect(withCode.get("r1")).toEqual({
+            work_or_repair_code: "<NULL>-1",
+            __renovationId: "<NULL>-1",
+            __missingComponents: ["missing"],
+        });
+        const cleared = remoteCellPatchesByRow(
+            new Map([["r_plan_rows/r1/work_or_repair_code", null]]),
+            mergeable,
+        );
+        expect(cleared.get("r1")).toEqual({
+            work_or_repair_code: null,
+            __renovationId: null,
+            __missingComponents: [],
+        });
+    });
+
+    test("dictionary-table keys and malformed or stale keys are ignored", () => {
+        const values = new Map<string, unknown>([
+            ["r_assets/a1/name", "Не должен попасть"],
+            ["r_plan_rows/r1/qty", 1],
+            ["r_plan_rows/r1", 2],
+            ["r_plan_rows//qty", 3],
+            ["r_plan_rows/r1/qty/extra", 4],
+            ["r_plan_rows/r1/qty", undefined],
+        ]);
+        // The later undefined key overwrites the earlier value in the source
+        // map, so it is skipped exactly like the previous full scan did.
+        expect(remoteCellPatchesByRow(values, mergeable)).toEqual(new Map());
+    });
+
+    test("explicit table argument keeps a caller's key space isolated", () => {
+        const values = new Map<string, unknown>([["other/r1/qty", 7]]);
+        expect(remoteCellPatchesByRow(values, mergeable, "other")).toEqual(
+            new Map([["r1", { qty: 7 }]]),
+        );
+        expect(remoteCellPatchesByRow(values, mergeable).size).toBe(0);
+    });
+
+    test("a large accumulated map yields one patch per row, not per field", () => {
+        const values = new Map<string, unknown>();
+        for (let index = 0; index < 500; index += 1) {
+            values.set(`r_plan_rows/r${index % 25}/qty`, index);
+            values.set(`r_plan_rows/r${index % 25}/note`, `n${index}`);
+        }
+        const patches = remoteCellPatchesByRow(values, mergeable);
+        expect(patches.size).toBe(25);
+        expect(patches.get("r24")).toEqual({ qty: 499, note: "n499" });
     });
 });

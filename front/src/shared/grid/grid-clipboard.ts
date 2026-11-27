@@ -81,6 +81,31 @@ export function pasteTargetRange(
 }
 
 /**
+ * Rows named by an id-based selection, resolved in one keyed pass.
+ *
+ * Copying a row selection used to call `rows.find` once per selected id —
+ * O(selected × rows), quadratic when a large range of row headers is copied.
+ * The map keeps the FIRST row for a duplicate id (what `Array.find` returned)
+ * and skips ids that have no row, so the emitted line order is unchanged.
+ */
+export function rowsForSelectedIds<TRow extends { id: string }>(
+    rows: readonly TRow[],
+    selectedIds: readonly string[],
+): TRow[] {
+    if (selectedIds.length === 0) return [];
+    const byId = new Map<string, TRow>();
+    for (const row of rows) {
+        if (!byId.has(row.id)) byId.set(row.id, row);
+    }
+    const selected: TRow[] = [];
+    for (const id of selectedIds) {
+        const row = byId.get(id);
+        if (row) selected.push(row);
+    }
+    return selected;
+}
+
+/**
  * Build TSV text from rows and columns
  */
 export function buildTSV<TRow extends Record<string, unknown>>(

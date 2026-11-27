@@ -254,6 +254,14 @@ different milestones. Do not reopen the explicit product deferrals below.
 - [ ] Replace repeated full-row snapshots/facet scans with revisioned/indexed
   structures; replace remote-map JSON fingerprints with stable collaboration
   revisions. Benchmark realistic row counts and 1k/10k remote cell markers.
+  - [x] **Phase 2.2/2.4 — two verified grid hot paths indexed (2026-11-27).**
+    Row-header copy no longer does `rows.find` per selected id (O(S·N) →
+    O(N+S)), and the plan's `cell:changed` apply no longer scans every loaded
+    row × mergeable field (O(W·F) → O(R+W)). Static review + 11 unit/property
+    tests; all front checks and `prek run --all-files` green. Details, rejected
+    alternatives and the BLOCKED 94k-row profiling —
+    `docs/FRONTEND-REFACTOR.md`, «Phase 2.2/2.4». Browser traces, E2E and remote
+    marker counts remain open: no prepared stack or large fixture here.
 - [x] **Facet totals come from the same grouped SQL scan** (Phase 6.1): generic
   columns return `totalWithoutSearch`/counts via window functions alongside the
   page; no second unsearched request remains for them.
