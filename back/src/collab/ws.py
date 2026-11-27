@@ -194,6 +194,41 @@ class RoomManager:
             # Staged changes stay queued: another worker's clients still need
             # the leave delta even after this worker's last socket is gone.
 
+    async def shutdown(self) -> None:
+        """
+        Cancel every background task before the manager is discarded.
+
+        `leave()` stops a room's relay/writer tasks, but the coalesced-presence
+        flush is deliberately delayed (1 s); a test — or a shutting-down
+        worker — can finish before that timer fires. An orphaned flush keeps a
+        reference to the OLD store and runs against a closed Valkey client in
+        the NEXT test (surfacing as an unraisable `ResourceWarning` from the
+        connection deallocator). Cancel and await all of them here, then drop
+        the staged state so no later flush can publish a stale delta.
+        """
+        tasks: list[asyncio.Task] = []
+        for writers in self._writers.values():
+            tasks.extend(writers.values())
+        tasks.extend(self._relay_tasks.values())
+        tasks.extend(self._flush_tasks.values())
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
+        self._members.clear()
+        self._queues.clear()
+        self._writers.clear()
+        self._relay_tasks.clear()
+        self._access.clear()
+        self._ready.clear()
+        self._close_reasons.clear()
+        self._pending_presence.clear()
+        self._flush_tasks.clear()
+        self._force_full.clear()
+        self._last_full.clear()
+
     @staticmethod
     def _room_section(room: str) -> str:
         """

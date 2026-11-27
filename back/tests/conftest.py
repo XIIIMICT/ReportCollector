@@ -674,6 +674,7 @@ async def isolated_store():
 
     get_collab_store.cache_clear()
     get_room_manager.cache_clear()
+    manager = get_room_manager()
     if COLLAB_BACKEND == "valkey":
         url = os.environ["VALKEY_URL"]
         if urlparse(url).path != "/15" or os.environ.get("TEST_VALKEY_RESET") != "1":
@@ -688,6 +689,9 @@ async def isolated_store():
         if cleanup is not None:
             await cleanup.flushdb()
             await cleanup.aclose()
+        # Drop delayed presence flushes before the store: a timer firing after
+        # the cache clear would publish through a closed client in the next test.
+        await manager.shutdown()
         await instance.close()
         get_collab_store.cache_clear()
         get_room_manager.cache_clear()
