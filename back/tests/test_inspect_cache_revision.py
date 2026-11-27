@@ -171,6 +171,9 @@ async def test_work_code_edit_invalidates(harness: _Harness, db_session: AsyncSe
         {"id": row_id, "code": "EDITED_WORK_CODE"},
     )
     await db_session.flush()
+    # The endpoint closes/reopens its session mid-request; commit the fixture's
+    # savepoint so this write survives that close like a real committed edit.
+    await db_session.commit()
     assert await _revision(db_session, plan_id) > before
 
     await harness.inspect()
@@ -192,6 +195,7 @@ async def test_row_insert_invalidates(harness: _Harness, db_session: AsyncSessio
         position=await _last_position(db_session, plan_id) + 1,
         code="NEW_WORK_CODE",
     )
+    await db_session.commit()  # survive the endpoint's mid-request session.close()
     assert await _revision(db_session, plan_id) > before
     await harness.inspect()
     assert len(harness.calls) == 2
@@ -220,6 +224,7 @@ async def test_deleting_a_non_latest_row_invalidates(harness: _Harness, db_sessi
     revision_before = await _revision(db_session, plan_id)
     await db_session.delete(old)
     await db_session.flush()
+    await db_session.commit()  # survive the endpoint's mid-request session.close()
     assert await _latest_change(db_session, plan_id) == max_before
     assert await _revision(db_session, plan_id) > revision_before
 
@@ -247,6 +252,7 @@ async def test_direct_apply_invalidates(
     )
     result = await import_apply.apply_plan_file(db_session, source=None, user_id=None)  # ty: ignore[invalid-argument-type]
     assert (result.new_rows, result.updated_rows) == (1, 0)
+    await db_session.commit()  # survive the endpoint's mid-request session.close()
     assert await _revision(db_session, plan_id) > before
 
     await harness.inspect()
@@ -272,6 +278,7 @@ async def test_switching_working_plan_invalidates(harness: _Harness, db_session:
     )
     db_session.add(next_plan)
     await db_session.flush()
+    await db_session.commit()  # survive the endpoint's mid-request session.close()
 
     await harness.inspect()
     assert len(harness.calls) == 2
@@ -321,6 +328,7 @@ async def test_archived_plan_changes_do_not_invalidate(harness: _Harness, db_ses
         code="ARCHIVED_NEW",
     )
     await db_session.flush()
+    await db_session.commit()  # survive the endpoint's mid-request session.close()
     assert await _revision(db_session, archived.id) > archived_before
     assert await _revision(db_session, working_id) == working_before
 

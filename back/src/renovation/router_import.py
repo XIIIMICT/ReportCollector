@@ -7,6 +7,7 @@ sub-router with the shared ``/renovation`` prefix.
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Annotated, Literal, cast
 from uuid import UUID
 
@@ -99,16 +100,48 @@ def _working_plan_import_scope(
 # size; the oracle external-sorts the digests so no Python set of codes exists.
 _EXISTING_CODE_PAGE_SIZE = 5000
 
+# Optimistic preflight concurrency: a report is sealed/cached/returned only when
+# the working plan's identity and revision still match the token read before the
+# oracle was filled. A mismatch discards the oracle and restarts from a fresh
+# token; a bounded number of restarts keeps a busy plan from spinning forever.
+_PREFLIGHT_MAX_ATTEMPTS = 3
+_PREFLIGHT_CONFLICT_DETAIL = "План изменился во время проверки файла. Повторите загрузку."
 
-async def _fill_existing_code_oracle(session: AsyncSession, oracle: ExistingCodeOracle, plan_id: UUID) -> None:
+# One statement reads both columns, so the token is a single READ COMMITTED
+# observation rather than two reads that could straddle a commit.
+_PlanToken = tuple[UUID | None, int]
+
+
+async def _read_plan_token(session: AsyncSession) -> _PlanToken:
+    """Return the current working plan's `(id, revision)` in one SELECT."""
+    state = (
+        await session.exec(
+            select(col(RenovationPlan.id), col(RenovationPlan.revision))
+            .where(col(RenovationPlan.state) == RPlanState.WORKING)
+            .order_by(col(RenovationPlan.id))
+        )
+    ).first()
+    return (state[0], int(state[1])) if state is not None else (None, 0)
+
+
+async def _fill_existing_code_oracle(
+    session: AsyncSession,
+    oracle: ExistingCodeOracle,
+    plan_id: UUID,
+    *,
+    on_page: Callable[[int], Awaitable[None]] | None = None,
+) -> None:
     """
     Stream one plan's non-blank work codes into the bounded membership oracle.
 
     Keyset pagination over the primary key is stable while the plan is being
     edited by others; `id > last_id` never skips a row on a page boundary. The
     caller owns the oracle and closes it on every path, including cancellation.
+    `on_page` is an optional awaitable seam used by concurrency tests to commit
+    a mutation between two pages without sleeping; production callers omit it.
     """
     last_id: UUID | None = None
+    page_number = 0
     while True:
         statement = select(col(RenovationPlanRow.id), col(RenovationPlanRow.work_or_repair_code)).where(
             col(RenovationPlanRow.plan_id) == plan_id,
@@ -122,6 +155,9 @@ async def _fill_existing_code_oracle(session: AsyncSession, oracle: ExistingCode
         for _row_id, code in page:
             if code:
                 oracle.add(code)
+        page_number += 1
+        if on_page is not None:
+            await on_page(page_number)
         last_id = page[-1][0]
         if len(page) < _EXISTING_CODE_PAGE_SIZE:
             return
@@ -139,23 +175,9 @@ async def inspect_renovation_plan_import(
         return RenovationPlanImportResult(status="invalid_format")
     with observe_phase("import", "hash_upload"):
         digest = await _rewind_and_hash_upload(file)
-    # Uniqueness is scoped to ONE plan version: resolve the working plan before
-    # validating or caching, so a code that only exists in an archived plan is
-    # new for the plan the upload will actually load into. Read scalar columns
-    # instead of the ORM entity: a request that follows an edit in the same
-    # session must see the committed revision, not a stale identity-map copy.
-    plan_state = (
-        await session.exec(
-            select(col(RenovationPlan.id), col(RenovationPlan.revision)).where(
-                col(RenovationPlan.state) == RPlanState.WORKING
-            )
-        )
-    ).first()
-    working_plan_id, plan_revision = plan_state if plan_state is not None else (None, 0)
     cache = get_inspect_cache()
     # Phase 5.2: scope discovery parses the whole workbook in a worker thread.
-    # Release the request's pooled DB connection before that CPU phase; the
-    # session transparently acquires a new one for the reads below.
+    # No DB read has happened yet, so no pooled connection is held during it.
     await session.close()
     # Which assets and dictionaries the file touches decides the cache scope: a
     # plan edit in an asset the file does not mention, or a catalog edit the
@@ -170,63 +192,86 @@ async def inspect_renovation_plan_import(
             if file_scope.assets:
                 await cache.set_scope_digest(digest, file_scope, suffix=suffix)
     await file.seek(0)
-    assets = (await session.exec(select(RAsset))).all()
-    # The file names its assets either by repair code («Наименование ДО») or,
-    # when that column is absent, by name («Предприятие»).
-    by_key = _asset_scope_lookup(assets, assets_are_names=file_scope.assets_are_names)
-    touched = [by_key[key] for key in file_scope.assets if key in by_key]
-    touched_asset_ids = [asset.id for asset in touched]
-    dictionaries = (
-        await _dictionary_fingerprint(session, file_scope=file_scope, touched_assets=touched)
-        if file_scope.assets
-        else ""
-    )
-    scope = _working_plan_import_scope(
-        working_plan_id,
-        int(plan_revision),
-        touched_asset_ids,
-        dictionaries=dictionaries,
-    )
-    cached = await cache.get_digest(digest, scope=scope, suffix=suffix) if file_scope.assets else None
-    if cached is not None:
-        return cached
-    # Only the CURRENT working plan's codes decide «new» vs «update». Including
-    # archived plans here made a newer version inherit codes of an older one and
-    # silently turn an insert into an overwrite. The oracle external-sorts those
-    # codes into fixed-width digests, so a 300k-row plan no longer materializes a
-    # 300k-entry Python set that stays alive for the whole CPU-bound parse.
-    oracle = ExistingCodeOracle()
-    try:
-        if working_plan_id is not None:
-            with observe_phase("import", "existing_codes"):
-                await _fill_existing_code_oracle(session, oracle, working_plan_id)
-        oracle.seal()
-        references: dict[str, set[str]] = {}
-        for value in (await session.exec(select(RenovationReferenceValue))).all():
-            references.setdefault(value.catalog.value, set()).add(value.label.casefold())
-        asset_names_by_code = {asset.code: asset.name for asset in assets if asset.code}
-        # Phase 5.2: the reference snapshot above is complete and consistent; the
-        # analysis that follows is pure CPU in a worker thread and must not keep a
-        # DB connection checked out of the pool.
-        await session.close()
-        await file.seek(0)
-        with observe_phase("import", "inspect"):
-            result = await asyncio.to_thread(
-                inspect_plan_file_streaming,
-                file.file,
-                existing_codes=oracle,
-                asset_names_by_code=asset_names_by_code,
-                reference_values=references,
-                suffix=suffix,
-                issue_limit=get_settings().renovation_import_issue_limit,
-            )
-        if file_scope.assets:
-            await cache.set_digest(digest, result, scope=scope, suffix=suffix)
-        return result
-    finally:
-        # Covers success, parse errors and CancelledError; close() is idempotent
-        # and removes the OS-backed runs even when to_thread was interrupted.
-        oracle.close()
+    # Optimistic point-in-time contract: the plan token is captured before the
+    # scope lookup, checked again after the LAST keyset page and once more before
+    # a cache hit is returned or a fresh report is cached. A concurrent commit
+    # (insert/delete/code edit/plan transfer) bumps `r_plans.revision` in the
+    # same transaction (migration 0043) or changes the working plan's id; either
+    # mismatch discards the oracle/report and restarts with a fresh token. No
+    # DB connection is held during either `to_thread` parsing phase.
+    for _attempt in range(_PREFLIGHT_MAX_ATTEMPTS):
+        token = await _read_plan_token(session)
+        assets = (await session.exec(select(RAsset))).all()
+        # The file names its assets either by repair code («Наименование ДО») or,
+        # when that column is absent, by name («Предприятие»).
+        by_key = _asset_scope_lookup(assets, assets_are_names=file_scope.assets_are_names)
+        touched = [by_key[key] for key in file_scope.assets if key in by_key]
+        touched_asset_ids = [asset.id for asset in touched]
+        dictionaries = (
+            await _dictionary_fingerprint(session, file_scope=file_scope, touched_assets=touched)
+            if file_scope.assets
+            else ""
+        )
+        scope = _working_plan_import_scope(token[0], token[1], touched_asset_ids, dictionaries=dictionaries)
+        cached = await cache.get_digest(digest, scope=scope, suffix=suffix) if file_scope.assets else None
+        if cached is not None:
+            still_current = await _read_plan_token(session)
+            await session.close()
+            if still_current == token:
+                return cached
+            continue
+        # Only the CURRENT working plan's codes decide «new» vs «update».
+        # Including archived plans here made a newer version inherit codes of an
+        # older one and silently turn an insert into an overwrite. The oracle
+        # external-sorts those codes into fixed-width digests, so a 300k-row plan
+        # no longer materializes a 300k-entry Python set that stays alive for the
+        # whole CPU-bound parse. It is created only after the cache miss: a cheap
+        # HIT must never rebuild a large index.
+        oracle = ExistingCodeOracle()
+        try:
+            if token[0] is not None:
+                with observe_phase("import", "existing_codes"):
+                    await _fill_existing_code_oracle(session, oracle, token[0])
+            # A page boundary can straddle a committed write, so the token read
+            # after the final page is the gate for accepting these codes.
+            if await _read_plan_token(session) != token:
+                await session.close()
+                continue
+            oracle.seal()
+            references: dict[str, set[str]] = {}
+            for value in (await session.exec(select(RenovationReferenceValue))).all():
+                references.setdefault(value.catalog.value, set()).add(value.label.casefold())
+            asset_names_by_code = {asset.code: asset.name for asset in assets if asset.code}
+            # Phase 5.2: the reference snapshot above is complete and consistent;
+            # the analysis that follows is pure CPU in a worker thread and must
+            # not keep a DB connection checked out of the pool.
+            await session.close()
+            await file.seek(0)
+            with observe_phase("import", "inspect"):
+                result = await asyncio.to_thread(
+                    inspect_plan_file_streaming,
+                    file.file,
+                    existing_codes=oracle,
+                    asset_names_by_code=asset_names_by_code,
+                    reference_values=references,
+                    suffix=suffix,
+                    issue_limit=get_settings().renovation_import_issue_limit,
+                )
+            # A commit during the CPU parse must not be cached or returned as
+            # current either; this is the report's linearization point.
+            if await _read_plan_token(session) != token:
+                await session.close()
+                continue
+            await session.close()
+            if file_scope.assets:
+                await cache.set_digest(digest, result, scope=scope, suffix=suffix)
+            return result
+        finally:
+            # Covers success, parse errors, token conflicts, cancellation and
+            # exhaustion; close() is idempotent and removes the OS-backed runs
+            # even when to_thread was interrupted.
+            oracle.close()
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_PREFLIGHT_CONFLICT_DETAIL)
 
 
 @router.post("/plan/import/apply", response_model=RenovationImportJobRead, status_code=status.HTTP_202_ACCEPTED)

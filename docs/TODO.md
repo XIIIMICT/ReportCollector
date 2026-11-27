@@ -84,6 +84,15 @@ different milestones. Do not reopen the explicit product deferrals below.
   plan × 300k-row workbook: traced heap 6.1 → 16.3 MiB (old set), RSS delta
   13.3 → 30.3 MiB, untraced oracle build 1.1 s + 300k lookups 3.8 s. Test:
   `back/tests/test_existing_code_oracle.py`; details — `docs/DATA-JOBS.md`.
+- [x] **RC-7 — point-in-time preflight token** (2026-11-27). Preflight now
+   validates the `(working_plan_id, revision)` token after the final keyset
+   page and again before serving a cache hit or caching/returning a report;
+   a mismatch closes the disk-backed oracle and retries with a fresh scope
+   (max 3 attempts, then Russian HTTP 409). Chosen over a long
+   `REPEATABLE READ` snapshot because the DB connection is released before
+   both CPU parse phases. 10 real-schema interleaving tests in
+   `back/tests/test_preflight_plan_snapshot.py`; model and exhaustion contract
+   in `docs/DATA-JOBS.md`, «Point-in-time preflight token (RC-7)».
 - [x] Finish preflight cache invalidation for row deletion — DONE (2026-11-26).
   The plan part of the scope is `plan=<id>|rev=<r_plans.revision>`;
   migration 0043 bumps that counter with DB triggers on every work-code-changing
