@@ -283,7 +283,12 @@ it verifies byte-for-byte equality of every entry name/order/part against the
 level-1 render before recording a result. Level 1 recompression is within
 0.16% of the real level-1 writer (one-shot `writestr` vs streamed deflate
 choose slightly different match blocks), a control noise floor far below the
-observed deltas.
+observed deltas. The percentages below are specific to the measuring zlib build:
+the maintainer's Windows Python ships `zlib-ng`, whose fast level 1 is much
+weaker than stock zlib's, so the same parts show ~36% and ~19% wins for the
+1k-row plan on Windows and on the Linux CI runner respectively. The regression
+test therefore pins the ordering of levels 1/6 and a conservative 10% win, not
+a fixed 25% figure.
 
 Median recompression time/size (3 reps, identical part bytes;
 `docs/XLSX_EXPORT_SIZE_COMPRESSION.json`):
