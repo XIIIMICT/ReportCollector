@@ -270,7 +270,12 @@ different milestones. Do not reopen the explicit product deferrals below.
   Performance baseline was captured before the 2026-11-26 frontend refactor**,
   so there is no retroactive before/after FPS or latency evidence; do not claim
   such gains for the structural changes. Bundle before/after evidence is in the
-  workspace root `FRONTEND-AUDIT-FINAL-REPORT.md`.
+  workspace root `FRONTEND-AUDIT-FINAL-REPORT.md`. The Turbopack route bundle
+  report is now available via `bun run --cwd front analyze` (named snapshot +
+  JSONL graph in the gitignored `.next/diagnostics/analyze`; compact route
+  numbers — `docs/FRONTEND-REFACTOR.md`, detail —
+  `docs/FRONTEND-AUDIT-BASELINE.md` §3). Browser traces and regression budgets
+  remain open.
 - [ ] **Frontend audit §5.2/5.3 — stateful decomposition (deferred).** The pure
   workspace selectors and grid geometry/header-chain/value-normalization
   boundaries are extracted and tested. Data loading, collaboration,

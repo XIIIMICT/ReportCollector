@@ -7,7 +7,7 @@
         "dev": "next dev",
         "build": "next build",
         "start": "next start",
-        "analyze": "ANALYZE=true next build",
+        "analyze": "next analyze --output --snapshot reportcollector && next analyze export --snapshot reportcollector > .next/diagnostics/analyze/graph.jsonl",
         "lint": "oxlint --fix && stylelint --fix",
         "lint:check": "oxlint && stylelint",
         "format": "oxfmt",
@@ -33,7 +33,6 @@
         "zod": "^4.6.7"
     },
     "devDependencies": {
-        "@next/bundle-analyzer": "^16.4.6",
         "@playwright/test": "^1.65.1",
         "@tailwindcss/postcss": "^4.3.5",
         "@testing-library/dom": "^10.4.2",

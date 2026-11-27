@@ -31,6 +31,7 @@ Domain contracts — `docs/DOMAINS.md`; collaboration protocol — `docs/COLLAB.
 | e2e smoke (running stack required) | `bun run --cwd front test:e2e --project=smoke` (`E2E_BASE_URL`, `KEYCLOAK_ENABLED=false`); local default origin is the proxy `https://127.0.0.1`, CI uses the isolated stand `http://127.0.0.1:15000`; `--project=ui-keycloak` needs the separately prepared stack |
 | Back lint/format/type | `uv run --directory back ruff check --fix` · `ruff format` · `ty check --fix` |
 | Front lint/format/type | `bun run --cwd front lint` · `format` · `typecheck` |
+| Front bundle analysis | `bun run --cwd front analyze` — Turbopack snapshot + JSONL graph in `front/.next/diagnostics/analyze` (gitignored); details — `docs/FRONTEND-REFACTOR.md` |
 | Everything at once | `just lint` · `just typecheck` · `just test` · `just e2e` |
 | Stack dev/prod | `just dev` (hot reload, `--watch`) · `just prod` |
 | Infrastructure | `just db-stand` (postgres + valkey) · `just auth-stand` (keycloak) |
