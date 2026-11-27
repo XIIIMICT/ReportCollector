@@ -1,0 +1,395 @@
+name: Nightly heavy suite
+
+# P1-9 (RC part) — heavy, report-oriented checks on a disposable CI stand.
+# This workflow is deliberately NOT part of CI required: branch protection
+# requires only the exact "CI required" check emitted by ci.yaml. Every job
+# name below is prefixed "Nightly" so a scheduled run cannot shadow a per-PR
+# check by name. Scheduled runs only ever execute from the default branch;
+# workflow_dispatch runs from any branch. A real scheduled night cannot be
+# observed until this file is merged/pushed to the default branch.
+on:
+  schedule:
+    # 03:17 UTC daily — off-peak for the European working day and clear of the
+    # 02:00 UTC backup / 03:00 UTC Sunday restore drill (docs/RUNBOOKS.md).
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One night at a time. Do not cancel an expensive run already in progress.
+  group: nightly-heavy-suite
+  cancel-in-progress: false
+
+jobs:
+  config:
+    name: Nightly workflow and Compose validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate GitHub Actions
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
+      - name: Validate Compose
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: rc_ci
+          POSTGRES_SCHEMA: rc
+          AUTH_SECRET: ci-only-secret-at-least-32-characters-long
+        run: |
+          cp .env.example .env
+          docker compose --profile prod --profile dev config --quiet
+          docker compose -f infra/compose.ci.yaml config --quiet
+
+  back:
+    name: Nightly backend (${{ matrix.store }})
+    # Same disposable services, env and coverage invocation as ci.yaml; only
+    # artifact names are prefixed so nightly reports never overwrite PR ones.
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [memory, valkey]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: back
+    env:
+      AUTH_SECRET: ci-only-secret-at-least-32-characters-long
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: strong_password
+      POSTGRES_DB: dwh
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_SCHEMA: rc_test
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:strong_password@localhost:5432/dwh
+      TEST_SCHEMA: rc_test
+      VALKEY_URL: ""
+      TEST_VALKEY_URL: redis://127.0.0.1:6379/15
+      TEST_COLLAB_BACKEND: ${{ matrix.store }}
+      TEST_VALKEY_RESET: "1"
+      COVERAGE_FILE: coverage-data
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: strong_password
+          POSTGRES_DB: dwh
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dwh"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.4.0
+        with:
+          python-version: "3.15"
+          enable-cache: true
+          cache-dependency-glob: back/uv.lock
+      - run: uv sync --locked
+      - run: uv run --no-sync ruff check
+      - run: uv run --no-sync ruff format --check
+      - run: uv run --no-sync ty check
+      - name: Full suite with coverage (${{ matrix.store }})
+        run: >-
+          uv run --no-sync pytest -q --cov=src --cov-branch
+          --cov-report=term --cov-report=xml:coverage.xml
+          --junitxml=test-results.xml --durations=10
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-backend-reports-${{ matrix.store }}
+          path: |
+            back/coverage.xml
+            back/test-results.xml
+            back/coverage-data
+          retention-days: 7
+
+  coverage:
+    name: Nightly combined backend coverage
+    needs: back
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: back
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.4.0
+        with:
+          python-version: "3.15"
+          enable-cache: true
+          cache-dependency-glob: back/uv.lock
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: nightly-backend-reports-*
+          path: back/store-reports
+      - run: uv sync --locked
+      - name: Require a report from EVERY store
+        run: |
+          for store in memory valkey; do
+            test -f "store-reports/nightly-backend-reports-$store/coverage-data" || {
+              echo "::error::missing coverage for the $store store — the matrix leg failed or uploaded nothing"
+              exit 1
+            }
+          done
+      - name: Require coverage across both transport implementations
+        run: |
+          uv run --no-sync coverage combine store-reports/nightly-backend-reports-memory/coverage-data store-reports/nightly-backend-reports-valkey/coverage-data
+          uv run --no-sync coverage report --fail-under=80
+          uv run --no-sync coverage xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-backend-coverage-combined
+          path: back/coverage.xml
+          retention-days: 7
+
+  dependencies:
+    name: Nightly dependency audit and freshness (report-only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.4.0
+        with:
+          python-version: "3.15"
+          enable-cache: true
+          cache-dependency-glob: back/uv.lock
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Same exact pin as ci.yaml: patch-level drift must not change audit
+          # or freshness results between a PR run and a nightly run.
+          bun-version: "1.4.4"
+      - name: Install frontend lockfile for bun audit
+        working-directory: front
+        run: bun install --frozen-lockfile
+      - name: Reports — locked runtime audit, JS audit, freshness
+        # DAY-ONE POLICY: pip-audit and bun audit are REPORT-ONLY. Exit codes
+        # are recorded in the artifact and the step summary; this step always
+        # succeeds so a nightly cannot silently become a new merge gate.
+        # gitleaks is the exception: it is already a green per-PR gate (see
+        # the `secrets` job) and is reused unchanged below.
+        shell: bash
+        run: |
+          set +e
+          mkdir -p reports
+          uv export --directory back --locked --no-dev --no-hashes \
+            --format requirements-txt -o runtime-requirements.txt > /dev/null
+          export_code=$?
+          uv tree --directory back --locked --outdated > reports/uv-outdated.txt 2>&1
+          uv_outdated=$?
+          bun outdated > reports/bun-outdated.txt 2>&1
+          bun_outdated=$?
+          # `uv export --no-dev` is the exact locked RUNTIME set (all transitive
+          # packages pinned); --no-deps audits exactly that set, with no pip
+          # resolving step and no runtime dependency added to the project.
+          uvx --from pip-audit==2.10.1 pip-audit \
+            --no-deps -r runtime-requirements.txt -f json -o reports/pip-audit.json
+          pip_audit=$?
+          bun audit --json > reports/bun-audit.json 2> reports/bun-audit.stderr
+          bun_audit=$?
+          printf 'uv-export=%s\nuv-tree-outdated=%s\nbun-outdated=%s\npip-audit=%s\nbun-audit=%s\n' \
+            "$export_code" "$uv_outdated" "$bun_outdated" "$pip_audit" "$bun_audit" \
+            > reports/scan-status.txt
+          {
+            echo "### Nightly dependency reports (day-one policy: REPORT-ONLY)"
+            echo "- pip-audit exit: \`$pip_audit\`"
+            echo "- bun audit exit: \`$bun_audit\`"
+            echo "- freshness: uv tree \`$uv_outdated\`, bun outdated \`$bun_outdated\`"
+            echo "Artifact: \`nightly-dependency-reports\` (7-day retention)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Report-only by policy: these exit codes never fail the job."
+          exit 0
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-dependency-reports
+          path: |
+            reports
+            runtime-requirements.txt
+          retention-days: 7
+
+  secrets:
+    name: Nightly gitleaks (existing green gate)
+    # Reused verbatim from ci.yaml. This scan already has a green required
+    # gate, so it stays blocking; the two NEW scans above do not.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The FULL history: a secret that was committed and then deleted is
+          # still in every clone, so a shallow scan would miss exactly the leak
+          # that matters most.
+          fetch-depth: 0
+      - name: Scan the history for secrets
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_SUMMARY: true
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
+  production_smoke:
+    name: Nightly production image smoke
+    needs: config
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      E2E_BASE_URL: http://127.0.0.1:15000
+      # Isolated-stand-only credential, generated per run. Never a production
+      # secret and never written to a repo file or an artifact. No
+      # AUTH_SEED_ADMIN_* is passed: local-auth smoke uses only the reserved
+      # user1..user4@test.local accounts created by the seed.
+      E2E_TEST_PASSWORD: ${{ format('e2e-nightly-{0}', github.run_id) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+      - uses: docker/setup-buildx-action@v4
+      - uses: astral-sh/setup-uv@v10.4.0
+        with:
+          python-version: "3.15"
+          enable-cache: true
+          cache-dependency-glob: back/uv.lock
+      - name: Build backend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./back
+          target: prod
+          load: true
+          tags: rc-back:ci
+          cache-from: type=gha,scope=back-nightly
+          cache-to: type=gha,mode=max,scope=back-nightly
+      - name: Build frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: ./front
+          target: prod
+          load: true
+          tags: rc-front:ci
+          build-args: |
+            NODE_OPTIONS=--max-old-space-size=3072
+          cache-from: type=gha,scope=front-nightly
+          cache-to: type=gha,mode=max,scope=front-nightly
+      - name: Initialize isolated database
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:ci_password@127.0.0.1:15432/rc_ci
+          POSTGRES_SCHEMA: rc
+          AUTH_SECRET: ci-only-secret-at-least-32-characters-long
+        run: |
+          docker compose -f infra/compose.ci.yaml up -d --wait --wait-timeout 120 postgres valkey
+          uv sync --directory back --locked --no-dev
+          # Migration 0035 needs the external dict schema; seed it first.
+          uv run --directory back --no-sync python -m src.scripts.seed_dev_dict --yes
+          uv run --directory back --no-sync python -m migrations.upgrade
+          docker compose -f infra/compose.ci.yaml run --rm --no-deps \
+            -e RC_SEED_E2E_FIXTURES=1 \
+            -e E2E_TEST_PASSWORD="$E2E_TEST_PASSWORD" \
+            back python -m src.scripts.seed_database --data-only
+          # The КППК merge/export spec needs a non-empty realization grid.
+          docker compose -f infra/compose.ci.yaml run --rm --no-deps back python -m src.scripts.seed_kppk
+      - name: Start tested production images
+        run: docker compose -f infra/compose.ci.yaml up -d --no-build --wait --wait-timeout 120 back front
+      - name: Install browser
+        working-directory: front
+        run: |
+          bun install --frozen-lockfile
+          bunx --no-install playwright install --with-deps chromium
+      - name: Browser smoke
+        run: bun run --cwd front test:e2e --project=smoke
+      - name: Collect container logs
+        if: always()
+        run: docker compose -f infra/compose.ci.yaml logs --no-color > container-logs.txt
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-browser-and-container-reports
+          path: |
+            front/playwright-report
+            front/test-results
+            container-logs.txt
+          retention-days: 7
+      - name: Stop isolated stack
+        if: always()
+        run: docker compose -f infra/compose.ci.yaml down --volumes --remove-orphans
+
+  load:
+    name: Nightly k6 load (scaled-down)
+    # Reuses load/ and the baseline job from load-baseline.yaml with fixed,
+    # scaled-down inputs (dispatch cannot supply that workflow's inputs here).
+    # This is NOT a 300-client certification — docs/LOAD-BASELINE.md.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      E2E_TEST_PASSWORD: ${{ format('e2e-nightly-{0}', github.run_id) }}
+      RC_FRONT_URL: http://127.0.0.1:15000
+      RC_WS_URL: ws://127.0.0.1:18000/api/ws/raw-materials
+      RC_VUS: "20"
+      RC_DURATION: 30s
+      K6_IMAGE: grafana/k6:2.4.0
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: astral-sh/setup-uv@v10.4.0
+        with:
+          python-version: "3.15"
+          enable-cache: true
+          cache-dependency-glob: back/uv.lock
+      - name: Build isolated images
+        run: |
+          docker build --target prod -t rc-back:ci ./back
+          docker build --target prod -t rc-front:ci ./front
+      - name: Initialize isolated database
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:ci_password@127.0.0.1:15432/rc_ci
+          POSTGRES_SCHEMA: rc
+          AUTH_SECRET: ci-only-secret-at-least-32-characters-long
+        run: |
+          docker compose -f infra/compose.ci.yaml up -d --wait --wait-timeout 120 postgres valkey
+          uv sync --directory back --locked --no-dev
+          uv run --directory back --no-sync python -m src.scripts.seed_dev_dict --yes
+          uv run --directory back --no-sync python -m migrations.upgrade
+          docker compose -f infra/compose.ci.yaml run --rm --no-deps \
+            -e RC_SEED_E2E_FIXTURES=1 \
+            -e E2E_TEST_PASSWORD="$E2E_TEST_PASSWORD" \
+            back python -m src.scripts.seed_database --data-only
+          docker compose -f infra/compose.ci.yaml up -d --no-build --wait --wait-timeout 120 back front
+      - name: Run k6 suite
+        shell: bash
+        run: |
+          mkdir -p k6-reports
+          for script in join-leave-storm steady-edit presence-scale undo-burst reconnect-resync; do
+            echo "::group::k6 $script"
+            docker run --rm --network host \
+              -v "$PWD:/repo:ro" -w /repo \
+              -e RC_FRONT_URL -e RC_WS_URL -e RC_VUS -e RC_DURATION \
+              -e E2E_TEST_PASSWORD \
+              "$K6_IMAGE" run "load/$script.js" 2>&1 | tee "k6-reports/$script.log"
+            echo "::endgroup::"
+          done
+      - name: Collect container logs
+        if: always()
+        run: docker compose -f infra/compose.ci.yaml logs --no-color > k6-reports/container-logs.txt
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-k6-load-baseline
+          path: k6-reports
+          retention-days: 7
+      - name: Stop isolated stack
+        if: always()
+        run: docker compose -f infra/compose.ci.yaml down --volumes --remove-orphans
