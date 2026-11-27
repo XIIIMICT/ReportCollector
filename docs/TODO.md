@@ -1,6 +1,6 @@
 # ReportCollector — remaining engineering work
 
-Updated 2026-11-26. Single backlog replacing the backend/frontend audits and
+Updated 2026-11-27. Single backlog replacing the backend/frontend audits and
 SCALING_BACKLOG. Completed implementation history remains in Git. This list is
 not a production-readiness sign-off; checked code and deployment acceptance are
 different milestones. Do not reopen the explicit product deferrals below.
@@ -474,6 +474,25 @@ substitute for either.** The `ui-keycloak` project is not started by CI.
   discovery guard now anchors on the `› <spec>.spec.ts:` prefix. The stale
   ports/counts in `docs/FRONTEND-REFACTOR.md` were replaced by the actual smoke
   selection; no retroactive performance evidence was added.
+- [x] **Fix-month e2e no longer hides a missing precondition in CI** (2026-11-27,
+  finding 4). A missing/disabled «Зафиксировать» action now FAILS in CI with an
+  actionable message naming the required seed state (a fixable first open
+  month: movement rows plus a PRELIMINARY `is_final=false` snapshot from
+  `python -m src.scripts.seed_database --data-only` with
+  `RC_SEED_E2E_FIXTURES=1`). It skips only when a developer deliberately runs
+  locally against a reused stand whose month was finally fixed. CI detection is
+  centralised in `front/e2e/helpers/ci.ts` (`process.env.CI`, the same signal
+  `playwright.config.ts` uses; `false`/`0`/empty mean local). The isolated CI
+  seed was verified to provide that state deterministically (2026-08-01 first
+  open month, 67 movement rows, preliminary snapshot; 2026-09-01 still open) —
+  no seed, compose or workflow change was needed. Both dismissal tests also
+  count `POST /api/raw-materials/movement/fix` requests and re-assert the month
+  is fixable after Escape / «Отменить»; the irreversible confirmation is never
+  clicked. Evidence: 3/3 targeted smoke tests passed twice on the isolated
+  stand; with a simulated `is_final=true` flag, `CI=true` produced 2 failures
+  and 0 skips with the actionable message while `CI` unset produced the 2
+  local-only skips; the flag was then restored. `format:check`, `lint:check`,
+  `typecheck` and 732 unit tests green.
 
 ## Process (hard rules)
 
