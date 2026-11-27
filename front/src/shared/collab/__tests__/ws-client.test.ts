@@ -168,3 +168,103 @@ test("a restored hello requests authoritative data, initial hello does not", asy
     socket.receive({ type: "hello", user: { userId: "me" }, members: {} });
     expect(reconnect).toHaveBeenCalledTimes(1);
 });
+
+type SeenMember = { userId: string; name?: string };
+
+/** Capture both member callbacks: hello is authoritative, deltas are merges. */
+function memberWatcher() {
+    const seen: SeenMember[][] = [];
+    const onHello = (_me: unknown, members: SeenMember[]) => seen.push(members);
+    const onMembers = (members: SeenMember[]) => seen.push(members);
+    const ids = () => (seen.at(-1) ?? []).map((member) => member.userId);
+    return { onHello, onMembers, ids, seen };
+}
+
+test("delta presence merges idempotently and ignores stale frames", async () => {
+    const watch = memberWatcher();
+    const socket = await connected(watch);
+    socket.receive({
+        type: "hello",
+        user: { userId: "me" },
+        members: { me: { userId: "me" }, a: { userId: "a", name: "A" } },
+    });
+    expect(watch.ids()).toEqual(["me", "a"]);
+
+    socket.receive({
+        type: "presence:update",
+        seq: 10,
+        changes: [
+            { userId: "b", member: { userId: "b", name: "B" } },
+            { userId: "a", member: null },
+        ],
+    });
+    expect(watch.ids()).toEqual(["me", "b"]);
+
+    // Same seq again, and an older seq from the other worker: neither may
+    // resurrect `a` or change the merged view.
+    socket.receive({
+        type: "presence:update",
+        seq: 10,
+        changes: [{ userId: "a", member: { userId: "a" } }],
+    });
+    socket.receive({
+        type: "presence:update",
+        seq: 9,
+        changes: [{ userId: "c", member: { userId: "c" } }],
+    });
+    expect(watch.ids()).toEqual(["me", "b"]);
+    expect(watch.seen).toHaveLength(2); // hello + the accepted delta only
+
+    socket.receive({
+        type: "presence:update",
+        seq: 11,
+        changes: [{ userId: "b", member: { userId: "b", name: "B2" } }],
+    });
+    expect(watch.ids()).toEqual(["me", "b"]);
+    expect(watch.seen.at(-1)?.[1]?.name).toBe("B2");
+});
+
+test("full repair snapshot replaces state only when newer; hello resets the seq", async () => {
+    const watch = memberWatcher();
+    const socket = await connected(watch);
+    socket.receive({ type: "hello", user: { userId: "me" }, members: { me: { userId: "me" } } });
+
+    socket.receive({ type: "presence:update", seq: 20, members: { x: { userId: "x" } } });
+    expect(watch.ids()).toEqual(["x"]);
+    socket.receive({ type: "presence:update", seq: 15, members: { y: { userId: "y" } } });
+    expect(watch.ids()).toEqual(["x"]);
+
+    // A reconnect is authoritative even though its (seq-less) hello would
+    // otherwise look older: it resets the sequence for the fresh socket.
+    socket.receive({ type: "hello", user: { userId: "me" }, members: { me: { userId: "me" } } });
+    expect(watch.ids()).toEqual(["me"]);
+    socket.receive({
+        type: "presence:update",
+        seq: 1,
+        changes: [{ userId: "z", member: { userId: "z" } }],
+    });
+    expect(watch.ids()).toEqual(["me", "z"]);
+});
+
+test("selection preemption also works through a delta frame", async () => {
+    const preempted = mock();
+    const socket = await connected({ onSelectionPreempted: preempted });
+    socket.receive({ type: "hello", user: { userId: "me" }, members: { me: { userId: "me" } } });
+    client.setSelection({ label: "A1", cellKeys: ["a"] });
+    socket.receive({
+        type: "presence:update",
+        seq: 5,
+        changes: [
+            { userId: "me", member: { userId: "me", selection: { label: "A1", cellKeys: ["a"] } } },
+        ],
+    });
+    expect(preempted).not.toHaveBeenCalled();
+    socket.receive({
+        type: "presence:update",
+        seq: 6,
+        changes: [
+            { userId: "me", member: { userId: "me", selection: { label: "B1", cellKeys: ["b"] } } },
+        ],
+    });
+    expect(preempted).toHaveBeenCalledTimes(1);
+});

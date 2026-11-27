@@ -268,6 +268,17 @@ class RoomAccess:
         allowed_ids = set((await session.exec(query)).all())
         return {key for key, (row_id, _) in parsed.items() if row_id in allowed_ids}
 
+    @staticmethod
+    def _visible_member(source: dict, central: bool, names: set[str], allowed: set[str]) -> dict | None:
+        """Apply the same asset/selection filter to snapshot and delta members."""
+        if not central and source.get("role") == "asset_worker" and not names.intersection(source.get("assets", [])):
+            return None
+        member = {**source}
+        selection = member.pop("selection", None)
+        if selection and selection.get("cellKeys") and all(key in allowed for key in selection["cellKeys"]):
+            member["selection"] = selection
+        return member
+
     async def filter_messages(self, messages: list[dict]) -> list[dict]:
         """Recheck rights before every batch, including silent/long-lived sockets."""
         keys: list[str] = []
@@ -277,7 +288,13 @@ class RoomAccess:
             elif message.get("type") in {"cell:locked", "cell:unlocked"}:
                 keys.append(message.get("key", ""))
             elif message.get("type") in {"hello", "presence:update"}:
-                for member in message.get("members", {}).values():
+                sources = list(message.get("members", {}).values())
+                sources.extend(
+                    change.get("member")
+                    for change in message.get("changes", [])
+                    if isinstance(change, dict) and isinstance(change.get("member"), dict)
+                )
+                for member in sources:
                     keys.extend((member.get("selection") or {}).get("cellKeys", []))
         async with self.session_factory() as session:
             try:
@@ -318,19 +335,26 @@ class RoomAccess:
                 if message.get("key") not in allowed:
                     continue
             elif kind in {"hello", "presence:update"}:
+                if "changes" in message:
+                    # Delta frames carry the same member payloads as a full
+                    # snapshot; filtering them is mandatory, not cosmetic —
+                    # otherwise an asset worker learns a foreign selection.
+                    changes = []
+                    for change in message["changes"]:
+                        member = change.get("member") if isinstance(change, dict) else None
+                        if not isinstance(member, dict):
+                            changes.append(change)  # a leave carries no payload
+                            continue
+                        visible = self._visible_member(member, central, names, allowed)
+                        if visible is not None:
+                            changes.append({**change, "member": visible})
+                    result.append({**message, "changes": changes})
+                    continue
                 members = {}
                 for member_id, source in message.get("members", {}).items():
-                    if (
-                        not central
-                        and source.get("role") == "asset_worker"
-                        and not names.intersection(source.get("assets", []))
-                    ):
-                        continue
-                    member = {**source}
-                    selection = member.pop("selection", None)
-                    if selection and selection.get("cellKeys") and all(key in allowed for key in selection["cellKeys"]):
-                        member["selection"] = selection
-                    members[member_id] = member
+                    visible = self._visible_member(source, central, names, allowed)
+                    if visible is not None:
+                        members[member_id] = visible
                 result.append({**message, "members": members})
                 continue
             result.append(message)

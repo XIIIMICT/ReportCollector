@@ -19,8 +19,14 @@ from src.raw_materials.service import NoRawMaterialsAccessError
 
 if TYPE_CHECKING:
     from src.collab.store import CollabStore
-from src.collab.ws import RoomManager, _handle_message, _resolve_raw_materials_access, raw_materials_ws
-from src.raw_materials.models import AssetRawMaterial, MaterialMovement, RawMaterialUserAsset
+from src.collab.ws import (
+    RoomManager,
+    _handle_message,
+    _resolve_raw_materials_access,
+    get_room_manager,
+    raw_materials_ws,
+)
+from src.raw_materials.models import AssetRawMaterial, MaterialMovement, RawMaterialAsset, RawMaterialUserAsset
 
 
 def access_for(db_session, *, section="materialMovement", month="2026-08-01"):
@@ -104,6 +110,59 @@ async def test_worker_only_receives_own_asset_cells_and_selection(db_session):
         assert await policy.cells(session, permissions, [own_key, foreign_key], write=True) == {own_key}
 
 
+async def test_presence_delta_is_asset_filtered(db_session):
+    """Delta frames carry member payloads too: a worker must not see a foreign selection."""
+    result = await db_session.exec(
+        select(MaterialMovement).where(col(MaterialMovement.report_month) == date(2026, 8, 1))
+    )
+    rows = list(result.all())
+    arm = await db_session.get(AssetRawMaterial, rows[0].asset_raw_material_id)
+    own = rows[0]
+    foreign = (
+        await db_session.exec(
+            select(MaterialMovement)
+            .join(AssetRawMaterial)
+            .where(
+                col(MaterialMovement.report_month) == date(2026, 8, 1),
+                col(AssetRawMaterial.asset_id) != arm.asset_id,
+            )
+        )
+    ).first()
+    policy = access_for(db_session)
+    await restrict_admin_to_asset(db_session, arm.asset_id)
+    own_asset = await db_session.get(RawMaterialAsset, arm.asset_id)
+    own_key = f"rm_material_movements/{own.id}/demandPlanTons"
+    foreign_key = f"rm_material_movements/{foreign.id}/demandPlanTons"
+    frame = {
+        "type": "presence:update",
+        "seq": 42,
+        "changes": [
+            {
+                "userId": "worker",
+                "member": {
+                    "role": "asset_worker",
+                    "assets": ["foreign"],
+                    "selection": {"label": "secret", "cellKeys": [foreign_key]},
+                },
+            },
+            {"userId": "gone", "member": None},
+            {
+                "userId": "own",
+                "member": {
+                    "role": "asset_worker",
+                    "assets": [own_asset.name],
+                    "selection": {"label": "visible", "cellKeys": [own_key]},
+                },
+            },
+        ],
+    }
+    filtered = await policy.filter_messages([frame])
+    assert len(filtered) == 1
+    assert filtered[0]["seq"] == 42
+    assert [change["userId"] for change in filtered[0]["changes"]] == ["gone", "own"]
+    assert filtered[0]["changes"][1]["member"]["selection"] == {"label": "visible", "cellKeys": [own_key]}
+
+
 async def test_central_admin_reads_all_without_explicit_grants_and_rechecks_revocation(db_session):
     row = (await db_session.exec(select(MaterialMovement))).first()
     policy = access_for(db_session)
@@ -141,6 +200,7 @@ async def test_lease_rejects_unknown_rows_and_read_only_fields(db_session, store
         project_key="raw_materials",
         owner={"userId": "admin"},
         owned_leases=set(),
+        manager=get_room_manager(),
         access=policy,
     )
     assert socket.sent[-1]["type"] == "error"

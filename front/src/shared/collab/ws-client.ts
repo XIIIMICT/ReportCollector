@@ -145,6 +145,10 @@ export class CollabWsClient {
     private lastSelection: Record<string, unknown> | null = null;
     private meUserId: string | null = null;
     private receivedHello = false;
+    /** Authoritative local view used to merge delta presence frames. */
+    private members = new Map<string, CollabMember>();
+    /** Highest sequenced presence frame applied on this socket. */
+    private presenceSeq = 0;
     private readonly activityDetach: Array<() => void> = [];
 
     constructor(
@@ -246,32 +250,59 @@ export class CollabWsClient {
         }
         if (!message || typeof message !== "object") return;
         switch (message.type) {
-            case "hello":
+            case "hello": {
                 if (this.receivedHello) this.handlers.onReconnect?.();
                 this.receivedHello = true;
                 this.meUserId = (message.user as CollabUser | undefined)?.userId ?? null;
-                this.handlers.onHello?.(message.user as CollabUser, toMembers(message.members));
-                break;
-            case "presence:update": {
+                // A hello is the authoritative reconnect resync: replace the
+                // local view and reset the sequence. The socket is new, so no
+                // older delta can still be in flight for this connection.
                 const members = toMembers(message.members);
-                // One presence entry per user: if MY user's entry carries a
-                // selection I didn't send, another tab of the same account
-                // took it over — clear mine locally (silently).
-                const mine = this.meUserId
-                    ? members.find((member) => member.userId === this.meUserId)
-                    : null;
-                if (
-                    mine &&
-                    mine.sessionId !== this.sessionId &&
-                    this.lastSelection !== null &&
-                    !sameSelection(this.lastSelection, mine.selection)
-                ) {
-                    // Don't resurrect the stale selection on reconnect or
-                    // after returning from away.
-                    this.lastSelection = null;
-                    this.handlers.onSelectionPreempted?.();
+                this.members = new Map(
+                    members.map((member) => [String(member.userId ?? ""), member]),
+                );
+                this.presenceSeq = 0;
+                this.handlers.onHello?.(message.user as CollabUser, members);
+                break;
+            }
+            case "presence:update": {
+                const seq = typeof message.seq === "number" ? message.seq : 0;
+                // Deltas are absolute per member, but dropped/reordered frames
+                // are still possible (two workers publish independently).
+                // Only a strictly newer frame may change the local view.
+                if (seq > 0 && seq <= this.presenceSeq) break;
+                if (seq > 0) this.presenceSeq = seq;
+                const changes = message.changes;
+                if (Array.isArray(changes)) {
+                    let changed = false;
+                    for (const change of changes) {
+                        if (!change || typeof change !== "object") continue;
+                        const member = change.member;
+                        const userId = String(
+                            (member &&
+                                typeof member === "object" &&
+                                (member as CollabMember).userId) ||
+                                change.userId ||
+                                "",
+                        );
+                        if (!userId) continue;
+                        if (member === null) {
+                            changed = this.members.delete(userId) || changed;
+                        } else if (member && typeof member === "object") {
+                            this.members.set(userId, member as CollabMember);
+                            changed = true;
+                        }
+                    }
+                    if (!changed) break;
+                } else {
+                    this.members = new Map(
+                        toMembers(message.members).map((member) => [
+                            String(member.userId ?? ""),
+                            member,
+                        ]),
+                    );
                 }
-                this.handlers.onMembers?.(members);
+                this.applyMembers([...this.members.values()]);
                 break;
             }
             case "cell:locked":
@@ -306,6 +337,28 @@ export class CollabWsClient {
             case "error":
                 break;
         }
+    }
+
+    /** Publish the merged member list, detecting another tab's takeover. */
+    private applyMembers(members: CollabMember[]): void {
+        // One presence entry per user: if MY user's entry carries a
+        // selection I didn't send, another tab of the same account took it
+        // over — clear mine locally (silently).
+        const mine = this.meUserId
+            ? members.find((member) => member.userId === this.meUserId)
+            : null;
+        if (
+            mine &&
+            mine.sessionId !== this.sessionId &&
+            this.lastSelection !== null &&
+            !sameSelection(this.lastSelection, mine.selection)
+        ) {
+            // Don't resurrect the stale selection on reconnect or after
+            // returning from away.
+            this.lastSelection = null;
+            this.handlers.onSelectionPreempted?.();
+        }
+        this.handlers.onMembers?.(members);
     }
 
     private handleClose(): void {

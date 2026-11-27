@@ -50,6 +50,12 @@ live in `back/AGENTS.md`; contracts in `docs/API.md`, `docs/COLLAB.md`,
     overrides — Tailwind utilities inline.
 11. **Workspace tabs:** main tables <splitter> dictionaries <splitter> users
     (`WorkspaceTab.separatorBefore`); «Логистика» starts with «Ставки».
+12. **Presence deltas:** `presence:update` may carry `changes` instead of a full
+    `members` map. `CollabWsClient` merges them into one authoritative map,
+    ignores non-newer `seq` values and resets the sequence on every `hello` —
+    do not replace a delta with `toMembers(message.members)` or drop the seq
+    guard (duplicate/reordered frames would corrupt presence). Details —
+    `docs/COLLAB.md`, `docs/PRESENCE-FANOUT.md`.
 
 ## Working rules
 

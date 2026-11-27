@@ -37,8 +37,8 @@ as a hypothesis to test, not a capacity contract.
 
 | Parameter | Assumed value | Why it matters |
 |---|---|---|
-| Clients in one room | **300** | Full presence-map fan-out is O(N) queue puts per ping (`docs/COLLAB.md`), so one hot room is the pathological case |
-| Ping interval | **5 s** | At N=300 this is an assumed 60 room-wide snapshots/s; the shipped 15 s client would be 20/s |
+| Clients in one room | **300** | Presence is now coalesced deltas with a ≤15 s repair snapshot (`docs/COLLAB.md`, `docs/PRESENCE-FANOUT.md`); one hot room is still the pathological case because each burst delivers one N-member frame to N sockets |
+| Ping interval | **5 s** | At N=300 this is an assumed 60 pings/s; pings no longer publish presence frames — at most one repair snapshot per 15 s |
 | Presence snapshot size | **~300 members × ~300 B** | ASSUMPTION (depends on names/assets/selection); replace from a real `presence:update` frame captured in Loki/proxy telemetry |
 | Lease storms | **50 clients acquiring disjoint 5-cell batches in the same second** | Stresses the sequential Valkey path: code estimate is **4k sequential round trips** per k-cell acquire+release (`docs/REMEDIATION-PHASE0-RESEARCH.md`) |
 
@@ -68,5 +68,8 @@ as a hypothesis to test, not a capacity contract.
 - They do **not** emulate browser rendering, revo-grid state, Keycloak SSO, the
   nginx proxy, or multi-worker deployment beyond the CI stand's two workers.
 - A run at less than 300 clients is a **SCALED-DOWN baseline**. Extrapolation
-  is non-linear because presence fan-out is O(N²) in one room and login is
-  Argon2-bound; do not multiply a small-run latency to certify 300 clients.
+  is non-linear because login is Argon2-bound and a join burst still delivers
+  one N-member frame to N sockets; do not multiply a small-run latency to
+  certify 300 clients. The earlier O(N²)-per-ping behaviour was measured in
+  `docs/LOAD-BASELINE.md`; the measured after-change scaling is in
+  `docs/PRESENCE-FANOUT.md`.

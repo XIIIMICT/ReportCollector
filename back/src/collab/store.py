@@ -28,6 +28,11 @@ from src.observability import measured_valkey, observe_valkey
 
 LEASE_TTL_SECONDS = 20
 PRESENCE_TTL_SECONDS = 25
+# Presence publications are sequenced with a wall-clock-based counter so a
+# restarted/expired counter cannot hand out a smaller seq than a live client
+# has already applied. The key is refreshed on every publication; an idle
+# room's counter disappears with its audience.
+PRESENCE_SEQ_TTL_SECONDS = 300
 UNDO_LIMIT = 500  # max undo stack size per user
 UNDO_SCAN_LIMIT = 200  # how deep to scan for the user's last action
 RATE_LIMIT_MAX_KEYS = 10_000
@@ -63,6 +68,10 @@ def room_presence_key(room: str) -> str:
 
 def room_channel(room: str) -> str:
     return f"rc:room:{room}"
+
+
+def presence_seq_key(room: str) -> str:
+    return f"rc:presence:seq:{room}"
 
 
 def _encode(payload: dict) -> str:
@@ -199,6 +208,21 @@ for i = 1, #members, 2 do
     end
 end
 return result
+"""
+
+# Sequence and publish a presence frame in one round trip: two workers must
+# never emit the same seq or publish an older seq after a newer one. The seq is
+# max(last + 1, wall clock ms) so both a fast local burst and a clock-skewed
+# second worker stay strictly increasing.
+_PRESENCE_PUBLISH_SCRIPT = """
+local last = tonumber(redis.call('GET', KEYS[1]) or '0')
+local now = tonumber(ARGV[2])
+local seq = math.max(last + 1, now)
+redis.call('SET', KEYS[1], seq, 'EX', ARGV[3])
+local message = cjson.decode(ARGV[1])
+message.seq = seq
+redis.call('PUBLISH', KEYS[2], cjson.encode(message))
+return seq
 """
 
 
@@ -435,11 +459,13 @@ class ValkeyStore:
         )
 
     @measured_valkey
-    async def room_leave(self, room: str, user_id: str, *, client_id: str | None = None) -> None:
+    async def room_leave(self, room: str, user_id: str, *, client_id: str | None = None) -> bool:
+        """Remove a member; False when a newer tab already owns the entry."""
         if client_id is None:
-            await self._redis.hdel(room_presence_key(room), user_id)
-        else:
+            return bool(await self._redis.hdel(room_presence_key(room), user_id))
+        return bool(
             await self._redis.eval(_PRESENCE_SCRIPT, 1, room_presence_key(room), "leave", user_id, 0, client_id)
+        )
 
     @measured_valkey
     async def refresh_presence(self, room: str, user_id: str) -> bool:
@@ -465,6 +491,21 @@ class ValkeyStore:
     @measured_valkey
     async def publish(self, room: str, message: dict) -> None:
         await self._redis.publish(room_channel(room), _encode(message))
+
+    @measured_valkey
+    async def publish_presence(self, room: str, message: dict) -> int:
+        """Publish a presence frame with a strictly increasing per-room seq."""
+        return int(
+            await self._redis.eval(
+                _PRESENCE_PUBLISH_SCRIPT,
+                2,
+                presence_seq_key(room),
+                room_channel(room),
+                _encode(message),
+                int(time.time() * 1000),
+                PRESENCE_SEQ_TTL_SECONDS,
+            )
+        )
 
     async def subscribe(self, room: str, *, ready: asyncio.Event | None = None) -> AsyncIterator[dict]:
         pubsub = self._pubsub_redis.pubsub()
@@ -493,6 +534,7 @@ class MemoryStore:
         self._lock = asyncio.Lock()
         self._leases: dict[str, tuple[dict, float]] = {}
         self._presence: dict[str, dict[str, tuple[dict, float]]] = {}
+        self._presence_seq: dict[str, int] = {}
         self._subscribers: dict[str, set[asyncio.Queue]] = {}
         self._undo: dict[tuple[str, str, str], list[dict]] = {}
         self._cell_states: dict[str, dict] = {}
@@ -682,12 +724,13 @@ class MemoryStore:
             room_members = self._presence.setdefault(room, {})
             room_members[user_id] = (payload, time.monotonic() + PRESENCE_TTL_SECONDS)
 
-    async def room_leave(self, room: str, user_id: str, *, client_id: str | None = None) -> None:
+    async def room_leave(self, room: str, user_id: str, *, client_id: str | None = None) -> bool:
         async with self._lock:
             members = self._presence.get(room, {})
             current = members.get(user_id)
             if client_id is None or (current and current[0].get("clientId") == client_id):
-                members.pop(user_id, None)
+                return members.pop(user_id, None) is not None
+            return False
 
     async def presence_expires_at(self, room: str, user_id: str) -> float | None:
         """Presence expiration moment of a member (for heartbeat tests)."""
@@ -710,18 +753,28 @@ class MemoryStore:
             room_members = self._presence.get(room, {})
             return {user_id: payload for user_id, (payload, expires_at) in room_members.items() if expires_at > now}
 
+    def _fanout_locked(self, room: str, message: dict) -> None:
+        for subscriber in self._subscribers.get(room, set()):
+            if subscriber.full():
+                while not subscriber.empty():
+                    subscriber.get_nowait()
+                subscriber.put_nowait({"type": "transport:resync"})
+                continue
+            subscriber.put_nowait(message)
+
     async def publish(self, room: str, message: dict) -> None:
         # Round-trip through JSON like the Redis path: non-serializable values
         # (e.g. a raw date) must fail in tests, not in production.
         message = _decode(_encode(message))
         async with self._lock:
-            for subscriber in self._subscribers.get(room, set()):
-                if subscriber.full():
-                    while not subscriber.empty():
-                        subscriber.get_nowait()
-                    subscriber.put_nowait({"type": "transport:resync"})
-                    continue
-                subscriber.put_nowait(message)
+            self._fanout_locked(room, message)
+
+    async def publish_presence(self, room: str, message: dict) -> int:
+        async with self._lock:
+            seq = max(self._presence_seq.get(room, 0) + 1, int(time.time() * 1000))
+            self._presence_seq[room] = seq
+            self._fanout_locked(room, _decode(_encode({**message, "seq": seq})))
+            return seq
 
     async def subscribe(self, room: str, *, ready: asyncio.Event | None = None) -> AsyncIterator[dict]:
         queue: asyncio.Queue = asyncio.Queue(maxsize=256)
