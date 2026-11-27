@@ -334,6 +334,54 @@
       ],
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "PostgreSQL: бекапы",
+      "description": "Возраст последнего успешного бекапа (RPO ≤ 24 ч), размер дампа и число файлов в retain. Метрики пишет sidecar pgbackup.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 58 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "pg_backup_last_success_age_seconds{job=\"reportcollector-pg-backup\"}", "legendFormat": "возраст бекапа", "refId": "A" },
+        { "expr": "pg_backup_last_size_bytes{job=\"reportcollector-pg-backup\"}", "legendFormat": "размер дампа", "refId": "B" },
+        { "expr": "pg_backup_files_retained{job=\"reportcollector-pg-backup\"}", "legendFormat": "файлов в retain", "refId": "C" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": [
+          { "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "unit", "value": "bytes" }, { "id": "custom.axisPlacement", "value": "right" }] },
+          { "matcher": { "id": "byFrameRefID", "options": "C" }, "properties": [{ "id": "unit", "value": "short" }, { "id": "custom.axisPlacement", "value": "right" }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Возраст репетиции восстановления",
+      "description": "Еженедельный drill: age выше 7 дней — предупреждение, выше 8 — алерт PgRestoreDrillOverdue.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 58 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "pg_backup_drill_last_success_age_seconds{job=\"reportcollector-pg-backup\"}", "legendFormat": "drill age", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 604800 },
+              { "color": "red", "value": 691200 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
     }
   ]
 }

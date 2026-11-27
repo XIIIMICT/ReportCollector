@@ -35,6 +35,7 @@ Domain contracts — `docs/DOMAINS.md`; collaboration protocol — `docs/COLLAB.
 | Stack dev/prod | `just dev` (hot reload, `--watch`) · `just prod` |
 | Infrastructure | `just db-stand` (postgres + valkey) · `just auth-stand` (keycloak) |
 | Observability | `just monitoring-stand` (full stack) · `just monitoring` (Alloy only, external Loki) · `just drift-check` (shared-config drift). Backend `/metrics`; logs carry `env=<LOG_ENV>`. Mail routing and the SMTP-relay deviation — `docs/ARCHITECTURE.md` |
+| PostgreSQL backup | `just backup-stand` (daily dump + weekly restore drill) · `just backup-now` · `just backup-drill` · `just backup-logs`. Contract, restore procedure and alert response — `docs/RUNBOOKS.md` |
 | Standalone proxy | `just proxy-stand` (80/443 → front + WS back; same files as the central stack) |
 | Migrations | `just migrate` — never edit an applied prod migration. The connection sets `lock_timeout=30s`: a blocked migration fails loudly |
 | New DB / legacy adoption | New: `just migrate`. Adopting legacy head `0015_plan_row_col_218` is unsupported after 0041 (`r_plan_rows` was rebuilt) — `docs/WORKFLOW.md` |
@@ -113,6 +114,8 @@ picks another interpreter (use `uv run pytest`); `npx` picks another resolver.
 - `docs/GRID.md` — revo-grid forms, columns, clipboard, selection, coordinates,
   tooltips; split into `###` sections — jump to the heading.
 - `docs/TODO.md` — the single engineering backlog and product deferrals.
+- `docs/RUNBOOKS.md` — PostgreSQL backup/restore runbook: schedule, retention,
+  RPO assumption, drill cadence, off-host config, monitoring contract and alert response.
 - `docs/LIMITS.md` — owner-approved Phase 9 limit decisions.
 - `docs/WORKFLOW.md` — canonical process: quality, languages, prek, branches.
 - `docs/KEYCLOAK.md` — OIDC flow, prod config, claims→user, diagnostics. Prod

@@ -22,6 +22,23 @@ dev:
 db-stand:
     docker compose up -d postgres valkey
 
+# Sidecar бекапов PostgreSQL (ежедневный pg_dump + еженедельный restore drill).
+# Не входит в db-stand: запускается явно, без хост-портов.
+backup-stand:
+    docker compose up -d pgbackup
+
+# Разовый полный бекап; код выхода = код упавшего pg_dump/pg_restore.
+backup-now:
+    docker compose run --rm pgbackup backup
+
+# Разовый restore drill: восстановление в scratch-БД + проверка alembic_version.
+backup-drill:
+    docker compose run --rm pgbackup drill
+
+# Логи sidecar'а бекапов.
+backup-logs:
+    docker compose logs -f pgbackup
+
 # Локальный Keycloak вместо корпоративного (нужен db-stand)
 auth-stand:
     docker compose up -d keycloak

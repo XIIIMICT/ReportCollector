@@ -35,6 +35,14 @@ jobs:
           cp .env.example .env
           docker compose --profile prod --profile dev config --quiet
           docker compose -f infra/compose.ci.yaml config --quiet
+      - name: Validate alert rules and dashboard JSON
+        # The backup alerts and the provisioned panel are part of the same
+        # change as the sidecar. Test the rules with the same promtool version
+        # the monitoring container ships, so a broken expression cannot merge.
+        run: |
+          docker run --rm --entrypoint promtool -v "$PWD/infra/prometheus:/rules" -w /rules prom/prometheus:v3.6.0 check rules alert-rules.yml
+          docker run --rm --entrypoint promtool -v "$PWD/infra/prometheus:/rules" -w /rules prom/prometheus:v3.6.0 test rules alert-rules.test.yml
+          python3 -m json.tool infra/grafana/provisioning/dashboards-json/service.json > /dev/null
       - name: Reject host-wide port publications
         # Parses rendered `docker compose config --format json`, so includes,
         # profiles and ${VAR} expansion are already applied. The unit tests

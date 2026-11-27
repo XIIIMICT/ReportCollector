@@ -65,7 +65,9 @@ different milestones. Do not reopen the explicit product deferrals below.
   uses `MAX_ACTIVE_JOBS` globally and per-call limits in the repositories.
 - [ ] Verify the locked hosted CI run and production image/migration/browser
   gates after push. Align reverse-proxy upload, response and timeout limits with
-  application settings. Agree SLOs, availability and RPO/RTO with the operator.
+  application settings. Agree SLOs, availability and **RTO** with the operator:
+  RPO is now an implemented assumption of **≤ 24 h** (daily verified full dump,
+  P1-8), not an agreed contract — evidence and escalation in `docs/RUNBOOKS.md`.
 
 ## P1 — backend correctness and bounded work
 
@@ -167,6 +169,18 @@ different milestones. Do not reopen the explicit product deferrals below.
 - [ ] Add queue wait/oldest-job/heartbeat-age and stuck-import alerts, detailed
   import phases, outbox depth/oldest-event/publish-failure/delivery-latency metrics,
   and disk sampling for IMPORT_DIR as well as export/log directories.
+- [x] **P1-8 — automated PostgreSQL backup, verified restore drill and
+  monitoring (2026-11-27).** Daily full `pg_dump -Fc` + `pg_restore --list`
+  verification into the named volume `rc-postgres-backups` (7 dumps retained),
+  weekly restore into a scratch DB with a DDL/row-count assertion on
+  `<schema>.alembic_version`, and a one-shot mode that propagates the failing
+  tool's exit code. A narrow stdlib exporter (`reportcollector-pg-backup` job)
+  feeds five alerts in `alert-rules.yml` (promtool-checked, with unit tests) and
+  panels 16–17 of the «Сервис» dashboard; all landed in this one change. A real
+  drill was executed on a disposable scratch DB created and removed for the
+  purpose — exact commands/outputs in the deliverable report. Contract:
+  `docs/RUNBOOKS.md`. OPEN: off-host copy (`BACKUP_OFFHOST_TARGET` empty by
+  default, therefore NOT satisfied), RTO, PITR and central-stack scrape wiring.
 - [ ] Add production target discovery, distinct environment labels, route
   p95/p99 recording rules and calibrated saturation, memory/CPU, restart-loop
   alerts. Restrict /metrics to the monitoring network in the deployment.
@@ -305,8 +319,11 @@ of in a separate brief.
   add a fragile forward without verifying the full payload on the real runtime.
 - [ ] **Monitoring and alerting** — metrics exposure, per-process scraping,
   queue-age/worker/DB metrics, alert design, operational dashboards.
-- [ ] **Production runbooks and disaster recovery** — backup/restore validation,
-  RPO/RTO, failure procedures, disk-full/object-store/Valkey/DB outage response.
+- [ ] **Production runbooks and disaster recovery** — backup/restore validation
+  is now implemented and exercised locally (P1-8 above; procedure and alert
+  response in `docs/RUNBOOKS.md`). Still open: off-host destination and its
+  lifecycle, agreed RTO/RPO, PITR, and failure procedures for disk-full,
+  object-store, Valkey and DB outage.
 - [ ] **Security/logging review** — PII in authentication/application logs,
   retention, redaction and access policy with the organization.
 - [ ] **Load/stress certification** — representative large files/dataset,

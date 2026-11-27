@@ -23,6 +23,16 @@ scrape_configs:
         labels:
           env: "${LOG_ENV}"
 
+  # Batch backup sidecar: a narrow stdlib exporter on the compose network, no
+  # host publication. The central DWH stack needs the same job pointed at its
+  # own backup service name/address (see docs/RUNBOOKS.md).
+  - job_name: reportcollector-pg-backup
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["pgbackup:9113"]
+        labels:
+          env: "${LOG_ENV}"
+
   # Stack self-monitoring: every service this compose stack runs must have an
   # `up` series so the alert rules can detect its failure.
   - job_name: prometheus
