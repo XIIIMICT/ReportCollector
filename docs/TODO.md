@@ -531,3 +531,23 @@ reminder, not a second copy:
   here): the real 306k-row / ~3.3 GiB download and LibreOffice opening — LibreOffice
   is absent on this host, Excel was used. Evidence —
   `docs/XLSX_EXPORT_SIZE_BASELINE.md`, `_COMPRESSION.json`, `_OPTIMIZED.json`.
+
+- [x] **P2 — CI test identities cleaned (2026-11-27).** Repository-wide search for
+  the fixed test-password literal and the old corporate CI seed email found
+  9 hits. Both credential hits were removed: the corporate-looking `AUTH_SEED_ADMIN_*` pair
+  from the isolated CI compose file (no substitute address) and the password
+  fallback in the local/demo Keycloak provisioning script. The other 6 email
+  hits are non-CI identities kept with reasons: three application seed
+  constants (local/demo + production seed data), the local realm import, and
+  two documentation examples of OIDC claim/admin-membership behavior. CI still
+  generates `E2E_TEST_PASSWORD` per run in workflow env and passes it to the
+  isolated seed; the generated value is never written to a repo file or an
+  artifact. Demo provisioning now requires `RENOVATION_SEED_PASSWORD` and fails
+  before any `kcadm` call. `back/tests/test_e2e_seed_credentials.py` pins the
+  reserved `.test` identities, the actionable missing-password error and the
+  no-fallback contract. Verified: repo-wide grep finds no fixed test-password
+  literal; `uv run --directory back ruff check`, `ruff format --check` and `ty check`
+  green; 13 targeted backend tests pass; `bun run --cwd front typecheck` and
+  `bun run --cwd front test` (732) green; actionlint via
+  `rhysd/actionlint:1.7.7` and `docker compose -f infra/compose.ci.yaml config
+  --quiet` clean.

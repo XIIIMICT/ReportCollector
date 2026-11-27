@@ -315,7 +315,10 @@ for _asset_code in RENOVATION_ASSET_WORKER_ASSETS:
 # The smoke specs sign in as four reserved local-auth accounts. They are created
 # only when RC_SEED_E2E_FIXTURES=1 on an isolated CI/local stand with
 # KEYCLOAK_ENABLED=false. The password comes from E2E_TEST_PASSWORD (see the
-# root .env.example) — no credential literal belongs in the repository.
+# root .env.example) — no credential literal belongs in the repository. CI
+# generates that value per run and passes it via workflow env; it sets no
+# AUTH_SEED_ADMIN_*, so the corporate-looking seed users get no local password
+# and local-auth tests rely exclusively on these four reserved accounts.
 RC_SEED_E2E_FIXTURES = "RC_SEED_E2E_FIXTURES"
 E2E_CREDENTIAL_ENV = "E2E_TEST_PASSWORD"
 E2E_ARCHIVE_CREATOR = "e2e-fixture"

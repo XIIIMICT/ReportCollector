@@ -6,9 +6,16 @@
 # blocks are company directorates (tech / ksir / mto) and the demo accounts are
 # placeholders to be replaced by real employees.
 #
-# Usage: powershell -ExecutionPolicy Bypass -File infra/keycloak/provision-renovation-users.ps1
+# LOCAL/DEMO ONLY — changes the local Keycloak realm, never CI or production.
+#
+# Usage: set RENOVATION_SEED_PASSWORD to a demo password, then run
+#        powershell -ExecutionPolicy Bypass -File infra/keycloak/provision-renovation-users.ps1
 #        [-CleanupLegacy]   # also delete the pre-directorate demo usernames
-# Env overrides: KEYCLOAK_ADMIN_USERNAME, KEYCLOAK_ADMIN_PASSWORD, RENOVATION_SEED_PASSWORD.
+#
+# RENOVATION_SEED_PASSWORD is REQUIRED and has no default: the script fails
+# before any kcadm call when it is absent. This is a local/demo Keycloak
+# password; never reuse the app's E2E_TEST_PASSWORD (different stand/contract).
+# Other env overrides: KEYCLOAK_ADMIN_USERNAME, KEYCLOAK_ADMIN_PASSWORD.
 param([switch]$CleanupLegacy)
 $ErrorActionPreference = "Stop"
 
@@ -17,7 +24,10 @@ $Realm = "reportcollector"
 $Server = "http://localhost:8080"
 $AdminUser = if ($env:KEYCLOAK_ADMIN_USERNAME) { $env:KEYCLOAK_ADMIN_USERNAME } else { "admin" }
 $AdminPassword = if ($env:KEYCLOAK_ADMIN_PASSWORD) { $env:KEYCLOAK_ADMIN_PASSWORD } else { "admin" }
-$Password = if ($env:RENOVATION_SEED_PASSWORD) { $env:RENOVATION_SEED_PASSWORD } else { "TestPassword123" }
+$Password = $env:RENOVATION_SEED_PASSWORD
+if (-not $Password) {
+    throw "RENOVATION_SEED_PASSWORD is required for local/demo Keycloak provisioning; no default password is used."
+}
 
 function Invoke-Kc {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$KcArgs)
@@ -91,4 +101,4 @@ if ($CleanupLegacy) {
     }
 }
 
-Write-Host "Keycloak renovation users ready (password: $Password)."
+Write-Host "Keycloak renovation users ready (password supplied via RENOVATION_SEED_PASSWORD)."
