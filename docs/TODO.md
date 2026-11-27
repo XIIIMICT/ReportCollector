@@ -71,6 +71,14 @@ different milestones. Do not reopen the explicit product deferrals below.
 
 ## P1 — backend correctness and bounded work
 
+- [x] **P1-2 — batched lease round trips (2026-11-27).** `lease:acquire` and
+  `lease:release` now use one EVALSHA over the whole cell set in both stores,
+  with a deterministic NOSCRIPT → `SCRIPT LOAD` fallback. Verified model: the
+  fencing token is PostgreSQL `collab_action_id_seq` → `lastActionId`, not a
+  Valkey lease value; per-cell TTL/owner equality/partial grants and error
+  frames are unchanged. Measured k=1/5/20 before/after on the disposable CI
+  stand (lease p95 37.29→19.59 / 21.04→19.29 / 50→22.84 ms): `docs/LEASE-BATCHING.md`.
+  Full pytest green in memory and valkey modes, combined coverage 81%.
 - [ ] Finish plan preflight as one bounded worker operation: persist the bounded
   validation result and validate missing catalog definitions explicitly. The
   existing-code lookup is now bounded too (RC-2), the request DB session is

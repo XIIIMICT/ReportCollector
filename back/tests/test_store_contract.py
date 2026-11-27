@@ -32,6 +32,53 @@ async def test_concurrent_lease_acquisition_has_one_owner(store) -> None:
     assert await store.release_lease("contract:lease", winner)
 
 
+async def test_batch_acquire_keeps_partial_grants_and_owner_checks(store) -> None:
+    keys = [f"contract:batch/{index}" for index in range(3)]
+    owner = {"userId": "batch-owner", "sessionId": "s1"}
+    other = {"userId": "other", "sessionId": "s2"}
+    try:
+        assert await store.acquire_lease(keys[1], other) is None
+        verdicts = await store.acquire_leases(keys, owner)
+        assert verdicts == [None, other, None]
+        assert await store.get_lease(keys[0]) == owner
+        assert await store.get_lease(keys[1]) == other
+        assert await store.get_lease(keys[2]) == owner
+
+        wrong_release = await store.release_leases(keys, owner | {"userId": "stranger"})
+        assert wrong_release == [False, False, False]
+        assert await store.release_leases(keys, other) == [False, True, False]
+        assert await store.release_leases(keys, owner) == [True, False, True]
+        assert all(value is None for value in await store.get_leases(keys))
+    finally:
+        await store.release_leases(keys, owner)
+        await store.release_leases(keys, other)
+
+
+async def test_empty_lease_batches_do_not_touch_the_transport(store, monkeypatch) -> None:
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("An empty lease batch must short-circuit before any script call")
+
+    monkeypatch.setattr(store, "_batch_acquire", forbidden, raising=False)
+    monkeypatch.setattr(store, "_batch_release", forbidden, raising=False)
+    assert await store.acquire_leases([], {"userId": "u"}) == []
+    assert await store.release_leases([], {"userId": "u"}) == []
+
+
+async def test_batch_acquire_concurrent_sessions_have_one_owner_per_cell(store) -> None:
+    keys = [f"contract:race/{index}" for index in range(5)]
+    owners = [{"userId": f"session-{index}"} for index in range(8)]
+    try:
+        results = await asyncio.gather(*(store.acquire_leases(keys, owner) for owner in owners))
+        for column in range(len(keys)):
+            verdicts = [row[column] for row in results]
+            assert verdicts.count(None) == 1
+            winner = owners[verdicts.index(None)]
+            assert all(verdict is None or verdict == winner for verdict in verdicts)
+    finally:
+        for owner in owners:
+            await store.release_leases(keys, owner)
+
+
 async def test_cell_revision_is_atomic_and_numeric(store) -> None:
     revisions = await asyncio.gather(
         *(

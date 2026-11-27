@@ -700,6 +700,37 @@ async def test_ws_oversized_lease_selection_is_an_error(db_session) -> None:
 
 
 @pytest.mark.real_schema
+async def test_ws_batched_lease_acquire_and_release(client, db_session) -> None:
+    """One WS message leases/releases the whole cell set with per-cell events."""
+    row_id = await _movement_row_id(client)
+    cells = [f"rm_material_movements/{row_id}/{field}" for field in ("balanceOnSiteTons", "consumptionFactTons")]
+    fake = FakeWebSocket(project="raw_materials")
+    task = await _run_collab_ws(db_session, fake)
+    try:
+        await _wait_until(lambda: any(message.get("type") == "hello" for message in fake.sent))
+        fake.sent.clear()
+        fake.incoming.append({"type": "lease:acquire", "cells": cells})
+        await _wait_until(
+            lambda: any(
+                message.get("type") == "lease:granted" and message.get("cells") == cells for message in fake.sent
+            )
+        )
+        assert not any(message.get("type") == "lease:denied" for message in fake.sent)
+        await _wait_until(lambda: sum(message.get("type") == "cell:locked" for message in fake.sent) == len(cells))
+        locked = [message for message in fake.sent if message.get("type") == "cell:locked"]
+        assert {message["key"] for message in locked} == set(cells)
+
+        fake.sent.clear()
+        fake.incoming.append({"type": "lease:release", "cells": cells})
+        await _wait_until(lambda: sum(message.get("type") == "cell:unlocked" for message in fake.sent) == len(cells))
+        unlocked = [message for message in fake.sent if message.get("type") == "cell:unlocked"]
+        assert {message["key"] for message in unlocked} == set(cells)
+    finally:
+        fake.disconnect = True
+        await task
+
+
+@pytest.mark.real_schema
 async def test_ws_ping_refreshes_presence(db_session, store, presence_expiry) -> None:
     """Heartbeat renews presence: the member doesn't vanish from the room."""
     room = "rm:raw_materials:materialMovement:2026-08-01"

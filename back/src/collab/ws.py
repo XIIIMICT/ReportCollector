@@ -705,16 +705,13 @@ async def _handle_message(
                 {"type": "error", "message": f"Слишком много выделенных ячеек (не более {_MAX_OWNED_LEASES})."}
             )
             return
-        granted: list[str] = []
-        denied: list[tuple[str, dict]] = []
-        for cell_key in cells:
-            key = lease_key(cell_key, project=project_key)
-            current_owner = await store.acquire_lease(key, owner)
-            if current_owner is None:
-                granted.append(cell_key)
-                owned_leases.add(cell_key)
-            else:
-                denied.append((cell_key, current_owner))
+        # One EVALSHA for the whole message. Partial grants stay visible: each
+        # cell keeps its own granted/denied verdict and cell:locked publication.
+        keys = [lease_key(cell_key, project=project_key) for cell_key in cells]
+        verdicts = await store.acquire_leases(keys, owner)
+        granted = [cell for cell, verdict in zip(cells, verdicts, strict=True) if verdict is None]
+        denied = [(cell, verdict) for cell, verdict in zip(cells, verdicts, strict=True) if verdict is not None]
+        owned_leases.update(granted)
         await websocket.send_json({"type": "lease:granted", "cells": granted, "user": owner})
         if denied:
             await websocket.send_json(
@@ -731,9 +728,9 @@ async def _handle_message(
             await store.renew_lease(lease_key(cell_key, project=project_key), owner)
         return
     if message_type == "lease:release":
-        for cell_key in cells:
-            key = lease_key(cell_key, project=project_key)
-            released = await store.release_lease(key, owner)
+        keys = [lease_key(cell_key, project=project_key) for cell_key in cells]
+        verdicts = await store.release_leases(keys, owner)
+        for cell_key, released in zip(cells, verdicts, strict=True):
             owned_leases.discard(cell_key)
             if released:
                 await store.publish(room, {"type": "cell:unlocked", "key": cell_key, "user": owner})
