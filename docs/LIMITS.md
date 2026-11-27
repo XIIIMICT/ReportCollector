@@ -205,3 +205,17 @@ Verification (RC-6): `tests/test_plan_read_compat.py` (boundary at/above 5000,
 zero row models materialized on refusal, stable error shape, paged alternative,
 uncapped and duplicate `rowIds`) plus targeted plan/export/router tests; the
 full backend suite and static checks are recorded in the commit body.
+
+### RC-5 measurement scope (2026-11-27)
+
+No new resource limit was introduced. The load harness
+(`back/tests/benchmark_rollout_workload.py`) is a **measurement** tool: it
+creates and drops only a disposable `rc_workload*` schema and reports the
+observed p50/p95/p99, RSS/CPU, pool-acquire and Lock-wait samples for a
+synthetic 306k-row plan. The captured run lives in
+`docs/ROLLOUT_WORKLOAD_2026-11-27.json` and is CI-stand evidence only. KPPK
+slices, collaboration/WS fan-out, worker restart under a supervisor, queue wait
+under load, dropped sockets and the full 306k-row workbook download need the
+target host and are recorded as OPEN, with no invented numbers. The documented
+class-D gaps (filter `values`/search strings uncapped, no room/socket limits,
+proxy body buffering) are unchanged.

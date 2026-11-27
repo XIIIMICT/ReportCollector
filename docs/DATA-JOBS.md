@@ -557,6 +557,59 @@ The cache keeps working during rollout: an old backend reading a schema without
 the column is impossible once the migration is applied, and the new backend
 never serves a pre-bump entry because of the `8:` key prefix.
 
+### RC-5 rollout evidence (disposable stand only, 2026-11-27)
+
+The rollout gates above were re-verified without touching a shared/persistent
+database:
+
+- The read-only audit was run against the **disposable CI stand** (`rc_ci` at
+  `127.0.0.1:16432`, schema `rc`) in text, `--format json` and `--dry-run` modes.
+  It reported **0 duplicate groups / 0 rows involved**, exit 0, `migration 0042:
+  ready`; the current CI alembic version is `0043_plan_work_code_revision`.
+  The script's SQL is SELECT-only under `SET TRANSACTION READ ONLY`; `--dry-run`
+  only prints commented SQL. It never deletes, seeds, updates or runs a
+  migration, and never picks a surviving row. The report fields (`plan_id`,
+  `plan_state`, `work_or_repair_code`, `duplicate_count`, `row_ids`, `positions`
+  in position order) are pinned by
+  `back/tests/test_plan_import_code_uniqueness.py::test_audit_reports_within_plan_duplicates_but_not_cross_version_repeats`.
+  The harness's `verify-audit` mode re-ran the same CLI in a fresh process
+  against `rc` (exit 0, zero groups). **Live data was not cleaned by this
+  work** — the maintainer gate stays open.
+- Migration 0042 was inspected, not executed: it creates
+  `uq_r_plan_rows_plan_work_or_repair_code` on the semantic
+  `(plan_id, work_or_repair_code)` with a plain `CREATE UNIQUE INDEX` and **no
+  `IF NOT EXISTS`**; `down_revision = 0041_plan_rows_semantic_names`; `col_003`
+  appears nowhere in the migration. Its `downgrade()` drops only the index.
+- Migration 0043 has `down_revision = 0042_plan_work_code_unique` and contains
+  the RC-1 corrected UPDATE trigger: both old and new transition tables are
+  read, and every distinct plan whose `plan_id` **or** `work_or_repair_code`
+  changed is bumped (so a same-code plan transfer bumps both plans). Its
+  `downgrade()` removes the triggers, function and column only.
+
+A reusable workload harness lives in
+`back/tests/benchmark_rollout_workload.py`. It creates and drops **only** its
+own `rc_workload*` schema (the default target is the disposable CI postgres);
+it refuses any other schema name. It seeds a synthetic sparse working plan and
+drives the real service functions (`read_plan_rows`, `read_plan_facets`,
+`read_working_plan_aggregates`, `iter_plan_export_rows`,
+`read_plan_export_meta`, `stream_renovation_workbook`) plus the existing
+`benchmark_import_bounded_memory` inspect/apply paths on a dedicated
+`rc_bench_rollout` schema. It reports wall p50/p95/p99, throughput, RSS/CPU
+delta, pool-acquire and sampled Lock-wait time; scenarios that need the live
+stack are listed under `not_run`, never assigned numbers:
+
+    uv run --directory back python -m tests.benchmark_rollout_workload run \
+        --rows 306000 --reps 5 --import-rows 10000 --commit <sha>
+    uv run --directory back python -m tests.benchmark_rollout_workload verify-audit
+
+The captured numbers, exact commands, dataset shape, Python/platform, commit
+and the `not_run` gates are in `docs/ROLLOUT_WORKLOAD_2026-11-27.json`. They
+are **local CI-stand evidence**, not target-host or production certification.
+KPPK slices (operator-loaded `raw.kppk_*` dumps), authenticated multi-client
+collaboration, worker restart under a real supervisor, queue wait under load,
+dropped sockets behind the load balancer and the full ~3.3 GB 306k-row XLSB/XLSX
+download remain OPEN target-host gates (`docs/TODO.md`).
+
 ## Excel export dialog (all projects)
 
 Every workspace uses the same export button and the same HeroUI v3 `Modal`

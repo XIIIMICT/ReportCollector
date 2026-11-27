@@ -1,0 +1,212 @@
+{
+  "scenario": "rollout-workload",
+  "commit": "fc4265a",
+  "captured_at": "2026-11-27T01:39:48.338446+00:00",
+  "disposable_stand_only": true,
+  "production_or_target_host_evidence": false,
+  "commands": {
+    "workload": "uv run --directory back python -m tests.benchmark_rollout_workload run --rows 306000 --reps 5 --import-rows 10000 --commit fc4265a",
+    "audit_text": "POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=16432 POSTGRES_USER=postgres POSTGRES_PASSWORD=ci_password POSTGRES_DB=rc_ci POSTGRES_SCHEMA=rc AUTH_SECRET=<ci-secret> uv run --directory back -m src.scripts.audit_plan_work_code_duplicates",
+    "audit_json_and_dry_run": "same env, append --format json / --dry-run",
+    "static_checks": "uv run --directory back ruff check; uv run --directory back ruff format --check; uv run --directory back ty check",
+    "pytest": "TEST_DATABASE_URL=postgresql+asyncpg://postgres:ci_password@127.0.0.1:16432/rc_ci TEST_SCHEMA=rc_test_rc5 LOGISTICS_DICT_SCHEMA=rc_test_rc5 uv run --directory back pytest -q"
+  },
+  "environment": {
+    "database_url_host": "127.0.0.1:16432/rc_ci",
+    "schema": "rc_workload",
+    "python": "3.15.0",
+    "platform": "win32",
+    "rows_seeded": 306000,
+    "import_rows": 10000,
+    "repetitions": 5,
+    "seed_shape": "synthetic sparse plan rows (id, plan_id, position, asset, unique code, 4 value columns)"
+  },
+  "measured": {
+    "window@0": {
+      "n": 5,
+      "p50_s": 0.1225,
+      "p95_s": 0.6141,
+      "p99_s": 0.6998,
+      "min_s": 0.1196,
+      "max_s": 0.7212,
+      "units_processed": 1000,
+      "throughput_units_per_s": 8165.2
+    },
+    "window@100000": {
+      "n": 5,
+      "p50_s": 0.1008,
+      "p95_s": 0.3455,
+      "p99_s": 0.3815,
+      "min_s": 0.0967,
+      "max_s": 0.3905,
+      "units_processed": 1000,
+      "throughput_units_per_s": 9923.3
+    },
+    "window@300000": {
+      "n": 5,
+      "p50_s": 0.0968,
+      "p95_s": 0.1275,
+      "p99_s": 0.1329,
+      "min_s": 0.0955,
+      "max_s": 0.1343,
+      "units_processed": 1000,
+      "throughput_units_per_s": 10328.2
+    },
+    "window_filtered": {
+      "n": 5,
+      "p50_s": 0.102,
+      "p95_s": 0.1563,
+      "p99_s": 0.1668,
+      "min_s": 0.0966,
+      "max_s": 0.1694,
+      "units_processed": 1000,
+      "throughput_units_per_s": 9804.8
+    },
+    "facet:workshop_name": {
+      "n": 5,
+      "p50_s": 0.0286,
+      "p95_s": 0.0973,
+      "p99_s": 0.1108,
+      "min_s": 0.0276,
+      "max_s": 0.1141,
+      "units_processed": 24,
+      "throughput_units_per_s": 840.2
+    },
+    "facet:work_description": {
+      "n": 5,
+      "p50_s": 0.0308,
+      "p95_s": 0.1506,
+      "p99_s": 0.1745,
+      "min_s": 0.0281,
+      "max_s": 0.1805,
+      "units_processed": 200,
+      "throughput_units_per_s": 6487.3
+    },
+    "facet:work_description:search": {
+      "n": 5,
+      "p50_s": 0.0281,
+      "p95_s": 0.1466,
+      "p99_s": 0.1701,
+      "min_s": 0.0272,
+      "max_s": 0.176,
+      "units_processed": 100,
+      "throughput_units_per_s": 3561.2
+    },
+    "aggregates": {
+      "n": 5,
+      "p50_s": 0.03,
+      "p95_s": 0.129,
+      "p99_s": 0.1488,
+      "min_s": 0.0282,
+      "max_s": 0.1537,
+      "units_processed": null,
+      "throughput_units_per_s": null
+    },
+    "export_iter_full": {
+      "n": 5,
+      "p50_s": 142.9818,
+      "p95_s": 143.5712,
+      "p99_s": 143.6047,
+      "min_s": 142.4989,
+      "max_s": 143.613,
+      "units_processed": 306000,
+      "throughput_units_per_s": 2140.1
+    },
+    "export_xlsx_filtered": {
+      "n": 5,
+      "p50_s": 2.6165,
+      "p95_s": 2.7389,
+      "p99_s": 2.7612,
+      "min_s": 2.5564,
+      "max_s": 2.7667,
+      "units_processed": 5000,
+      "throughput_units_per_s": 1910.9
+    }
+  },
+  "scenario_results": {
+    "export_iter_full_rows": 306000,
+    "export_xlsx_filtered_bytes": 3174810,
+    "export_xlsx_filtered_rows": 5000
+  },
+  "db_pool_acquire_wait_s": {
+    "n": 3,
+    "p50_s": 0.0,
+    "p95_s": 0.0145,
+    "p99_s": 0.0158,
+    "min_s": 0.0,
+    "max_s": 0.0161,
+    "method": "AsyncAdaptedQueuePool._do_get wrapper on the harness engine"
+  },
+  "db_lock_wait_s": {
+    "samples": 0,
+    "total_sampled_s": 0,
+    "method": "20 ms pg_stat_activity poll, application_name='rc-workload', wait_event_type='Lock'"
+  },
+  "rss_bytes": 223637504,
+  "rss_start_bytes": 104361984,
+  "rss_delta_bytes": 119275520,
+  "cpu_process_time_s": 726.281,
+  "import_benchmark": {
+    "inspect": {
+      "mode": "inspect",
+      "rows": 10000,
+      "workbook_bytes": null,
+      "generation_s": 0.552,
+      "wall_s": 3.749,
+      "rows_per_second": 2667.6,
+      "peak_traced_heap_bytes": 4472406,
+      "peak_rss_bytes": 373043200,
+      "issues": {
+        "duplicate_codes": 1000,
+        "invalid_calculated_codes": 0,
+        "invalid_data_types": 10000,
+        "invalid_values": 0,
+        "formula_reference_errors": 0,
+        "missing_required_values": 0,
+        "missing_dictionary_values": 0,
+        "unknown_assets": 0,
+        "skipped_rows": 0
+      },
+      "examples_retained": {
+        "duplicate_codes": 1000,
+        "invalid_calculated_codes": 0,
+        "invalid_data_types": 1000,
+        "invalid_values": 0,
+        "formula_reference_errors": 0,
+        "missing_required_values": 0,
+        "missing_dictionary_values": 0,
+        "unknown_assets": 0,
+        "skipped_rows": 0
+      }
+    },
+    "apply": {
+      "mode": "apply",
+      "rows": 10000,
+      "wall_s": 33.649,
+      "rows_per_second": 297.2,
+      "db_connection_hold_s": 33.649,
+      "project_lock_wait_s": 0.0053,
+      "project_lock_hold_s": 33.526,
+      "peak_traced_heap_bytes": 37672315,
+      "peak_rss_bytes": 373043200,
+      "result": {
+        "new": 10000,
+        "updated": 0
+      },
+      "not_measured": [
+        "worker supervisor heartbeat/lease renewal (no durable job manager in this harness)",
+        "real XLSB/XLSX bytes in apply mode (rows are fed through the parser seam)",
+        "production data, concurrency, network latency, multi-worker contention"
+      ]
+    },
+    "note": "xlsx only here; xlsb needs a real .xlsb drop (target-host gate)"
+  },
+  "not_run": {
+    "kppk_slices": "requires corporate raw.kppk_* dumps loaded by the operator; not seeded on the shared CI stand",
+    "collaboration_activity": "requires live WS hub, multiple signed-in clients and the full stack; not measurable from a service-level harness",
+    "worker_restart_during_jobs": "requires the dedicated job supervisor/worker service and a replica; no supervisor in this harness",
+    "full_306k_xlsx_workbook": "documented ~3.3 GB sheet against the 4 GiB ZIP ceiling; needs a target-host run with a download client",
+    "queue_wait_under_load": "no concurrent worker/supervisor here; claim latency is not queue wait",
+    "dropped_sockets": "no HTTP/WS transport in this harness; needs the load-balanced target host"
+  }
+}

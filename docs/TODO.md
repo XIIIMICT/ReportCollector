@@ -26,26 +26,36 @@ different milestones. Do not reopen the explicit product deferrals below.
      (plan_id, work_or_repair_code)` (metadata matches `plan.py`). **Not executed
      by the author.** Plain `CREATE UNIQUE INDEX` (no `IF NOT EXISTS`) fails on
      existing duplicates; `lock_timeout=30s` makes a blocked build fail loudly.
-  4. [ ] **Maintainer gate, still open:** run the read-only
-     `uv run --directory back -m src.scripts.audit_plan_work_code_duplicates`
-     (plan id, code, row ids, positions, counts), back up `r_plan_rows`, clean
-     live duplicates as a reviewed data change, re-run the audit until empty,
-     approve a maintenance window and only then run `just migrate`. Procedure:
-     docs/DATA-JOBS.md, «Work-code uniqueness rollout».
+  4. [ ] **Maintainer gate, still open:** back up `r_plan_rows`, clean live
+     duplicates as a reviewed data change, re-run the audit until empty,
+     approve a maintenance window and only then run `just migrate`. The
+     read-only audit was re-run on the disposable CI stand (2026-11-27): 0
+     groups / 0 rows, exit 0, head `0043_plan_work_code_revision`. It reports
+     plan id, code, row ids, positions and counts and never writes or picks a
+     surviving row — but the live duplicate cleanup/backup/approval were NOT
+     performed here. Procedure and evidence: docs/DATA-JOBS.md,
+     «Work-code uniqueness rollout» and «RC-5 rollout evidence».
   0043 is a linear child of 0042 and inherits this gate; no shared or
   persistent environment has applied it.
   Gate C duplicates are part of the same problem: the whole import is still
   rejected when a workbook repeats a code; that behavior stays. Historical rows
   from older plan versions must NOT block a newer import — now enforced in both
   preflight and apply.
-- [ ] Establish a repeatable production-like workload matrix: 306k-row plan
-  windows/counts/facets with combined filters, KPPK slices, full/filtered exports,
-  representative XLSB/XLSX inspect/apply, concurrent collaboration, and worker restart
-  during jobs. Record p50/p95/p99, RSS/CPU, pool/lock/queue waits, throughput and
-  dropped sockets. The successful full-plan browser download on 2026-10-30 is
-  one functional check, not this concurrency baseline. Keep disposable schemas
-  and artifacts in a reusable load harness; retain EXPLAIN evidence in
-  BACKEND_QUERY_PLANS_2026-10-29.json and extend it to filtered/cursor workloads.
+- [ ] **RC-5 harness added; local evidence captured, target-host gates OPEN.**
+  `back/tests/benchmark_rollout_workload.py` seeds a synthetic sparse 306k-row
+  plan in a disposable `rc_workload*` schema and measures windows (head/deep/
+  filtered), facets (plain + search), aggregates, full export row streaming,
+  a filtered XLSX workbook and the existing inspect/apply benchmark, with
+  p50/p95/p99, RSS/CPU, pool-acquire and Lock-wait samples, exact environment
+  and commit. Captured on the disposable CI stand, not production:
+  `docs/ROLLOUT_WORKLOAD_2026-11-27.json`. Still OPEN (need the target host /
+  operator): KPPK slices with corporate `raw.kppk_*` dumps, authenticated
+  multi-client collaboration/WS fan-out, worker restart under a real supervisor,
+  queue wait under load, dropped sockets behind the load balancer, and the
+  full ~3.3 GB 306k-row XLSX download. Retain EXPLAIN evidence in
+  BACKEND_QUERY_PLANS_2026-10-29.json and extend it to filtered/cursor
+  workloads; the successful full-plan browser download on 2026-10-30 remains a
+  functional check, not a concurrency baseline.
 - [ ] Deploy shared artifact storage for all backend replicas (shared
   EXPORT_DIR/IMPORT_DIR or object storage). Verify download/retry after replacing
   the originating worker, retention, cleanup and storage failure behavior.
