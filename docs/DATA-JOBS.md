@@ -572,7 +572,9 @@ database:
   `plan_state`, `work_or_repair_code`, `duplicate_count`, `row_ids`, `positions`
   in position order) are pinned by
   `back/tests/test_plan_import_code_uniqueness.py::test_audit_reports_within_plan_duplicates_but_not_cross_version_repeats`.
-  **Live data was not cleaned by this work** — the maintainer gate stays open.
+  The harness's `verify-audit` mode re-ran the same CLI in a fresh process
+  against `rc` (exit 0, zero groups). **Live data was not cleaned by this
+  work** — the maintainer gate stays open.
 - Migration 0042 was inspected, not executed: it creates
   `uq_r_plan_rows_plan_work_or_repair_code` on the semantic
   `(plan_id, work_or_repair_code)` with a plain `CREATE UNIQUE INDEX` and **no
