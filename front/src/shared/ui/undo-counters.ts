@@ -23,15 +23,20 @@ export function applyUndoState(
  * Read the state and apply it, swallowing failures.
  *
  * A failed read must keep the previous state — silently disabling both buttons
- * because one poll failed is worse than a stale counter.
+ * because one poll failed is worse than a stale counter. `isCurrent` guards the
+ * other stale case: a read that started before a newer commit or re-read must
+ * not overwrite the newer state when it finally resolves.
  */
 export async function refreshUndoCounters(
     fetchState: UndoStateReader,
     setUndoCount: (value: number) => void,
     setRedoCount: (value: number) => void,
+    isCurrent: () => boolean = () => true,
 ): Promise<void> {
     try {
-        applyUndoState(await fetchState(), setUndoCount, setRedoCount);
+        const state = await fetchState();
+        if (!isCurrent()) return;
+        applyUndoState(state, setUndoCount, setRedoCount);
     } catch {
         // Keep the previous state.
     }
