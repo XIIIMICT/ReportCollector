@@ -5,6 +5,7 @@ import {
     parsePastedText,
     pasteTargetRange,
     readFromClipboard,
+    rowsForSelectedIds,
 } from "@/shared/grid/grid-clipboard";
 import type { ColumnDescriptor, GridRow } from "@/shared/grid/grid-config";
 import { extractEdits } from "@/shared/grid/grid-edit";
@@ -426,6 +427,48 @@ describe("copyToClipboard", () => {
         expect(presentDuringAttempt).toBe(true);
         expect(document.querySelectorAll("textarea")).toHaveLength(0);
         expect(document.body.innerHTML).not.toContain("textarea");
+    });
+});
+
+describe("rowsForSelectedIds (keyed row-selection copy)", () => {
+    test("empty selection and empty rows both produce no rows", () => {
+        expect(rowsForSelectedIds([], ["a"])).toEqual([]);
+        expect(rowsForSelectedIds([{ id: "a" }], [])).toEqual([]);
+    });
+
+    test("selection order is preserved and unknown ids are skipped", () => {
+        const a = { id: "a", value: 1 };
+        const b = { id: "b", value: 2 };
+        expect(rowsForSelectedIds([a, b, { id: "c", value: 3 }], ["c", "a", "missing"])).toEqual([
+            { id: "c", value: 3 },
+            a,
+        ]);
+    });
+
+    test("duplicate ids resolve to the FIRST row, matching Array.find", () => {
+        const first = { id: "dup", value: "first" };
+        const second = { id: "dup", value: "second" };
+        expect(rowsForSelectedIds([first, second], ["dup"])).toEqual([first]);
+        expect(rowsForSelectedIds([first, second], ["dup", "dup"])).toEqual([first, first]);
+    });
+
+    test("sparse rows with an empty id are never matched by a real id", () => {
+        const rows = [
+            { id: "", value: 0 },
+            { id: "real", value: 1 },
+            { id: "", value: 2 },
+        ];
+        expect(rowsForSelectedIds(rows, ["real"])).toEqual([{ id: "real", value: 1 }]);
+    });
+
+    test("a large repeated selection stays linear in rows + selected", () => {
+        // Property-style guard: every requested id resolves to exactly its row,
+        // even when the selection repeats ids far more than the source length.
+        const rows = Array.from({ length: 1000 }, (_, index) => ({ id: `r-${index}`, index }));
+        const selected = Array.from({ length: 5000 }, (_, index) => `r-${index % rows.length}`);
+        const result = rowsForSelectedIds(rows, selected);
+        expect(result).toHaveLength(selected.length);
+        expect(result[4999]).toBe(rows[999]);
     });
 });
 

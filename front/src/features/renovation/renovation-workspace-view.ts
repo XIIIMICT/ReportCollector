@@ -6,6 +6,7 @@ import type {
 import type { ColumnFilter } from "@/shared/ui/column-filter-facets";
 
 import type { RenovationGridRow } from "./renovation-grid";
+import { RENOVATION_PLAN_ROWS_TABLE } from "./renovation-grid-constants";
 
 /**
  * Pure view-model helpers of the Renovation workspace.
@@ -92,3 +93,45 @@ export const BLOCK_LABELS: Record<string, string> = {
 };
 
 export const BLOCK_ORDER = ["tech", "ksir", "mto"];
+
+/**
+ * Invert accumulated `table/rowId/field` remote values into one field patch per
+ * row id.
+ *
+ * The previous consumer scanned every loaded row × every mergeable field for
+ * each `cell:changed` frame (O(loaded × fields)). This walks only the received
+ * keys instead (O(values)), then the caller resolves them through the loaded
+ * window's keyed mirror. All values are still returned, not just the newest
+ * ones: a row loaded after a change must receive the pending value on the next
+ * frame, exactly as with the full scan. Keys of other tables (dictionary cells
+ * share the same state) and non-mergeable fields are ignored.
+ */
+export function remoteCellPatchesByRow(
+    values: ReadonlyMap<string, unknown>,
+    mergeableFieldKeys: ReadonlySet<string>,
+    table: string = RENOVATION_PLAN_ROWS_TABLE,
+): Map<string, Record<string, unknown>> {
+    const byRow = new Map<string, Record<string, unknown>>();
+    const prefix = `${table}/`;
+    for (const [key, value] of values) {
+        if (!key.startsWith(prefix) || value === undefined) continue;
+        const parts = key.slice(prefix.length).split("/");
+        if (parts.length !== 2) continue;
+        const [rowId, field] = parts as [string, string];
+        if (!rowId || !mergeableFieldKeys.has(field)) continue;
+        let fields = byRow.get(rowId);
+        if (!fields) {
+            fields = {};
+            byRow.set(rowId, fields);
+        }
+        fields[field] = value;
+        // The work id drives the red «incomplete» tint. The old full scan
+        // derived these two companion fields from the remote value itself;
+        // keep that derivation here so a remote edit refreshes them too.
+        if (field === "work_or_repair_code") {
+            fields.__renovationId = value == null ? null : String(value);
+            fields.__missingComponents = String(value).includes("<NULL>") ? ["missing"] : [];
+        }
+    }
+    return byRow;
+}

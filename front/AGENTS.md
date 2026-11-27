@@ -56,6 +56,14 @@ live in `back/AGENTS.md`; contracts in `docs/API.md`, `docs/COLLAB.md`,
     do not replace a delta with `toMembers(message.members)` or drop the seq
     guard (duplicate/reordered frames would corrupt presence). Details —
     `docs/COLLAB.md`, `docs/PRESENCE-FANOUT.md`.
+13. **Keyed hot paths stay keyed:** apply plan `cell:changed` values by inverting
+    the received `table/rowId/field` keys once
+    (`renovation-workspace-view.ts::remoteCellPatchesByRow`) and resolving them
+    through the loaded-window mirror — never a loaded-rows × mergeable-fields
+    scan per frame. Resolve row-header copy selections with one id map
+    (`grid-clipboard.ts::rowsForSelectedIds`), not `rows.find` per selected id.
+    Rationale, static complexity map and the BLOCKED large-plan profiling —
+    `docs/FRONTEND-REFACTOR.md`, «Phase 2.2/2.4».
 
 ## Working rules
 

@@ -91,6 +91,7 @@ import {
     parsePastedText,
     pasteTargetRange,
     readFromClipboard,
+    rowsForSelectedIds,
     serializeCellValue,
 } from "./index";
 import { scrollScopeKey } from "./scroll-position";
@@ -2881,9 +2882,9 @@ function DataGridInner(
             const allProps = flatColumns.map((column) => column.prop);
             const lines: string[] = [];
             if (selectedRowIds.length > 0) {
-                for (const id of selectedRowIds) {
-                    const row = rows.find((candidate) => candidate.id === id);
-                    if (!row) continue;
+                // One keyed pass instead of `rows.find` per selected id: a large
+                // row-header selection used to cost O(selected × rows).
+                for (const row of rowsForSelectedIds(rows, selectedRowIds)) {
                     lines.push(allProps.map((prop) => serializeCellValue(row[prop])).join("\t"));
                 }
             } else {
