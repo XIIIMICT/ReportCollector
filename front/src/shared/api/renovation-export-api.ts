@@ -5,8 +5,12 @@
  * are unchanged; `renovation.ts` is now a barrel re-exporting every workflow.
  */
 
-import { requestJson, requestWrite } from "@/shared/api/api-error";
-import { ReportCollectorApiError } from "@/shared/api/report-collector";
+import {
+    apiErrorFromResponse,
+    fetchFailure,
+    requestJson,
+    requestWrite,
+} from "@/shared/api/api-error";
 
 import type { RenovationColumnFilter, RenovationSortColumn } from "./renovation-shared";
 
@@ -31,30 +35,26 @@ export type RenovationPlanExportParams = {
 export async function exportRenovationPlan(
     params: RenovationPlanExportParams = {},
 ): Promise<RenovationPlanExport> {
-    const response = await fetch("/api/renovation/plan/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            planId: params.planId ?? null,
-            rowIds: params.rowIds ?? null,
-            asset: params.asset ?? null,
-            block: params.block ?? null,
-            filters: params.filters ?? null,
-            sorting: params.sorting ?? null,
-        }),
-        cache: "no-store",
-    });
+    let response: Response;
+    try {
+        response = await fetch("/api/renovation/plan/export", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                planId: params.planId ?? null,
+                rowIds: params.rowIds ?? null,
+                asset: params.asset ?? null,
+                block: params.block ?? null,
+                filters: params.filters ?? null,
+                sorting: params.sorting ?? null,
+            }),
+            cache: "no-store",
+        });
+    } catch (reason) {
+        throw fetchFailure(reason, "Не удалось выгрузить план.");
+    }
     if (!response.ok) {
-        let detail = `Запрос завершился ошибкой ${response.status}.`;
-        try {
-            const payload = (await response.json()) as { detail?: string };
-            if (typeof payload.detail === "string") {
-                detail = payload.detail;
-            }
-        } catch {
-            // For a non-JSON response keep the generic message prepared above.
-        }
-        throw new ReportCollectorApiError(detail, response.status);
+        throw await apiErrorFromResponse(response, `Запрос завершился ошибкой ${response.status}.`);
     }
     const disposition = response.headers.get("Content-Disposition") ?? "";
     // Prefer the RFC 5987 UTF-8 form — the plan name is Cyrillic and the bare
@@ -136,21 +136,17 @@ export function renovationExportJobFileUrl(jobId: string): string {
 
 /** Download the ready XLSX of a completed export job. */
 export async function downloadRenovationExportJob(jobId: string): Promise<RenovationPlanExport> {
-    const response = await fetch(
-        `/api/renovation/plan/export/jobs/${encodeURIComponent(jobId)}/file`,
-        { cache: "no-store" },
-    );
+    let response: Response;
+    try {
+        response = await fetch(
+            `/api/renovation/plan/export/jobs/${encodeURIComponent(jobId)}/file`,
+            { cache: "no-store" },
+        );
+    } catch (reason) {
+        throw fetchFailure(reason, "Не удалось скачать файл плана.");
+    }
     if (!response.ok) {
-        let detail = `Запрос завершился ошибкой ${response.status}.`;
-        try {
-            const payload = (await response.json()) as { detail?: string };
-            if (typeof payload.detail === "string") {
-                detail = payload.detail;
-            }
-        } catch {
-            // For a non-JSON response keep the generic message prepared above.
-        }
-        throw new ReportCollectorApiError(detail, response.status);
+        throw await apiErrorFromResponse(response, `Запрос завершился ошибкой ${response.status}.`);
     }
     const disposition = response.headers.get("Content-Disposition") ?? "";
     const star = /filename\*\s*=UTF-8''([^;]+)/i.exec(disposition);

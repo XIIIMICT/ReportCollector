@@ -9,6 +9,7 @@ import { transportTypeMerges, countryMarketMerges } from "@/features/logistics/l
 import { LogisticsRatesSection } from "@/features/logistics/logistics-rates-section";
 import { LogisticsUsersSection } from "@/features/logistics/logistics-users-section";
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
+import { type AuthConfig, getAuthConfig } from "@/shared/api/auth-config";
 import {
     exportLogisticsTable,
     getLogisticsCountries,
@@ -258,13 +259,7 @@ export function LogisticsWorkspace({
         canCreate: boolean;
         onCreate: () => void;
     }>({ canCreate: false, onCreate: () => {} });
-    const { data: authConfig } = useAsyncData<{ keycloakEnabled: boolean } | null>(
-        () =>
-            fetch("/api/auth/config")
-                .then((response) => (response.ok ? response.json() : null))
-                .catch(() => null),
-        [],
-    );
+    const { data: authConfig } = useAsyncData<AuthConfig | null>(getAuthConfig, []);
     const keycloakEnabled = authConfig?.keycloakEnabled === true;
     const {
         headerPinned,

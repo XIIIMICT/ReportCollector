@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { ReportCollectorApiError } from "@/shared/api/api-error";
 import {
     clipboardActionsFrom,
     errorMessage,
@@ -41,6 +42,12 @@ describe("shared text and grid adapters", () => {
     test("errorMessage keeps the default Russian fallback for non-Error reasons", () => {
         expect(errorMessage(new Error("boom"))).toBe("boom");
         expect(errorMessage("boom")).toBe("Неизвестная ошибка.");
+    });
+
+    test("errorMessage appends an opaque request id without echoing other payload data", () => {
+        expect(errorMessage(new ReportCollectorApiError("Нет доступа.", 403, "request-42"))).toBe(
+            "Нет доступа. (ID запроса: request-42)",
+        );
     });
 
     test("clipboard actions preserve the paste flag and call the grid handle", () => {

@@ -6,6 +6,7 @@
  * made three times, and one of the copies always drifted.
  */
 
+import { ReportCollectorApiError } from "@/shared/api/api-error";
 import type { GridRow } from "@/shared/grid/grid-config";
 
 /** Wrap an API row into the grid's row envelope (nothing changed yet). */
@@ -26,19 +27,26 @@ export function trimmedText(value: unknown): string {
 
 /** First non-empty of `keys` on the row — the label a delete dialog shows. */
 export function recordLabel(
-    row: Record<string, unknown> | undefined,
+    row: object | undefined,
     keys: readonly string[] = ["name", "fullname", "email"],
 ): string | null {
     if (!row) return null;
+    const record = row as Record<string, unknown>;
     const value = keys
-        .map((key) => row[key])
+        .map((key) => record[key])
         .find((candidate) => typeof candidate === "string" && candidate.trim());
     return typeof value === "string" ? value : null;
 }
 
-/** The human message of a thrown API/UI error. */
+/**
+ * The human message of a thrown API/UI error. A backend request id is appended
+ * as an opaque token so a toast can be correlated with `X-Request-ID` logs;
+ * network failures never contribute their raw (possibly URL-bearing) text.
+ */
 export function errorMessage(reason: unknown): string {
-    return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
+    const base = reason instanceof Error ? reason.message : "Неизвестная ошибка.";
+    const requestId = reason instanceof ReportCollectorApiError ? reason.requestId : undefined;
+    return requestId ? `${base} (ID запроса: ${requestId})` : base;
 }
 
 /**

@@ -451,6 +451,37 @@ disabled), `collab.spec.ts` (undo/redo, presence, leases) and
 `workspace-panels.spec.ts` (sorted/filtered facets) remain the specs to run on
 a prepared stack. No runtime-performance claim is made for either fix.
 
+## Phase 4.3/4.4 — HTTP DTOs and error contracts (2026-11-27)
+
+### Research (STATIC, from the checked-out branch)
+
+- `docs/API.md` does not exist in ReportCollector (unlike DocMasker); the canonical HTTP contract is `docs/ARCHITECTURE.md`, «API». This section is the frontend-side companion.
+
+- The frontend kept field-by-field HTTP read DTOs in `shared/api/{raw-materials,kppk,logistics,renovation-shared,renovation-*-api,table-export,report-collector}.ts`. The backend declares matching response models (`response_model` on 100+ routes); camelCase field names are intentional on both sides (`back/raw_materials/schemas.py`), so generated types can be used directly.
+- Duplicated and drift-prone: raw-materials 11 read DTOs, КППК 9 read rows/views, Логистика 8 read rows/views/enums. These are now aliases to `front/src/shared/api/generated/openapi.d.ts`; exported local names are unchanged.
+- Deliberately NOT generated: WS/collab discriminated payloads (`shared/collab/ws-client.ts` — the OpenAPI schema has no `/api/ws/*` paths), UI-normalized `CurrentUser` (Zod transforms `null` → `undefined`), generic envelopes (`KppkApplied<T>`, `LogisticsDictionary<T>`), local grid/session types, and the import/export job DTOs whose backend schemas mark defaulted fields optional while the UI consumes them as required. Generated types do not validate at runtime; boundary validation stays.
+- Error handling drift: `requestJson`/`requestWrite`, profile/server reads, table export, renovation export/import and four workspace loaders each parsed errors differently; several `catch`/`.catch(() => null)` blocks turned any failure into a success-shaped empty value and dropped the backend's `X-Request-ID`. The proxy forwarded content headers but not the correlation id.
+- Existing RC "freshness" coverage before this change: `docs/RENOVATION-DESIGN.md`'s one-off `/openapi.json` 36/36 renovation-path diff from the router decomposition, and the nightly **dependency** freshness report (`uv tree --outdated`, `bun outdated`, report-only). Neither compared committed frontend declarations with the backend schema.
+
+### Generator decision
+
+- Installed toolchain: TypeScript **7.0.2** (native port) in `front/bun.lock`/`node_modules`, Bun 1.4.4, Node 26. Per the proven DocMasker pattern, `swagger-typescript-api@13.15.0` has **no TypeScript peer** and bundles its own nested TypeScript 6.0.3; no peer override, no second project toolchain, no runtime dependency. `openapi-typescript@7` (TS5 peer, broken on TS7) and `@hey-api/openapi-ts` (TS7 runtime `SyntaxKind` failure) were rejected there for the same reason.
+- Commands: `uv run --directory back python -m src.openapi_export <file>` (in-process, no server/DB) → `bun run --cwd front gen:openapi` → `bun run --cwd front gen:openapi --check` (CI `openapi-contract` job). Generator flags: `--no-client --enum-style=union --type-only-imports --disable-formatting --silent`. Output is formatted with the pinned `oxfmt` before comparison, so two runs are byte-identical.
+
+### Type-safe errors
+
+- `shared/api/api-error.ts` is now the single boundary: `readApiDetail` only reads string `detail` / pydantic `msg` (never `input`/`ctx`/`loc`); `readJsonBody` and `parseJsonPayload` reject wrong content type, empty/malformed/non-object bodies instead of casting them into success data; `apiErrorFromResponse` preserves status, Russian detail and `X-Request-ID` (or a typed `request_id`); `fetchFailure` maps network/abort/timeout to fixed Russian messages without echoing browser text.
+- `ReportCollectorApiError` lives in `api-error.ts` and is re-exported from `report-collector.ts`. `errorMessage` appends `(ID запроса: …)` so toasts can be correlated with logs.
+- The Next proxy forwards `X-Request-ID` and converts upstream network/abort failures into typed JSON errors (502/499) instead of an empty HTML page. Auth config, movement versions, renovation meta/versions and profile reads no longer swallow failures into `null`. Table-export job descriptors are validated field by field; malformed 202 bodies fail.
+- Tests cover malformed bodies, wrong content type, network failures, abort/timeout, typed envelopes with request ids, PII-bearing validation fields, job/export/auth-config flows and proxy correlation-id forwarding.
+
+### Validation
+
+Exact command outputs, including the negative freshness proof (tampered
+declaration → `gen:openapi --check` exits 1), are recorded in this branch's
+commit message; the generator/gate contract itself lives in
+`docs/ARCHITECTURE.md`.
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,

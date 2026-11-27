@@ -156,6 +156,14 @@ preserved row counts, `/api/renovation/meta` and `/api/renovation/plan/rows`.
 | front | `bun run --cwd front lint` (oxlint --fix + stylelint --fix) | `bun run --cwd front format` (oxfmt) | `bun run --cwd front typecheck` (tsc --noEmit) | `bun run --cwd front test` (bun test, happy-dom) |
 | e2e | — | — | — | `bun run --cwd front test:e2e` (Playwright, chromium, workers=1) |
 
+The HTTP contract has its own required CI job `openapi-contract`: it runs the
+in-process `back/src/openapi_export.py`, then
+`bun run --cwd front gen:openapi --check` against the committed
+`front/src/shared/api/generated/openapi.d.ts`. Regenerate with
+`bun run --cwd front gen:openapi`; never edit the generated file by hand. The
+generator is dev-only and emits types without a client SDK or runtime
+dependency.
+
 Aggregators: `just lint`, `just typecheck`, `just test`, `just e2e`.
 
 ### Back

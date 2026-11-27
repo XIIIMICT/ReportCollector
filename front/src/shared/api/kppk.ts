@@ -1,4 +1,15 @@
 import { requestJson, requestWrite } from "@/shared/api/api-error";
+import type {
+    KppkCostRowRead,
+    KppkCostViewRead,
+    KppkOrgRowRead,
+    KppkProductPositionRowRead,
+    KppkRawRowRead,
+    KppkRealizationPeriodRead,
+    KppkRealizationRowRead,
+    KppkRealizationViewRead,
+    KppkUserRowRead,
+} from "@/shared/api/generated/openapi";
 import { downloadTableExport, tableExportJobFileUrl } from "@/shared/api/table-export";
 import type { ExportJobDescriptor } from "@/shared/api/table-export";
 import { getCollabSessionId } from "@/shared/collab/ws-client";
@@ -15,20 +26,7 @@ import type { ExportColumn } from "@/shared/grid/grid-config";
 
 export type KppkSectionId = "kppkPositions" | "kppkRaws" | "kppkOrgs" | "kppkUsers";
 
-export type KppkUserRow = {
-    id: string;
-    email: string;
-    fullname: string;
-    /** admin | blocked (the access flag is derived from the role). */
-    role: "admin" | "blocked";
-    isAdmin: boolean;
-    isActive: boolean;
-    orgNames: string[];
-    lastAuthenticatedAt: string | null;
-    createdAt: string;
-    updatedAt: string;
-    updatedBy: string;
-};
+export type KppkUserRow = KppkUserRowRead;
 
 export async function getKppkUsers(): Promise<KppkUserRow[]> {
     return requestJson("/api/kppk/users");
@@ -69,12 +67,7 @@ export type KppkJournalSectionId = KppkSectionId | KppkRealizationSectionId;
 export type KppkRealizationSlice = "bp" | "op" | "fact";
 
 /** The banner period of the «Реализация» view (fixed server-side for now). */
-export type KppkRealizationPeriod = {
-    periodDate: string;
-    monthName: string;
-    yearNum: number;
-    repDate: string | null;
-};
+export type KppkRealizationPeriod = KppkRealizationPeriodRead;
 
 /**
  * One row of a «Реализация» slice. The slice leaves its four columns filled;
@@ -83,80 +76,11 @@ export type KppkRealizationPeriod = {
  * Column slots per the template: Продукция | Рынок сбыта | Выкуп{Объем,
  * Цена FCA} | Реализация{Объем, Цена FCA}.
  */
-export type KppkRealizationRow = {
-    id: string;
-    product: string;
-    /** The «№» of the product in «Продуктовые позиции» (by name); null when the dictionary lacks it. */
-    productNum: number | null;
-    region: string;
-    buyoutBpPlan: number | null;
-    fcaPriceBpPlan: number | null;
-    monthBpPlan: number | null;
-    fcaPriceMarketBpPlan: number | null;
-    buyoutMaxPlan: number | null;
-    fcaPriceMaxPlan: number | null;
-    monthMaxPlan: number | null;
-    fcaPriceMarketMaxPlan: number | null;
-    buyoutFact: number | null;
-    fcaPriceFact: number | null;
-    fact: number | null;
-    fcaPriceMarketFact: number | null;
-    exciseBp: number;
-    exciseMaxPlan: number;
-    exciseFact: number;
-};
-
-export type KppkRealizationView = {
-    period: KppkRealizationPeriod;
-    markets: string[];
-    rows: KppkRealizationRow[];
-    /**
-     * Product names that carry an excise on THIS asset (the «Продуктовые
-     * позиции» flag). Empty = the asset has no excise: the form hides the
-     * column entirely. A product missing from the list keeps its cell locked.
-     */
-    exciseProducts?: string[];
-};
-
-export type KppkProductPositionRow = {
-    /** The position (the product × ДЗО link) — what every row operation takes. */
-    id: string;
-    /** The product this position belongs to. */
-    productId: string;
-    /** Source dictionary number («№») - editable and unique; `null` when unnumbered. */
-    productNum: number | null;
-    name: string;
-    /** The asset of this position. */
-    orgName: string;
-    /** The product's whole ДЗО set — filled in the grouped view only. */
-    orgNames?: string[];
-    /** «Заполняемый акциз» of this position. */
-    hasExcise: boolean;
-    createdAt: string;
-    updatedAt: string;
-    updatedBy: string;
-};
-
-export type KppkRawRow = {
-    id: string;
-    /** Source dictionary number («№») — editable and unique; `null` when unnumbered. */
-    rawNum: number | null;
-    name: string;
-    createdAt: string;
-    updatedAt: string;
-    updatedBy: string;
-};
-
-export type KppkOrgRow = {
-    id: string;
-    code: string;
-    name: string;
-    /** «Заполняемый акциз»: this ДЗО levies an excise at all. */
-    hasExcise: boolean;
-    createdAt: string;
-    updatedAt: string;
-    updatedBy: string;
-};
+export type KppkRealizationRow = KppkRealizationRowRead;
+export type KppkRealizationView = KppkRealizationViewRead;
+export type KppkProductPositionRow = KppkProductPositionRowRead;
+export type KppkRawRow = KppkRawRowRead;
+export type KppkOrgRow = KppkOrgRowRead;
 
 /** A row payload returned by every mutation (the grid refetches anyway). */
 /**
@@ -334,22 +258,8 @@ export const KPPK_COST_SLICE_FIELDS: Record<KppkRealizationSlice, readonly strin
     fact: ["fullCostFact", "productionCostFact", "variableCostFact"],
 };
 
-export type KppkCostRow = {
-    id: string;
-    product: string;
-    productNum: number | null;
-    fullCostBp: number | null;
-    productionCostBp: number | null;
-    variableCostBp: number | null;
-    fullCostOp: number | null;
-    productionCostOp: number | null;
-    variableCostOp: number | null;
-    fullCostFact: number | null;
-    productionCostFact: number | null;
-    variableCostFact: number | null;
-};
-
-export type KppkCostView = { period: KppkRealizationPeriod; rows: KppkCostRow[] };
+export type KppkCostRow = KppkCostRowRead;
+export type KppkCostView = KppkCostViewRead;
 
 export function getCostView(
     orgId: string,

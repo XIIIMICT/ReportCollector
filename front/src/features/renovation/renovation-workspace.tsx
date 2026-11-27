@@ -288,12 +288,11 @@ export function RenovationWorkspace({
     const currentTabId = activeSection;
     const { setFilter: setPanelFilter } = useToolbarFilters(currentTabId);
     const isPlanSection = activeSection === "plan";
-    const { data: meta, error } = useAsyncData<RenovationMeta | null>(
-        () => getRenovationMeta().catch(() => null),
-        [metaReloadKey],
-    );
+    const { data: meta, error } = useAsyncData<RenovationMeta | null>(getRenovationMeta, [
+        metaReloadKey,
+    ]);
     const { data: versions, error: versionsError } = useAsyncData<RenovationPlanVersion[] | null>(
-        () => getRenovationPlans().catch(() => null),
+        getRenovationPlans,
         [metaReloadKey],
     );
     const [columnSorting, setColumnSorting] = useState<StoredSortColumn[]>(() =>

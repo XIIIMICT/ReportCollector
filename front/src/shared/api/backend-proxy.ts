@@ -1,5 +1,6 @@
 import { Agent } from "undici";
 
+import { ReportCollectorApiError } from "@/shared/api/api-error";
 import { buildIdentityHeaders } from "@/shared/auth/identity-headers";
 import { getSession } from "@/shared/auth/session";
 import { getBackendInternalUrl } from "@/shared/config";
@@ -56,7 +57,27 @@ export async function proxyBackend(request: Request, path: string, method = requ
         }
     }
 
-    const response = await fetch(targetUrl, init);
+    let response: Response;
+    try {
+        response = await fetch(targetUrl, init);
+    } catch (reason) {
+        // A network/timeout failure must reach the browser as a typed JSON
+        // error, not an empty success body or a Next.js HTML error page.
+        const interrupted = request.signal.aborted;
+        const error =
+            reason instanceof ReportCollectorApiError
+                ? reason
+                : new ReportCollectorApiError(
+                      interrupted ? "Запрос прерван." : "Не удалось связаться с сервером.",
+                  );
+        return Response.json(
+            { detail: error.message },
+            {
+                headers: { "X-Request-ID": crypto.randomUUID() },
+                status: interrupted ? 499 : 502,
+            },
+        );
+    }
     const responseContentType = response.headers.get("Content-Type") ?? "application/json";
 
     // Forward the headers a browser cares about, for both JSON and binary
@@ -71,7 +92,13 @@ export async function proxyBackend(request: Request, path: string, method = requ
     // and strips the request's `Accept-Encoding` before proxying here; in dev the
     // JSON arrives uncompressed.
     const forwardedHeaders = new Headers({ "Content-Type": responseContentType });
-    for (const name of ["Content-Disposition", "Cache-Control", "Content-Length", "ETag"]) {
+    for (const name of [
+        "Content-Disposition",
+        "Cache-Control",
+        "Content-Length",
+        "ETag",
+        "X-Request-ID",
+    ]) {
         const value = response.headers.get(name);
         if (value) forwardedHeaders.set(name, value);
     }

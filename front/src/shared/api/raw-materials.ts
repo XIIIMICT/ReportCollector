@@ -1,144 +1,37 @@
 import { requestJson, requestWrite } from "@/shared/api/api-error";
+import type {
+    AssetOptionRead,
+    AssetRowRead,
+    DeliveryBasisRowRead,
+    MovementMetaRead,
+    MovementRowRead,
+    MovementSnapshotRead,
+    PriceRowRead,
+    RawMaterialRowRead,
+    RawMaterialsMetaRead,
+    SnapshotMovementRowRead,
+    SnapshotViewRead,
+    UserRowRead,
+} from "@/shared/api/generated/openapi";
 import { downloadTableExport, tableExportJobFileUrl } from "@/shared/api/table-export";
 import type { ExportJobDescriptor } from "@/shared/api/table-export";
 import { getCollabSessionId } from "@/shared/collab/ws-client";
 import type { ExportColumn, SectionId } from "@/shared/grid/grid-config";
 
-export type AssetOption = {
-    id: string;
-    name: string;
-};
-
-export type RawMaterialsMeta = {
-    assets: AssetOption[];
-    deliveryBases: string[];
-    movementPeriods: string[];
-};
-
-export type MovementSnapshot = {
-    id: string;
-    reportMonth: string;
-    fixedAt: string;
-    fixedByFullname: string;
-    isFinal: boolean;
-};
-
-export type MovementMeta = {
-    reportMonth: string;
-    isComplete: boolean;
-    isFinal: boolean;
-    snapshots: MovementSnapshot[];
-};
-
-export type SnapshotMovementRow = {
-    sourceAssetRawMaterialId: string;
-    assetName: string;
-    rawMaterialName: string;
-    businessPlanTons: number | null;
-    demandPlanTons: number | null;
-    consumptionFactTons: number | null;
-    demandDeviationTons: number | null;
-    deliveryPlanTons: number | null;
-    deliveryFactTons: number | null;
-    deliveryDeviationTons: number | null;
-    balanceStartTons: number | null;
-    balanceOnSiteTons: number | null;
-    balanceInTransitTons: number | null;
-    balanceEndTons: number | null;
-    storageStandardTons: number | null;
-    deviationReason: string | null;
-};
-
-export type SnapshotView = {
-    snapshot: MovementSnapshot;
-    comparisonSnapshotId: string | null;
-    rows: SnapshotMovementRow[];
-};
-
-export type MovementRow = {
-    assetId: string;
-    assetName: string;
-    balanceEndTons: number | null;
-    balanceInTransitTons: number | null;
-    balanceOnSiteTons: number | null;
-    balanceStartTons: number | null;
-    businessPlanTons: number | null;
-    consumptionFactTons: number | null;
-    createdAt: string;
-    deliveryDeviationTons: number | null;
-    deliveryFactTons: number | null;
-    deliveryPlanTons: number | null;
-    demandDeviationTons: number | null;
-    demandPlanTons: number | null;
-    deviationReason: string | null;
-    id: string;
-    key: string;
-    priceId: string;
-    rawMaterialId: string;
-    rawMaterialName: string;
-    storageStandardTons: number | null;
-    updatedAt: string;
-    updatedBy: string;
-};
-
-export type PriceRow = {
-    assetId: string;
-    assetName: string;
-    businessPlanQuantityTons: number | null;
-    businessPlanRubPerTon: number | null;
-    businessPlanUsdPerTon: number | null;
-    createdAt: string;
-    deliveryBasisName: string | null;
-    deliveryCostRub: number | null;
-    fact2025: number | null;
-    id: string;
-    key: string;
-    rawMaterialId: string;
-    rawMaterialName: string;
-    storageStandardTons: number | null;
-    updatedAt: string;
-    updatedBy: string;
-};
-
-export type RawMaterialRow = {
-    id: string;
-    name: string;
-    assetNames: string[];
-    createdAt: string;
-    updatedAt: string;
-    updatedBy: string;
-};
-
-export type AssetRow = {
-    id: string;
-    name: string;
-    createdAt: string;
-    updatedAt: string;
-    updatedBy: string;
-};
-
-export type DeliveryBasisRow = {
-    id: string;
-    name: string;
-    createdAt: string;
-    updatedAt: string;
-    updatedBy: string;
-};
-
-export type UserRow = {
-    id: string;
-    email: string | null;
-    fullname: string;
-    /** admin | asset_worker | blocked (the access flag is derived from it). */
-    role: "admin" | "asset_worker" | "blocked";
-    isAdmin: boolean;
-    assetNames: string[];
-    isActive: boolean;
-    lastAuthenticatedAt: string | null;
-    createdAt: string;
-    updatedAt: string;
-    updatedBy: string;
-};
+// HTTP read DTOs are generated from the live backend contract. The local names
+// stay stable for callers; only their definitions come from the generated file.
+export type AssetOption = AssetOptionRead;
+export type RawMaterialsMeta = RawMaterialsMetaRead;
+export type MovementSnapshot = MovementSnapshotRead;
+export type MovementMeta = MovementMetaRead;
+export type SnapshotMovementRow = SnapshotMovementRowRead;
+export type SnapshotView = SnapshotViewRead;
+export type MovementRow = MovementRowRead;
+export type PriceRow = PriceRowRead;
+export type RawMaterialRow = RawMaterialRowRead;
+export type AssetRow = AssetRowRead;
+export type DeliveryBasisRow = DeliveryBasisRowRead;
+export type UserRow = UserRowRead;
 
 export async function getRawMaterialsMeta(): Promise<RawMaterialsMeta> {
     return requestJson("/api/raw-materials/meta");

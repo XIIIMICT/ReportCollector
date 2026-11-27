@@ -5,6 +5,7 @@ import { CheckCircle, Xmark } from "iconoir-react";
 import { useTheme } from "next-themes";
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { type AuthConfig, getAuthConfig } from "@/shared/api/auth-config";
 import {
     createDictionaryRecord,
     deleteDictionaryRecord,
@@ -441,13 +442,7 @@ function SectionContent({
         MovementRow[] | PriceRow[] | RawMaterialRow[] | AssetRow[] | DeliveryBasisRow[] | UserRow[]
     >(loader, [loader, reloadKey]);
 
-    const { data: authConfig } = useAsyncData<{ keycloakEnabled: boolean } | null>(
-        () =>
-            fetch("/api/auth/config")
-                .then((response) => (response.ok ? response.json() : null))
-                .catch(() => null),
-        [],
-    );
+    const { data: authConfig } = useAsyncData<AuthConfig | null>(getAuthConfig, []);
     const keycloakEnabled = authConfig?.keycloakEnabled === true;
 
     const isMovement = section === "materialMovement" && reportMonth !== null;
@@ -458,7 +453,7 @@ function SectionContent({
     // All report-month snapshots (final & preliminary across months) for the
     // global «Версия…» picker — independent of which open month is focused.
     const { data: movementVersions } = useAsyncData<MovementSnapshot[] | null>(
-        () => (isMovement ? getMovementVersions().catch(() => null) : Promise.resolve(null)),
+        () => (isMovement ? getMovementVersions() : Promise.resolve(null)),
         [isMovement, reloadKey],
     );
 

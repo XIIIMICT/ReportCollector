@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { apiErrorFromResponse } from "@/shared/api/api-error";
 import {
     AUTH_NONCE_COOKIE,
     AUTH_RETURN_TO_COOKIE,
@@ -19,6 +20,7 @@ import {
 } from "@/shared/auth/session";
 import { getBackendInternalUrl } from "@/shared/config";
 import { isValidEmail } from "@/shared/email";
+import { errorMessage } from "@/shared/ui/text-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -118,16 +120,9 @@ function fieldValue(form: FormData, name: string): string | undefined {
 }
 
 async function readErrorDetail(response: Response): Promise<string> {
-    try {
-        const parsed = (await response.json()) as { detail?: string };
-        if (parsed.detail) {
-            return parsed.detail;
-        }
-    } catch {
-        // On a JSON parse error return the generic message.
-    }
-
-    return "Не удалось выполнить вход.";
+    // Discard-safe: a malformed/non-JSON backend body keeps the generic Russian
+    // message, a typed envelope keeps its detail and the request id.
+    return errorMessage(await apiErrorFromResponse(response, "Не удалось выполнить вход."));
 }
 
 function loginFailure(message: string, status = 401): NextResponse {

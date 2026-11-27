@@ -27,6 +27,7 @@ import {
 import { useTheme } from "next-themes";
 import { useEffect, useMemo, useState, type Key } from "react";
 
+import { type AuthConfig, getAuthConfig } from "@/shared/api/auth-config";
 import {
     updateProfile,
     type CurrentUser,
@@ -66,13 +67,7 @@ export function ProfileModal({ isOpen, user, onOpenChange, onProfileSaved }: Pro
     // Passwords are managed in Keycloak when it is enabled: the change fields
     // make no sense there (same rule that hides the users grid's «Сбросить
     // пароль» column).
-    const { data: authConfig } = useAsyncData<{ keycloakEnabled: boolean } | null>(
-        () =>
-            fetch("/api/auth/config")
-                .then((response) => (response.ok ? response.json() : null))
-                .catch(() => null),
-        [],
-    );
+    const { data: authConfig } = useAsyncData<AuthConfig | null>(getAuthConfig, []);
     // Config unknown (fetch not settled or failed) → keep the fields visible:
     // behave exactly like before the Keycloak check existed.
     const keycloakEnabled = authConfig?.keycloakEnabled === true;
