@@ -5,10 +5,13 @@ Run from the repository root (no DB, no production data — all fixtures are
 deterministic synthetic rows; the writers under test are the real ones):
 
     uv run --directory back python -m tests.benchmark_xlsx_export_size run \
-        --reps 3 --commit <sha> --out docs/XLSX_EXPORT_SIZE_BASELINE.json
+        --reps 3 --commit <sha>
 
     uv run --directory back python -m tests.benchmark_xlsx_export_size run \
-        --workload plan_small_values --workload table_small --reps 1 --out NUL
+        --workload plan_small_values --workload table_small_values --reps 1 --out NUL
+
+`--out` is resolved relative to the process CWD (``back/`` under
+``uv run --directory back``); the default points to the repository ``docs/``.
 
 `run` measures wall time over ``--reps`` timed renders and peak Python heap
 over one extra tracemalloc render, then inspects the final archive with zipfile
@@ -752,7 +755,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--reps", type=int, default=3, help="timed renders per workload (default: 3)")
     parser.add_argument("--scale", type=float, default=1.0, help="multiply every workload row count")
     parser.add_argument("--workload", action="append", dest="workloads", help="limit the matrix to one workload id")
-    parser.add_argument("--out", type=Path, default=Path("docs/XLSX_EXPORT_SIZE_BASELINE.json"))
+    default_out = Path(__file__).resolve().parents[2] / "docs" / "XLSX_EXPORT_SIZE_BASELINE.json"
+    parser.add_argument("--out", type=Path, default=default_out)
     parser.add_argument("--commit", default="unknown", help="git SHA of the code under measurement")
     args = parser.parse_args(argv)
     if args.reps < 1:
