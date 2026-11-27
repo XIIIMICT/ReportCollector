@@ -68,6 +68,9 @@ services:
       AUTH_APP_ORIGIN: http://127.0.0.1:15000
       BACKEND_INTERNAL_URL: http://back:8000
       COLLAB_WS_PUBLIC_URL: ws://127.0.0.1:18000
+      # Synthetic, no real mailbox: only renders the header support control in
+      # this disposable CI stand (empty SUPPORT_MAIL hides it). Not a secret.
+      SUPPORT_MAIL: support@example.ru
     ports: ["127.0.0.1:15000:5000"]
     depends_on:
       back:

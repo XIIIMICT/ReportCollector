@@ -2,6 +2,25 @@ import { expect, test } from "@playwright/test";
 
 import { loginAsTestUser } from "./helpers/test-users";
 
+test("header support control stays a visible mailto link", async ({ page }) => {
+    await loginAsTestUser(page, "admin");
+    await page.goto("/renovation");
+    const link = page.locator(".app-header .support-link");
+    await expect(link).toBeVisible({ timeout: 30000 });
+    // The recipient differs by stand (synthetic in CI, real in dev), so guard
+    // the contract instead of a mailbox. Never click: no mail client in e2e.
+    const href = await link.getAttribute("href");
+    expect(href).toBeTruthy();
+    const mailto = new URL(href!);
+    expect(mailto.protocol).toBe("mailto:");
+    expect(mailto.pathname).toContain("@");
+    expect(mailto.searchParams.get("subject")).toBe("Обращение по РепортКоллектор Ремонт");
+    await expect(link).toHaveAttribute(
+        "aria-label",
+        "Связаться с разработчиком по проекту «Ремонт»",
+    );
+});
+
 test("reduced-motion disables app-owned transitions", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await loginAsTestUser(page, "admin");
