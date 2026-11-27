@@ -1,0 +1,3908 @@
+{
+  "environment": {
+    "commit": "f0340c3bfa3ea20f036cbeb814759eae4d7ae4aa",
+    "python": "3.15.0 (main, Oct 14 2026, 01:12:50) [MSC v.1951 64 bit (AMD64)]",
+    "executable": "D:\\Work\\ReportCollector\\back\\.venv\\Scripts\\python.exe",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "os_name": "nt",
+    "openpyxl": "3.1.5",
+    "zlib": "1.3.1.zlib-ng",
+    "zip64_limit": 4294967295,
+    "zip_compression": "zipfile.ZIP_DEFLATED, compresslevel=1 (both real writers)",
+    "pythonhashseed": null,
+    "fixtures": "deterministic synthetic rows only; no database, no production data",
+    "experiment": "identical OPC part bytes recompressed at each level over UnseekableSink"
+  },
+  "method": {
+    "timed_recompressions": 3,
+    "memory_render": 1,
+    "memory_metric": "tracemalloc peak of the recompression pass (not the streaming writer)",
+    "levels": [
+      1,
+      6,
+      9
+    ],
+    "inspection": "zipfile metadata + byte-for-byte part equality against the baseline archive"
+  },
+  "workloads": [
+    {
+      "workload": {
+        "id": "plan_small_values",
+        "family": "plan",
+        "rows": 20,
+        "profile": "typical",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 57621,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 57621,
+            "min": 57621,
+            "max": 57621
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.000727,
+            "min": 0.0005842999089509249,
+            "max": 0.001700699795037508
+          },
+          "peak_python_heap_bytes": 782737,
+          "zip": {
+            "compressed_bytes_sum": 56831,
+            "uncompressed_bytes_sum": 277520,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 55138,
+                "uncompressed_bytes": 273835,
+                "ratio": 4.9664,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 674,
+                "uncompressed_bytes": 1956,
+                "ratio": 2.9021,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 325,
+                "uncompressed_bytes": 680,
+                "ratio": 2.0923,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 263,
+                "uncompressed_bytes": 329,
+                "ratio": 1.251,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 225,
+                "uncompressed_bytes": 424,
+                "ratio": 1.8844,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 41247,
+            "min": 41247,
+            "max": 41247
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.001894,
+            "min": 0.0016250000335276127,
+            "max": 0.00235249986872077
+          },
+          "peak_python_heap_bytes": 693531,
+          "zip": {
+            "compressed_bytes_sum": 40457,
+            "uncompressed_bytes_sum": 277520,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 39061,
+                "uncompressed_bytes": 273835,
+                "ratio": 7.0104,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 515,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.7981,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 269,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5279,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 201,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1095,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 38967,
+            "min": 38967,
+            "max": 38967
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.003354,
+            "min": 0.0031888000667095184,
+            "max": 0.004137400072067976
+          },
+          "peak_python_heap_bytes": 692522,
+          "zip": {
+            "compressed_bytes_sum": 38177,
+            "uncompressed_bytes_sum": 277520,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 36792,
+                "uncompressed_bytes": 273835,
+                "ratio": 7.4428,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 510,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.8353,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5468,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 199,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1307,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_small_formulas",
+        "family": "plan",
+        "rows": 20,
+        "profile": "typical",
+        "values_only": false,
+        "block": null
+      },
+      "baseline_bytes": 80582,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 80580,
+            "min": 80580,
+            "max": 80580
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.000985,
+            "min": 0.0008773000445216894,
+            "max": 0.0010732999071478844
+          },
+          "peak_python_heap_bytes": 852416,
+          "zip": {
+            "compressed_bytes_sum": 79790,
+            "uncompressed_bytes_sum": 347319,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 78097,
+                "uncompressed_bytes": 343634,
+                "ratio": 4.4001,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 674,
+                "uncompressed_bytes": 1956,
+                "ratio": 2.9021,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 325,
+                "uncompressed_bytes": 680,
+                "ratio": 2.0923,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 263,
+                "uncompressed_bytes": 329,
+                "ratio": 1.251,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 225,
+                "uncompressed_bytes": 424,
+                "ratio": 1.8844,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 57514,
+            "min": 57514,
+            "max": 57514
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.002851,
+            "min": 0.002659599995240569,
+            "max": 0.0031795999966561794
+          },
+          "peak_python_heap_bytes": 764485,
+          "zip": {
+            "compressed_bytes_sum": 56724,
+            "uncompressed_bytes_sum": 347319,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 55328,
+                "uncompressed_bytes": 343634,
+                "ratio": 6.2109,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 515,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.7981,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 269,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5279,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 201,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1095,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 55128,
+            "min": 55128,
+            "max": 55128
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.004843,
+            "min": 0.0046178000047802925,
+            "max": 0.006296599982306361
+          },
+          "peak_python_heap_bytes": 851998,
+          "zip": {
+            "compressed_bytes_sum": 54338,
+            "uncompressed_bytes_sum": 347319,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 52953,
+                "uncompressed_bytes": 343634,
+                "ratio": 6.4894,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 510,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.8353,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5468,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 199,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1307,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_typical_values",
+        "family": "plan",
+        "rows": 1000,
+        "profile": "typical",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 1816238,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 1816238,
+            "min": 1816238,
+            "max": 1816238
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.028885,
+            "min": 0.02874940005131066,
+            "max": 0.028997199842706323
+          },
+          "peak_python_heap_bytes": 22851508,
+          "zip": {
+            "compressed_bytes_sum": 1815448,
+            "uncompressed_bytes_sum": 8903049,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 1813755,
+                "uncompressed_bytes": 8899364,
+                "ratio": 4.9066,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 674,
+                "uncompressed_bytes": 1956,
+                "ratio": 2.9021,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 325,
+                "uncompressed_bytes": 680,
+                "ratio": 2.0923,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 263,
+                "uncompressed_bytes": 329,
+                "ratio": 1.251,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 225,
+                "uncompressed_bytes": 424,
+                "ratio": 1.8844,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 1166539,
+            "min": 1166539,
+            "max": 1166539
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.063756,
+            "min": 0.06346510001458228,
+            "max": 0.06472899997606874
+          },
+          "peak_python_heap_bytes": 22851508,
+          "zip": {
+            "compressed_bytes_sum": 1165749,
+            "uncompressed_bytes_sum": 8903049,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 1164353,
+                "uncompressed_bytes": 8899364,
+                "ratio": 7.6432,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 515,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.7981,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 269,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5279,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 201,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1095,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 1046274,
+            "min": 1046274,
+            "max": 1046274
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.133633,
+            "min": 0.12914930004626513,
+            "max": 0.13402430014684796
+          },
+          "peak_python_heap_bytes": 22851508,
+          "zip": {
+            "compressed_bytes_sum": 1045484,
+            "uncompressed_bytes_sum": 8903049,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 1044099,
+                "uncompressed_bytes": 8899364,
+                "ratio": 8.5235,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 510,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.8353,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5468,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 199,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1307,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_typical_formulas",
+        "family": "plan",
+        "rows": 1000,
+        "profile": "typical",
+        "values_only": false,
+        "block": null
+      },
+      "baseline_bytes": 3160001,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 3159964,
+            "min": 3159964,
+            "max": 3159964
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.045544,
+            "min": 0.04183429991826415,
+            "max": 0.04611620004288852
+          },
+          "peak_python_heap_bytes": 24195303,
+          "zip": {
+            "compressed_bytes_sum": 3159174,
+            "uncompressed_bytes_sum": 12706662,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 3157481,
+                "uncompressed_bytes": 12702977,
+                "ratio": 4.0231,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 674,
+                "uncompressed_bytes": 1956,
+                "ratio": 2.9021,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 325,
+                "uncompressed_bytes": 680,
+                "ratio": 2.0923,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 263,
+                "uncompressed_bytes": 329,
+                "ratio": 1.251,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 225,
+                "uncompressed_bytes": 424,
+                "ratio": 1.8844,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 2032525,
+            "min": 2032525,
+            "max": 2032525
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.112578,
+            "min": 0.10783859994262457,
+            "max": 0.11740590003319085
+          },
+          "peak_python_heap_bytes": 24195303,
+          "zip": {
+            "compressed_bytes_sum": 2031735,
+            "uncompressed_bytes_sum": 12706662,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 2030339,
+                "uncompressed_bytes": 12702977,
+                "ratio": 6.2566,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 515,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.7981,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 269,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5279,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 201,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1095,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 1913287,
+            "min": 1913287,
+            "max": 1913287
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.211153,
+            "min": 0.2092623000498861,
+            "max": 0.2182501999195665
+          },
+          "peak_python_heap_bytes": 24195303,
+          "zip": {
+            "compressed_bytes_sum": 1912497,
+            "uncompressed_bytes_sum": 12706662,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 1911112,
+                "uncompressed_bytes": 12702977,
+                "ratio": 6.6469,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 510,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.8353,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5468,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 199,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1307,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_large_values",
+        "family": "plan",
+        "rows": 10000,
+        "profile": "typical",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 18334632,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 18334632,
+            "min": 18334632,
+            "max": 18334632
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.297999,
+            "min": 0.2895963001064956,
+            "max": 0.31335129984654486
+          },
+          "peak_python_heap_bytes": 140033230,
+          "zip": {
+            "compressed_bytes_sum": 18333842,
+            "uncompressed_bytes_sum": 90169677,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 18332149,
+                "uncompressed_bytes": 90165992,
+                "ratio": 4.9185,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 674,
+                "uncompressed_bytes": 1956,
+                "ratio": 2.9021,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 325,
+                "uncompressed_bytes": 680,
+                "ratio": 2.0923,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 263,
+                "uncompressed_bytes": 329,
+                "ratio": 1.251,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 225,
+                "uncompressed_bytes": 424,
+                "ratio": 1.8844,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 11607410,
+            "min": 11607410,
+            "max": 11607410
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.763655,
+            "min": 0.7506069999653846,
+            "max": 0.7645431999117136
+          },
+          "peak_python_heap_bytes": 140033230,
+          "zip": {
+            "compressed_bytes_sum": 11606620,
+            "uncompressed_bytes_sum": 90169677,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 11605224,
+                "uncompressed_bytes": 90165992,
+                "ratio": 7.7694,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 515,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.7981,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 269,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5279,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 201,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1095,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 10582447,
+            "min": 10582447,
+            "max": 10582447
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 2.107494,
+            "min": 2.0969439998734742,
+            "max": 2.113771699834615
+          },
+          "peak_python_heap_bytes": 140033230,
+          "zip": {
+            "compressed_bytes_sum": 10581657,
+            "uncompressed_bytes_sum": 90169677,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 10580272,
+                "uncompressed_bytes": 90165992,
+                "ratio": 8.5221,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 510,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.8353,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5468,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 199,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1307,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_repeated_text",
+        "family": "plan",
+        "rows": 2000,
+        "profile": "repeated",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 3646641,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 3645879,
+            "min": 3645879,
+            "max": 3645879
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.052319,
+            "min": 0.05179090006276965,
+            "max": 0.05254309996962547
+          },
+          "peak_python_heap_bytes": 49847767,
+          "zip": {
+            "compressed_bytes_sum": 3645089,
+            "uncompressed_bytes_sum": 17616294,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 3643396,
+                "uncompressed_bytes": 17612609,
+                "ratio": 4.8341,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 674,
+                "uncompressed_bytes": 1956,
+                "ratio": 2.9021,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 325,
+                "uncompressed_bytes": 680,
+                "ratio": 2.0923,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 263,
+                "uncompressed_bytes": 329,
+                "ratio": 1.251,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 225,
+                "uncompressed_bytes": 424,
+                "ratio": 1.8844,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 2308077,
+            "min": 2308077,
+            "max": 2308077
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.143197,
+            "min": 0.13716379995457828,
+            "max": 0.1435879000928253
+          },
+          "peak_python_heap_bytes": 49847767,
+          "zip": {
+            "compressed_bytes_sum": 2307287,
+            "uncompressed_bytes_sum": 17616294,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 2305891,
+                "uncompressed_bytes": 17612609,
+                "ratio": 7.6381,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 515,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.7981,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 269,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5279,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 201,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1095,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 2076450,
+            "min": 2076450,
+            "max": 2076450
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.347101,
+            "min": 0.34620489994995296,
+            "max": 0.3625320000573993
+          },
+          "peak_python_heap_bytes": 49847767,
+          "zip": {
+            "compressed_bytes_sum": 2075660,
+            "uncompressed_bytes_sum": 17616294,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 2074275,
+                "uncompressed_bytes": 17612609,
+                "ratio": 8.491,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 510,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.8353,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5468,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 199,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1307,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_unique_long_text",
+        "family": "plan",
+        "rows": 2000,
+        "profile": "unique_long",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 3845273,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 3844735,
+            "min": 3844735,
+            "max": 3844735
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.086135,
+            "min": 0.08351290016435087,
+            "max": 0.08791839983314276
+          },
+          "peak_python_heap_bytes": 75212191,
+          "zip": {
+            "compressed_bytes_sum": 3843945,
+            "uncompressed_bytes_sum": 32944294,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 3842252,
+                "uncompressed_bytes": 32940609,
+                "ratio": 8.5733,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 674,
+                "uncompressed_bytes": 1956,
+                "ratio": 2.9021,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 325,
+                "uncompressed_bytes": 680,
+                "ratio": 2.0923,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 263,
+                "uncompressed_bytes": 329,
+                "ratio": 1.251,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 225,
+                "uncompressed_bytes": 424,
+                "ratio": 1.8844,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 2417627,
+            "min": 2417627,
+            "max": 2417627
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.159744,
+            "min": 0.15696480008773506,
+            "max": 0.16267300001345575
+          },
+          "peak_python_heap_bytes": 75212191,
+          "zip": {
+            "compressed_bytes_sum": 2416837,
+            "uncompressed_bytes_sum": 32944294,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 2415441,
+                "uncompressed_bytes": 32940609,
+                "ratio": 13.6375,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 515,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.7981,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 269,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5279,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 201,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1095,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 2209266,
+            "min": 2209266,
+            "max": 2209266
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.296059,
+            "min": 0.29057860001921654,
+            "max": 0.3047657001297921
+          },
+          "peak_python_heap_bytes": 75212191,
+          "zip": {
+            "compressed_bytes_sum": 2208476,
+            "uncompressed_bytes_sum": 32944294,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 2207091,
+                "uncompressed_bytes": 32940609,
+                "ratio": 14.9249,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 510,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.8353,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5468,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 199,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1307,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_sparse",
+        "family": "plan",
+        "rows": 2000,
+        "profile": "sparse",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 541359,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 541280,
+            "min": 541280,
+            "max": 541280
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.007298,
+            "min": 0.006914299912750721,
+            "max": 0.009419999783858657
+          },
+          "peak_python_heap_bytes": 8993749,
+          "zip": {
+            "compressed_bytes_sum": 540490,
+            "uncompressed_bytes_sum": 2482921,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 538797,
+                "uncompressed_bytes": 2479236,
+                "ratio": 4.6014,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 674,
+                "uncompressed_bytes": 1956,
+                "ratio": 2.9021,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 325,
+                "uncompressed_bytes": 680,
+                "ratio": 2.0923,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 263,
+                "uncompressed_bytes": 329,
+                "ratio": 1.251,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 225,
+                "uncompressed_bytes": 424,
+                "ratio": 1.8844,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 351857,
+            "min": 351857,
+            "max": 351857
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.022209,
+            "min": 0.022171600023284554,
+            "max": 0.02295739995315671
+          },
+          "peak_python_heap_bytes": 8993749,
+          "zip": {
+            "compressed_bytes_sum": 351067,
+            "uncompressed_bytes_sum": 2482921,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 349671,
+                "uncompressed_bytes": 2479236,
+                "ratio": 7.0902,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 515,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.7981,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 269,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5279,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 201,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1095,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 322880,
+            "min": 322880,
+            "max": 322880
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.040739,
+            "min": 0.038897299906238914,
+            "max": 0.042329599848017097
+          },
+          "peak_python_heap_bytes": 8993749,
+          "zip": {
+            "compressed_bytes_sum": 322090,
+            "uncompressed_bytes_sum": 2482921,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 320705,
+                "uncompressed_bytes": 2479236,
+                "ratio": 7.7306,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 510,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.8353,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5468,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 199,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1307,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_nested_block_formulas",
+        "family": "plan",
+        "rows": 2000,
+        "profile": "typical",
+        "values_only": false,
+        "block": "mto"
+      },
+      "baseline_bytes": 345297,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 345296,
+            "min": 345296,
+            "max": 345296
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.004708,
+            "min": 0.004254300147294998,
+            "max": 0.004864900140091777
+          },
+          "peak_python_heap_bytes": 8797655,
+          "zip": {
+            "compressed_bytes_sum": 344506,
+            "uncompressed_bytes_sum": 1743349,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 342813,
+                "uncompressed_bytes": 1739664,
+                "ratio": 5.0747,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 674,
+                "uncompressed_bytes": 1956,
+                "ratio": 2.9021,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 325,
+                "uncompressed_bytes": 680,
+                "ratio": 2.0923,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 263,
+                "uncompressed_bytes": 329,
+                "ratio": 1.251,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 225,
+                "uncompressed_bytes": 424,
+                "ratio": 1.8844,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 210805,
+            "min": 210805,
+            "max": 210805
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.012338,
+            "min": 0.011468200013041496,
+            "max": 0.012412899872288108
+          },
+          "peak_python_heap_bytes": 8797655,
+          "zip": {
+            "compressed_bytes_sum": 210015,
+            "uncompressed_bytes_sum": 1743349,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 208619,
+                "uncompressed_bytes": 1739664,
+                "ratio": 8.339,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 515,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.7981,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 269,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5279,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 201,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1095,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 201522,
+            "min": 201522,
+            "max": 201522
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.028772,
+            "min": 0.028249999973922968,
+            "max": 0.03083380009047687
+          },
+          "peak_python_heap_bytes": 8797655,
+          "zip": {
+            "compressed_bytes_sum": 200732,
+            "uncompressed_bytes_sum": 1743349,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 199347,
+                "uncompressed_bytes": 1739664,
+                "ratio": 8.7268,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 510,
+                "uncompressed_bytes": 1956,
+                "ratio": 3.8353,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 680,
+                "ratio": 2.5468,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 329,
+                "ratio": 1.4181,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 199,
+                "uncompressed_bytes": 424,
+                "ratio": 2.1307,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "table_small_values",
+        "family": "table",
+        "rows": 10,
+        "profile": "typical",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 5252,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 5252,
+            "min": 5252,
+            "max": 5252
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.000189,
+            "min": 0.00017749983817338943,
+            "max": 0.00024359999224543571
+          },
+          "peak_python_heap_bytes": 407129,
+          "zip": {
+            "compressed_bytes_sum": 4322,
+            "uncompressed_bytes_sum": 15509,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 2149,
+                "uncompressed_bytes": 8850,
+                "ratio": 4.1182,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 753,
+                "uncompressed_bytes": 4003,
+                "ratio": 5.3161,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 350,
+                "uncompressed_bytes": 577,
+                "ratio": 1.6486,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 329,
+                "uncompressed_bytes": 816,
+                "ratio": 2.4802,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 303,
+                "uncompressed_bytes": 402,
+                "ratio": 1.3267,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 565,
+                "ratio": 2.4353,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 4381,
+            "min": 4381,
+            "max": 4381
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.000356,
+            "min": 0.0003437998238950968,
+            "max": 0.000449199927970767
+          },
+          "peak_python_heap_bytes": 406703,
+          "zip": {
+            "compressed_bytes_sum": 3451,
+            "uncompressed_bytes_sum": 15509,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 1657,
+                "uncompressed_bytes": 8850,
+                "ratio": 5.341,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 552,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.2518,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 313,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8435,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 274,
+                "uncompressed_bytes": 816,
+                "ratio": 2.9781,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5056,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 209,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7033,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 4337,
+            "min": 4337,
+            "max": 4337
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.000344,
+            "min": 0.00032819993793964386,
+            "max": 0.00037860008887946606
+          },
+          "peak_python_heap_bytes": 406685,
+          "zip": {
+            "compressed_bytes_sum": 3407,
+            "uncompressed_bytes_sum": 15509,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 1629,
+                "uncompressed_bytes": 8850,
+                "ratio": 5.4328,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 548,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.3047,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 307,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8795,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 273,
+                "uncompressed_bytes": 816,
+                "ratio": 2.989,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 266,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5113,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 207,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7295,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "table_small_formulas",
+        "family": "table",
+        "rows": 10,
+        "profile": "typical",
+        "values_only": false,
+        "block": null
+      },
+      "baseline_bytes": 5380,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 5380,
+            "min": 5380,
+            "max": 5380
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.000182,
+            "min": 0.0001783999614417553,
+            "max": 0.00021540001034736633
+          },
+          "peak_python_heap_bytes": 407291,
+          "zip": {
+            "compressed_bytes_sum": 4450,
+            "uncompressed_bytes_sum": 15671,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 2277,
+                "uncompressed_bytes": 9012,
+                "ratio": 3.9578,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 753,
+                "uncompressed_bytes": 4003,
+                "ratio": 5.3161,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 350,
+                "uncompressed_bytes": 577,
+                "ratio": 1.6486,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 329,
+                "uncompressed_bytes": 816,
+                "ratio": 2.4802,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 303,
+                "uncompressed_bytes": 402,
+                "ratio": 1.3267,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 565,
+                "ratio": 2.4353,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 4495,
+            "min": 4495,
+            "max": 4495
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.000308,
+            "min": 0.00029779993928968906,
+            "max": 0.0003429001662880182
+          },
+          "peak_python_heap_bytes": 406865,
+          "zip": {
+            "compressed_bytes_sum": 3565,
+            "uncompressed_bytes_sum": 15671,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 1771,
+                "uncompressed_bytes": 9012,
+                "ratio": 5.0887,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 552,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.2518,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 313,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8435,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 274,
+                "uncompressed_bytes": 816,
+                "ratio": 2.9781,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5056,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 209,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7033,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 4438,
+            "min": 4438,
+            "max": 4438
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.000353,
+            "min": 0.00032750004902482033,
+            "max": 0.0003782000858336687
+          },
+          "peak_python_heap_bytes": 406847,
+          "zip": {
+            "compressed_bytes_sum": 3508,
+            "uncompressed_bytes_sum": 15671,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 1730,
+                "uncompressed_bytes": 9012,
+                "ratio": 5.2092,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 548,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.3047,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 307,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8795,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 273,
+                "uncompressed_bytes": 816,
+                "ratio": 2.989,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 266,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5113,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 207,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7295,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "table_typical_values",
+        "family": "table",
+        "rows": 1000,
+        "profile": "typical",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 112485,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 112514,
+            "min": 112514,
+            "max": 112514
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.001795,
+            "min": 0.0015337998047471046,
+            "max": 0.001961299916729331
+          },
+          "peak_python_heap_bytes": 2276071,
+          "zip": {
+            "compressed_bytes_sum": 111584,
+            "uncompressed_bytes_sum": 680560,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 109411,
+                "uncompressed_bytes": 673901,
+                "ratio": 6.1594,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 753,
+                "uncompressed_bytes": 4003,
+                "ratio": 5.3161,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 350,
+                "uncompressed_bytes": 577,
+                "ratio": 1.6486,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 329,
+                "uncompressed_bytes": 816,
+                "ratio": 2.4802,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 303,
+                "uncompressed_bytes": 402,
+                "ratio": 1.3267,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 565,
+                "ratio": 2.4353,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 68172,
+            "min": 68172,
+            "max": 68172
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.003854,
+            "min": 0.0038223001174628735,
+            "max": 0.00567579991184175
+          },
+          "peak_python_heap_bytes": 2276071,
+          "zip": {
+            "compressed_bytes_sum": 67242,
+            "uncompressed_bytes_sum": 680560,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 65448,
+                "uncompressed_bytes": 673901,
+                "ratio": 10.2967,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 552,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.2518,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 313,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8435,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 274,
+                "uncompressed_bytes": 816,
+                "ratio": 2.9781,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5056,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 209,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7033,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 63384,
+            "min": 63384,
+            "max": 63384
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.009232,
+            "min": 0.009147499920800328,
+            "max": 0.009640999836847186
+          },
+          "peak_python_heap_bytes": 2276071,
+          "zip": {
+            "compressed_bytes_sum": 62454,
+            "uncompressed_bytes_sum": 680560,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 60676,
+                "uncompressed_bytes": 673901,
+                "ratio": 11.1065,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 548,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.3047,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 307,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8795,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 273,
+                "uncompressed_bytes": 816,
+                "ratio": 2.989,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 266,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5113,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 207,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7295,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "table_typical_formulas",
+        "family": "table",
+        "rows": 1000,
+        "profile": "typical",
+        "values_only": false,
+        "block": null
+      },
+      "baseline_bytes": 123216,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 123150,
+            "min": 123150,
+            "max": 123150
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.001686,
+            "min": 0.001613199943676591,
+            "max": 0.0017933999188244343
+          },
+          "peak_python_heap_bytes": 2286802,
+          "zip": {
+            "compressed_bytes_sum": 122220,
+            "uncompressed_bytes_sum": 696398,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 120047,
+                "uncompressed_bytes": 689739,
+                "ratio": 5.7456,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 753,
+                "uncompressed_bytes": 4003,
+                "ratio": 5.3161,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 350,
+                "uncompressed_bytes": 577,
+                "ratio": 1.6486,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 329,
+                "uncompressed_bytes": 816,
+                "ratio": 2.4802,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 303,
+                "uncompressed_bytes": 402,
+                "ratio": 1.3267,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 565,
+                "ratio": 2.4353,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 75666,
+            "min": 75666,
+            "max": 75666
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.004414,
+            "min": 0.004189200000837445,
+            "max": 0.004800699884071946
+          },
+          "peak_python_heap_bytes": 2286802,
+          "zip": {
+            "compressed_bytes_sum": 74736,
+            "uncompressed_bytes_sum": 696398,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 72942,
+                "uncompressed_bytes": 689739,
+                "ratio": 9.456,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 552,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.2518,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 313,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8435,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 274,
+                "uncompressed_bytes": 816,
+                "ratio": 2.9781,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5056,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 209,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7033,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 69159,
+            "min": 69159,
+            "max": 69159
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.009895,
+            "min": 0.009700699942186475,
+            "max": 0.0111480001360178
+          },
+          "peak_python_heap_bytes": 2286802,
+          "zip": {
+            "compressed_bytes_sum": 68229,
+            "uncompressed_bytes_sum": 696398,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 66451,
+                "uncompressed_bytes": 689739,
+                "ratio": 10.3797,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 548,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.3047,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 307,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8795,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 273,
+                "uncompressed_bytes": 816,
+                "ratio": 2.989,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 266,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5113,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 207,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7295,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "table_large_values",
+        "family": "table",
+        "rows": 10000,
+        "profile": "typical",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 1125537,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 1125418,
+            "min": 1125418,
+            "max": 1125418
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.021242,
+            "min": 0.020496500190347433,
+            "max": 0.021941999904811382
+          },
+          "peak_python_heap_bytes": 22163491,
+          "zip": {
+            "compressed_bytes_sum": 1124488,
+            "uncompressed_bytes_sum": 6849479,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 1122315,
+                "uncompressed_bytes": 6842820,
+                "ratio": 6.0971,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 753,
+                "uncompressed_bytes": 4003,
+                "ratio": 5.3161,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 350,
+                "uncompressed_bytes": 577,
+                "ratio": 1.6486,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 329,
+                "uncompressed_bytes": 816,
+                "ratio": 2.4802,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 303,
+                "uncompressed_bytes": 402,
+                "ratio": 1.3267,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 565,
+                "ratio": 2.4353,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 644995,
+            "min": 644995,
+            "max": 644995
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.0437,
+            "min": 0.04316550004296005,
+            "max": 0.0439663000870496
+          },
+          "peak_python_heap_bytes": 22163491,
+          "zip": {
+            "compressed_bytes_sum": 644065,
+            "uncompressed_bytes_sum": 6849479,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 642271,
+                "uncompressed_bytes": 6842820,
+                "ratio": 10.6541,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 552,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.2518,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 313,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8435,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 274,
+                "uncompressed_bytes": 816,
+                "ratio": 2.9781,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5056,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 209,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7033,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 595956,
+            "min": 595956,
+            "max": 595956
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.100381,
+            "min": 0.09876680001616478,
+            "max": 0.11402179999276996
+          },
+          "peak_python_heap_bytes": 22163491,
+          "zip": {
+            "compressed_bytes_sum": 595026,
+            "uncompressed_bytes_sum": 6849479,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 593248,
+                "uncompressed_bytes": 6842820,
+                "ratio": 11.5345,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 548,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.3047,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 307,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8795,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 273,
+                "uncompressed_bytes": 816,
+                "ratio": 2.989,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 266,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5113,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 207,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7295,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "table_repeated_text",
+        "family": "table",
+        "rows": 2000,
+        "profile": "repeated",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 220777,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 220843,
+            "min": 220843,
+            "max": 220843
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.003255,
+            "min": 0.00287310010753572,
+            "max": 0.0034221999812871218
+          },
+          "peak_python_heap_bytes": 2384331,
+          "zip": {
+            "compressed_bytes_sum": 219913,
+            "uncompressed_bytes_sum": 1343098,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 217740,
+                "uncompressed_bytes": 1336439,
+                "ratio": 6.1378,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 753,
+                "uncompressed_bytes": 4003,
+                "ratio": 5.3161,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 350,
+                "uncompressed_bytes": 577,
+                "ratio": 1.6486,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 329,
+                "uncompressed_bytes": 816,
+                "ratio": 2.4802,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 303,
+                "uncompressed_bytes": 402,
+                "ratio": 1.3267,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 565,
+                "ratio": 2.4353,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 131966,
+            "min": 131966,
+            "max": 131966
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.009222,
+            "min": 0.007688600104302168,
+            "max": 0.01195359998382628
+          },
+          "peak_python_heap_bytes": 2384331,
+          "zip": {
+            "compressed_bytes_sum": 131036,
+            "uncompressed_bytes_sum": 1343098,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 129242,
+                "uncompressed_bytes": 1336439,
+                "ratio": 10.3406,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 552,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.2518,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 313,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8435,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 274,
+                "uncompressed_bytes": 816,
+                "ratio": 2.9781,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5056,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 209,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7033,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 122661,
+            "min": 122661,
+            "max": 122661
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.018827,
+            "min": 0.01811109995469451,
+            "max": 0.019423600053414702
+          },
+          "peak_python_heap_bytes": 2384331,
+          "zip": {
+            "compressed_bytes_sum": 121731,
+            "uncompressed_bytes_sum": 1343098,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 119953,
+                "uncompressed_bytes": 1336439,
+                "ratio": 11.1414,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 548,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.3047,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 307,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8795,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 273,
+                "uncompressed_bytes": 816,
+                "ratio": 2.989,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 266,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5113,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 207,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7295,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "table_unique_long_text",
+        "family": "table",
+        "rows": 2000,
+        "profile": "unique_long",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 225499,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 225479,
+            "min": 225479,
+            "max": 225479
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.003607,
+            "min": 0.0035961999092251062,
+            "max": 0.0036869999021291733
+          },
+          "peak_python_heap_bytes": 8680541,
+          "zip": {
+            "compressed_bytes_sum": 224549,
+            "uncompressed_bytes_sum": 1834098,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 222376,
+                "uncompressed_bytes": 1827439,
+                "ratio": 8.2178,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 753,
+                "uncompressed_bytes": 4003,
+                "ratio": 5.3161,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 350,
+                "uncompressed_bytes": 577,
+                "ratio": 1.6486,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 329,
+                "uncompressed_bytes": 816,
+                "ratio": 2.4802,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 303,
+                "uncompressed_bytes": 402,
+                "ratio": 1.3267,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 565,
+                "ratio": 2.4353,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 142343,
+            "min": 142343,
+            "max": 142343
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.00841,
+            "min": 0.008161399979144335,
+            "max": 0.008576199878007174
+          },
+          "peak_python_heap_bytes": 8680541,
+          "zip": {
+            "compressed_bytes_sum": 141413,
+            "uncompressed_bytes_sum": 1834098,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 139619,
+                "uncompressed_bytes": 1827439,
+                "ratio": 13.0888,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 552,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.2518,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 313,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8435,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 274,
+                "uncompressed_bytes": 816,
+                "ratio": 2.9781,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5056,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 209,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7033,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 131214,
+            "min": 131214,
+            "max": 131214
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.019263,
+            "min": 0.018079000059515238,
+            "max": 0.019604899920523167
+          },
+          "peak_python_heap_bytes": 8680541,
+          "zip": {
+            "compressed_bytes_sum": 130284,
+            "uncompressed_bytes_sum": 1834098,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 128506,
+                "uncompressed_bytes": 1827439,
+                "ratio": 14.2207,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 548,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.3047,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 307,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8795,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 273,
+                "uncompressed_bytes": 816,
+                "ratio": 2.989,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 266,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5113,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 207,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7295,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "table_sparse",
+        "family": "table",
+        "rows": 2000,
+        "profile": "sparse",
+        "values_only": true,
+        "block": null
+      },
+      "baseline_bytes": 154002,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 154251,
+            "min": 154251,
+            "max": 154251
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.002277,
+            "min": 0.001891900086775422,
+            "max": 0.0025609000585973263
+          },
+          "peak_python_heap_bytes": 2317556,
+          "zip": {
+            "compressed_bytes_sum": 153321,
+            "uncompressed_bytes_sum": 780050,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 151148,
+                "uncompressed_bytes": 773391,
+                "ratio": 5.1168,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 753,
+                "uncompressed_bytes": 4003,
+                "ratio": 5.3161,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 350,
+                "uncompressed_bytes": 577,
+                "ratio": 1.6486,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 329,
+                "uncompressed_bytes": 816,
+                "ratio": 2.4802,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 303,
+                "uncompressed_bytes": 402,
+                "ratio": 1.3267,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 565,
+                "ratio": 2.4353,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 92583,
+            "min": 92583,
+            "max": 92583
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.006365,
+            "min": 0.006158999865874648,
+            "max": 0.008659100160002708
+          },
+          "peak_python_heap_bytes": 2317556,
+          "zip": {
+            "compressed_bytes_sum": 91653,
+            "uncompressed_bytes_sum": 780050,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 89859,
+                "uncompressed_bytes": 773391,
+                "ratio": 8.6067,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 552,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.2518,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 313,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8435,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 274,
+                "uncompressed_bytes": 816,
+                "ratio": 2.9781,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5056,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 209,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7033,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 89483,
+            "min": 89483,
+            "max": 89483
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.018199,
+            "min": 0.017754500033333898,
+            "max": 0.018694299971684813
+          },
+          "peak_python_heap_bytes": 2317556,
+          "zip": {
+            "compressed_bytes_sum": 88553,
+            "uncompressed_bytes_sum": 780050,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 86775,
+                "uncompressed_bytes": 773391,
+                "ratio": 8.9126,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 548,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.3047,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 307,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8795,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 273,
+                "uncompressed_bytes": 816,
+                "ratio": 2.989,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 266,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5113,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 207,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7295,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    },
+    {
+      "workload": {
+        "id": "table_nested_formulas",
+        "family": "table",
+        "rows": 2000,
+        "profile": "nested",
+        "values_only": false,
+        "block": null
+      },
+      "baseline_bytes": 248007,
+      "levels": {
+        "1": {
+          "final_bytes": {
+            "n": 3,
+            "median": 248190,
+            "min": 248190,
+            "max": 248190
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.003179,
+            "min": 0.0028314997907727957,
+            "max": 0.003186900168657303
+          },
+          "peak_python_heap_bytes": 2411593,
+          "zip": {
+            "compressed_bytes_sum": 247260,
+            "uncompressed_bytes_sum": 1401273,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 245087,
+                "uncompressed_bytes": 1394614,
+                "ratio": 5.6903,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 753,
+                "uncompressed_bytes": 4003,
+                "ratio": 5.3161,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 350,
+                "uncompressed_bytes": 577,
+                "ratio": 1.6486,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 329,
+                "uncompressed_bytes": 816,
+                "ratio": 2.4802,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 303,
+                "uncompressed_bytes": 402,
+                "ratio": 1.3267,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 232,
+                "uncompressed_bytes": 565,
+                "ratio": 2.4353,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 206,
+                "uncompressed_bytes": 296,
+                "ratio": 1.4369,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "6": {
+          "final_bytes": {
+            "n": 3,
+            "median": 147649,
+            "min": 147649,
+            "max": 147649
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.00811,
+            "min": 0.007929899962618947,
+            "max": 0.008531600004062057
+          },
+          "peak_python_heap_bytes": 2411593,
+          "zip": {
+            "compressed_bytes_sum": 146719,
+            "uncompressed_bytes_sum": 1401273,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 144925,
+                "uncompressed_bytes": 1394614,
+                "ratio": 9.623,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 552,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.2518,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 313,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8435,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 274,
+                "uncompressed_bytes": 816,
+                "ratio": 2.9781,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 267,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5056,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 209,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7033,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 179,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6536,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        },
+        "9": {
+          "final_bytes": {
+            "n": 3,
+            "median": 134263,
+            "min": 134263,
+            "max": 134263
+          },
+          "wall_seconds": {
+            "n": 3,
+            "median": 0.017777,
+            "min": 0.01770540000870824,
+            "max": 0.017962200101464987
+          },
+          "peak_python_heap_bytes": 2411593,
+          "zip": {
+            "compressed_bytes_sum": 133333,
+            "uncompressed_bytes_sum": 1401273,
+            "entries": [
+              {
+                "name": "xl/worksheets/sheet1.xml",
+                "compressed_bytes": 131555,
+                "uncompressed_bytes": 1394614,
+                "ratio": 10.601,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/styles.xml",
+                "compressed_bytes": 548,
+                "uncompressed_bytes": 4003,
+                "ratio": 7.3047,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/worksheets/sheet2.xml",
+                "compressed_bytes": 307,
+                "uncompressed_bytes": 577,
+                "ratio": 1.8795,
+                "flag_bits": 8
+              },
+              {
+                "name": "[Content_Types].xml",
+                "compressed_bytes": 273,
+                "uncompressed_bytes": 816,
+                "ratio": 2.989,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/workbook.xml",
+                "compressed_bytes": 266,
+                "uncompressed_bytes": 402,
+                "ratio": 1.5113,
+                "flag_bits": 8
+              },
+              {
+                "name": "xl/_rels/workbook.xml.rels",
+                "compressed_bytes": 207,
+                "uncompressed_bytes": 565,
+                "ratio": 2.7295,
+                "flag_bits": 8
+              },
+              {
+                "name": "_rels/.rels",
+                "compressed_bytes": 177,
+                "uncompressed_bytes": 296,
+                "ratio": 1.6723,
+                "flag_bits": 8
+              }
+            ]
+          },
+          "parts_identical_to_baseline": true
+        }
+      }
+    }
+  ]
+}

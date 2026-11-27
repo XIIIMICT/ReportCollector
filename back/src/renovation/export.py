@@ -383,6 +383,8 @@ class RenovationWorkbookWriter:
     the exact data range. A mismatch — e.g. the plan edited between the meta
     and the rows reads of a background export — raises `ExportRowCountMismatchError`
     and the caller fails fast instead of producing a broken file.
+    ``compresslevel`` overrides the shared deflate default; it changes only
+    ZIP compression, never the sheet bytes or the append-only container.
     """
 
     def __init__(
@@ -393,6 +395,7 @@ class RenovationWorkbookWriter:
         totals: dict[str, float] | None = None,
         *,
         row_total: int | None,
+        compresslevel: int = xlsx_stream.ZIP_COMPRESSLEVEL,
     ) -> None:
         self.layout = layout
         self.reference_labels = reference_labels
@@ -403,7 +406,10 @@ class RenovationWorkbookWriter:
         # the streaming queue sink: zipfile accepts any writable binary stream,
         # the static protocol just cannot express it.
         self.archive = ZipFile(
-            cast("IO[bytes]", xlsx_stream.UnseekableSink(sink)), "w", compression=ZIP_DEFLATED, compresslevel=1
+            cast("IO[bytes]", xlsx_stream.UnseekableSink(sink)),
+            "w",
+            compression=ZIP_DEFLATED,
+            compresslevel=compresslevel,
         )
         self.archive.writestr("[Content_Types].xml", xlsx_stream.content_types_xml())
         self.archive.writestr("_rels/.rels", xlsx_stream.ROOT_RELS_XML)

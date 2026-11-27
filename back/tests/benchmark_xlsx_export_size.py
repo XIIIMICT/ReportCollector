@@ -42,13 +42,14 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import IO, Any, Literal, TypedDict, cast
 from uuid import UUID
 from xml.etree import ElementTree as ET
 
 import openpyxl
 from openpyxl.utils import column_index_from_string
 
+from src.common import xlsx_stream
 from src.common.export import ExportColumnRequest
 from src.common.xlsx_table import TableWorkbookWriter
 from src.renovation.export import RenovationWorkbookWriter, build_plan_sheet_layout
@@ -308,14 +309,17 @@ def _batches(rows: Iterator[Any]) -> Iterator[list[Any]]:
         yield batch
 
 
-def render(workload: Workload) -> bytes:
+def render(workload: Workload, *, compresslevel: int | None = None) -> bytes:
     """Render one synthetic workload through the real writer; return the archive bytes."""
     sink = BytesIO()
+    level = xlsx_stream.ZIP_COMPRESSLEVEL if compresslevel is None else compresslevel
     totals_field = next(meta for meta in field_metas() if meta.db_name != "col_002" and meta.cell_type == "number")
     if workload.family == "plan":
         totals = {totals_field.db_name: float(workload.rows) * 1.5}
         layout = build_plan_sheet_layout(workload.block, totals, values_only=workload.values_only)
-        writer = RenovationWorkbookWriter(sink, layout, _REFERENCE_LABELS, totals=totals, row_total=workload.rows)
+        writer = RenovationWorkbookWriter(
+            sink, layout, _REFERENCE_LABELS, totals=totals, row_total=workload.rows, compresslevel=level
+        )
         for batch in _batches(_plan_rows(workload)):
             writer.write_rows(batch)
     else:
@@ -332,11 +336,119 @@ def render(workload: Workload) -> bytes:
             totals_row={"amount": float(workload.rows) * 1.25, "base": float(workload.rows) * 0.75},
             merge_rows_by=("group",),
             values_only=workload.values_only,
+            compresslevel=level,
         )
         for batch in _batches(_table_rows(workload, columns)):
             writer.write_rows(batch)
     writer.close()
     return sink.getvalue()
+
+
+def recompress(data: bytes, level: int) -> bytes:
+    """
+    Recompress the EXACT OPC entries of ``data`` at one deflate level.
+
+    The uncompressed part bytes are copied unchanged, so the only variable is
+    the compression level. Entries are rewritten in their original order over
+    an ``UnseekableSink`` — the same append-only/data-descriptor container the
+    real exporters emit — so the result stays tail-able by the download path.
+    """
+    with zipfile.ZipFile(BytesIO(data)) as source:
+        entries = [(info, source.read(info)) for info in source.infolist()]
+    sink = BytesIO()
+    with zipfile.ZipFile(
+        cast("IO[bytes]", xlsx_stream.UnseekableSink(sink)),
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=level,
+    ) as target:
+        for info, payload in entries:
+            # A fresh ZipInfo: zipfile mutates CRC/sizes/flags while writing,
+            # and reusing the source object would corrupt later comparisons.
+            fresh = zipfile.ZipInfo(info.filename, info.date_time)
+            fresh.compress_type = zipfile.ZIP_DEFLATED
+            # Python 3.15's ZipFile.open() only copies `compresslevel` onto a
+            # NEW ZipInfo; an explicitly supplied one keeps its own level
+            # (None -> zlib default 6). Set it per entry so the experiment
+            # actually isolates the requested level.
+            fresh.compress_level = level
+            fresh.create_system = info.create_system
+            fresh.external_attr = info.external_attr
+            fresh.internal_attr = info.internal_attr
+            target.writestr(fresh, payload)
+    return sink.getvalue()
+
+
+def same_package_parts(baseline: bytes, candidate: bytes) -> bool:
+    """Return True when both archives carry identical entry names/order and part bytes."""
+    with zipfile.ZipFile(BytesIO(baseline)) as first, zipfile.ZipFile(BytesIO(candidate)) as second:
+        if [info.filename for info in first.infolist()] != [info.filename for info in second.infolist()]:
+            return False
+        if second.testzip() is not None:
+            return False
+        return all(first.read(info.filename) == second.read(info.filename) for info in first.infolist())
+
+
+def run_compression(workload: Workload, levels: Sequence[int], reps: int) -> dict[str, Any]:
+    """Measure deflate levels on identical workbook bytes for one workload."""
+    # Always compare against a level-1 render, even after the default changes.
+    baseline = render(workload, compresslevel=1)
+    measured: dict[str, Any] = {}
+    for level in levels:
+        durations: list[float] = []
+        sizes: list[int] = []
+        output = b""
+        for _ in range(reps):
+            started = time.perf_counter()
+            output = recompress(baseline, level)
+            durations.append(time.perf_counter() - started)
+            sizes.append(len(output))
+        if not same_package_parts(baseline, output):
+            message = f"level {level} changed the OPC package contents"
+            raise AssertionError(message)
+        tracemalloc.start()
+        tracemalloc.reset_peak()
+        recompress(baseline, level)
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        inspection = inspect(
+            output,
+            header_rows_count=11 + 2 if workload.family == "plan" else (3 if workload.profile == "nested" else 1) + 1,
+            main_sheet="xl/worksheets/sheet1.xml",
+        )
+        entries = [
+            {
+                "name": entry["name"],
+                "compressed_bytes": entry["compressed_bytes"],
+                "uncompressed_bytes": entry["uncompressed_bytes"],
+                "ratio": entry["ratio"],
+                "flag_bits": entry["flag_bits"],
+            }
+            for entry in inspection["zip"]["entries"]
+        ]
+        measured[str(level)] = {
+            "final_bytes": _stats(sizes),
+            "wall_seconds": _stats(durations),
+            "peak_python_heap_bytes": peak,
+            "zip": {
+                "compressed_bytes_sum": inspection["zip"]["compressed_bytes_sum"],
+                "uncompressed_bytes_sum": inspection["zip"]["uncompressed_bytes_sum"],
+                "entries": entries,
+            },
+            "parts_identical_to_baseline": True,
+        }
+    return {
+        "workload": {
+            "id": workload.id,
+            "family": workload.family,
+            "rows": workload.rows,
+            "profile": workload.profile,
+            "values_only": workload.values_only,
+            "block": workload.block,
+        },
+        "baseline_bytes": len(baseline),
+        "levels": measured,
+    }
 
 
 def _stats(values: Sequence[float | int]) -> dict[str, float | int]:
@@ -742,7 +854,7 @@ def environment(commit: str) -> dict[str, Any]:
         "openpyxl": openpyxl.__version__,
         "zlib": zlib.ZLIB_VERSION,
         "zip64_limit": zipfile.ZIP64_LIMIT,
-        "zip_compression": "zipfile.ZIP_DEFLATED, compresslevel=1 (both real writers)",
+        "zip_compression": f"zipfile.ZIP_DEFLATED, compresslevel={xlsx_stream.ZIP_COMPRESSLEVEL} (both real writers)",
         "pythonhashseed": os.environ.get("PYTHONHASHSEED"),
         "fixtures": "deterministic synthetic rows only; no database, no production data",
     }
@@ -751,18 +863,23 @@ def environment(commit: str) -> dict[str, Any]:
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["run"], help="run the full matrix")
+    parser.add_argument(
+        "mode", choices=["run", "compression"], help="run the full matrix or the deflate-level experiment"
+    )
     parser.add_argument("--reps", type=int, default=3, help="timed renders per workload (default: 3)")
     parser.add_argument("--scale", type=float, default=1.0, help="multiply every workload row count")
     parser.add_argument("--workload", action="append", dest="workloads", help="limit the matrix to one workload id")
     default_out = Path(__file__).resolve().parents[2] / "docs" / "XLSX_EXPORT_SIZE_BASELINE.json"
-    parser.add_argument("--out", type=Path, default=default_out)
+    parser.add_argument("--out", type=Path, default=None, help="evidence JSON path (default per mode)")
     parser.add_argument("--commit", default="unknown", help="git SHA of the code under measurement")
+    parser.add_argument("--levels", type=int, nargs="+", default=[1, 6, 9], help="deflate levels (compression mode)")
     args = parser.parse_args(argv)
     if args.reps < 1:
         parser.error("--reps must be >= 1")
     if args.scale <= 0:
         parser.error("--scale must be > 0")
+    if any(level < 0 or level > 9 for level in args.levels):
+        parser.error("--levels must be zlib levels 0..9")
     selected = tuple(_scaled(item, args.scale) for item in catalog())
     if args.workloads:
         known = {item.id for item in selected}
@@ -770,6 +887,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         if unknown:
             parser.error(f"unknown workload(s): {sorted(unknown)}")
         selected = tuple(item for item in selected if item.id in args.workloads)
+    docs = Path(__file__).resolve().parents[2] / "docs"
+    if args.mode == "compression":
+        out = args.out or docs / "XLSX_EXPORT_SIZE_COMPRESSION.json"
+        results = [run_compression(workload, args.levels, args.reps) for workload in selected]
+        report = {
+            "environment": {
+                **environment(args.commit),
+                "experiment": "identical OPC part bytes recompressed at each level over UnseekableSink",
+            },
+            "method": {
+                "timed_recompressions": args.reps,
+                "memory_render": 1,
+                "memory_metric": "tracemalloc peak of the recompression pass (not the streaming writer)",
+                "levels": list(args.levels),
+                "inspection": "zipfile metadata + byte-for-byte part equality against the baseline archive",
+            },
+            "workloads": results,
+        }
+        with out.open("w", encoding="utf-8", newline="\n") as stream:
+            stream.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+        for result in results:
+            base = result["baseline_bytes"]
+            cells = " ".join(
+                f"L{level}={data['final_bytes']['median']}({(data['final_bytes']['median'] - base) / base * 100:+.2f}%,"
+                f"{data['wall_seconds']['median']:.4f}s)"
+                for level, data in result["levels"].items()
+            )
+            _emit(f"{result['workload']['id']:26s} baseline={base:>10} {cells}")
+        _emit(f"Wrote {out}")
+        return 0
+    out = args.out or default_out
     results = [run_one(workload, args.reps) for workload in selected]
     report = {
         "environment": environment(args.commit),
@@ -782,8 +930,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         },
         "workloads": results,
     }
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("w", encoding="utf-8", newline="\n") as stream:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8", newline="\n") as stream:
         stream.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     for result in results:
         info = result["workload"]
@@ -794,7 +942,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"heap={result['peak_python_heap_bytes']:>12} "
             f"forms={result['formula_count']:>7}"
         )
-    _emit(f"Wrote {args.out}")
+    _emit(f"Wrote {out}")
     return 0
 
 

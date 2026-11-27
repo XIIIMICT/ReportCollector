@@ -116,6 +116,7 @@ class TableWorkbookWriter:
         totals_row: Mapping[str, float] | None = None,
         merge_rows_by: Sequence[str] | None = None,
         values_only: bool = False,
+        compresslevel: int = xlsx_stream.ZIP_COMPRESSLEVEL,
     ) -> None:
         """
         Open the archive and write everything except the data rows.
@@ -140,6 +141,9 @@ class TableWorkbookWriter:
         directly under the header, a column WITHOUT an aggregate merges its
         header cell down over it (one tall header cell, exactly like the
         grid), and the aggregating cells carry a live SUM over the data.
+        ``compresslevel`` overrides the shared deflate default; it changes
+        only ZIP compression, never the package contents or the append-only
+        container.
         """
         self.columns = list(columns)
         self.calculated = dict(calculated or {})
@@ -172,7 +176,7 @@ class TableWorkbookWriter:
             cast("IO[bytes]", xlsx_stream.UnseekableSink(sink)),
             "w",
             compression=zipfile.ZIP_DEFLATED,
-            compresslevel=1,
+            compresslevel=compresslevel,
         )
         sheet_count = 2 if self._needs_lists else 1
         self._archive.writestr("[Content_Types].xml", xlsx_stream.content_types_xml(sheet_count))
