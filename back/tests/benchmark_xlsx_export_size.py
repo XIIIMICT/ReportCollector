@@ -783,7 +783,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "workloads": results,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with args.out.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     for result in results:
         info = result["workload"]
         _emit(
