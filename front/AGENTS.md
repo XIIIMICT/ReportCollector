@@ -92,7 +92,10 @@ live in `back/AGENTS.md`; contracts in `docs/API.md`, `docs/COLLAB.md`,
   `.env.example`). No corporate emails or password literals in specs. Playwright
   does not read `.env` files: export the env var in the shell. The isolated seed
   creates those users and the deterministic archive/work-code fixtures only with
-  `RC_SEED_E2E_FIXTURES=1` (never on prod or with Keycloak enabled).
+  `RC_SEED_E2E_FIXTURES=1` (never on prod or with Keycloak enabled). The CI
+  `front` container carries a synthetic `SUPPORT_MAIL` fixture so `.support-link`
+  is visible there (contract — `docs/ARCHITECTURE.md`); e2e asserts its contract
+  and never follows the `mailto:`.
 - There is ONE Playwright config: `front/playwright.config.ts` is used by both
   local and CI runs (there is no separate local config). It owns `testIgnore`,
   the `smoke` / `ui-keycloak` project names and the smoke spec selection; CI's
