@@ -249,3 +249,234 @@ Measurement commit: `e6285840c99541c53820feeaea7e08610548fe67`
 `107814097c4de70157546e83890b0ac789833572` (default evidence path) and
 `8480c116a19ea091fe9dfaff72e1e0e795451222` (harness). Evidence was captured on
 that code plus two documentation files that contain no executable code.
+
+---
+
+# Phases 2–5 — experiments, implementation and validation (2026-11-27)
+
+Everything below was measured on the same deterministic fixtures, in the same
+environment and with the same harness as the Phase 1 baseline. Machine-readable
+evidence: `docs/XLSX_EXPORT_SIZE_COMPRESSION.json` (baseline commit
+`f0340c3bfa3ea20f036cbeb814759eae4d7ae4aa`) and
+`docs/XLSX_EXPORT_SIZE_OPTIMIZED.json` (implementation commit
+`e1c6c9db467a35ff47d913df50f757b8901f6f38`). The implementation changed exactly
+one byte-level variable — the deflate level — and left dependencies, lockfiles,
+frontend, infrastructure, job topology and production data untouched.
+
+## Phase 2 — hypotheses and controlled experiments
+
+The Phase 1 byte profile established the ranking that drove the experiments:
+per-cell XML wrappers are the largest uncompressed contributor (5,259,376 B at
+1k plan rows), value/formula content is second (3,517,425 B; 7,321,017 B with
+formulas), and fixed header/merge/style overhead is <2% of compressed bytes.
+Only candidates that could act on those contributors were tested.
+
+### H1 — ZIP deflate level (ACCEPTED, implemented)
+
+Mechanism: both writers opened each entry with `ZIP_DEFLATED, compresslevel=1`.
+The same OOXML part bytes were recompressed at other supported levels over
+`UnseekableSink`, so the only variable was the compressor. The harness exposes
+this as `python -m tests.benchmark_xlsx_export_size compression --levels …`;
+it verifies byte-for-byte equality of every entry name/order/part against the
+level-1 render before recording a result. Level 1 recompression is within
+0.16% of the real level-1 writer (one-shot `writestr` vs streamed deflate
+choose slightly different match blocks), a control noise floor far below the
+observed deltas.
+
+Median recompression time/size (3 reps, identical part bytes;
+`docs/XLSX_EXPORT_SIZE_COMPRESSION.json`):
+
+| Workload | L1 bytes / s | L6 bytes / s | L9 bytes / s | L6 vs L1 | L9 vs L1 |
+|---|---:|---:|---:|---:|---:|
+| plan_small_values | 57,621 / 0.0007 | 41,247 / 0.0019 | 38,967 / 0.0034 | −28.4% | −32.4% |
+| plan_typical_values | 1,816,238 / 0.0289 | 1,166,539 / 0.0638 | 1,046,274 / 0.1336 | −35.8% | −42.4% |
+| plan_large_values | 18,334,632 / 0.2980 | 11,607,410 / 0.7637 | 10,582,447 / 2.1075 | −36.7% | −42.3% |
+| plan_repeated_text | 3,645,879 / 0.0523 | 2,308,077 / 0.1432 | 2,076,450 / 0.3471 | −36.7% | −43.0% |
+| plan_unique_long_text | 3,844,735 / 0.0861 | 2,417,627 / 0.1597 | 2,209,266 / 0.2961 | −37.1% | −42.5% |
+| table_typical_values | 112,514 / 0.0018 | 68,172 / 0.0039 | 63,384 / 0.0092 | −39.4% | −43.7% |
+| table_sparse | 154,251 / 0.0023 | 92,583 / 0.0064 | 89,483 / 0.0182 | −40.0% | −42.0% |
+
+A 5-rep intermediate sweep (`--levels 1 3 4 6 9 --out NUL`) showed the shape of
+the trade-off: plan_large 18,334,632 → 12,878,178 (L3, −29.8%) → 12,432,083
+(L4, −32.2%) → 11,607,410 (L6, −36.7%) → 10,582,447 (L9, −42.3%) bytes, with
+compression time 0.296 → 0.368 → 0.483 → 0.762 → 2.098 s; table_large
+1,125,418 → 756,469 (L3, −32.8%) → 689,001 (L4, −38.8%) → 644,995 (L6,
+−42.7%) → 595,956 (L9, −47.1%) bytes, 0.021 → 0.025 → 0.029 → 0.042 → 0.101 s.
+Level 6 captures nearly all of the win at ~2× compression CPU; level 9 costs
+3–7× CPU for a further 4–7 percentage points. Every level preserved the
+data-descriptor flag (bit 3) and the plain-ZIP header (no zip64 extra,
+`extract_version < 45`) on all entries.
+
+Harness landmine found while building the experiment: on Python 3.15,
+`ZipFile.open()` copies `compresslevel` only when it creates a **new** `ZipInfo`.
+An explicitly supplied `ZipInfo` keeps its own `compress_level` (default
+`None` → zlib level 6), silently ignoring the `ZipFile` setting. The experiment
+therefore sets `fresh.compress_level = level` per entry. The production writers
+pass entry names as strings and are unaffected.
+
+### H2 — styled-empty cells (REJECTED: semantically required)
+
+The sparse table fixture contains 14,009 empty `<c/>` cells in data rows.
+Parsing their styles against `xl/styles.xml` shows styles 1, 8, 13, 16 and 19,
+**all** with `borderId="1"` (thin border); the plan's 2,256 empties are style 1
+in header/aggregate rows, also bordered. There are **zero** style-0 empty
+cells. The blanks are the border/fill contract for the grid, not inert bytes,
+so none can be removed. Pinned by `test_every_styled_empty_cell_carries_a_border`.
+
+### H3 — cell XML wrappers / default style attributes (REJECTED: already optimal)
+
+Verified that all five cell builders (`text_cell_xml`, `number_cell_xml`,
+`styled_cell_xml`, `formula_cell_xml`, `bool_cell_xml`) omit the `s` attribute
+when style is 0; generated plan and table sheets contain zero `s="0"`
+attributes. The remaining wrapper bytes are `r="…"` refs and `s="N"` for
+non-default styles, which Excel needs and which follow from the contracted
+217-column layout. Dropping refs, rewriting XML after the fact, or changing
+the layout would be fragile or a behavior change; no tested safe reduction
+exists. Pinned by `test_default_style_attribute_is_already_omitted`.
+
+### H4 — shared strings vs inline strings (REJECTED: no supported switch)
+
+Neither writer exposes a string-storage switch and neither emits
+`xl/sharedStrings.xml`; a post-processing rewrite was explicitly not attempted.
+Measured trade-off context: the 1k plan has 41,564 inline strings / 468,350
+characters, and the 2k unique-long fixture has 9.14 M characters yet a *better*
+compression ratio (8.57 vs 4.83 for repeated text) — the existing deflate pass
+already exploits repeated prefixes. A shared-string table would add `<si>`
+wrappers and per-cell `t="s"` references while requiring every unique string
+to be resident in Python memory, conflicting with the bounded streaming design
+on ~300k-row exports. With H1 accepted, the expected gain does not justify the
+memory/compatibility risk.
+
+### H5 — formula-enabled variant (CONFIRMED contract-required, not removed)
+
+The plan 1k formula variant contains 133,001 `<f>` elements whose serialized
+bytes total **3,803,613**, exactly the uncompressed sheet delta
+(12,702,977 − 8,899,364). The +73.9% is therefore real formula payload plus
+its compression behavior, not stray wrappers. `valuesOnly=False` is a documented
+product switch and Excel evaluates the formulas (see Phase 4), so they stay.
+
+## Phase 3 — implemented change
+
+- `back/src/common/xlsx_stream.py`: new documented `ZIP_COMPRESSLEVEL = 6`,
+  replacing the two hard-coded level-1 settings.
+- `back/src/common/xlsx_table.py` and `back/src/renovation/export.py`: optional
+  keyword-only `compresslevel` on both writer constructors, defaulting to the
+  shared constant; the level is passed only to `ZipFile`, so the worksheet XML,
+  package parts, streaming sink and append-only data descriptors are unchanged.
+- `back/tests/benchmark_xlsx_export_size.py`: reusable `compression` experiment
+  mode, explicit level override in `render()`, and dynamic compression metadata
+  in the evidence environment.
+- `back/tests/test_xlsx_export_size_optimizations.py`: 9 regression tests for
+  the level, configurability, ZIP contract, semantic equivalence, styled blanks,
+  omitted default styles and formula payload.
+
+## Phase 4 — correctness and compatibility validation
+
+- Semantic comparison across compression levels (L1 vs L9) for
+  `plan_small_formulas` and `table_nested_formulas`: XML-level extraction of
+  every cell (type, value/formula text, style **signature** instead of numeric
+  id), row attributes, merges, validations, pane, widths and sheet names/state;
+  plus an independent openpyxl pass over values, number formats, fonts,
+  alignments, borders, merges, freeze panes, widths and validations. Both
+  extracted structures compare equal.
+- ZIP contract for both writers at the new default: every entry carries the
+  data-descriptor flag, no zip64 extra, `extract_version < 45`, `testzip()` is
+  clean. Streaming and bounded memory are untouched; measured tracemalloc peaks
+  did not increase (small decreases are run-to-run GC variation, not a memory
+  optimization).
+- Regression suites: `test_xlsx_export_size_optimizations.py` (9 tests),
+  `test_renovation_export_format.py`, `test_xlsx_table_merges.py`, `test_export.py`,
+  `test_logistics_export.py`, `test_benchmark_xlsx_export_size.py` — 48 passed.
+  Full backend suite: 795 passed, 13 skipped.
+- Independent open: LibreOffice is **not installed** on this host. Microsoft
+  Excel (Office16 `EXCEL.EXE`) was used via COM instead, no new dependency:
+  three generated workbooks opened read-only — `plan_small_formulas` (1 sheet,
+  used range 33×217), `table_nested_formulas` (2 sheets, 2004×11) and
+  `table_typical_values` (2 sheets, 1002×11). Excel reported `HasFormula=True`
+  with the exact formulas in Y13 (`=SUM(Y14:Y33)`), Y14 (`=X14 - W14`) and AD14
+  (`=AA14 + AB14 + AC14`), freeze panes with `SplitRow=13`, and merge areas
+  A2=`$A$2:$A$11`, A12=`$A$12:$A$13`. (Cyrillic sheet names were garbled in the
+  PowerShell COM output per the repository's PowerShell warning; those names
+  are asserted through openpyxl in the tests.)
+
+## Phase 5 — before/after matrix (same 18 workloads, `--reps 3`)
+
+Sizes are deterministic; times are per-run median with the observed min–max.
+The committed evidence run was on commit `e1c6c9d…`. An earlier identical run
+produced the same byte counts but somewhat higher wall times (e.g.
+`plan_large_values` 2.96 s vs 2.15 s), so treat time deltas as approximate;
+the size deltas are exact and repeatable.
+
+| Workload | Baseline B | Optimized B | Size % | Baseline s (min-max) | Optimized s (min-max) | Time % | Heap MB base -> opt |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| plan_small_values | 57621 | 41248 | -28.4% | 0.0053 (0.0051-0.0060) | 0.0066 (0.0064-0.0068) | +25.1% | 0.86 -> 0.83 |
+| plan_small_formulas | 80582 | 57515 | -28.6% | 0.0069 (0.0058-0.0084) | 0.0090 (0.0083-0.0090) | +30.1% | 0.89 -> 0.85 |
+| plan_typical_values | 1816238 | 1165933 | -35.8% | 0.1778 (0.1699-0.1791) | 0.2342 (0.2136-0.2375) | +31.7% | 14.79 -> 14.38 |
+| plan_typical_formulas | 3160001 | 2032446 | -35.7% | 0.2158 (0.2085-0.2172) | 0.2764 (0.2729-0.2802) | +28.1% | 15.41 -> 14.90 |
+| plan_large_values | 18334632 | 11601302 | -36.7% | 1.7554 (1.7382-1.7627) | 2.1494 (2.1398-2.2163) | +22.4% | 32.31 -> 25.37 |
+| plan_repeated_text | 3646641 | 2307148 | -36.7% | 0.3383 (0.3362-0.3389) | 0.4067 (0.4029-0.4255) | +20.2% | 14.17 -> 13.00 |
+| plan_unique_long_text | 3845273 | 2419586 | -37.1% | 0.3909 (0.3887-0.3932) | 0.4565 (0.4459-0.4693) | +16.8% | 24.59 -> 23.59 |
+| plan_sparse | 541359 | 351778 | -35.0% | 0.1041 (0.0950-0.1070) | 0.1140 (0.1137-0.1183) | +9.5% | 8.15 -> 7.95 |
+| plan_nested_block_formulas | 345297 | 211911 | -38.6% | 0.1075 (0.1061-0.1132) | 0.1149 (0.1125-0.1178) | +6.8% | 13.97 -> 13.86 |
+| table_small_values | 5252 | 4385 | -16.5% | 0.0006 (0.0006-0.0011) | 0.0008 (0.0007-0.0014) | +21.1% | 0.40 -> 0.40 |
+| table_small_formulas | 5380 | 4495 | -16.4% | 0.0006 (0.0006-0.0008) | 0.0008 (0.0007-0.0010) | +27.9% | 0.40 -> 0.40 |
+| table_typical_values | 112485 | 68289 | -39.3% | 0.0187 (0.0178-0.0199) | 0.0209 (0.0194-0.0218) | +11.5% | 1.23 -> 1.21 |
+| table_typical_formulas | 123216 | 75918 | -38.4% | 0.0201 (0.0193-0.0204) | 0.0230 (0.0218-0.0238) | +14.5% | 1.24 -> 1.21 |
+| table_large_values | 1125537 | 646615 | -42.6% | 0.1794 (0.1779-0.1835) | 0.1982 (0.1954-0.2015) | +10.5% | 2.32 -> 1.83 |
+| table_repeated_text | 220777 | 131958 | -40.2% | 0.0351 (0.0336-0.0454) | 0.0390 (0.0380-0.0391) | +10.9% | 1.27 -> 1.20 |
+| table_unique_long_text | 225499 | 142597 | -36.8% | 0.0338 (0.0327-0.0455) | 0.0399 (0.0398-0.0419) | +17.9% | 1.60 -> 1.52 |
+| table_sparse | 154002 | 93506 | -39.3% | 0.0293 (0.0265-0.0306) | 0.0327 (0.0320-0.0329) | +11.7% | 1.11 -> 1.05 |
+| table_nested_formulas | 248007 | 148099 | -40.3% | 0.0418 (0.0418-0.0427) | 0.0488 (0.0480-0.0521) | +16.8% | 1.38 -> 1.28 |
+
+Package-level evidence (uncompressed bytes are **identical** before/after — the
+win is purely compression, not fewer serialized bytes):
+
+| Workload | ZIP uncompressed B | ZIP compressed B | Ratio | `sheet1.xml` compressed B |
+|---|---:|---:|---:|---:|
+| plan_typical_values | 8,903,049 → 8,903,049 | 1,815,448 → 1,165,143 | 4.90 → 7.64 | 1,813,755 → 1,163,747 |
+| plan_large_values | 90,169,677 → 90,169,677 | 18,333,842 → 11,600,512 | 4.92 → 7.77 | 18,332,149 → 11,599,116 |
+| table_typical_values | 680,560 → 680,560 | 111,555 → 67,359 | 6.10 → 10.10 | 109,382 → 65,565 |
+| table_sparse | 780,050 → 780,050 | 153,072 → 92,576 | 5.10 → 8.43 | 150,899 → 90,782 |
+
+The win holds for every workload: smallest on tiny fixed-overhead tables (−16%)
+and largest on long flat tables (−43%). Repeated and unique text both benefit,
+so the result is not an artifact of one distribution.
+
+## Validation commands and outcomes
+
+```
+uv run --directory back ruff check                          -> All checks passed
+uv run --directory back ruff format --check                 -> 249 files already formatted
+uv run --directory back ty check                            -> All checks passed
+uv run --directory back pytest -q                           -> 795 passed, 13 skipped (500.94 s)
+uv run --directory back pytest -q tests/test_xlsx_export_size_optimizations.py \
+    tests/test_benchmark_xlsx_export_size.py tests/test_renovation_export_format.py \
+    tests/test_xlsx_table_merges.py tests/test_export.py tests/test_logistics_export.py
+                                                            -> 48 passed
+uv run --directory back python -m tests.benchmark_xlsx_export_size compression \
+    --reps 3 --levels 1 6 9 --commit f0340c3...             -> 18 workloads, JSON written
+uv run --directory back python -m tests.benchmark_xlsx_export_size compression \
+    --workload plan_large_values --workload table_large_values ... \
+    --reps 5 --levels 1 3 4 6 9 --out NUL                   -> intermediate sweep
+uv run --directory back python -m tests.benchmark_xlsx_export_size run \
+    --reps 3 --commit e1c6c9d... \
+    --out ../docs/XLSX_EXPORT_SIZE_OPTIMIZED.json           -> 18 workloads, JSON written
+```
+
+Git hooks (ruff format/check, ty, whitespace/encoding checks) passed on the
+implementation commit `e1c6c9db467a35ff47d913df50f757b8901f6f38`.
+
+## Remaining limitations and out-of-scope items
+
+- All workloads are deterministic synthetic approximations; the real
+  ~306k-row / ~3.3 GiB plan and the 520 MB download were **not** re-measured.
+  Linear extrapolation from the 90 MB-uncompressed fixture puts compression
+  CPU at roughly 36 s (L1) vs 90 s (L6) for a 3.3 GiB sheet — an estimate, not
+  a measurement — while DB streaming still dominates a real export's wall time.
+- Wall-clock time is noisy across sessions (an earlier identical matrix run was
+  slower); only the byte deltas are exact.
+- The pre-existing missing plan `<dimension>` (Phase 1 §6) is a read-only-mode
+  correctness gap, not a size win; it stays out of this change.
+- No optional CSV+gzip or Parquet format was implemented — replacing XLSX is
+  explicitly out of scope. No row/cell/size/time limits, post-processing
+  rewrites, dependency changes or infrastructure changes were introduced.
