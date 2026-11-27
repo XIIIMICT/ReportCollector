@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const BASE_URL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5000";
+// Local default is the containerized nginx proxy (self-signed TLS); the CI
+// stack overrides this with its own loopback origin via E2E_BASE_URL.
+const BASE_URL = process.env.E2E_BASE_URL ?? "https://127.0.0.1";
 
 export default defineConfig({
     testDir: "./e2e",
@@ -12,6 +14,9 @@ export default defineConfig({
     reporter: [["html", { open: "never" }], ["list"]],
     use: {
         baseURL: BASE_URL,
+        // The local proxy generates a self-signed cert; CI runs over plain
+        // HTTP and ignores nothing. Never use this to accept a real bad cert.
+        ignoreHTTPSErrors: true,
         trace: "on-first-retry",
         screenshot: "only-on-failure",
         video: "retain-on-failure",

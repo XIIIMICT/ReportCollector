@@ -49,11 +49,16 @@ services:
       # запуска) указывает на сам контейнер: /health отвечает 200, а каждый
       # запрос к БД падает ConnectionRefusedError → серверный компонент
       # страницы кидает 500 и Next отдаёт «Minified React error #441».
-      # host.docker.internal ведёт на хост (extra_hosts ниже), где
-      # rc-postgres публикует 5432; на сервере с внешней БД задайте
-      # POSTGRES_HOST_DOCKER. Как и VALKEY_URL, значение только для контейнера —
-      # сам .env остаётся пригодным для just back/just front/seed.
-      POSTGRES_HOST: ${POSTGRES_HOST_DOCKER:-host.docker.internal}
+      # По умолчанию — имя сервиса rc-postgres в compose-сети net: host-порт
+      # 5432 теперь слушает только 127.0.0.1 и недоступен через
+      # host.docker.internal. Для внешней БД на другом хосте задайте
+      # POSTGRES_HOST_DOCKER явно. Как и VALKEY_URL, значение только для
+      # контейнера — .env остаётся пригодным для just back/just front/seed.
+      POSTGRES_HOST: ${POSTGRES_HOST_DOCKER:-postgres}
+      # Valkey has no host publication either: reach the compose service by
+      # name. VALKEY_URL_DOCKER is the explicit escape hatch for an external
+      # server; the .env value stays for host-side runs.
+      VALKEY_URL: ${VALKEY_URL_DOCKER:-redis://valkey:6379/0}
       AUTH_KEYCLOAK_INTERNAL_ISSUER: ${AUTH_KEYCLOAK_DOCKER_INTERNAL_ISSUER:-${AUTH_KEYCLOAK_PUBLIC_ISSUER}}
       # Ориджины CORS/WS: локальные + хост приложения из AUTH_APP_ORIGIN
       # (единый источник хоста в .env). Переопределить можно явным значением.
@@ -63,8 +68,9 @@ services:
       - ./logs:/app/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    ports:
-      - "${BACKEND_PORT:?}:${BACKEND_PORT:?}"
+    # No host publication: browsers reach the backend only through the
+    # containerized nginx (`/api/ws/` → back), and front reaches it by service
+    # name on `net`. The isolated CI stack keeps its own loopback 18000 port.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${BACKEND_PORT:?}/health', timeout=5).read()"]
       interval: 10s
@@ -144,8 +150,8 @@ services:
       - ./logs:/app/logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    ports:
-      - "${FRONT_PORT:?}:${FRONT_PORT:?}"
+    # No host publication: the browser entry point is nginx 80/443 (TLS), which
+    # proxies `/` to this service over `net`/`net-dev`. See docs/ARCHITECTURE.md.
     depends_on:
       back:
         condition: service_healthy
@@ -177,8 +183,9 @@ services:
         condition: service_started
     environment:
       BACKEND_INTERNAL_URL: http://${BACKEND_HOST_DEV:?}:${BACKEND_PORT:?}
-      # В dev WebSocket идёт напрямую в бэкенд (bun dev не проксирует WS).
-      COLLAB_WS_PUBLIC_URL: ${COLLAB_WS_PUBLIC_URL:-ws://127.0.0.1:${BACKEND_PORT:?}}
+      # WebSocket, как и в prod, идёт через nginx (`/api/ws/`): back-dev больше
+      # не публикуется на хосте. Пусто = браузер использует свой origin (wss).
+      COLLAB_WS_PUBLIC_URL: ${COLLAB_WS_PUBLIC_URL:-}
     networks: !override [net-dev]
     develop:
       watch:

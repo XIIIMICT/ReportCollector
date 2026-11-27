@@ -26,6 +26,9 @@
 !/docs/**
 !/infra/
 !/infra/**
+# Bytecode from the stdlib-only infra bind guard/tests is never source.
+__pycache__/
+*.py[cod]
 # `logs/` is a RUNTIME directory: the app, the tests and the containers write
 # here. Only the placeholder is tracked, so the folder exists in a fresh
 # checkout — the logs themselves are never committed.

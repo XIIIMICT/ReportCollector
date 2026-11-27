@@ -31,8 +31,10 @@ services:
       AUTH_KEYCLOAK_TOKEN_ENDPOINT_AUTH_METHOD: client_secret_basic
     volumes:
       - ./keycloak/import:/opt/keycloak/data/import:ro
+    # The local Keycloak console and OIDC endpoints are used from this machine
+    # only; remote/prod Keycloak lives outside this compose project.
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy

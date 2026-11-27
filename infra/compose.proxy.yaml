@@ -5,6 +5,11 @@
 # compose-проекта (front + FRONT_PORT, back + BACKEND_PORT), там — хост.
 # Запускается отдельно (`just proxy-stand`) — между nginx и приложением нет
 # зависимости, и через dynamic resolver он стартует и до `just prod`/`just dev`.
+#
+# This is the ONLY service allowed to publish on all host interfaces: 80
+# (redirect to TLS) and 443 (HTTPS/WSS termination, self-signed fallback).
+# infra/check_host_binds.py enforces that allow-list on the rendered config;
+# app and admin ports must never appear here.
 
 services:
   nginx:

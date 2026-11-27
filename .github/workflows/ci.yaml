@@ -35,6 +35,19 @@ jobs:
           cp .env.example .env
           docker compose --profile prod --profile dev config --quiet
           docker compose -f infra/compose.ci.yaml config --quiet
+      - name: Reject host-wide port publications
+        # Parses rendered `docker compose config --format json`, so includes,
+        # profiles and ${VAR} expansion are already applied. The unit tests
+        # cover positive, negative and allow-list cases without Docker.
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: rc_ci
+          POSTGRES_SCHEMA: rc
+          AUTH_SECRET: ci-only-secret-at-least-32-characters-long
+        run: |
+          python3 -m unittest discover -s infra -p 'test_*.py'
+          python3 infra/check_host_binds.py
 
   back:
     name: Backend (${{ matrix.store }})
