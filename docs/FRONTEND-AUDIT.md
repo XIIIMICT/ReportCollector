@@ -123,6 +123,21 @@ are local artifacts, not committed.
   and focus assertions are not proof of full accessibility.
 - 688 oxlint warnings remain (React Compiler-deferred); changing lint policy is out of scope.
 
+### Conditional phases — explicit status
+
+- **1.2 Server/Client boundaries:** reviewed. Static layout/metadata/config stay in Server
+  Components; the grid/collaboration islands are interactive by definition. No server
+  module was found in a client graph and no boundary move was justified by evidence — no
+  change.
+- **2.3 Stateful decomposition of `renovation-grid.tsx` / `renovation-workspace.tsx`:**
+  DEFERRED. The two verified hot paths were fixed with pure, tested helpers; extracting
+  the remaining stateful controllers would move RevoGrid callback/ref/ownership contracts
+  with no measured payoff, and the full integration suite for those contracts is itself a
+  documented deferral. Revisit only with a prepared large-workspace fixture.
+- **4.2 TypeScript expressiveness:** no unsafe `any`/blanket assertions were found in the
+  audited hot paths; the two generated-DTO and error-contract changes use the existing
+  discriminated unions and `satisfies`-style exact typing. No type gymnastics added.
+
 ## 9. Cross-project comparison (ReportCollector vs DocMasker)
 
 - **Intentionally different:** RC is a RevoGrid + WebSocket collaboration app with URL-
