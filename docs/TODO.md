@@ -519,3 +519,15 @@ reminder, not a second copy:
   writer/access/disconnect metrics added. No claim of full WS scaling acceptance.
 - Single HTTP failure alert added alongside sustained-error rules. Remaining
   monitoring acceptance is listed above; previous audits were consolidated here.
+- [x] **XLSX export size: deflate level 1 → 6** (evidence-backed, 2026-11-27).
+  Recompressing identical OPC parts at levels 1/3/4/6/9 showed level 6 cuts
+  final size 16–43% on all 18 synthetic workloads (1k plan 1.82 → 1.17 MB,
+  10k plan 18.33 → 11.60 MB, table 1k 112.5 → 68.3 KB) at ~2× compression CPU
+  (plan 10k render 1.76 → 2.15 s); uncompressed ZIP bytes, values, formulas,
+  merges, styles, panes and append-only ZIP flags are unchanged. Both writers
+  expose an optional `compresslevel` override. Styled-empty cells, wrapper
+  XML, shared strings and formula removal were measured and rejected. Tests,
+  semantic comparisons and Excel COM opens passed. Open gate (not measured
+  here): the real 306k-row / ~3.3 GiB download and LibreOffice opening — LibreOffice
+  is absent on this host, Excel was used. Evidence —
+  `docs/XLSX_EXPORT_SIZE_BASELINE.md`, `_COMPRESSION.json`, `_OPTIMIZED.json`.

@@ -38,6 +38,14 @@ from xml.sax.saxutils import escape
 # format's true ceiling. Real plan sheet: ~3.3 GiB — fits with headroom.
 zipfile.ZIP64_LIMIT = max(zipfile.ZIP64_LIMIT, (1 << 32) - 1)
 
+# Deflate level for every streamed XLSX entry. Level 1 was the original
+# default; measured on the full 18-workload matrix it left 35–43% of the file
+# on the table versus level 6, whose compression CPU is only ~2x level 1
+# (<1 s even for the 18 MB / 90 MB-uncompressed plan fixture). Level 9 buys a
+# further 4–7 percentage points but costs 3–7x the CPU, so 6 is the default.
+# Both writers expose it as a constructor argument for a documented override.
+ZIP_COMPRESSLEVEL = 6
+
 from openpyxl.utils import get_column_letter
 
 # Characters XML 1.0 cannot represent even escaped; Excel treats the whole
