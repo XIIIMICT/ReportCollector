@@ -482,6 +482,117 @@ declaration → `gen:openapi --check` exits 1), are recorded in this branch's
 commit message; the generator/gate contract itself lives in
 `docs/ARCHITECTURE.md`.
 
+## Phase 5.1/5.2/5.3 — motion and accessibility audit (2026-11-27)
+
+Scope: `front/` only. No new dependency, no timing-token consolidation and no
+`will-change` was added. **STATIC** means read from source/installed CSS;
+**MEASURED** means the exact command/browser output recorded below.
+
+### Inventory (STATIC unless tagged)
+
+| Surface(s) | Property / duration / easing | Frequency | Style / layout / paint / compositor | Essential? | Reduced motion |
+|---|---|---|---|---|---|
+| `html` | `background-color`, `color` 200 ms ease | theme switch | style + paint | decorative | none |
+| `.app-header`, `.app-body`, `.table-toolbar`, `.table-footer` | `max-height`/`min-height`/`padding`/`border-color`/`opacity`/`transform` 260 ms `cubic-bezier(.22,1,.36,1)` | fullscreen toggle | layout + style + paint + compositor | **essential** — toolbar/footer height is what gives the grid the viewport | none |
+| `.support-link`, `.expandable-button`, their labels | `gap`/`padding` 180 ms ease; label `max-width` 220 ms, `opacity` 130–140 ms | hover/focus | layout + style | expansion is essential for the label, easing is decorative | none |
+| `.toolbar-filters__row`, `.toolbar-collapse`, `.archive-autocomplete` | `max-height`/`max-width`/`margin` 220 ms, `opacity` 140 ms | section switch | layout + style | **essential** — reclaimed toolbar space | `.archive-autocomplete` was a gap; fixed here |
+| `.form-status__selection` | `grid-template-rows: 0fr → 1fr`, `opacity` 260 ms | selection change | layout + style | decorative height smoothing | none |
+| `.form-status__dot--connecting`, `--import` | `collab-pulse` opacity 1.2 s ease-in-out **infinite** | continuous while connecting/import | compositor | essential status signal | none |
+| `.action-bar > *` | `action-button-enter` opacity + `translateX(.4rem)` 180 ms `cubic-bezier(.22,1,.36,1)` | conditional action mount | compositor | decorative | none |
+| `.fullscreen-panel` | opacity 180 ms, transform 240 ms, `visibility 0s linear 240ms` | hover reveal | compositor + visibility | decorative | none |
+| `.grid-header-menu__popover` | `grid-header-menu-in/out` opacity + translate + scale 160/120 ms | header context menu | compositor | decorative | none |
+| `.column-filter__popover`, `.row-go-to-filter__popover` | `plan-filter-enter/exit` opacity + translate + scale 180/140 ms | filter/go-to open | compositor | decorative | none |
+| `.data-grid revogr-header .header-content`, `.sort-indicator`, `.report-header__title`, `.header-filter-button`, funnel labels | `margin`/`width`/`padding` 267 ms `cubic-bezier(.4,0,.2,1)`, opacity 267 ms | sort/filter/hover | layout + style; funnel button geometry is the hit area | mixed: label shift decorative, funnel expansion essential | none; two label gaps fixed here |
+| `.renovation-grid__header-slot`, `__header-cell` | `margin-top` 240 ms ease; cell opacity 180 ms | header pin toggle | layout + compositor | **essential** — the grid must grow when the header is unpinned | none |
+| `AnimatedPanel` (WAAPI) | height 260 ms `cubic-bezier(.22,1,.36,1)` | toolbar/footer content resize | layout | essential (panel follows its tallest control) | guarded by `matchMedia("(prefers-reduced-motion: reduce)")` |
+| HeroUI 3.2.8 overlays (installed CSS) | popover/dropdown/tooltip `heroui-overlay-enter-90` 150 ms / exit 100 ms; select enter-95 150 ms; autocomplete enter-95 250 ms; modal 150–250 ms; opacity + `translate3d` + scale | overlay open/close | compositor | decorative | modal/alert-dialog/toast already use `motion-reduce:animate-none`; **popover/dropdown/tooltip/select/autocomplete did not** (fixed here) |
+| HeroUI triggers/fields | color/background/box-shadow/transform 150–250 ms | hover/focus/state | style + compositor | decorative | their own `motion-reduce:transition-none` stays untouched |
+
+No app-owned transition uses `all`, no permanent/global `will-change`, and no
+new timing token was introduced: the ~15 ad-hoc durations stay deferred as
+recorded in `docs/TODO.md`, because no visual-regression comparison was made.
+
+### Measured jank and the decision not to swap layout animations
+
+CDP `Performance.getMetrics` around four «Закрепить заголовок» toggles on the
+seeded «Ремонт» plan (1440×900 Chromium, 320 ms sampling window per toggle,
+`front/e2e`-independent temp harness; **MEASURED**):
+
+| Motion | LayoutCount / toggle | RecalcStyleCount / toggle | LayoutDuration | RecalcStyleDuration |
+|---|---:|---:|---:|---:|
+| normal 240 ms `margin-top` transition | 26–31 | 45–46 | 0.0109–0.0174 s | 0.0735–0.0915 s |
+| reduced motion (instant layout) | 5–28 | 20–37 | 0.0017–0.0065 s | 0.0356–0.0543 s |
+
+The extra per-frame layout is real, but it is the **essential** grid resize:
+the plan's data viewport must grow while the 11 header levels leave. Replacing
+it with a transform would either leave the grid short by the header height or
+make the header overlap live rows during the slide, and would change RevoGrid
+re-measurement/pointer geometry (a documented landmine). The layout cost was
+therefore **kept**, not papered over; the decorative fades stay opacity-only.
+No before/after CSS swap was claimed because none was made.
+
+### Demonstrated defects fixed
+
+1. Under `prefers-reduced-motion: reduce`, computed styles on the old build
+   (**MEASURED** at `http://127.0.0.1:16000`) still showed
+   `.archive-autocomplete` at `0.22s/0.14s` and both
+   `.renovation-grid__header-label` and `.renovation-grid__number-label` at
+   `0.267s`; they are now in `styles/11-reduced-motion.css` and re-measure as
+   `transition-property: none`, `transition-duration: 0s`.
+2. `animationstart` on the old build under reduced motion (**MEASURED**)
+   captured `heroui-overlay-enter-90-ny`, `heroui-overlay-exit` and
+   `heroui-overlay-enter-95-ny`. HeroUI's CSS has no `motion-reduce:animate-none`
+   for these five overlay families. A targeted app-side override in the same
+   final partial makes their enter/exit instant; the same harness now reports
+   `[]` under reduced motion and the unchanged three events at normal motion.
+   React Aria's `useExitAnimation` ends an exit when no animation is running, so
+   portals unmount immediately and no focus is left inside them. HeroUI's own
+   reduced-motion opt-outs (modal, alert dialog, toast, fields and triggers) are
+   untouched — this is not a blanket `animation: none`.
+3. `HoverDropdown` has no polling loop: the 60 ms interval is absent, pointer
+   coordinates come from one passive `pointermove` listener, geometry is
+   coalesced into one RAF and outside dismissal uses one cancellable 250 ms
+   timeout. A generation guard invalidates frames/timers from a previous open
+   and all three effects clean up on unmount (**STATIC** reading; unit test
+   `hover-dropdown.test.tsx` pins "no interval" and listener removal).
+
+### Keyboard / a11y checks (MEASURED, Chromium)
+
+- Keyboard opening of «Вид таблицы» sets `aria-expanded="true"` and a visible
+  `data-focus-visible="true"` trigger; focus moves into the menu and returns to
+  the trigger on Escape with no focus left in the removed portal.
+- Action-bar buttons all expose `aria-label`; disabled ones use native
+  `disabled`, enabled ones keep `tabindex="0"`, none sets a positive tabindex.
+- These are targeted browser assertions, **not** a full accessibility audit: no
+  automated axe scan was added and no screen-reader/manual WCAG review was run.
+  A clean axe run would still not prove keyboard/screen-reader usability; the
+  tests above only cover the named interaction paths.
+
+### Validation (MEASURED)
+
+`bun run --cwd front test:e2e --project=smoke ...` was run against a local
+production build served on the stand origin `http://127.0.0.1:16000` with
+`E2E_TEST_PASSWORD` (the stand front container was temporarily replaced by the
+branch build; its backend/Postgres/Valkey were untouched). Exact results:
+
+| Command | Result |
+|---|---|
+| `bun run --cwd front format:check` | pass, 312 files |
+| `bun run --cwd front lint:check` | 0 errors, 688 pre-existing oxlint warnings, stylelint clean |
+| `bun run --cwd front typecheck` | no type errors, 293 files |
+| `bun run --cwd front test` | 763 pass / 0 fail / 2,211 `expect()` calls / 98 files |
+| `bun run --cwd front build` | compiled 668 ms, TypeScript 486 ms, 4 static pages, 16 routes |
+| `prek run --all-files` | all back/front/workspace hooks passed |
+| targeted `smoke.spec.ts hover-dropdown.spec.ts` | **15 passed / 1 failed** — the failure is the pre-existing price-edit/undo case below |
+| full `--project=smoke` | **46 passed / 1 failed / 47 total** (discovery: 47 tests in 10 files; baseline was 44) |
+| pristine branch head (changes stashed), same price-edit test | **1 failed** — the same failure reproduces without any change from this task |
+
+The failing case, `production forms load and a price edit survives reload`,
+sends a successful `PATCH /api/raw-materials/prices` but the «Отменить действие»
+button stays disabled (no client undo increment). It reproduces on the
+unmodified branch head, is unrelated to motion/a11y and is deliberately not
+changed here. Every new/extended motion and keyboard assertion passes.
+
 ## Remaining work
 
 The stateful half of 5.2–5.3 — splitting the workspace's data loading,

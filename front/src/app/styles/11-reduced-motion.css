@@ -14,6 +14,9 @@
     .form-status__dot--import,
     .table-footer,
     .toolbar-collapse,
+    .archive-autocomplete,
+    .renovation-grid__header-label,
+    .renovation-grid__number-label,
     .action-bar > *,
     .fullscreen-panel,
     .renovation-grid__header-slot,
@@ -26,5 +29,27 @@
         animation: none;
         transition: none;
         scroll-behavior: auto;
+    }
+
+    /* HeroUI 3.2.8 ships `motion-reduce:animate-none` for modal, alert dialog,
+       toast and a few fields, but NOT for its overlay enter/exit keyframes.
+       These five popover families are the animated surfaces the app actually
+       uses that are left out; their own reduced-motion TRIGGER transitions
+       stay intact. React Aria ends an exit when no running animation remains,
+       so `none` also unmounts portals immediately (no focus stranded there).
+       Do not broaden this to a universal rule: HeroUI's component-specific
+       opt-outs and placement overrides must keep winning for the surfaces
+       that already handle reduced motion themselves. */
+    .popover[data-entering],
+    .popover[data-exiting],
+    .dropdown__popover[data-entering],
+    .dropdown__popover[data-exiting],
+    .tooltip[data-entering],
+    .tooltip[data-exiting],
+    .select__popover[data-entering],
+    .select__popover[data-exiting],
+    .autocomplete__popover[data-entering],
+    .autocomplete__popover[data-exiting] {
+        animation: none;
     }
 }

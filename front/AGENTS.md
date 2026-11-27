@@ -64,6 +64,14 @@ live in `back/AGENTS.md`; contracts in `docs/API.md`, `docs/COLLAB.md`,
     (`grid-clipboard.ts::rowsForSelectedIds`), not `rows.find` per selected id.
     Rationale, static complexity map and the BLOCKED large-plan profiling —
     `docs/FRONTEND-REFACTOR.md`, «Phase 2.2/2.4».
+14. **Reduced motion:** every app-owned animation must become instant under
+    `prefers-reduced-motion: reduce`; the policy lives in
+    `src/app/styles/11-reduced-motion.css` (imported last). It also carries the
+    targeted opt-out for HeroUI v3.2.8's popover/dropdown/tooltip/select/
+    autocomplete enter/exit keyframes, which the library itself does NOT gate on
+    reduced motion — never replace it with a blanket `animation: none`, and keep
+    HeroUI's own `motion-reduce:*` rules for modals/toasts/fields intact. Do not
+    tokenize the ~15 ad-hoc durations without a visual-regression comparison.
 
 ## Working rules
 
