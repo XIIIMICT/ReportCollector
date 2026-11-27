@@ -138,7 +138,22 @@ are local artifacts, not committed.
   audited hot paths; the two generated-DTO and error-contract changes use the existing
   discriminated unions and `satisfies`-style exact typing. No type gymnastics added.
 
-## 9. Cross-project comparison (ReportCollector vs DocMasker)
+## 9. Post-audit fixes (maintainer feedback / CI)
+
+- Header support control was invisible on the isolated CI stand because
+  `infra/compose.ci.yaml` had no `SUPPORT_MAIL`; added a clearly synthetic fixture and an
+  E2E visibility guard (`d6fa6a2`).
+- `gen:openapi --check` failed in CI: importing `app` constructs `Settings`, which
+  required PostgreSQL/AUTH env. The export entrypoint now injects synthetic placeholders
+  before import (never overrides real values, no connection) with a clean-cwd test
+  (`33671c9`).
+- Full smoke was red: the hardened JSON parser rejected the legitimate scalar count
+  returned by price/movement PATCHes, so `undoCount` never incremented, and a slow
+  mount-time `/undo-state` read could roll back a newer commit. Added opt-in scalar
+  parsing for those two callers and a monotonic undo epoch; full smoke 48/48
+  (`c39df43`). No test was skipped or loosened.
+
+## 10. Cross-project comparison (ReportCollector vs DocMasker)
 
 - **Intentionally different:** RC is a RevoGrid + WebSocket collaboration app with URL-
   backed filters and per-grid persisted view settings; DM is a client-side DOCX masking
