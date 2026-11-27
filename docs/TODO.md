@@ -556,9 +556,13 @@ reminder, not a second copy:
   expose an optional `compresslevel` override. Styled-empty cells, wrapper
   XML, shared strings and formula removal were measured and rejected. Tests,
   semantic comparisons and Excel COM opens passed. Open gate (not measured
-  here): the real 306k-row / ~3.3 GiB download and LibreOffice opening — LibreOffice
-  is absent on this host, Excel was used. Evidence —
-  `docs/XLSX_EXPORT_SIZE_BASELINE.md`, `_COMPRESSION.json`, `_OPTIMIZED.json`.
+  here): a real 306k-row plan with ~3.3 GiB **uncompressed worksheet** / ~520 MB
+  final XLSX through the real job + growing-file download path, plus an
+  independent open on the target host. LibreOffice is absent locally; Excel COM
+  was used only for small synthetic workbooks. The exact target-host procedure
+  is in `docs/XLSX_EXPORT_SIZE_BASELINE.md` under «Target-host full-scale gate».
+  Evidence — `docs/XLSX_EXPORT_SIZE_BASELINE.md`, `_COMPRESSION.json`,
+  `_OPTIMIZED.json`.
 
 - [x] **P2 — CI test identities cleaned (2026-11-27).** Repository-wide search for
   the fixed test-password literal and the old corporate CI seed email found
