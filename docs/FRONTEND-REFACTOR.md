@@ -466,7 +466,7 @@ a prepared stack. No runtime-performance claim is made for either fix.
 ### Generator decision
 
 - Installed toolchain: TypeScript **7.0.2** (native port) in `front/bun.lock`/`node_modules`, Bun 1.4.4, Node 26. Per the proven DocMasker pattern, `swagger-typescript-api@13.15.0` has **no TypeScript peer** and bundles its own nested TypeScript 6.0.3; no peer override, no second project toolchain, no runtime dependency. `openapi-typescript@7` (TS5 peer, broken on TS7) and `@hey-api/openapi-ts` (TS7 runtime `SyntaxKind` failure) were rejected there for the same reason.
-- Commands: `uv run --directory back python -m src.openapi_export <file>` (in-process, no server/DB) → `bun run --cwd front gen:openapi` → `bun run --cwd front gen:openapi --check` (CI `openapi-contract` job). Generator flags: `--no-client --enum-style=union --type-only-imports --disable-formatting --silent`. Output is formatted with the pinned `oxfmt` before comparison, so two runs are byte-identical.
+- Commands: `uv run --directory back python -m src.openapi_export <file>` (in-process, no server/DB; the export entrypoint injects synthetic `POSTGRES_*`/`AUTH_SECRET` placeholders before importing the app, so CI needs no credentials) → `bun run --cwd front gen:openapi` → `bun run --cwd front gen:openapi --check` (CI `openapi-contract` job). Generator flags: `--no-client --enum-style=union --type-only-imports --disable-formatting --silent`. Output is formatted with the pinned `oxfmt` before comparison, so two runs are byte-identical.
 
 ### Type-safe errors
 
