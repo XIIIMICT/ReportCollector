@@ -123,6 +123,31 @@ jobs:
             back/coverage-data
           retention-days: 7
 
+  openapi-contract:
+    name: OpenAPI contract freshness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.4.0
+        with:
+          python-version: "3.15"
+          enable-cache: true
+          cache-dependency-glob: back/uv.lock
+      - run: uv sync --locked
+        working-directory: back
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Same exact pins as the front job: generator output must be stable.
+          bun-version: "1.4.4"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+      - run: bun install --frozen-lockfile
+        working-directory: front
+      - run: bun run gen:openapi --check
+        working-directory: front
+
   coverage:
     name: Combined backend coverage
     needs: back
@@ -361,7 +386,7 @@ jobs:
   required:
     name: CI required
     if: always()
-    needs: [config, back, coverage, front, secrets, production]
+    needs: [config, back, coverage, front, openapi-contract, secrets, production]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:

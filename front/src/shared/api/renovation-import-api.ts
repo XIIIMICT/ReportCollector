@@ -5,8 +5,15 @@
  * are unchanged; `renovation.ts` is now a barrel re-exporting every workflow.
  */
 
-import { readApiDetail } from "@/shared/api/api-error";
-import { ReportCollectorApiError } from "@/shared/api/report-collector";
+import {
+    apiErrorFromPayload,
+    apiErrorFromResponse,
+    fetchFailure,
+    isJsonContentType,
+    parseJsonPayload,
+    readJsonBody,
+    ReportCollectorApiError,
+} from "@/shared/api/api-error";
 
 export type RenovationPlanImportCellIssue = {
     location: string;
@@ -69,35 +76,48 @@ export function inspectRenovationPlanImport(
         // multipart boundary that the backend parser needs.
         request.upload.onloadend = () => progress?.analyzing();
         request.onload = () => {
+            const contentType = request.getResponseHeader("Content-Type");
+            const requestId = request.getResponseHeader("X-Request-ID");
             if (request.status < 200 || request.status >= 300) {
-                let detail: string | null = null;
-                try {
-                    detail = readApiDetail(JSON.parse(request.responseText) as unknown);
-                } catch {
-                    detail = null;
+                let payload: unknown = null;
+                if (isJsonContentType(contentType)) {
+                    try {
+                        payload = JSON.parse(request.responseText) as unknown;
+                    } catch {
+                        payload = null;
+                    }
                 }
                 // 413 comes from the proxy in front of the API (nginx's
                 // `client_max_body_size`) and carries no JSON body of its own —
                 // falling through to the generic message made a too-large file
                 // read as a broken one.
                 reject(
-                    new ReportCollectorApiError(
+                    apiErrorFromPayload(
+                        payload,
+                        request.status,
+                        requestId,
                         request.status === 413
                             ? "Файл имеет слишком большой размер"
-                            : (detail ?? `Не удалось проверить файл (${request.status}).`),
-                        request.status,
+                            : `Не удалось проверить файл (${request.status}).`,
                     ),
                 );
                 return;
             }
             try {
-                resolvePromise(JSON.parse(request.responseText) as RenovationPlanImportResult);
+                resolvePromise(
+                    parseJsonPayload<RenovationPlanImportResult>(request.responseText, {
+                        contentType,
+                        status: request.status,
+                        requestId,
+                        fallback: "Сервер вернул неожиданный результат проверки файла.",
+                    }),
+                );
             } catch (reason) {
-                reject(reason instanceof Error ? reason : new Error(String(reason)));
+                reject(fetchFailure(reason, "Не удалось проверить файл."));
             }
         };
-        request.onerror = () => reject(new Error("Не удалось загрузить файл."));
-        request.onabort = () => reject(new Error("Загрузка файла прервана."));
+        request.onerror = () => reject(new ReportCollectorApiError("Не удалось загрузить файл."));
+        request.onabort = () => reject(new ReportCollectorApiError("Загрузка файла прервана."));
         progress?.uploading();
         request.send(body);
     });
@@ -138,36 +158,43 @@ export async function applyRenovationPlanImport(
     const body = new FormData();
     body.append("file", file);
     body.append("expected_rows", String(Math.max(0, Math.trunc(expectedRows))));
-    const response = await fetch("/api/renovation/plan/import/apply", {
-        method: "POST",
-        body,
-        cache: "no-store",
-    });
+    let response: Response;
+    try {
+        response = await fetch("/api/renovation/plan/import/apply", {
+            method: "POST",
+            body,
+            cache: "no-store",
+        });
+    } catch (reason) {
+        throw fetchFailure(reason, "Не удалось загрузить файл.");
+    }
     if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as unknown;
-        throw new ReportCollectorApiError(
-            readApiDetail(payload) ?? `Не удалось загрузить файл (${response.status}).`,
-            response.status,
+        throw await apiErrorFromResponse(
+            response,
+            `Не удалось загрузить файл (${response.status}).`,
         );
     }
-    return (await response.json()) as RenovationPlanImportApplyResult;
+    return readJsonBody<RenovationPlanImportApplyResult>(response);
 }
 
 export async function getRenovationPlanImportJob(
     jobId: string,
 ): Promise<RenovationPlanImportApplyResult> {
-    const response = await fetch(`/api/renovation/plan/import/jobs/${encodeURIComponent(jobId)}`, {
-        cache: "no-store",
-    });
+    let response: Response;
+    try {
+        response = await fetch(`/api/renovation/plan/import/jobs/${encodeURIComponent(jobId)}`, {
+            cache: "no-store",
+        });
+    } catch (reason) {
+        throw fetchFailure(reason, "Не удалось получить состояние загрузки.");
+    }
     if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as unknown;
-        throw new ReportCollectorApiError(
-            readApiDetail(payload) ??
-                `Не удалось получить состояние загрузки (${response.status}).`,
-            response.status,
+        throw await apiErrorFromResponse(
+            response,
+            `Не удалось получить состояние загрузки (${response.status}).`,
         );
     }
-    return (await response.json()) as RenovationPlanImportApplyResult;
+    return readJsonBody<RenovationPlanImportApplyResult>(response);
 }
 
 /**
@@ -175,14 +202,17 @@ export async function getRenovationPlanImportJob(
  * it: the importer's FIO and live progress come from the durable job row.
  */
 export async function getRenovationActivePlanImport(): Promise<RenovationPlanImportApplyResult | null> {
-    const response = await fetch("/api/renovation/plan/import/active", { cache: "no-store" });
+    let response: Response;
+    try {
+        response = await fetch("/api/renovation/plan/import/active", { cache: "no-store" });
+    } catch (reason) {
+        throw fetchFailure(reason, "Не удалось получить состояние загрузки.");
+    }
     if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as unknown;
-        throw new ReportCollectorApiError(
-            readApiDetail(payload) ??
-                `Не удалось получить состояние загрузки (${response.status}).`,
-            response.status,
+        throw await apiErrorFromResponse(
+            response,
+            `Не удалось получить состояние загрузки (${response.status}).`,
         );
     }
-    return (await response.json()) as RenovationPlanImportApplyResult | null;
+    return readJsonBody<RenovationPlanImportApplyResult | null>(response, true);
 }

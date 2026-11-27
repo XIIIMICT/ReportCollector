@@ -11,6 +11,7 @@ import {
     KppkRealizationSection,
 } from "@/features/kppk/kppk-realization-section";
 import { ProfileModal } from "@/features/raw-materials/profile-modal";
+import { type AuthConfig, getAuthConfig } from "@/shared/api/auth-config";
 import {
     createOrg,
     createProductPosition,
@@ -549,13 +550,7 @@ function KppkSection({
     const [isMutationPending, setIsMutationPending] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [userCreateOpen, setUserCreateOpen] = useState(false);
-    const { data: authConfig } = useAsyncData<{ keycloakEnabled: boolean } | null>(
-        () =>
-            fetch("/api/auth/config")
-                .then((response) => (response.ok ? response.json() : null))
-                .catch(() => null),
-        [],
-    );
+    const { data: authConfig } = useAsyncData<AuthConfig | null>(getAuthConfig, []);
     const keycloakEnabled = authConfig?.keycloakEnabled === true;
     const openUserCreate = useCallback(() => setUserCreateOpen(true), []);
     useEffect(() => {

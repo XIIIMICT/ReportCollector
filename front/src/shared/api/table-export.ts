@@ -8,8 +8,12 @@
  * the old behaviour had, the job path hands the URL to the browser.
  */
 
-import { readApiDetail } from "./api-error";
-import { ReportCollectorApiError } from "./report-collector";
+import {
+    apiErrorFromResponse,
+    fetchFailure,
+    readJsonBody,
+    ReportCollectorApiError,
+} from "./api-error";
 
 export type ExportJobDescriptor = {
     id: string;
@@ -20,9 +24,29 @@ export type ExportJobDescriptor = {
     error: string | null;
 };
 
-async function readErrorDetail(response: Response): Promise<string> {
-    const payload: unknown = await response.json().catch(() => null);
-    return readApiDetail(payload) ?? `Запрос завершился ошибкой ${response.status}.`;
+function parseJob(payload: unknown, response: Response): ExportJobDescriptor {
+    const job = payload as Partial<ExportJobDescriptor>;
+    if (
+        typeof job.id !== "string" ||
+        typeof job.progress !== "number" ||
+        typeof job.total !== "number" ||
+        typeof job.fileName !== "string" ||
+        !["pending", "running", "done", "failed"].includes(String(job.status))
+    ) {
+        throw new ReportCollectorApiError(
+            "Сервер вернул неожиданное состояние задания.",
+            response.status,
+            response.headers.get("X-Request-ID") ?? undefined,
+        );
+    }
+    return {
+        id: job.id,
+        status: job.status as ExportJobDescriptor["status"],
+        progress: job.progress,
+        total: job.total,
+        fileName: job.fileName,
+        error: typeof job.error === "string" ? job.error : null,
+    };
 }
 
 /**
@@ -39,15 +63,20 @@ export async function downloadTableExport<TJob>(
     onJob: (job: ExportJobDescriptor, jobsBaseUrl: string) => TJob,
     signal?: AbortSignal,
 ): Promise<Blob | TJob> {
-    const response = await fetch(url, {
-        cache: "no-store",
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-        signal: signal ?? null,
-    });
+    let response: Response;
+    try {
+        response = await fetch(url, {
+            cache: "no-store",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(request),
+            signal: signal ?? null,
+        });
+    } catch (reason) {
+        throw fetchFailure(reason, "Не удалось выгрузить таблицу.");
+    }
     if (response.status === 202) {
-        const job = (await response.json()) as ExportJobDescriptor;
+        const job = parseJob(await readJsonBody<unknown>(response), response);
         if (job.status === "failed") {
             throw new ReportCollectorApiError(job.error ?? "Не удалось сформировать файл.", 500);
         }
@@ -56,7 +85,7 @@ export async function downloadTableExport<TJob>(
         return onJob(job, base);
     }
     if (!response.ok) {
-        throw new ReportCollectorApiError(await readErrorDetail(response), response.status);
+        throw await apiErrorFromResponse(response, `Запрос завершился ошибкой ${response.status}.`);
     }
     return response.blob();
 }
@@ -72,14 +101,19 @@ export async function getTableExportJob(
     jobId: string,
     signal?: AbortSignal,
 ): Promise<ExportJobDescriptor> {
-    const response = await fetch(`${jobsBaseUrl}/${encodeURIComponent(jobId)}`, {
-        cache: "no-store",
-        signal: signal ?? null,
-    });
-    if (!response.ok) {
-        throw new ReportCollectorApiError(await readErrorDetail(response), response.status);
+    let response: Response;
+    try {
+        response = await fetch(`${jobsBaseUrl}/${encodeURIComponent(jobId)}`, {
+            cache: "no-store",
+            signal: signal ?? null,
+        });
+    } catch (reason) {
+        throw fetchFailure(reason, "Не удалось получить состояние задания.");
     }
-    return (await response.json()) as ExportJobDescriptor;
+    if (!response.ok) {
+        throw await apiErrorFromResponse(response, `Запрос завершился ошибкой ${response.status}.`);
+    }
+    return parseJob(await readJsonBody<unknown>(response), response);
 }
 
 /** Best-effort server-side cancel, matching DocMasker's job cancellation. */

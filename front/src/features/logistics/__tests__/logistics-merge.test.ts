@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { countryMarketMerges, transportTypeMerges } from "../logistics-merge";
 
 const rows = (...ids: string[]) => ids.map((transportTypeId) => ({ transportTypeId }));
-const markets = (...values: string[]) => values.map((market) => ({ market }));
+const markets = (...values: Array<"РФ" | "БЗ" | "ДЗ">) => values.map((market) => ({ market }));
 
 describe("transportTypeMerges", () => {
     test("merges consecutive rows of one transport type", () => {

@@ -107,7 +107,12 @@ contracts. Keep one home per fact.
     timer. Cached: renovation catalogue, КППК `read_excise_products`.
     Deliberately not cached: «Сырьё»/КППК dictionaries and plan row counts
     (tried and reverted). Tests clear the cache per test.
-12. **Logs never carry identity claims or payload text.** `JsonFormatter`
+12. **`app.openapi()` is exported in-process for the frontend contract.**
+    `back/src/openapi_export.py` writes deterministic JSON (no server, DB or
+    network); `bun run --cwd front gen:openapi` generates compile-time DTOs,
+    CI checks them with `gen:openapi --check`. WebSocket routes are not part of
+    the schema. See `docs/ARCHITECTURE.md`, «API».
+13. **Logs never carry identity claims or payload text.** `JsonFormatter`
     (`back/src/app_logging.py`) emits only `SAFE_LOG_FIELDS`: correlation and
     bounded classification values. Email, names, OIDC `sub`/issuer,
     `preferred_username`, `email_verified`, raw `Origin`/client id/raw path and

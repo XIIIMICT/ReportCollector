@@ -67,6 +67,12 @@ live in `back/AGENTS.md`; contracts in `docs/API.md`, `docs/COLLAB.md`,
 
 ## Working rules
 
+- Generated HTTP DTOs live in `src/shared/api/generated/openapi.d.ts` (from the
+  in-process `app.openapi()` export, `bun run gen:openapi`; CI gate
+  `bun run gen:openapi --check`). They are compile-time only — never hand-edit,
+  never treat them as runtime validation. WS/collab and UI-only types stay
+  handwritten. `pinned swagger-typescript-api` is dev-only with no TypeScript
+  peer, so the TypeScript 7 app compiler needs no override.
 - Use `bunx`, not `npx`; `uv` on the backend, not bare `python`.
 - `git status` + branch before git operations; no commit/push without explicit
   request; UTF-8/no BOM/LF.

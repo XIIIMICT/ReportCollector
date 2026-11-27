@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { apiErrorFromResponse, readJsonBody } from "./api-error";
+
 const currentUserSchema = z
     .object({
         access: z
@@ -25,6 +27,11 @@ const currentUserSchema = z
 
 export type CurrentUser = z.output<typeof currentUserSchema>;
 
+/** Validate an untrusted `/api/me` payload before it reaches React state. */
+export function parseCurrentUser(payload: unknown): CurrentUser {
+    return currentUserSchema.parse(payload);
+}
+
 export type ProjectAccess = NonNullable<CurrentUser["access"]>[number];
 
 export function isProjectAdmin(project: ProjectAccess | undefined): boolean {
@@ -46,27 +53,10 @@ export async function updateProfile(body: UpdateProfileRequest): Promise<Current
     });
 
     if (!response.ok) {
-        let detail = `Запрос завершился ошибкой ${response.status}.`;
-        try {
-            const payload = (await response.json()) as { detail?: string };
-            if (typeof payload.detail === "string") {
-                detail = payload.detail;
-            }
-        } catch {
-            // For a non-JSON response keep the generic message prepared above.
-        }
-        throw new ReportCollectorApiError(detail, response.status);
+        throw await apiErrorFromResponse(response, `Запрос завершился ошибкой ${response.status}.`);
     }
 
-    return currentUserSchema.parse(await response.json());
+    return parseCurrentUser(await readJsonBody<unknown>(response));
 }
 
-export class ReportCollectorApiError extends Error {
-    constructor(
-        message: string,
-        readonly status?: number,
-    ) {
-        super(message);
-        this.name = "ReportCollectorApiError";
-    }
-}
+export { ReportCollectorApiError } from "./api-error";

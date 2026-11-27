@@ -107,11 +107,16 @@ describe("proxyBackend encoding", () => {
         expect(await response.text()).toBe(body);
     });
 
-    test("forwards the length and validators of the unchanged body", async () => {
-        jsonResponse('{"ok":true}', { "Content-Length": "11", ETag: '"v1"' });
+    test("forwards the length, validators and request correlation id", async () => {
+        jsonResponse('{"ok":true}', {
+            "Content-Length": "11",
+            ETag: '"v1"',
+            "X-Request-ID": "backend-request-id",
+        });
         const response = await proxyBackend(rowsRequest(), PATH);
         expect(response.headers.get("Content-Length")).toBe("11");
         expect(response.headers.get("ETag")).toBe('"v1"');
+        expect(response.headers.get("X-Request-ID")).toBe("backend-request-id");
     });
 
     test("passes an XLSX export through untouched", async () => {
@@ -130,6 +135,39 @@ describe("proxyBackend encoding", () => {
         const response = await proxyBackend(rowsRequest(), PATH);
         expect(response.headers.get("Content-Encoding")).toBeNull();
         expect(await response.text()).toBe(body);
+    });
+});
+
+describe("proxyBackend failures", () => {
+    test("network errors become a typed JSON error with a correlation id", async () => {
+        globalThis.fetch = Object.assign(
+            async () => {
+                throw new TypeError("Failed to fetch http://backend/private");
+            },
+            { preconnect: originalFetch.preconnect },
+        );
+
+        const response = await proxyBackend(rowsRequest(), PATH);
+        expect(response.status).toBe(502);
+        expect(response.headers.get("Content-Type")).toContain("application/json");
+        expect(response.headers.get("X-Request-ID")).toMatch(/^[A-Za-z0-9._:-]{1,64}$/);
+        expect(await response.json()).toEqual({ detail: "Не удалось связаться с сервером." });
+    });
+
+    test("an aborted incoming request is reported as interrupted", async () => {
+        globalThis.fetch = Object.assign(
+            async () => {
+                throw new DOMException("aborted", "AbortError");
+            },
+            { preconnect: originalFetch.preconnect },
+        );
+        const request = new Request(`http://front${PATH}`, {
+            signal: AbortSignal.abort(),
+        });
+
+        const response = await proxyBackend(request, PATH);
+        expect(response.status).toBe(499);
+        expect(await response.json()).toEqual({ detail: "Запрос прерван." });
     });
 });
 
